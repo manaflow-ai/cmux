@@ -9321,16 +9321,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         pasteboard.clearContents()
         XCTAssertTrue(pasteboard.writeObjects([fileURL as NSURL]))
-        let token = TextBoxPasteboardRestorationGuard.token(
+        let token = TextBoxPasteboardRestorationToken.token(
             afterWritingTemporaryFileURL: fileURL,
             to: pasteboard
         )
-        XCTAssertTrue(TextBoxPasteboardRestorationGuard.shouldRestore(pasteboard: pasteboard, token: token))
+        XCTAssertTrue(TextBoxPasteboardRestorationToken.shouldRestore(pasteboard: pasteboard, token: token))
 
         pasteboard.clearContents()
         pasteboard.setString("new user clipboard", forType: .string)
 
-        XCTAssertFalse(TextBoxPasteboardRestorationGuard.shouldRestore(pasteboard: pasteboard, token: token))
+        XCTAssertFalse(TextBoxPasteboardRestorationToken.shouldRestore(pasteboard: pasteboard, token: token))
     }
 
     func testTextBoxPasteboardRestorationAllowsSameTemporaryFileAfterChangeCountAdvance() throws {
@@ -9343,7 +9343,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         pasteboard.clearContents()
         XCTAssertTrue(pasteboard.writeObjects([fileURL as NSURL]))
-        let token = TextBoxPasteboardRestorationGuard.token(
+        let token = TextBoxPasteboardRestorationToken.token(
             afterWritingTemporaryFileURL: fileURL,
             to: pasteboard
         )
@@ -9353,7 +9353,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
 
         XCTAssertTrue(
-            TextBoxPasteboardRestorationGuard.shouldRestore(
+            TextBoxPasteboardRestorationToken.shouldRestore(
                 pasteboard: pasteboard,
                 token: staleChangeCountToken
             )
@@ -9371,12 +9371,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         pasteboard.clearContents()
         XCTAssertTrue(pasteboard.writeObjects([firstURL as NSURL]))
-        let firstToken = TextBoxPasteboardRestorationGuard.token(
+        let firstToken = TextBoxPasteboardRestorationToken.token(
             afterWritingTemporaryFileURL: firstURL,
             to: pasteboard
         )
         XCTAssertTrue(
-            TextBoxPasteboardRestorationGuard.isCurrentTemporaryWrite(
+            TextBoxPasteboardRestorationToken.isCurrentTemporaryWrite(
                 pasteboard: pasteboard,
                 token: firstToken
             )
@@ -9385,7 +9385,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         pasteboard.clearContents()
         pasteboard.setString("new user clipboard", forType: .string)
         XCTAssertFalse(
-            TextBoxPasteboardRestorationGuard.isCurrentTemporaryWrite(
+            TextBoxPasteboardRestorationToken.isCurrentTemporaryWrite(
                 pasteboard: pasteboard,
                 token: firstToken
             )
@@ -9394,12 +9394,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         pasteboard.clearContents()
         XCTAssertTrue(pasteboard.writeObjects([secondURL as NSURL]))
-        let secondToken = TextBoxPasteboardRestorationGuard.token(
+        let secondToken = TextBoxPasteboardRestorationToken.token(
             afterWritingTemporaryFileURL: secondURL,
             to: pasteboard
         )
         XCTAssertTrue(
-            TextBoxPasteboardRestorationGuard.isCurrentTemporaryWrite(
+            TextBoxPasteboardRestorationToken.isCurrentTemporaryWrite(
                 pasteboard: pasteboard,
                 token: secondToken
             )

@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import CMUXAgentLaunch
 import SQLite3
@@ -787,7 +788,7 @@ extension RestorableAgentSessionIndex {
         sqlite3_bind_text(stmt, bindIndex, parentId, -1, SQLITE_TRANSIENT_FN)
 
         guard sqlite3_step(stmt) == SQLITE_ROW,
-              let sessionId = SessionIndexStore.sqliteText(stmt, 0),
+              let sessionId = stmt.sqliteColumnText(0),
               !sessionId.isEmpty else {
             return nil
         }

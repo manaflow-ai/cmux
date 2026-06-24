@@ -3659,7 +3659,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     typealias WorkspaceMoveTarget = CmuxWorkspaces.WorkspaceMoveTarget
 
     func windowMoveTargets(referenceWindowId: UUID?) -> [WindowMoveTarget] {
-        let orderedSummaries = orderedMainWindowSummaries(referenceWindowId: referenceWindowId)
+        let orderedSummaries = listMainWindowSummaries().orderedForMoveTargets(referenceWindowId: referenceWindowId)
         let labels = windowLabelsById(orderedSummaries: orderedSummaries, referenceWindowId: referenceWindowId)
         return orderedSummaries.compactMap { summary in
             guard let manager = tabManagerFor(windowId: summary.windowId) else { return nil }
@@ -3679,7 +3679,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Sendable summary, then let ``PaneSurfaceMoveCoordinator`` own the
         // exclusion filter + ``WorkspaceMoveTarget`` projection (the loop the god
         // kept inline).
-        let orderedSummaries = orderedMainWindowSummaries(referenceWindowId: referenceWindowId)
+        let orderedSummaries = listMainWindowSummaries().orderedForMoveTargets(referenceWindowId: referenceWindowId)
         let labels = windowLabelsById(orderedSummaries: orderedSummaries, referenceWindowId: referenceWindowId)
 
         let summaries: [PaneSurfaceMoveWindowSummary] = orderedSummaries.compactMap { summary in
@@ -4441,18 +4441,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard confirmCloseMainWindow(window) else { return true }
         window.performClose(nil)
         return true
-    }
-
-    private func orderedMainWindowSummaries(referenceWindowId: UUID?) -> [MainWindowSummary] {
-        let summaries = listMainWindowSummaries()
-        return summaries.sorted { lhs, rhs in
-            let lhsIsReference = lhs.windowId == referenceWindowId
-            let rhsIsReference = rhs.windowId == referenceWindowId
-            if lhsIsReference != rhsIsReference { return lhsIsReference }
-            if lhs.isKeyWindow != rhs.isKeyWindow { return lhs.isKeyWindow }
-            if lhs.isVisible != rhs.isVisible { return lhs.isVisible }
-            return lhs.windowId.uuidString < rhs.windowId.uuidString
-        }
     }
 
     private func windowLabelsById(orderedSummaries: [MainWindowSummary], referenceWindowId: UUID?) -> [UUID: String] {
@@ -8276,23 +8264,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func storedShortcutFromGhosttyTrigger(_ trigger: ghostty_input_trigger_s) -> StoredShortcut? {
-        let tag: GhosttyTriggerInput.Tag
-        switch trigger.tag {
-        case GHOSTTY_TRIGGER_PHYSICAL:
-            tag = .physical(GhosttyTriggerPhysicalKey(ghosttyPhysicalKey: trigger.key.physical))
-        case GHOSTTY_TRIGGER_UNICODE:
-            tag = .unicode(UnicodeScalar(trigger.key.unicode))
-        case GHOSTTY_TRIGGER_CATCH_ALL:
-            tag = .catchAll
-        default:
-            return nil
-        }
-
-        let input = GhosttyTriggerInput(
-            tag: tag,
-            modifiers: GhosttyModifierMask(rawValue: trigger.mods.rawValue)
-        )
-        guard let shortcut = GhosttyTriggerShortcut(decoding: input) else { return nil }
+        // The GhosttyKit C-trigger lift and shortcut decode live in
+        // CmuxTerminalCore (GhosttyTriggerInput / GhosttyTriggerShortcut).
+        // StoredShortcut is a CmuxSettings type the package cannot see, so the app
+        // assembles it here from the decoded shortcut.
+        guard
+            let input = GhosttyTriggerInput(decoding: trigger),
+            let shortcut = GhosttyTriggerShortcut(decoding: input)
+        else { return nil }
         return StoredShortcut(
             key: shortcut.key,
             command: shortcut.command,

@@ -25,17 +25,27 @@ import Network
 import CoreText
 
 #if DEBUG
-private func debugWorkspaceDescriptionPreview(_ text: String?, limit: Int = 120) -> String {
-    guard let text else { return "nil" }
-    let escaped = text
-        .replacingOccurrences(of: "\\", with: "\\\\")
-        .replacingOccurrences(of: "\n", with: "\\n")
-        .replacingOccurrences(of: "\r", with: "\\r")
-        .replacingOccurrences(of: "\t", with: "\\t")
-    if escaped.count <= limit {
-        return escaped
+extension String {
+    /// DEBUG-only single-line preview of a workspace description/title: escapes
+    /// control characters and truncates to `limit` for log readability.
+    static func debugWorkspaceDescriptionPreview(_ text: String?, limit: Int = 120) -> String {
+        guard let text else { return "nil" }
+        return text.debugWorkspaceDescriptionPreview(limit: limit)
     }
-    return "\(escaped.prefix(limit))..."
+
+    /// DEBUG-only single-line preview of this string: escapes control characters
+    /// and truncates to `limit` for log readability.
+    func debugWorkspaceDescriptionPreview(limit: Int = 120) -> String {
+        let escaped = self
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
+            .replacingOccurrences(of: "\t", with: "\\t")
+        if escaped.count <= limit {
+            return escaped
+        }
+        return "\(escaped.prefix(limit))..."
+    }
 }
 #endif
 
@@ -4088,7 +4098,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
             "workspace.title.updatePanel workspace=\(id.uuidString.prefix(5)) " +
             "panel=\(panelId.uuidString.prefix(5)) panels=\(panelCount) custom=\(hasCustomTitle ? 1 : 0) " +
             "panelChanged=\(didMutatePanelTitle ? 1 : 0) workspaceChanged=\(didMutateWorkspaceTitle ? 1 : 0) " +
-            "title=\"\(debugWorkspaceDescriptionPreview(trimmedTitle, limit: 80))\""
+            "title=\"\(String.debugWorkspaceDescriptionPreview(trimmedTitle, limit: 80))\""
         )
 #endif
     }
@@ -4258,8 +4268,8 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
 #if DEBUG
         cmuxDebugLog(
             "workspace.title.applyProcess workspace=\(id.uuidString.prefix(5)) " +
-            "from=\"\(debugWorkspaceDescriptionPreview(previousTitle, limit: 80))\" " +
-            "to=\"\(debugWorkspaceDescriptionPreview(title, limit: 80))\""
+            "from=\"\(String.debugWorkspaceDescriptionPreview(previousTitle, limit: 80))\" " +
+            "to=\"\(String.debugWorkspaceDescriptionPreview(title, limit: 80))\""
         )
 #endif
     }
@@ -4278,8 +4288,8 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
             "inputNewlines=\(inputNewlines) " +
             "normalizedLen=\((normalizedDescription as NSString?)?.length ?? 0) " +
             "normalizedNewlines=\(normalizedNewlines) " +
-            "input=\"\(debugWorkspaceDescriptionPreview(description))\" " +
-            "normalized=\"\(debugWorkspaceDescriptionPreview(normalizedDescription))\""
+            "input=\"\(String.debugWorkspaceDescriptionPreview(description))\" " +
+            "normalized=\"\(String.debugWorkspaceDescriptionPreview(normalizedDescription))\""
         )
 #endif
     }

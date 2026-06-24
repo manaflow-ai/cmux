@@ -49,7 +49,7 @@ extension SessionIndexStore {
 
         var db: OpaquePointer?
         guard sqlite3_open_v2(snapshotDB.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
-            errorBag.add("Codex: cannot open state_5.sqlite (\(sqliteMessage(db) ?? "unknown error"))")
+            errorBag.add("Codex: cannot open state_5.sqlite (\(db?.sqliteErrorMessage ?? "unknown error"))")
             sqlite3_close(db)
             return nil
         }
@@ -77,7 +77,7 @@ extension SessionIndexStore {
 
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
-            errorBag.add("Codex: schema unsupported — \(sqliteMessage(db) ?? "prepare failed"). Falling back to file scan.")
+            errorBag.add("Codex: schema unsupported — \(db.sqliteErrorMessage ?? "prepare failed"). Falling back to file scan.")
             sqlite3_finalize(stmt)
             return nil
         }
@@ -91,16 +91,16 @@ extension SessionIndexStore {
         var records: [CodexThreadRecord] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
             records.append(CodexThreadRecord(
-                sessionId: sqliteText(stmt, 0) ?? "",
-                rolloutPath: sqliteText(stmt, 1) ?? "",
-                cwd: sqliteText(stmt, 2),
-                titleField: sqliteText(stmt, 3) ?? "",
-                model: sqliteText(stmt, 4),
-                gitBranch: sqliteText(stmt, 5),
-                approvalMode: sqliteText(stmt, 6),
-                sandboxJSON: sqliteText(stmt, 7),
-                reasoningEffort: sqliteText(stmt, 8),
-                firstUserMessage: sqliteText(stmt, 9) ?? "",
+                sessionId: stmt.sqliteColumnText(0) ?? "",
+                rolloutPath: stmt.sqliteColumnText(1) ?? "",
+                cwd: stmt.sqliteColumnText(2),
+                titleField: stmt.sqliteColumnText(3) ?? "",
+                model: stmt.sqliteColumnText(4),
+                gitBranch: stmt.sqliteColumnText(5),
+                approvalMode: stmt.sqliteColumnText(6),
+                sandboxJSON: stmt.sqliteColumnText(7),
+                reasoningEffort: stmt.sqliteColumnText(8),
+                firstUserMessage: stmt.sqliteColumnText(9) ?? "",
                 updatedMs: sqlite3_column_int64(stmt, 10)
             ))
         }

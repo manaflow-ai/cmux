@@ -606,7 +606,7 @@ extension SessionTextBoxInputAttachmentSnapshot {
     }
 }
 
-private enum TextBoxSubmissionFormatter {
+extension TextBoxSubmissionPart {
     static func parts(from attributed: NSAttributedString) -> [TextBoxSubmissionPart] {
         let raw = attributed.string as NSString
         let fullRange = NSRange(location: 0, length: attributed.length)
@@ -676,9 +676,7 @@ private enum TextBoxSubmissionFormatter {
 struct TextBoxPasteboardRestorationToken: Equatable {
     let changeCount: Int
     let fileURL: URL
-}
 
-enum TextBoxPasteboardRestorationGuard {
     static func token(
         afterWritingTemporaryFileURL fileURL: URL,
         to pasteboard: NSPasteboard
@@ -1654,7 +1652,7 @@ enum TextBoxSubmit {
             return claudeSequentialImageDispatchEvents(from: inputParts, submitKey: submitKey)
         }
 
-        let pastePayload = TextBoxSubmissionFormatter.formattedText(from: inputParts)
+        let pastePayload = TextBoxSubmissionPart.formattedText(from: inputParts)
         return [.pasteText(pastePayload), .namedKey(submitKey)]
     }
 
@@ -2422,7 +2420,7 @@ private final class TextBoxSubmitEventRunner {
         let pasteboard = NSPasteboard.general
         if originalPasteboardItems == nil {
             originalPasteboardItems = Self.snapshotPasteboardItems(pasteboard)
-        } else if !TextBoxPasteboardRestorationGuard.isCurrentTemporaryWrite(
+        } else if !TextBoxPasteboardRestorationToken.isCurrentTemporaryWrite(
             pasteboard: pasteboard,
             token: temporaryPasteboardRestorationToken
         ) {
@@ -2439,7 +2437,7 @@ private final class TextBoxSubmitEventRunner {
             _ = pasteboard.setString(fileURL.absoluteString, forType: .fileURL)
             _ = pasteboard.setPropertyList([fileURL.path], forType: PasteboardFileURLReader.legacyFilenamesPboardType)
         }
-        temporaryPasteboardRestorationToken = TextBoxPasteboardRestorationGuard.token(
+        temporaryPasteboardRestorationToken = TextBoxPasteboardRestorationToken.token(
             afterWritingTemporaryFileURL: fileURL,
             to: pasteboard
         )
@@ -2469,7 +2467,7 @@ private final class TextBoxSubmitEventRunner {
         guard let originalPasteboardItems else { return }
         self.originalPasteboardItems = nil
         let pasteboard = NSPasteboard.general
-        guard TextBoxPasteboardRestorationGuard.shouldRestore(
+        guard TextBoxPasteboardRestorationToken.shouldRestore(
             pasteboard: pasteboard,
             token: temporaryPasteboardRestorationToken
         ) else {
@@ -2869,7 +2867,7 @@ struct TextBoxInputContainer: View {
         let submittedParts = textView?.submissionParts()
             ?? [TextBoxSubmissionPart.text(text.trimmingCharacters(in: .newlines))]
         let poolWorkspaceId = surface.owningWorkspace()?.id
-        let hasTypedContent = TextBoxSubmissionFormatter.hasSubmittableContent(submittedParts)
+        let hasTypedContent = TextBoxSubmissionPart.hasSubmittableContent(submittedParts)
         guard hasTypedContent || pendingCommentCount > 0 else {
             NSSound.beep()
             return
@@ -2918,7 +2916,7 @@ struct TextBoxInputContainer: View {
                 if let preservedContent {
                     submittedTextView?.installPreservedContent(preservedContent)
                 } else {
-                    text = TextBoxSubmissionFormatter.formattedText(from: submittedParts)
+                    text = TextBoxSubmissionPart.formattedText(from: submittedParts)
                     attachments = submittedParts.compactMap { part in
                         if case .attachment(let attachment) = part { return attachment }
                         return nil
@@ -3862,7 +3860,7 @@ final class TextBoxInputTextView: NSTextView {
         isActive: Bool
     ) -> SessionTextBoxInputDraftSnapshot? {
         sessionDraftSnapshot(
-            parts: TextBoxSubmissionFormatter.parts(from: attributed),
+            parts: TextBoxSubmissionPart.parts(from: attributed),
             isActive: isActive
         )
     }
@@ -4043,15 +4041,15 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     func submissionText() -> String {
-        TextBoxSubmissionFormatter.formattedText(from: attributedString())
+        TextBoxSubmissionPart.formattedText(from: attributedString())
     }
 
     func submissionParts() -> [TextBoxSubmissionPart] {
-        TextBoxSubmissionFormatter.parts(from: attributedString())
+        TextBoxSubmissionPart.parts(from: attributedString())
     }
 
     func hasSubmittableContent() -> Bool {
-        TextBoxSubmissionFormatter.hasSubmittableContent(submissionParts())
+        TextBoxSubmissionPart.hasSubmittableContent(submissionParts())
     }
 
     func refreshInlineAttachmentCells(font: NSFont, foregroundColor: NSColor) {

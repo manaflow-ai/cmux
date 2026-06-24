@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import SQLite3
 
@@ -127,7 +128,7 @@ actor SearchIndex {
             nil
         )
         guard openResult == SQLITE_OK, let openedDatabase else {
-            let message = Self.sqliteMessage(openedDatabase) ?? "unknown SQLite open failure"
+            let message = openedDatabase?.sqliteErrorMessage ?? "unknown SQLite open failure"
             sqlite3_close(openedDatabase)
             throw SearchIndexError.openFailed(message)
         }
@@ -229,7 +230,7 @@ actor SearchIndex {
             let limitBindResult = sqlite3_bind_int64(statement, 2, sqlite3_int64(limit))
             guard limitBindResult == SQLITE_OK else {
                 throw SearchIndexError.bindFailed(
-                    Self.sqliteMessage(database) ?? "bind failed with code \(limitBindResult)"
+                    database?.sqliteErrorMessage ?? "bind failed with code \(limitBindResult)"
                 )
             }
 
@@ -243,7 +244,7 @@ actor SearchIndex {
                 case SQLITE_DONE:
                     return hits
                 default:
-                    throw SearchIndexError.stepFailed(Self.sqliteMessage(database) ?? "step failed with code \(stepResult)")
+                    throw SearchIndexError.stepFailed(database?.sqliteErrorMessage ?? "step failed with code \(stepResult)")
                 }
             }
         }
@@ -327,7 +328,7 @@ actor SearchIndex {
         let result = sqlite3_exec(database, sql, nil, nil, &errorMessage)
         if result != SQLITE_OK {
             let message = errorMessage.map { String(cString: $0) }
-                ?? Self.sqliteMessage(database)
+                ?? database.sqliteErrorMessage
                 ?? "execute failed with code \(result)"
             sqlite3_free(errorMessage)
             throw SearchIndexError.executeFailed(message)
@@ -340,7 +341,7 @@ actor SearchIndex {
         guard prepareResult == SQLITE_OK, let statement else {
             sqlite3_finalize(statement)
             throw SearchIndexError.prepareFailed(
-                sqliteMessage(database) ?? "prepare failed with code \(prepareResult)"
+                database.sqliteErrorMessage ?? "prepare failed with code \(prepareResult)"
             )
         }
         defer { sqlite3_finalize(statement) }
@@ -352,7 +353,7 @@ actor SearchIndex {
         case SQLITE_DONE:
             return 0
         default:
-            throw SearchIndexError.stepFailed(sqliteMessage(database) ?? "step failed with code \(stepResult)")
+            throw SearchIndexError.stepFailed(database.sqliteErrorMessage ?? "step failed with code \(stepResult)")
         }
     }
 
@@ -369,7 +370,7 @@ actor SearchIndex {
         guard prepareResult == SQLITE_OK, let statement else {
             sqlite3_finalize(statement)
             throw SearchIndexError.prepareFailed(
-                Self.sqliteMessage(database) ?? "prepare failed with code \(prepareResult)"
+                database.sqliteErrorMessage ?? "prepare failed with code \(prepareResult)"
             )
         }
         defer { sqlite3_finalize(statement) }
@@ -379,48 +380,48 @@ actor SearchIndex {
     private func bind(_ value: String, at index: Int32, in statement: OpaquePointer) throws {
         let result = sqlite3_bind_text(statement, index, value, -1, Self.sqliteTransient)
         guard result == SQLITE_OK else {
-            throw SearchIndexError.bindFailed(Self.sqliteMessage(database) ?? "bind failed with code \(result)")
+            throw SearchIndexError.bindFailed(database?.sqliteErrorMessage ?? "bind failed with code \(result)")
         }
     }
 
     private func bind(_ value: Double, at index: Int32, in statement: OpaquePointer) throws {
         let result = sqlite3_bind_double(statement, index, value)
         guard result == SQLITE_OK else {
-            throw SearchIndexError.bindFailed(Self.sqliteMessage(database) ?? "bind failed with code \(result)")
+            throw SearchIndexError.bindFailed(database?.sqliteErrorMessage ?? "bind failed with code \(result)")
         }
     }
 
     private func bindNull(at index: Int32, in statement: OpaquePointer) throws {
         let result = sqlite3_bind_null(statement, index)
         guard result == SQLITE_OK else {
-            throw SearchIndexError.bindFailed(Self.sqliteMessage(database) ?? "bind failed with code \(result)")
+            throw SearchIndexError.bindFailed(database?.sqliteErrorMessage ?? "bind failed with code \(result)")
         }
     }
 
     private func stepDone(_ statement: OpaquePointer) throws {
         let result = sqlite3_step(statement)
         guard result == SQLITE_DONE else {
-            throw SearchIndexError.stepFailed(Self.sqliteMessage(database) ?? "step failed with code \(result)")
+            throw SearchIndexError.stepFailed(database?.sqliteErrorMessage ?? "step failed with code \(result)")
         }
     }
 
     private static func hit(from statement: OpaquePointer) -> SearchIndexHit? {
-        guard let id = sqliteText(statement, 0),
-              let windowIDString = sqliteText(statement, 1),
-              let workspaceIDString = sqliteText(statement, 2),
-              let kindRawValue = sqliteText(statement, 4),
+        guard let id = statement.sqliteColumnText(0),
+              let windowIDString = statement.sqliteColumnText(1),
+              let workspaceIDString = statement.sqliteColumnText(2),
+              let kindRawValue = statement.sqliteColumnText(4),
               let windowID = UUID(uuidString: windowIDString),
               let workspaceID = UUID(uuidString: workspaceIDString),
               let kind = GlobalSearchKind(rawValue: kindRawValue) else {
             return nil
         }
 
-        let panelID = sqliteText(statement, 3).flatMap(UUID.init(uuidString:))
-        let title = sqliteText(statement, 5) ?? ""
-        let location = sqliteText(statement, 6) ?? ""
-        let anchor = sqliteText(statement, 7) ?? ""
+        let panelID = statement.sqliteColumnText(3).flatMap(UUID.init(uuidString:))
+        let title = statement.sqliteColumnText(5) ?? ""
+        let location = statement.sqliteColumnText(6) ?? ""
+        let anchor = statement.sqliteColumnText(7) ?? ""
         let timestamp = Date(timeIntervalSince1970: sqlite3_column_double(statement, 8))
-        let snippet = sqliteText(statement, 9) ?? title
+        let snippet = statement.sqliteColumnText(9) ?? title
         let rank = sqlite3_column_double(statement, 10)
 
         return SearchIndexHit(
@@ -460,16 +461,6 @@ actor SearchIndex {
     private static func ensureParentDirectoryExists(for databaseURL: URL) throws {
         let parentURL = databaseURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: parentURL, withIntermediateDirectories: true)
-    }
-
-    private static func sqliteText(_ statement: OpaquePointer, _ index: Int32) -> String? {
-        guard let cString = sqlite3_column_text(statement, index) else { return nil }
-        return String(cString: cString)
-    }
-
-    private static func sqliteMessage(_ database: OpaquePointer?) -> String? {
-        guard let database, let cString = sqlite3_errmsg(database) else { return nil }
-        return String(cString: cString)
     }
 
     private static let sqliteTransient = unsafeBitCast(

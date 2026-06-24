@@ -268,6 +268,7 @@ extension SessionIndexStore {
         guard !roots.isEmpty else { return [] }
 
         let fm = FileManager.default
+        let fieldParser = AgentSessionFieldParser()
         var latestBySessionID: [String: AntigravityHistoryMetadata] = [:]
 
         for root in roots {
@@ -284,13 +285,13 @@ extension SessionIndexStore {
 
             ripgrepScanner.forEachJSONLine(url: historyURL, maxBytes: Int.max) { object in
                 if Task.isCancelled { return true }
-                guard let sessionId = firstString(in: object, keys: antigravitySessionIDKeys()) else {
+                guard let sessionId = fieldParser.firstString(in: object, keys: antigravitySessionIDKeys()) else {
                     return false
                 }
-                let cwd = firstString(in: object, keys: registeredJSONLCWDKeys())
+                let cwd = fieldParser.firstString(in: object, keys: registeredJSONLCWDKeys())
                 if let cwdFilter, cwd != cwdFilter { return false }
 
-                let title = antigravityHistoryTitle(in: object) ?? ""
+                let title = antigravityHistoryTitle(in: object, fieldParser: fieldParser) ?? ""
                 guard antigravityHistoryMatchesNeedle(
                     needle: needle,
                     sessionId: sessionId,
@@ -424,35 +425,36 @@ extension SessionIndexStore {
 
     nonisolated private static func extractGrokSessionMetadata(url: URL) -> GrokSessionMetadata {
         var metadata = GrokSessionMetadata()
+        let fieldParser = AgentSessionFieldParser()
         var remainingBranchProbeLines: Int?
         ripgrepScanner.forEachJSONLine(url: url, maxBytes: 512 * 1024) { object in
             if metadata.title.isEmpty {
-                metadata.title = grokTitle(in: object) ?? ""
+                metadata.title = fieldParser.grokTitle(in: object) ?? ""
             }
             if metadata.model == nil {
-                metadata.model = firstString(in: object, keys: ["model", "modelId", "modelID", "model_id"])
-                    ?? firstString(
+                metadata.model = fieldParser.firstString(in: object, keys: ["model", "modelId", "modelID", "model_id"])
+                    ?? fieldParser.firstString(
                         in: object["message"] as? [String: Any] ?? [:],
                         keys: ["model", "modelId", "modelID", "model_id"]
                     )
             }
             if metadata.permissionMode == nil {
-                metadata.permissionMode = firstString(
+                metadata.permissionMode = fieldParser.firstString(
                     in: object,
                     keys: ["permissionMode", "permission_mode", "approvalPolicy", "approval_policy"]
                 )
             }
             if metadata.sandboxMode == nil {
-                metadata.sandboxMode = firstString(
+                metadata.sandboxMode = fieldParser.firstString(
                     in: object,
                     keys: ["sandboxMode", "sandbox_mode", "sandbox"]
                 )
             }
             if metadata.branch == nil, let git = object["git"] as? [String: Any] {
-                metadata.branch = firstString(in: git, keys: ["branch", "gitBranch"])
+                metadata.branch = fieldParser.firstString(in: git, keys: ["branch", "gitBranch"])
             }
             if metadata.branch == nil {
-                metadata.branch = firstString(in: object, keys: ["gitBranch", "branch"])
+                metadata.branch = fieldParser.firstString(in: object, keys: ["gitBranch", "branch"])
             }
             let hasStableMetadata = !metadata.title.isEmpty
                 && metadata.model != nil
@@ -479,31 +481,32 @@ extension SessionIndexStore {
         case .piSessionFile, .grokSessionDirectory:
             needsNativeSessionID = false
         }
+        let fieldParser = AgentSessionFieldParser()
         ripgrepScanner.forEachJSONLine(url: url, maxBytes: 512 * 1024) { object in
             if metadata.sessionId == nil {
-                metadata.sessionId = firstString(in: object, keys: registeredJSONLSessionIDKeys())
+                metadata.sessionId = fieldParser.firstString(in: object, keys: registeredJSONLSessionIDKeys())
             }
             if metadata.cwd == nil {
-                metadata.cwd = firstString(in: object, keys: registeredJSONLCWDKeys())
+                metadata.cwd = fieldParser.firstString(in: object, keys: registeredJSONLCWDKeys())
             }
             if metadata.branch == nil, let git = object["git"] as? [String: Any] {
-                metadata.branch = firstString(in: git, keys: ["branch", "gitBranch"])
+                metadata.branch = fieldParser.firstString(in: git, keys: ["branch", "gitBranch"])
             }
             if metadata.branch == nil {
-                metadata.branch = firstString(in: object, keys: ["gitBranch", "branch"])
+                metadata.branch = fieldParser.firstString(in: object, keys: ["gitBranch", "branch"])
             }
             if metadata.title.isEmpty {
-                metadata.title = firstTopLevelTitle(in: object) ?? ""
+                metadata.title = fieldParser.firstTopLevelTitle(in: object) ?? ""
             }
             if metadata.title.isEmpty, let message = object["message"] as? [String: Any] {
-                if shouldUseMessageAsTitle(message) {
-                    metadata.title = firstText(in: message, keys: ["content", "text"]) ?? ""
+                if fieldParser.shouldUseMessageAsTitle(message) {
+                    metadata.title = fieldParser.firstText(in: message, keys: ["content", "text"]) ?? ""
                 }
             }
             if metadata.title.isEmpty, let messages = object["messages"] as? [[String: Any]] {
                 metadata.title = messages.compactMap { message in
-                    shouldUseMessageAsTitle(message)
-                        ? firstText(in: message, keys: ["content", "text"])
+                    fieldParser.shouldUseMessageAsTitle(message)
+                        ? fieldParser.firstText(in: message, keys: ["content", "text"])
                         : nil
                 }.first ?? ""
             }
@@ -530,9 +533,12 @@ extension SessionIndexStore {
         ["conversationId", "conversation_id", "sessionId", "session_id", "id"]
     }
 
-    nonisolated private static func antigravityHistoryTitle(in object: [String: Any]) -> String? {
-        firstText(in: object, keys: ["title", "prompt", "display"])
-            ?? firstTopLevelTitle(in: object)
+    nonisolated private static func antigravityHistoryTitle(
+        in object: [String: Any],
+        fieldParser: AgentSessionFieldParser
+    ) -> String? {
+        fieldParser.firstText(in: object, keys: ["title", "prompt", "display"])
+            ?? fieldParser.firstTopLevelTitle(in: object)
     }
 
     nonisolated private static func antigravityHistoryMatchesNeedle(
@@ -592,134 +598,6 @@ extension SessionIndexStore {
             carry = buffer.count > overlapLimit ? Data(buffer.suffix(overlapLimit)) : buffer
         }
         return false
-    }
-
-    nonisolated private static func firstString(in object: [String: Any], keys: [String]) -> String? {
-        for key in keys {
-            guard let value = object[key] as? String else { continue }
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { return trimmed }
-        }
-        return nil
-    }
-
-    nonisolated private static func firstText(in object: [String: Any], keys: [String]) -> String? {
-        for key in keys {
-            guard let text = firstTextValue(object[key]) else { continue }
-            return text
-        }
-        return nil
-    }
-
-    nonisolated private static func firstTopLevelTitle(in object: [String: Any]) -> String? {
-        if let title = firstText(in: object, keys: ["title", "prompt"]) {
-            return title
-        }
-        guard shouldUseMessageAsTitle(object) else { return nil }
-        return firstText(in: object, keys: ["text", "content"])
-    }
-
-    nonisolated private static func grokTitle(in object: [String: Any]) -> String? {
-        if shouldUseGrokObjectAsTitle(object) {
-            if let title = grokTitleText(firstText(in: object, keys: ["content", "text"])) {
-                return title
-            }
-            if let message = grokTitleText(firstString(in: object, keys: ["message"])) {
-                return message
-            }
-        }
-        if let message = object["message"] as? [String: Any],
-           shouldUseGrokObjectAsTitle(message) {
-            return grokTitleText(firstText(in: message, keys: ["content", "text"]))
-        }
-        if let messages = object["messages"] as? [[String: Any]] {
-            return messages.compactMap { message in
-                shouldUseGrokObjectAsTitle(message)
-                    ? grokTitleText(firstText(in: message, keys: ["content", "text"]))
-                    : nil
-            }.first
-        }
-        return nil
-    }
-
-    nonisolated private static func grokTitleText(_ value: String?) -> String? {
-        guard let value else { return nil }
-        if let userQuery = grokTaggedContent(named: "user_query", in: value) {
-            return userQuery
-        }
-        let withoutMetadata = ["user_info", "git_status", "system-reminder"].reduce(value) { partial, tag in
-            removingGrokTaggedContent(named: tag, from: partial)
-        }
-        return trimmedNonEmpty(withoutMetadata)
-    }
-
-    nonisolated private static func grokTaggedContent(named tag: String, in text: String) -> String? {
-        let openTag = "<\(tag)>"
-        let closeTag = "</\(tag)>"
-        guard let openRange = text.range(of: openTag) else { return nil }
-        let bodyStart = openRange.upperBound
-        guard let closeRange = text[bodyStart...].range(of: closeTag) else { return nil }
-        return trimmedNonEmpty(String(text[bodyStart..<closeRange.lowerBound]))
-    }
-
-    nonisolated private static func removingGrokTaggedContent(named tag: String, from text: String) -> String {
-        let openTag = "<\(tag)>"
-        let closeTag = "</\(tag)>"
-        var result = text
-        while let openRange = result.range(of: openTag) {
-            let bodyStart = openRange.upperBound
-            guard let closeRange = result[bodyStart...].range(of: closeTag) else { break }
-            result.removeSubrange(openRange.lowerBound..<closeRange.upperBound)
-        }
-        return result
-    }
-
-    nonisolated private static func shouldUseGrokObjectAsTitle(_ object: [String: Any]) -> Bool {
-        let role = firstString(in: object, keys: ["role", "type"])
-        return role == nil || isUserRole(role)
-    }
-
-    nonisolated private static func firstTextValue(_ value: Any?) -> String? {
-        if let string = value as? String {
-            return trimmedNonEmpty(string)
-        }
-        if let values = value as? [Any] {
-            for value in values {
-                if let text = firstTextBlock(value) {
-                    return text
-                }
-            }
-        }
-        if let block = value as? [String: Any] {
-            return firstTextBlock(block)
-        }
-        return nil
-    }
-
-    nonisolated private static func firstTextBlock(_ value: Any) -> String? {
-        if let string = value as? String {
-            return trimmedNonEmpty(string)
-        }
-        guard let block = value as? [String: Any] else { return nil }
-        guard let type = firstString(in: block, keys: ["type"]),
-              type.caseInsensitiveCompare("text") == .orderedSame else {
-            return nil
-        }
-        return firstString(in: block, keys: ["text"])
-    }
-
-    nonisolated private static func trimmedNonEmpty(_ value: String) -> String? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    nonisolated private static func shouldUseMessageAsTitle(_ message: [String: Any]) -> Bool {
-        let role = firstString(in: message, keys: ["role"])
-        return role == nil || isUserRole(role)
-    }
-
-    nonisolated private static func isUserRole(_ role: String?) -> Bool {
-        role?.caseInsensitiveCompare("user") == .orderedSame
     }
 
     nonisolated private static func piCWDInferred(from url: URL) -> String? {
