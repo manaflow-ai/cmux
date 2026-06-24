@@ -41,10 +41,15 @@ struct RemoteTmuxVersion: Equatable, Comparable, Sendable {
 
     /// Parses a `tmux -V` line such as `tmux 3.2a`, `tmux 1.8`, or `tmux 3.1c`.
     ///
-    /// Returns `nil` for output with no numeric `<major>.<minor>` — e.g. a
-    /// development build (`tmux master`, `tmux next-3.4`) or the OpenBSD-bundled
-    /// `tmux openbsd-7.x`. Callers treat an unparseable version as "unknown,
-    /// allow" rather than blocking, since a dev/distro build is usually current.
+    /// Returns `nil` for output with no numeric `<major>.<minor>` token — e.g. a
+    /// development build (`tmux master`) or the OpenBSD-bundled `tmux openbsd-7.x`.
+    /// Callers treat an unparseable version as "unknown, allow" rather than
+    /// blocking, since a dev/distro build is usually current.
+    ///
+    /// Note: a string that merely *contains* a `<major>.<minor>` (e.g.
+    /// `tmux next-3.4`, a dev build of the upcoming 3.4) IS parsed — to `3.4` here
+    /// — and version-checked, not passed through. That's fine: such builds are at
+    /// or above the minimum anyway.
     static func parse(_ output: String) -> RemoteTmuxVersion? {
         // Find the first `<digits>.<digits>` token anywhere in the line, then an
         // optional trailing lowercase letter.
