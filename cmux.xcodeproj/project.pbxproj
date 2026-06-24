@@ -742,6 +742,8 @@
 		C13519000000000000000005 /* RestorableAgentTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13519000000000000000006 /* RestorableAgentTypes.swift */; };
 		2AA45B767B0C44F7D8F7E145 /* ResumeBreadcrumbBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D62498EBC9EA7D281E451EC /* ResumeBreadcrumbBuilder.swift */; };
 		0EE515315475BBE141846305 /* ResumeBreadcrumbBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21A52BBCE192F354DF00C857 /* ResumeBreadcrumbBuilderTests.swift */; };
+		A100000000000000000F1DA0 /* ResumeFidelityGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000F1DA1 /* ResumeFidelityGate.swift */; };
+		A100000000000000000F1DB0 /* ResumeFidelityGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000F1DB1 /* ResumeFidelityGateTests.swift */; };
 		B7F9A600B7F9A600B7F9A600 /* RightSidebarChromeGeometryReporting.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F9A601B7F9A601B7F9A601 /* RightSidebarChromeGeometryReporting.swift */; };
 		AA1B2C3D4E5F60720 /* RightSidebarChromeHeightUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B2C3D4E5F60721 /* RightSidebarChromeHeightUITests.swift */; };
 		B7F9A604B7F9A604B7F9A604 /* RightSidebarChromeStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */; };
@@ -1838,6 +1840,8 @@
 		C13519000000000000000006 /* RestorableAgentTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentTypes.swift; sourceTree = "<group>"; };
 		5D62498EBC9EA7D281E451EC /* ResumeBreadcrumbBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ResumeBreadcrumbBuilder.swift; path = "Sources/CrashRecovery/ResumeBreadcrumbBuilder.swift"; sourceTree = SOURCE_ROOT; };
 		21A52BBCE192F354DF00C857 /* ResumeBreadcrumbBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ResumeBreadcrumbBuilderTests.swift; path = "cmuxTests/ResumeBreadcrumbBuilderTests.swift"; sourceTree = SOURCE_ROOT; };
+		A100000000000000000F1DA1 /* ResumeFidelityGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ResumeFidelityGate.swift; path = "Sources/CrashRecovery/ResumeFidelityGate.swift"; sourceTree = SOURCE_ROOT; };
+		A100000000000000000F1DB1 /* ResumeFidelityGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ResumeFidelityGateTests.swift; path = "cmuxTests/ResumeFidelityGateTests.swift"; sourceTree = SOURCE_ROOT; };
 		B7F9A601B7F9A601B7F9A601 /* RightSidebarChromeGeometryReporting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarChromeGeometryReporting.swift; sourceTree = "<group>"; };
 		AA1B2C3D4E5F60721 /* RightSidebarChromeHeightUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarChromeHeightUITests.swift; sourceTree = "<group>"; };
 		B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarChromeStyle.swift; sourceTree = "<group>"; };
@@ -2444,6 +2448,7 @@
 				29FD9235BEB64D42F501EBF4 /* WorkspaceResumePlanner.swift */,
 				5D1872ACD1B808CE02613B82 /* CrashRecoverySettings.swift */,
 				5D62498EBC9EA7D281E451EC /* ResumeBreadcrumbBuilder.swift */,
+				A100000000000000000F1DA1 /* ResumeFidelityGate.swift */,
 				27C38528E01954A4CDF2DC04 /* UncleanShutdownSentinel.swift */,
 				3023B1003023B1003023B100 /* ConfigSource.swift */,
 				3023B1013023B1013023B101 /* ConfigSettingsView.swift */,
@@ -3094,6 +3099,7 @@
 				C75CA53DAFF1FEF4E27AB889 /* CrashRecoveryLaunchStateTests.swift */,
 				02DE40FC3A5908D0F4D4B4BD /* RelaunchIntentTests.swift */,
 				F7E2BA4F69E754EDCCF3D69F /* WorkspaceResumePlannerTests.swift */,
+				A100000000000000000F1DB1 /* ResumeFidelityGateTests.swift */,
 				2D89B9D6FEA8C5BC2412D85B /* CrashRecoverySettingsTests.swift */,
 				21A52BBCE192F354DF00C857 /* ResumeBreadcrumbBuilderTests.swift */,
 				8BD298CD20B84B435B23F97F /* UncleanShutdownSentinelTests.swift */,
@@ -4218,6 +4224,7 @@
 				A5001660 /* RestorableAgentSession.swift in Sources */,
 				C13519000000000000000005 /* RestorableAgentTypes.swift in Sources */,
 				2AA45B767B0C44F7D8F7E145 /* ResumeBreadcrumbBuilder.swift in Sources */,
+				A100000000000000000F1DA0 /* ResumeFidelityGate.swift in Sources */,
 				B7F9A600B7F9A600B7F9A600 /* RightSidebarChromeGeometryReporting.swift in Sources */,
 				B7F9A604B7F9A604B7F9A604 /* RightSidebarChromeStyle.swift in Sources */,
 				B37A00000000000000000003 /* RightSidebarMode+Availability.swift in Sources */,
@@ -4738,6 +4745,7 @@
 					F5410002A1B2C3D4E5F60718 /* RestorableAgentNonInteractiveTests.swift in Sources */,
 					F5410006A1B2C3D4E5F60718 /* RestorableAgentSessionIndexTests.swift in Sources */,
 				0EE515315475BBE141846305 /* ResumeBreadcrumbBuilderTests.swift in Sources */,
+				A100000000000000000F1DB0 /* ResumeFidelityGateTests.swift in Sources */,
 				C3408A000000000000000003 /* RightSidebarCommandPaletteTests.swift in Sources */,
 				C57570010000000000000002 /* RightSidebarPanelViewTestSupport.swift in Sources */,
 				5F5553CB5553CB5553CB0001 /* RightSidebarRemoteCommandTests.swift in Sources */,
