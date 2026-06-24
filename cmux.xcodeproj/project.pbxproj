@@ -367,6 +367,7 @@
 		C0DE32470000000000000001 /* ContentViewIdentifierCopyCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE32470000000000000002 /* ContentViewIdentifierCopyCommands.swift */; };
 		D10000000000000000B00000 /* ControlSocketReadinessUITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000B00001 /* ControlSocketReadinessUITestSupport.swift */; };
 		C65930010000000000000002 /* CrashDiagnosticSessionPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65930010000000000000001 /* CrashDiagnosticSessionPolicyTests.swift */; };
+		CE3562B553D4C3AA89158B7D /* CrashRecoveryFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D33C82CCFF746DC8A6AF3FA /* CrashRecoveryFlowTests.swift */; };
 		54D4198D349A949AF50E793B /* CrashRecoveryLaunchState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96A948C14DA51FAAF0E6596A /* CrashRecoveryLaunchState.swift */; };
 		DDF34D69196B3BC3753035E6 /* CrashRecoveryLaunchStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75CA53DAFF1FEF4E27AB889 /* CrashRecoveryLaunchStateTests.swift */; };
 		B2978F564E4C9CCADF68FEBF /* CrashRecoveryOffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BF6D0AD19736589FED425AC /* CrashRecoveryOffer.swift */; };
@@ -1467,6 +1468,7 @@
 		C0DE32470000000000000002 /* ContentViewIdentifierCopyCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentViewIdentifierCopyCommands.swift; sourceTree = "<group>"; };
 		D10000000000000000B00001 /* ControlSocketReadinessUITestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSocketReadinessUITestSupport.swift; sourceTree = "<group>"; };
 		C65930010000000000000001 /* CrashDiagnosticSessionPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashDiagnosticSessionPolicyTests.swift; sourceTree = "<group>"; };
+		1D33C82CCFF746DC8A6AF3FA /* CrashRecoveryFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CrashRecoveryFlowTests.swift; path = "cmuxTests/CrashRecoveryFlowTests.swift"; sourceTree = SOURCE_ROOT; };
 		96A948C14DA51FAAF0E6596A /* CrashRecoveryLaunchState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CrashRecoveryLaunchState.swift; path = "Sources/CrashRecovery/CrashRecoveryLaunchState.swift"; sourceTree = SOURCE_ROOT; };
 		C75CA53DAFF1FEF4E27AB889 /* CrashRecoveryLaunchStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CrashRecoveryLaunchStateTests.swift; path = "cmuxTests/CrashRecoveryLaunchStateTests.swift"; sourceTree = SOURCE_ROOT; };
 		3BF6D0AD19736589FED425AC /* CrashRecoveryOffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CrashRecoveryOffer.swift; path = "Sources/CrashRecovery/CrashRecoveryOffer.swift"; sourceTree = SOURCE_ROOT; };
@@ -3085,6 +3087,7 @@
 		F1000003A1B2C3D4E5F60718 /* cmuxTests */ = {
 			isa = PBXGroup;
 			children = (
+				1D33C82CCFF746DC8A6AF3FA /* CrashRecoveryFlowTests.swift */,
 				80271CD9A7BF60CB3804647E /* CrashRecoveryOfferTests.swift */,
 				79A3A72011348D50FD248125 /* WorkspaceResumeCoordinatorTests.swift */,
 				EF766168629F255820CA09D6 /* CrashRecoveryRestoreGateTests.swift */,
@@ -4630,6 +4633,7 @@
 				C0DEF4120000000000000001 /* CommandPaletteSettingsToggleTests.swift in Sources */,
 				C1713006C1713006C1713006 /* CommandPaletteShortcutCustomizationTests.swift in Sources */,
 				C65930010000000000000002 /* CrashDiagnosticSessionPolicyTests.swift in Sources */,
+				CE3562B553D4C3AA89158B7D /* CrashRecoveryFlowTests.swift in Sources */,
 				DDF34D69196B3BC3753035E6 /* CrashRecoveryLaunchStateTests.swift in Sources */,
 				8CE1BEE0476F04010BD4C610 /* CrashRecoveryOfferTests.swift in Sources */,
 				1922550CDCDD51785B293C38 /* CrashRecoveryRestoreGateTests.swift in Sources */,
