@@ -26,16 +26,6 @@ public enum KeyboardSyncSolver {
         max(0, listMaxY - composerTopInList)
     }
 
-    /// The content-offset delta to apply when the inset changes so already-
-    /// visible content does not shift under the user.
-    ///
-    /// Only applied when the user is not pinned to the bottom; at the bottom we
-    /// want the newest message to stay visible and ride up with the keyboard,
-    /// so the caller skips compensation there.
-    public static func offsetCompensation(previousInset: CGFloat, newInset: CGFloat) -> CGFloat {
-        newInset - previousInset
-    }
-
     /// Whether the inverted list is effectively pinned to the visual bottom
     /// (newest message showing), within a tolerance.
     ///

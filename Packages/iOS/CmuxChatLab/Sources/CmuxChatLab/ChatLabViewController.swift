@@ -21,9 +21,20 @@ final class ChatLabViewController: UIViewController {
     private let composer = ComposerBar()
     private let typingLabel = UILabel()
     private var typingBottomConstraint: NSLayoutConstraint!
+    private let jumpButton = UIButton(type: .system)
+    private var jumpButtonBottomConstraint: NSLayoutConstraint!
 
     private var keyboardVisible = false
     private var dragLink: CADisplayLink?
+    /// True while the user's finger is on the list during an interactive
+    /// dismiss; false once lifted (the link keeps running through the release
+    /// spring until the composer settles).
+    private var fingerDown = false
+    /// While true, the display link owns the list inset and the keyboard
+    /// notifications must not also animate it (they would fight the link).
+    private var interactiveSyncActive = false
+    private var lastComposerTopScreen: CGFloat = 0
+    private var settledFrames = 0
 
     #if DEBUG
     private let probe = ChatLabMetricsProbe()
@@ -74,7 +85,8 @@ final class ChatLabViewController: UIViewController {
         }
 
         list.onBeginDragging = { [weak self] _ in self?.beginDragSync() }
-        list.onEndDragging = { [weak self] _ in self?.endDragSync() }
+        list.onEndDragging = { [weak self] _ in self?.fingerLifted() }
+        list.onScroll = { [weak self] scrollView in self?.updateJumpButton(scrollView) }
 
         // Tap anywhere in the list (a message or the negative space) dismisses
         // the keyboard. cancelsTouchesInView is false so it never swallows a
@@ -94,6 +106,8 @@ final class ChatLabViewController: UIViewController {
             typingLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 18),
             typingBottomConstraint,
         ])
+
+        configureJumpButton()
 
         #if DEBUG
         view.addSubview(probe.probeView)
@@ -131,6 +145,10 @@ final class ChatLabViewController: UIViewController {
     @objc private func keyboardWillHide(_ note: Notification) { keyboardVisible = false }
 
     @objc private func keyboardWillChangeFrame(_ note: Notification) {
+        // The display link owns the inset throughout an interactive drag AND its
+        // release spring; ignore the commit/snap-back notification so we don't
+        // run a second, competing animation on the same inset.
+        guard !interactiveSyncActive else { return }
         guard let info = note.userInfo,
               let endFrame = (info[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
         else { return }
@@ -141,9 +159,20 @@ final class ChatLabViewController: UIViewController {
     }
 
     // MARK: Interactive drag sync
+    //
+    // The link runs from drag-begin until the composer settles — crucially
+    // INCLUDING the release phase, where UIKit springs the keyboard to its
+    // committed position (dismissed or snapped back). By reading the composer's
+    // presentation layer every frame we follow that real spring exactly, in
+    // lockstep, with no curve to match and nothing to fight.
 
     private func beginDragSync() {
-        guard keyboardVisible, dragLink == nil else { return }
+        guard keyboardVisible else { return }
+        fingerDown = true
+        guard dragLink == nil else { return }
+        interactiveSyncActive = true
+        settledFrames = 0
+        lastComposerTopScreen = screenFrame(of: composer, usePresentation: true)?.minY ?? 0
         #if DEBUG
         probe.reset()
         #endif
@@ -152,31 +181,30 @@ final class ChatLabViewController: UIViewController {
         dragLink = link
     }
 
-    private func endDragSync() {
+    /// Finger lifted: the keyboard now springs to its committed position. Keep
+    /// the link running so the inset rides that spring; stop once it settles.
+    private func fingerLifted() {
+        fingerDown = false
+    }
+
+    private func stopDragSync() {
         dragLink?.invalidate()
         dragLink = nil
+        interactiveSyncActive = false
     }
 
     @objc private func dragTick() {
         guard let composerTopScreen = screenFrame(of: composer, usePresentation: true)?.minY,
               let listBottomScreen = screenFrame(of: list.view, usePresentation: false)?.maxY
         else { return }
-        // Drive the list inset from the composer's CURRENT presentation, then
-        // measure the residual gap. A correctly-synced frame leaves this within
-        // sub-pixel; if the link ever stopped driving the inset (the old
-        // notification-frozen bug), the composer would move while the inset
-        // stayed put and the residual would blow up to the full keyboard travel.
         let dynamicOverlap = listBottomScreen - composerTopScreen
         let overlap = max(restingOverlap, dynamicOverlap)
-        // Inset only during the drag: the scroll view's own pan already owns
-        // contentOffset (it is what moves the keyboard), so writing offset here
-        // fights the finger and jitters. No layoutIfNeeded either — an inset
-        // change applies immediately without a full layout pass.
+        // Inset only: the scroll view's pan owns contentOffset during the drag,
+        // and the keyboard's own spring owns the composer during the release, so
+        // we never write offset and never run a competing animation here. No
+        // layoutIfNeeded — an inset change applies immediately.
         applyOverlap(overlap, animated: false, adjustOffset: false, duration: 0, rawCurve: 0)
         #if DEBUG
-        // Only sample while the keyboard is meaningfully raised; below the
-        // resting position the overlap intentionally clamps and the residual is
-        // not a tracking error.
         if dynamicOverlap > restingOverlap {
             probe.record(
                 composerTopScreen: composerTopScreen,
@@ -185,6 +213,17 @@ final class ChatLabViewController: UIViewController {
             )
         }
         #endif
+        // After the finger lifts, watch the release spring: once the composer
+        // stops moving for a few frames, the spring has settled — stop the link.
+        if !fingerDown {
+            if abs(composerTopScreen - lastComposerTopScreen) < 0.5 {
+                settledFrames += 1
+                if settledFrames >= 3 { stopDragSync() }
+            } else {
+                settledFrames = 0
+            }
+        }
+        lastComposerTopScreen = composerTopScreen
     }
 
     // MARK: Overlap math
@@ -212,7 +251,6 @@ final class ChatLabViewController: UIViewController {
     private func applyOverlap(_ overlap: CGFloat, animated: Bool, adjustOffset: Bool, duration: Double, rawCurve: Int) {
         let collection = list.collectionView
         let oldInset = collection.contentInset.top
-        let delta = KeyboardSyncSolver.offsetCompensation(previousInset: oldInset, newInset: overlap)
         let pinned = KeyboardSyncSolver.isPinnedToBottom(
             contentOffsetY: collection.contentOffset.y,
             topInset: oldInset
@@ -221,14 +259,15 @@ final class ChatLabViewController: UIViewController {
         let apply = {
             collection.contentInset.top = overlap
             collection.verticalScrollIndicatorInsets.top = overlap
-            if adjustOffset {
-                if pinned {
-                    collection.contentOffset.y = -overlap
-                } else {
-                    collection.contentOffset.y += delta
-                }
+            // Only the at-newest case moves the offset: pin the newest message
+            // above the composer. When scrolled up, an inset change alone does
+            // not move visible content, so leaving the offset keeps the reader
+            // exactly where they are (no jump).
+            if adjustOffset, pinned {
+                collection.contentOffset.y = -overlap
             }
             self.typingBottomConstraint.constant = -overlap - 4
+            self.jumpButtonBottomConstraint.constant = -overlap - 10
         }
 
         if animated {
@@ -242,6 +281,60 @@ final class ChatLabViewController: UIViewController {
             // take effect immediately and a full layout pass each frame jitters.
             apply()
         }
+    }
+
+    // MARK: Jump-to-latest
+
+    private func configureJumpButton() {
+        var config = UIButton.Configuration.filled()
+        config.cornerStyle = .capsule
+        config.image = UIImage(systemName: "chevron.down")
+        config.baseBackgroundColor = .secondarySystemBackground
+        config.baseForegroundColor = .label
+        jumpButton.configuration = config
+        jumpButton.accessibilityIdentifier = "ChatLabJumpToLatest"
+        jumpButton.accessibilityLabel = "Jump to latest"
+        jumpButton.translatesAutoresizingMaskIntoConstraints = false
+        jumpButton.alpha = 0
+        jumpButton.isHidden = true
+        jumpButton.layer.shadowColor = UIColor.black.cgColor
+        jumpButton.layer.shadowOpacity = 0.15
+        jumpButton.layer.shadowRadius = 6
+        jumpButton.layer.shadowOffset = CGSize(width: 0, height: 2)
+        jumpButton.addTarget(self, action: #selector(scrollToNewest), for: .touchUpInside)
+        view.addSubview(jumpButton)
+        jumpButtonBottomConstraint = jumpButton.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -restingOverlap - 10)
+        NSLayoutConstraint.activate([
+            jumpButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -14),
+            jumpButton.widthAnchor.constraint(equalToConstant: 38),
+            jumpButton.heightAnchor.constraint(equalToConstant: 38),
+            jumpButtonBottomConstraint,
+        ])
+    }
+
+    /// Shows the pill whenever the user has scrolled away from the newest
+    /// message; hides it at the bottom. A new message arriving while scrolled up
+    /// keeps the pill visible (the reader's position is untouched).
+    private func updateJumpButton(_ scrollView: UIScrollView) {
+        let atBottom = KeyboardSyncSolver.isPinnedToBottom(
+            contentOffsetY: scrollView.contentOffset.y,
+            topInset: scrollView.contentInset.top,
+            tolerance: 24
+        )
+        let shouldShow = !atBottom
+        guard shouldShow != (jumpButton.alpha > 0.5) else { return }
+        if shouldShow { jumpButton.isHidden = false }
+        UIView.animate(withDuration: 0.2) {
+            self.jumpButton.alpha = shouldShow ? 1 : 0
+        } completion: { _ in
+            if !shouldShow { self.jumpButton.isHidden = true }
+        }
+    }
+
+    @objc private func scrollToNewest() {
+        let collection = list.collectionView
+        // Inverted list: the visual bottom (newest) is the minimum offset.
+        collection.setContentOffset(CGPoint(x: 0, y: -collection.contentInset.top), animated: true)
     }
 
     // MARK: Agent state

@@ -41,10 +41,6 @@ struct KeyboardSyncSolverTests {
         #expect(KeyboardSyncSolver.bottomOverlap(listMaxY: 800, composerTopInList: 500) == 300)
     }
 
-    @Test func offsetCompensationIsDelta() {
-        #expect(KeyboardSyncSolver.offsetCompensation(previousInset: 100, newInset: 340) == 240)
-    }
-
     @Test func pinnedWhenAtInvertedBottom() {
         #expect(KeyboardSyncSolver.isPinnedToBottom(contentOffsetY: -340, topInset: 340))
         #expect(KeyboardSyncSolver.isPinnedToBottom(contentOffsetY: -339.5, topInset: 340))
