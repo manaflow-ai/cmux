@@ -1191,6 +1191,7 @@ private extension BrowserWebAuthnCoordinator {
             "webViewHost=\(message.webView?.url?.host ?? "(nil)") hasWebViewURL=\(message.webView?.url == nil ? 0 : 1)"
         )
         #endif
+        let presentationWindow = try interactivePresentationWindow(for: message)
         let clientDataContext = try BrowserWebAuthnClientDataContext.resolvePermitted(for: message)
         guard let plan = try buildCreationPlan(request, clientDataContext: clientDataContext) else {
             #if DEBUG
@@ -1209,7 +1210,7 @@ private extension BrowserWebAuthnCoordinator {
 
         return try await performAuthorization(
             requests: requests,
-            window: message.webView?.window,
+            window: presentationWindow,
             prefersImmediatelyAvailableCredentials: plan.prefersImmediatelyAvailableCredentials
         )
     }
@@ -1224,6 +1225,7 @@ private extension BrowserWebAuthnCoordinator {
             "webViewHost=\(message.webView?.url?.host ?? "(nil)") hasWebViewURL=\(message.webView?.url == nil ? 0 : 1)"
         )
         #endif
+        let presentationWindow = try interactivePresentationWindow(for: message)
         let clientDataContext = try BrowserWebAuthnClientDataContext.resolvePermitted(for: message)
         guard let plan = try buildAssertionPlan(request, clientDataContext: clientDataContext) else {
             #if DEBUG
@@ -1242,9 +1244,23 @@ private extension BrowserWebAuthnCoordinator {
 
         return try await performAuthorization(
             requests: requests,
-            window: message.webView?.window,
+            window: presentationWindow,
             prefersImmediatelyAvailableCredentials: plan.prefersImmediatelyAvailableCredentials
         )
+    }
+
+    func interactivePresentationWindow(for message: WKScriptMessage) throws -> NSWindow {
+        guard let webView = message.webView,
+              let window = browserInteractiveModalHostWindow(for: webView) else {
+            #if DEBUG
+            cmuxDebugLog(
+                "webauthn.presentationWindow unavailable hasWebView=\(message.webView == nil ? 0 : 1) " +
+                "hasWindow=\(message.webView?.window == nil ? 0 : 1)"
+            )
+            #endif
+            throw BrowserWebAuthnBridgeError.notAllowed("Passkey access is not available.")
+        }
+        return window
     }
 
     func authorizationRequests(
@@ -1320,11 +1336,11 @@ private extension BrowserWebAuthnCoordinator {
         guard !requests.isEmpty else {
             throw BrowserWebAuthnBridgeError.notSupported("Native passkey support is unavailable.")
         }
-        guard let window else {
+        guard let window = browserInteractiveModalHostWindow(window) else {
             #if DEBUG
-            cmuxDebugLog("webauthn.performAuth FAIL: no window")
+            cmuxDebugLog("webauthn.performAuth FAIL: no interactive window")
             #endif
-            throw BrowserWebAuthnBridgeError.notSupported("Native passkey support is unavailable.")
+            throw BrowserWebAuthnBridgeError.notAllowed("Passkey access is not available.")
         }
         guard activeAuthorizationContinuation == nil else {
             #if DEBUG
