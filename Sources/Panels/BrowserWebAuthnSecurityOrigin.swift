@@ -41,7 +41,11 @@ struct BrowserWebAuthnSecurityOrigin {
     func permits(relyingPartyIdentifier: String) -> Bool {
         let normalizedIdentifier = relyingPartyIdentifier.lowercased()
         guard !normalizedIdentifier.isEmpty else { return false }
-        return host == normalizedIdentifier
+        if host == normalizedIdentifier {
+            return true
+        }
+        return host.hasSuffix(".\(normalizedIdentifier)") &&
+            Self.nativeParentRelyingPartyIdentifiers.contains(normalizedIdentifier)
     }
 
     func isWithinRelyingPartyScope(_ relyingPartyIdentifier: String) -> Bool {
@@ -102,4 +106,9 @@ struct BrowserWebAuthnSecurityOrigin {
     private static func serializedHost(_ host: String) -> String {
         host.contains(":") ? "[\(host)]" : host
     }
+
+    // Without a bundled public-suffix list, keep native parent RP IDs explicit.
+    private static let nativeParentRelyingPartyIdentifiers: Set<String> = [
+        "google.com",
+    ]
 }

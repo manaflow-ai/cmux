@@ -118,7 +118,13 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
-    func webAuthnNativeBridgeDoesNotAcceptParentDomainRelyingPartyIDs() throws {
+    func webAuthnNativeBridgeScopesParentDomainRelyingPartyIDs() throws {
+        let googleOrigin = try #require(
+            BrowserWebAuthnSecurityOrigin(url: URL(string: "https://accounts.google.com")!)
+        )
+        #expect(googleOrigin.isWithinRelyingPartyScope("google.com"))
+        #expect(googleOrigin.permits(relyingPartyIdentifier: "google.com"))
+
         let exampleOrigin = try #require(
             BrowserWebAuthnSecurityOrigin(url: URL(string: "https://login.example.com")!)
         )

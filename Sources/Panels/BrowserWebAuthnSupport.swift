@@ -722,8 +722,8 @@ private struct BrowserWebAuthnClientDataContext {
             throw BrowserWebAuthnBridgeError.security("Passkey access is not available.")
         }
         guard callerOrigin.permits(relyingPartyIdentifier: requestedIdentifier) else {
-            // Broader parent-domain RP IDs require full public-suffix validation.
-            // Let WebKit's native WebAuthn implementation own those cases.
+            // Keep native parent-domain handling limited to explicitly reviewed
+            // first-party RP IDs; WebKit owns all other public-suffix cases.
             return nil
         }
 
@@ -989,6 +989,7 @@ private final class BrowserPasskeyAuthorizationGate {
 }
 
 final class BrowserWebAuthnCoordinator: NSObject, WKScriptMessageHandlerWithReply {
+    private weak var installedWebView: WKWebView?
     private var activeAuthorizationController: ASAuthorizationController?
     private var activeAuthorizationContinuation: CheckedContinuation<[String: Any], Error>?
     private var activePresentationWindow: NSWindow?
@@ -1014,6 +1015,7 @@ final class BrowserWebAuthnCoordinator: NSObject, WKScriptMessageHandlerWithRepl
             contentWorld: BrowserWebAuthnBridgeContract.contentWorld,
             name: BrowserWebAuthnBridgeContract.handlerName
         )
+        installedWebView = webView
     }
 
     func uninstall(from webView: WKWebView) {
@@ -1021,6 +1023,9 @@ final class BrowserWebAuthnCoordinator: NSObject, WKScriptMessageHandlerWithRepl
             forName: BrowserWebAuthnBridgeContract.handlerName,
             contentWorld: BrowserWebAuthnBridgeContract.contentWorld
         )
+        if installedWebView === webView {
+            installedWebView = nil
+        }
     }
 
     @MainActor
@@ -1191,7 +1196,6 @@ private extension BrowserWebAuthnCoordinator {
             "webViewHost=\(message.webView?.url?.host ?? "(nil)") hasWebViewURL=\(message.webView?.url == nil ? 0 : 1)"
         )
         #endif
-        let presentationWindow = try interactivePresentationWindow(for: message)
         let clientDataContext = try BrowserWebAuthnClientDataContext.resolvePermitted(for: message)
         guard let plan = try buildCreationPlan(request, clientDataContext: clientDataContext) else {
             #if DEBUG
@@ -1207,6 +1211,7 @@ private extension BrowserWebAuthnCoordinator {
             #endif
             return fallbackReply()
         }
+        let presentationWindow = try interactivePresentationWindow(for: message)
 
         return try await performAuthorization(
             requests: requests,
@@ -1225,7 +1230,6 @@ private extension BrowserWebAuthnCoordinator {
             "webViewHost=\(message.webView?.url?.host ?? "(nil)") hasWebViewURL=\(message.webView?.url == nil ? 0 : 1)"
         )
         #endif
-        let presentationWindow = try interactivePresentationWindow(for: message)
         let clientDataContext = try BrowserWebAuthnClientDataContext.resolvePermitted(for: message)
         guard let plan = try buildAssertionPlan(request, clientDataContext: clientDataContext) else {
             #if DEBUG
@@ -1241,6 +1245,7 @@ private extension BrowserWebAuthnCoordinator {
             #endif
             return fallbackReply()
         }
+        let presentationWindow = try interactivePresentationWindow(for: message)
 
         return try await performAuthorization(
             requests: requests,
@@ -1251,11 +1256,13 @@ private extension BrowserWebAuthnCoordinator {
 
     func interactivePresentationWindow(for message: WKScriptMessage) throws -> NSWindow {
         guard let webView = message.webView,
+              installedWebView === webView,
               let window = browserInteractiveModalHostWindow(for: webView) else {
             #if DEBUG
             cmuxDebugLog(
                 "webauthn.presentationWindow unavailable hasWebView=\(message.webView == nil ? 0 : 1) " +
-                "hasWindow=\(message.webView?.window == nil ? 0 : 1)"
+                "hasWindow=\(message.webView?.window == nil ? 0 : 1) " +
+                "isCurrent=\((message.webView != nil && installedWebView === message.webView) ? 1 : 0)"
             )
             #endif
             throw BrowserWebAuthnBridgeError.notAllowed("Passkey access is not available.")
