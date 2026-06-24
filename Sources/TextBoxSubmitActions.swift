@@ -75,9 +75,9 @@ extension TextBoxInputContainer {
 
     static func shouldForceTextEntrySubmit(
         allowsCommandTemplateSubmit: Bool,
-        terminalAgentContext _: String
+        terminalAgentContext: String
     ) -> Bool {
-        !allowsCommandTemplateSubmit
+        !allowsCommandTemplateSubmit && TextBoxAgentDetection.supportsAgentPrefixes(context: terminalAgentContext)
     }
 
     static func textEntryTerminalAgentContext(

@@ -208,7 +208,7 @@ struct TextBoxSubmitActionTests {
 
 
     @Test
-    func testTextBoxForceTextEntryUsesShellEligibilityOverStaleAgentMetadata() {
+    func testTextBoxForceTextEntryRequiresActiveAgentContext() {
         XCTAssertFalse(
             TextBoxInputContainer.shouldForceTextEntrySubmit(
                 allowsCommandTemplateSubmit: true,
@@ -221,7 +221,7 @@ struct TextBoxSubmitActionTests {
                 terminalAgentContext: "restoredAgent:claude"
             )
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             TextBoxInputContainer.shouldForceTextEntrySubmit(
                 allowsCommandTemplateSubmit: false,
                 terminalAgentContext: ""
