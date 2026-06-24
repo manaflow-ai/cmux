@@ -3741,6 +3741,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.onContextMenuOpenLinkInNewTab = { [weak self] url in
             self?.openLinkInNewTab(url: url)
         }
+        webView.cmuxDownloadDelegate = downloadDelegate
         configureMoveTabToNewWorkspaceContextMenu(for: webView); configureNavigationDelegateCallbacks()
         webView.navigationDelegate = navigationDelegate
         webView.uiDelegate = uiDelegate
@@ -3982,7 +3983,6 @@ final class BrowserPanel: Panel, ObservableObject {
         // Downloads save to a temp file synchronously (no UI during WebKit
         // callbacks), then auto-save to Downloads unless the prompt setting is enabled.
         let dlDelegate = BrowserDownloadDelegate()
-        webView.cmuxDownloadDelegate = dlDelegate
         dlDelegate.savePanelParentWindow = { [weak self] in
             self?.webView.window
         }
@@ -4004,7 +4004,6 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         dlDelegate.onDownloadReadyToSave = { [weak self] filename in
             guard let self else { return }
-            self.endDownloadActivity()
             NotificationCenter.default.post(
                 name: .browserDownloadEventDidArrive,
                 object: self,
@@ -4031,6 +4030,22 @@ final class BrowserPanel: Panel, ObservableObject {
                         "type": "saved",
                         "filename": filename,
                         "path": destinationURL.path
+                    ]
+                ]
+            )
+        }
+        dlDelegate.onDownloadCancelled = { [weak self] filename in
+            guard let self else { return }
+            self.endDownloadActivity()
+            NotificationCenter.default.post(
+                name: .browserDownloadEventDidArrive,
+                object: self,
+                userInfo: [
+                    "surfaceId": self.id,
+                    "workspaceId": self.workspaceId,
+                    "event": [
+                        "type": "cancelled",
+                        "filename": filename
                     ]
                 ]
             )
@@ -8286,6 +8301,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
     var onDownloadStarted: ((String) -> Void)?
     var onDownloadReadyToSave: ((String) -> Void)?
     var onDownloadSaved: ((String, URL) -> Void)?
+    var onDownloadCancelled: ((String) -> Void)?
     var onDownloadFailed: ((Error) -> Void)?
     var savePanelParentWindow: (() -> NSWindow?)?
 
@@ -8348,6 +8364,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
             guard let self else { return }
             guard result == .OK, let destURL = savePanel.url else {
                 try? FileManager.default.removeItem(at: tempURL)
+                self.onDownloadCancelled?(suggestedFilename)
                 return
             }
             do {

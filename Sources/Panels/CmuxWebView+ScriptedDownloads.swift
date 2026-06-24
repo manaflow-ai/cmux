@@ -209,11 +209,6 @@ extension CmuxWebView {
               postURLDownload(href, suggestedFilename);
               return true;
             }
-            if (scheme === "http" || scheme === "https" || scheme === "file") {
-              if (!reserveDownloadPost()) return false;
-              postURLDownload(href, suggestedFilename);
-              return true;
-            }
           } catch (_) {}
           return false;
         };
@@ -351,7 +346,7 @@ extension CmuxWebView {
 
     private static func isScriptedDownloadSupportedURL(_ url: URL) -> Bool {
         let scheme = url.scheme?.lowercased() ?? ""
-        return scheme == "data" || scheme == "http" || scheme == "https" || scheme == "file" || scheme == "blob"
+        return scheme == "data" || scheme == "blob"
     }
 
     private func startScriptedWebKitDownload(_ url: URL, traceID: String) {
