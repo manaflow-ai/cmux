@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -16,5 +17,23 @@ struct RenderableSystemSymbolTests {
         #expect(RenderableSystemSymbol.clampedRasterPointSize(.nan) == 1)
         #expect(RenderableSystemSymbol.clampedRasterPointSize(.infinity) == 1)
         #expect(RenderableSystemSymbol.clampedRasterPointSize(-.infinity) == 1)
+    }
+
+    @Test @MainActor func configuredAppKitImageUsesTemplateImageWithClampedSize() throws {
+        let image = try #require(RenderableSystemSymbol.configuredAppKitImage(
+            systemName: "questionmark.circle",
+            pointSize: 0,
+            weight: .medium
+        ))
+        #expect(image.isTemplate)
+        #expect(image.size == NSSize(width: 1, height: 1))
+    }
+
+    @Test @MainActor func configuredAppKitImageRejectsUnknownSymbols() {
+        #expect(RenderableSystemSymbol.configuredAppKitImage(
+            systemName: "not.an.sf.symbol",
+            pointSize: 11,
+            weight: .regular
+        ) == nil)
     }
 }

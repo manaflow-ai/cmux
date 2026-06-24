@@ -329,14 +329,6 @@ private struct OmnibarAddressButtonStyleBody: View {
     }
 }
 
-private extension Image {
-    func cmuxFlatSymbolColorRendering() -> Image {
-        // `symbolColorRenderingMode(.flat)` is not available in the current SDK
-        // used by CI/local builds. Keep this modifier as a compatibility no-op.
-        self
-    }
-}
-
 func resolvedBrowserChromeBackgroundColor(
     for colorScheme: ColorScheme,
     themeBackgroundColor: NSColor,
@@ -1329,8 +1321,11 @@ struct BrowserPanelView: View {
                 #endif
                 panel.goBack()
             }) {
-                Image(systemName: "chevron.left")
-                    .cmuxSymbolRasterSize(chromeMetrics.navigationIconFontSize, weight: .medium)
+                CmuxSystemSymbolImage(
+                    systemName: "chevron.left",
+                    pointSize: chromeMetrics.navigationIconFontSize,
+                    weight: .medium
+                )
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -1345,8 +1340,11 @@ struct BrowserPanelView: View {
                 #endif
                 panel.goForward()
             }) {
-                Image(systemName: "chevron.right")
-                    .cmuxSymbolRasterSize(chromeMetrics.navigationIconFontSize, weight: .medium)
+                CmuxSystemSymbolImage(
+                    systemName: "chevron.right",
+                    pointSize: chromeMetrics.navigationIconFontSize,
+                    weight: .medium
+                )
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -1356,8 +1354,11 @@ struct BrowserPanelView: View {
             .safeHelp(String(localized: "browser.goForward", defaultValue: "Go Forward"))
 
             Button(action: handleReloadOrStopButtonAction) {
-                Image(systemName: panel.isLoading ? "xmark" : "arrow.clockwise")
-                    .cmuxSymbolRasterSize(chromeMetrics.navigationIconFontSize, weight: .medium)
+                CmuxSystemSymbolImage(
+                    systemName: panel.isLoading ? "xmark" : "arrow.clockwise",
+                    pointSize: chromeMetrics.navigationIconFontSize,
+                    weight: .medium
+                )
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -1388,10 +1389,11 @@ struct BrowserPanelView: View {
 
     private var screenshotPageButton: some View {
         Button(action: handleScreenshotPageButtonAction) {
-            Image(systemName: screenshotPageCopied ? "checkmark" : "camera")
-                .symbolRenderingMode(.monochrome)
-                .cmuxFlatSymbolColorRendering()
-                .cmuxSymbolRasterSize(devToolsButtonIconSize, weight: .medium)
+            CmuxSystemSymbolImage(
+                systemName: screenshotPageCopied ? "checkmark" : "camera",
+                pointSize: devToolsButtonIconSize,
+                weight: .medium
+            )
                 .foregroundStyle(screenshotPageButtonColor)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
@@ -1444,8 +1446,11 @@ struct BrowserPanelView: View {
     private var browserFocusModeButton: some View {
         Button(action: handleBrowserFocusModeButtonAction) {
             HStack(spacing: 5) {
-                Image(systemName: "keyboard")
-                    .cmuxSymbolRasterSize(devToolsButtonIconSize, weight: .medium)
+                CmuxSystemSymbolImage(
+                    systemName: "keyboard",
+                    pointSize: devToolsButtonIconSize,
+                    weight: .medium
+                )
                     .scaleEffect(panel.isBrowserFocusModeActive ? 1.08 : 1.0)
                     .animation(.spring(response: 0.18, dampingFraction: 0.82), value: panel.isBrowserFocusModeActive)
                 if panel.isBrowserFocusModeActive {
@@ -1490,10 +1495,11 @@ struct BrowserPanelView: View {
             panel.clearReactGrabRoundTrip(reason: "toolbarButton.manualStart")
             Task { await panel.toggleOrInjectReactGrab() }
         }) {
-            Image(systemName: "cursorarrow.click.2")
-                .symbolRenderingMode(.monochrome)
-                .cmuxFlatSymbolColorRendering()
-                .cmuxSymbolRasterSize(devToolsButtonIconSize, weight: .medium)
+            CmuxSystemSymbolImage(
+                systemName: "cursorarrow.click.2",
+                pointSize: devToolsButtonIconSize,
+                weight: .medium
+            )
                 .foregroundStyle(panel.isReactGrabActive ? Color.accentColor : Color.secondary)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
@@ -1507,10 +1513,11 @@ struct BrowserPanelView: View {
         Button(action: {
             openDevTools()
         }) {
-            Image(systemName: devToolsIconOption.rawValue)
-                .symbolRenderingMode(.monochrome)
-                .cmuxFlatSymbolColorRendering()
-                .cmuxSymbolRasterSize(devToolsButtonIconSize, weight: .medium)
+            CmuxSystemSymbolImage(
+                systemName: devToolsIconOption.rawValue,
+                pointSize: devToolsButtonIconSize,
+                weight: .medium
+            )
                 .foregroundStyle(devToolsColorOption.color)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
@@ -1524,10 +1531,11 @@ struct BrowserPanelView: View {
         Button(action: {
             isBrowserProfileMenuPresented.toggle()
         }) {
-            Image(systemName: "person.crop.circle")
-                .symbolRenderingMode(.monochrome)
-                .cmuxFlatSymbolColorRendering()
-                .cmuxSymbolRasterSize(devToolsButtonIconSize, weight: .medium)
+            CmuxSystemSymbolImage(
+                systemName: "person.crop.circle",
+                pointSize: devToolsButtonIconSize,
+                weight: .medium
+            )
                 .foregroundStyle(devToolsColorOption.color)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
@@ -1585,10 +1593,11 @@ struct BrowserPanelView: View {
                 Label(developerToolsButtonHelp, systemImage: devToolsIconOption.rawValue)
             }
         } label: {
-            Image(systemName: "ellipsis")
-                .symbolRenderingMode(.monochrome)
-                .cmuxFlatSymbolColorRendering()
-                .cmuxSymbolRasterSize(devToolsButtonIconSize, weight: .medium)
+            CmuxSystemSymbolImage(
+                systemName: "ellipsis",
+                pointSize: devToolsButtonIconSize,
+                weight: .medium
+            )
                 .foregroundStyle(devToolsColorOption.color)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
@@ -1603,10 +1612,11 @@ struct BrowserPanelView: View {
         Button(action: {
             isBrowserThemeMenuPresented.toggle()
         }) {
-            Image(systemName: browserThemeMode.iconName)
-                .symbolRenderingMode(.monochrome)
-                .cmuxFlatSymbolColorRendering()
-                .cmuxSymbolRasterSize(devToolsButtonIconSize, weight: .medium)
+            CmuxSystemSymbolImage(
+                systemName: browserThemeMode.iconName,
+                pointSize: devToolsButtonIconSize,
+                weight: .medium
+            )
                 .foregroundStyle(browserThemeModeIconColor)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
@@ -1632,8 +1642,11 @@ struct BrowserPanelView: View {
             isBrowserImportHintPopoverPresented.toggle()
         }) {
             HStack(spacing: 4) {
-                Image(systemName: "square.and.arrow.down.on.square")
-                    .cmuxSymbolRasterSize(10, weight: .medium)
+                CmuxSystemSymbolImage(
+                    systemName: "square.and.arrow.down.on.square",
+                    pointSize: 10,
+                    weight: .medium
+                )
                 Text(String(localized: "browser.import.hint.toolbar", defaultValue: "Import"))
                     .cmuxFont(size: 11, weight: .medium)
                     .lineLimit(1)
@@ -1662,8 +1675,11 @@ struct BrowserPanelView: View {
                         applyBrowserProfileSelection(profile.id)
                     } label: {
                         HStack(spacing: 8) {
-                            Image(systemName: profile.id == panel.profileID ? "checkmark" : "circle")
-                                .cmuxSymbolRasterSize(10, weight: .semibold)
+                            CmuxSystemSymbolImage(
+                                systemName: profile.id == panel.profileID ? "checkmark" : "circle",
+                                pointSize: 10,
+                                weight: .semibold
+                            )
                                 .opacity(profile.id == panel.profileID ? 1.0 : 0.0)
                                 .frame(width: 12, alignment: .center)
                             Text(profile.displayName)
@@ -1725,8 +1741,11 @@ struct BrowserPanelView: View {
                     isBrowserThemeMenuPresented = false
                 } label: {
                     HStack(spacing: 8) {
-                        Image(systemName: mode == browserThemeMode ? "checkmark" : "circle")
-                            .cmuxSymbolRasterSize(10, weight: .semibold)
+                        CmuxSystemSymbolImage(
+                            systemName: mode == browserThemeMode ? "checkmark" : "circle",
+                            pointSize: 10,
+                            weight: .semibold
+                        )
                             .opacity(mode == browserThemeMode ? 1.0 : 0.0)
                             .frame(width: 12, alignment: .center)
                         Text(mode.displayName)
@@ -1758,8 +1777,10 @@ struct BrowserPanelView: View {
 
         return HStack(spacing: 4) {
             if showSecureBadge {
-                Image(systemName: "lock.fill")
-                    .cmuxSymbolRasterSize(chromeMetrics.secureBadgeFontSize)
+                CmuxSystemSymbolImage(
+                    systemName: "lock.fill",
+                    pointSize: chromeMetrics.secureBadgeFontSize
+                )
                     .foregroundColor(.secondary)
             }
 

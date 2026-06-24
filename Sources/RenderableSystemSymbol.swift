@@ -58,6 +58,40 @@ enum RenderableSystemSymbol {
         return max(minimumRasterPointSize, pointSize)
     }
 
+    @MainActor
+    static func configuredAppKitImage(
+        systemName: String,
+        pointSize: CGFloat,
+        weight: Font.Weight? = nil
+    ) -> NSImage? {
+        let rasterSize = clampedRasterPointSize(pointSize)
+        guard let baseImage = NSImage(systemSymbolName: systemName, accessibilityDescription: nil) else {
+            return nil
+        }
+        let configuration = NSImage.SymbolConfiguration(
+            pointSize: rasterSize,
+            weight: nsFontWeight(for: weight)
+        )
+        let configuredImage = baseImage.withSymbolConfiguration(configuration) ?? baseImage
+        let image = (configuredImage.copy() as? NSImage) ?? configuredImage
+        image.isTemplate = true
+        image.size = NSSize(width: rasterSize, height: rasterSize)
+        return image
+    }
+
+    private static func nsFontWeight(for weight: Font.Weight?) -> NSFont.Weight {
+        guard let weight else { return .regular }
+        if weight == .ultraLight { return .ultraLight }
+        if weight == .thin { return .thin }
+        if weight == .light { return .light }
+        if weight == .medium { return .medium }
+        if weight == .semibold { return .semibold }
+        if weight == .bold { return .bold }
+        if weight == .heavy { return .heavy }
+        if weight == .black { return .black }
+        return .regular
+    }
+
     #if DEBUG
     @MainActor
     static func resetRenderabilityCacheForTesting() {
@@ -66,16 +100,26 @@ enum RenderableSystemSymbol {
     #endif
 }
 
-extension Image {
-    /// Keeps a positive symbol frame while avoiding the blank-prone resizable SF Symbol rasterizer.
-    func cmuxSymbolRasterSize(
-        _ pointSize: CGFloat,
-        weight: Font.Weight? = nil,
-        alignment: Alignment = .center
-    ) -> some View {
+struct CmuxSystemSymbolImage: View {
+    let systemName: String
+    let pointSize: CGFloat
+    var weight: Font.Weight?
+    var alignment: Alignment = .center
+
+    var body: some View {
         let rasterSize = RenderableSystemSymbol.clampedRasterPointSize(pointSize)
-        let systemFont: Font = weight.map { .system(size: rasterSize, weight: $0) } ?? .system(size: rasterSize)
-        return font(systemFont)
-            .frame(width: rasterSize, height: rasterSize, alignment: alignment)
+        if let image = RenderableSystemSymbol.configuredAppKitImage(
+            systemName: systemName,
+            pointSize: rasterSize,
+            weight: weight
+        ) {
+            Image(nsImage: image)
+                .renderingMode(.template)
+                .frame(width: rasterSize, height: rasterSize, alignment: alignment)
+        } else {
+            Color.clear
+                .frame(width: rasterSize, height: rasterSize, alignment: alignment)
+                .accessibilityHidden(true)
+        }
     }
 }
