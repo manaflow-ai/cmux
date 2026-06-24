@@ -94,6 +94,7 @@ struct WorkspaceListView: View {
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
     @State private var showingDeviceTree = false
+    @State private var shouldShowAddDeviceAfterDeviceTreeDismiss = false
     /// The active row filter (All / Unread), shared-model state behind the
     /// toolbar ``WorkspaceListFilterMenu``. Session-transient like a search.
     @State private var filter: MobileWorkspaceListFilter = .all
@@ -265,8 +266,17 @@ struct WorkspaceListView: View {
         // leaving a parent sheet covering it.
         .sheet(isPresented: $showingDeviceTree) {
             if let store {
-                DeviceTreeView(store: store, selectWorkspace: selectWorkspace, showAddDevice: showAddDevice)
+                DeviceTreeView(
+                    store: store,
+                    selectWorkspace: selectWorkspace,
+                    showAddDevice: showAddDevice.map { _ in requestAddDeviceFromDeviceTree }
+                )
             }
+        }
+        .onChange(of: showingDeviceTree) { _, isPresented in
+            guard !isPresented, shouldShowAddDeviceAfterDeviceTreeDismiss else { return }
+            shouldShowAddDeviceAfterDeviceTreeDismiss = false
+            showAddDevice?()
         }
         #endif
     }
@@ -293,6 +303,12 @@ struct WorkspaceListView: View {
         .accessibilityIdentifier("MobileWorkspaceDevicesButton")
     }
     #endif
+
+    private func requestAddDeviceFromDeviceTree() {
+        guard showAddDevice != nil else { return }
+        shouldShowAddDeviceAfterDeviceTreeDismiss = true
+        showingDeviceTree = false
+    }
 
     /// Flat presentation: a pinned-first list with no group headers. Used when the
     /// Mac has no groups (or lacks the capability) or while searching.

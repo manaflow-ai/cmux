@@ -1106,6 +1106,40 @@
         }
       }
     },
+    "mobile.computers.searchEmpty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No computers match your search."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索に一致するコンピュータがありません。"
+          }
+        }
+      }
+    },
+    "mobile.computers.searchPrompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search computers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータを検索"
+          }
+        }
+      }
+    },
     "mobile.computers.field.build": {
       "extractionState": "manual",
       "localizations": {
