@@ -744,17 +744,18 @@ private extension CmuxVaultAgentSessionIDSource {
             return VaultAgentSessionIDResolution(sessionId: sessionId, source: .explicit)
         case .piSessionFile:
             let locator = PiSessionLocator(fileManager: fileManager)
+            let piRegistration = registration.piSessionRegistration
             if let session = process.piCompatibleSessionID {
                 let sessionId = locator.resolvedSessionPath(
                     session,
                     for: process,
-                    registration: registration
+                    registration: piRegistration
                 ) ?? session
                 return VaultAgentSessionIDResolution(sessionId: sessionId, source: .explicit)
             }
             guard let sessionId = locator.latestSessionPath(
                 for: process,
-                registration: registration
+                registration: piRegistration
             ) else {
                 return nil
             }
@@ -787,124 +788,19 @@ private extension CmuxTopProcessSnapshot {
 // value(afterOption:) / nonOptionValue(afterOption:) / piCompatibleSessionID(startingAt:) /
 // grokResumeSessionID) now live in `CMUXAgentLaunch` (AgentArgumentVectorValues.swift).
 
-/// App-side resolver for the process- and registration-coupled pieces of a
-/// `pi`-compatible agent's session layout. Selects the candidate session
-/// directory from argv/env overrides, omp-specific roots, and the registration's
-/// configured directory, then forwards the pure path/file math
-/// (`projectDirectoryName`, `defaultSessionsRoot`, `newestJSONLFile`) to the
-/// process-independent `PiSessionResolver` in `CMUXAgentLaunch`.
-struct PiSessionLocator {
-    private let fileManager: FileManager
-    private let resolver: PiSessionResolver
+// `PiSessionLocator` (app-side resolver for the process- and registration-coupled
+// pieces of a `pi`-compatible agent's session layout) now lives in `CMUXAgentLaunch`
+// (PiSessionLocator.swift), taking a `PiSessionRegistration` value instead of the
+// app registry type. See `CmuxVaultAgentRegistration.piSessionRegistration`.
 
-    init(fileManager: FileManager) {
-        self.fileManager = fileManager
-        self.resolver = PiSessionResolver(fileManager: fileManager)
-    }
-
-    func latestSessionPath(
-        for process: VaultObservedAgentProcess,
-        registration: CmuxVaultAgentRegistration
-    ) -> String? {
-        resolver.newestJSONLFile(in: candidateSessionDirectory(for: process, registration: registration))?.path
-    }
-
-    func resolvedSessionPath(
-        _ session: String,
-        for process: VaultObservedAgentProcess,
-        registration: CmuxVaultAgentRegistration
-    ) -> String? {
-        let trimmed = session.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        if trimmed.contains("/") {
-            let expanded = (trimmed as NSString).expandingTildeInPath
-            return fileManager.fileExists(atPath: expanded) ? expanded : trimmed
-        }
-
-        let directory = candidateSessionDirectory(for: process, registration: registration)
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: directory, isDirectory: &isDirectory),
-              isDirectory.boolValue,
-              let enumerator = fileManager.enumerator(
-                  at: URL(fileURLWithPath: directory, isDirectory: true),
-                  includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
-                  options: [.skipsHiddenFiles]
-              ) else {
-            return nil
-        }
-
-        var exactNewest: (url: URL, modified: Date)?
-        var partialNewest: (url: URL, modified: Date)?
-        for case let url as URL in enumerator where url.pathExtension == "jsonl" {
-            let basename = url.deletingPathExtension().lastPathComponent
-            guard basename == trimmed || basename.contains(trimmed) else { continue }
-            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
-            guard values?.isRegularFile == true, let modified = values?.contentModificationDate else { continue }
-            if basename == trimmed {
-                if exactNewest == nil || modified > exactNewest!.modified {
-                    exactNewest = (url, modified)
-                }
-            } else if partialNewest == nil || modified > partialNewest!.modified {
-                partialNewest = (url, modified)
-            }
-        }
-        return exactNewest?.url.path ?? partialNewest?.url.path
-    }
-
-    private func candidateSessionDirectory(
-        for process: VaultObservedAgentProcess,
-        registration: CmuxVaultAgentRegistration
-    ) -> String {
-        let sessionRoot = process.arguments.value(afterOption: "--session-dir")
-            ?? process.environment["PI_CODING_AGENT_SESSION_DIR"]
-            ?? configuredSessionDirectory(for: registration)
-            ?? ompAgentSessionsRoot(for: process, registration: registration)
-            ?? registration.sessionDirectory
-            ?? resolver.defaultSessionsRoot()
-        let expandedRoot = (sessionRoot as NSString).expandingTildeInPath
-        if let cwd = process.environment["CMUX_AGENT_LAUNCH_CWD"] ?? process.environment["PWD"],
-           let projectDirectory = resolver.projectDirectoryName(for: cwd) {
-            return (expandedRoot as NSString).appendingPathComponent(projectDirectory)
-        }
-        return expandedRoot
-    }
-
-    private func ompAgentSessionsRoot(
-        for process: VaultObservedAgentProcess,
-        registration: CmuxVaultAgentRegistration
-    ) -> String? {
-        guard registration.id == "omp" else { return nil }
-        if let agentRoot = nonEmptyEnvironmentValue("PI_CODING_AGENT_DIR", in: process.environment) {
-            let expandedAgentRoot = NSString(string: agentRoot).expandingTildeInPath
-            return (expandedAgentRoot as NSString).appendingPathComponent("sessions")
-        }
-        guard let configDir = nonEmptyEnvironmentValue("PI_CONFIG_DIR", in: process.environment) else {
-            return nil
-        }
-        let home = nonEmptyEnvironmentValue("HOME", in: process.environment) ?? NSHomeDirectory()
-        let expandedConfigDir = NSString(string: configDir).expandingTildeInPath
-        let configRoot: String
-        if (expandedConfigDir as NSString).isAbsolutePath {
-            configRoot = expandedConfigDir
-        } else {
-            configRoot = ((NSString(string: home).expandingTildeInPath) as NSString)
-                .appendingPathComponent(configDir)
-        }
-        let agentRoot = (configRoot as NSString).appendingPathComponent("agent")
-        return (agentRoot as NSString).appendingPathComponent("sessions")
-    }
-
-    private func configuredSessionDirectory(for registration: CmuxVaultAgentRegistration) -> String? {
-        guard let sessionDirectory = registration.sessionDirectory else { return nil }
-        if registration.id == "omp",
-           sessionDirectory == CmuxVaultAgentRegistration.builtInOmp.sessionDirectory {
-            return nil
-        }
-        return sessionDirectory
-    }
-
-    private func nonEmptyEnvironmentValue(_ name: String, in environment: [String: String]) -> String? {
-        let trimmed = environment[name]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmed.isEmpty ? nil : trimmed
+private extension CmuxVaultAgentRegistration {
+    /// The package-side `PiSessionRegistration` value carrying the three fields
+    /// `PiSessionLocator` reads, decoupling the package from this app registry type.
+    var piSessionRegistration: PiSessionRegistration {
+        PiSessionRegistration(
+            id: id,
+            sessionDirectory: sessionDirectory,
+            builtInOmpSessionDirectory: CmuxVaultAgentRegistration.builtInOmp.sessionDirectory
+        )
     }
 }

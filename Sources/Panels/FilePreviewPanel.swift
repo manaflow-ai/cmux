@@ -387,8 +387,6 @@ struct FilePreviewPanelView: View {
     let appearance: PanelAppearance
     let onRequestPanelFocus: () -> Void
 
-    @State private var focusFlashOpacity = 0.0
-    @State private var focusFlashAnimationGeneration = 0
     @AppStorage(FilePreviewWordWrapSettings.key) private var fileEditorWordWrap = FilePreviewWordWrapSettings.defaultEnabled
 
     private var themeForegroundColor: NSColor {
@@ -409,16 +407,13 @@ struct FilePreviewPanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: contentBackgroundColor))
-        .overlay {
-            WorkspaceAttentionFlashRingView(opacity: focusFlashOpacity)
+        .focusFlash(token: panel.focusFlashToken) { opacity in
+            WorkspaceAttentionFlashRingView(opacity: opacity)
         }
         .overlay {
             if isVisibleInUI {
                 FilePreviewPointerObserver(onPointerDown: onRequestPanelFocus)
             }
-        }
-        .onChange(of: panel.focusFlashToken) {
-            triggerFocusFlashAnimation()
         }
     }
 
@@ -516,29 +511,6 @@ struct FilePreviewPanelView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func triggerFocusFlashAnimation() {
-        focusFlashAnimationGeneration &+= 1
-        let generation = focusFlashAnimationGeneration
-        focusFlashOpacity = FocusFlashPattern.standard.values.first ?? 0
-
-        for segment in FocusFlashPattern.standard.segments {
-            DispatchQueue.main.asyncAfter(deadline: .now() + segment.delay) {
-                guard focusFlashAnimationGeneration == generation else { return }
-                withAnimation(focusFlashAnimation(for: segment.curve, duration: segment.duration)) {
-                    focusFlashOpacity = segment.targetOpacity
-                }
-            }
-        }
-    }
-
-    private func focusFlashAnimation(for curve: FocusFlashCurve, duration: TimeInterval) -> Animation {
-        switch curve {
-        case .easeIn:
-            return .easeIn(duration: duration)
-        case .easeOut:
-            return .easeOut(duration: duration)
-        }
-    }
 }
 
 private struct FilePreviewPDFView: NSViewRepresentable {

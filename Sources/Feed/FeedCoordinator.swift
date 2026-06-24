@@ -835,22 +835,11 @@ private extension FeedCoordinator {
 
     private static func permissionNotificationCategoryId(for event: WorkstreamEvent) -> String {
         let source = WorkstreamSource(wireName: event.source) ?? .claude
-        let supportsOnce = FeedPermissionActionPolicy.supportsOncePermissionMode(
-            source: source,
-            toolInputJSON: event.toolInputJSON
-        )
-        let supportsAlways = FeedPermissionActionPolicy.supportsAlwaysPermissionMode(
-            source: source,
-            toolInputJSON: event.toolInputJSON
-        )
-        let supportsAll = FeedPermissionActionPolicy.supportsAllPermissionMode(
-            source: source,
-            toolInputJSON: event.toolInputJSON
-        )
+        let capabilities = source.permissionModeCapabilities(toolInputJSON: event.toolInputJSON)
         var suffix = ""
-        if supportsOnce { suffix += "Once" }
-        if supportsAlways { suffix += "Always" }
-        if supportsAll { suffix += "All" }
+        if capabilities.supportsOnce { suffix += "Once" }
+        if capabilities.supportsAlways { suffix += "Always" }
+        if capabilities.supportsAll { suffix += "All" }
         return suffix.isEmpty ? "CMUXFeedPermissionDeny" : "CMUXFeedPermission\(suffix)"
     }
 
@@ -1200,8 +1189,7 @@ enum FeedSocketEncoding {
         case .permissionRequest(let requestId, let toolName, let toolInputJSON, let pattern):
             dict["request_id"] = requestId
             dict["tool_name"] = toolName
-            if let capabilityJSON = FeedPermissionActionPolicy.codexCapabilityToolInputJSON(
-                source: item.source,
+            if let capabilityJSON = item.source.codexCapabilityToolInputJSON(
                 toolInputJSON: toolInputJSON
             ) {
                 dict["tool_input_capabilities"] = capabilityJSON

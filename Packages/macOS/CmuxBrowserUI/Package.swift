@@ -20,6 +20,9 @@ let package = Package(
         // DEBUG-only suggestion-click telemetry routes through CMUXDebugLog
         // (#if DEBUG only), mirroring CmuxBrowser's ReactGrab logging.
         .package(path: "../CMUXDebugLog"),
+        // CmuxTestSupport owns CmuxTypingTiming, the DEBUG typing-latency probe the
+        // omnibar field logs keystroke spans through (#if DEBUG only).
+        .package(path: "../CmuxTestSupport"),
     ],
     targets: [
         .target(
@@ -27,6 +30,7 @@ let package = Package(
             dependencies: [
                 .product(name: "CmuxBrowser", package: "CmuxBrowser"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
+                .product(name: "CmuxTestSupport", package: "CmuxTestSupport"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

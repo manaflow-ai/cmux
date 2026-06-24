@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import UniformTypeIdentifiers
+import CmuxBrowser
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

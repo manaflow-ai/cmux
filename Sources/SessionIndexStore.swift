@@ -634,76 +634,14 @@ final class SessionIndexStore {
 
     // `ClaudeParsed` moved to CmuxFoundation as `TranscriptMetadataParser.ClaudeTranscriptMetadata`.
 
-    private struct ClaudeSessionRoot: Hashable {
-        let configDir: String
-        let resumeConfigDirectory: String?
-
-        var projectsRoot: String {
-            (configDir as NSString).appendingPathComponent("projects")
-        }
-    }
-
-    private struct ClaudeSessionCandidate: Sendable {
-        let url: URL
-        let mtime: Date
-        let dirName: String
-        let resumeConfigDirectory: String?
-        let prefilteredByRipgrep: Bool
-    }
-
-    nonisolated private static func claudeSessionRoots() -> [ClaudeSessionRoot] {
-        let fm = FileManager.default
-        var roots: [ClaudeSessionRoot] = []
-        var seen: Set<String> = []
-
-        func appendRoot(_ rawPath: String?, requireConfigured: Bool) {
-            guard let rawPath else { return }
-            let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return }
-            let configDir = (trimmed as NSString).expandingTildeInPath
-            let standardized = ClaudeConfigDirectoryPath.preferredPath(configDir)
-            let projectsRoot = (standardized as NSString).appendingPathComponent("projects")
-            var isDirectory: ObjCBool = false
-            guard fm.fileExists(atPath: projectsRoot, isDirectory: &isDirectory),
-                  isDirectory.boolValue else {
-                return
-            }
-            let resumeConfigDirectory = ClaudeConfigurationRoot.configuredResumeDirectory(
-                standardized,
-                fileManager: fm
-            )
-            if requireConfigured, resumeConfigDirectory == nil {
-                return
-            }
-            guard seen.insert(standardized).inserted else { return }
-            roots.append(
-                ClaudeSessionRoot(
-                    configDir: standardized,
-                    resumeConfigDirectory: resumeConfigDirectory
-                )
-            )
-        }
-
-        let environmentConfigDir = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"]
-        appendRoot(environmentConfigDir, requireConfigured: false)
-
-        let accountRoot = ("~/.codex-accounts/claude" as NSString).expandingTildeInPath
-        if let accountDirs = try? fm.contentsOfDirectory(atPath: accountRoot) {
-            for accountDir in accountDirs.sorted() {
-                appendRoot(
-                    (accountRoot as NSString).appendingPathComponent(accountDir),
-                    requireConfigured: true
-                )
-            }
-        }
-
-        appendRoot(
-            ("~/.claude" as NSString).expandingTildeInPath,
-            requireConfigured: false
-        )
-
-        return roots
-    }
+    // The Claude filesystem-discovery cluster (`ClaudeSessionRoot`,
+    // `ClaudeSessionCandidate`, `claudeSessionRoots()`, and
+    // `enumerateClaudeJSONLCandidates(root:cwdFilter:prefilteredByRipgrep:)`) moved
+    // to CmuxFoundation as `ClaudeSessionDiscovery`. The three app-side dependencies
+    // are injected as closures into the `claudeSessionDiscovery` service below:
+    // `ClaudeConfigDirectoryPath.preferredPath`,
+    // `ClaudeConfigurationRoot.configuredResumeDirectory`, and
+    // `RestorableAgentSessionIndex.encodeClaudeProjectDir`.
 
     // `extractClaudeMetadata`, `decodeClaudeProjectDir`, and `claudeProjectDirName`
     // moved to CmuxFoundation (`TranscriptMetadataParser`). The app-side
@@ -711,57 +649,6 @@ final class SessionIndexStore {
     // closure, and the parser-owned `TranscriptPullRequestLink` is mapped onto
     // `PullRequestLink` at the call site.
     // `realCodexUserMessage(_:)` moved to CmuxFoundation (RipgrepFileScanner).
-
-    nonisolated private static func enumerateClaudeJSONLCandidates(
-        root: ClaudeSessionRoot,
-        cwdFilter: String?,
-        prefilteredByRipgrep: Bool
-    ) -> [ClaudeSessionCandidate] {
-        let fm = FileManager.default
-        var candidates: [ClaudeSessionCandidate] = []
-
-        func appendJSONLFiles(in dirPath: String, dirName: String) {
-            guard let contents = try? fm.contentsOfDirectory(atPath: dirPath) else { return }
-            for name in contents where name.hasSuffix(".jsonl") {
-                let filePath = (dirPath as NSString).appendingPathComponent(name)
-                let url = URL(fileURLWithPath: filePath)
-                guard let attrs = try? fm.attributesOfItem(atPath: filePath),
-                      let mtime = attrs[.modificationDate] as? Date else { continue }
-                candidates.append(
-                    ClaudeSessionCandidate(
-                        url: url,
-                        mtime: mtime,
-                        dirName: dirName,
-                        resumeConfigDirectory: root.resumeConfigDirectory,
-                        prefilteredByRipgrep: prefilteredByRipgrep
-                    )
-                )
-            }
-        }
-
-        if let cwdFilter {
-            // Single-sourced with RestorableAgentSessionIndex so this fast-path cwd filter
-            // encodes dotted paths ("." -> "-") identically to the transcript-discovery path.
-            let dirName = RestorableAgentSessionIndex.encodeClaudeProjectDir(cwdFilter)
-            let dirPath = (root.projectsRoot as NSString).appendingPathComponent(dirName)
-            var isDir: ObjCBool = false
-            if fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue {
-                appendJSONLFiles(in: dirPath, dirName: dirName)
-            }
-            return candidates
-        }
-
-        guard let projectDirs = try? fm.contentsOfDirectory(atPath: root.projectsRoot) else {
-            return candidates
-        }
-        for dirName in projectDirs {
-            let dirPath = (root.projectsRoot as NSString).appendingPathComponent(dirName)
-            var isDir: ObjCBool = false
-            guard fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue else { continue }
-            appendJSONLFiles(in: dirPath, dirName: dirName)
-        }
-        return candidates
-    }
 
     // MARK: Codex
 
@@ -792,22 +679,6 @@ final class SessionIndexStore {
     struct SearchOutcome: Sendable {
         var entries: [SessionEntry]
         var errors: [String]
-    }
-
-    /// Thread-safe accumulator passed down to per-agent helpers so they can
-    /// report failures (e.g. SQL prepare errors when an agent bumps its
-    /// schema) without requiring the helpers to throw across actor boundaries.
-    final class ErrorBag: @unchecked Sendable {
-        private let lock = NSLock()
-        private var messages: [String] = []
-        func add(_ msg: String) {
-            lock.lock(); defer { lock.unlock() }
-            messages.append(msg)
-        }
-        func snapshot() -> [String] {
-            lock.lock(); defer { lock.unlock() }
-            return messages
-        }
     }
 
     /// Paginated on-demand search across the full filesystem (Claude/Codex) and
@@ -1018,6 +889,25 @@ final class SessionIndexStore {
         headByteCap: headByteCap
     )
 
+    /// Claude transcript filesystem discovery (configured roots + `*.jsonl`
+    /// candidate enumeration), lifted to CmuxFoundation. The three app-side
+    /// dependencies are injected as closures: config-dir standardization
+    /// (`ClaudeConfigDirectoryPath.preferredPath`), resume-directory resolution
+    /// (`ClaudeConfigurationRoot.configuredResumeDirectory`), and Claude project
+    /// directory encoding (`RestorableAgentSessionIndex.encodeClaudeProjectDir`),
+    /// so the package stays decoupled from those higher/app-side seams.
+    nonisolated static let claudeSessionDiscovery = ClaudeSessionDiscovery(
+        preferredConfigDirectoryPath: { configDir, fileManager in
+            ClaudeConfigDirectoryPath.preferredPath(configDir, fileManager: fileManager)
+        },
+        configuredResumeDirectory: { configDir, fileManager in
+            ClaudeConfigurationRoot.configuredResumeDirectory(configDir, fileManager: fileManager)
+        },
+        encodeClaudeProjectDir: { cwd in
+            RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd)
+        }
+    )
+
     /// Returns Claude session entries paginated by mtime desc.
     /// - When `needle` is empty: fast path. Skips rg, enumerates configured Claude
     ///   roots, takes the top `offset+limit` by mtime, parses metadata, returns the slice.
@@ -1029,14 +919,14 @@ final class SessionIndexStore {
         needle: String, cwdFilter: String?, offset: Int, limit: Int,
         claudeMetadataCache: ClaudeMetadataCache
     ) async -> [SessionEntry] {
-        let roots = claudeSessionRoots()
+        let roots = claudeSessionDiscovery.sessionRoots()
         guard !roots.isEmpty else { return [] }
         let fm = FileManager.default
 
         // Pre-filter via rg when we have a needle — rg is parallel, mmaps the
         // file, and scans the WHOLE file (not just our 128 KB head), so it both
         // speeds the scan up and finds matches deeper in long transcripts.
-        var candidates: [ClaudeSessionCandidate] = []
+        var candidates: [ClaudeSessionDiscovery.SessionCandidate] = []
         if !needle.isEmpty {
             for root in roots {
                 guard let rgPaths = await ripgrepScanner.matchingPaths(
@@ -1045,7 +935,7 @@ final class SessionIndexStore {
                     fileGlob: "*.jsonl"
                 ) else {
                     candidates.append(
-                        contentsOf: enumerateClaudeJSONLCandidates(
+                        contentsOf: claudeSessionDiscovery.enumerateJSONLCandidates(
                             root: root,
                             cwdFilter: cwdFilter,
                             prefilteredByRipgrep: false
@@ -1058,7 +948,7 @@ final class SessionIndexStore {
                           let mtime = attrs[.modificationDate] as? Date else { continue }
                     let dirName = transcriptParser.claudeProjectDirName(for: url, projectsRoot: root.projectsRoot)
                     candidates.append(
-                        ClaudeSessionCandidate(
+                        ClaudeSessionDiscovery.SessionCandidate(
                             url: url,
                             mtime: mtime,
                             dirName: dirName,
@@ -1073,7 +963,7 @@ final class SessionIndexStore {
             // enumerating every other project entirely.
             for root in roots {
                 candidates.append(
-                    contentsOf: enumerateClaudeJSONLCandidates(
+                    contentsOf: claudeSessionDiscovery.enumerateJSONLCandidates(
                         root: root,
                         cwdFilter: cwdFilter,
                         prefilteredByRipgrep: false
@@ -1083,7 +973,7 @@ final class SessionIndexStore {
         } else {
             for root in roots {
                 candidates.append(
-                    contentsOf: enumerateClaudeJSONLCandidates(
+                    contentsOf: claudeSessionDiscovery.enumerateJSONLCandidates(
                         root: root,
                         cwdFilter: nil,
                         prefilteredByRipgrep: false

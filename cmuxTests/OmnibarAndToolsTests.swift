@@ -467,9 +467,7 @@ final class OmnibarStateMachineTests: XCTestCase {
         let effects = omnibarReduce(
             state: &state,
             event: .focusReasserted(
-                shouldSelectAll: browserOmnibarShouldSelectAllOnFocusReassertion(
-                    selectionIntent: .selectAll
-                )
+                shouldSelectAll: BrowserAddressBarFocusSelectionIntent.selectAll.shouldSelectAll
             )
         )
 
@@ -482,14 +480,10 @@ final class OmnibarStateMachineTests: XCTestCase {
 
     func testFocusReassertionHonorsSelectionIntent() throws {
         XCTAssertTrue(
-            browserOmnibarShouldSelectAllOnFocusReassertion(
-                selectionIntent: .selectAll
-            )
+            BrowserAddressBarFocusSelectionIntent.selectAll.shouldSelectAll
         )
         XCTAssertFalse(
-            browserOmnibarShouldSelectAllOnFocusReassertion(
-                selectionIntent: .preserveFieldEditorSelection
-            )
+            BrowserAddressBarFocusSelectionIntent.preserveFieldEditorSelection.shouldSelectAll
         )
     }
 

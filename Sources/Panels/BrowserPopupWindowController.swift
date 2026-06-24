@@ -147,6 +147,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         let uiDel = PopupUIDelegate()
         let navDel = PopupNavigationDelegate()
         let dlDel = BrowserDownloadDelegate()
+        dlDel.logSink = BrowserPanel.downloadLogSink
         self.popupUIDelegate = uiDel
         self.popupNavigationDelegate = navDel
         self.downloadDelegate = dlDel
