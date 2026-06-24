@@ -17,11 +17,15 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../../Shared/CmuxAgentChat"),
+        .package(path: "../CmuxMobileSupport"),
     ],
     targets: [
         .target(
             name: "CmuxAgentChatUI",
-            dependencies: ["CmuxAgentChat"],
+            dependencies: [
+                "CmuxAgentChat",
+                "CmuxMobileSupport",
+            ],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

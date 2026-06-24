@@ -1,6 +1,7 @@
 #if canImport(UIKit)
 import CMUXMobileCore
 import CmuxMobileDiagnostics
+import CmuxMobileSupport
 import CmuxMobileTerminalKit
 import GhosttyKit
 import OSLog
@@ -1041,14 +1042,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         )
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(handleKeyboardWillShow(_:)),
-            name: UIResponder.keyboardWillShowNotification,
-            object: nil
-        )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleKeyboardWillHide(_:)),
-            name: UIResponder.keyboardWillHideNotification,
+            selector: #selector(handleKeyboardWillChangeFrame(_:)),
+            name: UIResponder.keyboardWillChangeFrameNotification,
             object: nil
         )
     }
@@ -1178,25 +1173,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// whichever registered surface happens to sort first.
     public var hostSurfaceID: String?
 
-    @objc private func handleKeyboardWillShow(_ notification: Notification) {
-        guard let frameEnd = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
-              let window else { return }
-        let keyboardFrameInView = convert(frameEnd, from: window)
-        let overlap = max(0, bounds.maxY - keyboardFrameInView.minY)
-        guard overlap != keyboardHeight else { return }
-        let wasDown = keyboardHeight == 0
-        keyboardHeight = overlap
-        inputProxy.setKeyboardShown(true)
-        // The bar is keyboard-tied: reveal it (and reserve its grid height) as the
-        // keyboard comes up. Done before the frame animation so it animates in
-        // with the keyboard instead of popping after.
-        if wasDown { updateDockedToolbarVisibility() }
-        animateDockedToolbar(with: notification)
-        setNeedsGeometrySync()
-    }
-
-    @objc private func handleKeyboardWillHide(_ notification: Notification) {
-        guard keyboardHeight != 0 else { return }
+    @objc private func handleKeyboardWillChangeFrame(_ notification: Notification) {
+        guard let transition = MobileKeyboardTransition(notification: notification) else { return }
+        let overlap = transition.overlap(in: self)
+        guard abs(overlap - keyboardHeight) > 0.5 else { return }
+        let wasUp = keyboardHeight > 0
+        let willBeUp = overlap > 0
         #if DEBUG
         // The composer-up/keyboard-down desync can be reached WITHOUT the dismiss
         // button (code 24): a swipe-to-dismiss, an attached hardware keyboard, or
@@ -1206,15 +1188,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // here too, with the resolved first-responder owner, so a Capture&Send trace
         // is complete no matter how the keyboard went down. Pure diagnostics; the hide
         // behavior below is unchanged.
-        if composerActive {
+        if wasUp, !willBeUp, composerActive {
             let frOwner = TerminalInputTextView.responderIdentity(of: CurrentResponderProbe().current())
             MobileDebugLog.anchormux(
                 "composer.keyboardHideWhilePresented prevKeyboardHeight=\(Int(keyboardHeight)) frOwner=\(frOwner.rawValue) proxyIsFR=\(inputProxy.isFirstResponder ? 1 : 0)"
             )
         }
         #endif
-        keyboardHeight = 0
-        inputProxy.setKeyboardShown(false)
+        keyboardHeight = overlap
+        inputProxy.setKeyboardShown(willBeUp)
         // Round 8 removes the `composerPresented ⇒ keyboardUp` enforcement: the
         // toolbar is ALWAYS visible and the composer band survives a keyboard-down, so
         // the keyboard collapsing no longer dismisses the composer. The composer's
@@ -1229,24 +1211,26 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // reclaims the keyboard's space (minus the now-reserved safe area + toolbar +
         // composer band).
         updateDockedToolbarVisibility()
-        animateDockedToolbar(with: notification)
+        animateBottomDock(with: transition)
         setNeedsGeometrySync()
-        // Bug fix (terminal not full height when keyboard closed): the inset this
-        // first sync reads can be stale. At `keyboardWillHide` the view's own
-        // `safeAreaInsets.bottom` (and sometimes the window's) has not yet settled
-        // to its keyboard-down value, and `setNeedsGeometrySync` only QUEUES a sync
-        // for the next display-link frame — if the link is momentarily stopped
-        // (a transition, a quick background/foreground) that queued sync can be
-        // missed, leaving the grid stuck at the shorter keyboard-up height until an
-        // unrelated relayout corrects it. Force a second sync after the keyboard
-        // hide layout pass settles so full height is restored deterministically.
-        // `safeAreaInsetsDidChange` already covers the inset-arrives-late case, but
-        // it does not fire when the inset value is unchanged yet the sync was
-        // dropped, so this is the belt-and-suspenders path.
-        scheduleKeyboardHideHeightResync()
-        // No explicit scrollback request here: the grid grew, so the viewport
-        // report resizes the Mac surface and the producer exports the taller
-        // viewport (which reveals more history) on its own.
+        if wasUp, !willBeUp {
+            // Bug fix (terminal not full height when keyboard closed): the inset this
+            // first sync reads can be stale. At keyboard hide the view's own
+            // `safeAreaInsets.bottom` (and sometimes the window's) has not yet settled
+            // to its keyboard-down value, and `setNeedsGeometrySync` only QUEUES a sync
+            // for the next display-link frame — if the link is momentarily stopped
+            // (a transition, a quick background/foreground) that queued sync can be
+            // missed, leaving the grid stuck at the shorter keyboard-up height until an
+            // unrelated relayout corrects it. Force a second sync after the keyboard
+            // hide layout pass settles so full height is restored deterministically.
+            // `safeAreaInsetsDidChange` already covers the inset-arrives-late case, but
+            // it does not fire when the inset value is unchanged yet the sync was
+            // dropped, so this is the belt-and-suspenders path.
+            scheduleKeyboardHideHeightResync()
+            // No explicit scrollback request here: the grid grew, so the viewport
+            // report resizes the Mac surface and the producer exports the taller
+            // viewport (which reveals more history) on its own.
+        }
     }
 
     /// Force a follow-up geometry sync shortly after the keyboard-hide layout
@@ -1693,7 +1677,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Duration (seconds) of the composer band grow/shrink reflow. Matches the system
     /// keyboard's default animation duration so a field-grow reads as one smooth
     /// motion with the dock; the keyboard show/hide reflow uses the notification's own
-    /// curve/duration (``animateDockedToolbar(with:)``).
+    /// curve/duration (``animateBottomDock(with:)``).
     private static let composerReflowDuration: TimeInterval = 0.25
 
     /// Frames for the whole bottom dock, computed together so the composer band, the
@@ -1772,22 +1756,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     /// Animate the whole bottom dock (composer band + toolbar) in lockstep with a
-    /// keyboard show/hide so it rides the keyboard edge instead of jumping. There is no
-    /// interactive (swipe-down) dismissal in this terminal, so a notification-driven
-    /// animate is sufficient and avoids the `keyboardLayoutGuide` safe-area mismatch.
-    private func animateDockedToolbar(with notification: Notification) {
-        let duration = (notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
-        let curveRaw = (notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int)
-            ?? Int(UIView.AnimationCurve.easeInOut.rawValue)
-        animateBottomDock(duration: duration, curveOption: UIView.AnimationOptions(rawValue: UInt(curveRaw) << 16))
+    /// keyboard frame change so it rides the keyboard edge instead of jumping.
+    private func animateBottomDock(with transition: MobileKeyboardTransition) {
+        let frames = bottomDockFrames()
+        transition.animate {
+            self.composerContainer.frame = frames.composer
+            self.dockedToolbar?.frame = frames.toolbar
+        }
     }
 
     /// Animate the whole bottom dock (composer band + toolbar) to its current target
-    /// frames over the given duration/curve. Used by ``animateDockedToolbar(with:)``
-    /// (keyboard show/hide, with the notification's own curve) and by the HIDE/show and
-    /// composer close paths (item 3), which have no keyboard notification and so default
-    /// to the system keyboard duration + easeInOut so the motion still reads as one
-    /// smooth coordinated reflow.
+    /// frames over the given duration/curve. Used by the HIDE/show and composer close
+    /// paths (item 3), which have no keyboard notification and so default to the system
+    /// keyboard duration + easeInOut so the motion still reads as one smooth coordinated
+    /// reflow. Real keyboard changes use ``animateBottomDock(with:)`` so the exact
+    /// UIKit keyboard transaction drives the dock.
     private func animateBottomDock(
         duration: TimeInterval = 0.25,
         curveOption: UIView.AnimationOptions = .curveEaseInOut

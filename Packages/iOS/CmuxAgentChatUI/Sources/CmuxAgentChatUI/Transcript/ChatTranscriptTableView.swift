@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxAgentChat
+import CmuxMobileSupport
 import SwiftUI
 import UIKit
 
@@ -72,11 +73,9 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         private var lastScrollToBottomRequest = 0
         private var isHandlingLayout = false
         private var shouldPreserveKeyboardViewport = false
-        private var keyboardWasAtBottom = false
-        private var keyboardVisibleBottomY: CGFloat?
-        private var keyboardBottomAnchor: ChatTranscriptTableBottomAnchor?
-        private var keyboardAnimationDuration: TimeInterval = 0
-        private var keyboardAnimationOptions: UIView.AnimationOptions = []
+        private var keyboardViewportSnapshot: MobileScrollViewportSnapshot?
+        private var keyboardTransition: MobileKeyboardTransition?
+        private var keyboardTransitionID = 0
         private weak var tableView: ChatTranscriptUITableView?
         private var isAtBottom: Binding<Bool>
 
@@ -87,12 +86,6 @@ struct ChatTranscriptTableView: UIViewRepresentable {
                 self,
                 selector: #selector(keyboardWillChangeFrame),
                 name: UIResponder.keyboardWillChangeFrameNotification,
-                object: nil
-            )
-            NotificationCenter.default.addObserver(
-                self,
-                selector: #selector(keyboardDidChangeFrame),
-                name: UIResponder.keyboardDidChangeFrameNotification,
                 object: nil
             )
         }
@@ -173,7 +166,11 @@ struct ChatTranscriptTableView: UIViewRepresentable {
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
             guard let tableView = scrollView as? UITableView else { return }
-            updateBottomState(from: tableView)
+            if shouldPreserveKeyboardViewport, let keyboardViewportSnapshot {
+                setAtBottom(keyboardViewportSnapshot.wasAtBottom)
+            } else {
+                updateBottomState(from: tableView)
+            }
             requestOlderHistoryIfNeeded(in: tableView)
         }
 
@@ -225,53 +222,13 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             tableView.setContentOffset(offset, animated: false)
         }
 
-        private func bottomVisibleAnchor(in tableView: UITableView) -> ChatTranscriptTableBottomAnchor? {
-            guard let indexPath = tableView.indexPathsForVisibleRows?.max(),
-                  items.indices.contains(indexPath.row)
-            else { return nil }
-            let item = items[indexPath.row]
-            let rect = tableView.rectForRow(at: indexPath)
-            let visibleBottom = tableView.contentOffset.y
-                + tableView.bounds.height
-                - tableView.adjustedContentInset.bottom
-            return ChatTranscriptTableBottomAnchor(
-                id: item.id,
-                offsetFromRowBottom: visibleBottom - rect.maxY
-            )
-        }
-
-        private func restore(_ anchor: ChatTranscriptTableBottomAnchor, in tableView: UITableView) {
-            guard let row = items.firstIndex(where: { $0.id == anchor.id }) else { return }
-            let indexPath = IndexPath(row: row, section: 0)
-            let rect = tableView.rectForRow(at: indexPath)
-            let targetY = rect.maxY
-                + anchor.offsetFromRowBottom
-                - tableView.bounds.height
-                + tableView.adjustedContentInset.bottom
-            tableView.setContentOffset(
-                CGPoint(x: tableView.contentOffset.x, y: clampedOffsetY(targetY, in: tableView)),
-                animated: false
-            )
-        }
-
         private func preserveViewportAfterLayout(in tableView: UITableView) {
-            let changes = {
+            let changes: @MainActor @Sendable () -> Void = {
                 tableView.layoutIfNeeded()
-                if self.keyboardWasAtBottom || self.isAtBottom.wrappedValue {
-                    self.scrollToBottom(in: tableView, animated: false)
-                } else if let keyboardVisibleBottomY = self.keyboardVisibleBottomY {
-                    self.restoreVisibleBottom(keyboardVisibleBottomY, in: tableView)
-                } else if let keyboardBottomAnchor = self.keyboardBottomAnchor {
-                    self.restore(keyboardBottomAnchor, in: tableView)
-                }
+                self.restoreKeyboardViewport(in: tableView)
             }
-            if keyboardAnimationDuration > 0 {
-                UIView.animate(
-                    withDuration: keyboardAnimationDuration,
-                    delay: 0,
-                    options: keyboardAnimationOptions.union([.beginFromCurrentState, .allowUserInteraction]),
-                    animations: changes
-                )
+            if let keyboardTransition {
+                keyboardTransition.animate(animations: changes)
             } else {
                 changes()
             }
@@ -319,16 +276,6 @@ struct ChatTranscriptTableView: UIViewRepresentable {
                 - tableView.adjustedContentInset.bottom
         }
 
-        private func restoreVisibleBottom(_ visibleBottomY: CGFloat, in tableView: UITableView) {
-            let targetY = visibleBottomY
-                - tableView.bounds.height
-                + tableView.adjustedContentInset.bottom
-            tableView.setContentOffset(
-                CGPoint(x: tableView.contentOffset.x, y: clampedOffsetY(targetY, in: tableView)),
-                animated: false
-            )
-        }
-
         private func maxOffsetY(in tableView: UITableView) -> CGFloat {
             max(
                 -tableView.adjustedContentInset.top,
@@ -342,41 +289,82 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             min(max(offsetY, -tableView.adjustedContentInset.top), maxOffsetY(in: tableView))
         }
 
-        @objc private func keyboardWillChangeFrame(_ notification: Notification) {
-            guard let tableView else { return }
-            keyboardWasAtBottom = isAtBottom.wrappedValue
-                || distanceFromBottom(in: tableView) <= Self.atBottomThreshold
-            keyboardVisibleBottomY = visibleBottomY(in: tableView)
-            keyboardBottomAnchor = bottomVisibleAnchor(in: tableView)
-            keyboardAnimationDuration = Self.keyboardAnimationDuration(from: notification)
-            keyboardAnimationOptions = Self.keyboardAnimationOptions(from: notification)
-            shouldPreserveKeyboardViewport = true
+        private func keyboardViewportSnapshot(in tableView: UITableView) -> MobileScrollViewportSnapshot {
+            MobileScrollViewportSnapshot(
+                contentOffsetY: tableView.contentOffset.y,
+                boundsHeight: tableView.bounds.height,
+                adjustedBottomInset: tableView.adjustedContentInset.bottom,
+                contentHeight: tableView.contentSize.height,
+                atBottomThreshold: Self.atBottomThreshold,
+                wasAtBottom: isAtBottom.wrappedValue || distanceFromBottom(in: tableView) <= Self.atBottomThreshold
+            )
         }
 
-        @objc private func keyboardDidChangeFrame(_ notification: Notification) {
-            guard let tableView, shouldPreserveKeyboardViewport else { return }
+        private func restoreKeyboardViewport(in tableView: UITableView) {
+            guard let keyboardViewportSnapshot else { return }
+            let offsetY = keyboardViewportSnapshot.restoredOffsetY(
+                contentHeight: tableView.contentSize.height,
+                boundsHeight: tableView.bounds.height,
+                adjustedTopInset: tableView.adjustedContentInset.top,
+                adjustedBottomInset: tableView.adjustedContentInset.bottom
+            )
+            tableView.setContentOffset(
+                CGPoint(x: tableView.contentOffset.x, y: offsetY),
+                animated: false
+            )
+            setAtBottom(keyboardViewportSnapshot.wasAtBottom)
+        }
+
+        private func applyKeyboardViewport(
+            snapshot: MobileScrollViewportSnapshot,
+            in tableView: UITableView
+        ) {
+            keyboardViewportSnapshot = snapshot
+            // ChatScreen's SwiftUI stack already resizes this table above the
+            // composer during keyboard avoidance. A keyboard-height inset here
+            // double-counts that shrink and pushes the latest messages away.
+            tableView.contentInset.bottom = 0
+            tableView.verticalScrollIndicatorInsets.bottom = 0
             tableView.layoutIfNeeded()
-            preserveViewportAfterLayout(in: tableView)
+            restoreKeyboardViewport(in: tableView)
+        }
+
+        private func finishKeyboardViewportTransition(in tableView: UITableView) {
+            applyKeyboardViewport(
+                snapshot: keyboardViewportSnapshot ?? keyboardViewportSnapshot(in: tableView),
+                in: tableView
+            )
             shouldPreserveKeyboardViewport = false
-            keyboardWasAtBottom = false
-            keyboardVisibleBottomY = nil
-            keyboardBottomAnchor = nil
-            keyboardAnimationDuration = 0
-            keyboardAnimationOptions = []
+            keyboardViewportSnapshot = nil
+            keyboardTransition = nil
+        }
+
+        private func finishKeyboardViewportTransition(
+            id transitionID: Int,
+            in tableView: UITableView
+        ) {
+            guard keyboardTransitionID == transitionID else { return }
+            finishKeyboardViewportTransition(in: tableView)
+        }
+
+        @objc private func keyboardWillChangeFrame(_ notification: Notification) {
+            guard let tableView,
+                  let transition = MobileKeyboardTransition(notification: notification)
+            else { return }
+            let snapshot = keyboardViewportSnapshot(in: tableView)
+            keyboardTransitionID += 1
+            let transitionID = keyboardTransitionID
+            keyboardTransition = transition
+            shouldPreserveKeyboardViewport = true
+            transition.animate {
+                self.applyKeyboardViewport(snapshot: snapshot, in: tableView)
+            } completion: { finished in
+                guard finished else { return }
+                self.finishKeyboardViewportTransition(id: transitionID, in: tableView)
+            }
         }
 
         private static let atBottomThreshold: CGFloat = 40
-
-        private static func keyboardAnimationDuration(from notification: Notification) -> TimeInterval {
-            notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? TimeInterval ?? 0
-        }
-
-        private static func keyboardAnimationOptions(from notification: Notification) -> UIView.AnimationOptions {
-            guard let curve = notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int else {
-                return []
-            }
-            return UIView.AnimationOptions(rawValue: UInt(curve << 16))
-        }
     }
 }
 
@@ -538,11 +526,6 @@ private enum ChatTranscriptTableItem: Equatable {
 private struct ChatTranscriptTableAnchor {
     let id: String
     let offsetFromRowTop: CGFloat
-}
-
-private struct ChatTranscriptTableBottomAnchor {
-    let id: String
-    let offsetFromRowBottom: CGFloat
 }
 
 final class ChatTranscriptUITableView: UITableView {
