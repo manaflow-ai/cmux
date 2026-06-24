@@ -41,42 +41,43 @@ public struct CmxNetworkRoutePinger: CmxRoutePinging {
             return .reachable(latencyMilliseconds: elapsed.cmxWholeMilliseconds)
         } catch let error as CmxNetworkByteTransportError {
             await transport.close()
-            return cmxRoutePingResult(for: error)
+            return pingResult(for: error)
         } catch {
             await transport.close()
             return .failed(description: String(describing: error))
         }
     }
-}
 
-/// Fold a transport error into a ping result, reusing the transport's own
-/// ``CmxConnectFailureKind`` classification. File-scope so the core package
-/// stays free of transport types.
-private func cmxRoutePingResult(for error: CmxNetworkByteTransportError) -> CmxRoutePingResult {
-    switch error {
-    case .connectionTimedOut:
-        return .timedOut
-    case let .connectionFailed(description, kind):
-        switch kind {
-        case .connectionRefused:
-            return .refused
-        case .hostUnreachable:
-            return .unreachable
-        case .timedOut:
+    /// Fold a transport error into a ping result, reusing the transport's own
+    /// ``CmxConnectFailureKind`` classification. A private instance method on the
+    /// owning, constructable type (not a global free function) so the core
+    /// package stays free of transport types.
+    private func pingResult(for error: CmxNetworkByteTransportError) -> CmxRoutePingResult {
+        switch error {
+        case .connectionTimedOut:
             return .timedOut
-        case .dnsFailed:
-            return .dnsFailed
-        case .permissionDenied:
-            return .permissionDenied
-        case .secureChannelFailed, .generic:
-            return .failed(description: description)
+        case let .connectionFailed(description, kind):
+            switch kind {
+            case .connectionRefused:
+                return .refused
+            case .hostUnreachable:
+                return .unreachable
+            case .timedOut:
+                return .timedOut
+            case .dnsFailed:
+                return .dnsFailed
+            case .permissionDenied:
+                return .permissionDenied
+            case .secureChannelFailed, .generic:
+                return .failed(description: description)
+            }
+        case .emptyHost, .invalidPort, .invalidMaximumReceiveLength,
+             .unsupportedRouteKind, .unsupportedEndpoint:
+            return .unsupportedRoute
+        case .notConnected, .alreadyClosed, .receiveAlreadyInProgress,
+             .sendAlreadyInProgress, .receiveFailed, .sendFailed:
+            return .failed(description: String(describing: error))
         }
-    case .emptyHost, .invalidPort, .invalidMaximumReceiveLength,
-         .unsupportedRouteKind, .unsupportedEndpoint:
-        return .unsupportedRoute
-    case .notConnected, .alreadyClosed, .receiveAlreadyInProgress,
-         .sendAlreadyInProgress, .receiveFailed, .sendFailed:
-        return .failed(description: String(describing: error))
     }
 }
 
