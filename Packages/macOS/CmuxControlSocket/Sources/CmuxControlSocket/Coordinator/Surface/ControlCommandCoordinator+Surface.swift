@@ -226,21 +226,16 @@ extension ControlCommandCoordinator {
                 data: nil
             )
         }
-        // Legacy rejected agent-session BEFORE divider validation (token match
-        // mirrors the app's `v2PanelType` normalized-token mapping).
-        if let typeRaw = string(params, "type"), normalizedToken(typeRaw) == "agentsession" {
-            return .err(
-                code: "invalid_params",
-                message: "agent-session is only supported by surface.create",
-                data: .object(["type": .string("agentSession")])
-            )
-        }
         let parsedDivider = initialDividerPosition(params)
         if let error = parsedDivider.error { return error }
 
         let inputs = ControlSurfaceSplitInputs(
             directionRaw: directionRaw,
             typeRaw: string(params, "type"),
+            providerRaw: string(params, "provider_id") ?? string(params, "provider"),
+            rendererRaw: string(params, "renderer_kind") ?? string(params, "renderer"),
+            modelRaw: string(params, "model_id") ?? string(params, "model"),
+            openCodeProviderRaw: string(params, "opencode_provider_id") ?? string(params, "open_code_provider_id"),
             urlRaw: string(params, "url"),
             requestedSourceSurfaceID: uuid(params, "surface_id"),
             workingDirectory: optionalTrimmedRawString(params, "working_directory"),
@@ -267,11 +262,23 @@ extension ControlCommandCoordinator {
                 message: "Missing or invalid direction (left|right|up|down)",
                 data: nil
             )
-        case .agentSessionRejected(let typeRawValue):
+        case .invalidProvider:
             return .err(
                 code: "invalid_params",
-                message: "agent-session is only supported by surface.create",
-                data: .object(["type": .string(typeRawValue)])
+                message: "Invalid provider selection",
+                data: .object(["field": .string("provider_id")])
+            )
+        case .invalidRenderer:
+            return .err(
+                code: "invalid_params",
+                message: "Invalid renderer selection",
+                data: .object(["field": .string("renderer_kind")])
+            )
+        case .invalidOpenCodeModel:
+            return .err(
+                code: "invalid_params",
+                message: "Invalid model selection",
+                data: .object(["field": .string("model")])
             )
         case .browserDisabled(let outcome):
             return browserDisabledResult(outcome)
@@ -396,6 +403,8 @@ extension ControlCommandCoordinator {
             typeRaw: string(params, "type"),
             providerRaw: string(params, "provider_id") ?? string(params, "provider"),
             rendererRaw: string(params, "renderer_kind") ?? string(params, "renderer"),
+            modelRaw: string(params, "model_id") ?? string(params, "model"),
+            openCodeProviderRaw: string(params, "opencode_provider_id") ?? string(params, "open_code_provider_id"),
             urlRaw: string(params, "url"),
             workingDirectory: optionalTrimmedRawString(params, "working_directory"),
             initialCommand: optionalTrimmedRawString(params, "initial_command"),
@@ -411,17 +420,23 @@ extension ControlCommandCoordinator {
         switch resolution {
         case .tabManagerUnavailable:
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
-        case .invalidProvider(let rawValue):
+        case .invalidProvider:
             return .err(
                 code: "invalid_params",
-                message: "Invalid provider (codex|claude|opencode)",
-                data: .object(["provider": .string(rawValue)])
+                message: "Invalid provider selection",
+                data: .object(["field": .string("provider_id")])
             )
-        case .invalidRenderer(let rawValue):
+        case .invalidRenderer:
             return .err(
                 code: "invalid_params",
-                message: "Invalid renderer (react|solid)",
-                data: .object(["renderer": .string(rawValue)])
+                message: "Invalid renderer selection",
+                data: .object(["field": .string("renderer_kind")])
+            )
+        case .invalidOpenCodeModel:
+            return .err(
+                code: "invalid_params",
+                message: "Invalid model selection",
+                data: .object(["field": .string("model")])
             )
         case .browserDisabled(let outcome):
             return browserDisabledResult(outcome)

@@ -30,11 +30,19 @@ enum AgentSessionProviderID: String, CaseIterable, Codable, Identifiable, Sendab
     }
 
     var launchArguments: [String] {
+        launchArguments(modelID: nil)
+    }
+
+    func launchArguments(modelID: String?) -> [String] {
+        let normalizedModel = modelID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let selectedModel = normalizedModel?.isEmpty == false ? normalizedModel : nil
         switch self {
         case .codex:
-            return ["app-server", "--listen", "stdio://"]
+            let modelArgs = selectedModel.map { ["-c", "model=\(Self.tomlBasicStringLiteral($0))"] } ?? []
+            return modelArgs + ["app-server", "--listen", "stdio://"]
         case .claude:
-            return [
+            let modelArgs = selectedModel.map { ["--model", $0] } ?? []
+            return modelArgs + [
                 "-p",
                 "--output-format", "stream-json",
                 "--input-format", "stream-json",
@@ -44,6 +52,34 @@ enum AgentSessionProviderID: String, CaseIterable, Codable, Identifiable, Sendab
         case .opencode:
             return ["serve", "--hostname", "127.0.0.1", "--port", "0", "--print-logs"]
         }
+    }
+
+    private static func tomlBasicStringLiteral(_ value: String) -> String {
+        var escaped = "\""
+        for scalar in value.unicodeScalars {
+            switch scalar.value {
+            case 0x08:
+                escaped += "\\b"
+            case 0x09:
+                escaped += "\\t"
+            case 0x0A:
+                escaped += "\\n"
+            case 0x0C:
+                escaped += "\\f"
+            case 0x0D:
+                escaped += "\\r"
+            case 0x22:
+                escaped += "\\\""
+            case 0x5C:
+                escaped += "\\\\"
+            case 0x00...0x1F:
+                escaped += String(format: "\\u%04X", scalar.value)
+            default:
+                escaped.unicodeScalars.append(scalar)
+            }
+        }
+        escaped += "\""
+        return escaped
     }
 
     var transportKind: String {

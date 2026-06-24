@@ -10,12 +10,13 @@ public import Foundation
 public enum ControlSurfaceCreateResolution: Sendable, Equatable {
     /// No TabManager resolved (legacy `unavailable` / "TabManager not available").
     case tabManagerUnavailable
-    /// The agent-session `provider` token was invalid (legacy `invalid_params` /
-    /// "Invalid provider (codex|claude|opencode)", `data: {"provider": …}`).
+    /// The agent-session `provider` token was invalid (legacy `invalid_params`).
     case invalidProvider(rawValue: String)
-    /// The agent-session `renderer` token was invalid (legacy `invalid_params` /
-    /// "Invalid renderer (react|solid)", `data: {"renderer": …}`).
+    /// The agent-session `renderer` token was invalid (legacy `invalid_params`).
     case invalidRenderer(rawValue: String)
+    /// The OpenCode model token was missing its provider prefix and no separate
+    /// OpenCode provider id was supplied.
+    case invalidOpenCodeModel(rawValue: String)
     /// The browser was disabled; carries the shared external-open outcome.
     case browserDisabled(ControlSurfaceBrowserDisabledOutcome)
     /// No workspace resolved (legacy `not_found` / "Workspace not found").

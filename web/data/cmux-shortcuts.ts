@@ -299,6 +299,8 @@ export const shortcutCategories: ShortcutCategory[] = [
     titleKey: "browser",
     shortcuts: [
       { id: "openBrowser", combos: [["⌘", "⇧", "L"]], description: { en: "Open browser", ja: "ブラウザを開く" } },
+      { id: "openChat", combos: [["⌘", "J"]], description: { en: "Open Chat pane", ja: "チャットペインを開く" } },
+      { id: "openChatWorkspace", combos: [["⌘", "⇧", "J"]], description: { en: "Open Chat in a new workspace", ja: "新しいワークスペースでチャットを開く" } },
       { id: "focusBrowserAddressBar", combos: [["⌘", "L"]], description: { en: "Focus address bar", ja: "アドレスバーにフォーカス" } },
       { id: "browserBack", combos: [["⌘", "["]], description: { en: "Back", ja: "戻る" } },
       { id: "browserForward", combos: [["⌘", "]"]], description: { en: "Forward", ja: "進む" } },

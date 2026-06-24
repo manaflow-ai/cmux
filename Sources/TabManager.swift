@@ -1097,6 +1097,8 @@ class TabManager: ObservableObject {
                 // single-panel title sync keeps the workspace title following
                 // the page title once the user navigates.
                 defaultTitle = String(localized: "browser.newTab", defaultValue: "New tab")
+            case .agentSession:
+                defaultTitle = String(localized: "workspace.openChat.defaultTitle", defaultValue: "Chat")
             }
             let newWorkspace = makeWorkspaceForCreation(
                 title: title ?? defaultTitle,

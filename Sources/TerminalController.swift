@@ -4261,8 +4261,8 @@ class TerminalController {
                     .react,
                     .err(
                         code: "invalid_params",
-                        message: "Invalid provider (codex|claude|opencode)",
-                        data: ["provider": providerRaw]
+                        message: "Invalid provider selection",
+                        data: ["field": "provider_id"]
                     )
                 )
             }
@@ -4283,8 +4283,8 @@ class TerminalController {
                     .react,
                     .err(
                         code: "invalid_params",
-                        message: "Invalid renderer (react|solid)",
-                        data: ["renderer": rendererRaw]
+                        message: "Invalid renderer selection",
+                        data: ["field": "renderer_kind"]
                     )
                 )
             }
@@ -6049,7 +6049,7 @@ class TerminalController {
         let respectExternalOpenRules = v2Bool(params, "respect_external_open_rules") ?? false
 
         if BrowserAvailabilitySettings.isDisabled() {
-            if v2IsDiffViewerURL(url) {
+            if v2IsInternalCmuxWebviewURL(url) {
                 return .err(code: "browser_disabled", message: "cmux browser is disabled", data: nil)
             }
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
@@ -6109,7 +6109,7 @@ class TerminalController {
             let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
             let omnibarVisible = v2Bool(params, "show_omnibar") ?? true
             let transparentBackground = v2Bool(params, "transparent_background") ?? false
-            let bypassRemoteProxy = v2Bool(params, "bypass_remote_proxy") ?? v2IsDiffViewerURL(url)
+            let bypassRemoteProxy = v2Bool(params, "bypass_remote_proxy") ?? v2IsInternalCmuxWebviewURL(url)
 
             var createdSplit = true
             var placementStrategy = "split_right"
@@ -6172,14 +6172,8 @@ class TerminalController {
         return result
     }
 
-    private func v2IsDiffViewerURL(_ url: URL?) -> Bool {
-        guard let url else { return false }
-        if url.scheme?.lowercased() == CmuxDiffViewerURLSchemeHandler.scheme {
-            return true
-        }
-        return url.scheme?.lowercased() == "http" &&
-            url.host == "127.0.0.1" &&
-            url.fragment == "cmux-diff-viewer"
+    private func v2IsInternalCmuxWebviewURL(_ url: URL?) -> Bool {
+        browserIsTemporaryHistoryURL(url)
     }
 
     private func v2RegisterDiffViewerURLIfNeeded(params: [String: Any], url: URL?) -> V2CallResult? {

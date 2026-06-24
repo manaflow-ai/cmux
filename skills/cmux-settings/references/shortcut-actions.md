@@ -104,6 +104,8 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.reopenClosedBrowserPanel`
 - `shortcuts.bindings.splitBrowserRight`
 - `shortcuts.bindings.splitBrowserDown`
+- `shortcuts.bindings.openChat`
+- `shortcuts.bindings.openChatWorkspace`
 - `shortcuts.bindings.openBrowser`
 - `shortcuts.bindings.focusBrowserAddressBar`
 - `shortcuts.bindings.browserBack`

@@ -27,7 +27,14 @@ final class CodexAppServerSession {
     private var didFailStartup = false
     private var activePermissionMode: AgentSessionPermissionMode = .standard
     private var isTurnInFlight = false
+    private var activeTurnID: String?
+    private var didEmitTurnCompleteForActiveTurn = false
+    private var didReceiveTerminalNotificationForActiveTurn = false
+    private var pendingTerminalNotificationShouldIgnoreFutureCompletion = false
+    private var shouldIgnoreNextLegacyTurnCompletion = false
+    private var completedTurnIDs: [String] = []
     private var turnStartRequestIDs: Set<Int> = []
+    private static let maxCompletedTurnIDCount = 16
 
     init(
         workingDirectory: String?,
@@ -67,14 +74,24 @@ final class CodexAppServerSession {
         guard !didFailStartup else {
             throw AgentSessionBridgeError.providerNotReady(AgentSessionProviderID.codex.displayName)
         }
-        guard !isTurnInFlight else {
-            throw AgentSessionBridgeError.providerNotReady(AgentSessionProviderID.codex.displayName)
+        if isTurnInFlight {
+            guard canQueueInput(text) else {
+                throw AgentSessionBridgeError.providerNotReady(AgentSessionProviderID.codex.displayName)
+            }
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                queuedInputs.append(CodexAppServerQueuedInput(
+                    text: text,
+                    permissionMode: permissionMode,
+                    continuation: continuation
+                ))
+            }
+            return
         }
         guard let threadID else {
             guard canQueueInput(text) else {
                 throw AgentSessionBridgeError.providerNotReady(AgentSessionProviderID.codex.displayName)
             }
-            try await withCheckedThrowingContinuation { continuation in
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 queuedInputs.append(CodexAppServerQueuedInput(
                     text: text,
                     permissionMode: permissionMode,
@@ -93,6 +110,24 @@ final class CodexAppServerSession {
             return
         }
         try await sendTurnStart(threadID: threadID, text: text, permissionMode: permissionMode)
+    }
+
+    func close(with error: Error = AgentSessionBridgeError.providerNotReady(AgentSessionProviderID.codex.displayName)) {
+        didFailStartup = true
+        initializeRequestID = nil
+        didInitialize = false
+        threadStartRequestID = nil
+        threadID = nil
+        isTurnInFlight = false
+        activeTurnID = nil
+        activePermissionMode = .standard
+        didEmitTurnCompleteForActiveTurn = false
+        didReceiveTerminalNotificationForActiveTurn = false
+        pendingTerminalNotificationShouldIgnoreFutureCompletion = false
+        shouldIgnoreNextLegacyTurnCompletion = false
+        completedTurnIDs.removeAll()
+        turnStartRequestIDs.removeAll()
+        failQueuedInputs(error)
     }
 
     private func canQueueInput(_ text: String) -> Bool {
@@ -170,6 +205,16 @@ final class CodexAppServerSession {
         }
 
         if turnStartRequestIDs.remove(id) != nil {
+            if let turnID = Self.turnID(from: result),
+               activeTurnID == nil {
+                activeTurnID = turnID
+            }
+            if turnStartRequestIDs.isEmpty,
+               didReceiveTerminalNotificationForActiveTurn {
+                finishTurnAndDrainQueue(
+                    ignoreFutureTurnCompletion: pendingTerminalNotificationShouldIgnoreFutureCompletion
+                )
+            }
             return
         }
     }
@@ -182,7 +227,13 @@ final class CodexAppServerSession {
         }
         if turnStartRequestIDs.remove(id) != nil {
             isTurnInFlight = false
+            activeTurnID = nil
             activePermissionMode = .standard
+            didEmitTurnCompleteForActiveTurn = false
+            didReceiveTerminalNotificationForActiveTurn = false
+            pendingTerminalNotificationShouldIgnoreFutureCompletion = false
+            shouldIgnoreNextLegacyTurnCompletion = false
+            failQueuedInputs(AgentSessionBridgeError.providerNotReady(AgentSessionProviderID.codex.displayName))
             emitCodexRPCFailure(details: details)
             return
         }
@@ -199,28 +250,49 @@ final class CodexAppServerSession {
                 threadStartRequestID = nil
                 drainCodexAppServerQueuedInputs()
             }
+        case "turn/started":
+            if let turnID = Self.turnID(from: params),
+               isTurnInFlight,
+               activeTurnID == nil {
+                activeTurnID = turnID
+            }
         case "item/agentMessage/delta":
+            noteCurrentTurnEvidenceForLegacyCompletionGuard()
             if let delta = params?["delta"] as? String {
                 outputSink("stdout", delta)
             }
         case "item/agentMessage/completed", "item/agentMessage/complete", "item/agentMessage/finished":
-            completeTurn()
+            completeTurnAndDrainQueue(
+                incomingTurnID: Self.turnID(from: params),
+                ignoreFutureTurnCompletion: true
+            )
         case "item/started":
+            noteCurrentTurnEvidenceForLegacyCompletionGuard()
             if let item = params?["item"] as? [String: Any] {
                 emitActivity(for: item, defaultStatus: "inProgress")
             }
         case "item/completed":
             if let item = params?["item"] as? [String: Any] {
                 if Self.itemIsAgentMessage(item) {
-                    completeTurn()
+                    completeTurnAndDrainQueue(
+                        incomingTurnID: Self.turnID(from: params),
+                        ignoreFutureTurnCompletion: true
+                    )
                     return
                 }
                 emitActivity(for: item, defaultStatus: "completed")
             }
         case "turn/completed", "turn/complete", "turn/finished", "turn/end", "turn/ended",
              "turn/stopped", "turn/failed", "turn/canceled", "turn/cancelled":
-            completeTurn()
+            let incomingTurnID = Self.turnID(from: params)
+            if incomingTurnID == nil,
+               shouldIgnoreNextLegacyTurnCompletion {
+                shouldIgnoreNextLegacyTurnCompletion = false
+                return
+            }
+            completeTurnAndDrainQueue(incomingTurnID: incomingTurnID)
         case "item/commandExecution/outputDelta":
+            noteCurrentTurnEvidenceForLegacyCompletionGuard()
             guard let itemID = params?["itemId"] as? String else { break }
             emitActivity(
                 activityID: itemID,
@@ -231,6 +303,7 @@ final class CodexAppServerSession {
                 outputDelta: params?["delta"] as? String
             )
         case "item/fileChange/patchUpdated":
+            noteCurrentTurnEvidenceForLegacyCompletionGuard()
             guard let itemID = params?["itemId"] as? String else { break }
             let summary = Self.fileChangeSummary(from: params?["changes"])
             emitActivity(
@@ -255,10 +328,103 @@ final class CodexAppServerSession {
         }
     }
 
-    private func completeTurn() {
-        isTurnInFlight = false
-        activePermissionMode = .standard
+    private func emitTurnCompleteForActiveTurnIfNeeded() {
+        guard isTurnInFlight, !didEmitTurnCompleteForActiveTurn else { return }
+        didEmitTurnCompleteForActiveTurn = true
         turnCompleteSink()
+    }
+
+    private func completeTurnAndDrainQueue(
+        incomingTurnID: String? = nil,
+        ignoreFutureTurnCompletion: Bool = false
+    ) {
+        guard isTurnInFlight else { return }
+        guard shouldAcceptTerminalNotification(incomingTurnID: incomingTurnID) else { return }
+        if !turnStartRequestIDs.isEmpty {
+            didReceiveTerminalNotificationForActiveTurn = true
+            pendingTerminalNotificationShouldIgnoreFutureCompletion = ignoreFutureTurnCompletion
+            emitTurnCompleteForActiveTurnIfNeeded()
+            return
+        }
+        finishTurnAndDrainQueue(ignoreFutureTurnCompletion: ignoreFutureTurnCompletion)
+    }
+
+    private func finishTurnAndDrainQueue(ignoreFutureTurnCompletion: Bool = false) {
+        guard isTurnInFlight else { return }
+        let completedTurnID = activeTurnID
+        emitTurnCompleteForActiveTurnIfNeeded()
+        isTurnInFlight = false
+        activeTurnID = nil
+        activePermissionMode = .standard
+        didEmitTurnCompleteForActiveTurn = false
+        didReceiveTerminalNotificationForActiveTurn = false
+        pendingTerminalNotificationShouldIgnoreFutureCompletion = false
+        if let completedTurnID {
+            rememberCompletedTurnID(completedTurnID)
+        }
+        if ignoreFutureTurnCompletion {
+            shouldIgnoreNextLegacyTurnCompletion = true
+        }
+        drainCodexAppServerQueuedInputs()
+    }
+
+    private func shouldAcceptTerminalNotification(incomingTurnID: String?) -> Bool {
+        guard let incomingTurnID else { return true }
+        if completedTurnIDs.contains(incomingTurnID) {
+            return false
+        }
+        guard isTurnInFlight else { return false }
+        if let activeTurnID {
+            return activeTurnID == incomingTurnID
+        }
+        activeTurnID = incomingTurnID
+        return true
+    }
+
+    private func rememberCompletedTurnID(_ turnID: String) {
+        completedTurnIDs.removeAll { $0 == turnID }
+        completedTurnIDs.append(turnID)
+        if completedTurnIDs.count > Self.maxCompletedTurnIDCount {
+            completedTurnIDs.removeFirst(completedTurnIDs.count - Self.maxCompletedTurnIDCount)
+        }
+    }
+
+    private static func turnID(from object: [String: Any]?) -> String? {
+        guard let object else { return nil }
+        if let id = object["turnId"] as? String {
+            return id
+        }
+        if let id = object["turnID"] as? String {
+            return id
+        }
+        if let id = object["turn_id"] as? String {
+            return id
+        }
+        if let turn = object["turn"] as? [String: Any],
+           let id = turn["id"] as? String {
+            return id
+        }
+        if let item = object["item"] as? [String: Any] {
+            if let id = item["turnId"] as? String {
+                return id
+            }
+            if let id = item["turnID"] as? String {
+                return id
+            }
+            if let id = item["turn_id"] as? String {
+                return id
+            }
+            if let turn = item["turn"] as? [String: Any],
+               let id = turn["id"] as? String {
+                return id
+            }
+        }
+        return nil
+    }
+
+    private func noteCurrentTurnEvidenceForLegacyCompletionGuard() {
+        guard isTurnInFlight else { return }
+        shouldIgnoreNextLegacyTurnCompletion = false
     }
 
     private static func itemIsAgentMessage(_ item: [String: Any]) -> Bool {
@@ -433,6 +599,7 @@ final class CodexAppServerSession {
 
     private func handleServerRequest(_ object: [String: Any], method: String) {
         guard let id = object["id"] else { return }
+        noteCurrentTurnEvidenceForLegacyCompletionGuard()
         let result: [String: Any]
         switch method {
         case "item/commandExecution/requestApproval":
@@ -554,7 +721,13 @@ final class CodexAppServerSession {
         threadStartRequestID = nil
         threadID = nil
         isTurnInFlight = false
+        activeTurnID = nil
         activePermissionMode = .standard
+        didEmitTurnCompleteForActiveTurn = false
+        didReceiveTerminalNotificationForActiveTurn = false
+        pendingTerminalNotificationShouldIgnoreFutureCompletion = false
+        shouldIgnoreNextLegacyTurnCompletion = false
+        completedTurnIDs.removeAll()
         turnStartRequestIDs.removeAll()
         failQueuedInputs(AgentSessionBridgeError.providerNotReady(AgentSessionProviderID.codex.displayName))
         emitCodexRPCFailure(details: details)
@@ -589,15 +762,28 @@ final class CodexAppServerSession {
         }
         activePermissionMode = permissionMode
         isTurnInFlight = true
+        activeTurnID = nil
+        didEmitTurnCompleteForActiveTurn = false
+        didReceiveTerminalNotificationForActiveTurn = false
+        pendingTerminalNotificationShouldIgnoreFutureCompletion = false
+        let requestID = nextRequestID
+        turnStartRequestIDs.insert(requestID)
         do {
-            let requestID = try await sendRequest(
+            let sentRequestID = try await sendRequest(
                 method: "turn/start",
                 params: params
             )
-            turnStartRequestIDs.insert(requestID)
+            assert(sentRequestID == requestID)
         } catch {
             activePermissionMode = .standard
             isTurnInFlight = false
+            activeTurnID = nil
+            didEmitTurnCompleteForActiveTurn = false
+            didReceiveTerminalNotificationForActiveTurn = false
+            pendingTerminalNotificationShouldIgnoreFutureCompletion = false
+            shouldIgnoreNextLegacyTurnCompletion = false
+            turnStartRequestIDs.remove(requestID)
+            failQueuedInputs(error)
             throw error
         }
     }

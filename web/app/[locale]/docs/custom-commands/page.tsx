@@ -133,6 +133,7 @@ export default function CustomCommandsPage() {
     "surfaceTabBar": {
       "buttons": [
         "cmux.newTerminal",
+        "cmux.openChat",
         "cmux.newBrowser",
         "cmux.splitRight",
         "cmux.splitDown",
@@ -153,6 +154,7 @@ export default function CustomCommandsPage() {
         {t.rich("nightlyActionRegistryDesc", {
           actions: (chunks) => <code>{chunks}</code>,
           newTerminal: (chunks) => <code>{chunks}</code>,
+          openChat: (chunks) => <code>{chunks}</code>,
           newBrowser: (chunks) => <code>{chunks}</code>,
           splitRight: (chunks) => <code>{chunks}</code>,
           splitDown: (chunks) => <code>{chunks}</code>,
@@ -218,6 +220,7 @@ export default function CustomCommandsPage() {
           palette: (chunks) => <code>{chunks}</code>,
           commands: (chunks) => <code>{chunks}</code>,
           newTerminal: (chunks) => <code>{chunks}</code>,
+          openChat: (chunks) => <code>{chunks}</code>,
         })}
       </p>
 
@@ -467,6 +470,7 @@ export default function CustomCommandsPage() {
     "surfaceTabBar": {
       "buttons": [
         "cmux.newTerminal",
+        "cmux.openChat",
         "cmux.newBrowser",
         "cmux.splitRight",
         "cmux.splitDown",

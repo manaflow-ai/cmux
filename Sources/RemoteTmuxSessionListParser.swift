@@ -43,11 +43,8 @@ enum RemoteTmuxSessionListParser {
     /// - Returns: one ``RemoteTmuxSession`` per well-formed line, in input order.
     static func parse(_ output: String) -> [RemoteTmuxSession] {
         var sessions: [RemoteTmuxSession] = []
-        for rawLine in output.split(separator: "\n", omittingEmptySubsequences: true) {
-            var line = String(rawLine)
-            if line.last == "\r" {
-                line.removeLast()
-            }
+        for rawLine in output.split(whereSeparator: \.isNewline) {
+            let line = String(rawLine)
             if line.isEmpty { continue }
             // Unbounded split: the first four fields are id/windows/attached/
             // created, and the name (which may itself contain `:`) is reassembled

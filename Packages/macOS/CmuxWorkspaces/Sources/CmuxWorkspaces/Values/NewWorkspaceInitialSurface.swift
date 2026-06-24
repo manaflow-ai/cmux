@@ -9,4 +9,6 @@ public enum NewWorkspaceInitialSurface: Sendable {
     case terminal
     /// A browser pane in its default new-tab state.
     case browser
+    /// An agent chat pane backed by the native agent-session surface.
+    case agentSession
 }

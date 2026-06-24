@@ -761,6 +761,18 @@ struct cmuxApp: App {
                     NotificationCenter.default.post(name: .commandPaletteRequested, object: targetWindow)
                 }
 
+                splitCommandButton(title: String(localized: "menu.file.openChat", defaultValue: "Open Chat"), shortcut: menuShortcut(for: .openChat)) {
+                    if AppDelegate.shared?.openConfiguredChatForFocusedWorkspace(for: activeTabManager) != true {
+                        NSSound.beep()
+                    }
+                }
+
+                splitCommandButton(title: String(localized: "menu.file.openChatWorkspace", defaultValue: "Open Chat in New Workspace"), shortcut: menuShortcut(for: .openChatWorkspace)) {
+                    if AppDelegate.shared?.openChatWorkspace(for: activeTabManager) != true {
+                        NSSound.beep()
+                    }
+                }
+
                 Divider()
 
                 // Terminal semantics:

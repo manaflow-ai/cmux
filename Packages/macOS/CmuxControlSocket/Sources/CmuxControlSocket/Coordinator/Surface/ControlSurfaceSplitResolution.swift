@@ -5,8 +5,8 @@ public import Foundation
 ///
 /// The coordinator validates `direction` and the divider (returning
 /// `invalid_params` itself) and signals `unavailable`; the app maps the type token,
-/// rejects `agent-session`, runs the browser-disabled path, resolves the workspace
-/// and target surface, creates the split, and returns this resolution.
+/// provider/renderer tokens, browser-disabled path, workspace and target surface,
+/// creates the split, and returns this resolution.
 public enum ControlSurfaceSplitResolution: Sendable, Equatable {
     /// No TabManager resolved (legacy `unavailable` / "TabManager not available").
     case tabManagerUnavailable
@@ -14,9 +14,13 @@ public enum ControlSurfaceSplitResolution: Sendable, Equatable {
     /// "Missing or invalid direction (left|right|up|down)"). The coordinator
     /// pre-validates the same token set, so this is a drift-safety net.
     case invalidDirection
-    /// The type token resolved to `agent-session` (legacy `invalid_params` /
-    /// "agent-session is only supported by surface.create", `data: {"type": …}`).
-    case agentSessionRejected(typeRawValue: String)
+    /// The agent-session provider token was invalid.
+    case invalidProvider(rawValue: String)
+    /// The agent-session renderer token was invalid.
+    case invalidRenderer(rawValue: String)
+    /// The OpenCode model token was missing its provider prefix and no separate
+    /// OpenCode provider id was supplied.
+    case invalidOpenCodeModel(rawValue: String)
     /// The browser was disabled; carries the shared external-open outcome.
     case browserDisabled(ControlSurfaceBrowserDisabledOutcome)
     /// No workspace resolved (legacy `not_found` / "Workspace not found").

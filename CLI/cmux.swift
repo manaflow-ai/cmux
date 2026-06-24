@@ -3281,6 +3281,7 @@ struct CMUXCLI {
         }
         if command == "open" { try runOpenCommand(commandArgs: commandArgs, socketPath: resolvedSocketPath, explicitPassword: socketPasswordArg, jsonOutput: jsonOutput, idFormat: try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)); return }
         if command == "diff" { try runDiffCommand(commandArgs: commandArgs, socketPath: resolvedSocketPath, explicitPassword: socketPasswordArg, jsonOutput: jsonOutput, idFormat: try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)); return }
+        if command == "open-chat" || command == "chat" { try runOpenChatCommand(commandArgs: commandArgs, socketPath: resolvedSocketPath, explicitPassword: socketPasswordArg, jsonOutput: jsonOutput, idFormat: try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)); return }
         if command == "restore-session" {
             try runRestoreSession(
                 commandArgs: commandArgs,
@@ -4221,6 +4222,11 @@ struct CMUXCLI {
             let type = optionValue(commandArgs, name: "--type")
             let direction = optionValue(commandArgs, name: "--direction") ?? "right"
             let url = optionValue(commandArgs, name: "--url")
+            let provider = optionValue(commandArgs, name: "--provider") ?? optionValue(commandArgs, name: "--provider-id")
+            let model = optionValue(commandArgs, name: "--model") ?? optionValue(commandArgs, name: "--model-id")
+            let openCodeProvider = optionValue(commandArgs, name: "--opencode-provider") ?? optionValue(commandArgs, name: "--open-code-provider")
+            let renderer = optionValue(commandArgs, name: "--renderer") ?? optionValue(commandArgs, name: "--renderer-kind")
+            let workingDirectory = optionValue(commandArgs, name: "--working-directory") ?? optionValue(commandArgs, name: "--cwd")
             let focusOpt = optionValue(commandArgs, name: "--focus")
             var params: [String: Any] = ["direction": direction]
             let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowId), client: client)
@@ -4229,6 +4235,14 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             if let type { params["type"] = type }
             if let url { params["url"] = url }
+            if let provider { params["provider_id"] = provider }
+            if let model { params["model_id"] = model }
+            if let openCodeProvider { params["opencode_provider_id"] = openCodeProvider }
+            if let renderer { params["renderer_kind"] = renderer }
+            if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !workingDirectory.isEmpty {
+                params["working_directory"] = resolvePath(workingDirectory)
+            }
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "pane.create", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2CreationSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
@@ -4239,6 +4253,8 @@ struct CMUXCLI {
             let paneRaw = optionValue(commandArgs, name: "--pane")
             let url = optionValue(commandArgs, name: "--url")
             let provider = optionValue(commandArgs, name: "--provider") ?? optionValue(commandArgs, name: "--provider-id")
+            let model = optionValue(commandArgs, name: "--model") ?? optionValue(commandArgs, name: "--model-id")
+            let openCodeProvider = optionValue(commandArgs, name: "--opencode-provider") ?? optionValue(commandArgs, name: "--open-code-provider")
             let renderer = optionValue(commandArgs, name: "--renderer") ?? optionValue(commandArgs, name: "--renderer-kind")
             let workingDirectory = optionValue(commandArgs, name: "--working-directory") ?? optionValue(commandArgs, name: "--cwd")
             let focusOpt = optionValue(commandArgs, name: "--focus")
@@ -4252,6 +4268,8 @@ struct CMUXCLI {
             if let type { params["type"] = type }
             if let url { params["url"] = url }
             if let provider { params["provider_id"] = provider }
+            if let model { params["model_id"] = model }
+            if let openCodeProvider { params["opencode_provider_id"] = openCodeProvider }
             if let renderer { params["renderer_kind"] = renderer }
             if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
                !workingDirectory.isEmpty {
@@ -5261,6 +5279,7 @@ struct CMUXCLI {
         "browser-status",
         "capabilities",
         "capture-pane",
+        "chat",
         "claude-hook",
         "claude-teams",
         "clear-history",
@@ -5337,6 +5356,7 @@ struct CMUXCLI {
         "omo",
         "omx",
         "open",
+        "open-chat",
         "open-browser",
         "open-notification",
         "paste-buffer",
@@ -15130,25 +15150,32 @@ struct CMUXCLI {
               cmux focus-pane --pane pane:1 --workspace workspace:2
             """
         case "new-pane":
-            return """
+            return String(localized: "cli.help.newPane", defaultValue: """
             Usage: cmux new-pane [flags]
 
             Create a new pane in the workspace.
 
             Flags:
-              --type <terminal|browser>           Pane type (default: terminal)
+              --type <terminal|browser|agent-session>
+                                                 Pane type (default: terminal)
               --direction <left|right|up|down>    Split direction (default: right)
               --workspace <id|ref|index>          Target workspace (default: $CMUX_WORKSPACE_ID)
               --window <id|ref|index>             Window context for workspace refs and indexes
               --url <url>                         URL for browser panes
+              --working-directory, --cwd <path>   Working directory for terminal and agent panes
+              --provider <codex|claude|opencode> Provider for agent panes (default: codex)
+              --model <model>                     Backend model id, or provider/model for OpenCode
+              --opencode-provider <id>            OpenCode provider id when --model omits provider/
+              --renderer <react|solid>            Renderer for agent panes (default: react)
               --focus <true|false>                Focus the new pane (default: false)
 
             Example:
               cmux new-pane
               cmux new-pane --type browser --direction down --url https://example.com
-            """
+              cmux new-pane --type agent-session --provider opencode --model google/gemini-2.5-pro
+            """)
         case "new-surface":
-            return """
+            return String(localized: "cli.help.newSurface", defaultValue: """
             Usage: cmux new-surface [flags]
 
             Create a new surface (tab) in a pane.
@@ -15161,15 +15188,18 @@ struct CMUXCLI {
               --url <url>                 URL for browser surfaces
               --provider <codex|claude|opencode>
                                            Provider for agent-session surfaces (default: codex)
+              --model <model>             Backend model id, or provider/model for OpenCode
+              --opencode-provider <id>    OpenCode provider id when --model omits provider/
               --renderer <react|solid>    Renderer for agent-session surfaces (default: react)
-              --working-directory <path>   Working directory for terminal and agent surfaces
+              --working-directory, --cwd <path>
+                                           Working directory for terminal and agent surfaces
               --focus <true|false>        Focus the new surface (default: false)
 
             Example:
               cmux new-surface
               cmux new-surface --type browser --pane pane:1 --url https://example.com
-              cmux new-surface --type agent-session --provider claude --renderer solid --focus true
-            """
+              cmux new-surface --type agent-session --provider opencode --model google/gemini-2.5-pro --focus true
+            """)
         case "close-surface":
             return """
             Usage: cmux close-surface [flags]
@@ -16039,6 +16069,7 @@ struct CMUXCLI {
             return "Legacy alias for 'cmux browser is-webview-focused'. Run 'cmux browser --help' for details."
         case "open": return openSubcommandUsage()
         case "diff": return diffSubcommandUsage()
+        case "open-chat", "chat": return openChatSubcommandUsage()
         case "markdown":
             return """
             Usage: cmux markdown open <path> [options]
@@ -34388,6 +34419,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           restore-session
           open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
           diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--unstaged|--staged|--branch|--last-turn] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>]
+          open-chat|chat [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd|--repo|--path <path>] [--workspace-name <name>] [--provider <provider>] [--model <model>] [--opencode-provider <id>] [--renderer <renderer>] [--focus <true|false>] [--no-focus]
           feedback [--email <email> --body <text> [--image <path> ...]]
           feed tui|clear
           themes [list|set|clear]
@@ -34434,8 +34466,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           top [--all] [--workspace <id|ref|index>] [--window <id|ref|index>] [--processes] [--sort <cpu|mem|proc>] [--flat] [--format <tree|tsv>]
           memory [--all] [--workspace <id|ref|index>] [--groups <count>]
           focus-pane --pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>]
-          new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--focus <true|false>]
-          new-surface [--type <terminal|browser|agent-session>] [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--provider <codex|claude|opencode>] [--renderer <react|solid>] [--focus <true|false>]
+          new-pane [--type <terminal|browser|agent-session>] [--direction <left|right|up|down>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--working-directory|--cwd <path>] [--provider <codex|claude|opencode>] [--model <model>] [--opencode-provider <id>] [--renderer <react|solid>] [--focus <true|false>]
+          new-surface [--type <terminal|browser|agent-session>] [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--working-directory|--cwd <path>] [--provider <codex|claude|opencode>] [--model <model>] [--opencode-provider <id>] [--renderer <react|solid>] [--focus <true|false>]
           close-surface [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>]
           move-surface --surface <id|ref|index> [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--before <id|ref|index>] [--after <id|ref|index>] [--index <n>] [--focus <true|false>]
           split-off --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
@@ -34506,6 +34538,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
           markdown [open] <path> [--focus <true|false>] (open markdown file in formatted viewer panel with live reload)
           diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>] (open patch input or git source in a browser split)
+          open-chat|chat [--cwd|--repo|--path <path>] [--workspace-name <name>] [--provider <provider>] [--model <model>] [--opencode-provider <id>] [--renderer <renderer>] [--focus <true|false>] [--no-focus] (open an AI agent Chat pane)
 
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
           browser disable | enable | status

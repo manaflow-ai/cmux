@@ -76,6 +76,7 @@ enum KeyboardShortcutSettings {
         case toggleSidebar
         case newTab
         case newBrowserWorkspace
+        case openChatWorkspace
         case openFolder
         case reopenPreviousSession
         case goToWorkspace
@@ -177,6 +178,7 @@ enum KeyboardShortcutSettings {
         case showBrowserJavaScriptConsole
         case toggleBrowserFocusMode
         case toggleReactGrab
+        case openChat
         case openDiffViewer
         case diffViewerScrollDown
         case diffViewerScrollUp
@@ -199,6 +201,7 @@ enum KeyboardShortcutSettings {
             case .toggleSidebar: return String(localized: "shortcut.toggleLeftSidebar.label", defaultValue: "Toggle Left Sidebar")
             case .newTab: return String(localized: "shortcut.newWorkspace.label", defaultValue: "New Workspace")
             case .newBrowserWorkspace: return String(localized: "shortcut.newBrowserWorkspace.label", defaultValue: "New Browser Workspace")
+            case .openChatWorkspace: return String(localized: "shortcut.openChatWorkspace.label", defaultValue: "Open Chat in New Workspace")
             case .openFolder: return String(localized: "shortcut.openFolder.label", defaultValue: "Open Folder")
             case .reopenPreviousSession: return String(localized: "shortcut.reopenPreviousSession.label", defaultValue: "Restore Previous App Launch")
             case .goToWorkspace: return String(localized: "menu.file.goToWorkspace", defaultValue: "Go to Workspace…")
@@ -292,6 +295,7 @@ enum KeyboardShortcutSettings {
             case .showBrowserJavaScriptConsole: return String(localized: "shortcut.showBrowserJSConsole.label", defaultValue: "Show Browser JavaScript Console")
             case .toggleBrowserFocusMode: return String(localized: "shortcut.toggleBrowserFocusMode.label", defaultValue: "Enter Browser Focus Mode")
             case .toggleReactGrab: return String(localized: "shortcut.toggleReactGrab.label", defaultValue: "Toggle React Grab")
+            case .openChat: return String(localized: "shortcut.openChat.label", defaultValue: "Open Chat")
             case .openDiffViewer: return String(localized: "shortcut.openDiffViewer.label", defaultValue: "Open Diff Viewer")
             case .diffViewerScrollDown: return String(localized: "shortcut.diffViewerScrollDown.label", defaultValue: "Diff Viewer: Scroll Down")
             case .diffViewerScrollUp: return String(localized: "shortcut.diffViewerScrollUp.label", defaultValue: "Diff Viewer: Scroll Up")
@@ -347,6 +351,9 @@ enum KeyboardShortcutSettings {
                 // (Cmd+Shift+N) without colliding with any cmux default or an
                 // AppKit-reserved keystroke.
                 return StoredShortcut(key: "n", command: true, shift: false, option: true, control: false)
+            case .openChatWorkspace:
+                // Cmd+Shift+J: same Chat mnemonic as Cmd+J, but creates a new workspace.
+                return StoredShortcut(key: "j", command: true, shift: true, option: false, control: false)
             case .openFolder:
                 return StoredShortcut(key: "o", command: true, shift: false, option: false, control: false)
             case .reopenPreviousSession:
@@ -551,6 +558,9 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "\r", command: true, shift: false, option: true, control: false)
             case .toggleReactGrab:
                 return StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
+            case .openChat:
+                // Cmd+J: quick jump into the workspace-scoped Chat composer.
+                return StoredShortcut(key: "j", command: true, shift: false, option: false, control: false)
             case .openDiffViewer:
                 // Cmd+Ctrl+Shift+D. The plain Cmd+Ctrl+D chord is reserved by macOS for
                 // "Look Up & data detectors" — the OS swallows it before it reaches the

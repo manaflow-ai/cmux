@@ -1172,12 +1172,14 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
     }
 
     static let newTerminal = actionReference(CmuxSurfaceTabBarBuiltInAction.newTerminal.configID)
+    static let openChat = actionReference(CmuxSurfaceTabBarBuiltInAction.openChat.configID)
     static let newBrowser = actionReference(CmuxSurfaceTabBarBuiltInAction.newBrowser.configID)
     static let splitRight = actionReference(CmuxSurfaceTabBarBuiltInAction.splitRight.configID)
     static let splitDown = actionReference(CmuxSurfaceTabBarBuiltInAction.splitDown.configID)
 
     static let defaults: [CmuxSurfaceTabBarButton] = [
         .newTerminal,
+        .openChat,
         .newBrowser,
         .splitRight,
         .splitDown
@@ -1560,6 +1562,9 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
         case .newTerminal:
             title = String(localized: "command.newTerminalTab.title", defaultValue: "New Terminal Tab")
             keywords = ["new", "terminal", "tab", "surface"]
+        case .openChat:
+            title = String(localized: "command.openChat.title", defaultValue: "Open Chat")
+            keywords = ["open", "chat", "agent", "assistant", "codex", "composer", "prompt", "model"]
         case .newBrowser:
             title = String(localized: "command.newBrowserTab.title", defaultValue: "New Browser Tab")
             keywords = ["new", "browser", "tab", "surface"]
@@ -2253,6 +2258,7 @@ final class CmuxConfigStore: ObservableObject {
             try $0.resolved(actions: resolvedActionLookup, codingPath: [])
         }) ?? [
             .builtIn(.newTerminal),
+            .builtIn(.openChat),
             .builtIn(.newBrowser),
             .builtIn(.splitRight),
             .builtIn(.splitDown)

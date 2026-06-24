@@ -1,6 +1,13 @@
-type WebviewKind = "agent-session" | "diff";
+type WebviewKind = "agent-session" | "open-chat" | "diff";
 
 function resolveWebviewKind(): WebviewKind {
+  if (
+    document.documentElement.dataset.cmuxWebviewKind === "open-chat" ||
+    document.body.dataset.cmuxWebviewKind === "open-chat" ||
+    document.getElementById("cmux-open-chat-config")
+  ) {
+    return "open-chat";
+  }
   if (
     document.documentElement.dataset.cmuxWebviewKind === "agent-session" ||
     document.body.dataset.cmuxWebviewKind === "agent-session" ||
@@ -18,11 +25,15 @@ if (!rootElement) {
 
 // Load only the active surface so each one ships as its own chunk: the diff
 // viewer pulls in `@pierre/diffs`, the agent session pulls in its editor UI,
-// and neither pays for the other. Shared vendor code (React, the router) is
-// hoisted by Rollup into chunks both surfaces reuse.
-if (resolveWebviewKind() === "agent-session") {
+// and Open Chat pulls in its composer home screen.
+const webviewKind = resolveWebviewKind();
+if (webviewKind === "agent-session") {
   void import("./surfaces/agentSessionSurface").then((surface) => {
     surface.mountAgentSessionSurface(rootElement);
+  });
+} else if (webviewKind === "open-chat") {
+  void import("./surfaces/openChatSurface").then((surface) => {
+    surface.mountOpenChatSurface(rootElement);
   });
 } else {
   void import("./surfaces/diffSurface").then((surface) => {

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -17,19 +18,27 @@ struct AgentSessionWebRendererTests {
             resourceDirectoryURL: resources
         )
         let equivalent = resources
-            .appendingPathComponent("markdown-viewer", isDirectory: true)
-            .appendingPathComponent("webviews-app", isDirectory: true)
+            .appendingPathComponent("agent-session-react", isDirectory: true)
             .appendingPathComponent("..", isDirectory: true)
-            .appendingPathComponent("webviews-app", isDirectory: true)
-            .appendingPathComponent("agent-session.html", isDirectory: false)
+            .appendingPathComponent("agent-session-react", isDirectory: true)
+            .appendingPathComponent("index.html", isDirectory: false)
         let otherBundledFile = resources
-            .appendingPathComponent("markdown-viewer", isDirectory: true)
-            .appendingPathComponent("webviews-app", isDirectory: true)
-            .appendingPathComponent("diff-viewer.html", isDirectory: false)
+            .appendingPathComponent("agent-session-solid", isDirectory: true)
+            .appendingPathComponent("index.html", isDirectory: false)
 
         expectTrue(AgentSessionWebRendererCoordinator.isTrustedShellURL(expected, expected: expected))
         expectTrue(AgentSessionWebRendererCoordinator.isTrustedShellURL(equivalent, expected: expected))
         expectFalse(AgentSessionWebRendererCoordinator.isTrustedShellURL(otherBundledFile, expected: expected))
         expectFalse(AgentSessionWebRendererCoordinator.isTrustedShellURL(URL(string: "https://example.com"), expected: expected))
+    }
+
+    @Test
+    func testNativePointerCoordinatesUseWebClientSpace() {
+        let point = AgentSessionWebView.clientCoordinatesForNativePointerDown(
+            at: NSPoint(x: 358.5, y: 613)
+        )
+
+        expectEqual(point.x, 358.5)
+        expectEqual(point.y, 613)
     }
 }

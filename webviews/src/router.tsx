@@ -29,6 +29,11 @@ export function createWebviewsRouter(WebviewComponent: WebviewRouteComponent) {
     path: "/cmux-diff-viewer",
     component: WebviewComponent,
   });
+  const openChatRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/cmux-open-chat",
+    component: WebviewComponent,
+  });
   const agentSessionRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/agent-session",
@@ -38,6 +43,7 @@ export function createWebviewsRouter(WebviewComponent: WebviewRouteComponent) {
     indexRoute,
     diffRoute,
     generatedDiffRoute,
+    openChatRoute,
     agentSessionRoute,
   ]);
   return createRouter({

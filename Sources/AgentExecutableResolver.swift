@@ -2,6 +2,8 @@ import CmuxSettings
 import Foundation
 
 struct AgentExecutableResolver {
+    private static let codexSignatureScanMaxBytes: Int64 = 64 * 1024 * 1024
+
     var environment: [String: String]
     var fileManager: FileManager
     var bundleResourceURL: URL?
@@ -27,7 +29,7 @@ struct AgentExecutableResolver {
 
     func resolve(_ provider: AgentSessionProviderID) throws -> AgentSessionLaunchPlan {
         let executableName = provider.executableName
-        let searchDirectories = resolvedSearchDirectories()
+        let searchDirectories = resolvedSearchDirectories(for: provider)
         if let configuredURL = resolvedConfiguredExecutableURL(for: provider) {
             return launchPlan(provider: provider, executableURL: configuredURL, searchDirectories: searchDirectories)
         }
@@ -42,6 +44,7 @@ struct AgentExecutableResolver {
             guard !isBundledProviderExecutable(candidateURL) else { continue }
             guard !isKnownCmuxClaudeCommandShim(candidateURL, provider: provider) else { continue }
             guard !isKnownCmuxClaudeWrapper(candidateURL, provider: provider) else { continue }
+            guard isCompatibleProviderExecutable(candidateURL, provider: provider) else { continue }
 
             return launchPlan(provider: provider, executableURL: candidateURL, searchDirectories: searchDirectories)
         }
@@ -61,7 +64,14 @@ struct AgentExecutableResolver {
     }
 
     func resolvedSearchDirectories() -> [String] {
+        resolvedSearchDirectories(for: nil)
+    }
+
+    private func resolvedSearchDirectories(for provider: AgentSessionProviderID?) -> [String] {
         var directories: [String] = []
+        if let provider {
+            directories.append(contentsOf: preferredSearchDirectories(for: provider))
+        }
         let pathValue = environment["PATH"] ?? ""
         directories.append(contentsOf: pathValue.split(separator: ":").map(String.init))
         directories.append(contentsOf: extraSearchDirectories)
@@ -87,6 +97,15 @@ struct AgentExecutableResolver {
             guard seen.insert(standardized).inserted else { return nil }
             return standardized
         }
+    }
+
+    private func preferredSearchDirectories(for provider: AgentSessionProviderID) -> [String] {
+        guard provider == .codex,
+              let home = environment["HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !home.isEmpty else {
+            return []
+        }
+        return ["\(home)/.codex/plugins/.plugin-appserver"]
     }
 
     private func userRuntimeSearchDirectories(home: String) -> [String] {
@@ -182,7 +201,8 @@ struct AgentExecutableResolver {
               fileManager.isExecutableFile(atPath: candidateURL.path),
               !isBundledProviderExecutable(candidateURL),
               !isKnownCmuxClaudeCommandShim(candidateURL, provider: provider),
-              !isKnownCmuxClaudeWrapper(candidateURL, provider: provider) else {
+              !isKnownCmuxClaudeWrapper(candidateURL, provider: provider),
+              isCompatibleProviderExecutable(candidateURL, provider: provider) else {
             return nil
         }
         return candidateURL
@@ -249,6 +269,42 @@ struct AgentExecutableResolver {
             return false
         }
         return prefix.contains("cmux claude wrapper - injects hooks and session tracking")
+    }
+
+    private func isCompatibleProviderExecutable(_ url: URL, provider: AgentSessionProviderID) -> Bool {
+        switch provider {
+        case .codex:
+            return !isKnownNonOpenAICodexExecutable(url)
+        case .claude, .opencode:
+            return true
+        }
+    }
+
+    private func isKnownNonOpenAICodexExecutable(_ url: URL) -> Bool {
+        let standardizedPath = url.standardizedFileURL.path
+        let resolvedPath = url.resolvingSymlinksInPath().standardizedFileURL.path
+        let openAIMarkers = [
+            "/@openai/codex",
+            "/.codex/plugins/.plugin-appserver/"
+        ]
+        if openAIMarkers.contains(where: { standardizedPath.contains($0) || resolvedPath.contains($0) }) {
+            return false
+        }
+
+        guard let attributes = try? fileManager.attributesOfItem(atPath: standardizedPath),
+              let fileSize = attributes[.size] as? NSNumber,
+              fileSize.int64Value <= Self.codexSignatureScanMaxBytes,
+              let data = fileManager.contents(atPath: standardizedPath) else {
+            return false
+        }
+
+        return executableData(data, contains: "bootstrap-node")
+            && executableData(data, contains: "persistenceCmd")
+            && executableData(data, contains: "Ethereum")
+    }
+
+    private func executableData(_ data: Data, contains needle: String) -> Bool {
+        data.range(of: Data(needle.utf8)) != nil
     }
 
     private static func isCmuxAppBundleResourceBinDirectory(_ path: String) -> Bool {

@@ -285,7 +285,7 @@ extension CMUXCLI {
         }
     }
 
-    private struct DiffViewerAssets {
+    struct DiffViewerAssets {
         var appModuleURL: String
         var diffsModuleURL: String
         var treesModuleURL: String
@@ -294,7 +294,7 @@ extension CMUXCLI {
         var files: [URL]
     }
 
-    private struct DiffViewerAllowedFile: Codable {
+    struct DiffViewerAllowedFile: Codable {
         var requestPath: String
         var filePath: String
         var mimeType: String
@@ -320,9 +320,10 @@ extension CMUXCLI {
         }
     }
 
-    private struct DiffViewerURLMapper {
+    struct DiffViewerURLMapper {
         static let scheme = "cmux-diff-viewer"
-        static let sessionHistoryMarker = "cmux-diff-viewer"
+        static let diffSessionHistoryMarker = "cmux-diff-viewer"
+        static let openChatSessionHistoryMarker = "cmux-open-chat"
         private static let requestPathAllowedCharacters: CharacterSet = {
             var characters = CharacterSet.urlPathAllowed
             characters.remove(charactersIn: "/?#%")
@@ -332,6 +333,7 @@ extension CMUXCLI {
         var token: String
         var rootDirectory: URL
         var origin: URL
+        var sessionHistoryMarker = Self.diffSessionHistoryMarker
 
         func viewerURL(for fileURL: URL) throws -> URL {
             guard var components = URLComponents(url: origin, resolvingAgainstBaseURL: false) else {
@@ -354,7 +356,7 @@ extension CMUXCLI {
                 // path is `/<token>/<requestPath>`.
                 components.percentEncodedPath = "/\(token)\(path)"
                 components.query = nil
-                components.fragment = Self.sessionHistoryMarker
+                components.fragment = sessionHistoryMarker
             }
             guard let url = components.url else {
                 throw CLIError(message: "Failed to build diff viewer URL")
@@ -738,7 +740,7 @@ extension CMUXCLI {
         case dark
     }
 
-    private struct DiffViewerAppearance: Codable {
+    struct DiffViewerAppearance: Codable {
         var backgroundOpacity: Double
         var fontFamily: String
         var fontSize: Double
@@ -776,7 +778,7 @@ extension CMUXCLI {
         }
     }
 
-    private struct DiffViewerTheme: Codable {
+    struct DiffViewerTheme: Codable {
         var generatedName: String
         var ghosttyName: String
         var type: String
@@ -1064,7 +1066,7 @@ extension CMUXCLI {
         print("OK surface=\(surfaceText) pane=\(paneText)")
     }
 
-    private func diffViewerRuntime(socketPath: String) -> URL? {
+    func diffViewerRuntime(socketPath: String) -> URL? {
         if let taggedExecutableURL = taggedDiffViewerExecutableURL(socketPath: socketPath) {
             return taggedExecutableURL
         }
@@ -1394,7 +1396,7 @@ extension CMUXCLI {
         parsed.source = source
     }
 
-    private func openOptionValue(_ args: [String], index: Int, name: String) throws -> String {
+    func openOptionValue(_ args: [String], index: Int, name: String) throws -> String {
         guard index + 1 < args.count else {
             throw CLIError(message: "\(name) requires a value")
         }
@@ -1821,7 +1823,7 @@ extension CMUXCLI {
         return try gitRepoRoot(startingAt: repoRoot)
     }
 
-    private func gitRepoRoot(startingAt directory: String) throws -> String {
+    func gitRepoRoot(startingAt directory: String) throws -> String {
         do {
             return try standardizedDiffSourcePath(gitSingleLine(["rev-parse", "--show-toplevel"], in: directory))
         } catch {
@@ -2562,7 +2564,7 @@ extension CMUXCLI {
             ?? Data("{\"groups\":[]}".utf8)
     }
 
-    private func gitSingleLine(_ arguments: [String], in directory: String) throws -> String {
+    func gitSingleLine(_ arguments: [String], in directory: String) throws -> String {
         let output = try gitStdout(arguments, in: directory)
         guard let line = output
             .split(whereSeparator: \.isNewline)
@@ -3467,7 +3469,7 @@ extension CMUXCLI {
         return lhs == rhs
     }
 
-    private func normalizedDiffSourceValue(_ value: String?) -> String? {
+    func normalizedDiffSourceValue(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
             return nil
@@ -3475,11 +3477,11 @@ extension CMUXCLI {
         return trimmed
     }
 
-    private func standardizedDiffSourcePath(_ path: String) -> String {
+    func standardizedDiffSourcePath(_ path: String) -> String {
         URL(fileURLWithPath: NSString(string: path).expandingTildeInPath).standardizedFileURL.path
     }
 
-    private func diffViewerAppearance(socketPath: String, fontSizeOverride: Double?) -> DiffViewerAppearance {
+    func diffViewerAppearance(socketPath: String, fontSizeOverride: Double?) -> DiffViewerAppearance {
         var appearance = defaultDiffViewerAppearance()
         let targetBundleIdentifier = themeTargetBundleIdentifier(socketPath: socketPath)
         for url in themeConfigSearchURLs(targetBundleIdentifier: targetBundleIdentifier) {
@@ -5671,7 +5673,7 @@ extension CMUXCLI {
         }
     }
 
-    private func diffViewerDirectory() throws -> URL {
+    func diffViewerDirectory() throws -> URL {
         let directory = URL(fileURLWithPath: "/tmp", isDirectory: true)
             .appendingPathComponent("cmux-diff-viewer-\(getuid())", isDirectory: true)
         try ensureSecureDiffViewerDirectory(directory)
@@ -5744,7 +5746,7 @@ extension CMUXCLI {
         try runDiffViewerHTTPServer(rootDirectory: rootDirectory)
     }
 
-    private func diffViewerHTTPServerOrigin(rootDirectory: URL, runtime: URL? = nil) throws -> URL {
+    func diffViewerHTTPServerOrigin(rootDirectory: URL, runtime: URL? = nil) throws -> URL {
         let rootDirectory = rootDirectory.standardizedFileURL.resolvingSymlinksInPath()
         try validateSecureDiffViewerDirectory(rootDirectory, repairPermissions: false)
 
@@ -5914,7 +5916,7 @@ extension CMUXCLI {
         return reachable
     }
 
-    private func writeDiffViewerHTTPManifest(
+    func writeDiffViewerHTTPManifest(
         token: String,
         files: [DiffViewerAllowedFile],
         rootDirectory: URL
@@ -7091,7 +7093,7 @@ extension CMUXCLI {
         String(cString: strerror(code))
     }
 
-    private func diffViewerAllowedFiles(
+    func diffViewerAllowedFiles(
         pageURLs: [URL],
         assets: DiffViewerAssets,
         mapper: DiffViewerURLMapper,
@@ -7529,7 +7531,7 @@ extension CMUXCLI {
         try html.write(to: viewerURL, atomically: true, encoding: .utf8)
     }
 
-    private func diffViewerPrepaintStyle(appearance: DiffViewerAppearance) -> String {
+    func diffViewerPrepaintStyle(appearance: DiffViewerAppearance) -> String {
         let lightForeground = diffViewerCSSColor(appearance.lightTheme.foreground)
         let darkForeground = diffViewerCSSColor(appearance.darkTheme.foreground)
         return """
@@ -7593,7 +7595,7 @@ extension CMUXCLI {
         return text
     }
 
-    private func ensureDiffViewerAssets(nextTo viewerURL: URL, runtime: URL? = nil) throws -> DiffViewerAssets {
+    func ensureDiffViewerAssets(nextTo viewerURL: URL, runtime: URL? = nil) throws -> DiffViewerAssets {
         let sourceDirectory = try diffViewerBundledAssetDirectory(runtime: runtime)
         let assetDirectoryName = "pierre-diffs-1.2.7-trees-1.0.0-beta.4"
         let targetDirectory = viewerURL.deletingLastPathComponent()
@@ -7834,7 +7836,7 @@ extension CMUXCLI {
         return candidates
     }
 
-    private func jsonScriptLiteral(_ object: [String: Any]) throws -> String {
+    func jsonScriptLiteral(_ object: [String: Any]) throws -> String {
         let data = try JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes])
         guard let text = String(data: data, encoding: .utf8) else {
             throw CLIError(message: "Failed to encode diff viewer payload")
@@ -7850,7 +7852,7 @@ extension CMUXCLI {
         return text.replacingOccurrences(of: "</", with: "<\\/")
     }
 
-    private func htmlEscaped(_ raw: String) -> String {
+    func htmlEscaped(_ raw: String) -> String {
         raw
             .replacingOccurrences(of: "&", with: "&amp;")
             .replacingOccurrences(of: "<", with: "&lt;")

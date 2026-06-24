@@ -6313,6 +6313,76 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    /// Runs the configured Open Chat action for the focused workspace, falling back to the built-in pane.
+    @discardableResult
+    func openConfiguredChatForFocusedWorkspace(for tabManager: TabManager?) -> Bool {
+        guard let tabManager else {
+            return false
+        }
+        if let context = mainWindowContext(for: tabManager),
+           let action = context.cmuxConfigStore?.resolvedAction(id: CmuxSurfaceTabBarBuiltInAction.openChat.configID),
+           executeConfiguredCmuxAction(
+               action,
+               context: context,
+               preferredWindow: resolvedWindow(for: context)
+           ) {
+            return true
+        }
+        return openChatForFocusedWorkspace(for: tabManager)
+    }
+
+    /// Opens Chat for the focused workspace of `tabManager` in a new agent-session pane.
+    ///
+    /// This is the built-in fallback for menu items, command-palette entries,
+    /// and keyboard shortcuts after configured action resolution declines to run.
+    @discardableResult
+    func openChatForFocusedWorkspace(for tabManager: TabManager?) -> Bool {
+        guard let workspace = tabManager?.selectedWorkspace else {
+            return false
+        }
+        workspace.clearSplitZoom()
+        let workingDirectory = workspace.resolvedWorkingDirectory()
+            ?? FileManager.default.homeDirectoryForCurrentUser.path
+        if let sourcePanelId = workspace.focusedPanelId {
+            if workspace.newAgentSessionSplit(
+                from: sourcePanelId,
+                orientation: .horizontal,
+                providerID: .codex,
+                rendererKind: .react,
+                workingDirectory: workingDirectory,
+                focus: true
+            ) != nil {
+                return true
+            }
+        }
+        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+            return false
+        }
+        return workspace.newAgentSessionSurface(
+            inPane: paneId,
+            providerID: .codex,
+            rendererKind: .react,
+            workingDirectory: workingDirectory,
+            focus: true
+        ) != nil
+    }
+
+    @discardableResult
+    func openChatWorkspace(for tabManager: TabManager?) -> Bool {
+        guard let tabManager else { return false }
+        let workingDirectory = tabManager.selectedWorkspace?.resolvedWorkingDirectory()
+            ?? FileManager.default.homeDirectoryForCurrentUser.path
+        let workspace = tabManager.addWorkspace(
+            workingDirectory: workingDirectory,
+            initialSurface: .agentSession,
+            inheritWorkingDirectory: false,
+            select: true
+        )
+        let agentPanel = workspace.focusedPanelId.flatMap { workspace.panels[$0] as? AgentSessionPanel }
+        agentPanel?.focus()
+        return agentPanel != nil
+    }
+
     func allMainWindowTabManagersForDebug() -> [TabManager] {
         Array(mainWindowContexts.values).compactMap { context in
             resolvedWindow(for: context) == nil ? nil : context.tabManager
@@ -7352,6 +7422,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         in: context
                     )
                     focusInitialBrowserAddressBar(in: workspace)
+                case .agentSession:
+                    // The fresh window boots with a terminal workspace; add the
+                    // agent-session workspace and close that initial one so the
+                    // action's result matches the no-window case for terminals.
+                    let workspace = context.tabManager.addWorkspace(initialSurface: .agentSession)
+                    closeInitialWorkspaceIfNeeded(
+                        initialWorkspaceId: initialWorkspace?.id,
+                        in: context
+                    )
+                    focusInitialAgentSessionComposer(in: workspace)
                 }
             }
             return true
@@ -7391,18 +7471,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ) else {
                 return false
             }
-            if initialSurface == .browser {
-                focusInitialBrowserAddressBar(in: workspace)
-            }
+            focusInitialWorkspaceSurface(in: workspace, initialSurface: initialSurface)
             return true
         }
 
         if let preferredTabManager,
            preferredContext == nil || livePreferredContext != nil {
             let workspace = preferredTabManager.addWorkspace(initialSurface: initialSurface)
-            if initialSurface == .browser {
-                focusInitialBrowserAddressBar(in: workspace)
-            }
+            focusInitialWorkspaceSurface(in: workspace, initialSurface: initialSurface)
             return true
         }
 
@@ -7411,9 +7487,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             event: event,
             debugSource: debugSource
         ) {
-            if initialSurface == .browser {
-                focusInitialBrowserAddressBar(in: workspace)
-            }
+            focusInitialWorkspaceSurface(in: workspace, initialSurface: initialSurface)
         } else {
 #if DEBUG
             logWorkspaceCreationRouting(
@@ -7429,6 +7503,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
+    private func focusInitialWorkspaceSurface(in workspace: Workspace, initialSurface: NewWorkspaceInitialSurface) {
+        switch initialSurface {
+        case .terminal:
+            break
+        case .browser:
+            focusInitialBrowserAddressBar(in: workspace)
+        case .agentSession:
+            focusInitialAgentSessionComposer(in: workspace)
+        }
+    }
+
     /// Routes first focus of a freshly created browser-initial workspace into
     /// the address bar so the user can type a URL immediately.
     private func focusInitialBrowserAddressBar(in workspace: Workspace) {
@@ -7438,6 +7523,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         workspace.focusPanel(browserPanel.id)
         focusBrowserAddressBar(in: browserPanel)
+    }
+
+    /// Routes first focus of a freshly created agent-session workspace into
+    /// the composer so the user can type a prompt immediately.
+    private func focusInitialAgentSessionComposer(in workspace: Workspace) {
+        guard let agentPanel = workspace.focusedPanelId.flatMap({ workspace.panels[$0] as? AgentSessionPanel })
+            ?? workspace.panels.values.compactMap({ $0 as? AgentSessionPanel }).first else {
+            return
+        }
+        workspace.focusPanel(agentPanel.id)
+        agentPanel.focus()
     }
 
     @discardableResult
@@ -8050,8 +8146,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let workspace: Workspace
-        if initialSurface == .browser {
-            workspace = context.tabManager.addWorkspace(initialSurface: .browser, select: true)
+        if initialSurface == .browser || initialSurface == .agentSession {
+            workspace = context.tabManager.addWorkspace(initialSurface: initialSurface, select: true)
         } else if workingDirectory != nil || initialTerminalInput != nil {
             workspace = context.tabManager.addWorkspace(
                 workingDirectory: workingDirectory,
@@ -13246,6 +13342,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchConfiguredShortcut(event: event, action: .openChat) {
+            // Shares the command palette's chat-open path; targets the event window's
+            // focused workspace and beeps if it can't be opened (matching the palette).
+            let manager = activeTabManagerForCommands(preferredWindow: mainWindowForShortcutEvent(event))
+            if !openConfiguredChatForFocusedWorkspace(for: manager) {
+                NSSound.beep()
+            }
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .openChatWorkspace) {
+            let manager = activeTabManagerForCommands(preferredWindow: mainWindowForShortcutEvent(event))
+            if !openChatWorkspace(for: manager) {
+                NSSound.beep()
+            }
+            return true
+        }
+
         if matchConfiguredShortcut(event: event, action: .toggleRightSidebar) {
             // Escape AppKit's performKeyEquivalent animation context. Without
             // deferring the toggle, NSAnimationContext implicitly animates the
@@ -15146,6 +15260,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 context.tabManager.newSurface()
                 onExecuted?()
                 return true
+            case .openChat:
+                let didOpen = openChatForFocusedWorkspace(for: context.tabManager)
+                if didOpen { onExecuted?() }
+                return didOpen
             case .newBrowser:
                 let previousTabManager = tabManager
                 tabManager = context.tabManager
@@ -17009,6 +17127,8 @@ private extension NSWindow {
         let firstResponderWebView = self.firstResponder.flatMap {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
         }
+        let firstResponderAgentSessionWebView = Self.cmuxOwningAgentSessionWebView(for: self.firstResponder)
+        let firstResponderIsWebContent = firstResponderWebView != nil || firstResponderAgentSessionWebView != nil
         let firstResponderHasMarkedText = browserResponderHasMarkedText(self.firstResponder)
         let firstResponderIsCommandPaletteFieldEditor = Self.cmuxCommandPaletteOwnsFieldEditor(
             self.firstResponder as? NSTextView,
@@ -17032,6 +17152,7 @@ private extension NSWindow {
             if browserWebKitKeyDownReentry { return false }
             let textInputTarget: NSResponder? = firstResponderGhosttyView
                 ?? firstResponderWebView
+                ?? firstResponderAgentSessionWebView
                 ?? self.firstResponder
             if let textInputTarget, textInputTarget !== self {
                 if cmuxForceDispatchKeyDownOnce(event, to: textInputTarget, reason: "printable Option text") {
@@ -17233,13 +17354,13 @@ private extension NSWindow {
         // Web forms rely on Return/Enter flowing through keyDown. Route it directly to the first responder.
         if shouldDispatchBrowserReturnViaFirstResponderKeyDown(
             keyCode: event.keyCode,
-            firstResponderIsBrowser: firstResponderWebView != nil,
+            firstResponderIsBrowser: firstResponderIsWebContent,
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
             if browserWebKitKeyDownReentry { return false }
             guard let target = self.firstResponder else { return false }
-            if cmuxForceDispatchKeyDownOnce(event, to: target, reason: "browser Return/Enter") {
+            if cmuxForceDispatchKeyDownOnce(event, to: target, reason: "web content Return/Enter") {
                 return true
             }
             // Forwarding keyDown can re-enter performKeyEquivalent in WebKit/AppKit internals.
@@ -17250,7 +17371,7 @@ private extension NSWindow {
         // Browser content can lose plain arrows when performKeyEquivalent claims them before WebKit.
         if shouldDispatchBrowserArrowViaFirstResponderKeyDown(
             keyCode: event.keyCode,
-            firstResponderIsBrowser: firstResponderWebView != nil,
+            firstResponderIsBrowser: firstResponderIsWebContent,
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
@@ -17448,6 +17569,48 @@ private extension NSWindow {
                 return webView
             }
             current = next.nextResponder
+        }
+
+        return nil
+    }
+
+    private static func cmuxOwningAgentSessionWebView(for responder: NSResponder?) -> AgentSessionWebView? {
+        guard let responder else { return nil }
+        if let webView = responder as? AgentSessionWebView {
+            return webView
+        }
+
+        if let view = responder as? NSView,
+           let webView = cmuxOwningAgentSessionWebView(for: view) {
+            return webView
+        }
+
+        var current = responder.nextResponder
+        while let next = current {
+            if let webView = next as? AgentSessionWebView {
+                return webView
+            }
+            if let view = next as? NSView,
+               let webView = cmuxOwningAgentSessionWebView(for: view) {
+                return webView
+            }
+            current = next.nextResponder
+        }
+
+        return nil
+    }
+
+    private static func cmuxOwningAgentSessionWebView(for view: NSView) -> AgentSessionWebView? {
+        if let webView = view as? AgentSessionWebView {
+            return webView
+        }
+
+        var current = view.superview
+        while let candidate = current {
+            if let webView = candidate as? AgentSessionWebView {
+                return webView
+            }
+            current = candidate.superview
         }
 
         return nil

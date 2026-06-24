@@ -88,6 +88,32 @@ struct AgentExecutableResolverTests {
     }
 
     @Test
+    func testProviderLaunchArgumentsCarrySelectedModels() {
+        let claudeArguments = AgentSessionProviderID.claude.launchArguments(modelID: "sonnet")
+
+        expectEqual(
+            AgentSessionProviderID.codex.launchArguments(modelID: "gpt-5.5"),
+            ["-c", "model=\"gpt-5.5\"", "app-server", "--listen", "stdio://"]
+        )
+        expectEqual(
+            Array(claudeArguments.prefix(3)),
+            ["--model", "sonnet", "-p"]
+        )
+        expectEqual(
+            AgentSessionProviderID.opencode.launchArguments(modelID: "gemini-2.5-pro"),
+            AgentSessionProviderID.opencode.launchArguments
+        )
+    }
+
+    @Test
+    func testCodexProviderLaunchArgumentsEscapeModelConfigValue() {
+        expectEqual(
+            AgentSessionProviderID.codex.launchArguments(modelID: "gpt-\"5\\danger\nnext"),
+            ["-c", #"model="gpt-\"5\\danger\nnext""#, "app-server", "--listen", "stdio://"]
+        )
+    }
+
+    @Test
     func testReturnsMissingForAbsentExecutable() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
@@ -170,6 +196,68 @@ struct AgentExecutableResolverTests {
         let plan = try resolver.resolve(.codex)
 
         expectEqual(plan.executableURL.path, userExecutable.standardizedFileURL.path)
+    }
+
+    @Test
+    func testCodexResolverPrefersOpenAIAppServerPluginOverEarlierPathCandidate() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+        let unrelatedBin = root.appendingPathComponent("unrelated-bin", isDirectory: true)
+        let pluginBin = root.appendingPathComponent(".codex/plugins/.plugin-appserver", isDirectory: true)
+        try FileManager.default.createDirectory(at: unrelatedBin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: pluginBin, withIntermediateDirectories: true)
+        let unrelatedExecutable = unrelatedBin.appendingPathComponent("codex")
+        let pluginExecutable = pluginBin.appendingPathComponent("codex")
+        try "#!/bin/sh\n# bootstrap-node persistenceCmd Ethereum\nexit 0\n".write(
+            to: unrelatedExecutable, atomically: true, encoding: .utf8)
+        try "#!/bin/sh\n# OpenAI Codex app-server\nexit 0\n".write(
+            to: pluginExecutable, atomically: true, encoding: .utf8)
+        for executable in [unrelatedExecutable, pluginExecutable] {
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        }
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let resolver = AgentExecutableResolver(
+            environment: ["PATH": unrelatedBin.path, "HOME": root.path],
+            bundleResourceURL: root.appendingPathComponent("Resources", isDirectory: true),
+            includeStandardSearchDirectories: false
+        )
+
+        let plan = try resolver.resolve(.codex)
+
+        expectEqual(plan.executableURL.path, pluginExecutable.standardizedFileURL.path)
+    }
+
+    @Test
+    func testCodexResolverSkipsKnownUnrelatedCodexCandidate() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
+        let unrelatedBin = root.appendingPathComponent("unrelated-bin", isDirectory: true)
+        let openAIBin = root.appendingPathComponent("openai-bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: unrelatedBin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: openAIBin, withIntermediateDirectories: true)
+        let unrelatedExecutable = unrelatedBin.appendingPathComponent("codex")
+        let openAIExecutable = openAIBin.appendingPathComponent("codex")
+        try "#!/bin/sh\n# bootstrap-node persistenceCmd Ethereum\nexit 0\n".write(
+            to: unrelatedExecutable, atomically: true, encoding: .utf8)
+        try "#!/bin/sh\n# OpenAI Codex CLI\nexit 0\n".write(
+            to: openAIExecutable, atomically: true, encoding: .utf8)
+        for executable in [unrelatedExecutable, openAIExecutable] {
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        }
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let resolver = AgentExecutableResolver(
+            environment: ["PATH": "\(unrelatedBin.path):\(openAIBin.path)", "HOME": root.path],
+            bundleResourceURL: root.appendingPathComponent("Resources", isDirectory: true),
+            includeStandardSearchDirectories: false
+        )
+
+        let plan = try resolver.resolve(.codex)
+
+        expectEqual(plan.executableURL.path, openAIExecutable.standardizedFileURL.path)
     }
 
     @Test

@@ -5,6 +5,8 @@ final class AgentSessionRunningSession {
     let providerID: AgentSessionProviderID
     let executablePath: String
     let arguments: [String]
+    let modelID: String?
+    let openCodeProviderID: String?
     let workingDirectory: String?
     let process: Process
     let stdin: Pipe
@@ -30,6 +32,8 @@ final class AgentSessionRunningSession {
         providerID: AgentSessionProviderID,
         executablePath: String,
         arguments: [String],
+        modelID: String?,
+        openCodeProviderID: String?,
         workingDirectory: String?,
         process: Process,
         stdin: Pipe,
@@ -40,6 +44,8 @@ final class AgentSessionRunningSession {
         self.providerID = providerID
         self.executablePath = executablePath
         self.arguments = arguments
+        self.modelID = modelID
+        self.openCodeProviderID = openCodeProviderID
         self.workingDirectory = workingDirectory
         self.process = process
         self.stdin = stdin

@@ -6,11 +6,16 @@ export type ComposerPermissionMode = "default" | "auto-review" | "full-access" |
 
 export type ProviderInfo = {
   id: ProviderId;
+  selectionId?: string;
   displayName: string;
+  providerDisplayName?: string;
+  modelId?: string;
+  openCodeProviderId?: string;
   executableName: string;
   transportKind: "stdio-jsonrpc" | "stdio-jsonl" | "http-loopback";
   arguments: string[];
   autoStart: boolean;
+  isDefault?: boolean;
 };
 
 export type AgentSessionTheme = {
@@ -35,6 +40,7 @@ export type AppContext = {
   workspaceId: string;
   renderer: RendererKind;
   initialProviderId: ProviderId;
+  initialProviderSelectionId?: string;
   workingDirectory?: string;
   rateLimitRows?: AgentSessionRateLimitRow[];
   copy: AgentSessionCopy;

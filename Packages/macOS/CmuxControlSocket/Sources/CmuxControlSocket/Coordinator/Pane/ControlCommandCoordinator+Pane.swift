@@ -179,6 +179,10 @@ extension ControlCommandCoordinator {
         let inputs = ControlPaneCreateInputs(
             directionRaw: string(params, "direction"),
             typeRaw: string(params, "type"),
+            providerRaw: string(params, "provider_id") ?? string(params, "provider"),
+            rendererRaw: string(params, "renderer_kind") ?? string(params, "renderer"),
+            modelRaw: string(params, "model_id") ?? string(params, "model"),
+            openCodeProviderRaw: string(params, "opencode_provider_id") ?? string(params, "open_code_provider_id"),
             urlRaw: string(params, "url"),
             workingDirectory: optionalTrimmedRawString(params, "working_directory"),
             initialCommand: optionalTrimmedRawString(params, "initial_command"),
@@ -207,11 +211,23 @@ extension ControlCommandCoordinator {
                 message: "initial_divider_position must be numeric",
                 data: nil
             )
-        case .agentSessionRejected(let typeRawValue):
+        case .invalidProvider:
             return .err(
                 code: "invalid_params",
-                message: "agent-session is only supported by surface.create",
-                data: .object(["type": .string(typeRawValue)])
+                message: "Invalid provider selection",
+                data: .object(["field": .string("provider_id")])
+            )
+        case .invalidRenderer:
+            return .err(
+                code: "invalid_params",
+                message: "Invalid renderer selection",
+                data: .object(["field": .string("renderer_kind")])
+            )
+        case .invalidOpenCodeModel:
+            return .err(
+                code: "invalid_params",
+                message: "Invalid model selection",
+                data: .object(["field": .string("model")])
             )
         case .browserDisabledInvalidURL(let rawURL):
             return .err(code: "invalid_params", message: "Invalid URL", data: .object(["url": .string(rawURL)]))

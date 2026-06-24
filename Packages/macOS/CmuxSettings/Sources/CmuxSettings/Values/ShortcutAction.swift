@@ -25,6 +25,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case toggleSidebar
     case newTab
     case newBrowserWorkspace
+    /// Opens Chat in a new workspace.
+    case openChatWorkspace
     case openFolder
     case reopenPreviousSession
     case goToWorkspace
@@ -108,6 +110,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case canvasDistributeVertically
 
     // MARK: Browser & Find
+    /// Opens Chat in a new agent-session pane.
+    case openChat
     case openDiffViewer
     case saveFilePreview
     case openBrowser
@@ -171,7 +175,7 @@ extension ShortcutAction {
         case .openSettings, .reloadConfiguration, .showHideAllWindows, .globalSearch,
              .newWindow, .closeWindow, .toggleFullScreen, .quit:
             return .app
-        case .toggleSidebar, .newTab, .newBrowserWorkspace, .openFolder, .reopenPreviousSession, .goToWorkspace,
+        case .toggleSidebar, .newTab, .newBrowserWorkspace, .openChatWorkspace, .openFolder, .reopenPreviousSession, .goToWorkspace,
              .commandPalette, .commandPaletteNext, .commandPalettePrevious, .sendFeedback,
              .showNotifications, .jumpToUnread, .toggleUnread, .markOldestUnreadAndJumpNext,
              .focusRightSidebar, .switchRightSidebarToFiles, .switchRightSidebarToFind,
@@ -196,7 +200,7 @@ extension ShortcutAction {
              .canvasEqualizeWidths, .canvasEqualizeHeights,
              .canvasDistributeHorizontally, .canvasDistributeVertically:
             return .panes
-        case .openDiffViewer, .saveFilePreview, .openBrowser, .focusBrowserAddressBar, .browserBack,
+        case .openChat, .openDiffViewer, .saveFilePreview, .openBrowser, .focusBrowserAddressBar, .browserBack,
              .browserForward, .browserReload, .browserHardReload, .browserZoomIn, .browserZoomOut,
              .browserZoomReset, .markdownZoomIn, .markdownZoomOut, .markdownZoomReset,
              .find, .findInDirectory, .findNext, .findPrevious,
@@ -420,6 +424,8 @@ extension ShortcutAction {
             return String(localized: "shortcut.canvasDistributeHorizontally.label", defaultValue: "Canvas: Distribute Horizontally")
         case .canvasDistributeVertically:
             return String(localized: "shortcut.canvasDistributeVertically.label", defaultValue: "Canvas: Distribute Vertically")
+        case .openChatWorkspace: return String(localized: "shortcut.openChatWorkspace.label", defaultValue: "Open Chat in New Workspace")
+        case .openChat: return String(localized: "shortcut.openChat.label", defaultValue: "Open Chat")
         case .openDiffViewer: return "Open Diff Viewer"
         case .saveFilePreview: return "Save File Preview"
         case .openBrowser: return "Open Browser"

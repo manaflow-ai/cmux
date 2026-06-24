@@ -47,6 +47,14 @@ struct AgentSessionBridgeRequest {
         return provider
     }
 
+    func modelID() -> String? {
+        string("modelId") ?? string("modelID") ?? string("model_id")
+    }
+
+    func openCodeProviderID() -> String? {
+        string("openCodeProviderId") ?? string("openCodeProviderID") ?? string("opencode_provider_id")
+    }
+
     func permissionMode() -> AgentSessionPermissionMode {
         guard let rawValue = string("permissionMode"),
               let mode = AgentSessionPermissionMode(rawValue: rawValue) else {
@@ -55,4 +63,3 @@ struct AgentSessionBridgeRequest {
         return mode
     }
 }
-

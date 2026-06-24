@@ -16,13 +16,18 @@ final class AgentSessionProcessStore {
     private var lastEmittedHasActiveProviderSession: Bool?
     private static let terminationEscalationInterval: DispatchTimeInterval = .seconds(3)
 
-    func start(plan: AgentSessionLaunchPlan, workingDirectory: String?) async throws -> AgentSessionStartedSession {
+    func start(
+        plan: AgentSessionLaunchPlan,
+        modelID: String?,
+        openCodeProviderID: String?,
+        workingDirectory: String?
+    ) async throws -> AgentSessionStartedSession {
         guard sessions.isEmpty else {
             throw AgentSessionBridgeError.sessionAlreadyRunning
         }
         let sessionId = UUID().uuidString
         let process = Process()
-        let launchArguments = plan.arguments
+        let launchArguments = plan.provider.launchArguments(modelID: modelID)
         let launchEnvironment = plan.environment(overridingWorkingDirectory: workingDirectory)
         process.executableURL = plan.executableURL
         process.arguments = launchArguments
@@ -46,6 +51,8 @@ final class AgentSessionProcessStore {
             providerID: plan.provider,
             executablePath: plan.executableURL.path,
             arguments: launchArguments,
+            modelID: modelID,
+            openCodeProviderID: openCodeProviderID,
             workingDirectory: workingDirectory,
             process: process,
             stdin: stdin,
@@ -107,6 +114,7 @@ final class AgentSessionProcessStore {
             if process.isRunning {
                 process.terminate()
             }
+            running.codexAppServerSession?.close(with: error)
             running.openCodeEventTask?.cancel()
             sessions.removeValue(forKey: sessionId)
             emitActiveProviderStateIfNeeded()
@@ -195,6 +203,7 @@ final class AgentSessionProcessStore {
               sessions[session.sessionId] === session else {
             return
         }
+        session.codexAppServerSession?.close()
         sessions.removeValue(forKey: session.sessionId)
         cancelSessionTasks(session)
         emitActiveProviderStateIfNeeded()
@@ -220,6 +229,7 @@ final class AgentSessionProcessStore {
     }
 
     private func requestTermination(for session: AgentSessionRunningSession) {
+        session.codexAppServerSession?.close()
         session.openCodeEventTask?.cancel()
         if session.process.isRunning {
             session.process.terminate()
@@ -410,16 +420,36 @@ final class AgentSessionProcessStore {
         )
         _ = try await postJSON(
             to: url,
-            body: [
-                "parts": [
-                    [
-                        "type": "text",
-                        "text": text
-                    ]
-                ]
-            ],
+            body: Self.openCodePromptBody(
+                text: text,
+                modelID: session.modelID,
+                openCodeProviderID: session.openCodeProviderID
+            ),
             authorizationHeader: session.openCodeAuthorizationHeader
         )
+    }
+
+    static func openCodePromptBody(
+        text: String,
+        modelID: String?,
+        openCodeProviderID: String?
+    ) -> [String: Any] {
+        var body: [String: Any] = [
+            "parts": [
+                [
+                    "type": "text",
+                    "text": text
+                ]
+            ]
+        ]
+        if let openCodeProviderID,
+           let modelID {
+            body["model"] = [
+                "providerID": openCodeProviderID,
+                "modelID": modelID,
+            ]
+        }
+        return body
     }
 
     private func startOpenCodeEventStream(_ session: AgentSessionRunningSession) {

@@ -6,9 +6,9 @@ import type {
   AgentSessionAttachment,
   AppContext,
   ComposerPermissionMode,
-  ProviderId,
   ProviderInfo,
 } from "./types";
+import type { ProviderId } from "./types";
 
 export type LogEntry = {
   id: string;
@@ -35,13 +35,13 @@ export type TranscriptEntry = {
 export type SessionState = {
   context?: AppContext;
   providers: ProviderInfo[];
-  selectedProviderId: ProviderId;
+  selectedProviderId: string;
   runningSessionId?: string;
   status: "loading" | "idle" | "starting" | "running" | "stopping" | "failed";
   input: string;
   log: LogEntry[];
   transcript: TranscriptEntry[];
-  autoStartAttemptedProviderIds: ProviderId[];
+  autoStartAttemptedProviderIds: string[];
   seenSessionIds: string[];
   requestedStopSessionId?: string;
 };
@@ -49,9 +49,9 @@ export type SessionState = {
 export type Action =
   | { type: "context"; context: AppContext }
   | { type: "providers"; providers: ProviderInfo[] }
-  | { type: "selectProvider"; providerId: ProviderId }
+  | { type: "selectProvider"; providerId: string }
   | { type: "setInput"; input: string }
-  | { type: "autoStartAttempted"; providerId: ProviderId }
+  | { type: "autoStartAttempted"; providerId: string }
   | { type: "starting" }
   | { type: "startAccepted"; sessionId: string }
   | { type: "stopping"; sessionId: string }
@@ -96,11 +96,15 @@ export function reduceSession(state: SessionState, action: Action): SessionState
       return appendContextReadyLog({
         ...state,
         context: action.context,
-        selectedProviderId: action.context.initialProviderId,
+        selectedProviderId: action.context.initialProviderSelectionId ?? action.context.initialProviderId,
         status: "idle",
       });
     case "providers":
-      return { ...state, providers: action.providers };
+      return {
+        ...state,
+        providers: action.providers,
+        selectedProviderId: resolvedSelectionId(action.providers, state.selectedProviderId, state.context?.initialProviderId),
+      };
     case "selectProvider":
       if (!canSelectProvider(state)) {
         return state;
@@ -206,14 +210,21 @@ export async function startProvider(state: SessionState, dispatch: (action: Acti
 }
 
 type StartProviderSnapshot = {
+  modelId?: string;
+  openCodeProviderId?: string;
   providerId: ProviderId;
+  selectionId: string;
   workingDirectory?: string;
   copy?: AppContext["copy"];
 };
 
 function startProviderSnapshotFromState(state: SessionState): StartProviderSnapshot {
+  const provider = selectedProvider(state);
   return {
-    providerId: state.selectedProviderId,
+    modelId: provider?.modelId,
+    openCodeProviderId: provider?.openCodeProviderId,
+    providerId: provider?.id ?? providerIdFromSelectionId(state.selectedProviderId),
+    selectionId: state.selectedProviderId,
     workingDirectory: state.context?.workingDirectory,
     copy: state.context?.copy,
   };
@@ -227,6 +238,9 @@ async function startProviderSnapshot(
   try {
     const reply = await callNative<{ sessionId: string }>("provider.start", {
       providerId: snapshot.providerId,
+      selectionId: snapshot.selectionId,
+      modelId: snapshot.modelId,
+      openCodeProviderId: snapshot.openCodeProviderId,
       workingDirectory: snapshot.workingDirectory,
     });
     dispatch({ type: "startAccepted", sessionId: reply.sessionId });
@@ -242,7 +256,7 @@ export function shouldAutoStartProvider(state: SessionState): boolean {
   if (state.autoStartAttemptedProviderIds.includes(state.selectedProviderId)) {
     return false;
   }
-  const provider = state.providers.find((item) => item.id === state.selectedProviderId);
+  const provider = selectedProvider(state);
   return provider?.autoStart === true;
 }
 
@@ -256,12 +270,21 @@ export async function autoStartProvider(state: SessionState, dispatch: (action: 
   await startProviderSnapshot(snapshot, dispatch);
 }
 
-export function selectProvider(providerId: ProviderId, state: SessionState, dispatch: (action: Action) => void): void {
+export function selectProvider(providerId: string, state: SessionState, dispatch: (action: Action) => void): void {
   if (!canSelectProvider(state)) {
     return;
   }
+  const provider = providerForSelectionId(state.providers, providerId);
+  if (!provider) {
+    return;
+  }
   dispatch({ type: "selectProvider", providerId });
-  void callNative("provider.select", { providerId }).catch(() => {});
+  void callNative("provider.select", {
+    providerId: provider.id,
+    selectionId: providerSelectionId(provider),
+    modelId: provider.modelId,
+    openCodeProviderId: provider.openCodeProviderId,
+  }).catch(() => {});
 }
 
 export async function sendInput(
@@ -339,7 +362,10 @@ export function statusLabel(state: SessionState): string {
 }
 
 export function canStartProvider(state: SessionState): boolean {
-  return (state.status === "idle" || state.status === "failed") && !state.runningSessionId && Boolean(state.context);
+  return (state.status === "idle" || state.status === "failed") &&
+    !state.runningSessionId &&
+    Boolean(state.context) &&
+    Boolean(selectedProvider(state));
 }
 
 export function canSelectProvider(state: SessionState): boolean {
@@ -384,7 +410,7 @@ function applyEvent(state: SessionState, event: AgentEvent): SessionState {
       if (!state.runningSessionId && state.status !== "starting") {
         return state;
       }
-      if (!state.runningSessionId && event.providerId !== state.selectedProviderId) {
+      if (!state.runningSessionId && event.providerId !== selectedBackendProviderId(state)) {
         return state;
       }
       return {
@@ -470,8 +496,54 @@ function isCurrentOrPendingStartExit(state: SessionState, event: Extract<AgentEv
     !state.seenSessionIds.includes(event.sessionId) &&
     state.status === "starting" &&
     !state.runningSessionId &&
-    event.providerId === state.selectedProviderId
+    event.providerId === selectedBackendProviderId(state)
   );
+}
+
+export function selectedProvider(state: SessionState): ProviderInfo | undefined {
+  return providerForSelectionId(state.providers, state.selectedProviderId);
+}
+
+export function providerSelectionId(provider: ProviderInfo): string {
+  return provider.selectionId ?? provider.id;
+}
+
+function selectedBackendProviderId(state: SessionState): ProviderId {
+  return selectedProvider(state)?.id ?? providerIdFromSelectionId(state.selectedProviderId);
+}
+
+function providerForSelectionId(providers: ProviderInfo[], selectionId: string): ProviderInfo | undefined {
+  return providers.find((item) => providerSelectionId(item) === selectionId) ??
+    providers.find((item) => item.id === selectionId);
+}
+
+function resolvedSelectionId(
+  providers: ProviderInfo[],
+  currentSelectionId: string,
+  initialProviderId: ProviderId | undefined,
+): string {
+  const current = providerForSelectionId(providers, currentSelectionId);
+  if (current) {
+    return providerSelectionId(current);
+  }
+  const preferredProviderId = initialProviderId ?? providerIdFromSelectionId(currentSelectionId);
+  const preferredDefault = providers.find((item) => item.id === preferredProviderId && item.isDefault === true);
+  if (preferredDefault) {
+    return providerSelectionId(preferredDefault);
+  }
+  const preferred = providers.find((item) => item.id === preferredProviderId);
+  if (preferred) {
+    return providerSelectionId(preferred);
+  }
+  return providers[0] ? providerSelectionId(providers[0]) : currentSelectionId;
+}
+
+function providerIdFromSelectionId(selectionId: string): ProviderId {
+  const rawProviderId = selectionId.split(":", 1)[0];
+  if (rawProviderId === "claude" || rawProviderId === "opencode") {
+    return rawProviderId;
+  }
+  return "codex";
 }
 
 function rememberSessionId(state: SessionState, sessionId: string): string[] {

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import UniformTypeIdentifiers
 import WebKit
 
@@ -9,6 +10,9 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     private var workspaceId = UUID()
     private var rendererKind: AgentSessionRendererKind = .react
     private var initialProviderID: AgentSessionProviderID = .codex
+    private var initialModelID: String?
+    private var initialOpenCodeProviderID: String?
+    private var initialProviderSelectionID: String?
     private var workingDirectory: String?
     private var theme: AgentSessionWebTheme = .resolve(
         appearance: .fromConfig(GhosttyConfig.load())
@@ -28,13 +32,16 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             onHasActiveProviderChanged?(processStore.hasActiveProviderSession)
         }
     }
-    var onProviderIDChanged: ((AgentSessionProviderID) -> Void)?
+    var onProviderSelectionChanged: ((AgentSessionProviderID, String?, String?, String?) -> Void)?
 
     func bind(
         panelId: UUID,
         workspaceId: UUID,
         rendererKind: AgentSessionRendererKind,
         initialProviderID: AgentSessionProviderID,
+        initialModelID: String?,
+        initialOpenCodeProviderID: String?,
+        initialProviderSelectionID: String?,
         workingDirectory: String?,
         theme: AgentSessionWebTheme,
         isFocused: Bool
@@ -49,6 +56,9 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         }
         self.rendererKind = rendererKind
         self.initialProviderID = initialProviderID
+        self.initialModelID = initialModelID
+        self.initialOpenCodeProviderID = initialOpenCodeProviderID
+        self.initialProviderSelectionID = initialProviderSelectionID
         self.workingDirectory = workingDirectory
         isPanelFocused = isFocused
         let themeChanged = self.theme != theme
@@ -126,6 +136,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     func focus() {
         guard let webView else { return }
         _ = webView.window?.makeFirstResponder(webView)
+        focusComposerIfPossible()
     }
 
     func unfocus() {
@@ -543,6 +554,9 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
                     )
                 ]
             ]
+            if let initialProviderSelectionID = resolvedInitialProviderSelectionID() {
+                context["initialProviderSelectionId"] = initialProviderSelectionID
+            }
             if let workingDirectory {
                 context["workingDirectory"] = workingDirectory
             }
@@ -550,25 +564,26 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         case "app.pickFiles":
             return await pickLocalFiles()
         case "provider.list":
-            return AgentSessionProviderID.allCases.map { provider in
-                [
-                    "id": provider.rawValue,
-                    "displayName": provider.displayName,
-                    "executableName": provider.executableName,
-                    "transportKind": provider.transportKind,
-                    "arguments": provider.launchArguments,
-                    "autoStart": provider.shouldAutoStartSession
-                ] as [String: Any]
-            }
+            return providerList()
         case "provider.select":
             guard !processStore.hasActiveProviderSession,
                   !isProviderStartPending else {
                 throw AgentSessionBridgeError.sessionAlreadyRunning
             }
             let provider = try request.providerID()
+            let modelID = request.modelID()
+            let openCodeProviderID = provider == .opencode ? request.openCodeProviderID() : nil
+            let providerSelectionID = request.string("selectionId")
+            initialModelID = modelID
+            initialOpenCodeProviderID = openCodeProviderID
+            initialProviderSelectionID = providerSelectionID
             initialProviderID = provider
-            onProviderIDChanged?(provider)
-            return ["providerId": provider.rawValue]
+            onProviderSelectionChanged?(provider, modelID, openCodeProviderID, providerSelectionID)
+            var reply: [String: Any] = ["providerId": provider.rawValue]
+            if let selectionID = providerSelectionID {
+                reply["selectionId"] = selectionID
+            }
+            return reply
         case "provider.start":
             guard !isClosed else {
                 throw AgentSessionBridgeError.invalidRequest
@@ -582,8 +597,14 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
                 isProviderStartPending = false
             }
             let provider = try request.providerID()
+            let modelID = request.modelID()
+            let openCodeProviderID = provider == .opencode ? request.openCodeProviderID() : nil
+            let providerSelectionID = request.string("selectionId")
+            initialModelID = modelID
+            initialOpenCodeProviderID = openCodeProviderID
+            initialProviderSelectionID = providerSelectionID
             initialProviderID = provider
-            onProviderIDChanged?(provider)
+            onProviderSelectionChanged?(provider, modelID, openCodeProviderID, providerSelectionID)
             let configuredExecutablePaths = AgentExecutableResolver.cmuxConfiguredExecutablePaths()
             let plan = try await Task.detached(priority: .userInitiated) {
                 let resolver = AgentExecutableResolver(configuredExecutablePaths: configuredExecutablePaths)
@@ -594,13 +615,15 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             }
             let session = try await processStore.start(
                 plan: plan,
+                modelID: modelID,
+                openCodeProviderID: openCodeProviderID,
                 workingDirectory: request.string("workingDirectory") ?? workingDirectory
             )
             return [
                 "sessionId": session.sessionId,
                 "providerId": provider.rawValue,
                 "executablePath": plan.executableURL.path,
-                "arguments": plan.arguments
+                "arguments": provider.launchArguments(modelID: modelID)
             ] as [String: Any]
         case "provider.writeLine":
             try await processStore.writeLine(
@@ -645,6 +668,58 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
                 }
             ]
         }.value
+    }
+
+    private func providerList() -> [[String: Any]] {
+        let defaultModelLabel = String(
+            localized: "agentSession.web.modelDefault",
+            defaultValue: "Default"
+        )
+        return OpenChatModelOptionCatalog(defaultModelLabel: defaultModelLabel)
+            .options()
+            .compactMap { option -> [String: Any]? in
+                guard let provider = AgentSessionProviderID(rawValue: option.backendProviderID) else {
+                    return nil
+                }
+                var dictionary: [String: Any] = [
+                    "selectionId": option.id,
+                    "id": provider.rawValue,
+                    "displayName": option.label,
+                    "providerDisplayName": provider.displayName,
+                    "executableName": provider.executableName,
+                    "transportKind": provider.transportKind,
+                    "arguments": provider.launchArguments(modelID: option.modelID),
+                    "autoStart": provider.shouldAutoStartSession,
+                    "isDefault": option.isSelected,
+                ]
+                if let modelID = option.modelID {
+                    dictionary["modelId"] = modelID
+                }
+                if let openCodeProviderID = option.openCodeProviderID {
+                    dictionary["openCodeProviderId"] = openCodeProviderID
+                }
+                return dictionary
+            }
+    }
+
+    private func resolvedInitialProviderSelectionID() -> String? {
+        if let initialProviderSelectionID {
+            return initialProviderSelectionID
+        }
+        if initialProviderID == .opencode,
+           let openCodeProviderID = initialOpenCodeProviderID,
+           let initialModelID {
+            return "opencode:\(openCodeProviderID)/\(initialModelID)"
+        }
+        if let initialModelID {
+            return "\(initialProviderID.rawValue):\(initialModelID)"
+        }
+        return nil
+    }
+
+    private func focusComposerIfPossible() {
+        guard let webView else { return }
+        webView.focusComposer()
     }
 
     nonisolated private static func pickedLocalFileDictionary(

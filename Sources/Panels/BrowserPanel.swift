@@ -1286,16 +1286,22 @@ func browserIsTemporaryHistoryURL(_ url: URL?) -> Bool {
     if url.scheme?.lowercased() == CmuxDiffViewerURLSchemeHandler.scheme {
         return true
     }
-    guard url.fragment == "cmux-diff-viewer",
+    let marker = String((url.fragment ?? "").trimmingCharacters(in: .whitespacesAndNewlines).drop(while: { $0 == "/" }))
+    guard (marker == "cmux-diff-viewer" || marker == "cmux-open-chat"),
           url.scheme?.lowercased() == "http",
-          let host = url.host else {
+          let host = url.host,
+          RemoteLoopbackProxyAlias.isLoopbackHost(host) ||
+          RemoteLoopbackProxyAlias.localhostFamilyHost(forAliasHost: host, aliasHost: RemoteLoopbackProxyAlias.aliasHost) != nil else {
         return false
     }
-    return RemoteLoopbackProxyAlias.isLoopbackHost(host) ||
-        RemoteLoopbackProxyAlias.localhostFamilyHost(
-            forAliasHost: host,
-            aliasHost: RemoteLoopbackProxyAlias.aliasHost
-        ) != nil
+    let rawPath = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? url.path
+    let parts = rawPath.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+    return parts.count >= 2 && CmuxDiffViewerURLSchemeHandler.isValidRequestPath("/" + parts.dropFirst().joined(separator: "/")) && (marker == "cmux-diff-viewer" || CmuxDiffViewerURLSchemeHandler.isValidToken(parts[0]))
+}
+
+func cmuxIsInternalWebviewHistoryMarker(_ fragment: String?) -> Bool {
+    let normalized = String((fragment ?? "").trimmingCharacters(in: .whitespacesAndNewlines).drop(while: { $0 == "/" }))
+    return normalized == "cmux-diff-viewer" || normalized == "cmux-open-chat"
 }
 
 @MainActor

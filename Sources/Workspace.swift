@@ -600,6 +600,9 @@ extension Workspace {
             agentSessionSnapshot = SessionAgentSessionPanelSnapshot(
                 rendererKind: agentPanel.rendererKind,
                 providerID: agentPanel.currentProviderID,
+                modelID: agentPanel.currentModelID,
+                openCodeProviderID: agentPanel.currentOpenCodeProviderID,
+                providerSelectionID: agentPanel.currentProviderSelectionID,
                 workingDirectory: directory
             )
             projectSnapshot = nil
@@ -1492,6 +1495,9 @@ extension Workspace {
                     inPane: paneId,
                     providerID: agentSession.providerID,
                     rendererKind: agentSession.rendererKind,
+                    initialModelID: agentSession.modelID,
+                    initialOpenCodeProviderID: agentSession.openCodeProviderID,
+                    initialProviderSelectionID: agentSession.providerSelectionID,
                     workingDirectory: agentSession.workingDirectory ?? snapshot.directory,
                     focus: false
                   ) else {
@@ -3086,6 +3092,31 @@ final class Workspace: Identifiable, ObservableObject {
                 initialTabId = tabId
             }
             installBrowserPanelSubscription(browserPanel)
+        } else if initialSurface == .agentSession {
+            let directory = hasWorkingDirectory ? trimmedWorkingDirectory : initialDirectory
+            let agentPanel = AgentSessionPanel(
+                workspaceId: id,
+                rendererKind: .react,
+                initialProviderID: .codex,
+                workingDirectory: directory
+            )
+            panels[agentPanel.id] = agentPanel
+            panelTitles[agentPanel.id] = agentPanel.displayTitle
+            if !directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                panelDirectories[agentPanel.id] = directory
+            }
+
+            if let tabId = bonsplitController.createTab(
+                title: agentPanel.displayTitle,
+                icon: agentPanel.displayIcon,
+                kind: SurfaceKind.agentSession.rawValue,
+                isDirty: agentPanel.isDirty,
+                isPinned: false
+            ) {
+                bindSurface(tabId, toPanelId: agentPanel.id)
+                initialTabId = tabId
+            }
+            installAgentSessionPanelSubscription(agentPanel)
         } else {
             // Create initial terminal panel
             let terminalPanel = TerminalPanel(
@@ -8406,14 +8437,98 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
+    func newAgentSessionSplit(
+        from panelId: UUID,
+        orientation: SplitOrientation,
+        insertFirst: Bool = false,
+        providerID: AgentSessionProviderID = .codex,
+        rendererKind: AgentSessionRendererKind = .react,
+        initialModelID: String? = nil,
+        initialOpenCodeProviderID: String? = nil,
+        initialProviderSelectionID: String? = nil,
+        workingDirectory: String? = nil,
+        focus: Bool = true,
+        initialDividerPosition: CGFloat? = nil
+    ) -> AgentSessionPanel? {
+        if isRemoteTmuxMirror { return nil }
+        guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
+        var sourcePaneId: PaneID?
+        for paneId in bonsplitController.allPaneIds {
+            if bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == sourceTabId }) {
+                sourcePaneId = paneId
+                break
+            }
+        }
+        guard let paneId = sourcePaneId else { return nil }
+
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+        let directory = workingDirectory ?? currentDirectory
+        let agentPanel = AgentSessionPanel(
+            workspaceId: id,
+            rendererKind: rendererKind,
+            initialProviderID: providerID,
+            initialModelID: initialModelID,
+            initialOpenCodeProviderID: initialOpenCodeProviderID,
+            initialProviderSelectionID: initialProviderSelectionID,
+            workingDirectory: directory
+        )
+        panels[agentPanel.id] = agentPanel
+        panelTitles[agentPanel.id] = agentPanel.displayTitle
+        if !directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            panelDirectories[agentPanel.id] = directory
+        }
+
+        let newTab = Bonsplit.Tab(
+            title: agentPanel.displayTitle,
+            icon: agentPanel.displayIcon,
+            kind: SurfaceKind.agentSession.rawValue,
+            isDirty: agentPanel.isDirty,
+            isPinned: false
+        )
+        bindSurface(newTab.id, toPanelId: agentPanel.id)
+        isProgrammaticSplit = true
+        defer { isProgrammaticSplit = false }
+        guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
+            removeSurfaceMapping(forSurfaceId: newTab.id)
+            panels.removeValue(forKey: agentPanel.id)
+            panelTitles.removeValue(forKey: agentPanel.id)
+            panelDirectories.removeValue(forKey: agentPanel.id)
+            return nil
+        }
+        applyInitialSplitDividerPosition(initialDividerPosition, sourcePaneId: paneId, newPaneId: newPaneId)
+        publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: agentPanel.id, kind: "agent_session", origin: "agent_session_split", focused: focus)
+
+        if focus {
+            suppressReparentFocusUntilLayoutFollowUp(
+                previousHostedView,
+                reason: "workspace.agentSessionSplitReparent"
+            )
+            focusPanel(agentPanel.id)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: agentPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+        installAgentSessionPanelSubscription(agentPanel)
+        return agentPanel
+    }
+
+    @discardableResult
     func newAgentSessionSurface(
         inPane paneId: PaneID,
         providerID: AgentSessionProviderID = .codex,
         rendererKind: AgentSessionRendererKind,
+        initialModelID: String? = nil,
+        initialOpenCodeProviderID: String? = nil,
+        initialProviderSelectionID: String? = nil,
         workingDirectory: String? = nil,
         focus: Bool? = nil,
         targetIndex: Int? = nil
     ) -> AgentSessionPanel? {
+        if isRemoteTmuxMirror { return nil }
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
@@ -8423,6 +8538,9 @@ final class Workspace: Identifiable, ObservableObject {
             workspaceId: id,
             rendererKind: rendererKind,
             initialProviderID: providerID,
+            initialModelID: initialModelID,
+            initialOpenCodeProviderID: initialOpenCodeProviderID,
+            initialProviderSelectionID: initialProviderSelectionID,
             workingDirectory: directory
         )
         panels[agentPanel.id] = agentPanel
@@ -8442,6 +8560,7 @@ final class Workspace: Identifiable, ObservableObject {
         ) else {
             panels.removeValue(forKey: agentPanel.id)
             panelTitles.removeValue(forKey: agentPanel.id)
+            panelDirectories.removeValue(forKey: agentPanel.id)
             return nil
         }
 
@@ -12550,6 +12669,14 @@ extension Workspace: BonsplitDelegate {
                     preferredWindow: presentingWindow,
                     debugSource: "surfaceTabBar.cloudVM"
                 )
+            case .openChat:
+                bonsplitController.focusPane(pane)
+                _ = newAgentSessionSurface(
+                    inPane: pane,
+                    providerID: .codex,
+                    rendererKind: .react,
+                    focus: true
+                )
             case .newTerminal, .newBrowser, .splitRight, .splitDown:
                 break
             }
@@ -12633,6 +12760,8 @@ extension Workspace: BonsplitDelegate {
             _ = newTerminalSurface(inPane: pane, inheritWorkingDirectoryFallback: true)
         case "browser":
             _ = newBrowserSurface(inPane: pane)
+        case "agentSession", "chat", "openChat":
+            _ = newAgentSessionSurface(inPane: pane, providerID: .codex, rendererKind: .react)
         default:
             _ = newTerminalSurface(inPane: pane, inheritWorkingDirectoryFallback: true)
         }

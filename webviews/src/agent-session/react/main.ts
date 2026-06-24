@@ -1,6 +1,12 @@
 import React, { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { activityGlyph } from "../shared/activityGlyph";
-import { callNative, subscribeToAgentEvents } from "../shared/bridge";
+import {
+  callNative,
+  setComposerFocusHandler,
+  setComposerPointerDownHandler,
+  setComposerSubmitHandler,
+  subscribeToAgentEvents,
+} from "../shared/bridge";
 import {
   CODEX_BUTTON_BASE,
   CODEX_BUTTON_COMPOSER,
@@ -28,7 +34,7 @@ import { renderMarkdownHTML, renderPlainTextHTML } from "../shared/markdown";
 import { promptTextWithAttachments } from "../shared/promptAttachments";
 import { promptTextWithAutoContext } from "../shared/promptMentions";
 import { promptTextWithPlanMode } from "../shared/promptModes";
-import { codexModelLabel, providerBadgeLabel } from "../shared/providerDisplay";
+import { modelLabel as providerModelLabel, providerBadgeLabel } from "../shared/providerDisplay";
 import {
   formatRateLimitPercent,
   formatRateLimitReset,
@@ -46,10 +52,12 @@ import {
   messageForError,
   reduceSession,
   sendInput,
+  selectedProvider,
   selectProvider,
   startProvider,
   statusLabel,
   stopProvider,
+  providerSelectionId,
   type Action,
   type SessionState,
   type TranscriptEntry,
@@ -58,7 +66,6 @@ import type {
   AgentSessionAttachment,
   AgentSessionCopy,
   ComposerPermissionMode,
-  ProviderId,
 } from "../shared/types";
 import {
   PromptEditor,
@@ -282,16 +289,16 @@ function SessionSurface({
 }) {
   "use no memo";
 
-  const provider = state.providers.find((item) => item.id === state.selectedProviderId);
+  const provider = selectedProvider(state);
   const canSelect = canSelectProvider(state);
   const canStart = canStartProvider(state);
   const canStop = canStopProvider(state);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const canSend = state.status === "running" && (state.input.length > 0 || attachments.length > 0);
-  const autoStartAlreadyAttempted = provider ? state.autoStartAttemptedProviderIds.includes(provider.id) : false;
+  const autoStartAlreadyAttempted = state.autoStartAttemptedProviderIds.includes(state.selectedProviderId);
   const showStart = canStart && (provider?.autoStart !== true || autoStartAlreadyAttempted);
   const canConfigurePermissions = provider?.id === "codex";
-  const modelLabel = codexModelLabel(provider);
+  const selectedModelLabel = providerModelLabel(provider);
   const reasoningEffortLabel =
     provider?.id === "codex" ? (state.context?.copy.reasoningEffortHigh ?? "High") : null;
   const [permissionMode, setPermissionMode] = useState<ComposerPermissionMode>("default");
@@ -320,6 +327,7 @@ function SessionSurface({
     ? { hideControl: false, hideLabel: false }
     : (footerCollapse.state["ide-context"] ?? { hideControl: false, hideLabel: false });
   const editorRef = useRef<PromptEditorHandle | null>(null);
+  useEffect(() => setComposerFocusHandler(() => editorRef.current?.focus()), []);
   const [menuKind, setMenuKind] = useState<ComposerMenuKind>(null);
   const [menuQuery, setMenuQuery] = useState("");
   const [menuIndex, setMenuIndex] = useState(0);
@@ -331,6 +339,11 @@ function SessionSurface({
   const [permissionsMenuOpen, setPermissionsMenuOpen] = useState(false);
   const menuItems = menuKind ? composerMenuItems(menuKind, state, menuQuery) : [];
   const highlightedMenuIndex = menuItems.length === 0 ? -1 : Math.min(menuIndex, menuItems.length - 1);
+  const sendMouseDownSubmittedRef = useRef(false);
+  const sendMouseDownResetTimerRef = useRef<number | null>(null);
+  const sendButtonRef = useRef<HTMLButtonElement | null>(null);
+  const submitRef = useRef<() => void>(() => {});
+  const submitFromNativePointerRef = useRef<((x: number, y: number) => boolean) | null>(null);
   const submit = () => {
     const currentInput = editorRef.current?.getText() ?? state.input;
     const canSubmit = state.status === "running" && (currentInput.length > 0 || attachments.length > 0);
@@ -366,6 +379,88 @@ function SessionSurface({
       }
     });
   };
+  const clearSendMouseDownSubmitted = () => {
+    sendMouseDownSubmittedRef.current = false;
+    if (sendMouseDownResetTimerRef.current != null) {
+      window.clearTimeout(sendMouseDownResetTimerRef.current);
+      sendMouseDownResetTimerRef.current = null;
+    }
+  };
+  const markSendMouseDownSubmitted = () => {
+    sendMouseDownSubmittedRef.current = true;
+    if (sendMouseDownResetTimerRef.current != null) {
+      window.clearTimeout(sendMouseDownResetTimerRef.current);
+    }
+    sendMouseDownResetTimerRef.current = window.setTimeout(() => {
+      sendMouseDownSubmittedRef.current = false;
+      sendMouseDownResetTimerRef.current = null;
+    }, 1000);
+  };
+  const submitFromPointer = () => {
+    if (sendMouseDownSubmittedRef.current) {
+      return;
+    }
+    markSendMouseDownSubmitted();
+    submit();
+  };
+  const submitFromComposerMouseDown = (event: React.MouseEvent<HTMLFormElement>) => {
+    if (event.button !== 0 || !canSend) {
+      return;
+    }
+    const button = sendButtonRef.current;
+    if (!button) {
+      return;
+    }
+    const rect = button.getBoundingClientRect();
+    if (
+      event.clientX < rect.left ||
+      event.clientX > rect.right ||
+      event.clientY < rect.top ||
+      event.clientY > rect.bottom
+    ) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    submitFromPointer();
+  };
+  submitFromNativePointerRef.current = (x: number, y: number) => {
+    if (!canSend) {
+      return false;
+    }
+    const button = sendButtonRef.current;
+    if (!button) {
+      return false;
+    }
+    const rect = button.getBoundingClientRect();
+    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+      return false;
+    }
+    submitFromPointer();
+    return true;
+  };
+  useEffect(() => setComposerSubmitHandler(() => {
+    submitRef.current();
+    return true;
+  }), []);
+  useEffect(() => setComposerPointerDownHandler((x: number, y: number) =>
+    submitFromNativePointerRef.current?.(x, y) ?? false
+  ), []);
+  const submitFromSendMouseDown = (event: React.MouseEvent<HTMLButtonElement>) => {
+    if (event.button !== 0 || !canSend) {
+      return;
+    }
+    event.preventDefault();
+    submitFromPointer();
+  };
+  const submitFromSendClick = () => {
+    if (sendMouseDownSubmittedRef.current) {
+      clearSendMouseDownSubmitted();
+      return;
+    }
+    submit();
+  };
+  useEffect(() => () => clearSendMouseDownSubmitted(), []);
   const insertComposerMenuItem = (item: ComposerMenuItem) => {
     editorRef.current?.insertMention(item.mention);
     setMenuKind(null);
@@ -484,7 +579,13 @@ function SessionSurface({
     }
     return false;
   };
-  const selectProviderMenuItem = (providerId: ProviderId) => {
+  submitRef.current = () => {
+    if (handleComposerAutocompleteKey("Enter")) {
+      return;
+    }
+    submit();
+  };
+  const selectProviderMenuItem = (providerId: string) => {
     selectProvider(providerId, state, dispatch);
     setProviderMenuOpen(false);
   };
@@ -534,7 +635,7 @@ function SessionSurface({
             h(
               "span",
               { className: "model-display flex min-w-0 items-center gap-1 tabular-nums" },
-              h("span", { className: "model-label truncate whitespace-nowrap text-token-foreground" }, modelLabel),
+              h("span", { className: "model-label truncate whitespace-nowrap text-token-foreground" }, selectedModelLabel),
             ),
             reasoningEffortLabel
               ? h(
@@ -572,20 +673,20 @@ function SessionSurface({
             h(
               "button",
               {
-                key: item.id,
+                key: providerSelectionId(item),
                 className:
                   "provider-dropdown-item no-drag group hover:bg-token-list-hover-background focus:bg-token-list-hover-background cursor-interaction text-token-foreground outline-hidden rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm",
                 type: "button",
                 role: "menuitem",
-                "data-selected": item.id === state.selectedProviderId ? "true" : undefined,
+                "data-selected": providerSelectionId(item) === state.selectedProviderId ? "true" : undefined,
                 onMouseDown: (event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault(),
-                onClick: () => selectProviderMenuItem(item.id),
+                onClick: () => selectProviderMenuItem(providerSelectionId(item)),
               },
               h(
                 "span",
                 { className: "provider-dropdown-item-content flex w-full items-center gap-1.5" },
                 h("span", { className: "min-w-0 flex-1 truncate" }, item.displayName),
-                item.id === state.selectedProviderId
+                providerSelectionId(item) === state.selectedProviderId
                   ? h("span", { className: "provider-dropdown-check icon-xs shrink-0", "aria-hidden": true }, checkIcon())
                   : null,
               ),
@@ -727,12 +828,14 @@ function SessionSurface({
     h(
       "button",
       {
+        ref: sendButtonRef,
         className:
           `codex-action send-button ${CODEX_SUBMIT_BUTTON}${canSend ? "" : " cursor-default opacity-50"}`,
         type: "button",
         disabled: !canSend,
         "aria-label": state.context?.copy.send ?? "Send",
-        onClick: submit,
+        onMouseDown: submitFromSendMouseDown,
+        onClick: submitFromSendClick,
       },
       sendIcon("icon-sm text-token-dropdown-background"),
     ),
@@ -826,6 +929,7 @@ function SessionSurface({
           "form",
           {
             className: "w-full min-w-0",
+            onMouseDownCapture: submitFromComposerMouseDown,
             onSubmit: (event: React.FormEvent) => {
               event.preventDefault();
               submit();
