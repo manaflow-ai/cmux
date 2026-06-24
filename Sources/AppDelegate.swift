@@ -1916,6 +1916,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // Sleepy Mode is a lock: refuse to quit (e.g. Cmd-Q) while it is engaged.
+        // The locked overlay requires Touch ID / password to exit first.
+        if SleepyModeController.shared.isActive {
+            return .terminateCancel
+        }
         if let reply = Self.pendingTerminateReply(
             isAwaitingTerminateKills: isAwaitingTerminateKills,
             hasActiveQuitConfirmation: activeQuitConfirmationAlertPresenter != nil,

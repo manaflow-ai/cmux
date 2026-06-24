@@ -36,7 +36,7 @@ struct SleepyFaceView: View {
     private var hint: some View {
         VStack {
             Spacer()
-            Text(String(localized: "sleepyMode.dismissHint", defaultValue: "Click or press any key to wake"))
+            Text(String(localized: "sleepyMode.dismissHint", defaultValue: "Touch ID or password to unlock"))
                 .font(.system(size: 13, weight: .medium, design: .rounded))
                 .foregroundStyle(faceColor.opacity(0.35))
                 .padding(.bottom, 44)

@@ -10051,7 +10051,7 @@ class TerminalController {
           set_shortcut <name> <combo|clear> - Set a keyboard shortcut (test-only)
           simulate_shortcut <combo>       - Simulate a keyDown shortcut (test-only)
           simulate_type <text>            - Insert text into the current first responder (test-only)
-          sleepy_mode [on|off]            - Toggle/force Sleepy Mode screensaver + caffeinate (test-only)
+          sleepy_mode [on|off|unlock]     - Sleepy Mode lock: on, force-off (no auth), or unlock (Touch ID) (test-only)
           simulate_file_drop <id|idx> <path[|path...]> - Simulate dropping file path(s) on terminal (test-only)
           seed_drag_pasteboard_fileurl    - Seed NSDrag pasteboard with public.file-url (test-only)
           seed_drag_pasteboard_tabtransfer - Seed NSDrag pasteboard with tab transfer type (test-only)
@@ -11475,7 +11475,11 @@ class TerminalController {
             case "on", "activate", "start":
                 SleepyModeController.shared.activate()
             case "off", "deactivate", "stop":
+                // Force exit, bypassing auth — DEBUG-only escape hatch.
                 SleepyModeController.shared.deactivate()
+            case "unlock":
+                // Exercise the real Touch ID / password unlock path.
+                SleepyModeController.shared.requestUnlock()
             default:
                 SleepyModeController.shared.toggle()
             }
