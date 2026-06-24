@@ -168,9 +168,8 @@ struct ClaudeNoFlickerHookTransientTests {
         }
 
         var environment = support.baseHookEnvironment(context: context)
-        environment["CMUX_WORKSPACE_ID"] = ""
-        environment["CMUX_SURFACE_ID"] = ""
-        environment["CMUX_CLAUDE_PID"] = "6048"
+        environment["CMUX_WORKSPACE_ID"] = staleWorkspaceId
+        environment["CMUX_SURFACE_ID"] = staleSurfaceId
 
         let result = support.runProcess(
             executablePath: context.cliPath,
