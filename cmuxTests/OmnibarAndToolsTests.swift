@@ -648,55 +648,97 @@ final class VSCodeServeWebLaunchOptionsTests: XCTestCase {
 
 
 final class ServeWebOutputCollectorTests: XCTestCase {
-    func testWaitForURLReturnsFalseAfterProcessExitSignal() {
-        let collector = ServeWebOutputCollector()
+    func testCompletionReturnsNilAfterProcessExitSignal() {
+        let completionCalled = expectation(description: "collector completion called")
+        let callbackLock = NSLock()
+        var completedURL: URL?
+        let collector = ServeWebOutputCollector { url in
+            callbackLock.lock()
+            completedURL = url
+            callbackLock.unlock()
+            completionCalled.fulfill()
+        }
 
-        // The process exited without ever emitting a Web UI URL. markProcessExited()
-        // is the real completion signal that unblocks waitForURL; deliver it first so
-        // the wait returns the instant the signal is observed instead of racing an
-        // async dispatch and timing the latency. The outcome the prior elapsed-time
-        // guard stood for is exactly this: the exit signal (not the timeout) is what
-        // releases the wait, and with no URL collected the result is false. A generous
-        // timeout remains as a deadline so a regression that fails to signal still
-        // fails the test rather than hanging.
         collector.markProcessExited()
 
-        XCTAssertFalse(collector.waitForURL(timeoutSeconds: 5))
+        wait(for: [completionCalled], timeout: 1)
+        callbackLock.lock()
+        let callbackURL = completedURL
+        callbackLock.unlock()
+
+        XCTAssertNil(callbackURL)
         XCTAssertNil(collector.webUIURL)
     }
 
-    func testWaitForURLReturnsTrueWhenURLIsCollected() {
-        let collector = ServeWebOutputCollector()
+    func testCompletionReturnsURLWhenURLIsCollected() {
+        let completionCalled = expectation(description: "collector completion called")
+        let callbackLock = NSLock()
+        var completedURL: URL?
+        let collector = ServeWebOutputCollector { url in
+            callbackLock.lock()
+            completedURL = url
+            callbackLock.unlock()
+            completionCalled.fulfill()
+        }
         let urlLine = "Web UI available at http://127.0.0.1:7777?tkn=test-token\n"
 
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) {
-            collector.append(Data(urlLine.utf8))
-        }
+        collector.append(Data(urlLine.utf8))
 
-        XCTAssertTrue(collector.waitForURL(timeoutSeconds: 1))
+        wait(for: [completionCalled], timeout: 1)
+        callbackLock.lock()
+        let callbackURL = completedURL
+        callbackLock.unlock()
+
+        XCTAssertEqual(callbackURL?.absoluteString, "http://127.0.0.1:7777?tkn=test-token")
         XCTAssertEqual(collector.webUIURL?.absoluteString, "http://127.0.0.1:7777?tkn=test-token")
     }
 
     func testMarkProcessExitedParsesFinalURLWithoutTrailingNewline() {
-        let collector = ServeWebOutputCollector()
+        let completionCalled = expectation(description: "collector completion called")
+        let callbackLock = NSLock()
+        var completedURL: URL?
+        let collector = ServeWebOutputCollector { url in
+            callbackLock.lock()
+            completedURL = url
+            callbackLock.unlock()
+            completionCalled.fulfill()
+        }
         let finalChunk = "Web UI available at http://127.0.0.1:9001?tkn=final-token"
 
         collector.append(Data(finalChunk.utf8))
         collector.markProcessExited()
 
-        XCTAssertTrue(collector.waitForURL(timeoutSeconds: 0.1))
+        wait(for: [completionCalled], timeout: 1)
+        callbackLock.lock()
+        let callbackURL = completedURL
+        callbackLock.unlock()
+
+        XCTAssertEqual(callbackURL?.absoluteString, "http://127.0.0.1:9001?tkn=final-token")
         XCTAssertEqual(collector.webUIURL?.absoluteString, "http://127.0.0.1:9001?tkn=final-token")
     }
 
     func testCollectorBoundsNoNewlineOutputBeforeURL() {
-        let collector = ServeWebOutputCollector()
+        let completionCalled = expectation(description: "collector completion called")
+        let callbackLock = NSLock()
+        var completedURL: URL?
+        let collector = ServeWebOutputCollector { url in
+            callbackLock.lock()
+            completedURL = url
+            callbackLock.unlock()
+            completionCalled.fulfill()
+        }
         let noisyPrefix = String(repeating: "x", count: 20_000)
         let urlLine = "Web UI available at http://127.0.0.1:8123?tkn=bounded-token\n"
 
         collector.append(Data(noisyPrefix.utf8))
         collector.append(Data(urlLine.utf8))
 
-        XCTAssertTrue(collector.waitForURL(timeoutSeconds: 0.1))
+        wait(for: [completionCalled], timeout: 1)
+        callbackLock.lock()
+        let callbackURL = completedURL
+        callbackLock.unlock()
+
+        XCTAssertEqual(callbackURL?.absoluteString, "http://127.0.0.1:8123?tkn=bounded-token")
         XCTAssertEqual(collector.webUIURL?.absoluteString, "http://127.0.0.1:8123?tkn=bounded-token")
     }
 }

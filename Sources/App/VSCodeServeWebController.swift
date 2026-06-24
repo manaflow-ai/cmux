@@ -58,53 +58,10 @@ final class VSCodeServeWebController {
                     }
                     return
                 }
-                let launchResult = self.launchServeWebProcess(
+                self.launchServeWebProcess(
                     vscodeApplicationURL: vscodeApplicationURL,
                     expectedGeneration: launchGeneration
                 )
-                self.queue.async {
-                    guard self.activeLaunchGeneration == launchGeneration else {
-                        if let process = launchResult?.process, process.isRunning {
-                            process.terminate()
-                        }
-                        return
-                    }
-                    self.isLaunching = false
-                    self.activeLaunchGeneration = nil
-
-                    guard self.lifecycleGeneration == launchGeneration else {
-                        if let launchedProcess = launchResult?.process,
-                           self.launchingProcess === launchedProcess {
-                            self.launchingProcess = nil
-                        }
-                        if let process = launchResult?.process, process.isRunning {
-                            process.terminate()
-                        }
-                        return
-                    }
-
-                    if let launchResult {
-                        self.launchingProcess = nil
-                        self.serveWebProcess = launchResult.process
-                        self.serveWebURL = launchResult.url
-                    } else {
-                        self.launchingProcess = nil
-                        self.serveWebProcess = nil
-                        self.serveWebURL = nil
-                    }
-
-                    var completions: [(URL?) -> Void] = []
-                    var remaining: [(generation: UInt64, completion: (URL?) -> Void)] = []
-                    for pending in self.pendingCompletions {
-                        if pending.generation == launchGeneration {
-                            completions.append(pending.completion)
-                        } else {
-                            remaining.append(pending)
-                        }
-                    }
-                    self.pendingCompletions = remaining
-                    Self.completeOnMain(completions, with: self.serveWebURL)
-                }
             }
         }
     }
@@ -155,45 +112,91 @@ final class VSCodeServeWebController {
     private func launchServeWebProcess(
         vscodeApplicationURL: URL,
         expectedGeneration: UInt64
-    ) -> (process: Process, url: URL)? {
+    ) {
         if let launchProcessOverride {
-            return launchProcessOverride(vscodeApplicationURL, expectedGeneration)
+            completeServeWebLaunch(
+                launchProcessOverride(vscodeApplicationURL, expectedGeneration),
+                expectedGeneration: expectedGeneration
+            )
+            return
         }
 
         let launchConfigurations = launchConfigurationBuilder.launchConfigurations(
             vscodeApplicationURL: vscodeApplicationURL
         )
-        guard let primaryLaunchConfiguration = launchConfigurations.first else { return nil }
+        guard let primaryLaunchConfiguration = launchConfigurations.first else {
+            completeServeWebLaunch(nil, expectedGeneration: expectedGeneration)
+            return
+        }
 
         // Use the child-process environment so CMUX_* overrides that survive
         // nodeSafeEnvironment are also honored by serve-web option resolution.
         guard let launchOptions = VSCodeServeWebLaunchOptions.resolve(
             environment: primaryLaunchConfiguration.environment
-        ) else { return nil }
+        ) else {
+            completeServeWebLaunch(nil, expectedGeneration: expectedGeneration)
+            return
+        }
 
         let launchOptionCandidates = [launchOptions] + [launchOptions.ephemeralPortFallback()].compactMap { $0 }
-        for launchConfiguration in launchConfigurations {
-            for launchOptions in launchOptionCandidates {
-                switch launchServeWebProcessCandidate(
-                    launchConfiguration: launchConfiguration,
-                    launchOptions: launchOptions,
-                    expectedGeneration: expectedGeneration
-                ) {
-                case .launched(let process, let url):
-                    return (process, url)
-                case .failed(let retryable):
-                    guard retryable else { return nil }
-                }
+        let launchCandidates = launchConfigurations.flatMap { launchConfiguration in
+            launchOptionCandidates.map { launchOptions in
+                (launchConfiguration: launchConfiguration, launchOptions: launchOptions)
             }
         }
-        return nil
+        launchServeWebProcessCandidate(
+            launchCandidates: launchCandidates,
+            index: 0,
+            expectedGeneration: expectedGeneration
+        )
+    }
+
+    private func launchServeWebProcessCandidate(
+        launchCandidates: [(launchConfiguration: VSCodeCLILaunchConfiguration, launchOptions: VSCodeServeWebLaunchOptions)],
+        index: Int,
+        expectedGeneration: UInt64
+    ) {
+        let shouldContinue = queue.sync(execute: {
+            self.lifecycleGeneration == expectedGeneration
+                && self.activeLaunchGeneration == expectedGeneration
+        })
+        guard shouldContinue else { return }
+
+        guard index < launchCandidates.count else {
+            completeServeWebLaunch(nil, expectedGeneration: expectedGeneration)
+            return
+        }
+
+        let launchCandidate = launchCandidates[index]
+        launchServeWebProcessCandidate(
+            launchConfiguration: launchCandidate.launchConfiguration,
+            launchOptions: launchCandidate.launchOptions,
+            expectedGeneration: expectedGeneration
+        ) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .launched(let process, let url):
+                self.completeServeWebLaunch((process, url), expectedGeneration: expectedGeneration)
+            case .failed(let retryable):
+                guard retryable else {
+                    self.completeServeWebLaunch(nil, expectedGeneration: expectedGeneration)
+                    return
+                }
+                self.launchServeWebProcessCandidate(
+                    launchCandidates: launchCandidates,
+                    index: index + 1,
+                    expectedGeneration: expectedGeneration
+                )
+            }
+        }
     }
 
     private func launchServeWebProcessCandidate(
         launchConfiguration: VSCodeCLILaunchConfiguration,
         launchOptions: VSCodeServeWebLaunchOptions,
-        expectedGeneration: UInt64
-    ) -> VSCodeServeWebLaunchAttemptResult {
+        expectedGeneration: UInt64,
+        completion: @escaping (VSCodeServeWebLaunchAttemptResult) -> Void
+    ) {
         let process = Process()
         process.executableURL = launchConfiguration.executableURL
         process.arguments = launchConfiguration.processArguments(for: launchOptions)
@@ -204,9 +207,70 @@ final class VSCodeServeWebController {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
-        let collector = ServeWebOutputCollector()
-        let terminationGroup = DispatchGroup()
-        terminationGroup.enter()
+        var startupTimer: DispatchSourceTimer?
+        var terminationTimer: DispatchSourceTimer?
+        var killTimer: DispatchSourceTimer?
+        var didFinish = false
+
+        func cancelTimers() {
+            startupTimer?.cancel()
+            terminationTimer?.cancel()
+            killTimer?.cancel()
+            startupTimer = nil
+            terminationTimer = nil
+            killTimer = nil
+        }
+
+        func clearOutputHandlers() {
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+        }
+
+        func finish(_ result: VSCodeServeWebLaunchAttemptResult) {
+            guard !didFinish else { return }
+            didFinish = true
+            cancelTimers()
+            completion(result)
+        }
+
+        func finishFromProcessExit(collector: ServeWebOutputCollector) {
+            clearOutputHandlers()
+            Self.drainAvailableOutput(from: stdoutPipe.fileHandleForReading, collector: collector)
+            Self.drainAvailableOutput(from: stderrPipe.fileHandleForReading, collector: collector)
+            collector.markProcessExited()
+            finish(.failed(retryable: true))
+        }
+
+        func scheduleKillDeadline() {
+            killTimer = makeDeadlineTimer(after: Self.serveWebKillTimeoutSeconds) {
+                finish(.failed(retryable: !process.isRunning))
+            }
+            killTimer?.resume()
+        }
+
+        func scheduleTerminationDeadline() {
+            terminationTimer = makeDeadlineTimer(after: Self.serveWebTerminationTimeoutSeconds) {
+                if process.isRunning {
+                    _ = Darwin.kill(process.processIdentifier, SIGKILL)
+                    scheduleKillDeadline()
+                } else {
+                    finish(.failed(retryable: true))
+                }
+            }
+            terminationTimer?.resume()
+        }
+
+        let collector = ServeWebOutputCollector { [weak self] url in
+            guard let self, let url else { return }
+            self.launchQueue.async {
+                guard process.isRunning else {
+                    finish(.failed(retryable: true))
+                    return
+                }
+                finish(.launched(process: process, url: url))
+            }
+        }
+
         let outputReader: (FileHandle) -> Void = { fileHandle in
             switch fileHandle.readAvailableDataOrEndOfFile() {
             case .data(let data):
@@ -221,12 +285,9 @@ final class VSCodeServeWebController {
         stderrPipe.fileHandleForReading.readabilityHandler = outputReader
 
         process.terminationHandler = { [weak self] terminatedProcess in
-            terminationGroup.leave()
-            stdoutPipe.fileHandleForReading.readabilityHandler = nil
-            stderrPipe.fileHandleForReading.readabilityHandler = nil
-            Self.drainAvailableOutput(from: stdoutPipe.fileHandleForReading, collector: collector)
-            Self.drainAvailableOutput(from: stderrPipe.fileHandleForReading, collector: collector)
-            collector.markProcessExited()
+            self?.launchQueue.async {
+                finishFromProcessExit(collector: collector)
+            }
             self?.queue.async {
                 guard let self else { return }
                 if self.launchingProcess === terminatedProcess {
@@ -258,53 +319,95 @@ final class VSCodeServeWebController {
         guard didStart else {
             stdoutPipe.fileHandleForReading.readabilityHandler = nil
             stderrPipe.fileHandleForReading.readabilityHandler = nil
-            return .failed(retryable: true)
+            completion(.failed(retryable: true))
+            return
         }
 
-        guard collector.waitForURL(timeoutSeconds: Self.serveWebStartupTimeoutSeconds),
-              let serveWebURL = collector.webUIURL else {
-            stdoutPipe.fileHandleForReading.readabilityHandler = nil
-            stderrPipe.fileHandleForReading.readabilityHandler = nil
-            let didTerminate: Bool
-            if process.isRunning {
-                didTerminate = Self.terminateAndWaitForExit(
-                    process,
-                    terminationGroup: terminationGroup
-                )
-            } else {
-                didTerminate = true
+        startupTimer = makeDeadlineTimer(after: Self.serveWebStartupTimeoutSeconds) {
+            guard !didFinish else { return }
+            clearOutputHandlers()
+            Self.drainAvailableOutput(from: stdoutPipe.fileHandleForReading, collector: collector)
+            Self.drainAvailableOutput(from: stderrPipe.fileHandleForReading, collector: collector)
+            if let serveWebURL = collector.webUIURL {
+                if process.isRunning {
+                    finish(.launched(process: process, url: serveWebURL))
+                } else {
+                    finish(.failed(retryable: true))
+                }
+                return
             }
-            queue.sync(execute: {
-                if self.launchingProcess === process {
-                    self.launchingProcess = nil
-                }
-                if self.serveWebProcess === process {
-                    self.serveWebProcess = nil
-                    self.serveWebURL = nil
-                }
-            })
-            return .failed(retryable: didTerminate)
+            if process.isRunning {
+                process.terminate()
+                scheduleTerminationDeadline()
+            } else {
+                finish(.failed(retryable: true))
+            }
         }
-
-        return .launched(process: process, url: serveWebURL)
+        startupTimer?.resume()
     }
 
-    private static func terminateAndWaitForExit(
-        _ process: Process,
-        terminationGroup: DispatchGroup
-    ) -> Bool {
-        process.terminate()
-        if terminationGroup.wait(timeout: .now() + serveWebTerminationTimeoutSeconds) == .success {
-            return true
-        }
+    private func completeServeWebLaunch(
+        _ launchResult: (process: Process, url: URL)?,
+        expectedGeneration: UInt64
+    ) {
+        queue.async {
+            let activeLaunchResult: (process: Process, url: URL)?
+            if let launchResult, launchResult.process.isRunning {
+                activeLaunchResult = launchResult
+            } else {
+                activeLaunchResult = nil
+            }
 
-        if process.isRunning {
-            _ = Darwin.kill(process.processIdentifier, SIGKILL)
+            guard self.activeLaunchGeneration == expectedGeneration else {
+                if let process = activeLaunchResult?.process, process.isRunning {
+                    process.terminate()
+                }
+                return
+            }
+            self.isLaunching = false
+            self.activeLaunchGeneration = nil
+
+            guard self.lifecycleGeneration == expectedGeneration else {
+                if let launchedProcess = activeLaunchResult?.process,
+                   self.launchingProcess === launchedProcess {
+                    self.launchingProcess = nil
+                }
+                if let process = activeLaunchResult?.process, process.isRunning {
+                    process.terminate()
+                }
+                return
+            }
+
+            if let activeLaunchResult {
+                self.launchingProcess = nil
+                self.serveWebProcess = activeLaunchResult.process
+                self.serveWebURL = activeLaunchResult.url
+            } else {
+                self.launchingProcess = nil
+                self.serveWebProcess = nil
+                self.serveWebURL = nil
+            }
+
+            var completions: [(URL?) -> Void] = []
+            var remaining: [(generation: UInt64, completion: (URL?) -> Void)] = []
+            for pending in self.pendingCompletions {
+                if pending.generation == expectedGeneration {
+                    completions.append(pending.completion)
+                } else {
+                    remaining.append(pending)
+                }
+            }
+            self.pendingCompletions = remaining
+            Self.completeOnMain(completions, with: self.serveWebURL)
         }
-        if terminationGroup.wait(timeout: .now() + serveWebKillTimeoutSeconds) == .success {
-            return true
-        }
-        return !process.isRunning
+    }
+
+    private func makeDeadlineTimer(after seconds: TimeInterval, handler: @escaping () -> Void) -> DispatchSourceTimer {
+        // Process and FileHandle callbacks here are non-async, so one-shot DispatchSource timers model deadlines without blocking launchQueue.
+        let timer = DispatchSource.makeTimerSource(queue: launchQueue)
+        timer.schedule(deadline: .now() + seconds)
+        timer.setEventHandler(handler: handler)
+        return timer
     }
 
     private static func completeOnMain(_ completion: @escaping (URL?) -> Void, with url: URL?) {

@@ -4,14 +4,14 @@ final class ServeWebOutputCollector {
     private static let maximumBufferedOutputCharacters = 8192
 
     private let stateQueue = DispatchQueue(label: "cmux.vscode.serveWeb.output")
-    private let completionGroup = DispatchGroup()
     private let urlBuilder = VSCodeServeWebURLBuilder()
+    private let onCompletion: (URL?) -> Void
     private var outputBuffer = ""
     private var resolvedURL: URL?
-    private var didSignal = false
+    private var didComplete = false
 
-    init() {
-        completionGroup.enter()
+    init(onCompletion: @escaping (URL?) -> Void = { _ in }) {
+        self.onCompletion = onCompletion
     }
 
     var webUIURL: URL? {
@@ -22,8 +22,8 @@ final class ServeWebOutputCollector {
 
     func append(_ data: Data) {
         guard let text = String(data: data, encoding: .utf8), !text.isEmpty else { return }
-        stateQueue.sync(execute: {
-            guard resolvedURL == nil else { return }
+        let completion = stateQueue.sync(execute: { () -> (shouldComplete: Bool, url: URL?) in
+            guard resolvedURL == nil, !didComplete else { return (false, nil) }
             outputBuffer.append(text)
             while let newlineIndex = outputBuffer.firstIndex(where: \.isNewline) {
                 let line = String(outputBuffer[..<newlineIndex])
@@ -33,34 +33,34 @@ final class ServeWebOutputCollector {
                 }
                 resolvedURL = parsedURL
                 outputBuffer.removeAll(keepingCapacity: false)
-                signalCompletionIfNeeded()
-                return
+                return completeIfNeededLocked(with: parsedURL)
             }
             trimOutputBufferIfNeeded()
+            return (false, nil)
         })
+        if completion.shouldComplete {
+            onCompletion(completion.url)
+        }
     }
 
     func markProcessExited() {
-        stateQueue.sync(execute: {
+        let completion = stateQueue.sync(execute: { () -> (shouldComplete: Bool, url: URL?) in
             if resolvedURL == nil, !outputBuffer.isEmpty,
                let parsedURL = urlBuilder.extractWebUIURL(from: outputBuffer) {
                 resolvedURL = parsedURL
                 outputBuffer.removeAll(keepingCapacity: false)
             }
-            signalCompletionIfNeeded()
+            return completeIfNeededLocked(with: resolvedURL)
         })
+        if completion.shouldComplete {
+            onCompletion(completion.url)
+        }
     }
 
-    func waitForURL(timeoutSeconds: TimeInterval) -> Bool {
-        if webUIURL != nil { return true }
-        _ = completionGroup.wait(timeout: .now() + timeoutSeconds)
-        return webUIURL != nil
-    }
-
-    private func signalCompletionIfNeeded() {
-        guard !didSignal else { return }
-        didSignal = true
-        completionGroup.leave()
+    private func completeIfNeededLocked(with url: URL?) -> (shouldComplete: Bool, url: URL?) {
+        guard !didComplete else { return (false, nil) }
+        didComplete = true
+        return (true, url)
     }
 
     private func trimOutputBufferIfNeeded() {
