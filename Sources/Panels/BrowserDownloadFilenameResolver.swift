@@ -1,5 +1,6 @@
 import Foundation
 import ImageIO
+import CmuxSettings
 import UniformTypeIdentifiers
 
 nonisolated enum BrowserDownloadHTTPStatusDecision: Equatable, Sendable {
@@ -24,7 +25,8 @@ nonisolated struct BrowserDownloadFilenameResolver: Sendable {
     func navigationResponseDownloadReason(
         mimeType: String?,
         canShowMIMEType: Bool,
-        contentDisposition: String?
+        contentDisposition: String?,
+        isForMainFrame: Bool = true
     ) -> String? {
         if shouldForceDownload(mimeType: nil, contentDisposition: contentDisposition) {
             return "content-disposition"
@@ -32,6 +34,7 @@ nonisolated struct BrowserDownloadFilenameResolver: Sendable {
         if shouldForceDownload(mimeType: mimeType, contentDisposition: nil) {
             return "forceDownloadMIME"
         }
+        guard isForMainFrame else { return nil }
         return canShowMIMEType ? nil : "cannotShowMIME"
     }
 
@@ -112,6 +115,47 @@ nonisolated struct BrowserDownloadFilenameResolver: Sendable {
             sourceURL: sourceURL,
             imageType: imageType(forDownloadedFileAt: imageFileURL)
         )
+    }
+
+    func shouldAskWhereToSaveDownloads(defaults: UserDefaults = .standard) -> Bool {
+        let setting = SettingCatalog().browser.askWhereToSaveDownloads
+        if defaults.object(forKey: setting.userDefaultsKey) == nil {
+            return setting.defaultValue
+        }
+        return defaults.bool(forKey: setting.userDefaultsKey)
+    }
+
+    func downloadsDirectory(fileManager: FileManager = .default) -> URL {
+        if let directory = fileManager.urls(for: .downloadsDirectory, in: .userDomainMask).first {
+            return directory
+        }
+        return URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+            .appendingPathComponent("Downloads", isDirectory: true)
+    }
+
+    func uniqueDownloadDestination(
+        suggestedFilename: String,
+        in directory: URL,
+        fileManager: FileManager = .default
+    ) -> URL {
+        let safeFilename = sanitizedFilename(suggestedFilename, fallbackURL: nil)
+        let candidate = directory.appendingPathComponent(safeFilename, isDirectory: false)
+        guard fileManager.fileExists(atPath: candidate.path) else {
+            return candidate
+        }
+
+        let nsFilename = safeFilename as NSString
+        let base = nsFilename.deletingPathExtension.isEmpty ? defaultFilename : nsFilename.deletingPathExtension
+        let ext = nsFilename.pathExtension
+        var index = 1
+        while true {
+            let dedupedName = ext.isEmpty ? "\(base) (\(index))" : "\(base) (\(index)).\(ext)"
+            let url = directory.appendingPathComponent(dedupedName, isDirectory: false)
+            if !fileManager.fileExists(atPath: url.path) {
+                return url
+            }
+            index += 1
+        }
     }
 
     private func imageFilename(

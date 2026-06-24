@@ -39,6 +39,58 @@ import WebKit
         ))
     }
 
+    @Test func navigationResponseClassifiesExplicitSubframeDownloads() {
+        #expect(resolver.navigationResponseDownloadReason(
+            mimeType: "text/html",
+            canShowMIMEType: true,
+            contentDisposition: "attachment; filename=index.html",
+            isForMainFrame: false
+        ) == "content-disposition")
+        #expect(resolver.navigationResponseDownloadReason(
+            mimeType: "text/csv",
+            canShowMIMEType: true,
+            contentDisposition: nil,
+            isForMainFrame: false
+        ) == "forceDownloadMIME")
+    }
+
+    @Test func navigationResponseKeepsUnshowableSubframesInlineWithoutExplicitDownloadSignal() {
+        #expect(resolver.navigationResponseDownloadReason(
+            mimeType: "application/x-custom",
+            canShowMIMEType: false,
+            contentDisposition: nil,
+            isForMainFrame: false
+        ) == nil)
+        #expect(resolver.navigationResponseDownloadReason(
+            mimeType: "application/x-custom",
+            canShowMIMEType: false,
+            contentDisposition: nil,
+            isForMainFrame: true
+        ) == "cannotShowMIME")
+    }
+
+    @Test func uniqueDownloadDestinationDedupesExistingFiles() throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-download-resolver-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
+        defer { try? fileManager.removeItem(at: directory) }
+
+        let existing = directory.appendingPathComponent("report.pdf", isDirectory: false)
+        try Data("existing".utf8).write(to: existing)
+
+        let destination = resolver.uniqueDownloadDestination(
+            suggestedFilename: "report.pdf",
+            in: directory,
+            fileManager: fileManager
+        )
+
+        #expect(destination.deletingLastPathComponent().path == directory.path)
+        #expect(destination.lastPathComponent == "report (1).pdf")
+    }
+
     @MainActor
     @Test func scriptedDownloadInterceptionRunsInSubframes() throws {
         let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())

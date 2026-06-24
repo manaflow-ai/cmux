@@ -377,6 +377,7 @@ final class CmuxWebView: WKWebView {
     }
 
     private static var contextMenuFallbackKey: UInt8 = 0
+    private static var cmuxDownloadDelegateKey: UInt8 = 0
     private static let pasteAsPlainTextKeyCode: UInt16 = 9 // V key (hardware position, layout-independent)
     var onContextMenuDownloadStateChanged: ((Bool) -> Void)?
     /// Called when "Open Link in New Tab" context menu is selected.
@@ -389,6 +390,19 @@ final class CmuxWebView: WKWebView {
     var contextMenuLinkURLProvider: ((CmuxWebView, NSPoint, @escaping (URL?) -> Void) -> Void)?
     var contextMenuDefaultBrowserOpener: ((URL) -> Bool)?
     var contextMenuCanMoveTabToNewWorkspace: (() -> Bool)?; var contextMenuMoveTabToNewWorkspace: (() -> Bool)?
+    var cmuxDownloadDelegate: WKDownloadDelegate? {
+        get {
+            objc_getAssociatedObject(self, &Self.cmuxDownloadDelegateKey) as? WKDownloadDelegate
+        }
+        set {
+            objc_setAssociatedObject(
+                self,
+                &Self.cmuxDownloadDelegateKey,
+                newValue,
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
+        }
+    }
     /// Guard against background panes stealing first responder (e.g. page autofocus).
     /// BrowserPanelView updates this as pane focus state changes.
     var allowsFirstResponderAcquisition: Bool = true
@@ -1605,6 +1619,99 @@ final class CmuxWebView: WKWebView {
         }
     }
 
+    private func finishSessionDownload(
+        data: Data,
+        saveName: String,
+        traceID: String,
+        logCategory: String,
+        sender: Any?,
+        fallbackAction: Selector?,
+        fallbackTarget: AnyObject?,
+        failureFallbackReason: String?
+    ) {
+        let filenameResolver = BrowserDownloadFilenameResolver()
+        let writeData: (URL) -> Bool = { destinationURL in
+            do {
+                try data.write(to: destinationURL, options: .atomic)
+                self.debugContextDownload(
+                    "browser.ctxdl.\(logCategory) trace=\(traceID) stage=saveSuccess path=\(destinationURL.path)"
+                )
+                return true
+            } catch {
+                self.debugContextDownload(
+                    "browser.ctxdl.\(logCategory) trace=\(traceID) stage=saveFailure error=\(error.localizedDescription)"
+                )
+                if let failureFallbackReason {
+                    self.runContextMenuFallback(
+                        action: fallbackAction,
+                        target: fallbackTarget,
+                        sender: sender,
+                        traceID: traceID,
+                        reason: failureFallbackReason
+                    )
+                }
+                return false
+            }
+        }
+
+        if filenameResolver.shouldAskWhereToSaveDownloads() {
+            let savePanel = NSSavePanel()
+            savePanel.nameFieldStringValue = saveName
+            savePanel.canCreateDirectories = true
+            savePanel.directoryURL = filenameResolver.downloadsDirectory()
+            notifyContextMenuDownloadState(false)
+            debugContextDownload(
+                "browser.ctxdl.\(logCategory) trace=\(traceID) stage=savePrompt shown=1 defaultName=\(saveName)"
+            )
+            let completion: (NSApplication.ModalResponse) -> Void = { result in
+                guard result == .OK, let destURL = savePanel.url else {
+                    self.debugContextDownload(
+                        "browser.ctxdl.\(logCategory) trace=\(traceID) stage=savePrompt result=cancel"
+                    )
+                    return
+                }
+                _ = writeData(destURL)
+            }
+            if let parentWindow = window {
+                savePanel.beginSheetModal(for: parentWindow, completionHandler: completion)
+            } else {
+                savePanel.begin(completionHandler: completion)
+            }
+            return
+        }
+
+        do {
+            let directory = filenameResolver.downloadsDirectory()
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
+            let destinationURL = filenameResolver.uniqueDownloadDestination(
+                suggestedFilename: saveName,
+                in: directory
+            )
+            debugContextDownload(
+                "browser.ctxdl.\(logCategory) trace=\(traceID) stage=autoSave path=\(destinationURL.path)"
+            )
+            let didWrite = writeData(destinationURL)
+            notifyContextMenuDownloadState(false)
+            if !didWrite, failureFallbackReason == nil {
+                return
+            }
+        } catch {
+            notifyContextMenuDownloadState(false)
+            debugContextDownload(
+                "browser.ctxdl.\(logCategory) trace=\(traceID) stage=saveFailure error=\(error.localizedDescription)"
+            )
+            if let failureFallbackReason {
+                runContextMenuFallback(
+                    action: fallbackAction,
+                    target: fallbackTarget,
+                    sender: sender,
+                    traceID: traceID,
+                    reason: failureFallbackReason
+                )
+            }
+        }
+    }
+
     func downloadURLViaSession(
         _ url: URL,
         suggestedFilename: String?,
@@ -1658,39 +1765,16 @@ final class CmuxWebView: WKWebView {
                     "browser.ctxdl.data trace=\(traceID) stage=parseSuccess mime=\(parsed.mimeType ?? "nil") bytes=\(parsed.data.count)"
                 )
 
-                let savePanel = NSSavePanel()
-                savePanel.nameFieldStringValue = saveName
-                savePanel.canCreateDirectories = true
-                savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-                self.notifyContextMenuDownloadState(false)
-                self.debugContextDownload(
-                    "browser.ctxdl.data trace=\(traceID) stage=savePrompt shown=1 defaultName=\(saveName)"
+                self.finishSessionDownload(
+                    data: parsed.data,
+                    saveName: saveName,
+                    traceID: traceID,
+                    logCategory: "data",
+                    sender: sender,
+                    fallbackAction: fallbackAction,
+                    fallbackTarget: fallbackTarget,
+                    failureFallbackReason: "data_save_write_error"
                 )
-                savePanel.begin { result in
-                    guard result == .OK, let destURL = savePanel.url else {
-                        self.debugContextDownload(
-                            "browser.ctxdl.data trace=\(traceID) stage=savePrompt result=cancel"
-                        )
-                        return
-                    }
-                    do {
-                        try parsed.data.write(to: destURL, options: .atomic)
-                        self.debugContextDownload(
-                            "browser.ctxdl.data trace=\(traceID) stage=saveSuccess path=\(destURL.path)"
-                        )
-                    } catch {
-                        self.debugContextDownload(
-                            "browser.ctxdl.data trace=\(traceID) stage=saveFailure error=\(error.localizedDescription)"
-                        )
-                        self.runContextMenuFallback(
-                            action: fallbackAction,
-                            target: fallbackTarget,
-                            sender: sender,
-                            traceID: traceID,
-                            reason: "data_save_write_error"
-                        )
-                    }
-                }
             }
             return
         }
@@ -1704,33 +1788,16 @@ final class CmuxWebView: WKWebView {
                     )
                     let filename = suggestedFilename?.trimmingCharacters(in: .whitespacesAndNewlines)
                     let saveName = (filename?.isEmpty == false ? filename! : url.lastPathComponent.isEmpty ? "download" : url.lastPathComponent)
-                    let savePanel = NSSavePanel()
-                    savePanel.nameFieldStringValue = saveName
-                    savePanel.canCreateDirectories = true
-                    savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-                    // Download is already complete; we're now waiting for user save choice.
-                    self.notifyContextMenuDownloadState(false)
-                    self.debugContextDownload(
-                        "browser.ctxdl.file trace=\(traceID) stage=savePrompt shown=1 defaultName=\(saveName)"
+                    self.finishSessionDownload(
+                        data: data,
+                        saveName: saveName,
+                        traceID: traceID,
+                        logCategory: "file",
+                        sender: sender,
+                        fallbackAction: fallbackAction,
+                        fallbackTarget: fallbackTarget,
+                        failureFallbackReason: nil
                     )
-                    savePanel.begin { result in
-                        guard result == .OK, let destURL = savePanel.url else {
-                            self.debugContextDownload(
-                                "browser.ctxdl.file trace=\(traceID) stage=savePrompt result=cancel"
-                            )
-                            return
-                        }
-                        do {
-                            try data.write(to: destURL, options: .atomic)
-                            self.debugContextDownload(
-                                "browser.ctxdl.file trace=\(traceID) stage=saveSuccess path=\(destURL.path)"
-                            )
-                        } catch {
-                            self.debugContextDownload(
-                                "browser.ctxdl.file trace=\(traceID) stage=saveFailure error=\(error.localizedDescription)"
-                            )
-                        }
-                    }
                 } catch {
                     self.notifyContextMenuDownloadState(false)
                     self.debugContextDownload(
@@ -1797,39 +1864,16 @@ final class CmuxWebView: WKWebView {
                     }
                     let saveName = filenameResolver.suggestedFilename(suggestedFilename: suggestedFilename, response: response, sourceURL: url, imageData: data)
 
-                    let savePanel = NSSavePanel()
-                    savePanel.nameFieldStringValue = saveName
-                    savePanel.canCreateDirectories = true
-                    savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-                    self.notifyContextMenuDownloadState(false)
-                    self.debugContextDownload(
-                        "browser.ctxdl.response trace=\(traceID) stage=savePrompt shown=1 defaultName=\(saveName)"
+                    self.finishSessionDownload(
+                        data: data,
+                        saveName: saveName,
+                        traceID: traceID,
+                        logCategory: "response",
+                        sender: sender,
+                        fallbackAction: fallbackAction,
+                        fallbackTarget: fallbackTarget,
+                        failureFallbackReason: "save_write_error"
                     )
-                    savePanel.begin { result in
-                        guard result == .OK, let destURL = savePanel.url else {
-                            self.debugContextDownload(
-                                "browser.ctxdl.response trace=\(traceID) stage=savePrompt result=cancel"
-                            )
-                            return
-                        }
-                        do {
-                            try data.write(to: destURL, options: .atomic)
-                            self.debugContextDownload(
-                                "browser.ctxdl.response trace=\(traceID) stage=saveSuccess path=\(destURL.path)"
-                            )
-                        } catch {
-                            self.debugContextDownload(
-                                "browser.ctxdl.response trace=\(traceID) stage=saveFailure error=\(error.localizedDescription)"
-                            )
-                            self.runContextMenuFallback(
-                                action: fallbackAction,
-                                target: fallbackTarget,
-                                sender: sender,
-                                traceID: traceID,
-                                reason: "save_write_error"
-                            )
-                        }
-                    }
                 }
             }.resume()
         }

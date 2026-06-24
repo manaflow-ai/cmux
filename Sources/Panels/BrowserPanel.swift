@@ -3979,9 +3979,13 @@ final class BrowserPanel: Panel, ObservableObject {
             self?.replaceWebViewAfterContentProcessTermination(for: webView)
         }
         // Set up download delegate for navigation-based downloads.
-        // Downloads save to a temp file synchronously (no NSSavePanel during WebKit
-        // callbacks), then show NSSavePanel after the download completes.
+        // Downloads save to a temp file synchronously (no UI during WebKit
+        // callbacks), then auto-save to Downloads unless the prompt setting is enabled.
         let dlDelegate = BrowserDownloadDelegate()
+        webView.cmuxDownloadDelegate = dlDelegate
+        dlDelegate.savePanelParentWindow = { [weak self] in
+            self?.webView.window
+        }
         dlDelegate.onDownloadStarted = { [weak self] filename in
             guard let self else { return }
             self.beginDownloadActivity()
@@ -3998,7 +4002,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 ]
             )
         }
-        dlDelegate.onDownloadReadyToSave = { [weak self] in
+        dlDelegate.onDownloadReadyToSave = { [weak self] filename in
             guard let self else { return }
             self.endDownloadActivity()
             NotificationCenter.default.post(
@@ -4008,7 +4012,25 @@ final class BrowserPanel: Panel, ObservableObject {
                     "surfaceId": self.id,
                     "workspaceId": self.workspaceId,
                     "event": [
-                        "type": "ready_to_save"
+                        "type": "ready_to_save",
+                        "filename": filename
+                    ]
+                ]
+            )
+        }
+        dlDelegate.onDownloadSaved = { [weak self] filename, destinationURL in
+            guard let self else { return }
+            self.endDownloadActivity()
+            NotificationCenter.default.post(
+                name: .browserDownloadEventDidArrive,
+                object: self,
+                userInfo: [
+                    "surfaceId": self.id,
+                    "workspaceId": self.workspaceId,
+                    "event": [
+                        "type": "saved",
+                        "filename": filename,
+                        "path": destinationURL.path
                     ]
                 ]
             )
@@ -8249,7 +8271,8 @@ private extension NSObject {
 // MARK: - Download Delegate
 
 /// Handles WKDownload lifecycle by saving to a temp file synchronously (no UI
-/// during WebKit callbacks), then showing NSSavePanel after the download finishes.
+/// during WebKit callbacks), then moving the finished file to the user's
+/// Downloads folder unless the browser save-panel setting is enabled.
 class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
     private struct DownloadState: Sendable {
         let tempURL: URL
@@ -8261,8 +8284,10 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
     private var activeDownloads: [ObjectIdentifier: DownloadState] = [:]
     private let activeDownloadsLock = NSLock()
     var onDownloadStarted: ((String) -> Void)?
-    var onDownloadReadyToSave: (() -> Void)?
+    var onDownloadReadyToSave: ((String) -> Void)?
+    var onDownloadSaved: ((String, URL) -> Void)?
     var onDownloadFailed: ((Error) -> Void)?
+    var savePanelParentWindow: (() -> NSWindow?)?
 
     private static let tempDir: URL = {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-downloads", isDirectory: true)
@@ -8288,6 +8313,59 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
             action()
         } else {
             DispatchQueue.main.async(execute: action)
+        }
+    }
+
+    private static func moveTemporaryDownloadToDownloads(
+        tempURL: URL,
+        suggestedFilename: String,
+        filenameResolver: BrowserDownloadFilenameResolver,
+        fileManager: FileManager = .default
+    ) throws -> URL {
+        let directory = filenameResolver.downloadsDirectory(fileManager: fileManager)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
+        let destinationURL = filenameResolver.uniqueDownloadDestination(
+            suggestedFilename: suggestedFilename,
+            in: directory,
+            fileManager: fileManager
+        )
+        try fileManager.moveItem(at: tempURL, to: destinationURL)
+        return destinationURL
+    }
+
+    @MainActor
+    private func presentSavePanel(
+        tempURL: URL,
+        suggestedFilename: String,
+        filenameResolver: BrowserDownloadFilenameResolver
+    ) {
+        onDownloadReadyToSave?(suggestedFilename)
+        let savePanel = NSSavePanel()
+        savePanel.nameFieldStringValue = suggestedFilename
+        savePanel.canCreateDirectories = true
+        savePanel.directoryURL = filenameResolver.downloadsDirectory()
+        let completion: (NSApplication.ModalResponse) -> Void = { [weak self] result in
+            guard let self else { return }
+            guard result == .OK, let destURL = savePanel.url else {
+                try? FileManager.default.removeItem(at: tempURL)
+                return
+            }
+            do {
+                if FileManager.default.fileExists(atPath: destURL.path) {
+                    _ = try FileManager.default.replaceItemAt(destURL, withItemAt: tempURL)
+                } else {
+                    try FileManager.default.moveItem(at: tempURL, to: destURL)
+                }
+                self.onDownloadSaved?(suggestedFilename, destURL)
+            } catch {
+                try? FileManager.default.removeItem(at: tempURL)
+                self.onDownloadFailed?(error)
+            }
+        }
+        if let parentWindow = savePanelParentWindow?() {
+            savePanel.beginSheetModal(for: parentWindow, completionHandler: completion)
+        } else {
+            savePanel.begin(completionHandler: completion)
         }
     }
 
@@ -8333,26 +8411,35 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
             let imageType = await Task.detached(priority: .utility) {
                 filenameResolver.imageType(forDownloadedFileAt: info.tempURL)
             }.value
-            self.onDownloadReadyToSave?()
             let suggestedFilename = filenameResolver.suggestedFilename(suggestedFilename: info.suggestedFilename, response: nil, sourceURL: info.sourceURL, imageType: imageType)
-            let savePanel = NSSavePanel()
-            savePanel.nameFieldStringValue = suggestedFilename
-            savePanel.canCreateDirectories = true
-            savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-            savePanel.begin { result in
-                guard result == .OK, let destURL = savePanel.url else {
-                    try? FileManager.default.removeItem(at: info.tempURL)
-                    return
+
+            if filenameResolver.shouldAskWhereToSaveDownloads() {
+                self.presentSavePanel(
+                    tempURL: info.tempURL,
+                    suggestedFilename: suggestedFilename,
+                    filenameResolver: filenameResolver
+                )
+                return
+            }
+
+            let saveResult = await Task.detached(priority: .utility) {
+                Result {
+                    try Self.moveTemporaryDownloadToDownloads(
+                        tempURL: info.tempURL,
+                        suggestedFilename: suggestedFilename,
+                        filenameResolver: filenameResolver
+                    )
                 }
-                do {
-                    if FileManager.default.fileExists(atPath: destURL.path) {
-                        _ = try FileManager.default.replaceItemAt(destURL, withItemAt: info.tempURL)
-                    } else {
-                        try FileManager.default.moveItem(at: info.tempURL, to: destURL)
-                    }
-                } catch {
-                    try? FileManager.default.removeItem(at: info.tempURL)
-                }
+            }.value
+            switch saveResult {
+            case .success(let destinationURL):
+                self.onDownloadSaved?(suggestedFilename, destinationURL)
+                #if DEBUG
+                cmuxDebugLog("download.saved path=\(destinationURL.path)")
+                #endif
+            case .failure(let error):
+                try? FileManager.default.removeItem(at: info.tempURL)
+                self.onDownloadFailed?(error)
             }
         }
     }
@@ -8882,16 +8969,13 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         decidePolicyFor navigationResponse: WKNavigationResponse,
         decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
     ) {
-        if !navigationResponse.isForMainFrame {
-            decisionHandler(.allow)
-            return
-        }
-
         let mime = navigationResponse.response.mimeType ?? "unknown"
         let canShow = navigationResponse.canShowMIMEType
         let responseURL = navigationResponse.response.url?.absoluteString ?? "nil"
 
-        // Only classify HTTP(S) top-level responses as downloads.
+        // Only classify HTTP(S) responses as downloads. Subframes are eligible
+        // only for explicit attachment/force-download MIME decisions; the
+        // resolver keeps cannot-show MIME fallback scoped to main-frame loads.
         if let scheme = navigationResponse.response.url?.scheme?.lowercased(),
            scheme != "http", scheme != "https" {
             decisionHandler(.allow)
@@ -8907,11 +8991,12 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         if let reason = BrowserDownloadFilenameResolver().navigationResponseDownloadReason(
             mimeType: mime,
             canShowMIMEType: canShow,
-            contentDisposition: contentDisposition
+            contentDisposition: contentDisposition,
+            isForMainFrame: navigationResponse.isForMainFrame
         ) {
             NSLog("BrowserPanel download: %@ mime=%@ url=%@", reason, mime, responseURL)
             #if DEBUG
-            cmuxDebugLog("download.policy=download reason=\(reason) mime=\(mime)")
+            cmuxDebugLog("download.policy=download reason=\(reason) mime=\(mime) mainFrame=\(navigationResponse.isForMainFrame ? 1 : 0)")
             #endif
             decisionHandler(.download)
             return

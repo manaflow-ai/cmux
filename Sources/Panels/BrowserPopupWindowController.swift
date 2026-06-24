@@ -217,6 +217,10 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         uiDel.controller = self
         navDel.controller = self
         navDel.downloadDelegate = dlDel
+        dlDel.savePanelParentWindow = { [weak panel] in
+            panel
+        }
+        webView.cmuxDownloadDelegate = dlDel
         webView.uiDelegate = uiDel
         webView.navigationDelegate = navDel
         webAuthnCoordinator.install(on: webView)
@@ -653,11 +657,6 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         decidePolicyFor navigationResponse: WKNavigationResponse,
         decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
     ) {
-        if !navigationResponse.isForMainFrame {
-            decisionHandler(.allow)
-            return
-        }
-
         if let scheme = navigationResponse.response.url?.scheme?.lowercased(),
            scheme != "http", scheme != "https" {
             decisionHandler(.allow)
@@ -666,7 +665,10 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
 
         let contentDisposition = (navigationResponse.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition")
         if BrowserDownloadFilenameResolver().navigationResponseDownloadReason(
-            mimeType: navigationResponse.response.mimeType, canShowMIMEType: navigationResponse.canShowMIMEType, contentDisposition: contentDisposition
+            mimeType: navigationResponse.response.mimeType,
+            canShowMIMEType: navigationResponse.canShowMIMEType,
+            contentDisposition: contentDisposition,
+            isForMainFrame: navigationResponse.isForMainFrame
         ) != nil {
             decisionHandler(.download)
             return

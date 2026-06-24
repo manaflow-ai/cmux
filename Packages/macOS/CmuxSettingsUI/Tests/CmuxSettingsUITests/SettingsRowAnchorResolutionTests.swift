@@ -69,6 +69,7 @@ struct SettingsRowAnchorResolutionTests {
         "browser.defaultSearchEngine",
         "browser.discardHiddenWebViews",
         "browser.hiddenWebViewDiscardDelaySeconds",
+        "browser.askWhereToSaveDownloads",
         "browser.hostsToOpenInEmbeddedBrowser",
         "browser.interceptTerminalOpenCommandInCmuxBrowser",
         "browser.openTerminalLinksInCmuxBrowser",
