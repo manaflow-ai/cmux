@@ -111,21 +111,26 @@ struct TextBoxSubmitActionTests {
 
 
     @Test
-    func testBuiltInTextBoxSubmitActionsUsePromptFreeLaunchCommands() {
+    func testBuiltInTextBoxSubmitActionsUseExpectedCommandModes() throws {
         let launchCommandsByID = Dictionary(
             uniqueKeysWithValues: TextBoxSubmitAction.builtInActions.compactMap { action in
                 action.launchCommand().map { (action.id, $0) }
             }
         )
+        let claude = try #require(TextBoxSubmitAction.builtInActions.first { $0.id == "claude" })
 
         XCTAssertEqual(
-            launchCommandsByID["claude"],
-            "env CLAUDE_CODE_SANDBOXED=1 claude --dangerously-skip-permissions --permission-mode bypassPermissions"
+            claude.command(forPrompt: "ship user's fix"),
+            "claude --dangerously-skip-permissions 'ship user'\\''s fix'"
+        )
+        XCTAssertEqual(launchCommandsByID["claude"], nil)
+        XCTAssertEqual(
+            TextBoxSubmitAction.builtInActions.first { $0.id == "codex" }?.command(forPrompt: "secret"),
+            nil
         )
         XCTAssertEqual(launchCommandsByID["codex"], "codex --dangerously-bypass-approvals-and-sandbox")
         XCTAssertEqual(launchCommandsByID["opencode"], "opencode")
         XCTAssertEqual(launchCommandsByID["pi"], "pi")
-        XCTAssertTrue(TextBoxSubmitAction.builtInActions.allSatisfy { $0.command(forPrompt: "secret") == nil })
     }
 
 
@@ -249,8 +254,16 @@ struct TextBoxSubmitActionTests {
     }
 
     @Test
-    func testTextBoxPendingClaudeLaunchPreservesSubmitContextWithoutPromptIdleReport() throws {
-        let claude = try #require(TextBoxSubmitAction.builtInActions.first { $0.id == "claude" })
+    func testTextBoxPendingPromptFreeClaudeLaunchPreservesSubmitContextWithoutPromptIdleReport() {
+        let claude = TextBoxSubmitAction(
+            id: "claude",
+            title: "Claude",
+            kind: .commandTemplate,
+            commandTemplate: "claude --dangerously-skip-permissions",
+            preservePromptAfterLaunch: true,
+            systemImage: "sparkle",
+            backgroundColorHex: "#F6D5C8"
+        )
         let context = TextBoxInputContainer.textEntryTerminalAgentContext(
             allowsCommandTemplateSubmit: false,
             terminalAgentContext: "",
