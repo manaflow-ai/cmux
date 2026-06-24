@@ -75,26 +75,12 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         private var topRequestKey: String?
         private var lastScrollToBottomRequest = 0
         private var isHandlingLayout = false
-        private var shouldPreserveKeyboardViewport = false
-        private var keyboardViewportSnapshot: MobileScrollViewportSnapshot?
-        private var keyboardTransition: MobileKeyboardTransition?
-        private var keyboardTransitionID = 0
         private weak var tableView: ChatTranscriptUITableView?
         private var isAtBottom: Binding<Bool>
 
         init(isAtBottom: Binding<Bool>) {
             self.isAtBottom = isAtBottom
             super.init()
-            NotificationCenter.default.addObserver(
-                self,
-                selector: #selector(keyboardWillChangeFrame),
-                name: UIResponder.keyboardWillChangeFrameNotification,
-                object: nil
-            )
-        }
-
-        deinit {
-            NotificationCenter.default.removeObserver(self)
         }
 
         func attach(_ tableView: ChatTranscriptUITableView) {
@@ -171,11 +157,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
             guard let tableView = scrollView as? UITableView else { return }
-            if shouldPreserveKeyboardViewport, let keyboardViewportSnapshot {
-                setAtBottom(keyboardViewportSnapshot.wasAtBottom)
-            } else {
-                updateBottomState(from: tableView)
-            }
+            updateBottomState(from: tableView)
             #if DEBUG
             (tableView as? ChatTranscriptUITableView)?.updateDebugAccessibilityValue()
             #endif
@@ -200,12 +182,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             isHandlingLayout = true
             defer { isHandlingLayout = false }
 
-            if shouldPreserveKeyboardViewport {
-                preserveViewportAfterLayout(
-                    in: tableView,
-                    snapshot: keyboardViewportSnapshot ?? oldViewport
-                )
-            } else if boundsChanged, let oldViewport {
+            if boundsChanged, let oldViewport {
                 restoreKeyboardViewport(snapshot: oldViewport, in: tableView)
             } else if isAtBottom.wrappedValue {
                 scrollToBottom(in: tableView, animated: false)
@@ -234,23 +211,6 @@ struct ChatTranscriptTableView: UIViewRepresentable {
                 y: clampedOffsetY(rect.minY + anchor.offsetFromRowTop, in: tableView)
             )
             tableView.setContentOffset(offset, animated: false)
-        }
-
-        private func preserveViewportAfterLayout(
-            in tableView: UITableView,
-            snapshot: MobileScrollViewportSnapshot?
-        ) {
-            guard let snapshot else { return }
-            keyboardViewportSnapshot = snapshot
-            let changes: @MainActor @Sendable () -> Void = {
-                tableView.layoutIfNeeded()
-                self.restoreKeyboardViewport(snapshot: snapshot, in: tableView)
-            }
-            if let keyboardTransition {
-                keyboardTransition.animate(animations: changes)
-            } else {
-                changes()
-            }
         }
 
         private func scrollToBottom(in tableView: UITableView, animated: Bool) {
@@ -308,23 +268,6 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             min(max(offsetY, -tableView.adjustedContentInset.top), maxOffsetY(in: tableView))
         }
 
-        private func keyboardViewportSnapshot(in tableView: UITableView) -> MobileScrollViewportSnapshot {
-            MobileScrollViewportSnapshot(
-                contentOffsetY: tableView.contentOffset.y,
-                boundsHeight: tableView.bounds.height,
-                adjustedBottomInset: tableView.adjustedContentInset.bottom,
-                contentHeight: tableView.contentSize.height,
-                atBottomThreshold: chatTranscriptAtBottomThreshold,
-                wasAtBottom: isAtBottom.wrappedValue
-                    || distanceFromBottom(in: tableView) <= chatTranscriptAtBottomThreshold
-            )
-        }
-
-        private func restoreKeyboardViewport(in tableView: UITableView) {
-            guard let keyboardViewportSnapshot else { return }
-            restoreKeyboardViewport(snapshot: keyboardViewportSnapshot, in: tableView)
-        }
-
         private func restoreKeyboardViewport(
             snapshot: MobileScrollViewportSnapshot,
             in tableView: UITableView
@@ -340,54 +283,6 @@ struct ChatTranscriptTableView: UIViewRepresentable {
                 animated: false
             )
             setAtBottom(snapshot.wasAtBottom)
-        }
-
-        private func applyKeyboardViewport(
-            snapshot: MobileScrollViewportSnapshot,
-            in tableView: UITableView
-        ) {
-            keyboardViewportSnapshot = snapshot
-            // ChatKeyboardTrackingLayout resizes this table's actual frame above
-            // the composer/keyboard. A keyboard-height inset here double-counts
-            // that shrink and pushes the latest messages away.
-            tableView.contentInset.bottom = 0
-            tableView.verticalScrollIndicatorInsets.bottom = 0
-            tableView.layoutIfNeeded()
-            restoreKeyboardViewport(in: tableView)
-        }
-
-        private func finishKeyboardViewportTransition(in tableView: UITableView) {
-            applyKeyboardViewport(
-                snapshot: keyboardViewportSnapshot ?? keyboardViewportSnapshot(in: tableView),
-                in: tableView
-            )
-            shouldPreserveKeyboardViewport = false
-            keyboardViewportSnapshot = nil
-            keyboardTransition = nil
-        }
-
-        private func finishKeyboardViewportTransition(
-            id transitionID: Int,
-            in tableView: UITableView
-        ) {
-            guard keyboardTransitionID == transitionID else { return }
-            finishKeyboardViewportTransition(in: tableView)
-        }
-
-        @objc private func keyboardWillChangeFrame(_ notification: Notification) {
-            guard let tableView,
-                  let transition = MobileKeyboardTransition(notification: notification)
-            else { return }
-            let snapshot = keyboardViewportSnapshot(in: tableView)
-            keyboardTransitionID += 1
-            let transitionID = keyboardTransitionID
-            keyboardTransition = transition
-            shouldPreserveKeyboardViewport = true
-            transition.animate {
-                self.applyKeyboardViewport(snapshot: snapshot, in: tableView)
-            } completion: { _ in
-                self.finishKeyboardViewportTransition(id: transitionID, in: tableView)
-            }
         }
     }
 }

@@ -14,6 +14,7 @@ final class ChatKeyboardTrackingViewController<Content: View>: UIViewController 
     private var hostedBottomConstraint: NSLayoutConstraint?
     private var currentReservation: CGFloat = 0
     private var latestKeyboardEndFrame: CGRect?
+    private typealias ScrollSnapshot = (scrollView: ChatTranscriptUITableView, snapshot: MobileScrollViewportSnapshot)
 
     init(rootView: Content) {
         hostingController = UIHostingController(rootView: rootView)
@@ -60,7 +61,7 @@ final class ChatKeyboardTrackingViewController<Content: View>: UIViewController 
         guard let latestKeyboardEndFrame else { return }
         let reservation = keyboardReservation(forScreenFrame: latestKeyboardEndFrame)
         if abs(reservation - currentReservation) > 0.5 {
-            apply(reservation: reservation)
+            apply(reservation: reservation, preserving: trackedScrollSnapshots())
         }
     }
 
@@ -69,15 +70,20 @@ final class ChatKeyboardTrackingViewController<Content: View>: UIViewController 
         latestKeyboardEndFrame = transition.endFrame
         let reservation = keyboardReservation(forScreenFrame: transition.endFrame)
         guard abs(reservation - currentReservation) > 0.5 else { return }
+        let scrollSnapshots = trackedScrollSnapshots()
         transition.animate {
-            self.apply(reservation: reservation)
+            self.apply(reservation: reservation, preserving: scrollSnapshots)
         }
     }
 
-    private func apply(reservation: CGFloat) {
+    private func apply(reservation: CGFloat, preserving scrollSnapshots: [ScrollSnapshot] = []) {
         currentReservation = reservation
         hostedBottomConstraint?.constant = -reservation
         view.layoutIfNeeded()
+        hostingController.view.layoutIfNeeded()
+        for (scrollView, snapshot) in scrollSnapshots {
+            scrollView.restoreKeyboardViewport(snapshot)
+        }
         view.window?.layoutIfNeeded()
     }
 
@@ -89,6 +95,23 @@ final class ChatKeyboardTrackingViewController<Content: View>: UIViewController 
             keyboardFrameInWindow: keyboardFrame,
             viewFrameInWindow: viewFrame
         ).height
+    }
+
+    private func trackedScrollSnapshots() -> [ScrollSnapshot] {
+        trackedTranscriptTables(in: hostingController.view).map { tableView in
+            (scrollView: tableView, snapshot: tableView.keyboardViewportSnapshot())
+        }
+    }
+
+    private func trackedTranscriptTables(in view: UIView) -> [ChatTranscriptUITableView] {
+        var tables: [ChatTranscriptUITableView] = []
+        if let table = view as? ChatTranscriptUITableView {
+            tables.append(table)
+        }
+        for subview in view.subviews {
+            tables.append(contentsOf: trackedTranscriptTables(in: subview))
+        }
+        return tables
     }
 }
 #endif

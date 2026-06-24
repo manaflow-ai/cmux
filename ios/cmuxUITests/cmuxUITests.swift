@@ -510,7 +510,7 @@ final class cmuxUITests: XCTestCase {
     /// keyboard.
     @MainActor
     func testAgentChatTranscriptFrameMovesUpWithKeyboardAcrossScrollPositions() throws {
-        let app = launchAgentChatPreviewApp()
+        let app = launchAgentChatInlinePreviewApp()
 
         let table = app.tables["ChatTranscriptTableView"]
         XCTAssertTrue(table.waitForExistence(timeout: 8))
@@ -707,6 +707,15 @@ final class cmuxUITests: XCTestCase {
     private func launchAgentChatPreviewApp() -> XCUIApplication {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_AGENT_CHAT_PREVIEW": "1",
+        ])
+        XCTAssertTrue(app.tables["ChatTranscriptTableView"].waitForExistence(timeout: 8))
+        return app
+    }
+
+    @MainActor
+    private func launchAgentChatInlinePreviewApp() -> XCUIApplication {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_AGENT_CHAT_INLINE_PREVIEW": "1",
         ])
         XCTAssertTrue(app.tables["ChatTranscriptTableView"].waitForExistence(timeout: 8))
         return app

@@ -128,4 +128,21 @@ import Testing
             environment: ["CMUX_UITEST_AGENT_CHAT_PREVIEW": "0"]
         ).agentChatPreviewEnabled == false)
     }
+
+    @Test func agentChatInlinePreviewFlagIsDebugOnly() {
+        let env = ["CMUX_UITEST_AGENT_CHAT_INLINE_PREVIEW": "1"]
+        let config = UITestEnvironmentConfig(environment: env)
+        #if DEBUG
+        #expect(config.agentChatInlinePreviewEnabled == true)
+        #else
+        #expect(config.agentChatInlinePreviewEnabled == false)
+        #endif
+    }
+
+    @Test func agentChatInlinePreviewFlagRequiresOne() {
+        #expect(UITestEnvironmentConfig(environment: [:]).agentChatInlinePreviewEnabled == false)
+        #expect(UITestEnvironmentConfig(
+            environment: ["CMUX_UITEST_AGENT_CHAT_INLINE_PREVIEW": "0"]
+        ).agentChatInlinePreviewEnabled == false)
+    }
 }

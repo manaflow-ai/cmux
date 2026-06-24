@@ -33,6 +33,29 @@ final class ChatTranscriptUITableView: UITableView {
         afterLayout?(oldBoundsSize, oldContentSize, oldViewport)
     }
 
+    func keyboardViewportSnapshot() -> MobileScrollViewportSnapshot {
+        MobileScrollViewportSnapshot(
+            contentOffsetY: contentOffset.y,
+            boundsHeight: bounds.height,
+            adjustedBottomInset: adjustedContentInset.bottom,
+            contentHeight: contentSize.height,
+            atBottomThreshold: chatTranscriptAtBottomThreshold
+        )
+    }
+
+    func restoreKeyboardViewport(_ snapshot: MobileScrollViewportSnapshot) {
+        let targetY = snapshot.restoredOffsetY(
+            contentHeight: contentSize.height,
+            boundsHeight: bounds.height,
+            adjustedTopInset: adjustedContentInset.top,
+            adjustedBottomInset: adjustedContentInset.bottom
+        )
+        setContentOffset(CGPoint(x: contentOffset.x, y: targetY), animated: false)
+        #if DEBUG
+        updateDebugAccessibilityValue()
+        #endif
+    }
+
     #if DEBUG
     func updateDebugAccessibilityValue() {
         let frameInWindow = window.map { convert(bounds, to: $0) } ?? frame

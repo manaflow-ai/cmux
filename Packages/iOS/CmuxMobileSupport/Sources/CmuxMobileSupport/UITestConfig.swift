@@ -103,6 +103,16 @@ public struct UITestConfig {
             .agentChatPreviewEnabled
     }
 
+    /// Whether the inline workspace-shaped agent-chat preview is enabled.
+    ///
+    /// When `CMUX_UITEST_AGENT_CHAT_INLINE_PREVIEW=1`, the root view renders the
+    /// debug chat fixture with the same outer navigation/padding shape as the
+    /// in-place workspace chat pane, without sign-in or Mac pairing. DEBUG-only.
+    public static var agentChatInlinePreviewEnabled: Bool {
+        UITestEnvironmentConfig(environment: ProcessInfo.processInfo.environment)
+            .agentChatInlinePreviewEnabled
+    }
+
     /// Whether mock data is enabled for an explicit environment.
     ///
     /// In release builds this is always `false`. In DEBUG builds, an explicit
