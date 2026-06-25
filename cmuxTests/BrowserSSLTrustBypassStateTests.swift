@@ -19,6 +19,19 @@ struct BrowserSSLTrustBypassStateTests {
     }
 
     @Test
+    func failedNavigationRequestMatchNormalizesCommonURLForms() throws {
+        let hostOnlyURL = try #require(URL(string: "https://Example.Internal"))
+        let hostOnlyRequest = URLRequest(url: hostOnlyURL)
+        #expect(hostOnlyRequest.browserMatchesFailedNavigationURLString("https://example.internal/"))
+
+        let defaultPortURL = try #require(URL(string: "https://example.internal:443/path?mode=1#section"))
+        let defaultPortRequest = URLRequest(url: defaultPortURL)
+        #expect(defaultPortRequest.browserMatchesFailedNavigationURLString("https://example.internal/path?mode=1"))
+        #expect(!defaultPortRequest.browserMatchesFailedNavigationURLString("https://example.internal:444/path?mode=1"))
+        #expect(!defaultPortRequest.browserMatchesFailedNavigationURLString("https://example.internal/path?mode=2"))
+    }
+
+    @Test
     func replayShapeMatchRejectsDifferentMethodAndBody() throws {
         let url = try #require(URL(string: "https://example.internal/submit"))
         var postRequest = URLRequest(url: url)

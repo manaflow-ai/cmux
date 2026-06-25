@@ -5,15 +5,7 @@ extension URLRequest {
         guard let requestURL = url else { return false }
         guard !failedURL.isEmpty else { return false }
         guard let failed = URL(string: failedURL) else { return false }
-        if requestURL.absoluteString == failed.absoluteString {
-            return true
-        }
-
-        var requestComponents = URLComponents(url: requestURL, resolvingAgainstBaseURL: false)
-        var failedComponents = URLComponents(url: failed, resolvingAgainstBaseURL: false)
-        requestComponents?.fragment = nil
-        failedComponents?.fragment = nil
-        return requestComponents?.url?.absoluteString == failedComponents?.url?.absoluteString
+        return BrowserFailedNavigationURL(url: requestURL) == BrowserFailedNavigationURL(url: failed)
     }
 
     func browserMatchesReplayShape(of other: URLRequest) -> Bool {
@@ -28,5 +20,36 @@ extension URLRequest {
         }
 
         return httpBody == other.httpBody
+    }
+}
+
+private struct BrowserFailedNavigationURL: Equatable {
+    let scheme: String?
+    let host: String?
+    let port: Int?
+    let path: String
+    let percentEncodedQuery: String?
+
+    init?(url: URL) {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        let normalizedScheme = components.scheme?.lowercased()
+        scheme = normalizedScheme
+        host = components.host?.lowercased()
+        port = components.port ?? Self.defaultPort(for: normalizedScheme)
+        path = components.percentEncodedPath.isEmpty ? "/" : components.percentEncodedPath
+        percentEncodedQuery = components.percentEncodedQuery
+    }
+
+    private static func defaultPort(for scheme: String?) -> Int? {
+        switch scheme {
+        case "http":
+            return 80
+        case "https":
+            return 443
+        default:
+            return nil
+        }
     }
 }

@@ -729,7 +729,7 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
             return
         }
 
-        if shouldPreserveSSLTrustBypassForErrorPageNavigation(navigationAction.request) {
+        if shouldPreserveSSLTrustBypassForErrorPageNavigation(navigationAction) {
             #if DEBUG
             cmuxDebugLog("popup.nav.preserveSSLBypassErrorPage url=\(url.absoluteString)")
             #endif
@@ -829,8 +829,10 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         browserLoadRequest(request, in: webView)
     }
 
-    private func shouldPreserveSSLTrustBypassForErrorPageNavigation(_ request: URLRequest) -> Bool {
+    private func shouldPreserveSSLTrustBypassForErrorPageNavigation(_ navigationAction: WKNavigationAction) -> Bool {
+        let request = navigationAction.request
         guard acceptsSSLTrustBypassMessages,
+              navigationAction.navigationType == .other,
               let failedURL = activeSSLTrustBypassErrorPageFailedURL,
               let lastAttemptedRequest,
               let url = request.url,

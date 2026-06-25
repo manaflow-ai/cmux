@@ -327,7 +327,7 @@ import WebKit
         cmuxDebugLog("browser.nav.decidePolicy.action kind=allow url=\(targetURL)")
 #endif
         if navigationAction.targetFrame?.isMainFrame != false {
-            if shouldPreserveSSLTrustBypassForErrorPageNavigation(navigationAction.request) {
+            if shouldPreserveSSLTrustBypassForErrorPageNavigation(navigationAction) {
 #if DEBUG
                 let targetURL = navigationAction.request.url?.absoluteString ?? "nil"
                 cmuxDebugLog("browser.nav.decidePolicy.action kind=preserveSSLBypassErrorPage url=\(targetURL)")
@@ -369,8 +369,10 @@ import WebKit
         browserLoadRequest(request, in: webView)
     }
 
-    private func shouldPreserveSSLTrustBypassForErrorPageNavigation(_ request: URLRequest) -> Bool {
+    private func shouldPreserveSSLTrustBypassForErrorPageNavigation(_ navigationAction: WKNavigationAction) -> Bool {
+        let request = navigationAction.request
         guard acceptsSSLTrustBypassMessages,
+              navigationAction.navigationType == .other,
               let failedURL = activeSSLTrustBypassErrorPageFailedURL,
               let lastAttemptedRequest,
               let url = request.url,
