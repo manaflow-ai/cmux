@@ -659,9 +659,11 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
     }
 
     private func requestForFailedNavigation(failedURL: String) -> URLRequest? {
-        if let lastAttemptedRequest,
-           lastAttemptedRequest.url != nil,
-           lastAttemptedRequest.browserMatchesFailedNavigationURLString(failedURL) {
+        if let lastAttemptedRequest {
+            guard lastAttemptedRequest.url != nil,
+                  lastAttemptedRequest.browserMatchesFailedNavigationURLString(failedURL) else {
+                return nil
+            }
             return lastAttemptedRequest
         }
         if lastAttemptedRequestWasDiscardedForReplay,
