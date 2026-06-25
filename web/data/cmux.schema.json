@@ -754,6 +754,11 @@
           "default": true,
           "description": "Show progress indicators."
         },
+        "showAgentActivity": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a spinner and count on workspaces with running coding agents."
+        },
         "showCustomMetadata": {
           "type": "boolean",
           "default": true,
