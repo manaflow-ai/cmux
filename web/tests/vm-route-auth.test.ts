@@ -546,7 +546,83 @@ describe("VM REST auth", () => {
       );
 
       expect(response.status).toBe(502);
+      expect(response.headers.get("retry-after")).toBe("5");
       expect(finalizedStatus).toBe(502);
+      const payload = await response.json();
+      expect(payload).toMatchObject({
+        error: "vm_cloud_service_unavailable",
+        phase: "create",
+        retryable: true,
+        retryAfterSeconds: 5,
+        ui: {
+          title: "Creating Cloud VM",
+          phase: "create",
+          severity: "warning",
+          retryable: true,
+          retryAfterSeconds: 5,
+        },
+        details: {
+          operation: "create",
+          retryable: true,
+          retryAfterSeconds: 5,
+          phase: "create",
+        },
+      });
+    } finally {
+      console.error = originalError;
+    }
+  });
+
+  test("maps attach provider internal errors to concise retryable VM state", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    const originalError = console.error;
+    console.error = mock(() => {}) as unknown as typeof console.error;
+    try {
+      const providerCause = new Error("INTERNAL_ERROR: Internal server error");
+      const response = await withAuthedVmApiRoute(
+        new Request("https://cmux.test/api/vm/provider-vm-1/attach-endpoint", {
+          method: "POST",
+          headers: { origin: "https://cmux.test" },
+          body: "{}",
+        }),
+        "/api/vm/[id]/attach-endpoint",
+        { "cmux.vm.operation": "open_attach" },
+        "/api/vm/[id]/attach-endpoint failed",
+        async () => {
+          throw new VmProviderOperationError({
+            provider: "freestyle",
+            operation: "openAttach",
+            cause: providerCause,
+          });
+        },
+      );
+
+      expect(response.status).toBe(502);
+      expect(response.headers.get("retry-after")).toBe("2");
+      const payload = await response.json();
+      expect(payload).toMatchObject({
+        error: "vm_cloud_service_unavailable",
+        message: "cmux could not attach to the Cloud VM yet.",
+        phase: "attach",
+        retryable: true,
+        retryAfterSeconds: 2,
+        ui: {
+          title: "Reconnecting Cloud VM",
+          message: "cmux could not attach to the Cloud VM yet. Retrying in 2s.",
+          phase: "attach",
+          severity: "warning",
+          retryable: true,
+          retryAfterSeconds: 2,
+        },
+        details: {
+          operation: "openAttach",
+          providerCode: "provider_internal",
+          providerMessage: "internal service error",
+          retryable: true,
+        },
+      });
+      expect(JSON.stringify(payload)).not.toContain("INTERNAL_ERROR");
+      expect(JSON.stringify(payload)).not.toContain("Freestyle");
     } finally {
       console.error = originalError;
     }

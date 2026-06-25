@@ -61,17 +61,25 @@ private func formattedCloudVMHTTPError(status: Int, body: String) -> String {
     }
 
     let errorCode = cloudVMString(object["error"]) ?? "http_\(status)"
+    let ui = object["ui"] as? [String: Any]
+    let displayTitle = cloudVMString(ui?["title"])
     let message = cloudVMString(object["message"])
         ?? cloudVMString(object["reason"])
         ?? defaultCloudVMMessage(status: status)
+    let displayMessage = cloudVMString(ui?["message"]) ?? message
     let action = cloudVMString(object["action"])
         ?? defaultCloudVMAction(status: status, errorCode: errorCode)
+    let retryAfterSeconds = cloudVMInt(object["retryAfterSeconds"])
+        ?? cloudVMInt(ui?["retryAfterSeconds"])
     let details = cloudVMDetails(from: object)
 
     var lines: [String] = [
-        "Cloud VM request failed (HTTP \(status): \(errorCode))",
-        message,
+        "\(displayTitle ?? "Cloud VM request failed") (HTTP \(status): \(errorCode))",
+        displayMessage,
     ]
+    if let retryAfterSeconds, retryAfterSeconds > 0 {
+        lines.append("Retrying is safe. Next automatic retry is in about \(retryAfterSeconds)s when this request is part of an attach loop.")
+    }
     if !action.isEmpty {
         lines.append("")
         lines.append("What to do:")
@@ -138,10 +146,12 @@ private func cloudVMDetails(from object: [String: Any]) -> [String] {
         "imageRequested",
         "limit",
         "operation",
+        "phase",
         "provider",
         "providerCode",
         "providerMessage",
         "retryable",
+        "retryAfterSeconds",
         "status",
         "type",
         "vmId",
@@ -177,6 +187,23 @@ private func cloudVMString(_ value: Any?) -> String? {
     guard let string = value as? String else { return nil }
     let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
     return trimmed.isEmpty ? nil : trimmed
+}
+
+private func cloudVMInt(_ value: Any?) -> Int? {
+    if let int = value as? Int {
+        return int
+    }
+    if let double = value as? Double, double.isFinite {
+        return Int(double)
+    }
+    if let number = value as? NSNumber {
+        return number.intValue
+    }
+    if let string = value as? String,
+       let int = Int(string.trimmingCharacters(in: .whitespacesAndNewlines)) {
+        return int
+    }
+    return nil
 }
 
 private func cloudVMValueDescription(_ value: Any) -> String {
