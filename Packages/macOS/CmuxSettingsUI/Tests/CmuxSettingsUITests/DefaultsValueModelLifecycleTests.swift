@@ -274,22 +274,24 @@ import Testing
         model.set("#111111")
         model.set("#222222")
         model.set("#111111")
-        #expect(model.current == "#111111")
-        #expect(model.revision == 3)
+        model.set("#333333")
+        #expect(model.current == "#333333")
+        #expect(model.revision == 4)
 
         continuation.yield("#111111")
         continuation.yield("#222222")
         continuation.yield("#111111")
         continuation.yield("#333333")
+        continuation.yield("#444444")
 
         var spins = 0
-        while model.current != "#333333", spins < 100_000 {
+        while model.current != "#444444", spins < 100_000 {
             await Task.yield()
             spins += 1
         }
 
-        #expect(model.current == "#333333")
-        #expect(model.revision == 4)
+        #expect(model.current == "#444444")
+        #expect(model.revision == 5)
     }
 
     @Test func coalescedLocalWriteEchoClearsOlderPendingValues() async {
@@ -322,6 +324,39 @@ import Testing
         }
 
         #expect(model.current == "#111111")
+        #expect(model.revision == 4)
+    }
+
+    @Test func coalescedDuplicateLocalWriteEchoClearsOlderPendingValues() async {
+        let store = UserDefaultsSettingsStore(
+            defaults: UserDefaults(suiteName: "defaults-value-model-coalesced-duplicate-local-echoes")!
+        )
+        let key = SettingCatalog().workspaceColors.selectionColorHex
+        let (stream, continuation) = AsyncStream<String>.makeStream()
+        let model = DefaultsValueModel(
+            store: store,
+            key: key,
+            initialValue: "#000000",
+            makeStream: { stream }
+        )
+        model.startObserving()
+
+        model.set("#111111")
+        model.set("#222222")
+        model.set("#111111")
+        #expect(model.current == "#111111")
+        #expect(model.revision == 3)
+
+        continuation.yield("#111111")
+        continuation.yield("#222222")
+
+        var spins = 0
+        while model.current != "#222222", spins < 100_000 {
+            await Task.yield()
+            spins += 1
+        }
+
+        #expect(model.current == "#222222")
         #expect(model.revision == 4)
     }
 
