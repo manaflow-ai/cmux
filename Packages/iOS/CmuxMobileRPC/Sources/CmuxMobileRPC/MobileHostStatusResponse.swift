@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import Foundation
 
 /// Typed decoder for the `mobile.host.status` RPC result.
@@ -25,6 +26,12 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
     public let macAppVersion: String?
     /// The Mac app's build number, for warning display.
     public let macAppBuild: String?
+    /// The Mac's resolved terminal theme (effective colors after applying any
+    /// named ghostty theme, cmux's managed defaults, and explicit overrides).
+    /// The phone applies this so its embedded terminal matches the Mac's
+    /// colors. `nil` from older Macs that predate the field, in which case the
+    /// phone keeps its built-in Monokai default.
+    public let theme: TerminalTheme?
 
     private enum CodingKeys: String, CodingKey {
         case capabilities
@@ -33,6 +40,7 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
         case macDeviceID = "mac_device_id"
         case macAppVersion = "mac_app_version"
         case macAppBuild = "mac_app_build"
+        case theme
     }
 
     public init(from decoder: any Decoder) throws {
@@ -43,6 +51,7 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
         macDeviceID = try container.decodeIfPresent(String.self, forKey: .macDeviceID)
         macAppVersion = try container.decodeIfPresent(String.self, forKey: .macAppVersion)
         macAppBuild = try container.decodeIfPresent(String.self, forKey: .macAppBuild)
+        theme = try container.decodeIfPresent(TerminalTheme.self, forKey: .theme)
     }
 
     /// Decode a host-status response from raw JSON data.
