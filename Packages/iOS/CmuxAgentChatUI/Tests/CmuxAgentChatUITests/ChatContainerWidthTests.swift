@@ -3,15 +3,15 @@ import Testing
 
 @testable import CmuxAgentChatUI
 
-@Suite("ChatContainerWidthResolver")
-struct ChatContainerWidthResolverTests {
+@Suite("ChatContainerWidth")
+struct ChatContainerWidthTests {
     @Test("resolved table bounds width is used directly")
     func usesBoundsWidth() {
-        let width = ChatContainerWidthResolver.effectiveWidth(
+        let width = ChatContainerWidth(
             boundsWidth: 390,
             windowWidth: 430,
             screenWidth: 440
-        )
+        ).effectiveWidth
         #expect(width == 390)
     }
 
@@ -22,41 +22,41 @@ struct ChatContainerWidthResolverTests {
     // first render.
     @Test("falls back to the window width before the table bounds resolve")
     func fallsBackToWindowWidth() {
-        let width = ChatContainerWidthResolver.effectiveWidth(
+        let width = ChatContainerWidth(
             boundsWidth: 0,
             windowWidth: 430,
             screenWidth: 440
-        )
+        ).effectiveWidth
         #expect(width == 430)
     }
 
     @Test("falls back to the screen width when there is no window yet")
     func fallsBackToScreenWidth() {
-        let width = ChatContainerWidthResolver.effectiveWidth(
+        let width = ChatContainerWidth(
             boundsWidth: 0,
             windowWidth: nil,
             screenWidth: 440
-        )
+        ).effectiveWidth
         #expect(width == 440)
     }
 
     @Test("a zero window width is skipped in favor of the screen width")
     func skipsZeroWindowWidth() {
-        let width = ChatContainerWidthResolver.effectiveWidth(
+        let width = ChatContainerWidth(
             boundsWidth: 0,
             windowWidth: 0,
             screenWidth: 440
-        )
+        ).effectiveWidth
         #expect(width == 440)
     }
 
     @Test("returns zero only when no width is known")
     func returnsZeroWhenNothingKnown() {
-        let width = ChatContainerWidthResolver.effectiveWidth(
+        let width = ChatContainerWidth(
             boundsWidth: 0,
             windowWidth: nil,
             screenWidth: nil
-        )
+        ).effectiveWidth
         #expect(width == 0)
     }
 }

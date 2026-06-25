@@ -163,24 +163,12 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             cell.selectionStyle = .none
             guard let configuration else { return cell }
             let item = items[indexPath.row]
-            let tableWidth = effectiveContainerWidth(of: tableView)
+            let tableWidth = ChatContainerWidth(tableView: tableView).effectiveWidth
             cell.contentConfiguration = UIHostingConfiguration {
                 configuration.view(for: item, tableWidth: tableWidth)
             }
             .margins(.all, 0)
             return cell
-        }
-
-        /// Width to size bubbles against at cell-configuration time, gathered
-        /// from the table and its host so the bubble cap is never uncapped on a
-        /// freshly-inserted row's first layout pass. See
-        /// ``ChatContainerWidthResolver`` for the fallback rationale.
-        private func effectiveContainerWidth(of tableView: UITableView) -> CGFloat {
-            ChatContainerWidthResolver.effectiveWidth(
-                boundsWidth: tableView.bounds.width,
-                windowWidth: tableView.window?.bounds.width,
-                screenWidth: tableView.window?.windowScene?.screen.bounds.width
-            )
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
