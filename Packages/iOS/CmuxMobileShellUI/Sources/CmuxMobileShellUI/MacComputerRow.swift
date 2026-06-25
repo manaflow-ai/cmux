@@ -25,9 +25,9 @@ struct MacComputerRow: View {
         NavigationLink(value: computer.deviceId) {
             rowLabel
         }
-        .contextMenu { removeButton }
+        .contextMenu { removeMenuButton }
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-            removeButton
+            removeSwipeButton
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("MobileComputerRow-\(computer.deviceId)")
@@ -96,7 +96,23 @@ struct MacComputerRow: View {
     }
 
     @ViewBuilder
-    private var removeButton: some View {
+    private var removeSwipeButton: some View {
+        if let requestRemove {
+            Button {
+                requestRemove(computer.deviceId)
+            } label: {
+                Label(
+                    L10n.string("mobile.computers.remove", defaultValue: "Remove"),
+                    systemImage: "trash"
+                )
+            }
+            .tint(.red)
+            .accessibilityIdentifier("MobileComputerRemoveSwipeButton-\(computer.deviceId)")
+        }
+    }
+
+    @ViewBuilder
+    private var removeMenuButton: some View {
         if let requestRemove {
             Button(role: .destructive) {
                 requestRemove(computer.deviceId)
@@ -106,7 +122,7 @@ struct MacComputerRow: View {
                     systemImage: "trash"
                 )
             }
-            .accessibilityIdentifier("MobileComputerRemove-\(computer.deviceId)")
+            .accessibilityIdentifier("MobileComputerRemoveMenuButton-\(computer.deviceId)")
         }
     }
 
