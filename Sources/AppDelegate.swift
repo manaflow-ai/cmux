@@ -8785,6 +8785,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         restartSocketListenerIfEnabled(source: "menu.command")
     }
 
+    /// All open workspaces across every window, for the Sleepy Mode pet census
+    /// (counts the coding agents the user currently has running).
+    func openWorkspacesForPetCensus() -> [Workspace] {
+        mainWindowContexts.values.flatMap { $0.tabManager.tabs }
+    }
+
     private func setupMenuBarExtra() {
         guard menuBarExtraController == nil else { return }
         removeTransientGlobalSearchMenuBarExtraController()

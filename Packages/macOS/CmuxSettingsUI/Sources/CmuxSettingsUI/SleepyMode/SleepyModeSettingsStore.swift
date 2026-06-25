@@ -31,6 +31,7 @@ public struct SleepyModeConfig: Equatable, Sendable {
     public var showZs = true
     public var showClock = true
     public var showStatus = true
+    public var showPets = true
     public var requireAuth = true
 
     public init() {}
@@ -52,6 +53,7 @@ public final class SleepyModeSettingsStore {
     public var showZs: Bool { didSet { persist(showZs, Keys.showZs) } }
     public var showClock: Bool { didSet { persist(showClock, Keys.showClock) } }
     public var showStatus: Bool { didSet { persist(showStatus, Keys.showStatus) } }
+    public var showPets: Bool { didSet { persist(showPets, Keys.showPets) } }
     public var requireAuth: Bool { didSet { persist(requireAuth, Keys.requireAuth) } }
 
     private let defaults: UserDefaults
@@ -65,6 +67,7 @@ public final class SleepyModeSettingsStore {
         static let showZs = "sleepyMode.showZs"
         static let showClock = "sleepyMode.showClock"
         static let showStatus = "sleepyMode.showStatus"
+        static let showPets = "sleepyMode.showPets"
         static let requireAuth = "sleepyMode.requireAuth"
     }
 
@@ -79,6 +82,7 @@ public final class SleepyModeSettingsStore {
         showZs = defaults.object(forKey: Keys.showZs) as? Bool ?? fallback.showZs
         showClock = defaults.object(forKey: Keys.showClock) as? Bool ?? fallback.showClock
         showStatus = defaults.object(forKey: Keys.showStatus) as? Bool ?? fallback.showStatus
+        showPets = defaults.object(forKey: Keys.showPets) as? Bool ?? fallback.showPets
         requireAuth = defaults.object(forKey: Keys.requireAuth) as? Bool ?? fallback.requireAuth
     }
 
@@ -92,6 +96,7 @@ public final class SleepyModeSettingsStore {
         config.showZs = showZs
         config.showClock = showClock
         config.showStatus = showStatus
+        config.showPets = showPets
         config.requireAuth = requireAuth
         return config
     }

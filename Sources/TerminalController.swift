@@ -10052,7 +10052,7 @@ class TerminalController {
           set_shortcut <name> <combo|clear> - Set a keyboard shortcut (test-only)
           simulate_shortcut <combo>       - Simulate a keyDown shortcut (test-only)
           simulate_type <text>            - Insert text into the current first responder (test-only)
-          sleepy_mode <cmd> [val]         - Sleepy Mode: on|off|unlock|preview|theme <t>|mascot <m>|glow <g>|toggle <k> (test-only)
+          sleepy_mode <cmd> [val]         - Sleepy Mode: on|off|unlock|preview|theme <t>|mascot <m>|glow <g>|toggle <k>|pets <c x o|clear> (test-only)
           simulate_file_drop <id|idx> <path[|path...]> - Simulate dropping file path(s) on terminal (test-only)
           seed_drag_pasteboard_fileurl    - Seed NSDrag pasteboard with public.file-url (test-only)
           seed_drag_pasteboard_tabtransfer - Seed NSDrag pasteboard with tab transfer type (test-only)
@@ -11501,7 +11501,19 @@ class TerminalController {
                 case "clock": store.showClock.toggle()
                 case "status": store.showStatus.toggle()
                 case "auth", "requireauth": store.requireAuth.toggle()
+                case "pets": store.showPets.toggle()
                 default: break
+                }
+            case "pets":
+                if value == "clear" {
+                    SleepyAgentCensus.shared.debugOverride = nil
+                } else {
+                    let n = value.split(separator: " ").map { Int($0) ?? 0 }
+                    SleepyAgentCensus.shared.debugOverride = SleepyAgentCounts(
+                        claude: n.count > 0 ? n[0] : 0,
+                        codex: n.count > 1 ? n[1] : 0,
+                        opencode: n.count > 2 ? n[2] : 0
+                    )
                 }
             default:
                 SleepyModeController.shared.toggle()

@@ -63,6 +63,14 @@ public struct SleepyModeSection: View {
                 SettingsCardDivider()
                 toggleRow(String(localized: "sleepyMode.settings.status", defaultValue: "Battery & Wi-Fi"), $store.showStatus)
                 SettingsCardDivider()
+                SettingsCardRow(
+                    configurationReview: .settingsOnly,
+                    String(localized: "sleepyMode.settings.pets", defaultValue: "Agent pets"),
+                    subtitle: String(localized: "sleepyMode.settings.pets.subtitle", defaultValue: "Walks one cute pet for every Claude, Codex, and OpenCode agent you have running.")
+                ) {
+                    Toggle("", isOn: $store.showPets).labelsHidden().controlSize(.small)
+                }
+                SettingsCardDivider()
                 toggleRow(String(localized: "sleepyMode.settings.moon", defaultValue: "Moon"), $store.showMoon)
                 SettingsCardDivider()
                 toggleRow(String(localized: "sleepyMode.settings.stars", defaultValue: "Stars"), $store.showStars)

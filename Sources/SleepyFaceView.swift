@@ -18,8 +18,12 @@ struct SleepyFaceView: View {
                 endRadius: 950
             )
             TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+                let t = timeline.date.timeIntervalSinceReferenceDate
+                // Read the agent census here (main-actor view-builder context),
+                // never inside the Canvas renderer (which may run off-main).
+                let agents = config.showPets ? SleepyAgentCensus.shared.sample(at: t) : SleepyAgentCounts()
                 Canvas { context, size in
-                    draw(in: &context, size: size, time: timeline.date.timeIntervalSinceReferenceDate, config: config)
+                    draw(in: &context, size: size, time: t, config: config, agents: agents)
                 }
             }
             hint(config: config)
@@ -42,7 +46,7 @@ struct SleepyFaceView: View {
 
     // MARK: - Scene
 
-    private func draw(in ctx: inout GraphicsContext, size: CGSize, time t: Double, config: SleepyModeConfig) {
+    private func draw(in ctx: inout GraphicsContext, size: CGSize, time t: Double, config: SleepyModeConfig, agents: SleepyAgentCounts) {
         let palette = SleepyPalette.colors(for: config.theme)
         let ink = SleepyPalette.ink(for: config.theme)
         let s = min(size.width, size.height)
@@ -76,6 +80,71 @@ struct SleepyFaceView: View {
                 ? CGPoint(x: center.x + 9 * pixel, y: center.y - 7 * pixel + bob)
                 : CGPoint(x: center.x + 7 * pixel, y: center.y - 6 * pixel + bob)
             drawSleepZs(in: &ctx, origin: zOrigin, pixel: pixel, time: t, palette: palette)
+        }
+
+        if config.showPets {
+            drawPets(in: &ctx, size: size, pixel: pixel, time: t, counts: agents)
+        }
+    }
+
+    // MARK: - Agent pets
+
+    /// One walking pixel pet per open coding agent (Claude/Codex/OpenCode),
+    /// to make running lots of agents feel rewarding.
+    private func drawPets(in ctx: inout GraphicsContext, size: CGSize, pixel: CGFloat, time t: Double, counts: SleepyAgentCounts) {
+        guard counts.total > 0 else { return }
+
+        let cell = max(2, (pixel * 0.5).rounded())
+        let baseline = (size.height * 0.85).rounded()
+        let petWidthCells = 8
+
+        var colors: [Color] = []
+        let maxPets = 64
+        func add(_ count: Int, _ color: Color) {
+            for _ in 0..<count where colors.count < maxPets { colors.append(color) }
+        }
+        add(counts.claude, Color(red: 0.96, green: 0.55, blue: 0.26))
+        add(counts.codex, Color(red: 0.62, green: 0.86, blue: 0.97))
+        add(counts.opencode, Color(red: 0.45, green: 0.86, blue: 0.55))
+        add(counts.other, Color(red: 1.0, green: 0.70, blue: 0.80))
+
+        let span = size.width + CGFloat(petWidthCells * 2) * cell
+        for (i, color) in colors.enumerated() {
+            let rightward = i % 2 == 0
+            let speed = Double(cell) * (5 + Double(i % 4) * 2)
+            let offset = Double(i) * 0.137 * Double(span)
+            let p = (t * speed + offset).truncatingRemainder(dividingBy: Double(span))
+            let travel = CGFloat(p) - CGFloat(petWidthCells) * cell
+            let x = (rightward ? travel : size.width - travel).rounded()
+            let step = Int(t * 6 + Double(i)) % 2
+            let hop = sin(t * 7 + Double(i)) > 0.6 ? -cell : 0
+            drawPet(in: &ctx, x: x, y: baseline - 5 * cell + hop, cell: cell, color: color, step: step, facingRight: rightward)
+        }
+    }
+
+    private func drawPet(in ctx: inout GraphicsContext, x: CGFloat, y: CGFloat, cell: CGFloat, color: Color, step: Int, facingRight: Bool) {
+        let ink = Color(red: 0.12, green: 0.13, blue: 0.20)
+        func put(_ col: Int, _ row: Int, _ c: Color) {
+            ctx.fill(Path(CGRect(x: x + CGFloat(col) * cell, y: y + CGFloat(row) * cell, width: cell, height: cell)), with: .color(c))
+        }
+        // Body (rows 1-3, cols 0-6) with softened top corners.
+        for col in 0...6 {
+            for row in 1...3 {
+                if row == 1 && (col == 0 || col == 6) { continue }
+                put(col, row, color)
+            }
+        }
+        // Ears + tail nub.
+        put(1, 0, color)
+        put(5, 0, color)
+        put(facingRight ? -1 : 7, 1, color)
+        // Eye on the leading side.
+        put(facingRight ? 5 : 1, 2, ink)
+        // Legs alternate as it walks.
+        if step == 0 {
+            put(1, 4, color); put(5, 4, color)
+        } else {
+            put(2, 4, color); put(4, 4, color)
         }
     }
 
