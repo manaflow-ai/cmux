@@ -74,6 +74,29 @@ struct AttentionQueueSidebarTests {
         #expect(attention.rows.first?.subtitleRole == .agentStatus)
     }
 
+    @Test
+    func genericNotificationSubtitleKeepsProviderRole() throws {
+        let notified = workspace(
+            title: "Build",
+            customDescription: "CI workspace",
+            remoteDisplayTarget: nil,
+            remoteConnectionState: nil,
+            latestNotificationText: "Build failed in deploy step"
+        )
+        let snapshot = CmuxSidebarProviderSnapshot(
+            sequence: 1,
+            selectedWorkspaceId: nil,
+            workspaces: [notified]
+        )
+
+        let model = AttentionQueueSidebar().render(snapshot: snapshot)
+
+        let attention = try #require(model.sections.first { $0.id == "attention" })
+        #expect(attention.rows.map(\.workspaceId) == [notified.id])
+        #expect(attention.rows.first?.subtitle == .plain("Build failed in deploy step"))
+        #expect(attention.rows.first?.subtitleRole == nil)
+    }
+
     private func workspace(
         title: String,
         customDescription: String?,

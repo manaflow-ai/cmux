@@ -83,7 +83,20 @@ public struct AttentionQueueSidebar: CmuxSidebarProvider {
     }
 
     private func rowSubtitleRole(_ workspace: CmuxSidebarProviderWorkspace) -> CmuxSidebarProviderRowSubtitleRole? {
-        trimmed(workspace.latestNotificationText) == nil ? nil : .agentStatus
+        guard let notification = trimmed(workspace.latestNotificationText),
+              Self.isAgentStatusNotification(notification) else {
+            return nil
+        }
+        return .agentStatus
+    }
+
+    private static func isAgentStatusNotification(_ text: String) -> Bool {
+        let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized == "waiting for input"
+            || normalized == "needs input"
+            || normalized.hasSuffix(" needs input")
+            || normalized.hasSuffix(" needs your input")
+            || normalized.hasSuffix(" is waiting for your input")
     }
 
     private func hasRemoteTarget(_ workspace: CmuxSidebarProviderWorkspace) -> Bool {
