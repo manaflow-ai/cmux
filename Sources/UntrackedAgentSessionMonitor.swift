@@ -36,6 +36,9 @@ final class UntrackedAgentSessionMonitor {
     /// later genuine bypass in the same pane warns again.
     private var paneState: [PanelKey: PaneWarnState] = [:]
 
+    /// Repeating background check timer (nil when not started).
+    private var pollTimer: Timer?
+
     init(
         detector: UntrackedAgentSessionDetector = UntrackedAgentSessionDetector(),
         warningEnabled: @escaping () -> Bool = { UntrackedAgentSessionWarningSettings.isEnabled() },
@@ -123,4 +126,49 @@ final class UntrackedAgentSessionMonitor {
 
     /// Test seam: panes currently tracked as detected-without-hook.
     var trackedPaneCountForTesting: Int { paneState.count }
+}
+
+extension UntrackedAgentSessionMonitor {
+    /// The app-wide monitor, wired to deliver the warning through the terminal
+    /// notification store. Started once at launch (see `AppDelegate`).
+    static let shared = UntrackedAgentSessionMonitor(deliver: deliverWarning)
+
+    private static func deliverWarning(_ key: PanelKey, _ kind: RestorableAgentKind) {
+        AppDelegate.shared?.notificationStore?.addNotification(
+            tabId: key.workspaceId,
+            surfaceId: key.panelId,
+            title: String(
+                localized: "agentTracking.untracked.title",
+                defaultValue: "Session not tracked"
+            ),
+            subtitle: "",
+            body: String(
+                localized: "agentTracking.untracked.body",
+                defaultValue: "This agent session isn't being recorded by cmux, so this window won't resume after a crash or update. The agent was launched outside cmux's wrapper — a custom launcher, alias, or PATH order can cause this."
+            ),
+            // Belt-and-suspenders dedupe in addition to the per-pane warn-once:
+            // never re-warn the same pane within an hour even across restarts.
+            cooldownKey: "untracked-agent-session.\(key.workspaceId.uuidString).\(key.panelId.uuidString)",
+            cooldownInterval: 3600
+        )
+    }
+
+    /// Begin the periodic check. Idempotent. The interval is coarse — this is a
+    /// background safety check, not a hot path.
+    func start(interval: TimeInterval = 7) {
+        guard pollTimer == nil else { return }
+        let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.refresh()
+            }
+        }
+        pollTimer = timer
+        refresh()
+    }
+
+    /// Stop the periodic check.
+    func stop() {
+        pollTimer?.invalidate()
+        pollTimer = nil
+    }
 }

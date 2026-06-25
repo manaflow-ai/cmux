@@ -1289,6 +1289,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // closedPanelHistoryEntry.
         if !isRunningUnderXCTest {
             SharedLiveAgentIndex.shared.scheduleRefreshIfStale()
+            // Periodically warn when an agent is running in a pane that cmux is
+            // not tracking (its hooks were bypassed), so it won't resume.
+            UntrackedAgentSessionMonitor.shared.start()
         }
 
         claimAuthCallbackURLSchemes()
