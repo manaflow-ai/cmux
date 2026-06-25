@@ -129,6 +129,7 @@ def main() -> int:
     help_text = _run_cli(cli, ["ssh", "--help"], json_output=False)
     _must("cmux ssh" in help_text, "ssh --help output should include command header")
     _must("Create a new workspace" in help_text, "ssh --help output should describe workspace creation")
+    ssh_auth_sock = "/tmp/cmux-test-ssh-agent.sock"
 
     workspace_id = ""
     workspace_id_without_name = ""
@@ -142,6 +143,7 @@ def main() -> int:
             payload = _run_cli_json(
                 cli,
                 ["ssh", "127.0.0.1", "--port", "1", "--name", ssh_workspace_name],
+                extra_env={"SSH_AUTH_SOCK": ssh_auth_sock},
             )
             payload_workspace_id = _resolve_workspace_id_from_payload(client, payload)
             selected_workspace_id = ""
@@ -220,6 +222,11 @@ def main() -> int:
             _must(
                 "export CMUX_BOOTSTRAP_TTY=\"$cmux_bootstrap_tty\"" in ssh_startup_script,
                 f"cmux ssh startup script should preserve the bootstrap tty for relay warmup: {ssh_startup_command!r}",
+            )
+            _must(
+                re.search(rf"^export SSH_AUTH_SOCK=(?:{re.escape(ssh_auth_sock)}|'{re.escape(ssh_auth_sock)}')$", ssh_startup_script, re.MULTILINE)
+                is not None,
+                f"cmux ssh startup script should preserve SSH_AUTH_SOCK from the CLI environment: {ssh_startup_command!r}",
             )
             bootstrap_b64_match = re.search(r"^cmux_remote_bootstrap_b64=([A-Za-z0-9+/=]+)$", ssh_startup_script, re.MULTILINE)
             _must(
