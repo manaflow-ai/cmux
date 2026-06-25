@@ -311,29 +311,11 @@ final class RemoteTmuxController {
         // creates the control-socket dir, so the returned auth `ssh` can open the
         // master. No window has been created yet — nothing to tear down here. Both
         // discovery calls (including the create-then-relist for an empty server) are
-        // inside the catch so an auth failure on either is classified uniformly.
+        // inside the catch so an auth failure on any preflight/discovery command is
+        // classified uniformly.
         let sessions: [RemoteTmuxSession]
         do {
-            // Assert the remote tmux is new enough BEFORE mirroring: the live
-            // mirror relies on `refresh-client -B` subscriptions (tmux >= 3.2) for
-            // pane cwd / foreground / agent / git state, and tmux 1.x control mode
-            // lacks the `%begin`/`%end` framing the command FIFO needs. Below the
-            // minimum we'd attach into a silently-broken state, so fail with a
-            // clear error instead. A version we can't parse (dev/distro build) is
-            // allowed through. The probe shares this `do` so an auth failure on it
-            // is classified as `.authRequired` like the discovery calls.
-            if let version = try await transport(for: host).tmuxVersion(),
-               !version.meetsMinimum {
-                throw RemoteTmuxError.unsupportedTmux(detected: version.displayString)
-            }
-            var discovered = try await listSessions(host: host)
-            if discovered.isEmpty {
-                // A reachable server with zero sessions: create one so the window
-                // is useful. (An unreachable host throws from listSessions.)
-                _ = try? await transport(for: host).runTmux(["new-session", "-d"])
-                discovered = try await listSessions(host: host)
-            }
-            sessions = discovered
+            sessions = try await transport(for: host).discoverMirrorSessions(createIfEmpty: true)
         } catch let error as RemoteTmuxError {
             if case .commandFailed(_, let stderr) = error,
                RemoteTmuxSSHTransport.indicatesAuthRequired(stderr) {
@@ -408,7 +390,7 @@ final class RemoteTmuxController {
         guard let tabManager = AppDelegate.shared?.tabManager else {
             throw RemoteTmuxError.unreachable("app not ready")
         }
-        let sessions = try await listSessions(host: host)
+        let sessions = try await transport(for: host).discoverMirrorSessions(createIfEmpty: false)
         for session in sessions {
             // One session failing to attach must not abort mirroring the rest.
             do {

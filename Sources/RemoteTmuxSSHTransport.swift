@@ -76,6 +76,24 @@ actor RemoteTmuxSSHTransport {
         return RemoteTmuxVersion.parse(result.stdout)
     }
 
+    /// Asserts that the remote server supports live mirroring, then discovers sessions.
+    ///
+    /// Both `cmux ssh-tmux` and the legacy `remote.tmux.mirror` socket command call
+    /// this shared path before opening control streams, so old servers cannot attach
+    /// through one entrypoint while being blocked by another. An unparseable version
+    /// is treated as "unknown, allow" to avoid rejecting dev/distro builds.
+    func discoverMirrorSessions(createIfEmpty: Bool) async throws -> [RemoteTmuxSession] {
+        if let version = try await tmuxVersion(), !version.meetsMinimum {
+            throw RemoteTmuxError.unsupportedTmux(detected: version.displayString)
+        }
+        var sessions = try await listSessions()
+        if sessions.isEmpty, createIfEmpty {
+            _ = try? await runTmux(["new-session", "-d"])
+            sessions = try await listSessions()
+        }
+        return sessions
+    }
+
     /// Runs a `tmux <args…>` command on the remote host and returns its result.
     @discardableResult
     func runTmux(_ args: [String]) async throws -> RemoteTmuxCommandResult {

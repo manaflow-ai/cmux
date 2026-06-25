@@ -49,7 +49,13 @@ import Testing
         #expect(V.parse("tmux next-3.4") != nil) // "3.4" IS present → parsed
         #expect(V.parse("tmux") == nil)
         #expect(V.parse("") == nil)
-        #expect(V.parse("garbage") == nil)
+        #expect(V.parse("garbage 3.4") == nil)
+    }
+
+    @Test func parserIgnoresVersionLikeShellBanners() {
+        #expect(V.parse("Welcome to Ubuntu 20.04.6 LTS\ntmux 1.8") == V(major: 1, minor: 8, letterRank: 0))
+        #expect(V.parse("tmux helper 20.04\ntmux 2.6") == V(major: 2, minor: 6, letterRank: 0))
+        #expect(V.parse("OpenSSH_9.6p1 LibreSSL 3.3.6") == nil)
     }
 
     @Test func displayStringRoundTrips() {

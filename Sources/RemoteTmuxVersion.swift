@@ -41,18 +41,30 @@ struct RemoteTmuxVersion: Equatable, Comparable, Sendable {
 
     /// Parses a `tmux -V` line such as `tmux 3.2a`, `tmux 1.8`, or `tmux 3.1c`.
     ///
-    /// Returns `nil` for output with no numeric `<major>.<minor>` token — e.g. a
-    /// development build (`tmux master`) or the OpenBSD-bundled `tmux openbsd-7.x`.
+    /// Returns `nil` for output with no `tmux` line containing a numeric
+    /// `<major>.<minor>` token — e.g. a development build (`tmux master`) or the
+    /// OpenBSD-bundled `tmux openbsd-7.x`.
     /// Callers treat an unparseable version as "unknown, allow" rather than
     /// blocking, since a dev/distro build is usually current.
     ///
     /// Note: a string that merely *contains* a `<major>.<minor>` (e.g.
-    /// `tmux next-3.4`, a dev build of the upcoming 3.4) IS parsed — to `3.4` here
-    /// — and version-checked, not passed through. That's fine: such builds are at
-    /// or above the minimum anyway.
+    /// `tmux next-3.4`, a dev build of the upcoming 3.4) on a `tmux` output line
+    /// IS parsed — to `3.4` here — and version-checked, not passed through. That's
+    /// fine: such builds are at or above the minimum anyway.
     static func parse(_ output: String) -> RemoteTmuxVersion? {
-        // Find the first `<digits>.<digits>` token anywhere in the line, then an
-        // optional trailing lowercase letter.
+        for line in output.split(whereSeparator: \.isNewline).reversed() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed == "tmux" || trimmed.hasPrefix("tmux ") || trimmed.hasPrefix("tmux\t") else {
+                continue
+            }
+            if let version = parseVersionToken(in: String(trimmed.dropFirst(4))) {
+                return version
+            }
+        }
+        return nil
+    }
+
+    private static func parseVersionToken(in output: String) -> RemoteTmuxVersion? {
         let scalars = Array(output)
         var i = 0
         while i < scalars.count {
