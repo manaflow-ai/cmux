@@ -340,3 +340,106 @@ struct FeedEventClassifier {
         return false
     }
 }
+
+/// Semantic category of a Claude Code `Notification` hook event, derived from
+/// its signal + message. Separate from the display `(subtitle, body)` so the
+/// hook handler can decide whether to pull the user's attention without
+/// branching on localized strings.
+enum ClaudeNotificationKind: Equatable, Sendable {
+    case permission
+    case error
+    case completed
+    case waiting
+    case attention
+
+    /// Whether this notification warrants the "Needs input" sidebar badge +
+    /// bell on its own. Idle `waiting` and `completed` notifications are
+    /// informational: Claude Code emits the idle "Claude is waiting for your
+    /// input" Notification ~60s after a turn ends even when nothing is
+    /// blocked, so flagging it as needs-input is a false alarm (most visibly
+    /// under `--dangerously-skip-permissions`, where it is the only
+    /// Notification that ever fires). A genuinely pending block is recognized
+    /// separately by the handler via the session's current lifecycle, so a
+    /// real question/plan still raises the badge.
+    var raisesNeedsInput: Bool {
+        switch self {
+        case .permission, .error, .attention:
+            return true
+        case .completed, .waiting:
+            return false
+        }
+    }
+}
+
+extension FeedEventClassifier {
+    /// Pure classification of a Claude `Notification` into a
+    /// ``ClaudeNotificationKind``. Mirrors the keyword/cue order the display
+    /// classifier uses so the kind and the shown subtitle never disagree.
+    static func claudeNotificationKind(signal: String, message: String) -> ClaudeNotificationKind {
+        let lower = "\(signal) \(message)".lowercased()
+        if lower.contains("permission") || lower.contains("approve")
+            || lower.contains("approval") || lower.contains("permission_prompt") {
+            return .permission
+        }
+        if lower.contains("error") || lower.contains("failed") || lower.contains("exception") {
+            return .error
+        }
+        if containsCompletionCue(lower) {
+            return .completed
+        }
+        if containsWaitingCue(lower) {
+            return .waiting
+        }
+        return .attention
+    }
+
+    /// Tokenizes on any non-alphanumeric run; shared by the cue checks.
+    static func notificationCueTokens(_ lowercasedText: String) -> [Substring] {
+        lowercasedText.split { !$0.isLetter && !$0.isNumber }
+    }
+
+    static func containsCompletionCue(_ lowercasedText: String) -> Bool {
+        notificationCueTokens(lowercasedText).contains { token in
+            token == "done"
+                || token == "succeed"
+                || token == "succeeded"
+                || token.hasPrefix("complet")
+                || token.hasPrefix("finish")
+                || token.hasPrefix("success")
+        }
+    }
+
+    static func containsWaitingCue(_ lowercasedText: String) -> Bool {
+        let tokens = notificationCueTokens(lowercasedText)
+        for (index, token) in tokens.enumerated() {
+            let previous = index > 0 ? tokens[index - 1] : nil
+            let next = index + 1 < tokens.count ? tokens[index + 1] : nil
+            if token == "idle" {
+                return true
+            }
+            if token == "wait" || token == "waiting" || token == "awaiting" {
+                return true
+            }
+            if token == "prompt", previous == "idle" || previous == "input" || previous == "user" {
+                return true
+            }
+            if token == "input" {
+                if previous == "need" || previous == "needs" || previous == "needed"
+                    || previous == "require" || previous == "requires" || previous == "required"
+                    || previous == "request" || previous == "requests" || previous == "requested"
+                    || previous == "wait" || previous == "waiting" || previous == "awaiting"
+                    || previous == "user" || previous == "your"
+                    || next == "needed" || next == "required" || next == "requested" {
+                    return true
+                }
+            }
+            if token == "question", lowercasedText.contains("?") || tokens.contains(where: {
+                $0 == "answer" || $0 == "respond" || $0 == "response" || $0 == "reply"
+                    || $0 == "choose" || $0 == "confirm" || $0 == "continue"
+            }) {
+                return true
+            }
+        }
+        return false
+    }
+}

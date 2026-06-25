@@ -23476,13 +23476,58 @@ struct CMUXCLI {
             if let mappedSession,
                let savedBody = mappedSession.lastBody, !savedBody.isEmpty,
                summary.body.contains("needs your attention") || summary.body.contains("needs your input") {
-                summary = (subtitle: mappedSession.lastSubtitle ?? summary.subtitle, body: savedBody)
+                summary = (
+                    subtitle: mappedSession.lastSubtitle ?? summary.subtitle,
+                    body: savedBody,
+                    raisesNeedsInput: summary.raisesNeedsInput
+                )
             }
+
+            // Whether to raise the "Needs input" badge + bell. Idle "waiting"
+            // and "completed" Notifications do not, on their own — Claude Code
+            // fires the idle "waiting for your input" Notification ~60s after a
+            // turn ends with nothing blocked, and treating that as needs-input
+            // is a false alarm (issue: a finished research turn shows a bell it
+            // shouldn't). A genuinely pending block is still honored: a
+            // preceding PreToolUse for AskUserQuestion/ExitPlanMode (and the
+            // permission flow) leaves the session lifecycle at `.needsInput`,
+            // so a real question/plan keeps the badge even if its notification
+            // text reads as "waiting".
+            let sessionPendingNeedsInput = (mappedSession?.agentLifecycle == .needsInput)
+            let raisesNeedsInput = summary.raisesNeedsInput || sessionPendingNeedsInput
 
             let title = String(
                 localized: "cli.claude-hook.notification.title",
                 defaultValue: "Claude Code"
             )
+
+            guard raisesNeedsInput else {
+                // Informational idle/completed ping: settle the workspace to
+                // idle rather than flagging it for input. Posting a banner here
+                // would re-raise the same false alarm, so skip it.
+                if let sessionId = parsedInput.sessionId {
+                    try? sessionStore.upsert(
+                        sessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        cwd: parsedInput.cwd,
+                        transcriptPath: parsedInput.transcriptPath,
+                        agentLifecycle: .idle,
+                        lastSubtitle: summary.subtitle,
+                        lastBody: summary.body
+                    )
+                }
+                setAgentLifecycle(
+                    client: client,
+                    key: Self.claudeCodeStatusKey,
+                    lifecycle: .idle,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
+                print("OK")
+                return
+            }
+
             let payload = notificationPayload(title: title, subtitle: summary.subtitle, body: summary.body)
 
             if let sessionId = parsedInput.sessionId {
@@ -25822,12 +25867,19 @@ struct CMUXCLI {
         return nil
     }
 
-    private func summarizeClaudeHookNotification(parsedInput: ClaudeHookParsedInput) -> (subtitle: String, body: String) {
+    private func summarizeClaudeHookNotification(
+        parsedInput: ClaudeHookParsedInput
+    ) -> (subtitle: String, body: String, raisesNeedsInput: Bool) {
         guard let object = parsedInput.object else {
             if let fallback = parsedInput.rawFallback, !fallback.isEmpty {
-                return classifyClaudeNotification(signal: fallback, message: fallback)
+                let classified = classifyClaudeNotification(signal: fallback, message: fallback)
+                let kind = FeedEventClassifier.claudeNotificationKind(signal: fallback, message: fallback)
+                return (classified.subtitle, classified.body, kind.raisesNeedsInput)
             }
-            return ("Waiting", "Claude is waiting for your input")
+            // Bare idle ping with no payload: this is Claude Code's idle
+            // "waiting for your input" Notification — informational, not a
+            // block. Do not raise needs-input on its own.
+            return ("Waiting", "Claude is waiting for your input", false)
         }
 
         let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
@@ -25844,9 +25896,10 @@ struct CMUXCLI {
         let normalizedMessage = normalizedSingleLine(message)
         let signal = signalParts.compactMap { $0 }.joined(separator: " ")
         var classified = classifyClaudeNotification(signal: signal, message: normalizedMessage)
+        let kind = FeedEventClassifier.claudeNotificationKind(signal: signal, message: normalizedMessage)
 
         classified.body = truncate(classified.body, maxLength: 180)
-        return classified
+        return (classified.subtitle, classified.body, kind.raisesNeedsInput)
     }
 
     private func summarizeAgentHookNotification(
@@ -26174,7 +26227,7 @@ struct CMUXCLI {
                 isFallback: isFallback
             )
         }
-        if containsCompletionCue(lower) {
+        if FeedEventClassifier.containsCompletionCue(lower) {
             let body = message.isEmpty
                 ? String(localized: "agent.generic.notification.body.taskCompleted", defaultValue: "Task completed")
                 : message
@@ -26185,7 +26238,7 @@ struct CMUXCLI {
                 isFallback: isFallback
             )
         }
-        if containsWaitingCue(lower) {
+        if FeedEventClassifier.containsWaitingCue(lower) {
             let body = message.isEmpty
                 ? String(localized: "agent.generic.notification.body.waitingForInput", defaultValue: "Waiting for input")
                 : message
@@ -26216,78 +26269,26 @@ struct CMUXCLI {
         )
     }
 
+    /// Display `(subtitle, body)` for a Claude notification. The semantic
+    /// category comes from ``FeedEventClassifier/claudeNotificationKind`` so
+    /// the shown subtitle and the needs-input decision can never disagree.
     private func classifyClaudeNotification(signal: String, message: String) -> (subtitle: String, body: String) {
-        let lower = "\(signal) \(message)".lowercased()
-        if lower.contains("permission") || lower.contains("approve") || lower.contains("approval") || lower.contains("permission_prompt") {
-            let body = message.isEmpty ? "Approval needed" : message
-            return ("Permission", body)
-        }
-        if lower.contains("error") || lower.contains("failed") || lower.contains("exception") {
-            let body = message.isEmpty ? "Claude reported an error" : message
-            return ("Error", body)
-        }
-        if containsCompletionCue(lower) {
-            let body = message.isEmpty ? "Task completed" : message
-            return ("Completed", body)
-        }
-        if containsWaitingCue(lower) {
-            let body = message.isEmpty ? "Waiting for input" : message
-            return ("Waiting", body)
-        }
-        // Use the message directly if it's meaningful (not a generic placeholder).
-        if !message.isEmpty, message != "Claude needs your input" {
-            return ("Attention", message)
-        }
-        return ("Attention", "Claude needs your attention")
-    }
-
-    private func containsCompletionCue(_ lowercasedText: String) -> Bool {
-        notificationCueTokens(lowercasedText).contains { token in
-            token == "done"
-                || token == "succeed"
-                || token == "succeeded"
-                || token.hasPrefix("complet")
-                || token.hasPrefix("finish")
-                || token.hasPrefix("success")
-        }
-    }
-
-    private func containsWaitingCue(_ lowercasedText: String) -> Bool {
-        let tokens = notificationCueTokens(lowercasedText)
-        for (index, token) in tokens.enumerated() {
-            let previous = index > 0 ? tokens[index - 1] : nil
-            let next = index + 1 < tokens.count ? tokens[index + 1] : nil
-            if token == "idle" {
-                return true
+        switch FeedEventClassifier.claudeNotificationKind(signal: signal, message: message) {
+        case .permission:
+            return ("Permission", message.isEmpty ? "Approval needed" : message)
+        case .error:
+            return ("Error", message.isEmpty ? "Claude reported an error" : message)
+        case .completed:
+            return ("Completed", message.isEmpty ? "Task completed" : message)
+        case .waiting:
+            return ("Waiting", message.isEmpty ? "Waiting for input" : message)
+        case .attention:
+            // Use the message directly if it's meaningful (not a placeholder).
+            if !message.isEmpty, message != "Claude needs your input" {
+                return ("Attention", message)
             }
-            if token == "wait" || token == "waiting" || token == "awaiting" {
-                return true
-            }
-            if token == "prompt", previous == "idle" || previous == "input" || previous == "user" {
-                return true
-            }
-            if token == "input" {
-                if previous == "need" || previous == "needs" || previous == "needed"
-                    || previous == "require" || previous == "requires" || previous == "required"
-                    || previous == "request" || previous == "requests" || previous == "requested"
-                    || previous == "wait" || previous == "waiting" || previous == "awaiting"
-                    || previous == "user" || previous == "your"
-                    || next == "needed" || next == "required" || next == "requested" {
-                    return true
-                }
-            }
-            if token == "question", lowercasedText.contains("?") || tokens.contains(where: {
-                $0 == "answer" || $0 == "respond" || $0 == "response" || $0 == "reply"
-                    || $0 == "choose" || $0 == "confirm" || $0 == "continue"
-            }) {
-                return true
-            }
+            return ("Attention", "Claude needs your attention")
         }
-        return false
-    }
-
-    private func notificationCueTokens(_ lowercasedText: String) -> [Substring] {
-        lowercasedText.split { !$0.isLetter && !$0.isNumber }
     }
 
     private func sanitizeNotificationField(_ value: String) -> String {
