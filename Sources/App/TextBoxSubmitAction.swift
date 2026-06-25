@@ -42,46 +42,58 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
     )
 
     static let builtInActions: [TextBoxSubmitAction] = [
-        TextBoxSubmitAction(
+        builtInAgentAction(
             id: "claude",
             title: "Claude Dangerous",
-            kind: .commandTemplate,
-            commandTemplate: "claude --dangerously-skip-permissions {{prompt}}",
+            commandPrefix: "claude --dangerously-skip-permissions",
             systemImage: "sparkle",
             assetName: "AgentIcons/Claude",
             backgroundColorHex: "#F6D5C8"
         ),
-        TextBoxSubmitAction(
+        builtInAgentAction(
             id: "codex",
             title: "Codex Yolo",
-            kind: .commandTemplate,
-            commandTemplate: "codex --dangerously-bypass-approvals-and-sandbox",
-            preservePromptAfterLaunch: true,
+            commandPrefix: "codex --dangerously-bypass-approvals-and-sandbox",
             systemImage: "sparkles",
             assetName: "AgentIcons/Codex",
             backgroundColorHex: "#8FDBFF"
         ),
-        TextBoxSubmitAction(
+        builtInAgentAction(
             id: "opencode",
             title: "OpenCode",
-            kind: .commandTemplate,
-            commandTemplate: "opencode",
-            preservePromptAfterLaunch: true,
+            commandPrefix: "opencode --prompt",
             systemImage: "curlybraces",
             assetName: "AgentIcons/OpenCode",
             backgroundColorHex: "#B5E48C"
         ),
-        TextBoxSubmitAction(
+        builtInAgentAction(
             id: "pi",
             title: "Pi",
-            kind: .commandTemplate,
-            commandTemplate: "pi",
-            preservePromptAfterLaunch: true,
+            commandPrefix: "pi",
             systemImage: "brain.head.profile",
             assetName: "AgentIcons/Pi",
             backgroundColorHex: "#D0B3FF"
         ),
     ]
+
+    private static func builtInAgentAction(
+        id: String,
+        title: String,
+        commandPrefix: String,
+        systemImage: String,
+        assetName: String,
+        backgroundColorHex: String
+    ) -> TextBoxSubmitAction {
+        TextBoxSubmitAction(
+            id: id,
+            title: title,
+            kind: .commandTemplate,
+            commandTemplate: "\(commandPrefix) {{prompt}}",
+            systemImage: systemImage,
+            assetName: assetName,
+            backgroundColorHex: backgroundColorHex
+        )
+    }
 
     static let selectableActions: [TextBoxSubmitAction] = [textEntryAction] + builtInActions
 

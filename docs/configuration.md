@@ -88,8 +88,7 @@ Press Shift-Tab in the TextBox to cycle the default action. This shortcut is `sh
         "id": "codex",
         "title": "Codex Yolo",
         "kind": "commandTemplate",
-        "commandTemplate": "codex --dangerously-bypass-approvals-and-sandbox",
-        "preservePromptAfterLaunch": true,
+        "commandTemplate": "codex --dangerously-bypass-approvals-and-sandbox {{prompt}}",
         "systemImage": "sparkles",
         "assetName": "AgentIcons/Codex",
         "backgroundColorHex": "#8FDBFF"
@@ -111,15 +110,15 @@ Press Shift-Tab in the TextBox to cycle the default action. This shortcut is `sh
 Built-in action IDs: `claude`, `codex`, `opencode`, `pi`.
 
 Set `textBoxDefaultSubmitAction` to `text-entry` to force plain Text Entry for new terminals.
-The built-in Claude action runs `claude --dangerously-skip-permissions {{prompt}}`; cmux shell-quotes `{{prompt}}` before pasting the command. Claude may still show its workspace trust prompt before processing the prompt. Built-in Codex, OpenCode, and Pi actions launch the provider first and keep the prompt in the TextBox. Once the provider owns the terminal, submit again to send the prompt through Text Entry.
+Built-in provider actions shell-quote `{{prompt}}` before pasting the command. Claude may still show its workspace trust prompt before processing the prompt. Built-ins run `claude --dangerously-skip-permissions {{prompt}}`, `codex --dangerously-bypass-approvals-and-sandbox {{prompt}}`, `opencode --prompt {{prompt}}`, and `pi {{prompt}}`.
 
 Action fields:
 
 - `id`: stable action ID.
 - `title`: menu label for custom actions.
 - `kind`: `textEntry` or `commandTemplate`.
-- `commandTemplate`: shell command for `commandTemplate`. Include `{{prompt}}` only when the prompt should be shell-quoted into the command line. For privacy, prefer a prompt-free provider launch command plus `preservePromptAfterLaunch`.
-- `preservePromptAfterLaunch`: optional boolean. When `true`, cmux submits `commandTemplate` as a provider launch command while keeping the TextBox prompt intact for the active agent session.
+- `commandTemplate`: shell command for `commandTemplate`. Include `{{prompt}}` where the prompt should be shell-quoted into the command line.
+- `preservePromptAfterLaunch`: optional boolean for custom launch-only actions. When `true`, cmux submits `commandTemplate` as a provider launch command while keeping the TextBox prompt intact for the active agent session.
 - `systemImage`: fallback SF Symbol name shown on the submit button.
 - `assetName`: optional app asset catalog image name, for example `AgentIcons/Codex`.
 - `imagePath`: optional PNG or image path for the submit button.

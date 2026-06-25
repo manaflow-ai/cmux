@@ -121,20 +121,30 @@ struct TextBoxSubmitActionTests {
                 action.launchCommand().map { (action.id, $0) }
             }
         )
-        let claude = try #require(TextBoxSubmitAction.builtInActions.first { $0.id == "claude" })
+
+        let actionsByID = Dictionary(
+            uniqueKeysWithValues: TextBoxSubmitAction.builtInActions.map { ($0.id, $0) }
+        )
+        let prompt = "ship user's fix\nwith\ttabs"
+        let quotedPrompt = "'ship user'\\''s fix\nwith\ttabs'"
 
         XCTAssertEqual(
-            claude.command(forPrompt: "ship user's fix"),
-            "claude --dangerously-skip-permissions 'ship user'\\''s fix'"
+            try #require(actionsByID["claude"]).command(forPrompt: prompt),
+            "claude --dangerously-skip-permissions \(quotedPrompt)"
         )
-        XCTAssertEqual(launchCommandsByID["claude"], nil)
         XCTAssertEqual(
-            TextBoxSubmitAction.builtInActions.first { $0.id == "codex" }?.command(forPrompt: "secret"),
-            nil
+            try #require(actionsByID["codex"]).command(forPrompt: prompt),
+            "codex --dangerously-bypass-approvals-and-sandbox \(quotedPrompt)"
         )
-        XCTAssertEqual(launchCommandsByID["codex"], "codex --dangerously-bypass-approvals-and-sandbox")
-        XCTAssertEqual(launchCommandsByID["opencode"], "opencode")
-        XCTAssertEqual(launchCommandsByID["pi"], "pi")
+        XCTAssertEqual(
+            try #require(actionsByID["opencode"]).command(forPrompt: prompt),
+            "opencode --prompt \(quotedPrompt)"
+        )
+        XCTAssertEqual(
+            try #require(actionsByID["pi"]).command(forPrompt: prompt),
+            "pi \(quotedPrompt)"
+        )
+        XCTAssertTrue(launchCommandsByID.isEmpty)
     }
 
 
@@ -211,8 +221,10 @@ struct TextBoxSubmitActionTests {
     func testDefaultConfigTemplateIncludesTextBoxLaunchPromptFlag() {
         let template = CmuxSettingsFileStore.defaultTemplate()
 
-        XCTAssertTrue(template.contains(#""commandTemplate" : "codex --dangerously-bypass-approvals-and-sandbox""#))
-        XCTAssertTrue(template.contains(#""preservePromptAfterLaunch" : true"#))
+        XCTAssertTrue(template.contains(#""commandTemplate" : "codex --dangerously-bypass-approvals-and-sandbox {{prompt}}""#))
+        XCTAssertTrue(template.contains(#""commandTemplate" : "opencode --prompt {{prompt}}""#))
+        XCTAssertTrue(template.contains(#""commandTemplate" : "pi {{prompt}}""#))
+        XCTAssertFalse(template.contains(#""preservePromptAfterLaunch" : true"#))
     }
 
 
@@ -285,12 +297,20 @@ struct TextBoxSubmitActionTests {
     }
 
     @Test
-    func testTextBoxPendingLaunchUsesInitialCommandContext() throws {
-        let codex = try #require(TextBoxSubmitAction.builtInActions.first { $0.id == "codex" })
+    func testTextBoxPendingLaunchUsesInitialCommandContext() {
+        let launchOnlyCodex = TextBoxSubmitAction(
+            id: "custom-codex-launch",
+            title: "Custom Codex Launch",
+            kind: .commandTemplate,
+            commandTemplate: "codex --dangerously-bypass-approvals-and-sandbox",
+            preservePromptAfterLaunch: true,
+            systemImage: "sparkles",
+            backgroundColorHex: "#8FDBFF"
+        )
         let context = TextBoxInputContainer.textEntryTerminalAgentContext(
             allowsCommandTemplateSubmit: true,
             terminalAgentContext: "",
-            pendingProviderLaunchAction: codex
+            pendingProviderLaunchAction: launchOnlyCodex
         )
 
         XCTAssertEqual(context, "initialCommand:codex --dangerously-bypass-approvals-and-sandbox")
