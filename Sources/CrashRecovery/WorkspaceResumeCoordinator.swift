@@ -174,7 +174,7 @@ struct WorkspaceResumeCoordinator {
 
     /// Return the bare session id from either the modern checkpoint id or a
     /// legacy resume command token such as `claude --resume <id>`.
-    static func bareSessionId(from token: String?) -> String? {
+    nonisolated static func bareSessionId(from token: String?) -> String? {
         guard let trimmed = token?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else { return nil }
 
@@ -191,7 +191,7 @@ struct WorkspaceResumeCoordinator {
         return nonEmpty(stripShellQuotes(trimmed))
     }
 
-    private static func stripShellQuotes(_ value: String) -> String {
+    nonisolated private static func stripShellQuotes(_ value: String) -> String {
         var result = value
         while result.count >= 2 {
             let first = result.first
@@ -206,7 +206,7 @@ struct WorkspaceResumeCoordinator {
         return result
     }
 
-    private static func nonEmpty(_ value: String) -> String? {
+    nonisolated private static func nonEmpty(_ value: String) -> String? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }

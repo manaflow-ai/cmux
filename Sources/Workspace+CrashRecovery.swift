@@ -371,16 +371,18 @@ extension Workspace: ResumableWorkspaceSurface {
             }
 
             guard !Task.isCancelled else { return }
+            let resolvedAgentResults = agentResults
+            let resolvedBindingResults = bindingResults
             await MainActor.run { [weak self] in
                 guard let self else { return }
-                for result in agentResults {
+                for result in resolvedAgentResults {
                     guard self.restoredAgentSnapshotsByPanelId[result.panelId]?.kind == result.agent.kind,
                           self.restoredAgentSnapshotsByPanelId[result.panelId]?.sessionId == result.agent.sessionId else {
                         continue
                     }
                     self.restoredAgentVerificationByPanelId[result.panelId] = result.verification
                 }
-                for result in bindingResults {
+                for result in resolvedBindingResults {
                     guard self.surfaceResumeBindingsByPanelId[result.panelId] == result.binding else {
                         continue
                     }
