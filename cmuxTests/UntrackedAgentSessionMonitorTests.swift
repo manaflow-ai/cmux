@@ -22,8 +22,8 @@ import Testing
         )
     }
 
-    private func agent(_ session: String, kind: RestorableAgentKind = .claude) -> UntrackedAgentSessionMonitor.DetectedAgent {
-        UntrackedAgentSessionMonitor.DetectedAgent(kind: kind, sessionId: session)
+    private func agent(_ identity: String, kind: RestorableAgentKind = .claude) -> UntrackedAgentSessionMonitor.DetectedAgent {
+        UntrackedAgentSessionMonitor.DetectedAgent(kind: kind, identity: identity)
     }
 
     /// Builds a monitor with a 10s grace, recording delivered warnings.
@@ -120,6 +120,25 @@ import Testing
         monitor.evaluate(detectedAgents: agents, hasHookSession: hook, now: 0)
         monitor.evaluate(detectedAgents: agents, hasHookSession: hook, now: 15)
         #expect(delivered() == [bypassed])
+    }
+
+    // MARK: - Live detection source: claude/codex are detected by process name
+
+    @Test func supportedAgentKindMatchesClaudeAndCodexByExecutableName() {
+        // Claude/Codex are NOT in the vault process-detection registry, so the
+        // live path must recognize them by executable basename.
+        #expect(UntrackedAgentSessionMonitor.supportedAgentKind(processName: "claude", path: nil) == .claude)
+        #expect(UntrackedAgentSessionMonitor.supportedAgentKind(processName: "codex", path: nil) == .codex)
+        // Full path wins over the (possibly truncated) name.
+        #expect(UntrackedAgentSessionMonitor.supportedAgentKind(processName: "claude", path: "/Users/me/.local/bin/claude") == .claude)
+        #expect(UntrackedAgentSessionMonitor.supportedAgentKind(processName: "CODEX", path: nil) == .codex) // case-insensitive
+    }
+
+    @Test func supportedAgentKindRejectsNonAgentProcesses() {
+        #expect(UntrackedAgentSessionMonitor.supportedAgentKind(processName: "node", path: nil) == nil)
+        #expect(UntrackedAgentSessionMonitor.supportedAgentKind(processName: "bun", path: nil) == nil)
+        #expect(UntrackedAgentSessionMonitor.supportedAgentKind(processName: "zsh", path: "/bin/zsh") == nil)
+        #expect(UntrackedAgentSessionMonitor.supportedAgentKind(processName: "", path: nil) == nil)
     }
 
     @Test func disabledSettingNeverWarns() {

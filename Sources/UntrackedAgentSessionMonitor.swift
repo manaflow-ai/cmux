@@ -18,11 +18,15 @@ final class UntrackedAgentSessionMonitor {
     /// A live agent process detected in a pane.
     struct DetectedAgent: Equatable, Sendable {
         var kind: RestorableAgentKind
-        var sessionId: String
+        /// A stable per-session identity used for warn-once dedupe and to detect
+        /// when a pane's agent has been replaced by a new session. For live
+        /// detection this is the agent process pid (a relaunch is a new pid, so a
+        /// later bypassed session re-warns); tests pass any stable token.
+        var identity: String
     }
 
     private struct PaneWarnState {
-        var sessionId: String
+        var identity: String
         var firstSeenWithoutHook: TimeInterval
         var warned: Bool
     }
@@ -71,11 +75,11 @@ final class UntrackedAgentSessionMonitor {
             }
 
             // Untracked: start (or continue) the without-hook clock for this
-            // session. A changed session id in the same pane is a new session, so
+            // session. A changed identity in the same pane is a new session, so
             // the clock and dedupe reset.
             var state = paneState[key]
-            if state == nil || state?.sessionId != agent.sessionId {
-                state = PaneWarnState(sessionId: agent.sessionId, firstSeenWithoutHook: now, warned: false)
+            if state == nil || state?.identity != agent.identity {
+                state = PaneWarnState(identity: agent.identity, firstSeenWithoutHook: now, warned: false)
             }
 
             let facts = PaneTrackingFacts(
@@ -95,22 +99,41 @@ final class UntrackedAgentSessionMonitor {
         }
     }
 
-    /// Real tick: capture the process-detected agents off-main (the capture runs
-    /// sysctl/top and must not block the main thread), then evaluate on main using
-    /// the cached, non-blocking hook-session lookup.
-    func refresh(
-        homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
-    ) {
+    /// The agent kind for a process whose executable basename names a hook-tracked
+    /// agent (Claude/Codex), or nil. Claude/Codex are NOT in the vault
+    /// process-detection registry (that only emits custom/opencode kinds) and are
+    /// otherwise known to cmux only through their hook store — the tracked path. So
+    /// a *bypassed* claude/codex is invisible except as a raw process; detecting it
+    /// by executable name is the only signal for "running but untracked".
+    nonisolated static func supportedAgentKind(processName name: String, path: String?) -> RestorableAgentKind? {
+        let basename = ((path?.isEmpty == false ? path! : name) as NSString).lastPathComponent.lowercased()
+        switch basename {
+        case "claude": return .claude
+        case "codex": return .codex
+        default: return nil
+        }
+    }
+
+    /// Real tick: capture the process snapshot off-main (sysctl/top must not block
+    /// the main thread), find cmux-scoped Claude/Codex processes by executable
+    /// name, then evaluate on main using the cached, non-blocking hook lookup.
+    func refresh() {
         Task.detached(priority: .utility) {
-            let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
-            let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
-                registry: registry,
-                fileManager: fileManager
-            )
-            let agents: [PanelKey: DetectedAgent] = detected.reduce(into: [:]) { acc, pair in
-                let snapshot = pair.value.snapshot
-                acc[pair.key] = DetectedAgent(kind: snapshot.kind, sessionId: snapshot.sessionId)
+            let snapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+            // One agent process per pane (lowest pid is the stable identity).
+            var byPane: [PanelKey: (kind: RestorableAgentKind, pid: Int)] = [:]
+            for process in snapshot.cmuxScopedProcesses() {
+                guard let workspaceId = process.cmuxWorkspaceID,
+                      let surfaceId = process.cmuxSurfaceID,
+                      let kind = Self.supportedAgentKind(processName: process.name, path: process.path) else {
+                    continue
+                }
+                let key = PanelKey(workspaceId: workspaceId, panelId: surfaceId)
+                if let existing = byPane[key], existing.pid <= process.pid { continue }
+                byPane[key] = (kind, process.pid)
+            }
+            let agents: [PanelKey: DetectedAgent] = byPane.mapValues {
+                DetectedAgent(kind: $0.kind, identity: String($0.pid))
             }
             await MainActor.run {
                 self.evaluate(
@@ -144,7 +167,7 @@ extension UntrackedAgentSessionMonitor {
             subtitle: "",
             body: String(
                 localized: "agentTracking.untracked.body",
-                defaultValue: "This agent session isn't being recorded by cmux, so this window won't resume after a crash or update. The agent was launched outside cmux's wrapper — a custom launcher, alias, or PATH order can cause this."
+                defaultValue: "This agent session isn't being recorded by cmux, so this window won't resume after a crash or update. The agent was launched outside cmux's wrapper (a custom launcher, alias, or PATH order can cause this)."
             ),
             // Belt-and-suspenders dedupe in addition to the per-pane warn-once:
             // never re-warn the same pane within an hour even across restarts.
