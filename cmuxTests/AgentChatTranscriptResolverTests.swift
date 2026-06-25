@@ -1,4 +1,5 @@
 import Foundation
+import CMUXAgentLaunch
 import Testing
 
 #if canImport(cmux_DEV)
@@ -118,5 +119,79 @@ import Testing
 
         let resolver = AgentChatTranscriptResolver(homeDirectory: home)
         #expect(resolver.newestClaudeTranscript(workingDirectory: bareCwd)?.sessionID == "priv-sess")
+    }
+
+    @MainActor
+    @Test("compaction telemetry preserves mobile session state")
+    func compactionTelemetryPreservesMobileSessionState() {
+        let registry = AgentChatSessionRegistry()
+        let sessionID = "codex-compact-state"
+        let start = Date(timeIntervalSince1970: 100)
+        var record = registry.noteHookEvent(
+            WorkstreamEvent(
+                sessionId: sessionID,
+                hookEventName: .sessionStart,
+                source: "codex",
+                receivedAt: start
+            )
+        )
+
+        #expect(record.state == .idle)
+
+        record = registry.noteHookEvent(
+            WorkstreamEvent(
+                sessionId: sessionID,
+                hookEventName: .preCompact,
+                source: "codex",
+                receivedAt: Date(timeIntervalSince1970: 101)
+            )
+        )
+        #expect(record.state == .idle)
+
+        record = registry.noteHookEvent(
+            WorkstreamEvent(
+                sessionId: sessionID,
+                hookEventName: .postCompact,
+                source: "codex",
+                receivedAt: Date(timeIntervalSince1970: 102)
+            )
+        )
+        #expect(record.state == .idle)
+
+        record = registry.noteHookEvent(
+            WorkstreamEvent(
+                sessionId: sessionID,
+                hookEventName: .userPromptSubmit,
+                source: "codex",
+                receivedAt: Date(timeIntervalSince1970: 103)
+            )
+        )
+        let workingSince: Date
+        if case .working(let since) = record.state {
+            workingSince = since
+        } else {
+            Issue.record("expected prompt submit to mark the session working")
+            return
+        }
+
+        record = registry.noteHookEvent(
+            WorkstreamEvent(
+                sessionId: sessionID,
+                hookEventName: .preCompact,
+                source: "codex",
+                receivedAt: Date(timeIntervalSince1970: 104)
+            )
+        )
+        #expect(record.state == .working(since: workingSince))
+
+        record = registry.noteHookEvent(
+            WorkstreamEvent(
+                sessionId: sessionID,
+                hookEventName: .postCompact,
+                source: "codex",
+                receivedAt: Date(timeIntervalSince1970: 105)
+            )
+        )
+        #expect(record.state == .working(since: workingSince))
     }
 }

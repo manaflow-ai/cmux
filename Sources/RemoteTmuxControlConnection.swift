@@ -217,8 +217,8 @@ final class RemoteTmuxControlConnection {
     ///   - onActivePaneChanged: fires when a window's active pane changes
     ///     (`%window-pane-changed`), so consumers can re-project per-pane state
     ///     (e.g. the active pane's directory) onto the window's tab.
-    ///   - onSessionChanged: fires when tmux confirms a session rename via
-    ///     `%session-changed`.
+    ///   - onSessionChanged: fires when tmux confirms a session name change via
+    ///     `%session-changed` or `%session-renamed`.
     ///   - onTopologyChanged: fires when the window/pane topology changes.
     ///   - onExit: fires once when the connection PERMANENTLY ends (a genuine tmux
     ///     `%exit`, or a session found gone on reconnect). A transient transport loss
@@ -1143,20 +1143,21 @@ final class RemoteTmuxControlConnection {
             totalOutputBytes += data.count
             observers.emitPaneOutput(paneId, data)
         case let .sessionChanged(id, name):
-            guard let safeName = RemoteTmuxHost.controlModeLineSafeName(name) else {
-                record("session-changed-invalid $\(id)")
-                requestWindows()
-                return
-            }
-            let oldName = sessionName
-            sessionId = id
-            // Track the new name too: `sessionName` is the value reused for
-            // attach/reconnect, so a remote rename must update it or the next
-            // reconnect targets a stale session and is wrongly declared gone.
-            sessionName = safeName
-            record("session-changed $\(id)")
-            observers.emitSessionChanged(oldName: oldName, newName: safeName)
-            requestWindows()
+            // An attached-session SWITCH: the window set changes with it, so
+            // re-fetch the topology.
+            applySessionNameChange(sessionId: id, name: name, event: "session-changed", refetchWindows: true)
+        case let .sessionRenamed(id, name, idBearingName):
+            // tmux's `rename-session` notification. Same name handling as
+            // `%session-changed` (track the new name for attach/reconnect and emit
+            // the name-change observers that re-key controller state and re-title
+            // the mirror workspace), but a rename does NOT change the window set,
+            // so skip the topology re-fetch.
+            guard let renameName = sessionRenamedName(
+                sessionId: id,
+                documentedName: name,
+                idBearingName: idBearingName
+            ) else { return }
+            applySessionNameChange(sessionId: id, name: renameName, event: "session-renamed", refetchWindows: false)
         case .sessionsChanged:
             record("sessions-changed")
         case let .windowAdd(id):
@@ -1223,6 +1224,45 @@ final class RemoteTmuxControlConnection {
         case .ignoredNotification, .unparsed:
             break
         }
+    }
+
+    /// Shared handling for `%session-changed` and `%session-renamed`: validate the
+    /// name, update the tracked `sessionName` (and `sessionId` for session
+    /// switches), then emit the name-change observers (which re-key controller
+    /// state and re-title the mirror workspace). `sessionName` is reused for
+    /// attach/reconnect, so a stale value would make the next reconnect target the
+    /// wrong session and wrongly declare it gone.
+    ///
+    /// - Parameter refetchWindows: re-fetch the window topology afterwards. A
+    ///   session SWITCH (`%session-changed`) brings a different window set, so it
+    ///   must; a rename (`%session-renamed`) keeps the same windows, so it skips
+    ///   the extra round trip. An invalid name always re-fetches as a recovery
+    ///   resync regardless.
+    private func applySessionNameChange(sessionId newSessionId: Int?, name: String, event: String, refetchWindows: Bool) {
+        guard let safeName = RemoteTmuxHost.controlModeLineSafeName(name) else {
+            let idSuffix = newSessionId.map { " $\($0)" } ?? ""
+            record("\(event)-invalid\(idSuffix)")
+            requestWindows()
+            return
+        }
+        let oldName = sessionName
+        if let newSessionId { sessionId = newSessionId }
+        sessionName = safeName
+        let idSuffix = newSessionId.map { " $\($0)" } ?? ""
+        record("\(event)\(idSuffix)")
+        observers.emitSessionChanged(oldName: oldName, newName: safeName)
+        if refetchWindows { requestWindows() }
+    }
+
+    private func sessionRenamedName(sessionId renamedSessionId: Int?, documentedName: String, idBearingName: String?) -> String? {
+        guard let renamedSessionId else { return documentedName }
+        // Real tmux id-bearing renames are broadcast for every session; only this
+        // connection's id may use the id-bearing interpretation.
+        guard let currentSessionId = sessionId, currentSessionId == renamedSessionId else {
+            record("session-renamed-ignored $\(renamedSessionId)")
+            return nil
+        }
+        return idBearingName ?? documentedName
     }
 
     private func handleCommandResult(lines: [String], isError: Bool) {

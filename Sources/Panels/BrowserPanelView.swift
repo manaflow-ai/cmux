@@ -6174,11 +6174,9 @@ struct WebViewRepresentable: NSViewRepresentable {
 
             // The inspector frontend sometimes reports its dock configuration a tick
             // late after local-inline reattach. Promote the visible left/right split
-            // immediately so drag routing stays symmetric on both dock sides.
-            if shouldForceHostedInspectorBottomDock(using: hit) {
-                _ = requestAdaptiveHostedInspectorBottomDock(reason: "sideDock.promote")
-                return false
-            }
+            // immediately so drag routing stays symmetric on both dock sides. Adaptive
+            // bottom-dock enforcement runs from layout after the managed container owns
+            // the split, so synchronous promotion cannot lose the divider path.
             activateHostedInspectorSideDockIfNeeded(using: hit)
             return isHostedInspectorSideDockActive()
         }

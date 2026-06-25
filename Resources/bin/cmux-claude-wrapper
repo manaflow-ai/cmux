@@ -667,12 +667,17 @@ fi
 # - SessionEnd: cleanup when Claude exits (covers Ctrl+C where Stop doesn't fire)
 # - UserPromptSubmit: clears "Needs input" and sets "Running" on new prompt
 # - PreToolUse: rejects unsupported durable cron requests synchronously, then
-#   clears "Needs input" and captures AskUserQuestion text for notifications
-#   (async status only)
+#   (async) clears "Needs input" / sets "Running" for ordinary tools, and flags
+#   "Needs input" for the blocking AskUserQuestion / ExitPlanMode tools. With
+#   --dangerously-skip-permissions (permission_mode "bypassPermissions") Claude
+#   fires no PermissionRequest/Notification for those two, so the handler also
+#   publishes the full needs-input status + bell itself. See
+#   https://github.com/manaflow-ai/cmux/issues/6606
 # - PermissionRequest: cmux hooks feed. SYNC with a 125s timeout.
-#   This is Claude Code's native blocking decision hook. It covers
-#   permissions, ExitPlanMode, and AskUserQuestion without using
-#   PreToolUse denial as a side channel.
+#   This is Claude Code's native blocking decision hook. Outside
+#   bypassPermissions it covers permissions, ExitPlanMode, and AskUserQuestion
+#   without using PreToolUse denial as a side channel; under bypassPermissions it
+#   does not fire, and PreToolUse is the needs-input fallback (see above).
 # - SubagentStop: feed telemetry only. It must not run the visible Stop
 #   hook because a subagent finishing should not notify like the parent.
 # - Stop auto-name: opt-in AI workspace/tab naming. ASYNC with a long

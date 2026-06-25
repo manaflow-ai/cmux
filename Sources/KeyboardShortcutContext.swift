@@ -6,10 +6,7 @@ struct ShortcutEventFocusContext {
     let browserPanel: BrowserPanel?
     let markdownPanel: MarkdownPanel?
     let rightSidebarFocused: Bool
-    /// The full context snapshot a ``ShortcutWhenClause`` evaluates against: the
-    /// focus atoms plus the non-focus keys (`commandPaletteVisible`, `sidebarMode`,
-    /// `terminalFindVisible`, `paneCount`, `workspaceCount`) read from the shortcut
-    /// window's state.
+    /// The full context snapshot a ``ShortcutWhenClause`` evaluates against.
     let shortcutContext: ShortcutContext
 
     /// Projects the runtime focus snapshot onto the atoms a
@@ -26,120 +23,6 @@ struct ShortcutEventFocusContext {
 struct ShortcutEventFocusContextCache {
     let event: NSEvent
     let context: ShortcutEventFocusContext
-}
-
-extension KeyboardShortcutSettings.Action {
-    enum ShortcutContext: Equatable {
-        case application
-        case nonBrowserPanel
-        case browserPanel
-        case markdownPanel
-        case rightSidebarFocus
-
-        var isAlwaysAvailable: Bool {
-            self == .application
-        }
-
-        func isAvailable(focusedBrowserPanel: Bool, focusedMarkdownPanel: Bool, rightSidebarFocused: Bool) -> Bool {
-            switch self {
-            case .application:
-                return true
-            case .nonBrowserPanel:
-                return !focusedBrowserPanel && !rightSidebarFocused
-            case .browserPanel:
-                return focusedBrowserPanel
-            case .markdownPanel:
-                return focusedMarkdownPanel
-            case .rightSidebarFocus:
-                return rightSidebarFocused
-            }
-        }
-
-        func isAvailable(_ context: ShortcutEventFocusContext) -> Bool {
-            isAvailable(
-                focusedBrowserPanel: context.browserPanel != nil,
-                focusedMarkdownPanel: context.markdownPanel != nil,
-                rightSidebarFocused: context.rightSidebarFocused
-            )
-        }
-
-        /// The built-in context expressed as a ``ShortcutWhenClause``, used as the
-        /// default when an action has no `shortcuts.when` override in cmux.json.
-        var defaultWhenClause: ShortcutWhenClause {
-            switch self {
-            case .application:
-                return .always
-            case .nonBrowserPanel:
-                return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
-            case .browserPanel:
-                return .atom(.browserFocus)
-            case .markdownPanel:
-                return .atom(.markdownFocus)
-            case .rightSidebarFocus:
-                return .atom(.sidebarFocus)
-            }
-        }
-
-        func overlaps(_ other: ShortcutContext) -> Bool {
-            if self == .application || other == .application {
-                return true
-            }
-            if self == other {
-                return true
-            }
-            // A focused markdown viewer also satisfies `.nonBrowserPanel`, so the
-            // two contexts can be active at the same time. Treat them as
-            // overlapping so shortcut conflict detection rejects a chord bound to
-            // both a markdown-zoom action and a non-browser action.
-            if (self == .markdownPanel && other == .nonBrowserPanel) ||
-                (self == .nonBrowserPanel && other == .markdownPanel) {
-                return true
-            }
-            return false
-        }
-    }
-
-    /// Whether `handleCustomShortcut` consumes this action before general
-    /// configured-shortcut matching whenever its context holds (the
-    /// `rightSidebarModeShortcut` pre-route). Priority-resolved pairs — the
-    /// sidebar's `⌃1…5` over the Select Surface `⌃1…9` family — coexist in
-    /// conflict detection because the winner owns the overlapping context and
-    /// the other binding keeps every other state. Mirrors
-    /// `ShortcutAction.hasPriorityShortcutRouting` in CmuxSettings; the drift
-    /// test asserts the two stay aligned.
-    var hasPriorityShortcutRouting: Bool {
-        switch self {
-        case .switchRightSidebarToFiles, .switchRightSidebarToFind,
-             .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
-            return true
-        default:
-            return false
-        }
-    }
-
-    var shortcutContext: ShortcutContext {
-        switch self {
-        case .diffViewerScrollDown,
-             .diffViewerScrollUp,
-             .diffViewerScrollToBottom,
-             .diffViewerScrollToTop,
-             .diffViewerOpenFileSearch:
-            return .browserPanel
-        case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
-            return .rightSidebarFocus
-        case .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias:
-            return .rightSidebarFocus
-        case .renameTab, .renameWorkspace, .sendCtrlFToTerminal, .clearScreenKeepScrollback:
-            return .nonBrowserPanel
-        case .browserBack, .browserForward, .browserReload, .browserHardReload, .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole,
-             .browserZoomIn, .browserZoomOut, .browserZoomReset, .toggleBrowserFocusMode:
-            return .browserPanel
-        case .markdownZoomIn, .markdownZoomOut, .markdownZoomReset:
-            return .markdownPanel
-        default:
-            return .application
-        }
-    }
 }
 
 extension Notification.Name {
@@ -210,6 +93,7 @@ extension AppDelegate {
             context.setInt(ShortcutContextKnownKey.workspaceCount.rawValue, tabManager.tabs.count)
             if let workspace = tabManager.selectedWorkspace {
                 context.setInt(ShortcutContextKnownKey.paneCount.rawValue, workspace.panels.count)
+                context.setBool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue, workspace.layoutMode == .canvas)
                 context.setBool(
                     ShortcutContextKnownKey.terminalFindVisible.rawValue,
                     workspace.focusedTerminalPanel?.searchState != nil

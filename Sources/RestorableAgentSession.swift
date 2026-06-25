@@ -129,12 +129,12 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    private struct ShellWordRange {
+    struct ShellWordRange {
         var value: String
         var range: Range<String.Index>
     }
 
-    private static func shellWordRanges(_ command: String) -> [ShellWordRange] {
+    static func shellWordRanges(_ command: String) -> [ShellWordRange] {
         enum Quote {
             case single
             case double

@@ -1,8 +1,8 @@
 internal import Foundation
 
 /// The surface-domain resume (`surface.resume.*`) and reporting
-/// (`surface.report_tty` / `report_shell_state` / `ports_kick`) bodies, plus the
-/// shared resume-binding payload helper, split out of
+/// (`surface.report_tty` / `report_pwd` / `report_shell_state` / `ports_kick`)
+/// bodies, plus the shared resume-binding payload helper, split out of
 /// `ControlCommandCoordinator+Surface.swift` to keep each file under the 500-line
 /// budget. See that file's doc comment for the domain overview.
 extension ControlCommandCoordinator {
@@ -205,6 +205,58 @@ extension ControlCommandCoordinator {
                 "surface_id": .string(surfaceID.uuidString),
                 "surface_ref": ref(.surface, surfaceID),
                 "tty_name": .string(ttyName),
+            ]))
+        }
+    }
+
+    // MARK: - report_pwd
+
+    /// `surface.report_pwd` — record a surface's current working directory.
+    func surfaceReportPWD(_ params: [String: JSONValue]) -> ControlCallResult {
+        guard let workspaceID = uuid(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        let requestedSurfaceID = uuid(params, "surface_id")
+        if hasNonNull(params, "surface_id"), requestedSurfaceID == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+        // Accept compatibility aliases, but require one exact cwd value.
+        let candidatePaths = ["path", "directory", "cwd"]
+            .compactMap { rawString(params, $0) }
+            .filter { $0.rangeOfCharacter(from: .whitespacesAndNewlines.inverted) != nil }
+        guard let path = candidatePaths.first else {
+            return .err(code: "invalid_params", message: "Missing path", data: nil)
+        }
+        guard candidatePaths.allSatisfy({ $0 == path }) else {
+            return .err(code: "invalid_params", message: "Conflicting path parameters", data: nil)
+        }
+
+        let resolution = context?.controlSurfaceReportPWD(
+            workspaceID: workspaceID,
+            requestedSurfaceID: requestedSurfaceID,
+            path: path
+        ) ?? .workspaceNotFound
+        let requestedSurfaceData = surfaceReportSurfaceFields(
+            workspaceID: workspaceID,
+            requestedSurfaceID: requestedSurfaceID
+        )
+        switch resolution {
+        case .workspaceNotFound:
+            return .err(code: "not_found", message: "Workspace not found", data: .object(requestedSurfaceData))
+        case .surfaceNotFound:
+            return .err(code: "not_found", message: "Surface not found", data: .object(requestedSurfaceData))
+        case .pending:
+            var payload = requestedSurfaceData
+            payload["path"] = .string(path)
+            payload["pending"] = .bool(true)
+            return .ok(.object(payload))
+        case .recorded(let surfaceID):
+            return .ok(.object([
+                "workspace_id": .string(workspaceID.uuidString),
+                "workspace_ref": ref(.workspace, workspaceID),
+                "surface_id": .string(surfaceID.uuidString),
+                "surface_ref": ref(.surface, surfaceID),
+                "path": .string(path),
             ]))
         }
     }
