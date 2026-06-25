@@ -158,9 +158,14 @@ actor RemoteTmuxSSHTransport {
     @discardableResult
     func run(_ remoteArgs: [String]) async throws -> RemoteTmuxCommandResult {
         try host.ensureControlSocketDirectory()
-        let remoteCommand = remoteArgs
-            .map { RemoteTmuxHost.shellSingleQuoted($0) }
-            .joined(separator: " ")
+        let remoteCommand: String
+        if remoteArgs.first == "tmux" {
+            remoteCommand = RemoteTmuxHost.tmuxRemoteCommand(arguments: Array(remoteArgs.dropFirst()))
+        } else {
+            remoteCommand = remoteArgs
+                .map { RemoteTmuxHost.shellSingleQuoted($0) }
+                .joined(separator: " ")
+        }
         // `--` ends ssh option parsing so a destination beginning with `-`
         // (e.g. `-oProxyCommand=…`) can never be consumed as an ssh option.
         let sshArgs =

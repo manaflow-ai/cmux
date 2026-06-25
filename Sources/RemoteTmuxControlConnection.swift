@@ -160,10 +160,11 @@ final class RemoteTmuxControlConnection {
     /// accepting unbounded user input that may never reach tmux.
     private static let maxPendingStdinBytes = 256 * 1024
     /// Cap pending stdout chunks between SSH's pipe callback and the main-actor
-    /// parser. A full buffer means parsing/rendering has fallen behind remote
-    /// output; reconnecting and re-seeding is safer than corrupting the stream by
-    /// dropping arbitrary control-mode bytes or growing memory without bound.
-    private static let maxPendingStdoutChunks = 16
+    /// parser. Initial attach can legitimately burst one `capture-pane -S 5000`
+    /// command block per mirrored session; the parser's byte budgets remain the
+    /// real corruption guard, while this outer queue just absorbs pipe delivery
+    /// jitter so a normal seed does not trigger a reconnect loop.
+    private static let maxPendingStdoutChunks = 4096
 
     /// Subscription-name prefix for per-pane `pane_current_path` (`refresh-client -B`).
     /// The tmux pane id is appended so an inbound `%subscription-changed` can be
