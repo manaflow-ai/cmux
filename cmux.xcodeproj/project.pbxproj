@@ -492,8 +492,10 @@
 		D7AB00000000000000000005 /* GhosttyNSView+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000006 /* GhosttyNSView+MoveTabToNewWorkspace.swift */; };
 		BDFCA25C0CE77A299C915E26 /* GhosttyOptionAsAltModsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F34462AE2F2EECEF5298031 /* GhosttyOptionAsAltModsTests.swift */; };
 		3069F1D10000000000000003 /* GhosttyPasteboardFidelityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3069F1D10000000000000004 /* GhosttyPasteboardFidelityTests.swift */; };
+		5C0011AA0000000000000001 /* GhosttyScrollPreciseBoostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C0011AA0000000000000002 /* GhosttyScrollPreciseBoostTests.swift */; };
 		B84BD7AD94EE485B8DDAB6FF /* GhosttySurfaceConfigurationRefresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DAB808A8EC74C40B95F7672 /* GhosttySurfaceConfigurationRefresh.swift */; };
 		A11EAC000000000000000000 /* GhosttyTerminalAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11EAC000000000000000001 /* GhosttyTerminalAppearance.swift */; };
+		A5001B00 /* GhosttyTerminalScrollBoost.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001B01 /* GhosttyTerminalScrollBoost.swift */; };
 		D5671201D5671201D5671201 /* GhosttyTerminalScrollSpeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5671202D5671202D5671202 /* GhosttyTerminalScrollSpeed.swift */; };
 		C13519000000000000000003 /* GhosttyTerminalStartupEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13519000000000000000004 /* GhosttyTerminalStartupEnvironmentTests.swift */; };
 		A5001005 /* GhosttyTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001015 /* GhosttyTerminalView.swift */; };
@@ -1606,8 +1608,10 @@
 		D7AB00000000000000000006 /* GhosttyNSView+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
 		4F34462AE2F2EECEF5298031 /* GhosttyOptionAsAltModsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyOptionAsAltModsTests.swift; sourceTree = "<group>"; };
 		3069F1D10000000000000004 /* GhosttyPasteboardFidelityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyPasteboardFidelityTests.swift; sourceTree = "<group>"; };
+		5C0011AA0000000000000002 /* GhosttyScrollPreciseBoostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyScrollPreciseBoostTests.swift; sourceTree = "<group>"; };
 		9DAB808A8EC74C40B95F7672 /* GhosttySurfaceConfigurationRefresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/GhosttySurfaceConfigurationRefresh.swift; sourceTree = "<group>"; };
 		A11EAC000000000000000001 /* GhosttyTerminalAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalAppearance.swift; sourceTree = "<group>"; };
+		A5001B01 /* GhosttyTerminalScrollBoost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalScrollBoost.swift; sourceTree = "<group>"; };
 		D5671202D5671202D5671202 /* GhosttyTerminalScrollSpeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalScrollSpeed.swift; sourceTree = "<group>"; };
 		C13519000000000000000004 /* GhosttyTerminalStartupEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalStartupEnvironmentTests.swift; sourceTree = "<group>"; };
 		A5001015 /* GhosttyTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalView.swift; sourceTree = "<group>"; };
@@ -2677,6 +2681,7 @@
 				C4041001000000000000001A /* CommandClickFileOpenRouter.swift */,
 				C40410010000000000000020 /* FileExplorerDoubleClickActionSettings.swift */,
 				A5001015 /* GhosttyTerminalView.swift */,
+				A5001B01 /* GhosttyTerminalScrollBoost.swift */,
 				D5671202D5671202D5671202 /* GhosttyTerminalScrollSpeed.swift */,
 				C13519000000000000000006 /* RestorableAgentTypes.swift */,
 				D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */,
@@ -3335,6 +3340,7 @@
 				C06552030000000000000002 /* TabManagerTitleUpdateStalenessTests.swift */,
 				C06552020000000000000002 /* TabManagerTitleUpdateTests.swift */,
 				42092CDB2109E250F7F2A76E /* TabManagerUnitTests.swift */,
+				5C0011AA0000000000000002 /* GhosttyScrollPreciseBoostTests.swift */,
 				C0793DC7D7B61CF54886EC36 /* RemoteTmuxControlParserTests.swift */,
 				B0555302B0555302B0555302 /* RemoteTmuxControlStreamParserBudgetTests.swift */,
 				B0555304B0555304B0555304 /* DetachedFolderPathLookupCacheTests.swift */,
@@ -4090,6 +4096,7 @@
 				D7AB00000000000000000005 /* GhosttyNSView+MoveTabToNewWorkspace.swift in Sources */,
 				B84BD7AD94EE485B8DDAB6FF /* GhosttySurfaceConfigurationRefresh.swift in Sources */,
 				A11EAC000000000000000000 /* GhosttyTerminalAppearance.swift in Sources */,
+				A5001B00 /* GhosttyTerminalScrollBoost.swift in Sources */,
 				D5671201D5671201D5671201 /* GhosttyTerminalScrollSpeed.swift in Sources */,
 				A5001005 /* GhosttyTerminalView.swift in Sources */,
 				D0B1000AA1B2C3D4E5F60001 /* GhosttyTerminalViewSupport.swift in Sources */,
@@ -4717,6 +4724,7 @@
 				A11EAF000000000000000000 /* GhosttyNotificationDispatcherTests.swift in Sources */,
 				BDFCA25C0CE77A299C915E26 /* GhosttyOptionAsAltModsTests.swift in Sources */,
 				3069F1D10000000000000003 /* GhosttyPasteboardFidelityTests.swift in Sources */,
+				5C0011AA0000000000000001 /* GhosttyScrollPreciseBoostTests.swift in Sources */,
 				C13519000000000000000003 /* GhosttyTerminalStartupEnvironmentTests.swift in Sources */,
 				D7AB34400000000000000003 /* GhosttyTerminalViewVisibilityPolicyTests.swift in Sources */,
 				3865A0053865A0053865A005 /* GlobalSearchShortcutSettingsTests.swift in Sources */,
