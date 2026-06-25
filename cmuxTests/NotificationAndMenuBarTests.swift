@@ -34,6 +34,123 @@ private final class NotificationHookEvaluationResultBox: @unchecked Sendable {
     }
 }
 
+final class SidebarNotificationUrgencySchedulerTests: XCTestCase {
+    func testSchedulerPrioritizesBlockedThenSmallReadyThenFailed() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let failed = snapshot(
+            title: "Large refactor",
+            unreadCount: 5,
+            text: "build failed after large migration",
+            createdAt: now.addingTimeInterval(-60)
+        )
+        let smallReady = snapshot(
+            title: "Small bug fix",
+            unreadCount: 1,
+            text: "tests passed, opened PR for small bug fix",
+            createdAt: now.addingTimeInterval(-30)
+        )
+        let blocked = snapshot(
+            title: "Blocked approval",
+            unreadCount: 1,
+            text: "needs input before continuing",
+            createdAt: now
+        )
+
+        let ordered = SidebarNotificationUrgencyScheduler.orderedWorkspaceIds(
+            snapshots: [failed, smallReady, blocked],
+            now: now
+        )
+        let urgency = SidebarNotificationUrgencyScheduler.urgencyByWorkspaceId(
+            snapshots: [failed, smallReady, blocked],
+            now: now
+        )
+
+        XCTAssertEqual(ordered, [blocked.workspaceId, smallReady.workspaceId, failed.workspaceId])
+        XCTAssertEqual(urgency[blocked.workspaceId]?.band, .critical)
+        XCTAssertEqual(urgency[blocked.workspaceId]?.reason, .blocked)
+        XCTAssertEqual(urgency[smallReady.workspaceId]?.band, .high)
+        XCTAssertEqual(urgency[smallReady.workspaceId]?.reason, .ready)
+    }
+
+    func testSchedulerAgesOlderOrdinaryUnreadAhead() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let newer = snapshot(
+            title: "Newer",
+            unreadCount: 1,
+            text: "new output",
+            createdAt: now.addingTimeInterval(-60),
+            originalIndex: 0
+        )
+        let older = snapshot(
+            title: "Older",
+            unreadCount: 1,
+            text: "new output",
+            createdAt: now.addingTimeInterval(-90 * 60),
+            originalIndex: 1
+        )
+
+        let ordered = SidebarNotificationUrgencyScheduler.orderedWorkspaceIds(
+            snapshots: [newer, older],
+            now: now
+        )
+
+        XCTAssertEqual(ordered, [older.workspaceId, newer.workspaceId])
+    }
+
+    func testSchedulerIgnoresReadOnlyNotificationText() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let readBlocked = snapshot(
+            title: "Read blocked",
+            unreadCount: 0,
+            text: "needs input before continuing",
+            createdAt: now
+        )
+
+        let urgency = SidebarNotificationUrgencyScheduler.urgency(for: readBlocked, now: now)
+
+        XCTAssertNil(urgency)
+    }
+
+    func testSidebarNotificationTextPreservesBaseMessageWithUrgencyPrefix() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let blocked = snapshot(
+            title: "Blocked approval",
+            unreadCount: 1,
+            text: "needs input before continuing",
+            createdAt: now
+        )
+
+        let urgency = SidebarNotificationUrgencyScheduler.urgency(for: blocked, now: now)
+        let text = urgency?.sidebarNotificationText("needs input before continuing")
+
+        XCTAssertEqual(urgency?.band.label, "P0")
+        XCTAssertEqual(text, "P0 Blocked: needs input before continuing")
+    }
+
+    private func snapshot(
+        title: String,
+        unreadCount: Int,
+        text: String?,
+        createdAt: Date?,
+        originalIndex: Int = 0
+    ) -> SidebarNotificationSchedulerSnapshot {
+        SidebarNotificationSchedulerSnapshot(
+            workspaceId: UUID(),
+            originalIndex: originalIndex,
+            unreadCount: unreadCount,
+            latestNotificationText: text,
+            latestNotificationCreatedAt: createdAt,
+            latestNotificationIsUnread: unreadCount > 0,
+            workspaceTitle: title,
+            customDescription: nil,
+            latestSubmittedMessage: nil,
+            remoteDisplayTarget: nil,
+            remoteConnectionState: nil,
+            panelCount: 1
+        )
+    }
+}
+
 final class TerminalNotificationPolicyEngineTests: XCTestCase {
     private func evaluate(
         request: TerminalNotificationPolicyRequest,

@@ -66,6 +66,287 @@ enum NotificationPaneFlashSettings {
     }
 }
 
+struct SidebarNotificationSchedulerSnapshot: Equatable {
+    var workspaceId: UUID
+    var originalIndex: Int
+    var unreadCount: Int
+    var latestNotificationText: String?
+    var latestNotificationCreatedAt: Date?
+    var latestNotificationIsUnread: Bool
+    var workspaceTitle: String
+    var customDescription: String?
+    var latestSubmittedMessage: String?
+    var remoteDisplayTarget: String?
+    var remoteConnectionState: String?
+    var panelCount: Int
+}
+
+struct SidebarNotificationUrgency: Equatable {
+    enum Band: Int, Equatable {
+        case critical = 0
+        case high = 1
+        case medium = 2
+        case low = 3
+
+        var label: String {
+            switch self {
+            case .critical:
+                "P0"
+            case .high:
+                "P1"
+            case .medium:
+                "P2"
+            case .low:
+                "P3"
+            }
+        }
+    }
+
+    enum Reason: Equatable {
+        case blocked
+        case failed
+        case ready
+        case smallWin
+        case aged
+        case unread
+        case remote
+
+        var localizedTitle: String {
+            switch self {
+            case .blocked:
+                String(localized: "sidebar.notificationUrgency.reason.blocked", defaultValue: "Blocked")
+            case .failed:
+                String(localized: "sidebar.notificationUrgency.reason.failed", defaultValue: "Failed")
+            case .ready:
+                String(localized: "sidebar.notificationUrgency.reason.ready", defaultValue: "Ready")
+            case .smallWin:
+                String(localized: "sidebar.notificationUrgency.reason.smallWin", defaultValue: "Small")
+            case .aged:
+                String(localized: "sidebar.notificationUrgency.reason.aged", defaultValue: "Aging")
+            case .unread:
+                String(localized: "sidebar.notificationUrgency.reason.unread", defaultValue: "Unread")
+            case .remote:
+                String(localized: "sidebar.notificationUrgency.reason.remote", defaultValue: "Remote")
+            }
+        }
+    }
+
+    var workspaceId: UUID
+    var band: Band
+    var reason: Reason
+    var score: Int
+
+    var accessibilityText: String {
+        String(
+            format: String(
+                localized: "sidebar.notificationUrgency.help",
+                defaultValue: "Urgency %@: %@"
+            ),
+            locale: .current,
+            band.label,
+            reason.localizedTitle
+        )
+    }
+
+    func sidebarNotificationText(_ notificationText: String) -> String {
+        String(
+            format: String(
+                localized: "sidebar.notificationUrgency.subtitleFormat",
+                defaultValue: "%@ %@: %@"
+            ),
+            locale: .current,
+            band.label,
+            reason.localizedTitle,
+            notificationText
+        )
+    }
+}
+
+enum SidebarNotificationUrgencyScheduler {
+    static func urgencyByWorkspaceId(
+        snapshots: [SidebarNotificationSchedulerSnapshot],
+        now: Date
+    ) -> [UUID: SidebarNotificationUrgency] {
+        Dictionary(uniqueKeysWithValues: scheduledItems(snapshots: snapshots, now: now).map {
+            ($0.snapshot.workspaceId, $0.urgency)
+        })
+    }
+
+    static func orderedWorkspaceIds(
+        snapshots: [SidebarNotificationSchedulerSnapshot],
+        now: Date
+    ) -> [UUID] {
+        scheduledItems(snapshots: snapshots, now: now).map(\.snapshot.workspaceId)
+    }
+
+    private struct ScheduledItem {
+        var snapshot: SidebarNotificationSchedulerSnapshot
+        var urgency: SidebarNotificationUrgency
+        var latestNotificationCreatedAt: Date?
+        var originalIndex: Int
+    }
+
+    private enum Signal: Hashable {
+        case blocked
+        case failed
+        case ready
+        case smallWin
+        case aged
+        case unread
+        case remote
+    }
+
+    private static func scheduledItems(
+        snapshots: [SidebarNotificationSchedulerSnapshot],
+        now: Date
+    ) -> [ScheduledItem] {
+        snapshots.compactMap { snapshot in
+            guard let urgency = urgency(for: snapshot, now: now) else { return nil }
+            return ScheduledItem(
+                snapshot: snapshot,
+                urgency: urgency,
+                latestNotificationCreatedAt: snapshot.latestNotificationCreatedAt,
+                originalIndex: snapshot.originalIndex
+            )
+        }
+        .sorted(by: precedes)
+    }
+
+    static func urgency(
+        for snapshot: SidebarNotificationSchedulerSnapshot,
+        now: Date
+    ) -> SidebarNotificationUrgency? {
+        let latestText = trimmed(snapshot.latestNotificationText)
+        guard snapshot.unreadCount > 0 || snapshot.latestNotificationIsUnread else { return nil }
+
+        let searchableText = [
+            snapshot.workspaceTitle,
+            snapshot.customDescription,
+            latestText,
+            snapshot.latestSubmittedMessage,
+        ]
+        .compactMap { $0 }
+        .joined(separator: " ")
+        .lowercased()
+
+        var signals: Set<Signal> = []
+        var score = 0.0
+
+        if snapshot.unreadCount > 0 || snapshot.latestNotificationIsUnread {
+            signals.insert(.unread)
+            score += 80 + Double(min(snapshot.unreadCount, 5) * 4)
+        }
+        if remoteNeedsAttention(snapshot) {
+            signals.insert(.remote)
+            score += 130
+        }
+        if containsAny(searchableText, ["needs input", "approval", "approve", "blocked", "waiting for", "requires input", "question", "confirm", "permission"]) {
+            signals.insert(.blocked)
+            score += 160
+        }
+        if containsAny(searchableText, ["failed", "failure", "error", "exit code", "conflict", "denied", "missing", "crash", "rejected", "timed out"]) {
+            signals.insert(.failed)
+            score += 115
+        }
+        if containsAny(searchableText, ["ready", "done", "complete", "completed", "tests passed", "passed", "opened pr", "pull request", "review", "merge"]) {
+            signals.insert(.ready)
+            score += 90
+        }
+        if isSmallWin(snapshot: snapshot, searchableText: searchableText) {
+            signals.insert(.smallWin)
+            score += 45
+        }
+        if let createdAt = snapshot.latestNotificationCreatedAt {
+            let ageSeconds = max(0, now.timeIntervalSince(createdAt))
+            score += min(60, ageSeconds / 180)
+            if ageSeconds >= 30 * 60 {
+                signals.insert(.aged)
+            }
+        }
+
+        let reason = reason(signals: signals)
+        return SidebarNotificationUrgency(
+            workspaceId: snapshot.workspaceId,
+            band: band(signals: signals),
+            reason: reason,
+            score: Int(score.rounded())
+        )
+    }
+
+    private static func precedes(_ lhs: ScheduledItem, _ rhs: ScheduledItem) -> Bool {
+        if lhs.urgency.band.rawValue != rhs.urgency.band.rawValue {
+            return lhs.urgency.band.rawValue < rhs.urgency.band.rawValue
+        }
+        if lhs.urgency.score != rhs.urgency.score {
+            return lhs.urgency.score > rhs.urgency.score
+        }
+        switch (lhs.latestNotificationCreatedAt, rhs.latestNotificationCreatedAt) {
+        case let (lhsDate?, rhsDate?) where lhsDate != rhsDate:
+            return lhsDate < rhsDate
+        case (_?, nil):
+            return true
+        case (nil, _?):
+            return false
+        default:
+            return lhs.originalIndex < rhs.originalIndex
+        }
+    }
+
+    private static func band(signals: Set<Signal>) -> SidebarNotificationUrgency.Band {
+        if signals.contains(.blocked) || signals.contains(.remote) {
+            return .critical
+        }
+        if signals.contains(.failed) || (signals.contains(.ready) && signals.contains(.smallWin)) {
+            return .high
+        }
+        if signals.contains(.ready) || signals.contains(.aged) {
+            return .medium
+        }
+        return .low
+    }
+
+    private static func reason(signals: Set<Signal>) -> SidebarNotificationUrgency.Reason {
+        if signals.contains(.blocked) { return .blocked }
+        if signals.contains(.remote) { return .remote }
+        if signals.contains(.failed) { return .failed }
+        if signals.contains(.ready) { return .ready }
+        if signals.contains(.smallWin) { return .smallWin }
+        if signals.contains(.aged) { return .aged }
+        return .unread
+    }
+
+    private static func isSmallWin(
+        snapshot: SidebarNotificationSchedulerSnapshot,
+        searchableText: String
+    ) -> Bool {
+        if containsAny(searchableText, ["small", "quick", "targeted", "bug", "fix", "docs", "typo", "lint", "test", "minor", "one-line"]) {
+            return true
+        }
+        return (snapshot.latestSubmittedMessage?.count ?? Int.max) <= 220 && snapshot.panelCount <= 2
+    }
+
+    private static func remoteNeedsAttention(_ snapshot: SidebarNotificationSchedulerSnapshot) -> Bool {
+        guard trimmed(snapshot.remoteDisplayTarget) != nil,
+              let state = trimmed(snapshot.remoteConnectionState)?.lowercased()
+        else {
+            return false
+        }
+        return state == "connecting" || state == "reconnecting" || state == "disconnected"
+    }
+
+    private static func containsAny(_ text: String, _ needles: [String]) -> Bool {
+        needles.contains { text.contains($0) }
+    }
+
+    private static func trimmed(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+}
+
 enum TaggedRunBadgeSettings {
     static let environmentKey = "CMUX_TAG"
     private static let maxTagLength = 10
@@ -1131,11 +1412,7 @@ final class TerminalNotificationStore: ObservableObject {
             "notification.store.effectsOnly workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") desktop=\(effects.desktop ? 1 : 0) sound=\(effects.sound ? 1 : 0) command=\(effects.command ? 1 : 0) suppressExternal=\(shouldSuppressExternalDelivery ? 1 : 0)"
         )
 #endif
-        if effects.reorderWorkspace,
-           UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.reorderOnNotification) {
-            AppDelegate.shared?.tabManagerFor(tabId: notification.tabId)?
-                .moveTabToTopForNotification(notification.tabId)
-        }
+        reorderWorkspaceForEffectsOnlyNotificationIfNeeded(notification, effects: effects)
         if hasAnyNotificationEffect(effects) {
             commitCooldownReservation(cooldownReservation, at: now)
         } else {
@@ -1145,6 +1422,81 @@ final class TerminalNotificationStore: ObservableObject {
             notification,
             shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
             effects: effects
+        )
+    }
+
+    private func reorderWorkspaceForEffectsOnlyNotificationIfNeeded(
+        _ notification: TerminalNotification,
+        effects: TerminalNotificationPolicyEffects
+    ) {
+        guard effects.reorderWorkspace,
+              UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.reorderOnNotification) else {
+            return
+        }
+        AppDelegate.shared?.tabManagerFor(tabId: notification.tabId)?
+            .moveTabToTopForNotification(notification.tabId)
+    }
+
+    private func reorderWorkspacesByNotificationUrgencyIfNeeded(
+        _ notification: TerminalNotification,
+        effects: TerminalNotificationPolicyEffects,
+        now: Date
+    ) {
+        let reorderSetting = UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.reorderOnNotification)
+        guard effects.reorderWorkspace, reorderSetting else {
+#if DEBUG
+            cmuxDebugLog(
+                "notification.scheduler.skip workspace=\(notification.tabId.uuidString.prefix(8)) effectsReorder=\(effects.reorderWorkspace ? 1 : 0) setting=\(reorderSetting ? 1 : 0)"
+            )
+#endif
+            return
+        }
+        guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: notification.tabId) else {
+#if DEBUG
+            cmuxDebugLog("notification.scheduler.skip workspace=\(notification.tabId.uuidString.prefix(8)) reason=missingTabManager")
+#endif
+            return
+        }
+        let snapshots = tabManager.tabs.enumerated().map { index, workspace in
+            notificationSchedulerSnapshot(for: workspace, index: index)
+        }
+        let orderedWorkspaceIds = SidebarNotificationUrgencyScheduler.orderedWorkspaceIds(
+            snapshots: snapshots,
+            now: now
+        )
+#if DEBUG
+        let orderedWorkspaceLog = orderedWorkspaceIds
+            .map { String($0.uuidString.prefix(8)) }
+            .joined(separator: ",")
+        cmuxDebugLog(
+            "notification.scheduler.order workspace=\(notification.tabId.uuidString.prefix(8)) ordered=\(orderedWorkspaceLog)"
+        )
+#endif
+        guard orderedWorkspaceIds.contains(notification.tabId) else {
+            tabManager.moveTabToTopForNotification(notification.tabId)
+            return
+        }
+        tabManager.moveTabsToTopForNotificationPriority(orderedWorkspaceIds)
+    }
+
+    private func notificationSchedulerSnapshot(
+        for workspace: Workspace,
+        index: Int
+    ) -> SidebarNotificationSchedulerSnapshot {
+        let summary = sidebarUnread.summary(forWorkspaceId: workspace.id)
+        return SidebarNotificationSchedulerSnapshot(
+            workspaceId: workspace.id,
+            originalIndex: index,
+            unreadCount: summary.unreadCount,
+            latestNotificationText: summary.latestNotificationText,
+            latestNotificationCreatedAt: summary.latestNotificationCreatedAt,
+            latestNotificationIsUnread: summary.latestNotificationIsUnread,
+            workspaceTitle: workspace.customTitle ?? workspace.title,
+            customDescription: workspace.customDescription,
+            latestSubmittedMessage: workspace.latestSubmittedMessage,
+            remoteDisplayTarget: workspace.remoteDisplayTarget,
+            remoteConnectionState: workspace.remoteConnectionState.rawValue,
+            panelCount: workspace.panelDirectories.count
         )
     }
 
@@ -1172,15 +1524,10 @@ final class TerminalNotificationStore: ObservableObject {
             setFocusedReadIndicator(forTabId: notification.tabId, surfaceId: notification.surfaceId)
         }
 
-        if effects.reorderWorkspace,
-           UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.reorderOnNotification) {
-            AppDelegate.shared?.tabManagerFor(tabId: notification.tabId)?
-                .moveTabToTopForNotification(notification.tabId)
-        }
-
         updated.insert(notification, at: 0)
         setWorkspaceManualUnread(false, forTabId: notification.tabId)
         notifications = updated
+        reorderWorkspacesByNotificationUrgencyIfNeeded(notification, effects: effects, now: now)
         commitCooldownReservation(cooldownReservation, at: now)
 #if DEBUG
         cmuxDebugLog(
