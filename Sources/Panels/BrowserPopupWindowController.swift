@@ -855,8 +855,7 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
 
     private func shouldPreserveSSLTrustBypassForErrorPageNavigation(_ navigationAction: WKNavigationAction) -> Bool {
         let request = navigationAction.request
-        guard navigationAction.navigationType == .other,
-              acceptsSSLTrustBypassMessages || activeSSLTrustBypassReplayRequest != nil else {
+        guard activeErrorPageDisplayURL != nil, navigationAction.navigationType == .other else {
             return false
         }
 
@@ -871,7 +870,8 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
            let replayURL = replayRequest.url?.absoluteString {
             return request.browserMatchesFailedNavigationURLString(replayURL)
         }
-        guard let failedURL = activeSSLTrustBypassErrorPageFailedURL,
+        guard acceptsSSLTrustBypassMessages,
+              let failedURL = activeSSLTrustBypassErrorPageFailedURL,
               let lastAttemptedRequest else {
             return false
         }
