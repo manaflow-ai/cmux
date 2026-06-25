@@ -6976,7 +6976,8 @@ final class Workspace: Identifiable, ObservableObject {
             tmuxStartCommand: tmuxStartCommand,
             startupEnvironment: startupEnvironment,
             initialDividerPosition: initialDividerPosition,
-            remotePTYSessionID: remotePTYSessionID
+            remotePTYSessionID: remotePTYSessionID,
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault
         ) else { return .failed }
         return .created(panel)
     }
@@ -6991,7 +6992,8 @@ final class Workspace: Identifiable, ObservableObject {
         tmuxStartCommand: String?,
         startupEnvironment: [String: String],
         initialDividerPosition: CGFloat?,
-        remotePTYSessionID: String?
+        remotePTYSessionID: String?,
+        allowTextBoxFocusDefault: Bool
     ) -> TerminalPanel? {
 #if DEBUG
         let splitTimingStart = ProcessInfo.processInfo.systemUptime
