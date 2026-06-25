@@ -6,11 +6,19 @@ extension CMUXCLI {
         launchCommand: AgentHookLaunchCommandRecord?
     ) -> Bool {
         guard kind == "codex" else { return true }
-        if normalizedHookValue(launchCommand?.environment?["CODEX_HOME"]) != nil {
+        guard let launchCommand else { return true }
+        if normalizedHookValue(launchCommand.environment?["CODEX_HOME"]) != nil {
             return true
         }
-        guard launchCommand?.arguments.isEmpty == false else { return false }
-        return normalizedHookValue(launchCommand?.source)?.lowercased() == "environment"
+        guard !launchCommand.arguments.isEmpty else { return false }
+        switch normalizedHookValue(launchCommand.source)?.lowercased() {
+        case "environment":
+            return true
+        case "process":
+            return launchCommand.environment?.isEmpty ?? true
+        default:
+            return false
+        }
     }
 
     func preferredAgentHookResumeLaunchCommand(
