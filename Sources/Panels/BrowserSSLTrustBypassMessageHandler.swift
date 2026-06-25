@@ -4,10 +4,15 @@ import WebKit
 final class BrowserSSLTrustBypassMessageHandler: NSObject, WKScriptMessageHandler {
     static let name = "cmuxSSLTrustBypass"
 
-    private let handleActionURL: @MainActor (URL) -> Void
+    private let canHandleToken: @MainActor (String) -> Bool
+    private let handleToken: @MainActor (String) -> Void
 
-    init(handleActionURL: @escaping @MainActor (URL) -> Void) {
-        self.handleActionURL = handleActionURL
+    init(
+        canHandleToken: @escaping @MainActor (String) -> Bool,
+        handleToken: @escaping @MainActor (String) -> Void
+    ) {
+        self.canHandleToken = canHandleToken
+        self.handleToken = handleToken
     }
 
     func userContentController(
@@ -15,31 +20,21 @@ final class BrowserSSLTrustBypassMessageHandler: NSObject, WKScriptMessageHandle
         didReceive message: WKScriptMessage
     ) {
         guard message.name == Self.name,
-              let token = Self.token(from: message.body) else {
+              message.frameInfo.isMainFrame,
+              let token = Self.validToken(from: message.body) else {
             return
         }
 
-        var components = URLComponents()
-        components.scheme = "cmux-browser-action"
-        components.host = "bypass-ssl"
-        components.queryItems = [
-            URLQueryItem(name: "token", value: token),
-        ]
-
-        guard let actionURL = components.url else { return }
-        Task { @MainActor in
-            handleActionURL(actionURL)
+        MainActor.assumeIsolated {
+            guard canHandleToken(token) else { return }
+            handleToken(token)
         }
     }
 
-    private static func token(from body: Any) -> String? {
-        if let token = body as? String, !token.isEmpty {
-            return token
-        }
-
-        if let payload = body as? [String: Any],
-           let token = payload["token"] as? String,
-           !token.isEmpty {
+    private static func validToken(from body: Any) -> String? {
+        if let token = body as? String,
+           token.count == 36,
+           UUID(uuidString: token) != nil {
             return token
         }
 

@@ -223,10 +223,15 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         navDel.downloadDelegate = dlDel
         webView.uiDelegate = uiDel
         webView.navigationDelegate = navDel
-        let sslTrustBypassMessageHandler = BrowserSSLTrustBypassMessageHandler { [weak navDel, weak webView] actionURL in
-            guard let webView else { return }
-            navDel?.handleSSLTrustBypassAction(actionURL, in: webView)
-        }
+        let sslTrustBypassMessageHandler = BrowserSSLTrustBypassMessageHandler(
+            canHandleToken: { [weak navDel] token in
+                navDel?.canHandleSSLTrustBypassToken(token) ?? false
+            },
+            handleToken: { [weak navDel, weak webView] token in
+                guard let webView else { return }
+                navDel?.handleSSLTrustBypassToken(token, in: webView)
+            }
+        )
         self.sslTrustBypassMessageHandler = sslTrustBypassMessageHandler
         let userContentController = webView.configuration.userContentController
         userContentController.removeScriptMessageHandler(forName: BrowserSSLTrustBypassMessageHandler.name)
@@ -619,9 +624,11 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
     private let sslBypassState = BrowserSSLTrustBypassState()
     private var lastAttemptedURL: URL?
     private var lastAttemptedRequest: URLRequest?
+    private var acceptsSSLTrustBypassMessages = false
 
     private func recordAttemptedRequest(_ request: URLRequest) {
         sslBypassState.clearPendingBypasses()
+        acceptsSSLTrustBypassMessages = false
         lastAttemptedRequest = request
         lastAttemptedURL = request.url
     }
@@ -629,6 +636,7 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
     private func clearAttemptedRequest(discardPendingBypasses: Bool = false) {
         if discardPendingBypasses {
             sslBypassState.clearPendingBypasses()
+            acceptsSSLTrustBypassMessages = false
         }
         lastAttemptedRequest = nil
         lastAttemptedURL = nil
@@ -732,7 +740,7 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         let failedURL = nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String
             ?? lastAttemptedURL?.absoluteString
             ?? ""
-        BrowserErrorPage(
+        acceptsSSLTrustBypassMessages = BrowserErrorPage(
             failedURL: failedURL,
             failedRequest: requestForFailedNavigation(failedURL: failedURL),
             error: nsError,
@@ -767,10 +775,26 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         decisionHandler(.allow)
     }
 
-    func handleSSLTrustBypassAction(_ actionURL: URL, in webView: WKWebView) {
-        guard let request = sslBypassState.consumePendingBypassAction(actionURL) else {
+    func canHandleSSLTrustBypassToken(_ token: String) -> Bool {
+        acceptsSSLTrustBypassMessages && sslBypassState.hasPendingBypassToken(token)
+    }
+
+    func handleSSLTrustBypassToken(_ token: String, in webView: WKWebView) {
+        guard acceptsSSLTrustBypassMessages,
+              let request = sslBypassState.consumePendingBypassToken(token) else {
             return
         }
+        acceptsSSLTrustBypassMessages = false
+        recordAttemptedRequest(request)
+        browserLoadRequest(request, in: webView)
+    }
+
+    func handleSSLTrustBypassAction(_ actionURL: URL, in webView: WKWebView) {
+        guard acceptsSSLTrustBypassMessages,
+              let request = sslBypassState.consumePendingBypassAction(actionURL) else {
+            return
+        }
+        acceptsSSLTrustBypassMessages = false
         recordAttemptedRequest(request)
         browserLoadRequest(request, in: webView)
     }

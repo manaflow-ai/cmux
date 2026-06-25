@@ -7,7 +7,8 @@ struct BrowserErrorPage {
     let error: NSError
     let sslBypassState: BrowserSSLTrustBypassState
 
-    func load(in webView: WKWebView) {
+    @discardableResult
+    func load(in webView: WKWebView) -> Bool {
         let content = BrowserErrorPageContent(error: error, failedURL: failedURL)
 
         let escapedTitle = escapeHTML(content.title)
@@ -84,6 +85,7 @@ struct BrowserErrorPage {
         </html>
         """
         webView.loadHTMLString(html, baseURL: URL(string: failedURL))
+        return !bypassButtonHTML.isEmpty
     }
 
     private func escapeHTML(_ value: String) -> String {

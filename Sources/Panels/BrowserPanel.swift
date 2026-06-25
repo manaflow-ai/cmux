@@ -3753,10 +3753,15 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func setupSSLTrustBypassMessageHandler(for webView: WKWebView) {
-        let handler = BrowserSSLTrustBypassMessageHandler { [weak self, weak webView] actionURL in
-            guard let self, let webView else { return }
-            self.navigationDelegate?.handleSSLTrustBypassAction(actionURL, in: webView)
-        }
+        let handler = BrowserSSLTrustBypassMessageHandler(
+            canHandleToken: { [weak self] token in
+                self?.navigationDelegate?.canHandleSSLTrustBypassToken(token) ?? false
+            },
+            handleToken: { [weak self, weak webView] token in
+                guard let self, let webView else { return }
+                self.navigationDelegate?.handleSSLTrustBypassToken(token, in: webView)
+            }
+        )
         sslTrustBypassMessageHandler = handler
         let userContentController = webView.configuration.userContentController
         userContentController.removeScriptMessageHandler(forName: BrowserSSLTrustBypassMessageHandler.name)
@@ -8616,6 +8621,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     var lastAttemptedURL: URL?
     private let sslBypassState: BrowserSSLTrustBypassState
     private var lastAttemptedRequest: URLRequest?
+    private var acceptsSSLTrustBypassMessages = false
 
     init(sslBypassState: BrowserSSLTrustBypassState = BrowserSSLTrustBypassState()) {
         self.sslBypassState = sslBypassState
@@ -8624,6 +8630,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
 
     func recordAttemptedRequest(_ request: URLRequest, displayURL: URL? = nil) {
         sslBypassState.clearPendingBypasses()
+        acceptsSSLTrustBypassMessages = false
         lastAttemptedRequest = request
         lastAttemptedURL = displayURL ?? request.url
     }
@@ -8631,6 +8638,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     func clearAttemptedRequest(discardPendingBypasses: Bool = false) {
         if discardPendingBypasses {
             sslBypassState.clearPendingBypasses()
+            acceptsSSLTrustBypassMessages = false
         }
         lastAttemptedRequest = nil
         lastAttemptedURL = nil
@@ -8638,6 +8646,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
 
     func clearSSLTrustState() {
         sslBypassState.clearAllTrustState()
+        acceptsSSLTrustBypassMessages = false
         lastAttemptedRequest = nil
         lastAttemptedURL = nil
     }
@@ -8740,7 +8749,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     }
 
     private func loadErrorPage(in webView: WKWebView, failedURL: String, failedRequest: URLRequest?, error: NSError) {
-        BrowserErrorPage(
+        acceptsSSLTrustBypassMessages = BrowserErrorPage(
             failedURL: failedURL,
             failedRequest: failedRequest,
             error: error,
@@ -8887,10 +8896,26 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         decisionHandler(.allow)
     }
 
-    func handleSSLTrustBypassAction(_ actionURL: URL, in webView: WKWebView) {
-        guard let request = sslBypassState.consumePendingBypassAction(actionURL) else {
+    func canHandleSSLTrustBypassToken(_ token: String) -> Bool {
+        acceptsSSLTrustBypassMessages && sslBypassState.hasPendingBypassToken(token)
+    }
+
+    func handleSSLTrustBypassToken(_ token: String, in webView: WKWebView) {
+        guard acceptsSSLTrustBypassMessages,
+              let request = sslBypassState.consumePendingBypassToken(token) else {
             return
         }
+        acceptsSSLTrustBypassMessages = false
+        recordAttemptedRequest(request)
+        browserLoadRequest(request, in: webView)
+    }
+
+    func handleSSLTrustBypassAction(_ actionURL: URL, in webView: WKWebView) {
+        guard acceptsSSLTrustBypassMessages,
+              let request = sslBypassState.consumePendingBypassAction(actionURL) else {
+            return
+        }
+        acceptsSSLTrustBypassMessages = false
         recordAttemptedRequest(request)
         browserLoadRequest(request, in: webView)
     }
