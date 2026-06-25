@@ -64,6 +64,16 @@ struct RemoteTmuxVersion: Equatable, Comparable, Sendable {
         return nil
     }
 
+    /// Parses the server-reported `#{version}` format, e.g. `3.2a`.
+    static func parseServerFormat(_ output: String) -> RemoteTmuxVersion? {
+        for line in output.split(whereSeparator: \.isNewline).reversed() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.first?.isNumber == true else { continue }
+            return parseVersionToken(in: trimmed)
+        }
+        return nil
+    }
+
     private static func parseVersionToken(in output: String) -> RemoteTmuxVersion? {
         let scalars = Array(output)
         var i = 0

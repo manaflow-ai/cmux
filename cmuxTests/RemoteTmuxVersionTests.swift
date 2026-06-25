@@ -58,6 +58,13 @@ import Testing
         #expect(V.parse("OpenSSH_9.6p1 LibreSSL 3.3.6") == nil)
     }
 
+    @Test func parsesServerReportedVersionFormat() {
+        #expect(V.parseServerFormat("3.1c\n") == V(major: 3, minor: 1, letterRank: 3))
+        #expect(V.parseServerFormat("Welcome to Ubuntu 20.04.6 LTS\n3.2a\n") == V(major: 3, minor: 2, letterRank: 1))
+        #expect(V.parseServerFormat("Welcome to Ubuntu 20.04.6 LTS\n") == nil)
+        #expect(V.parse("3.2a\n") == nil)
+    }
+
     @Test func displayStringRoundTrips() {
         #expect(V.parse("tmux 3.2a")!.displayString == "3.2a")
         #expect(V.parse("tmux 1.8")!.displayString == "1.8")

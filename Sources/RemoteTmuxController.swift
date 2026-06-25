@@ -191,7 +191,7 @@ final class RemoteTmuxController {
         let transport = transport(for: host)
 
         do {
-            try await transport.assertMinimumTmuxVersion()
+            try await transport.assertMinimumTmuxVersion(checkClientWhenNoServer: createIfMissing)
             let existing = try await transport.runTmux(["has-session", "-t", sessionName])
             if existing.succeeded {
                 return nil

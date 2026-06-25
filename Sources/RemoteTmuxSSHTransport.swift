@@ -16,6 +16,12 @@ import Foundation
 actor RemoteTmuxSSHTransport {
     private static let maxCapturedOutputBytes = 1_048_576
 
+    private enum ServerVersionProbe {
+        case version(RemoteTmuxVersion)
+        case unknown
+        case noServer
+    }
+
     /// The host this transport talks to.
     ///
     /// `nonisolated` so the controller can read it synchronously (it's an immutable
@@ -60,7 +66,7 @@ actor RemoteTmuxSSHTransport {
         return RemoteTmuxSessionListParser.parse(result.stdout)
     }
 
-    /// Probes the remote tmux version via `tmux -V`.
+    /// Probes the remote tmux client version via `tmux -V`.
     ///
     /// - Returns: the parsed version, or `nil` when `tmux -V` succeeds but its
     ///   output has no `<major>.<minor>` (a dev/distro build like `tmux master`),
@@ -68,7 +74,7 @@ actor RemoteTmuxSSHTransport {
     /// - Throws: ``RemoteTmuxError/commandFailed`` when the command itself fails
     ///   (e.g. auth required, or `tmux` not installed) so the caller's existing
     ///   auth/no-server classification still applies.
-    func tmuxVersion() async throws -> RemoteTmuxVersion? {
+    func tmuxClientVersion() async throws -> RemoteTmuxVersion? {
         let result = try await run(["tmux", "-V"])
         guard result.succeeded else {
             throw RemoteTmuxError.commandFailed(exitCode: result.exitCode, stderr: result.stderr)
@@ -76,19 +82,50 @@ actor RemoteTmuxSSHTransport {
         return RemoteTmuxVersion.parse(result.stdout)
     }
 
+    /// Probes the running tmux server version via the server's `#{version}` format.
+    private func tmuxServerVersionProbe() async throws -> ServerVersionProbe {
+        let result = try await runTmux(["display-message", "-p", "#{version}"])
+        guard result.succeeded else {
+            if Self.indicatesNoServer(result.stderr) { return .noServer }
+            throw RemoteTmuxError.commandFailed(exitCode: result.exitCode, stderr: result.stderr)
+        }
+        if let version = RemoteTmuxVersion.parseServerFormat(result.stdout) {
+            return .version(version)
+        }
+        return .unknown
+    }
+
     /// Asserts that the remote server supports live mirroring.
     ///
     /// Call this before any `tmux -CC` control stream can launch. An unparseable
     /// version is treated as "unknown, allow" to avoid rejecting dev/distro builds.
-    func assertMinimumTmuxVersion() async throws {
-        if let version = try await tmuxVersion(), !version.meetsMinimum {
+    /// When no server is running, pass `true` only for paths that will create one;
+    /// those paths gate on the tmux client binary that will become the new server.
+    func assertMinimumTmuxVersion(checkClientWhenNoServer: Bool) async throws {
+        switch try await tmuxServerVersionProbe() {
+        case .version(let version):
+            try Self.assertSupportedTmuxVersion(version)
+            return
+        case .unknown:
+            return
+        case .noServer:
+            break
+        }
+        guard checkClientWhenNoServer else { return }
+        if let version = try await tmuxClientVersion() {
+            try Self.assertSupportedTmuxVersion(version)
+        }
+    }
+
+    private static func assertSupportedTmuxVersion(_ version: RemoteTmuxVersion) throws {
+        if !version.meetsMinimum {
             throw RemoteTmuxError.unsupportedTmux(detected: version.displayString)
         }
     }
 
     /// Asserts that the remote server supports live mirroring, then discovers sessions.
     func discoverMirrorSessions(createIfEmpty: Bool) async throws -> [RemoteTmuxSession] {
-        try await assertMinimumTmuxVersion()
+        try await assertMinimumTmuxVersion(checkClientWhenNoServer: createIfEmpty)
         var sessions = try await listSessions()
         if sessions.isEmpty, createIfEmpty {
             _ = try? await runTmux(["new-session", "-d"])
