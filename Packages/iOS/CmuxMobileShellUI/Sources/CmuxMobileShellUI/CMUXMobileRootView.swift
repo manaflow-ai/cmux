@@ -62,22 +62,6 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
-    private var shouldShowAgentChatPreview: Bool {
-        #if os(iOS) && DEBUG
-        return UITestConfig.agentChatPreviewEnabled
-        #else
-        return false
-        #endif
-    }
-
-    private var shouldShowAgentChatInlinePreview: Bool {
-        #if os(iOS) && DEBUG
-        return UITestConfig.agentChatInlinePreviewEnabled
-        #else
-        return false
-        #endif
-    }
-
     private var shouldShowWorkspaceListLayoutPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.workspaceListLayoutPreviewEnabled
@@ -196,18 +180,8 @@ struct CMUXMobileRootView: View {
 
     @ViewBuilder
     private var rootContent: some View {
-        if shouldShowAgentChatInlinePreview {
-            #if os(iOS) && DEBUG
-            AgentChatDemoScreen(style: .inlineWorkspace)
-            #else
-            EmptyView()
-            #endif
-        } else if shouldShowAgentChatPreview {
-            #if os(iOS) && DEBUG
-            AgentChatDemoScreen()
-            #else
-            EmptyView()
-            #endif
+        if shouldShowAgentChatDemoPreview {
+            agentChatDemoPreview
         } else if shouldShowTerminalLayoutPreview {
             terminalLayoutPreview
         } else if shouldShowWorkspaceListLayoutPreview {
