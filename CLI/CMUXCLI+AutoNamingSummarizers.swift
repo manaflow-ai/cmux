@@ -112,9 +112,9 @@ extension CMUXCLI {
 
     /// Runs the summarizer subprocess with the prompt on stdin and a hard
     /// deadline, returning bounded stdout (nil on failure, timeout, oversized
-    /// output, or non-zero exit). stdout is redirected to a temp file instead
-    /// of an in-memory pipe so a helper child cannot keep a pipe fd open and
-    /// hang the hook after the main summarizer exits.
+    /// output, or non-zero exit). stdout is captured through a pipe with a live
+    /// byte cap, then the read side is closed on return so inherited writer fds
+    /// cannot keep the hook blocked after the main summarizer exits.
     func runAutoNamingSummarizer(
         executable: String,
         arguments: [String],
@@ -128,20 +128,23 @@ extension CMUXCLI {
         process.environment = environment
 
         let stdinPipe = Pipe()
-        let outputURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-autoname-stdout-\(UUID().uuidString).txt")
-        let outputAttributes: [FileAttributeKey: Any] = [.posixPermissions: NSNumber(value: Int16(0o600))]
-        guard FileManager.default.createFile(atPath: outputURL.path, contents: nil, attributes: outputAttributes),
-              let stdoutHandle = try? FileHandle(forWritingTo: outputURL) else {
-            return nil
-        }
+        let stdoutPipe = Pipe()
+        let stdoutBuffer = AutoNamingOutputCapture()
+        let maxOutputBytes = 64 * 1024
         defer {
-            try? stdoutHandle.close()
-            try? FileManager.default.removeItem(at: outputURL)
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            try? stdoutPipe.fileHandleForReading.close()
         }
         process.standardInput = stdinPipe
-        process.standardOutput = stdoutHandle
+        process.standardOutput = stdoutPipe
         process.standardError = FileHandle.nullDevice
+        stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
+            let available = handle.availableData
+            guard !available.isEmpty else { return }
+            if !stdoutBuffer.append(available, maxBytes: maxOutputBytes), process.isRunning {
+                process.terminate()
+            }
+        }
 
         do {
             try cliRunProcess(process)
@@ -162,17 +165,50 @@ extension CMUXCLI {
             }
             return nil
         }
-        try? stdoutHandle.close()
+        stdoutPipe.fileHandleForReading.readabilityHandler = nil
+        drainAvailableAutoNamingOutput(
+            from: stdoutPipe.fileHandleForReading.fileDescriptor,
+            into: stdoutBuffer,
+            maxBytes: maxOutputBytes,
+            process: process
+        )
         guard process.terminationStatus == 0,
-              let readHandle = try? FileHandle(forReadingFrom: outputURL) else {
-            return nil
-        }
-        defer { try? readHandle.close() }
-        let maxOutputBytes = 64 * 1024
-        let output = (try? readHandle.read(upToCount: maxOutputBytes + 1)) ?? Data()
-        guard output.count <= maxOutputBytes else {
+              let output = stdoutBuffer.dataIfWithinLimit() else {
             return nil
         }
         return String(data: output, encoding: .utf8)
+    }
+
+    private func drainAvailableAutoNamingOutput(
+        from fd: Int32,
+        into buffer: AutoNamingOutputCapture,
+        maxBytes: Int,
+        process: Process
+    ) {
+        let flags = fcntl(fd, F_GETFL, 0)
+        if flags >= 0 {
+            _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK)
+        }
+        defer {
+            if flags >= 0 {
+                _ = fcntl(fd, F_SETFL, flags)
+            }
+        }
+
+        var chunk = [UInt8](repeating: 0, count: 8 * 1024)
+        while true {
+            let readCount = Darwin.read(fd, &chunk, chunk.count)
+            if readCount > 0 {
+                let data = Data(chunk.prefix(readCount))
+                if !buffer.append(data, maxBytes: maxBytes), process.isRunning {
+                    process.terminate()
+                }
+                continue
+            }
+            if readCount == 0 { return }
+            if errno == EINTR { continue }
+            if errno == EAGAIN || errno == EWOULDBLOCK { return }
+            return
+        }
     }
 }

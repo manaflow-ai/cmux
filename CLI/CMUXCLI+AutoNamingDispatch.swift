@@ -43,15 +43,18 @@ extension CMUXCLI {
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry
     ) -> AutoNamingPromptLanguage {
-        let name = (probe["auto_naming_language_name"] as? String)
-            ?? normalizedHookValue(env["CMUX_AUTO_NAMING_LANGUAGE_NAME"])
-        let tag = (probe["auto_naming_language_tag"] as? String)
-            ?? normalizedHookValue(env["CMUX_AUTO_NAMING_LANGUAGE_TAG"])
-        let language = AutoNamingPromptLanguage(
-            name: name ?? AutoNamingPromptLanguage.fallback.name,
-            tag: tag ?? AutoNamingPromptLanguage.fallback.tag
-        )
-        if name == nil || tag == nil {
+        let probeName = normalizedHookValue(probe["auto_naming_language_name"] as? String)
+        let probeTag = normalizedHookValue(probe["auto_naming_language_tag"] as? String)
+        let envName = normalizedHookValue(env["CMUX_AUTO_NAMING_LANGUAGE_NAME"])
+        let envTag = normalizedHookValue(env["CMUX_AUTO_NAMING_LANGUAGE_TAG"])
+        let language: AutoNamingPromptLanguage
+        if let probeName, let probeTag {
+            language = AutoNamingPromptLanguage(name: probeName, tag: probeTag)
+        } else if let envName, let envTag {
+            language = AutoNamingPromptLanguage(name: envName, tag: envTag)
+        } else {
+            let resolved = AutoNamingLanguageResolver().resolve(rawSetting: AutoNamingLanguageCatalog.autoSlug)
+            language = AutoNamingPromptLanguage(name: resolved.promptName, tag: resolved.bcp47Tag)
             telemetry.breadcrumb("\(telemetryKey).language-fallback.\(language.tag)")
         }
         return language

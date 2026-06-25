@@ -1060,13 +1060,13 @@ final class ClaudeHookSessionStore {
         guard !messages.isEmpty else { return }
         var recent = record.autoNameRecentMessages ?? []
         var seen = Set(recent.map(autoNameMessageDedupKey))
+        var eventSeen = Set<String>()
         var observedCount = 0
         for message in messages {
             guard let normalized = normalizedAutoNameMessage(message) else { continue }
-            // Cache unique content only, but keep the progress counter tied to
-            // every valid observed message so repeated turns still advance the throttle.
-            observedCount += 1
             let key = autoNameMessageDedupKey(normalized)
+            guard eventSeen.insert(key).inserted else { continue }
+            observedCount += 1
             guard seen.insert(key).inserted else { continue }
             recent.append(normalized)
         }

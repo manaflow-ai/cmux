@@ -358,12 +358,17 @@ import Testing
                         #"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"ログインの不具合を直して"}]}}"#,
                         #"{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"認証フローを確認します。"}]}}"#,
                     ]
-                    let messages = engine.extractCodexMessages(fromRolloutLines: lines)
-                    let context = try #require(engine.buildContext(from: messages))
+                    let extraction = engine.extractCodexRollout(fromRolloutLines: lines)
+                    let context = try #require(engine.buildContext(from: extraction.messages))
                     let prompt = engine.buildPrompt(currentTitle: nil, context: context, language: language)
                     #expect(prompt.contains("Write the title in Japanese (ja) only."))
 
-                    let sanitized = try #require(engine.sanitizeResponse("ログイン修正", currentTitle: nil))
+                    let sanitized = try #require({
+                        if case .title(let title) = engine.sanitizeResponseOutcome("ログイン修正", currentTitle: nil) {
+                            return title
+                        }
+                        return nil
+                    }())
                     let applyEnvelope = try call(method: "workspace.set_auto_title", params: [
                         "workspace_id": workspace.id.uuidString,
                         "title": sanitized

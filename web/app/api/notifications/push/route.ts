@@ -53,7 +53,8 @@ async function sendPush(request: Request): Promise<Response> {
   const user = await verifyRequest(request, { allowCookie: false });
   if (!user) return unauthorized();
 
-  const pushRateLimitId = env.CMUX_PUSH_RATE_LIMIT_ID ?? process.env.CMUX_PUSH_RATE_LIMIT_ID?.trim();
+  const pushRateLimitId =
+    env.CMUX_PUSH_RATE_LIMIT_ID?.trim() || process.env.CMUX_PUSH_RATE_LIMIT_ID?.trim();
   if (process.env.VERCEL === "1" && pushRateLimitId) {
     const { error, rateLimited } = await checkRateLimit(pushRateLimitId, {
       request,

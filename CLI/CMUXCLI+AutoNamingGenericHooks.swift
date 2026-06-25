@@ -292,10 +292,11 @@ extension CMUXCLI {
         ) else { return }
         guard (try? sessionStore.isCurrentAutoNamingPass(sessionId: sessionId, passId: outcome.passId)) == true else {
             telemetry.breadcrumb("\(telemetryKey).stale-pass")
+            countFailure = false
             return
         }
         if action.shouldApply {
-            confirmedTitle = applyAutoNamingTitle(
+            let applyResult = applyAutoNamingTitle(
                 action.title,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
@@ -304,6 +305,8 @@ extension CMUXCLI {
                 telemetryKey: telemetryKey,
                 telemetry: telemetry
             )
+            confirmedTitle = applyResult.confirmedTitle
+            countFailure = applyResult.countsTowardBackoff
         } else {
             confirmedTitle = confirmAutoNamingSuccess(
                 workspaceId: workspaceId,
@@ -367,7 +370,7 @@ extension CMUXCLI {
         client: SocketClient,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry
-    ) -> String? {
+    ) -> (confirmedTitle: String?, countsTowardBackoff: Bool) {
         let payload: [String: Any]
         do {
             payload = try client.sendV2(method: "workspace.set_auto_title", params: [
@@ -379,14 +382,13 @@ extension CMUXCLI {
         } catch {
             telemetry.breadcrumb("\(telemetryKey).socket-failed")
             reportAutoNamingProblem("apply_failed", agent: agent, workspaceId: workspaceId, client: client)
-            return nil
+            return (nil, true)
         }
         if payload["workspace_applied"] as? Bool == true {
             telemetry.breadcrumb("\(telemetryKey).applied")
-            return title
+            return (title, false)
         }
         telemetry.breadcrumb("\(telemetryKey).rejected")
-        reportAutoNamingProblem("apply_failed", agent: agent, workspaceId: workspaceId, client: client)
-        return nil
+        return (nil, false)
     }
 }

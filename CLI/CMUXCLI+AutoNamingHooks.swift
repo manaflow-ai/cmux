@@ -125,10 +125,11 @@ extension CMUXCLI {
         ) else { return }
         guard (try? sessionStore.isCurrentAutoNamingPass(sessionId: sessionId, passId: outcome.passId)) == true else {
             telemetry.breadcrumb("\(telemetryKey).stale-pass")
+            countFailure = false
             return
         }
         if action.shouldApply {
-            confirmedTitle = applyAutoNamingTitle(
+            let applyResult = applyAutoNamingTitle(
                 action.title,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
@@ -137,6 +138,8 @@ extension CMUXCLI {
                 telemetryKey: telemetryKey,
                 telemetry: telemetry
             )
+            confirmedTitle = applyResult.confirmedTitle
+            countFailure = applyResult.countsTowardBackoff
         } else {
             confirmedTitle = confirmAutoNamingSuccess(
                 workspaceId: workspaceId,
