@@ -105,7 +105,10 @@ struct BrowserSSLTrustBypassStateTests {
 
         var headRequest = URLRequest(url: url)
         headRequest.httpMethod = "HEAD"
-        #expect(BrowserErrorPage.retryURL(from: url.absoluteString, failedRequest: headRequest) == url)
+        #expect(BrowserErrorPage.retryURL(from: url.absoluteString, failedRequest: headRequest) == nil)
+
+        let getRequest = URLRequest(url: url)
+        #expect(BrowserErrorPage.retryURL(from: url.absoluteString, failedRequest: getRequest) == url)
     }
 
     @Test
