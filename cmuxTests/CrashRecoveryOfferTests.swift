@@ -42,22 +42,28 @@ import Testing
         #expect(Set(resumable.map(\.id)).count == 2)
     }
 
-    @Test func recoverableWorkspacesIncludesUnverifiedBindings() async throws {
+    @Test func recoverableWorkspacesIncludesOnlyPromptableUnverifiedBindings() async throws {
         let verified = try makeManagerWithResumeBinding(session: "sess-verified")
-        let unverified = try makeManagerWithResumeBinding(
+        let promptableUnverified = try makeManagerWithResumeBinding(
+            session: "sess-promptable",
+            createTranscript: false,
+            restoredAgentResumeState: .observedAgentCommandRunning
+        )
+        let shellOnlyUnverified = try makeManagerWithResumeBinding(
             session: "sess-missing",
             createTranscript: false
         )
         defer {
             try? FileManager.default.removeItem(at: verified.root)
-            try? FileManager.default.removeItem(at: unverified.root)
+            try? FileManager.default.removeItem(at: promptableUnverified.root)
+            try? FileManager.default.removeItem(at: shellOnlyUnverified.root)
         }
 
         let resumable = await CrashRecoveryOfferPresenter.resumableWorkspaces(
-            in: [verified.manager, unverified.manager]
+            in: [verified.manager, promptableUnverified.manager, shellOnlyUnverified.manager]
         )
         let recoverable = await CrashRecoveryOfferPresenter.recoverableWorkspaces(
-            in: [verified.manager, unverified.manager]
+            in: [verified.manager, promptableUnverified.manager, shellOnlyUnverified.manager]
         )
 
         #expect(resumable.count == 1)
@@ -66,7 +72,8 @@ import Testing
 
     private func makeManagerWithResumeBinding(
         session: String,
-        createTranscript: Bool = true
+        createTranscript: Bool = true,
+        restoredAgentResumeState: Workspace.RestoredAgentResumeState? = nil
     ) throws -> (manager: TabManager, root: URL) {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-crash-offer-\(UUID().uuidString)", isDirectory: true)
@@ -101,6 +108,9 @@ import Testing
             panelId: panelId
         )
         #expect(didSet)
+        if let restoredAgentResumeState {
+            workspace.restoredAgentResumeStatesByPanelId[panelId] = restoredAgentResumeState
+        }
         return (manager, root)
     }
 }

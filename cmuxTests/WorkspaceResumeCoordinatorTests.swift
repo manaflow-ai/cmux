@@ -163,11 +163,11 @@ import Testing
         #expect(surface.deliveredHonestPrompts.isEmpty)
     }
 
-    @Test func recoverCwdMismatchDeliversHonestPromptAndNeverResumes() {
+    @Test func recoverCwdMismatchDeliversHonestPromptToLiveAgentAndNeverResumes() {
         // Transcript exists only elsewhere -> the anti-Example-3 mis-attribution.
-        let surface = VerifiableFakeSurface(atWindowCwd: false, elsewhere: true)
+        let surface = VerifiableFakeSurface(live: true, atWindowCwd: false, elsewhere: true)
         let outcome = WorkspaceResumeCoordinator(injectBreadcrumb: true).recover(surface)
-        #expect(outcome == .honestRecovery(reason: .cwdMismatch))
+        #expect(outcome == .honestRecovery(reason: .cwdMismatch, deliveredPrompt: true))
         #expect(surface.nativeResumeCount == 0)
         #expect(surface.deliveredBreadcrumbs.isEmpty)
         #expect(surface.deliveredHonestPrompts.count == 1)
@@ -175,11 +175,22 @@ import Testing
         #expect(surface.deliveredHonestPrompts.first?.contains("sess-1") == false)
     }
 
-    @Test func recoverMissingTranscriptDeliversHonestPrompt() {
+    @Test func recoverCwdMismatchWithoutSafeAgentChannelDoesNotTypePromptIntoShell() {
+        let surface = VerifiableFakeSurface(live: false, atWindowCwd: false, elsewhere: true)
+        let outcome = WorkspaceResumeCoordinator(injectBreadcrumb: true).recover(surface)
+
+        #expect(outcome == .honestRecovery(reason: .cwdMismatch, deliveredPrompt: false))
+        #expect(surface.nativeResumeCount == 0)
+        #expect(surface.deliveredBreadcrumbs.isEmpty)
+        #expect(surface.deliveredHonestPrompts.isEmpty)
+    }
+
+    @Test func recoverMissingTranscriptDoesNotPromptDeadShell() {
         let surface = VerifiableFakeSurface(atWindowCwd: false, elsewhere: false)
         let outcome = WorkspaceResumeCoordinator(injectBreadcrumb: true).recover(surface)
-        #expect(outcome == .honestRecovery(reason: .transcriptMissing))
+        #expect(outcome == .honestRecovery(reason: .transcriptMissing, deliveredPrompt: false))
         #expect(surface.nativeResumeCount == 0)
+        #expect(surface.deliveredHonestPrompts.isEmpty)
     }
 
     @Test func recoverUnwiredSurfaceDefaultsToHonestRecovery() {
@@ -188,7 +199,7 @@ import Testing
         // auto-resume of an unverified binding.
         let surface = FakeSurface(live: false)
         let outcome = WorkspaceResumeCoordinator(injectBreadcrumb: true).recover(surface)
-        guard case .honestRecovery = outcome else {
+        guard case .honestRecovery(reason: _, deliveredPrompt: false) = outcome else {
             Issue.record("expected honestRecovery for an unwired surface, got \(outcome)")
             return
         }

@@ -51,6 +51,10 @@ protocol ResumableWorkspaceSurface: AnyObject {
     /// immediately if live, else when the surface becomes ready. Used only on the
     /// unverified branch; never paired with a native resume.
     func deliverHonestRecoveryPrompt(_ text: String)
+    /// Whether the surface has an agent-owned input channel for the honest prompt.
+    /// This must be stricter than "terminal surface exists": a plain shell must
+    /// never receive prose intended for an agent.
+    var canDeliverHonestRecoveryPrompt: Bool { get }
 }
 
 extension ResumableWorkspaceSurface {
@@ -65,6 +69,7 @@ extension ResumableWorkspaceSurface {
     /// Default: route the honest prompt through the same deliver-when-ready path
     /// as the breadcrumb. Conformers that distinguish the two can override.
     func deliverHonestRecoveryPrompt(_ text: String) { deliverResumeBreadcrumb(text) }
+    var canDeliverHonestRecoveryPrompt: Bool { isAgentLive }
 }
 
 /// The outcome of attempting to resume a single workspace.
@@ -80,9 +85,11 @@ enum RecoveryPerformed: Equatable, Sendable {
     /// The binding verified: native resume ran (if needed) and the breadcrumb
     /// was delivered (when injection is on).
     case resumed(deliveredBreadcrumb: Bool)
-    /// The binding could not be verified: the honest cwd-scoped prompt was
-    /// delivered and nothing was auto-resumed. `reason` is carried for logging.
-    case honestRecovery(reason: UnverifiedReason)
+    /// The binding could not be verified. The honest cwd-scoped prompt is
+    /// delivered only when an agent-owned input channel is already available;
+    /// otherwise the prompt is withheld so prose is never typed into a shell.
+    /// `reason` is carried for logging.
+    case honestRecovery(reason: UnverifiedReason, deliveredPrompt: Bool)
 }
 
 /// Shared orchestration for "pick up where we left off", used by both the
@@ -248,8 +255,14 @@ struct WorkspaceResumeCoordinator {
         case .resumeVerified(let breadcrumb):
             return performVerifiedRecovery(surface, breadcrumb: breadcrumb)
         case .honestRecovery(let prompt, let reason):
-            surface.deliverHonestRecoveryPrompt(prompt)
-            return .honestRecovery(reason: reason)
+            let deliveredPrompt = performHonestRecovery(surface, prompt: prompt)
+            return .honestRecovery(reason: reason, deliveredPrompt: deliveredPrompt)
         }
+    }
+
+    private func performHonestRecovery(_ surface: ResumableWorkspaceSurface, prompt: String) -> Bool {
+        guard surface.canDeliverHonestRecoveryPrompt else { return false }
+        surface.deliverHonestRecoveryPrompt(prompt)
+        return true
     }
 }

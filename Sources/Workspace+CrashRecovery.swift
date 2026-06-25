@@ -132,6 +132,11 @@ extension Workspace: ResumableWorkspaceSurface {
         crashRecoveryStoredVerification?.facts.transcriptExistsElsewhere ?? false
     }
 
+    var canDeliverHonestRecoveryPrompt: Bool {
+        guard let panelId = focusedPanelId else { return false }
+        return canDeliverHonestRecoveryPrompt(panelId: panelId)
+    }
+
     func runNativeResume() {
         guard let panel = focusedTerminalPanel else { return }
         let startupInput = crashRecoveryRestoredAgent?.resumeStartupInput(allowOversizedInlineInput: true)
@@ -566,8 +571,20 @@ extension Workspace: ResumableWorkspaceSurface {
                     self.sendInputWhenReady(breadcrumb + "\n", to: panel, reason: .recoveryInput)
                 }
             case .honestRecovery(let prompt, _):
+                guard self.canDeliverHonestRecoveryPrompt(panelId: panelId) else { return }
                 self.sendInputWhenReady(prompt + "\n", to: panel, reason: .recoveryInput)
             }
+        }
+    }
+
+    private func canDeliverHonestRecoveryPrompt(panelId: UUID) -> Bool {
+        switch restoredAgentResumeStatesByPanelId[panelId] {
+        case .some(.awaitingAutoResumeCommand),
+             .some(.autoResumeCommandRunning),
+             .some(.observedAgentCommandRunning):
+            return true
+        case .some(.manualResumeAvailable), nil:
+            return false
         }
     }
 }

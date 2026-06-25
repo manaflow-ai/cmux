@@ -57,7 +57,8 @@ enum CrashRecoveryOfferPresenter {
     }
 
     /// Workspaces the crash offer should handle after acceptance. Verified
-    /// bindings resume; unverified bindings receive the honest recovery prompt.
+    /// bindings resume; unverified bindings are included only when an agent-owned
+    /// input channel is already available for the honest recovery prompt.
     static func recoverableWorkspaces(
         in managers: [TabManager],
         defaults: UserDefaults = .standard
@@ -68,7 +69,11 @@ enum CrashRecoveryOfferPresenter {
         for manager in managers where seenManagers.insert(ObjectIdentifier(manager)).inserted {
             for workspace in manager.tabs {
                 guard seenWorkspaces.insert(ObjectIdentifier(workspace)).inserted else { continue }
-                guard await workspace.crashRecoveryRecoveryAction(defaults: defaults) != nil else {
+                guard let action = await workspace.crashRecoveryRecoveryAction(defaults: defaults) else {
+                    continue
+                }
+                if case .honestRecovery(_, _) = action,
+                   !workspace.canDeliverHonestRecoveryPrompt {
                     continue
                 }
                 workspaces.append(workspace)
