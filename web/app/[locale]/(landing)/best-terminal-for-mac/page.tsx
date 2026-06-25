@@ -61,7 +61,7 @@ export default function BestTerminalForMacPage() {
       <LandingCTA
         related={[
           { href: "/built-on-ghostty", label: tl("builtOnGhostty") },
-          { href: "/claude-code-terminal", label: tl("claude") },
+          { href: "/agents/claude-code", label: tl("claude") },
           { href: "/docs/getting-started", label: tl("getStarted") },
         ]}
       />

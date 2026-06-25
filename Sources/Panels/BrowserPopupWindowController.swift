@@ -309,6 +309,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
         WebViewInspectorTeardown.closeInspector(for: webView)
         closeAllChildPopups()
+        popupNavigationDelegate.cancelPendingHTTPBasicAuthPrompts()
 
         // Invalidate observations
         titleObservation?.invalidate()
@@ -317,8 +318,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         urlObservation = nil
 
         // Tear down web view
-        webAuthnCoordinator.uninstall(from: webView)
-        webView.stopLoading()
+        webAuthnCoordinator.tearDown(from: webView); webView.stopLoading()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
 
@@ -597,9 +597,14 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
 
 // MARK: - PopupNavigationDelegate
 
-private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
+@MainActor private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
     weak var controller: BrowserPopupWindowController?
     var downloadDelegate: WKDownloadDelegate?
+    private let basicAuthPromptCoordinator = BrowserHTTPBasicAuthPromptCoordinator()
+
+    func cancelPendingHTTPBasicAuthPrompts() {
+        basicAuthPromptCoordinator.cancelAll()
+    }
 
     func webView(
         _ webView: WKWebView,
@@ -680,6 +685,20 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         didReceive challenge: URLAuthenticationChallenge,
         completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
     ) {
+        if basicAuthPromptCoordinator.handle(
+            challenge: challenge,
+            startPrompt: { finishPrompt, registerCancelPrompt in
+                browserHandleHTTPBasicAuthenticationChallenge(
+                    in: webView, challenge: challenge,
+                    registerCancelPrompt: registerCancelPrompt,
+                    completionHandler: finishPrompt
+                )
+            },
+            completionHandler: completionHandler
+        ) {
+            return
+        }
+
         // Parity with main browser: performDefaultHandling enables system keychain
         // lookups, MDM client certs, and SSO extensions (e.g. Microsoft Entra ID).
         completionHandler(.performDefaultHandling, nil)

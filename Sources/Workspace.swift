@@ -2545,6 +2545,10 @@ final class Workspace: Identifiable, ObservableObject {
     private func scheduleExtensionSidebarProjectRootRefresh(for directory: String) {
         extensionSidebarProjectRootRefreshID &+= 1
         let refreshID = extensionSidebarProjectRootRefreshID
+        guard !isRemoteWorkspace else {
+            extensionSidebarProjectRootPath = nil
+            return
+        }
         let trimmedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedDirectory.isEmpty else {
             extensionSidebarProjectRootPath = nil
@@ -3431,6 +3435,8 @@ final class Workspace: Identifiable, ObservableObject {
     private var pendingRemoteSurfaceTTYSurfaceId: UUID?
     private var pendingRemoteSurfacePortKickReason: PortScanKickReason?
     private var pendingRemoteSurfacePortKickSurfaceId: UUID?
+    private var pendingRemoteSurfacePWD: String?
+    private var pendingRemoteSurfacePWDSurfaceId: UUID?
     // When the last live remote terminal is detached out, the source workspace may be
     // closed immediately after the move succeeds. That teardown must not shut down the
     // shared SSH control master that is still serving the moved terminal.
@@ -4457,57 +4463,34 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func configTrackingDirectory(for panelId: UUID?) -> String? {
-        // A remote tmux mirror's directories are paths on the REMOTE host.
-        // Feeding one into local cmux.json tracking makes CmuxConfigStore walk
-        // the ancestor chain with FileManager.fileExists on the main thread,
-        // and stat'ing e.g. /home/… locally blocks on the autofs automounter
-        // for hundreds of ms (measured via sample during tab-reveal stalls).
-        // No local per-directory config can apply to a remote path — track none.
-        if isRemoteTmuxMirror { return nil }
+        // Remote workspace directories are remote-host paths; no local per-directory config can apply.
+        if isRemoteWorkspace { return nil }
         if let panelId {
-            for candidate in [
-                panelDirectories[panelId],
-                terminalPanel(for: panelId)?.requestedWorkingDirectory
-            ] {
+            for candidate in [panelDirectories[panelId], terminalPanel(for: panelId)?.requestedWorkingDirectory] {
                 let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                if !trimmed.isEmpty {
-                    return trimmed
-                }
+                if !trimmed.isEmpty { return trimmed }
             }
         }
-
         let trimmedCurrentDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmedCurrentDirectory.isEmpty ? nil : trimmedCurrentDirectory
     }
 
     @discardableResult
-    func updatePanelDirectory(panelId: UUID, directory: String) -> Bool {
-        updatePanelDirectory(panelId: panelId, directory: directory, source: .liveReport)
-    }
+    func updatePanelDirectory(panelId: UUID, directory: String) -> Bool { updatePanelDirectory(panelId: panelId, directory: directory, source: .liveReport) }
 
     @discardableResult
-    private func updatePanelDirectory(
-        panelId: UUID,
-        directory: String,
-        source: PanelDirectoryUpdateSource
-    ) -> Bool {
+    private func updatePanelDirectory(panelId: UUID, directory: String, source: PanelDirectoryUpdateSource) -> Bool {
         let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         if source == .liveReport,
            shouldIgnoreRestoredGuardedDirectoryReport(panelId: panelId, reportedDirectory: trimmed) {
             return false
         }
-        if panelDirectories[panelId] != trimmed {
-            panelDirectories[panelId] = trimmed
-        }
-        // Update current directory if this is the focused panel
+        if panelDirectories[panelId] != trimmed { panelDirectories[panelId] = trimmed }
         if panelId == focusedPanelId {
-            if surfaceTabBarDirectory != trimmed {
-                surfaceTabBarDirectory = trimmed
-            }
-            if currentDirectory != trimmed {
-                currentDirectory = trimmed
-            }
+            let nextSurfaceTabBarDirectory = configTrackingDirectory(for: panelId)
+            if surfaceTabBarDirectory != nextSurfaceTabBarDirectory { surfaceTabBarDirectory = nextSurfaceTabBarDirectory }
+            if currentDirectory != trimmed { currentDirectory = trimmed }
         }
         return true
     }
@@ -4516,22 +4499,16 @@ final class Workspace: Identifiable, ObservableObject {
         panelId: UUID,
         reportedDirectory: String
     ) -> Bool {
-        guard let restoredDirectory = restoredGuardedWorkingDirectoriesByPanelId[panelId] else {
-            return false
-        }
+        guard let restoredDirectory = restoredGuardedWorkingDirectoriesByPanelId[panelId] else { return false }
 
         if reportedDirectory == restoredDirectory {
-            // The resumed shell confirmed the restored directory; stop guarding so
-            // later navigation away from it is honored.
+            // The resumed shell confirmed the restored directory; stop guarding.
             restoredGuardedWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
             return false
         }
 
         if Self.unmountedVolumeRoot(for: restoredDirectory) != nil {
-            // The restored directory is on an unmounted volume: the resumed shell
-            // fell back to its default directory. Keep ignoring spurious reports
-            // until the volume remounts and the shell reports the restored
-            // directory (#5278). The guard stays registered (persistent).
+            // Keep guarding until the restored volume remounts and reports its cwd (#5278).
 #if DEBUG
             cmuxDebugLog(
                 "session.restore.cwdReport.ignored panel=\(panelId.uuidString.prefix(5)) " +
@@ -4541,20 +4518,10 @@ final class Workspace: Identifiable, ObservableObject {
             return true
         }
 
-        // The restored directory is on a mounted volume and differs from the first
-        // report. The resumed shell spawns before its startup command cds, so the
-        // initial report (typically home) is spurious — but ONLY when the restored
-        // directory still exists for that command to cd into. If it was deleted
-        // between sessions the cd fails and the shell's reported directory is the
-        // real fallback location, so honor it instead of stranding
-        // panelDirectories/currentDirectory on the deleted path (which would make
-        // Cmd+T inherit an invalid cwd). Either way this is a one-shot guard. (#6617)
+        // Ignore the first fallback cwd only if the restored directory still exists (#6617).
         restoredGuardedWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
         var restoredDirectoryIsDirectory: ObjCBool = false
-        let restoredDirectoryStillExists = FileManager.default.fileExists(
-            atPath: restoredDirectory,
-            isDirectory: &restoredDirectoryIsDirectory
-        ) && restoredDirectoryIsDirectory.boolValue
+        let restoredDirectoryStillExists = FileManager.default.fileExists(atPath: restoredDirectory, isDirectory: &restoredDirectoryIsDirectory) && restoredDirectoryIsDirectory.boolValue
 #if DEBUG
         cmuxDebugLog(
             "session.restore.cwdReport.\(restoredDirectoryStillExists ? "ignoredOnce" : "accepted") " +
@@ -5730,6 +5697,8 @@ final class Workspace: Identifiable, ObservableObject {
         pendingRemoteSurfaceTTYSurfaceId = nil
         pendingRemoteSurfacePortKickReason = nil
         pendingRemoteSurfacePortKickSurfaceId = nil
+        pendingRemoteSurfacePWD = nil
+        pendingRemoteSurfacePWDSurfaceId = nil
         clearRemoteDetectedSurfacePorts()
         remoteDetectedPorts = []
         remoteForwardedPorts = []
@@ -5801,6 +5770,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         guard activeRemoteTerminalSurfaceIds.insert(panelId).inserted else { return }
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
+        _ = applyPendingRemoteSurfacePWDIfNeeded(to: panelId)
         applyPendingRemoteSurfaceTTYIfNeeded(to: panelId)
         _ = applyPendingRemoteSurfacePortKickIfNeeded(to: panelId)
     }
@@ -6268,6 +6238,29 @@ final class Workspace: Identifiable, ObservableObject {
     ) {
         pendingRemoteSurfacePortKickReason = reason
         pendingRemoteSurfacePortKickSurfaceId = requestedSurfaceId
+    }
+
+    @MainActor
+    func rememberPendingRemoteSurfacePWD(_ path: String, requestedSurfaceId: UUID?) {
+        guard path.rangeOfCharacter(from: .whitespacesAndNewlines.inverted) != nil else { return }
+        pendingRemoteSurfacePWD = path
+        pendingRemoteSurfacePWDSurfaceId = requestedSurfaceId
+    }
+
+    @MainActor
+    @discardableResult
+    private func applyPendingRemoteSurfacePWDIfNeeded(to panelId: UUID) -> Bool {
+        guard let path = pendingRemoteSurfacePWD,
+              path.rangeOfCharacter(from: .whitespacesAndNewlines.inverted) != nil else {
+            return false
+        }
+        if let requestedSurfaceId = pendingRemoteSurfacePWDSurfaceId,
+           requestedSurfaceId != panelId {
+            return false
+        }
+        pendingRemoteSurfacePWD = nil
+        pendingRemoteSurfacePWDSurfaceId = nil
+        return updatePanelDirectory(panelId: panelId, directory: path)
     }
 
     @MainActor
@@ -6764,6 +6757,51 @@ final class Workspace: Identifiable, ObservableObject {
         ].lazy.compactMap(Self.normalizedTerminalWorkingDirectory).first
     }
 
+    /// The directory a new tab (`new-window`) should inherit in a remote-tmux
+    /// mirror: strictly the source tab's last-reported `#{pane_current_path}`
+    /// (`panelDirectories[sourcePanelId]`), or nil when the remote has not
+    /// reported one yet.
+    ///
+    /// It must not use ``resolvedTerminalStartupWorkingDirectory(requestedWorkingDirectory:sourcePanelId:)``:
+    /// that resolver falls back to `currentDirectory`, which on a mirror
+    /// workspace is seeded from the local workspace and so can be a local
+    /// filesystem path. A local path is meaningless on the remote host — as
+    /// `new-window -c` it would open the tab somewhere other than the active
+    /// tab's directory. Only `panelDirectories[sourcePanelId]`, fed by the tab's
+    /// remote cwd reports, is a correct remote-side source.
+    func remoteTmuxNewWindowWorkingDirectory(forSourcePanelId sourcePanelId: UUID?) -> String? {
+        Self.normalizedTerminalWorkingDirectory(sourcePanelId.flatMap { panelDirectories[$0] })
+    }
+
+    /// Placement for a remote-tmux mirror `new-window` request.
+    ///
+    /// Targeted entrypoints such as "new terminal to right" pass an explicit
+    /// anchor panel and rely on local tab reordering after creation. A mirror
+    /// cannot locally reorder a tmux-created window, so the remote command must
+    /// target that anchor directly. Plain new-tab requests have no explicit
+    /// anchor and follow the workspace's tab-strip `newTabPosition`.
+    func remoteTmuxNewTabPlacement(
+        inPane paneId: PaneID,
+        anchorPanelId: UUID?
+    ) -> RemoteTmuxMirrorNewTabPlacement {
+        if let anchorPanelId {
+            return .afterPanel(anchorPanelId)
+        }
+        switch bonsplitController.configuration.newTabPosition {
+        case .end:
+            return .end
+        case .current:
+            if let selectedPanelId = selectedTerminalPanelId(inPane: paneId) {
+                return .afterPanel(selectedPanelId)
+            }
+            return .end
+        }
+    }
+
+    private func selectedTerminalPanelId(inPane paneId: PaneID) -> UUID? {
+        bonsplitController.selectedTab(inPane: paneId).map(\.id).flatMap(panelIdFromSurfaceId)
+    }
+
     /// Candidate terminal panels used as the source when creating inherited Ghostty config.
     /// Preference order:
     /// 1) explicitly preferred terminal panel (when the caller has one),
@@ -7206,8 +7244,29 @@ final class Workspace: Identifiable, ObservableObject {
         // create a local orphan the mirror can't reconcile. Dead mirrors are
         // torn down via handleSessionEndedRemotely.
         if isRemoteTmuxMirror {
+            let anchorPanelId = workingDirectoryFallbackSourcePanelId
+            let placement = remoteTmuxNewTabPlacement(inPane: paneId, anchorPanelId: anchorPanelId)
+            // Inherit the active tab's directory like a local new tab, sourcing it
+            // only from that tab's confirmed remote cwd (see
+            // remoteTmuxNewWindowWorkingDirectory). The socket/CLI layer rejects an
+            // explicit working_directory for mirror workspaces
+            // (mirrorRoutedUnsupportedOptions), so inheritance is the only source.
+            let inheritSourcePanelId = inheritWorkingDirectoryFallback
+                ? anchorPanelId ?? selectedTerminalPanelId(inPane: paneId)
+                : nil
+            let resolvedWorkingDirectory: String?
+            if let inheritSourcePanelId {
+                resolvedWorkingDirectory = remoteTmuxNewWindowWorkingDirectory(forSourcePanelId: inheritSourcePanelId)
+            } else {
+                resolvedWorkingDirectory = nil
+            }
             let routed = AppDelegate.shared?.remoteTmuxController
-                .handleMirrorNewTabRequested(workspaceId: id) ?? false
+                .handleMirrorNewTabRequested(
+                    workspaceId: id,
+                    placement: placement,
+                    workingDirectory: resolvedWorkingDirectory,
+                    workingDirectorySourcePanelId: inheritSourcePanelId
+                ) ?? false
             return routed ? .routedToRemote : .failed
         }
         guard let panel = newTerminalSurfaceLocal(
@@ -9520,55 +9579,6 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
     }
-
-    // MARK: - Surface Navigation
-
-    /// Select the next surface in the currently focused pane
-    func selectNextSurface() {
-        if layoutMode == .canvas, selectAdjacentCanvasTab(offset: 1) { return }
-        bonsplitController.selectNextTab()
-
-        if let paneId = bonsplitController.focusedPaneId,
-           let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
-            applyTabSelection(tabId: tabId, inPane: paneId)
-        }
-    }
-
-    /// Select the previous surface in the currently focused pane
-    func selectPreviousSurface() {
-        if layoutMode == .canvas, selectAdjacentCanvasTab(offset: -1) { return }
-        bonsplitController.selectPreviousTab()
-
-        if let paneId = bonsplitController.focusedPaneId,
-           let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
-            applyTabSelection(tabId: tabId, inPane: paneId)
-        }
-    }
-
-    /// Select a surface by index in the currently focused pane
-    func selectSurface(at index: Int) {
-        guard let focusedPaneId = bonsplitController.focusedPaneId else { return }
-        let tabs = bonsplitController.tabs(inPane: focusedPaneId)
-        guard index >= 0 && index < tabs.count else { return }
-        bonsplitController.selectTab(tabs[index].id)
-
-        if let tabId = bonsplitController.selectedTab(inPane: focusedPaneId)?.id {
-            applyTabSelection(tabId: tabId, inPane: focusedPaneId)
-        }
-    }
-
-    /// Select the last surface in the currently focused pane
-    func selectLastSurface() {
-        guard let focusedPaneId = bonsplitController.focusedPaneId else { return }
-        let tabs = bonsplitController.tabs(inPane: focusedPaneId)
-        guard let last = tabs.last else { return }
-        bonsplitController.selectTab(last.id)
-
-        if let tabId = bonsplitController.selectedTab(inPane: focusedPaneId)?.id {
-            applyTabSelection(tabId: tabId, inPane: focusedPaneId)
-        }
-    }
-
     /// Create a new terminal surface in the currently focused pane
     @discardableResult
     func newTerminalSurfaceInFocusedPane(focus: Bool? = nil, initialInput: String? = nil) -> TerminalPanel? {
@@ -11347,7 +11357,7 @@ extension Workspace: BonsplitDelegate {
 
     /// Apply the side-effects of selecting a tab (unfocus others, focus this panel, update state).
     /// bonsplit doesn't always emit didSelectTab for programmatic selection paths (e.g. createTab).
-    private func applyTabSelection(
+    func applyTabSelection(
         tabId: TabID,
         inPane pane: PaneID,
         reassertAppKitFocus: Bool = true,

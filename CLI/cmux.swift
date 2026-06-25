@@ -3842,6 +3842,49 @@ struct CMUXCLI {
         case "remotes", "remote":
             try runRemotesCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
 
+        case "mobile":
+            let sub = commandArgs.first?.lowercased()
+            let rest = Array(commandArgs.dropFirst())
+            let mobileUsage = String(
+                localized: "cli.mobile.setFont.usage",
+                defaultValue: "Usage: cmux mobile set-font <points> [--surface <id>] [--workspace <id>]"
+            )
+            switch sub {
+            case "set-font":
+                guard let sizeArg = rest.first(where: { !$0.hasPrefix("--") }),
+                      let size = Double(sizeArg), size.isFinite, size > 0 else {
+                    throw CLIError(message: mobileUsage)
+                }
+                var params: [String: Any] = ["font_size": size]
+                if let surface = optionValue(rest, name: "--surface") {
+                    params["surface_id"] = surface
+                }
+                if let workspace = optionValue(rest, name: "--workspace") {
+                    params["workspace_id"] = workspace
+                }
+                let response = try client.sendV2(method: "mobile.terminal.set_font", params: params)
+                if jsonOutput {
+                    print(jsonString(response))
+                    break
+                }
+                let delivered = (response["delivered"] as? Bool) ?? false
+                if delivered {
+                    print(localizedFormat(
+                        "cli.mobile.setFont.applied",
+                        defaultValue: "Set mobile terminal font to %@pt on connected device(s).",
+                        sizeArg
+                    ))
+                } else {
+                    print(localizedFormat(
+                        "cli.mobile.setFont.appliedNoDevice",
+                        defaultValue: "Set mobile terminal font to %@pt (no iOS device is currently connected).",
+                        sizeArg
+                    ))
+                }
+            default:
+                throw CLIError(message: mobileUsage)
+            }
+
         case "rpc":
             guard let method = commandArgs.first?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !method.isEmpty else {
@@ -5278,6 +5321,7 @@ struct CMUXCLI {
         "markdown",
         "mark-notification-read",
         "memory",
+        "mobile",
         "move-surface",
         "move-tab-to-new-workspace",
         "move-workspace-to-window",
@@ -5911,6 +5955,12 @@ struct CMUXCLI {
     ) throws -> String? {
         guard let raw else {
             if !allowCurrent { return nil }
+            // Prefer the caller's own workspace before the focused one (see
+            // resolveWorkspaceId). After the !allowCurrent guard, so explicit-surface
+            // routing (allowCurrent: false, resolves globally) is unaffected.
+            if let callerWorkspaceId = callerWorkspaceIdFromEnvironment(windowHandle: windowHandle) {
+                return callerWorkspaceId
+            }
             let current: [String: Any]
             if let windowHandle {
                 current = try client.sendV2(method: "workspace.current", params: ["window_id": windowHandle])
@@ -13890,6 +13940,17 @@ struct CMUXCLI {
             .replacingOccurrences(of: "%25", with: "%")
     }
 
+    /// The caller's own workspace, from the `CMUX_WORKSPACE_ID` the app injects into every
+    /// terminal surface. Nil when unset/blank/non-UUID, or when an explicit window is
+    /// targeted (the caller's workspace may live in another window). Resolvers prefer this
+    /// over the focused workspace so a command defaults to where it was invoked from.
+    private func callerWorkspaceIdFromEnvironment(windowHandle: String?) -> String? {
+        guard windowHandle == nil else { return nil }
+        let value = (ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return isUUID(value) ? value : nil
+    }
+
     private func resolveWorkspaceId(_ raw: String?, client: SocketClient, windowHandle: String? = nil) throws -> String {
         if let raw, isUUID(raw) {
             return raw
@@ -13926,6 +13987,28 @@ struct CMUXCLI {
                 if let id = item["id"] as? String { return id }
             }
             throw CLIError(message: "Workspace index not found")
+        }
+
+        // Reached only when `raw` was nil, blank, or nonblank-but-unrecognized (valid
+        // UUID/ref/index selectors returned or threw above). An explicit, nonblank,
+        // unrecognized selector (e.g. a typo) fails closed regardless of caller/window, so a
+        // malformed name never silently resolves to — and mutates — a different workspace.
+        if let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw CLIError(message: "Workspace not found: \(raw)")
+        }
+
+        // `raw` is nil (omitted) or blank. Prefer the caller's own workspace over the
+        // focused one, so a background agent that omits/empties --workspace never silently
+        // acts on whatever workspace is selected in the foreground.
+        if let callerWorkspaceId = callerWorkspaceIdFromEnvironment(windowHandle: windowHandle) {
+            return callerWorkspaceId
+        }
+
+        // No caller workspace. An explicit but blank selector (the dangerous
+        // `--workspace "${CMUX_WORKSPACE_ID:-}"`-expands-to-empty case) fails closed; only a
+        // truly omitted selector, or an explicit --window, uses the window's selection.
+        if windowHandle == nil, raw != nil {
+            throw CLIError(message: "No workspace selected: --workspace was blank and CMUX_WORKSPACE_ID is unset")
         }
 
         var currentParams: [String: Any] = [:]

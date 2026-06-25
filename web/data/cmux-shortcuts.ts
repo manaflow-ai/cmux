@@ -290,7 +290,7 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "canvasOverview", combos: [["⌃", "⌘", "O"]], description: { en: "Toggle overview zoom", ja: "全体表示を切り替え" } },
       { id: "canvasZoomIn", combos: [["⌥", "⌘", "="]], description: { en: "Zoom in", ja: "拡大" } },
       { id: "canvasZoomOut", combos: [["⌥", "⌘", "-"]], description: { en: "Zoom out", ja: "縮小" } },
-      { id: "canvasZoomReset", combos: [["⌥", "⌘", "0"]], description: { en: "Actual size", ja: "実寸表示" } },
+      { id: "canvasZoomReset", combos: [["⌘", "0"]], description: { en: "Actual size", ja: "実寸表示" } },
       { id: "canvasTidy", combos: [["⌃", "⌘", "T"]], description: { en: "Tidy panes into a grid", ja: "ペインをグリッドに整列" } },
     ],
   },

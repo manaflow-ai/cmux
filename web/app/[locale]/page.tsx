@@ -4,6 +4,7 @@ import Balancer from "react-wrap-balancer";
 import { TypingTagline } from "./typing";
 import { DownloadButton } from "./components/download-button";
 import { GitHubButton } from "./components/github-button";
+import { WaitlistCallout } from "./components/waitlist-callout";
 import { SiteHeader } from "./components/site-header";
 import { BrandLogoLink } from "./components/brand-logo-link";
 import {
@@ -178,10 +179,14 @@ function HomeContent() {
           </ul>
         </section>
 
-        {/* Screenshot */}
+        {/* Screenshot: bleeds wider than the text column but stays bounded to
+            the viewport so it always fits on screen with a left/right gutter.
+            The width tracks the viewport minus a 1.5rem gutter on each side and
+            is capped at 90rem; left-1/2 + -translate-x-1/2 keeps it centered
+            over the narrower text column. */}
         <div
           data-dev="screenshot"
-          className="mt-12 mb-12 sm:-mx-24 md:-mx-40 lg:-mx-72 xl:-mx-96"
+          className="mt-12 mb-12 relative left-1/2 -translate-x-1/2 w-[min(90rem,100vw_-_3rem)]"
         >
           <HeroScreenshot />
         </div>
@@ -217,7 +222,18 @@ function HomeContent() {
             </div>
             <div>
               <p className="font-medium mb-1">{t("faqIosQ")}</p>
-              <p className="text-muted">{t("faqIosA")}</p>
+              <p className="text-muted">
+                {t.rich("faqIosA", {
+                  foundersLink: (chunks) => (
+                    <a
+                      href="https://github.com/manaflow-ai/cmux#founders-edition"
+                      className={linkClass}
+                    >
+                      {chunks}
+                    </a>
+                  ),
+                })}
+              </p>
             </div>
             <div>
               <p className="font-medium mb-1">{t("faqAgentsQ")}</p>
@@ -520,6 +536,9 @@ function HomeContent() {
         <div className="flex flex-wrap items-center justify-center gap-3 mt-12">
           <DownloadButton location="bottom" />
           <GitHubButton />
+        </div>
+        <div className="mt-3 flex justify-center">
+          <WaitlistCallout location="bottom" />
         </div>
         <div className="flex justify-center gap-4 mt-6">
           <Link

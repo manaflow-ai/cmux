@@ -38,20 +38,20 @@ struct DeviceTreeView: View {
     /// the next registry load.) Each is enriched with presence, live status, and how
     /// many aggregated workspaces it contributes.
     private var computers: [MacComputerSnapshot] {
-        let workspaces = store.workspaces
         let colorIndex = store.machineColorIndex
         // The PHONE's own per-Mac connection (foreground or live secondary) — the
         // source of truth for the dot, distinct from presence.
         let connectionStatuses = store.macConnectionStatuses
-        return store.pairedMacs.map { mac in
-            let summary = store.presenceMap.deviceSummary(deviceId: mac.macDeviceID)
+        return store.displayPairedMacs.map { mac in
+            let aliases = store.pairedMacAliasIDs(for: mac.macDeviceID)
+            let summary = store.presenceSummary(for: mac.macDeviceID)
             let presence: DeviceTreePresence? = summary
                 .map { $0.online ? .online : .offline(lastSeenAt: $0.lastSeenAt) }
             return MacComputerSnapshot(
                 deviceId: mac.macDeviceID,
                 title: mac.resolvedName,
                 platform: "mac",
-                colorIndex: colorIndex[mac.macDeviceID],
+                colorIndex: aliases.compactMap { colorIndex[$0] }.first,
                 customColor: mac.customColor,
                 customIcon: mac.customIcon,
                 connectionStatus: connectionStatuses[mac.macDeviceID],
@@ -59,7 +59,8 @@ struct DeviceTreeView: View {
                 buildLabel: summary?.buildLabel,
                 routeDescription: CmxAttachRoute.deviceTreeRouteDescription(for: mac.routes),
                 lastSeenAt: mac.lastSeenAt,
-                workspaceCount: workspaces.filter { $0.macDeviceID == mac.macDeviceID }.count
+                workspaceCount: store.workspaceCount(for: mac.macDeviceID),
+                aliasIDs: aliases
             )
         }
     }
@@ -154,10 +155,7 @@ struct DeviceTreeView: View {
                     pendingRemoval = nil
                 }
             } message: {
-                Text(L10n.string(
-                    "mobile.computers.removeMessage",
-                    defaultValue: "This computer and its workspaces stop appearing here. Pair it again to add it back."
-                ))
+                Text(removeMessage(pendingRemoval))
             }
         }
         .accessibilityIdentifier("MobileDeviceTree")
@@ -198,6 +196,22 @@ struct DeviceTreeView: View {
         String(
             format: L10n.string("mobile.computers.removeTitleFormat", defaultValue: "Remove %@?"),
             computer?.title ?? ""
+        )
+    }
+
+    private func removeMessage(_ computer: MacComputerSnapshot?) -> String {
+        guard let computer, computer.aliasIDs.count > 1 else {
+            return L10n.string(
+                "mobile.computers.removeMessage",
+                defaultValue: "This computer and its workspaces stop appearing here. Pair it again to add it back."
+            )
+        }
+        return String(
+            format: L10n.string(
+                "mobile.computers.removeMessageRepresentativeFormat",
+                defaultValue: "This removes paired record %@. Other matching records may still appear."
+            ),
+            computer.deviceId
         )
     }
 

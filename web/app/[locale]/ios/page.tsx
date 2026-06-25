@@ -1,7 +1,7 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import Image from "next/image";
 import { Link } from "../../../i18n/navigation";
+import { RevealImage } from "../components/reveal-image";
 import { buildAlternates } from "../../../i18n/seo";
 import { SiteHeader } from "../components/site-header";
 import { BrandLogoLink } from "../components/brand-logo-link";
@@ -13,7 +13,6 @@ import {
   ctaButtonStyle,
 } from "../components/cta-styles";
 import iosWorkspaces from "../assets/ios-workspaces.png";
-import iosTerminal from "../assets/ios-terminal.png";
 import iosClaude from "../assets/ios-claude.png";
 import iosCodex from "../assets/ios-codex.png";
 import iosOpencode from "../assets/ios-opencode.png";
@@ -22,7 +21,6 @@ import iosNvim from "../assets/ios-nvim.png";
 import iosVim from "../assets/ios-vim.png";
 import iosHtop from "../assets/ios-htop.png";
 import iosBtop from "../assets/ios-btop.png";
-import iosNeofetch from "../assets/ios-neofetch.png";
 
 export async function generateMetadata({
   params,
@@ -104,17 +102,18 @@ export default function IosLanding() {
           data-dev="ios-screenshot"
           className="my-14 grid grid-cols-2 gap-5 sm:gap-10 max-w-lg mx-auto"
         >
-          <Image
+          <RevealImage
             src={iosWorkspaces}
             alt={t("screenshotAlt")}
             priority
             sizes="(max-width: 640px) 42vw, 240px"
             className="w-full h-auto drop-shadow-[0_24px_56px_rgba(0,0,0,0.5)]"
           />
-          <Image
-            src={iosTerminal}
+          <RevealImage
+            src={iosClaude}
             alt={t("screenshotAlt")}
             priority
+            delay={90}
             sizes="(max-width: 640px) 42vw, 240px"
             className="w-full h-auto drop-shadow-[0_24px_56px_rgba(0,0,0,0.5)]"
           />
@@ -125,25 +124,33 @@ export default function IosLanding() {
           <h2 className="text-xs font-medium text-muted tracking-tight mb-5 text-center">
             {t("galleryTitle")}
           </h2>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 sm:gap-6 px-6 sm:px-0">
-            {[
-              iosClaude,
-              iosCodex,
-              iosOpencode,
-              iosPi,
-              iosNvim,
-              iosVim,
-              iosHtop,
-              iosBtop,
-              iosNeofetch,
-            ].map((src, i) => (
-              <Image
-                key={i}
-                src={src}
-                alt={t("screenshotAlt")}
-                sizes="(max-width: 640px) 42vw, 200px"
-                className="w-full h-auto drop-shadow-[0_18px_40px_rgba(0,0,0,0.45)]"
-              />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 px-6 sm:px-0">
+            {(
+              [
+                [iosClaude, "Claude Code"],
+                [iosCodex, "Codex"],
+                [iosOpencode, "OpenCode"],
+                [iosPi, "pi"],
+                [iosNvim, "Neovim"],
+                [iosVim, "Vim"],
+                [iosHtop, "htop"],
+                [iosBtop, "btop"],
+              ] as const
+            ).map(([src, name], i) => (
+              <figure key={name} className="m-0">
+                <RevealImage
+                  src={src}
+                  alt={t("galleryItemAlt", { name })}
+                  // Cascade within each row pair so the grid reveals as a wave
+                  // rather than all at once.
+                  delay={(i % 2) * 90}
+                  sizes="(max-width: 640px) 90vw, 336px"
+                  className="w-full h-auto drop-shadow-[0_18px_40px_rgba(0,0,0,0.45)]"
+                />
+                <figcaption className="mt-2.5 text-center text-xs text-muted">
+                  {name}
+                </figcaption>
+              </figure>
             ))}
           </div>
         </section>
