@@ -322,6 +322,52 @@ import Testing
         #expect(workspace.pendingResumeBreadcrumbsByPanelId[panelId] == nil)
     }
 
+    @Test func bindingOnlyResumeIsNotLiveUntilResumeCommandRuns() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-binding-not-live-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let sessionId = "sess-binding-not-live"
+        let projectDir = configDir
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent(RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd.path), isDirectory: true)
+        try FileManager.default.createDirectory(at: cwd, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+        try "{}\n".write(
+            to: projectDir.appendingPathComponent("\(sessionId).jsonl", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "Recovered binding",
+            kind: RestorableAgentKind.claude.rawValue,
+            command: "claude --resume \(sessionId)",
+            cwd: cwd.path,
+            checkpointId: sessionId,
+            source: "agent-hook",
+            environment: ["CLAUDE_CONFIG_DIR": configDir.path],
+            autoResume: true
+        )
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelId))
+        workspace.restoredAgentVerificationByPanelId[panelId] = Workspace.crashRecoveryVerification(binding: binding)
+        workspace.restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
+
+        let suiteName = "binding-not-live-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        CrashRecoverySettings.setInjectResumeBreadcrumb(false, defaults: defaults)
+
+        #expect(!workspace.isAgentLive)
+        let outcome = workspace.resumeWhereWeLeftOff(defaults: defaults)
+
+        #expect(outcome == .resumed(deliveredBreadcrumb: false))
+        #expect(workspace.restoredAgentResumeStatesByPanelId[panelId] == .awaitingAutoResumeCommand)
+    }
+
     @Test func bindingOnlyResumeQueuesBreadcrumbUntilCommandRuns() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-binding-breadcrumb-\(UUID().uuidString)", isDirectory: true)

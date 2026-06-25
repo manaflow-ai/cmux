@@ -106,7 +106,8 @@ extension Workspace: ResumableWorkspaceSurface {
         case .manualResumeAvailable, .awaitingAutoResumeCommand:
             return false
         case nil:
-            return crashRecoveryResumeBinding != nil && focusedTerminalPanel?.surface.surface != nil
+            return crashRecoveryResumeBinding?.isProcessDetected == true
+                && focusedTerminalPanel?.surface.surface != nil
         }
     }
 
