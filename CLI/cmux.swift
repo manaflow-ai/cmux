@@ -26696,7 +26696,7 @@ struct CMUXCLI {
         ) else {
             // Sanitized-away argv means a non-restorable invocation. Do not
             // replace it with an env-only fallback.
-            return AgentHookLaunchCommandRecord(launcher: launcher, executablePath: executablePath, arguments: [], workingDirectory: workingDirectory, environment: environment.isEmpty ? nil : environment, capturedAt: Date().timeIntervalSince1970, source: "rejected")
+            return AgentHookLaunchCommandRecord(launcher: launcher, executablePath: executablePath, arguments: [], workingDirectory: workingDirectory, environment: nil, capturedAt: Date().timeIntervalSince1970, source: "rejected")
         }
         let source = envArguments == nil ? "process" : "environment"
 

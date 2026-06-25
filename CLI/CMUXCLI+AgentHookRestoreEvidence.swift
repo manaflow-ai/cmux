@@ -25,6 +25,9 @@ extension CMUXCLI {
         current: AgentHookLaunchCommandRecord?,
         mapped: AgentHookLaunchCommandRecord?
     ) -> AgentHookLaunchCommandRecord? {
+        if normalizedHookValue(current?.source)?.lowercased() == "rejected" {
+            return current
+        }
         if let current, agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: current) {
             return current
         }
