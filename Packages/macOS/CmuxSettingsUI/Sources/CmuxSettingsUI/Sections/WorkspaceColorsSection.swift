@@ -157,7 +157,11 @@ public struct WorkspaceColorsSection: View {
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                 }
-                HexColorPicker(storedHex: model.current, fallback: Self.cmuxAccentColor()) { hex in
+                HexColorPicker(
+                    storedHex: model.current,
+                    fallback: Self.cmuxAccentColor(),
+                    reconcileRevision: model.revision
+                ) { hex in
                     model.set(hex)
                 }
                 Text(isCustom ? model.current : String(localized: "settings.sidebarAppearance.defaultLabel", defaultValue: "Default"))
@@ -186,7 +190,11 @@ public struct WorkspaceColorsSection: View {
             subtitle: subtitle
         ) {
             HStack(spacing: 8) {
-                HexColorPicker(storedHex: entry.hex, fallback: Color(nsColor: .systemBlue)) { hex in
+                HexColorPicker(
+                    storedHex: entry.hex,
+                    fallback: Color(nsColor: .systemBlue),
+                    reconcileRevision: paletteModel.revision
+                ) { hex in
                     // Legacy semantics: persist the full effective
                     // palette (built-ins filled in at their default
                     // hex when missing) so editing one entry never

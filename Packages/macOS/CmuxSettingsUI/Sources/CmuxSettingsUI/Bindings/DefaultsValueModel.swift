@@ -34,6 +34,7 @@ import Observation
 public final class DefaultsValueModel<Value: SettingCodable> {
     /// The most recently observed value. SwiftUI views read this synchronously.
     public private(set) var current: Value
+    private(set) var revision = 0
 
     private let store: UserDefaultsSettingsStore
     private let key: DefaultsKey<Value>
@@ -90,7 +91,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     /// lifecycle hook such as `.task`, not from their initializer.
     public func startObserving() {
         observation.activate(makeStream) { [weak self] value in
-            self?.current = value
+            self?.updateCurrent(value)
         }
     }
 
@@ -100,7 +101,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     /// SwiftUI `Binding` setters can't `await`; the write itself runs in a
     /// fire-and-forget `Task`.
     public func set(_ value: Value) {
-        current = value
+        updateCurrent(value)
         Task { [store, key] in
             await store.set(value, for: key)
         }
@@ -117,7 +118,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     ///   - afterCommit: Main-actor work to run after ``UserDefaultsSettingsStore``
     ///     has completed the write.
     public func set(_ value: Value, afterCommit: @escaping @MainActor @Sendable () -> Void) {
-        current = value
+        updateCurrent(value)
         Task { [store, key, afterCommit] in
             await store.set(value, for: key)
             await afterCommit()
@@ -130,15 +131,20 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     /// and must stay in one host-owned mutation path. Unlike ``set(_:)``, this
     /// method does not write to ``store``.
     public func acceptCommittedValue(_ value: Value) {
-        current = value
+        updateCurrent(value)
     }
 
     /// Removes the override; ``current`` updates when the stream observes
     /// the reset.
     public func reset() {
-        current = key.defaultValue
+        updateCurrent(key.defaultValue)
         Task { [store, key] in
             await store.reset(key)
         }
+    }
+
+    private func updateCurrent(_ value: Value) {
+        current = value
+        revision &+= 1
     }
 }

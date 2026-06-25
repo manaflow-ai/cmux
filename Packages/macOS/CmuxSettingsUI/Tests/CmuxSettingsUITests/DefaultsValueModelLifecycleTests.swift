@@ -132,6 +132,34 @@ import Testing
         #expect(UserDefaults(suiteName: suiteName)?.object(forKey: key.userDefaultsKey) == nil)
     }
 
+    @Test func revisionAdvancesForSameValueWrites() {
+        let store = UserDefaultsSettingsStore(
+            defaults: UserDefaults(suiteName: "defaults-value-model-revision")!
+        )
+        let key = SettingCatalog().betaFeatures.extensions
+        let (stream, _) = AsyncStream<Bool>.makeStream()
+        let model = DefaultsValueModel(
+            store: store,
+            key: key,
+            makeStream: { stream }
+        )
+
+        #expect(model.current == false)
+        #expect(model.revision == 0)
+
+        model.set(false)
+        #expect(model.current == false)
+        #expect(model.revision == 1)
+
+        model.acceptCommittedValue(false)
+        #expect(model.current == false)
+        #expect(model.revision == 2)
+
+        model.reset()
+        #expect(model.current == false)
+        #expect(model.revision == 3)
+    }
+
     @Test func setAfterCommitRunsAfterStoreWrite() async {
         let suiteName = "defaults-value-model-after-commit"
         UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
