@@ -24,6 +24,7 @@ final class ChatTranscriptUITableView: UITableView {
     private var lastBoundsSize: CGSize = .zero
     private var lastContentSize: CGSize = .zero
     private var lastViewport: MobileScrollViewportSnapshot?
+    var isKeyboardViewportExternallyDriven = false
     #if DEBUG
     private var recordedKeyboardAnimationID = 0
     private var keyboardDebugMaxAnimationPresentationGap: CGFloat = 0
@@ -55,9 +56,16 @@ final class ChatTranscriptUITableView: UITableView {
     }
 
     func restoreKeyboardViewport(_ snapshot: MobileScrollViewportSnapshot) {
+        restoreKeyboardViewport(snapshot, boundsHeight: bounds.height)
+    }
+
+    func restoreKeyboardViewport(
+        _ snapshot: MobileScrollViewportSnapshot,
+        boundsHeight: CGFloat
+    ) {
         let targetY = snapshot.restoredOffsetY(
             contentHeight: contentSize.height,
-            boundsHeight: bounds.height,
+            boundsHeight: boundsHeight,
             adjustedTopInset: adjustedContentInset.top,
             adjustedBottomInset: adjustedContentInset.bottom
         )

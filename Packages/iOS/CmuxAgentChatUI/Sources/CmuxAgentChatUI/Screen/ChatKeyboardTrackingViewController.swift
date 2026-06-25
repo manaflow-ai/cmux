@@ -26,21 +26,18 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
     private typealias ScrollSnapshot = (scrollView: ChatTranscriptUITableView, snapshot: MobileScrollViewportSnapshot)
 
     private let keyboardProgressView = UIView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
-    private var composerBottomConstraint: NSLayoutConstraint?
-    private var composerZeroHeightConstraint: NSLayoutConstraint?
     private var activeKeyboardScrollSnapshots: [ScrollSnapshot] = []
     private var isRestoringKeyboardViewport = false
     private var keyboardOverlap: CGFloat = 0
     private var keyboardTransitionID = 0
+    private var lastKeyboardTransitionDuration: TimeInterval = 0.3833
     private var keyboardFrameAnimation: ChatKeyboardFrameAnimation?
-    private var keyboardFrameDisplayLink: CADisplayLink?
+    private var keyboardViewportDisplayLink: CADisplayLink?
     #if DEBUG
     private var keyboardDebugEventCount = 0
     private var keyboardDebugTransitionDuration: TimeInterval = 0
     #endif
     private var keyboardObservers: [ChatKeyboardNotificationToken] = []
-    private var keyboardGuideDisplayLink: CADisplayLink?
-    private var keyboardGuideTrackingFramesRemaining = 0
     private weak var installedWindow: UIWindow?
 
     private lazy var dismissTapRecognizer: UITapGestureRecognizer = {
@@ -82,34 +79,17 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         addChild(transcriptHostingController)
         transcriptHostingController.view.backgroundColor = .clear
         transcriptHostingController.safeAreaRegions = .container
-        transcriptHostingController.view.translatesAutoresizingMaskIntoConstraints = false
+        transcriptHostingController.view.translatesAutoresizingMaskIntoConstraints = true
         view.addSubview(transcriptHostingController.view)
 
         addChild(composerHostingController)
         composerHostingController.view.backgroundColor = .clear
         composerHostingController.safeAreaRegions = .container
         composerHostingController.sizingOptions = [.intrinsicContentSize]
-        composerHostingController.view.translatesAutoresizingMaskIntoConstraints = false
+        composerHostingController.view.translatesAutoresizingMaskIntoConstraints = true
         composerHostingController.view.setContentHuggingPriority(.required, for: .vertical)
         composerHostingController.view.setContentCompressionResistancePriority(.required, for: .vertical)
         view.addSubview(composerHostingController.view)
-
-        let zeroHeight = composerHostingController.view.heightAnchor.constraint(equalToConstant: 0)
-        composerZeroHeightConstraint = zeroHeight
-
-        let bottomConstraint = composerHostingController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        composerBottomConstraint = bottomConstraint
-
-        NSLayoutConstraint.activate([
-            transcriptHostingController.view.topAnchor.constraint(equalTo: view.topAnchor),
-            transcriptHostingController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            transcriptHostingController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            transcriptHostingController.view.bottomAnchor.constraint(equalTo: composerHostingController.view.topAnchor),
-
-            composerHostingController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            composerHostingController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            bottomConstraint,
-        ])
 
         transcriptHostingController.didMove(toParent: self)
         composerHostingController.didMove(toParent: self)
@@ -119,24 +99,17 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
             UIResponder.keyboardWillChangeFrameNotification,
             UIResponder.keyboardWillShowNotification,
             UIResponder.keyboardWillHideNotification,
-            UITextField.textDidBeginEditingNotification,
-            UITextField.textDidEndEditingNotification,
-            UITextView.textDidBeginEditingNotification,
-            UITextView.textDidEndEditingNotification,
         ] {
             let observer = NotificationCenter.default.addObserver(
                 forName: name,
                 object: nil,
                 queue: .main
             ) { [weak self] notification in
-                if let transition = MobileKeyboardTransition(notification: notification) {
-                    Task { @MainActor [weak self, transition] in
-                        self?.keyboardWillChangeFrame(transition)
-                    }
-                } else {
-                    Task { @MainActor [weak self] in
-                        self?.startKeyboardGuideTracking()
-                    }
+                guard let transition = MobileKeyboardTransition(notification: notification) else {
+                    return
+                }
+                Task { @MainActor [weak self, transition] in
+                    self?.keyboardWillChangeFrame(transition)
                 }
             }
             keyboardObservers.append(ChatKeyboardNotificationToken(observer))
@@ -146,16 +119,16 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         installDismissTapIfNeeded()
+        layoutChatGeometry(overlap: keyboardOverlap, preserving: activeKeyboardScrollSnapshots)
         #if DEBUG
         updateKeyboardDebugValues(overlap: keyboardOverlap)
         #endif
-        restoreKeyboardViewports(activeKeyboardScrollSnapshots)
     }
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         stopKeyboardFrameAnimation()
-        stopKeyboardGuideTracking(clearSnapshots: true)
+        activeKeyboardScrollSnapshots = []
         installedWindow?.removeGestureRecognizer(dismissTapRecognizer)
         installedWindow = nil
     }
@@ -172,14 +145,16 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
 
     private func keyboardWillChangeFrame(_ transition: MobileKeyboardTransition) {
         let overlap = transition.overlap(in: view)
+        if let keyboardFrameAnimation,
+           abs(keyboardFrameAnimation.targetOverlap - overlap) <= 0.5 {
+            return
+        }
+        let effectiveDuration = effectiveKeyboardTransitionDuration(for: transition, targetOverlap: overlap)
         #if DEBUG
-        keyboardDebugTransitionDuration = transition.duration
+        keyboardDebugTransitionDuration = effectiveDuration
         keyboardDebugEventCount += 1
         updateKeyboardDebugValues(overlap: overlap)
         #endif
-        if overlap > 0 || keyboardOverlap > 0 {
-            stopKeyboardGuideTracking(clearSnapshots: false)
-        }
         let scrollSnapshots = activeKeyboardScrollSnapshots.isEmpty
             ? trackedScrollSnapshots()
             : activeKeyboardScrollSnapshots
@@ -189,40 +164,54 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         startKeyboardFrameAnimation(
             to: overlap,
             transition: transition,
+            duration: effectiveDuration,
             preserving: scrollSnapshots,
             transitionID: transitionID
         )
     }
 
+    private func effectiveKeyboardTransitionDuration(
+        for transition: MobileKeyboardTransition,
+        targetOverlap: CGFloat
+    ) -> TimeInterval {
+        if transition.duration > 0 {
+            lastKeyboardTransitionDuration = transition.duration
+            return transition.duration
+        }
+        if abs(targetOverlap - keyboardOverlap) > 0.5 {
+            return lastKeyboardTransitionDuration
+        }
+        return 0
+    }
+
     private func startKeyboardFrameAnimation(
         to targetOverlap: CGFloat,
         transition: MobileKeyboardTransition,
+        duration: TimeInterval,
         preserving scrollSnapshots: [ScrollSnapshot],
         transitionID: Int
     ) {
-        stopKeyboardFrameAnimation()
-
         let startOverlap = keyboardOverlap
-        guard transition.duration > 0, abs(targetOverlap - startOverlap) > 0.5 else {
-            keyboardFrameAnimation = nil
-            keyboardProgressView.center = CGPoint(x: 1, y: 0)
-            applyKeyboardOverlap(targetOverlap, preserving: scrollSnapshots)
+        stopKeyboardFrameAnimation()
+        guard duration > 0, abs(targetOverlap - startOverlap) > 0.5 else {
+            layoutChatGeometry(overlap: targetOverlap, preserving: scrollSnapshots)
             activeKeyboardScrollSnapshots = []
             return
         }
 
-        keyboardProgressView.center = CGPoint(x: 0, y: 0)
+        setKeyboardViewportExternallyDriven(true, for: scrollSnapshots)
         keyboardFrameAnimation = ChatKeyboardFrameAnimation(
             id: transitionID,
             startOverlap: startOverlap,
             targetOverlap: targetOverlap,
             scrollSnapshots: scrollSnapshots
         )
-        startKeyboardFrameDisplayLink()
+        keyboardProgressView.layer.removeAllAnimations()
+        keyboardProgressView.center = CGPoint(x: 0, y: 0)
+        layoutChatGeometry(overlap: startOverlap, preserving: scrollSnapshots, disablesAnimations: true)
+        startKeyboardViewportDisplayLink()
 
-        transition.animate {
-            self.keyboardOverlap = targetOverlap
-            self.applyKeyboardOverlap(targetOverlap, preserving: scrollSnapshots)
+        transition.animate(durationOverride: duration) {
             self.keyboardProgressView.center = CGPoint(x: 1, y: 0)
         } completion: { _ in
             guard self.keyboardTransitionID == transitionID else { return }
@@ -234,17 +223,46 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         targetOverlap: CGFloat,
         preserving scrollSnapshots: [ScrollSnapshot]
     ) {
-        stopKeyboardFrameAnimation()
-        keyboardProgressView.center = CGPoint(x: 1, y: 0)
-        applyKeyboardOverlap(targetOverlap, preserving: scrollSnapshots)
+        stopKeyboardFrameAnimation(clearDrivenTables: false)
+        layoutChatGeometry(overlap: targetOverlap, preserving: scrollSnapshots)
+        setKeyboardViewportExternallyDriven(false, for: scrollSnapshots)
         activeKeyboardScrollSnapshots = []
     }
 
-    private func stopKeyboardFrameAnimation() {
-        keyboardFrameDisplayLink?.invalidate()
-        keyboardFrameDisplayLink = nil
+    private func stopKeyboardFrameAnimation(clearDrivenTables: Bool = true) {
+        if clearDrivenTables, let keyboardFrameAnimation {
+            setKeyboardViewportExternallyDriven(false, for: keyboardFrameAnimation.scrollSnapshots)
+        }
+        keyboardViewportDisplayLink?.invalidate()
+        keyboardViewportDisplayLink = nil
         keyboardFrameAnimation = nil
         keyboardProgressView.layer.removeAllAnimations()
+    }
+
+    private func startKeyboardViewportDisplayLink() {
+        guard keyboardViewportDisplayLink == nil else { return }
+        let displayLink = CADisplayLink(target: self, selector: #selector(keyboardViewportDisplayLinkDidTick))
+        displayLink.add(to: .main, forMode: .common)
+        keyboardViewportDisplayLink = displayLink
+    }
+
+    @objc private func keyboardViewportDisplayLinkDidTick() {
+        guard let animation = keyboardFrameAnimation else {
+            keyboardViewportDisplayLink?.invalidate()
+            keyboardViewportDisplayLink = nil
+            return
+        }
+        let progress = currentKeyboardFrameAnimationProgress()
+        let overlap = animation.startOverlap
+            + ((animation.targetOverlap - animation.startOverlap) * progress)
+        layoutChatGeometry(
+            overlap: overlap,
+            preserving: animation.scrollSnapshots,
+            disablesAnimations: true
+        )
+        #if DEBUG
+        updateKeyboardDebugValues(overlap: keyboardOverlap)
+        #endif
     }
 
     private func currentKeyboardFrameAnimationProgress() -> CGFloat {
@@ -253,41 +271,63 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         return min(max(rawProgress, 0), 1)
     }
 
-    private func startKeyboardFrameDisplayLink() {
-        guard keyboardFrameDisplayLink == nil else { return }
-        let displayLink = CADisplayLink(target: self, selector: #selector(keyboardFrameDisplayLinkDidTick))
-        displayLink.add(to: .main, forMode: .common)
-        keyboardFrameDisplayLink = displayLink
-    }
-
-    @objc private func keyboardFrameDisplayLinkDidTick() {
-        guard let animation = keyboardFrameAnimation else {
-            keyboardFrameDisplayLink?.invalidate()
-            keyboardFrameDisplayLink = nil
+    private func layoutChatGeometry(
+        overlap: CGFloat,
+        preserving scrollSnapshots: [ScrollSnapshot] = [],
+        disablesAnimations: Bool = false
+    ) {
+        let update = {
+            self.updateChatGeometry(overlap: overlap, preserving: scrollSnapshots)
+        }
+        guard disablesAnimations else {
+            update()
             return
         }
-        let progress = currentKeyboardFrameAnimationProgress()
-        let overlap = animation.startOverlap
-            + ((animation.targetOverlap - animation.startOverlap) * progress)
-        #if DEBUG
-        updateKeyboardDebugValues(overlap: overlap)
-        #endif
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        UIView.performWithoutAnimation(update)
+        CATransaction.commit()
     }
 
-    private func applyKeyboardOverlap(
-        _ overlap: CGFloat,
-        preserving scrollSnapshots: [ScrollSnapshot] = []
+    private func updateChatGeometry(
+        overlap: CGFloat,
+        preserving scrollSnapshots: [ScrollSnapshot]
     ) {
-        keyboardOverlap = overlap
-        composerBottomConstraint?.constant = -overlap
-        view.setNeedsLayout()
-        view.layoutIfNeeded()
+        let clampedOverlap = min(max(0, overlap), max(0, view.bounds.height))
+        keyboardOverlap = clampedOverlap
+        let bounds = view.bounds
+        let composerHeight = measuredComposerHeight(width: bounds.width)
+        let composerBottom = bounds.maxY - clampedOverlap
+        let composerTop = max(bounds.minY, composerBottom - composerHeight)
+
+        transcriptHostingController.view.frame = CGRect(
+            x: bounds.minX,
+            y: bounds.minY,
+            width: bounds.width,
+            height: max(0, composerTop - bounds.minY)
+        )
+        composerHostingController.view.frame = CGRect(
+            x: bounds.minX,
+            y: composerTop,
+            width: bounds.width,
+            height: composerHeight
+        )
         transcriptHostingController.view.layoutIfNeeded()
         composerHostingController.view.layoutIfNeeded()
         restoreKeyboardViewports(scrollSnapshots)
         #if DEBUG
         updateKeyboardDebugValues(overlap: overlap)
         #endif
+    }
+
+    private func measuredComposerHeight(width: CGFloat) -> CGFloat {
+        guard showsComposer, width > 0 else { return 0 }
+        let fittingSize = CGSize(
+            width: width,
+            height: UIView.layoutFittingCompressedSize.height
+        )
+        let measured = composerHostingController.sizeThatFits(in: fittingSize)
+        return max(0, ceil(measured.height))
     }
 
     private func restoreKeyboardViewports(_ scrollSnapshots: [ScrollSnapshot]) {
@@ -305,47 +345,9 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         }
     }
 
-    private func startKeyboardGuideTracking() {
-        guard view.window != nil else { return }
-        guard keyboardFrameAnimation == nil else { return }
-        if activeKeyboardScrollSnapshots.isEmpty {
-            activeKeyboardScrollSnapshots = trackedScrollSnapshots()
-        }
-        keyboardGuideTrackingFramesRemaining = 45
-        guard keyboardGuideDisplayLink == nil else { return }
-        let displayLink = CADisplayLink(target: self, selector: #selector(keyboardGuideDisplayLinkDidTick))
-        displayLink.add(to: .main, forMode: .common)
-        keyboardGuideDisplayLink = displayLink
-    }
-
-    private func stopKeyboardGuideTracking(clearSnapshots: Bool) {
-        keyboardGuideDisplayLink?.invalidate()
-        keyboardGuideDisplayLink = nil
-        keyboardGuideTrackingFramesRemaining = 0
-        if clearSnapshots {
-            activeKeyboardScrollSnapshots = []
-        }
-    }
-
-    @objc private func keyboardGuideDisplayLinkDidTick() {
-        guard view.window != nil else {
-            stopKeyboardGuideTracking(clearSnapshots: true)
-            return
-        }
-        let overlap = keyboardLayoutGuideOverlap()
-        if abs(overlap - keyboardOverlap) > 0.5 {
-            if activeKeyboardScrollSnapshots.isEmpty {
-                activeKeyboardScrollSnapshots = trackedScrollSnapshots()
-            }
-            applyKeyboardOverlap(overlap, preserving: activeKeyboardScrollSnapshots)
-        } else {
-            #if DEBUG
-            updateKeyboardDebugValues(overlap: overlap)
-            #endif
-        }
-        keyboardGuideTrackingFramesRemaining -= 1
-        if keyboardGuideTrackingFramesRemaining <= 0 {
-            stopKeyboardGuideTracking(clearSnapshots: true)
+    private func setKeyboardViewportExternallyDriven(_ isDriven: Bool, for scrollSnapshots: [ScrollSnapshot]) {
+        for (scrollView, _) in scrollSnapshots {
+            scrollView.isKeyboardViewportExternallyDriven = isDriven
         }
     }
 
@@ -396,10 +398,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
     private func updateComposerVisibility() {
         guard isViewLoaded else { return }
         composerHostingController.view.isHidden = !showsComposer
-        composerZeroHeightConstraint?.isActive = !showsComposer
-        view.setNeedsLayout()
-        view.layoutIfNeeded()
-        restoreKeyboardViewports(activeKeyboardScrollSnapshots)
+        layoutChatGeometry(overlap: keyboardOverlap, preserving: activeKeyboardScrollSnapshots)
     }
 
     @objc private func handleDismissTap() {

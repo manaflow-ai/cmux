@@ -611,6 +611,66 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testAgentChatMiddleKeyboardVideoEvidence() throws {
+        let app = launchAgentChatInlinePreviewApp()
+        let table = app.tables["ChatTranscriptTableView"]
+        XCTAssertTrue(table.waitForExistence(timeout: 8))
+        let composerBar = app.otherElements["ChatComposerBar"]
+        XCTAssertTrue(composerBar.waitForExistence(timeout: 8))
+        let composerField = chatComposerField(in: app)
+        XCTAssertTrue(composerField.waitForExistence(timeout: 8))
+
+        let loadedMetrics = try waitForTranscriptMetrics(table, timeout: 8) {
+            $0.frameHeight > 240 && $0.frameMaxY > 300 && $0.contentHeight > $0.boundsHeight * 1.6
+        }
+        try scrollTranscript(table, direction: .down, timeout: 5) {
+            $0.distanceFromBottom > 180 && $0.offsetY > 100
+        }
+        let beforeKeyboard = try waitForTranscriptMetrics(table, timeout: 2) {
+            abs($0.frameMaxY - loadedMetrics.frameMaxY) < 4 && $0.keyboardOverlap == 0
+        }
+
+        let showSamples = focusTextInputAndSampleTranscriptAnimation(
+            composerField,
+            table: table,
+            composerBar: composerBar,
+            in: app
+        )
+        let keyboardUp = try waitForTranscriptMetrics(table, timeout: 8) { metrics in
+            return metrics.keyboardOverlap > 120
+                && metrics.frameMaxY < beforeKeyboard.frameMaxY - 120
+        }
+        assertChatKeyboardAnimationStayedAttached(
+            showSamples,
+            scrollPosition: "middle video evidence"
+        )
+        XCTAssertEqual(
+            keyboardUp.frameMaxY,
+            keyboardUp.composerMinY,
+            accuracy: 4,
+            "Video evidence setup must have the transcript bottom flush to the composer top with the keyboard up. \(keyboardUp)"
+        )
+        XCTAssertEqual(
+            keyboardUp.visibleBottomY,
+            beforeKeyboard.visibleBottomY,
+            accuracy: 36,
+            "Video evidence setup must preserve the same visible bottom content while the keyboard opens. before=\(beforeKeyboard) after=\(keyboardUp)"
+        )
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+        dismissChatKeyboard(in: app, table: table)
+        let keyboardDown = try waitForTranscriptMetrics(table, timeout: 6) {
+            $0.keyboardOverlap == 0 && abs($0.frameMaxY - beforeKeyboard.frameMaxY) < 6
+        }
+        XCTAssertEqual(
+            keyboardDown.visibleBottomY,
+            beforeKeyboard.visibleBottomY,
+            accuracy: 36,
+            "Video evidence setup must preserve visible bottom content while the keyboard hides. before=\(beforeKeyboard) after=\(keyboardDown)"
+        )
+    }
+
+    @MainActor
     private func assertChatKeyboardTracking(
         table: XCUIElement,
         composerBar: XCUIElement,
@@ -1395,7 +1455,9 @@ final class cmuxUITests: XCTestCase {
     ) -> [ChatKeyboardAnimationSample] {
         var samples: [ChatKeyboardAnimationSample] = []
         for _ in 0..<4 {
-            _ = tapChatComposerField(element, composerBar: composerBar, in: app)
+            if !focusTextInput(element, in: app) {
+                _ = tapChatComposerField(element, composerBar: composerBar, in: app)
+            }
             let deadline = Date().addingTimeInterval(1.1)
             var sawKeyboardTransition = false
             while Date() < deadline {

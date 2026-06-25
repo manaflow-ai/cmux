@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxAgentChat
 import CmuxMobileSupport
+import Foundation
 import SwiftUI
 import UIKit
 
@@ -77,6 +78,9 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         private var isHandlingLayout = false
         private weak var tableView: ChatTranscriptUITableView?
         private var isAtBottom: Binding<Bool>
+        #if DEBUG
+        private var didApplyDebugInitialScroll = false
+        #endif
 
         init(isAtBottom: Binding<Bool>) {
             self.isAtBottom = isAtBottom
@@ -132,6 +136,9 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             } else if let anchor {
                 restore(anchor, in: tableView)
             }
+            #if DEBUG
+            applyDebugInitialScrollIfNeeded(in: tableView)
+            #endif
             updateBottomState(from: tableView)
         }
 
@@ -181,6 +188,11 @@ struct ChatTranscriptTableView: UIViewRepresentable {
 
             isHandlingLayout = true
             defer { isHandlingLayout = false }
+
+            if tableView.isKeyboardViewportExternallyDriven {
+                updateBottomState(from: tableView)
+                return
+            }
 
             if boundsChanged, let oldViewport {
                 restoreKeyboardViewport(snapshot: oldViewport, in: tableView)
@@ -267,6 +279,24 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         private func clampedOffsetY(_ offsetY: CGFloat, in tableView: UITableView) -> CGFloat {
             min(max(offsetY, -tableView.adjustedContentInset.top), maxOffsetY(in: tableView))
         }
+
+        #if DEBUG
+        private func applyDebugInitialScrollIfNeeded(in tableView: UITableView) {
+            guard !didApplyDebugInitialScroll,
+                  ProcessInfo.processInfo.environment["CMUX_UITEST_CHAT_INITIAL_SCROLL"] == "middle",
+                  tableView.bounds.height > 0,
+                  tableView.contentSize.height > tableView.bounds.height * 1.4
+            else {
+                return
+            }
+            didApplyDebugInitialScroll = true
+            let minY = -tableView.adjustedContentInset.top
+            let maxY = maxOffsetY(in: tableView)
+            let targetY = clampedOffsetY(minY + ((maxY - minY) * 0.5), in: tableView)
+            tableView.setContentOffset(CGPoint(x: tableView.contentOffset.x, y: targetY), animated: false)
+            setAtBottom(false)
+        }
+        #endif
 
         private func restoreKeyboardViewport(
             snapshot: MobileScrollViewportSnapshot,

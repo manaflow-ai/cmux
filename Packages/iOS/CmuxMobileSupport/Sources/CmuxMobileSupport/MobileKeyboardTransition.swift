@@ -65,6 +65,7 @@ public struct MobileKeyboardTransition: Sendable {
     ///   - animations: Layout, inset, and offset mutations to perform in sync.
     ///   - completion: Optional completion called with UIKit's animation result.
     @MainActor public func animate(
+        durationOverride: TimeInterval? = nil,
         additionalOptions: UIView.AnimationOptions = [],
         animations: @escaping @MainActor @Sendable () -> Void,
         completion: (@MainActor @Sendable (Bool) -> Void)? = nil
@@ -72,13 +73,14 @@ public struct MobileKeyboardTransition: Sendable {
         let options = animationOptions
             .union(additionalOptions)
             .union([.beginFromCurrentState, .allowUserInteraction])
-        guard duration > 0 else {
+        let animationDuration = durationOverride ?? duration
+        guard animationDuration > 0 else {
             animations()
             completion?(true)
             return
         }
         UIView.animate(
-            withDuration: duration,
+            withDuration: animationDuration,
             delay: 0,
             options: options,
             animations: animations,
