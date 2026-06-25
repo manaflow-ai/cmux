@@ -11,6 +11,12 @@ public struct AutoNamingStatus: Codable, Sendable, Equatable {
         /// The chosen override agent's binary isn't installed, so naming fell
         /// back to each session's own agent.
         case notInstalled = "not_installed"
+        /// cmux could not probe the app for live auto-naming settings.
+        case probeFailed = "probe_failed"
+        /// cmux could not read or understand the agent transcript.
+        case extractionFailed = "extraction_failed"
+        /// cmux generated a title but the app rejected or failed the apply.
+        case applyFailed = "apply_failed"
     }
 
     public let category: Category

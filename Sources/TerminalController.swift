@@ -3248,10 +3248,15 @@ class TerminalController {
     private func v2WorkspaceSetAutoTitle(params: [String: Any]) -> V2CallResult {
         let enabled = AutomationCatalogSection().workspaceAutoNaming.value(in: .standard)
         if v2Bool(params, "probe") == true {
-            let agentSlug = AutomationCatalogSection().autoNamingAgent.value(in: .standard)
+            let automation = AutomationCatalogSection()
+            let agentSlug = automation.autoNamingAgent.value(in: .standard)
+            let language = AutoNamingLanguageResolver()
+                .resolve(rawSetting: automation.autoNamingLanguage.value(in: .standard))
             var result: [String: Any] = [
                 "enabled": enabled,
-                "summarizer_agent": v2OrNull(agentSlug == AutoNamingAgentCatalog.autoSlug ? nil : agentSlug)
+                "summarizer_agent": v2OrNull(agentSlug == AutoNamingAgentCatalog.autoSlug ? nil : agentSlug),
+                "auto_naming_language_name": language.promptName,
+                "auto_naming_language_tag": language.bcp47Tag
             ]
             // With a workspace_id the probe also reports user ownership, so
             // naming engines can skip the LLM call entirely for workspaces

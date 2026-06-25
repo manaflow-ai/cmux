@@ -3,6 +3,60 @@ import Foundation
 import CmuxSettings
 
 extension CMUXCLI {
+    /// Reads live auto-naming settings from the app. Returns nil when naming is
+    /// disabled or the workspace is already user-owned.
+    func probeAutoNaming(
+        workspaceId: String,
+        agent: String,
+        client: SocketClient,
+        telemetryKey: String,
+        telemetry: CLISocketSentryTelemetry
+    ) -> [String: Any]? {
+        let probe: [String: Any]
+        do {
+            probe = try client.sendV2(
+                method: "workspace.set_auto_title",
+                params: ["probe": true, "workspace_id": workspaceId]
+            )
+        } catch {
+            telemetry.breadcrumb("\(telemetryKey).probe-failed")
+            reportAutoNamingProblem("probe_failed", agent: agent, workspaceId: workspaceId, client: client)
+            return nil
+        }
+        guard probe["enabled"] as? Bool == true else {
+            telemetry.breadcrumb("\(telemetryKey).disabled")
+            return nil
+        }
+        guard probe["workspace_user_owned"] as? Bool != true else {
+            telemetry.breadcrumb("\(telemetryKey).user-owned")
+            return nil
+        }
+        return probe
+    }
+
+    /// Converts the app probe's resolved language fields into the engine's
+    /// prompt language. Missing fields fall back to English so old apps and
+    /// malformed probes never make the prompt language implicit again.
+    func autoNamingPromptLanguage(
+        probe: [String: Any],
+        env: [String: String],
+        telemetryKey: String,
+        telemetry: CLISocketSentryTelemetry
+    ) -> AutoNamingPromptLanguage {
+        let name = (probe["auto_naming_language_name"] as? String)
+            ?? normalizedHookValue(env["CMUX_AUTO_NAMING_LANGUAGE_NAME"])
+        let tag = (probe["auto_naming_language_tag"] as? String)
+            ?? normalizedHookValue(env["CMUX_AUTO_NAMING_LANGUAGE_TAG"])
+        let language = AutoNamingPromptLanguage(
+            name: name ?? AutoNamingPromptLanguage.fallback.name,
+            tag: tag ?? AutoNamingPromptLanguage.fallback.tag
+        )
+        if name == nil || tag == nil {
+            telemetry.breadcrumb("\(telemetryKey).language-fallback.\(language.tag)")
+        }
+        return language
+    }
+
     /// Resolves which agent should actually run the summarization for one
     /// naming pass, honoring the user's `automation.autoNamingAgent` override
     /// (carried on the socket probe response as `summarizer_agent`).

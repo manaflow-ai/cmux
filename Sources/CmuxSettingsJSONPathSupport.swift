@@ -274,6 +274,7 @@ enum AutomationSettingsFileMapping {
         .init(jsonKey: "claudeBinaryPath", defaultsKey: automation.claudeBinaryPath.userDefaultsKey),
         .init(jsonKey: "ripgrepBinaryPath", defaultsKey: automation.ripgrepBinaryPath.userDefaultsKey),
         .init(jsonKey: "autoNamingAgent", defaultsKey: automation.autoNamingAgent.userDefaultsKey),
+        .init(jsonKey: "autoNamingLanguage", defaultsKey: automation.autoNamingLanguage.userDefaultsKey),
     ]
 }
 
@@ -402,6 +403,7 @@ extension CmuxSettingsFileStore {
         "automation.claudeBinaryPath",
         "automation.workspaceAutoNaming",
         "automation.autoNamingAgent",
+        "automation.autoNamingLanguage",
         "automation.ripgrepBinaryPath",
         "automation.suppressSubagentNotifications",
         "automation.ampIntegration",

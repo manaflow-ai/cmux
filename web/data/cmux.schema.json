@@ -935,6 +935,12 @@
           "descriptionKey": "schemaDescriptions.automation.autoNamingAgent",
           "description": "Which agent generates auto-names for every session. \"auto\" (default) names each session with its own agent; any agent slug (claude, codex, grok, opencode, pi, omp, …) overrides naming for all sessions, even other agents' sessions. Undriveable or uninstalled agents fall back to the session's own agent, so naming never breaks."
         },
+        "autoNamingLanguage": {
+          "type": "string",
+          "default": "auto",
+          "descriptionKey": "schemaDescriptions.automation.autoNamingLanguage",
+          "description": "Language for generated workspace and tab names. \"auto\" follows the first preferred system language; use a BCP-47 tag such as \"en\" or \"ja\" to force a language."
+        },
         "ripgrepBinaryPath": {
           "type": "string",
           "default": "",

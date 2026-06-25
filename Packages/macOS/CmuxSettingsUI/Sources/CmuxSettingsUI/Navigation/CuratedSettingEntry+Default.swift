@@ -167,11 +167,13 @@ extension Array where Element == CuratedSettingEntry {
                     String(localized: "settings.automation.workspaceAutoNaming.note", defaultValue: "When enabled, cmux summarizes supported agent sessions into short workspace and tab names using each agent's own binary, refreshed as the topic shifts. Manual renames always win and stop auto-naming for that workspace or tab. Uses your agent account for the short summarization calls."),
                     String(localized: "settings.automation.autoNamingAgent", defaultValue: "Naming Agent"),
                     String(localized: "settings.automation.autoNamingAgent.auto", defaultValue: "Automatic"),
+                    String(localized: "settings.automation.autoNamingLanguage", defaultValue: "Naming Language"),
+                    String(localized: "settings.automation.autoNamingLanguage.auto", defaultValue: "Follow System"),
                 ].joined(separator: " "),
                 paths: ["automation.workspaceAutoNaming"],
                 synonyms: String(
                     localized: "settings.search.alias.setting.automation.workspace-auto-naming",
-                    defaultValue: "automation.workspaceAutoNaming automation.autoNamingAgent ai auto naming auto-name auto name workspace tab workspaces tabs title titles rename workspace rename tab renaming generated name summarize summary summarizer conversation agent picker naming agent"
+                    defaultValue: "automation.workspaceAutoNaming automation.autoNamingAgent automation.autoNamingLanguage ai auto naming auto-name auto name workspace tab workspaces tabs title titles rename workspace rename tab renaming generated name summarize summary summarizer conversation agent picker naming agent naming language locale language japanese english system"
                 ),
                 anchorPath: "automation.workspaceAutoNaming"
             ),

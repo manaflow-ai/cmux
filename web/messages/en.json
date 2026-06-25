@@ -988,7 +988,8 @@
           "ampIntegration": "Enable cmux integration hooks for Amp. When disabled, the bundled plugin stays inactive without needing to be removed.",
           "suppressSubagentNotifications": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry.",
           "workspaceAutoNaming": "Opt-in AI auto-naming of workspaces and tabs from agent conversation content. When enabled, cmux summarizes supported agent sessions into short titles using each agent's own binary; manual renames always win.",
-          "autoNamingAgent": "Which agent generates auto-names for every session. \"auto\" (default) names each session with its own agent; any agent slug (claude, codex, grok, opencode, pi, omp, …) overrides naming for all sessions, even other agents' sessions. Undriveable or uninstalled agents fall back to the session's own agent, so naming never breaks."
+          "autoNamingAgent": "Which agent generates auto-names for every session. \"auto\" (default) names each session with its own agent; any agent slug (claude, codex, grok, opencode, pi, omp, …) overrides naming for all sessions, even other agents' sessions. Undriveable or uninstalled agents fall back to the session's own agent, so naming never breaks.",
+          "autoNamingLanguage": "Language for generated workspace and tab names. \"auto\" follows the first preferred system language; use a BCP-47 tag such as \"en\" or \"ja\" to force a language."
         },
         "app": {
           "confirmQuit": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback.",

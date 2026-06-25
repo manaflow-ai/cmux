@@ -166,10 +166,12 @@ struct ClaudeHookSessionRecord: Codable {
     var autoNameLastLineCount: Int?
     var autoNameLastNamedAt: TimeInterval?
     var autoNameInFlightAt: TimeInterval?
+    var autoNameInFlightPassId: String?
     /// Wall-clock of the last summarization attempt (success OR failure), so a
     /// persistently failing summarizer (rate-limited, signed out, timing out)
     /// gets the same minInterval cooldown instead of respawning every turn.
     var autoNameLastAttemptAt: TimeInterval?
+    var autoNameFailureCount: Int?
     var autoNameRecentMessages: [AutoNamingTranscriptMessage]?
     var autoNameMessageSequence: Int?
 }
@@ -302,6 +304,7 @@ final class ClaudeHookSessionStore {
     struct AutoNamingBeginOutcome {
         var decision: AutoNamingThrottleDecision
         var lastTitle: String?
+        var passId: String?
     }
 
     /// Atomically evaluates the auto-naming throttle for a session and, when
@@ -320,7 +323,7 @@ final class ClaudeHookSessionStore {
     ) throws -> AutoNamingBeginOutcome {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else {
-            return AutoNamingBeginOutcome(decision: .skipShortTranscript, lastTitle: nil)
+            return AutoNamingBeginOutcome(decision: .skipShortTranscript, lastTitle: nil, passId: nil)
         }
         return try withLockedState { state in
             var record = state.sessions[normalized] ?? ClaudeHookSessionRecord(
@@ -335,16 +338,20 @@ final class ClaudeHookSessionStore {
                 lastLineCount: record.autoNameLastLineCount,
                 lastNamedAt: record.autoNameLastNamedAt,
                 inFlightAt: record.autoNameInFlightAt,
-                lastAttemptAt: record.autoNameLastAttemptAt
+                lastAttemptAt: record.autoNameLastAttemptAt,
+                failureCount: record.autoNameFailureCount ?? 0
             )
             let decision = engine.throttleDecision(
                 snapshot: snapshot,
                 transcriptLineCount: transcriptLineCount,
                 now: now
             )
+            var passId: String?
             switch decision {
             case .proceed:
+                passId = UUID().uuidString
                 record.autoNameInFlightAt = now.timeIntervalSince1970
+                record.autoNameInFlightPassId = passId
             case .reseedBaseline(let to):
                 record.autoNameLastLineCount = to
             case .skipShortTranscript, .skipInFlight, .skipTooSoon, .skipInsufficientGrowth:
@@ -352,7 +359,7 @@ final class ClaudeHookSessionStore {
             }
             record.updatedAt = Date().timeIntervalSince1970
             state.sessions[normalized] = record
-            return AutoNamingBeginOutcome(decision: decision, lastTitle: snapshot.lastTitle)
+            return AutoNamingBeginOutcome(decision: decision, lastTitle: snapshot.lastTitle, passId: passId)
         }
     }
 
@@ -361,15 +368,18 @@ final class ClaudeHookSessionStore {
     /// in-flight marker clears, so the next qualifying Stop retries.
     func finishAutoNaming(
         sessionId: String,
+        passId: String?,
         appliedTitle: String?,
         baselineLineCount: Int?,
         now: Date
-    ) throws {
+    ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return }
-        try withLockedState { state in
-            guard var record = state.sessions[normalized] else { return }
+        guard !normalized.isEmpty else { return false }
+        return try withLockedState { state in
+            guard var record = state.sessions[normalized] else { return false }
+            guard passId != nil, record.autoNameInFlightPassId == passId else { return false }
             record.autoNameInFlightAt = nil
+            record.autoNameInFlightPassId = nil
             // Stamp every completed pass (success or failure) so the throttle
             // enforces a cooldown before retrying a failing summarizer.
             record.autoNameLastAttemptAt = now.timeIntervalSince1970
@@ -377,9 +387,21 @@ final class ClaudeHookSessionStore {
                 record.autoNameLastTitle = appliedTitle
                 record.autoNameLastLineCount = baselineLineCount
                 record.autoNameLastNamedAt = now.timeIntervalSince1970
+                record.autoNameFailureCount = 0
+            } else {
+                record.autoNameFailureCount = min((record.autoNameFailureCount ?? 0) + 1, 32)
             }
             record.updatedAt = Date().timeIntervalSince1970
             state.sessions[normalized] = record
+            return true
+        }
+    }
+
+    func isCurrentAutoNamingPass(sessionId: String, passId: String?) throws -> Bool {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty, let passId else { return false }
+        return try withLockedState { state in
+            state.sessions[normalized]?.autoNameInFlightPassId == passId
         }
     }
 
@@ -1034,10 +1056,12 @@ final class ClaudeHookSessionStore {
     ) {
         guard !messages.isEmpty else { return }
         var recent = record.autoNameRecentMessages ?? []
+        var seen = Set(recent.map(autoNameMessageDedupKey))
         var appendedCount = 0
         for message in messages {
             guard let normalized = normalizedAutoNameMessage(message) else { continue }
-            if recent.last == normalized { continue }
+            let key = autoNameMessageDedupKey(normalized)
+            guard seen.insert(key).inserted else { continue }
             recent.append(normalized)
             appendedCount += 1
         }
@@ -1059,6 +1083,10 @@ final class ClaudeHookSessionStore {
             role: role,
             text: autoNameTruncate(text, maxLength: Self.maxAutoNameMessageCharacters)
         )
+    }
+
+    private func autoNameMessageDedupKey(_ message: AutoNamingTranscriptMessage) -> String {
+        "\(message.role)\u{1F}\(message.text)"
     }
 
     private func autoNameNormalizedSingleLine(_ value: String) -> String {

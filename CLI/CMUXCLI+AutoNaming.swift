@@ -20,6 +20,8 @@ struct AutoNamingConfig: Sendable {
     var minTranscriptLines: Int = 12
     /// Hard deadline for the summarizer subprocess.
     var llmTimeout: TimeInterval = 60
+    /// Maximum retry cooldown after repeated summarizer or apply failures.
+    var maxFailureBackoff: TimeInterval = 30 * 60
     /// Extra slack on top of `llmTimeout` before an in-flight marker is
     /// considered stale: covers the termination grace window and the socket
     /// apply, so a pass still finishing cannot be doubled by a concurrent
@@ -48,19 +50,23 @@ struct AutoNamingSessionSnapshot: Sendable {
     /// Last attempt time, success or failure (see the record field of the same
     /// purpose). Drives the failure cooldown in ``throttleDecision``.
     var lastAttemptAt: TimeInterval?
+    /// Consecutive failed naming attempts. Success resets this counter.
+    var failureCount: Int
 
     init(
         lastTitle: String? = nil,
         lastLineCount: Int? = nil,
         lastNamedAt: TimeInterval? = nil,
         inFlightAt: TimeInterval? = nil,
-        lastAttemptAt: TimeInterval? = nil
+        lastAttemptAt: TimeInterval? = nil,
+        failureCount: Int = 0
     ) {
         self.lastTitle = lastTitle
         self.lastLineCount = lastLineCount
         self.lastNamedAt = lastNamedAt
         self.inFlightAt = inFlightAt
         self.lastAttemptAt = lastAttemptAt
+        self.failureCount = failureCount
     }
 }
 
@@ -81,6 +87,61 @@ enum AutoNamingThrottleDecision: Equatable, Sendable {
 struct AutoNamingTranscriptMessage: Codable, Equatable, Sendable {
     var role: String
     var text: String
+}
+
+/// Language instruction carried from the app probe into the naming prompt.
+struct AutoNamingPromptLanguage: Equatable, Sendable {
+    static let fallback = AutoNamingPromptLanguage(name: "English", tag: "en")
+
+    var name: String
+    var tag: String
+
+    init(name: String, tag: String) {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedTag = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedName.isEmpty || trimmedTag.isEmpty {
+            self = Self.fallback
+        } else {
+            self.name = trimmedName
+            self.tag = trimmedTag
+        }
+    }
+}
+
+/// Diagnostics from parsing an agent transcript or hook payload.
+struct AutoNamingTranscriptExtraction: Equatable, Sendable {
+    enum Source: String, Sendable {
+        case claudeTranscript
+        case codexRollout
+        case grokHistory
+        case hookPayload
+    }
+
+    var source: Source
+    var messages: [AutoNamingTranscriptMessage]
+    var recordCount: Int
+    var malformedRecordCount: Int
+    var skippedRecordCount: Int
+
+    var hasFailures: Bool {
+        malformedRecordCount > 0 || (recordCount > 0 && messages.isEmpty)
+    }
+
+    var diagnosticSummary: String? {
+        guard hasFailures else { return nil }
+        return "\(source.rawValue): messages=\(messages.count) records=\(recordCount) malformed=\(malformedRecordCount) skipped=\(skippedRecordCount)"
+    }
+}
+
+/// Result of normalizing a summarizer response.
+enum AutoNamingSanitizationOutcome: Equatable, Sendable {
+    /// A new title should be applied.
+    case title(String)
+    /// The model explicitly kept the current title; count this as a successful
+    /// no-op so a good title does not back off like a failed summarizer.
+    case unchanged(String)
+    /// The response did not contain a usable title.
+    case unusable
 }
 
 /// Environment policy for the summarizer subprocess: scrub the variables
@@ -171,13 +232,14 @@ struct AutoNamingEngine: Sendable {
         if let inFlightAt = snapshot.inFlightAt, nowInterval - inFlightAt < config.inFlightExpiry {
             return .skipInFlight
         }
+        let cooldownInterval = failureBackoffInterval(failureCount: snapshot.failureCount)
         guard let lastLineCount = snapshot.lastLineCount, snapshot.lastNamedAt != nil else {
             // First naming for this session always qualifies; this also seeds
             // the baseline for resumed sessions arriving with a large
             // pre-existing transcript. A failed pass records only lastAttemptAt
             // (not lastNamedAt), so honor the cooldown here too — otherwise a
             // persistently failing summarizer respawns on every turn end.
-            if let lastAttemptAt = snapshot.lastAttemptAt, nowInterval - lastAttemptAt < config.minInterval {
+            if let lastAttemptAt = snapshot.lastAttemptAt, nowInterval - lastAttemptAt < cooldownInterval {
                 return .skipTooSoon
             }
             return .proceed(baseline: transcriptLineCount)
@@ -188,7 +250,7 @@ struct AutoNamingEngine: Sendable {
         // Cooldown anchors on the last attempt (success or failure), so a
         // session that named once and now keeps failing also backs off.
         if let cooldownAnchor = snapshot.lastAttemptAt ?? snapshot.lastNamedAt,
-           nowInterval - cooldownAnchor < config.minInterval {
+           nowInterval - cooldownAnchor < cooldownInterval {
             return .skipTooSoon
         }
         if transcriptLineCount - lastLineCount < config.minLineGrowth {
@@ -197,36 +259,46 @@ struct AutoNamingEngine: Sendable {
         return .proceed(baseline: transcriptLineCount)
     }
 
+    func failureBackoffInterval(failureCount: Int) -> TimeInterval {
+        guard failureCount > 0 else { return config.minInterval }
+        let exponent = min(failureCount - 1, 8)
+        let multiplier = pow(2.0, Double(exponent))
+        return min(config.maxFailureBackoff, config.minInterval * multiplier)
+    }
+
     // MARK: - Transcript extraction (Claude Code JSONL)
 
     /// Extracts user/assistant text messages from Claude Code transcript
     /// JSONL lines. Tool results, thinking blocks, and non-text content are
     /// skipped; unparseable lines are ignored.
     func extractMessages(fromTranscriptLines lines: [String]) -> [AutoNamingTranscriptMessage] {
+        extractClaudeTranscript(fromTranscriptLines: lines).messages
+    }
+
+    func extractClaudeTranscript(fromTranscriptLines lines: [String]) -> AutoNamingTranscriptExtraction {
         var messages: [AutoNamingTranscriptMessage] = []
-        for line in lines {
-            guard let data = line.data(using: .utf8),
-                  let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-                continue
-            }
+        let parsed = parsedJSONObjects(from: lines)
+        var skipped = 0
+        for object in parsed.objects {
             guard let role = object["type"] as? String, role == "user" || role == "assistant" else {
+                skipped += 1
                 continue
             }
-            guard let message = object["message"] as? [String: Any] else { continue }
-            var text = ""
-            if let content = message["content"] as? String {
-                text = content
-            } else if let content = message["content"] as? [[String: Any]] {
-                text = content.compactMap { item -> String? in
-                    guard item["type"] as? String == "text" else { return nil }
-                    return item["text"] as? String
-                }.joined(separator: "\n")
+            guard let message = object["message"] as? [String: Any],
+                  let text = firstTextValue(message["content"]),
+                  let normalized = normalizedExtractedText(text) else {
+                skipped += 1
+                continue
             }
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            messages.append(AutoNamingTranscriptMessage(role: role, text: trimmed))
+            messages.append(AutoNamingTranscriptMessage(role: role, text: normalized))
         }
-        return messages
+        return AutoNamingTranscriptExtraction(
+            source: .claudeTranscript,
+            messages: messages,
+            recordCount: parsed.objects.count,
+            malformedRecordCount: parsed.malformedCount,
+            skippedRecordCount: skipped
+        )
     }
 
     /// Builds the summarization context: the first user messages anchor the
@@ -256,32 +328,41 @@ struct AutoNamingEngine: Sendable {
     /// (environment context, user instructions, subagent notifications) are
     /// skipped along with tool calls and event noise.
     func extractCodexMessages(fromRolloutLines lines: [String]) -> [AutoNamingTranscriptMessage] {
+        extractCodexRollout(fromRolloutLines: lines).messages
+    }
+
+    func extractCodexRollout(fromRolloutLines lines: [String]) -> AutoNamingTranscriptExtraction {
         var messages: [AutoNamingTranscriptMessage] = []
-        for line in lines {
-            guard let data = line.data(using: .utf8),
-                  let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-                  object["type"] as? String == "response_item",
+        let parsed = parsedJSONObjects(from: lines)
+        var skipped = 0
+        for object in parsed.objects {
+            guard object["type"] as? String == "response_item",
                   let payload = object["payload"] as? [String: Any],
                   payload["type"] as? String == "message",
                   let role = payload["role"] as? String, role == "user" || role == "assistant" else {
+                skipped += 1
                 continue
             }
-            var text = ""
-            if let content = payload["content"] as? String {
-                text = content
-            } else if let content = payload["content"] as? [[String: Any]] {
-                text = content.compactMap { block -> String? in
-                    (block["text"] as? String) ?? (block["input_text"] as? String)
-                }.joined(separator: "\n")
+            guard let text = firstTextValue(payload["content"]),
+                  let trimmed = normalizedExtractedText(text) else {
+                skipped += 1
+                continue
             }
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
             // Codex injects framework context as user messages wrapped in
             // angle-bracket tags; they describe the harness, not the topic.
-            if trimmed.hasPrefix("<"), trimmed.contains(">") { continue }
+            if trimmed.hasPrefix("<"), trimmed.contains(">") {
+                skipped += 1
+                continue
+            }
             messages.append(AutoNamingTranscriptMessage(role: role, text: trimmed))
         }
-        return messages
+        return AutoNamingTranscriptExtraction(
+            source: .codexRollout,
+            messages: messages,
+            recordCount: parsed.objects.count,
+            malformedRecordCount: parsed.malformedCount,
+            skippedRecordCount: skipped
+        )
     }
 
     // MARK: - Transcript extraction (Grok chat_history JSONL)
@@ -290,25 +371,34 @@ struct AutoNamingEngine: Sendable {
     /// `chat_history.jsonl` records. Injected metadata tags are removed from
     /// user messages, with `<user_query>` preferred when present.
     func extractGrokMessages(fromChatHistoryLines lines: [String]) -> [AutoNamingTranscriptMessage] {
+        extractGrokHistory(fromChatHistoryLines: lines).messages
+    }
+
+    func extractGrokHistory(fromChatHistoryLines lines: [String]) -> AutoNamingTranscriptExtraction {
         var messages: [AutoNamingTranscriptMessage] = []
-        for line in lines {
-            guard let data = line.data(using: .utf8),
-                  let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-                continue
-            }
+        let parsed = parsedJSONObjects(from: lines)
+        var skipped = 0
+        for object in parsed.objects {
             guard let role = firstString(in: object, keys: ["role", "type"])?.lowercased(),
                   role == "user" || role == "assistant" else {
+                skipped += 1
                 continue
             }
             let rawText = firstText(in: object, keys: ["content", "text", "message"])
             let text = role == "user" ? grokUserText(rawText) : rawText
-            guard let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !trimmed.isEmpty else {
+            guard let trimmed = normalizedExtractedText(text) else {
+                skipped += 1
                 continue
             }
             messages.append(AutoNamingTranscriptMessage(role: role, text: trimmed))
         }
-        return messages
+        return AutoNamingTranscriptExtraction(
+            source: .grokHistory,
+            messages: messages,
+            recordCount: parsed.objects.count,
+            malformedRecordCount: parsed.malformedCount,
+            skippedRecordCount: skipped
+        )
     }
 
     // MARK: - Transcript extraction (generic hook payload cache)
@@ -317,8 +407,14 @@ struct AutoNamingEngine: Sendable {
     /// prompt/assistant context. Agents without these fields simply yield no
     /// messages and are skipped by the caller.
     func extractHookMessages(fromPayloadObjects objects: [[String: Any]]) -> [AutoNamingTranscriptMessage] {
+        extractHookPayloads(fromPayloadObjects: objects).messages
+    }
+
+    func extractHookPayloads(fromPayloadObjects objects: [[String: Any]]) -> AutoNamingTranscriptExtraction {
         var messages: [AutoNamingTranscriptMessage] = []
+        var skipped = 0
         for object in objects {
+            let before = messages.count
             appendHookMessage(role: "user", text: hookUserText(in: object), to: &messages)
             appendHookMessage(role: "assistant", text: hookAssistantText(in: object), to: &messages)
 
@@ -327,8 +423,17 @@ struct AutoNamingEngine: Sendable {
                 appendHookMessage(role: "user", text: hookUserText(in: nested), to: &messages)
                 appendHookMessage(role: "assistant", text: hookAssistantText(in: nested), to: &messages)
             }
+            if messages.count == before {
+                skipped += 1
+            }
         }
-        return messages
+        return AutoNamingTranscriptExtraction(
+            source: .hookPayload,
+            messages: messages,
+            recordCount: objects.count,
+            malformedRecordCount: 0,
+            skippedRecordCount: skipped
+        )
     }
 
     /// Converts hook-message progress into the line-growth unit used by the
@@ -345,11 +450,16 @@ struct AutoNamingEngine: Sendable {
 
     // MARK: - Prompt and response
 
-    func buildPrompt(currentTitle: String?, context: String) -> String {
+    func buildPrompt(
+        currentTitle: String?,
+        context: String,
+        language: AutoNamingPromptLanguage = .fallback
+    ) -> String {
         var lines: [String] = [
             "You name terminal workspace tabs for a developer running coding agents.",
             "Given a conversation excerpt, output ONLY a short title: 2-5 words,",
-            "in the same language as the conversation, no quotes, no trailing punctuation.",
+            "no quotes, no trailing punctuation.",
+            "Write the title in \(language.name) (\(language.tag)) only.",
             ""
         ]
         if let currentTitle, !currentTitle.isEmpty {
@@ -367,12 +477,19 @@ struct AutoNamingEngine: Sendable {
     /// needed). Takes the first non-empty line, strips wrapping quotes,
     /// collapses whitespace, and enforces the length cap at a word boundary.
     func sanitizeResponse(_ raw: String?, currentTitle: String?) -> String? {
-        guard let raw else { return nil }
+        guard case .title(let title) = sanitizeResponseOutcome(raw, currentTitle: currentTitle) else {
+            return nil
+        }
+        return title
+    }
+
+    func sanitizeResponseOutcome(_ raw: String?, currentTitle: String?) -> AutoNamingSanitizationOutcome {
+        guard let raw else { return .unusable }
         guard let firstLine = raw
             .components(separatedBy: .newlines)
             .map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) })
             .first(where: { !$0.isEmpty }) else {
-            return nil
+            return .unusable
         }
         var title = firstLine
         while title.count >= 2,
@@ -386,7 +503,7 @@ struct AutoNamingEngine: Sendable {
             .components(separatedBy: .whitespaces)
             .filter { !$0.isEmpty }
             .joined(separator: " ")
-        guard !title.isEmpty else { return nil }
+        guard !title.isEmpty else { return .unusable }
         if title.count > config.maxTitleLength {
             let prefix = String(title.prefix(config.maxTitleLength))
             if let lastSpace = prefix.lastIndex(of: " "), prefix.distance(from: prefix.startIndex, to: lastSpace) > 0 {
@@ -396,9 +513,9 @@ struct AutoNamingEngine: Sendable {
             }
             title = title.trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        guard !title.isEmpty else { return nil }
-        if let currentTitle, title == currentTitle { return nil }
-        return title
+        guard !title.isEmpty else { return .unusable }
+        if let currentTitle, title == currentTitle { return .unchanged(currentTitle) }
+        return .title(title)
     }
 
     private func appendHookMessage(
@@ -473,6 +590,27 @@ struct AutoNamingEngine: Sendable {
         return result
     }
 
+    private func parsedJSONObjects(from lines: [String]) -> (objects: [[String: Any]], malformedCount: Int) {
+        var objects: [[String: Any]] = []
+        var malformedCount = 0
+        for line in lines {
+            guard let data = line.data(using: .utf8),
+                  let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+                if !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    malformedCount += 1
+                }
+                continue
+            }
+            objects.append(object)
+        }
+        return (objects, malformedCount)
+    }
+
+    private func normalizedExtractedText(_ text: String?) -> String? {
+        let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     private func firstString(in object: [String: Any], keys: [String]) -> String? {
         for key in keys {
             guard let value = object[key] as? String else { continue }
@@ -519,6 +657,6 @@ struct AutoNamingEngine: Sendable {
            type.caseInsensitiveCompare("output_text") != .orderedSame {
             return nil
         }
-        return firstString(in: block, keys: ["text", "input_text", "content"])
+        return firstString(in: block, keys: ["text", "input_text", "output_text", "content"])
     }
 }
