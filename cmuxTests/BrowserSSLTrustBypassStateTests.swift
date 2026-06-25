@@ -66,6 +66,23 @@ struct BrowserSSLTrustBypassStateTests {
     }
 
     @Test
+    func pendingBypassRejectsBodylessNonIdempotentRequests() throws {
+        let url = try #require(URL(string: "https://upload.internal/submit"))
+        let scope = try #require(BrowserSSLTrustScope(url: url))
+        let fingerprint = BrowserServerTrustFingerprint(sha256: Data("leaf-a".utf8))
+        let state = BrowserSSLTrustBypassState()
+        state.recordObservedServerTrustFingerprint(fingerprint, for: scope)
+
+        var postRequest = URLRequest(url: url)
+        postRequest.httpMethod = "POST"
+        #expect(state.createPendingBypassAction(for: postRequest) == nil)
+
+        var headRequest = URLRequest(url: url)
+        headRequest.httpMethod = "HEAD"
+        #expect(state.createPendingBypassAction(for: headRequest) != nil)
+    }
+
+    @Test
     func pendingBypassReplaysOriginalRequestOnceAndMarksHostBypassed() throws {
         let state = BrowserSSLTrustBypassState()
         let url = try #require(URL(string: "https://example.internal:8443/submit"))

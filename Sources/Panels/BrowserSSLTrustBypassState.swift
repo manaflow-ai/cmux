@@ -9,6 +9,8 @@ import Security
 /// surface while preserving the exact failed `URLRequest` for replay.
 @MainActor
 final class BrowserSSLTrustBypassState {
+    private static let replayableWithoutBodyMethods: Set<String> = ["GET", "HEAD"]
+
     private var bypassedTrusts: Set<BrowserSSLTrustGrant> = []
     private var bypassedTrustOrder: [BrowserSSLTrustGrant] = []
     private var observedFingerprints: [BrowserSSLTrustScope: BrowserServerTrustFingerprint] = [:]
@@ -167,8 +169,9 @@ final class BrowserSSLTrustBypassState {
         guard request.httpBodyStream == nil else {
             return false
         }
+        let method = request.httpMethod?.uppercased() ?? "GET"
         guard let body = request.httpBody else {
-            return true
+            return Self.replayableWithoutBodyMethods.contains(method)
         }
         return body.count <= maximumRetainedRequestBodyBytes
     }
