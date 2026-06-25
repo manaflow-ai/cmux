@@ -248,18 +248,64 @@ cmd_forcequit() {
 }
 
 wait_for_tagged_exit() {
-  local deadline=$((SECONDS + 10))
-  local pids
+  local pids pid
   while true; do
     pids="$(tagged_pids || true)"
     if [[ -z "$pids" ]]; then
       return 0
     fi
-    if (( SECONDS >= deadline )); then
+
+    local pid_args=()
+    for pid in $pids; do
+      pid_args+=("$pid")
+    done
+
+    # macOS kqueue gives us a process-exit event for arbitrary PIDs. This waits
+    # on the lifecycle signal itself while still bounding a stuck exit.
+    if ! python3 - "${pid_args[@]}" <<'PY'
+import errno
+import os
+import select
+import sys
+import time
+
+deadline = time.monotonic() + 10.0
+remaining = set()
+kqueue = select.kqueue()
+
+for raw_pid in sys.argv[1:]:
+    pid = int(raw_pid)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        continue
+    remaining.add(pid)
+    try:
+        event = select.kevent(
+            pid,
+            filter=select.KQ_FILTER_PROC,
+            flags=select.KQ_EV_ADD | select.KQ_EV_ONESHOT,
+            fflags=select.KQ_NOTE_EXIT,
+        )
+        kqueue.control([event], 0, 0)
+    except OSError as exc:
+        if exc.errno == errno.ESRCH:
+            remaining.discard(pid)
+            continue
+        raise
+
+while remaining:
+    timeout = deadline - time.monotonic()
+    if timeout <= 0:
+        print(" ".join(str(pid) for pid in sorted(remaining)), file=sys.stderr)
+        sys.exit(1)
+    for event in kqueue.control(None, len(remaining), timeout):
+        remaining.discard(event.ident)
+PY
+    then
       echo "[relaunch] timed out waiting for tagged PIDs to exit: $pids" >&2
       return 1
     fi
-    sleep 0.1
   done
 }
 
