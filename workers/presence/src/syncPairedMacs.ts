@@ -32,6 +32,7 @@ import {
 
 /** Logical collection name the client subscribes to and stores under. */
 export const PAIRED_MACS_COLLECTION = "pairedMacs";
+const SCOPED_PAIRED_MACS_COLLECTION = "pairedMacsScoped";
 
 /** Max saved-host records a single user may back up. Bounds the storage a client
  * can create, mirroring MAX_DEVICES_PER_TEAM for the device registry. */
@@ -52,6 +53,7 @@ export const MAX_BACKUP_OPS = MAX_PAIRED_MACS_PER_USER;
  * display-name bound and a generous id bound). */
 export const MAX_MAC_ID_LENGTH = 256;
 export const MAX_DISPLAY_NAME_LENGTH = 128;
+export const MAX_CLIENT_SCOPE_LENGTH = 128;
 /** Route bounds mirror validate.ts so the backup payload can't exceed what a
  * heartbeat could push. */
 export const MAX_ROUTES = 16;
@@ -117,14 +119,26 @@ export type PairedMacBackupParse =
   | { ok: true; ops: PairedMacBackupOp[] }
   | { ok: false; error: string };
 
-/** Physical per-user collection name. Derived from the VERIFIED user id ONLY, so
- * a client can never read or write another user's saved hosts. */
-export function pairedMacsCollection(userId: string): string {
-  return `${PAIRED_MACS_COLLECTION}:${userId}`;
-}
-
 function trimmedString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+/** Physical per-user collection name. Derived from the VERIFIED user id, with an
+ * optional client-owned sub-scope for tagged app builds. The client scope never
+ * replaces user/team authorization; it only partitions that user's own backup. */
+export function normalizeClientScope(value: unknown): string | null {
+  const trimmed = trimmedString(value);
+  if (!trimmed) return null;
+  const normalized = trimmed
+    .slice(0, MAX_CLIENT_SCOPE_LENGTH)
+    .toLowerCase()
+    .replace(/[^a-z0-9:_-]/g, "-");
+  return normalized || null;
+}
+
+export function pairedMacsCollection(userId: string, clientScope?: string | null): string {
+  const scope = normalizeClientScope(clientScope);
+  return scope ? `${SCOPED_PAIRED_MACS_COLLECTION}:${userId}:${scope}` : `${PAIRED_MACS_COLLECTION}:${userId}`;
 }
 
 function finiteNumber(value: unknown): number | null {
@@ -274,8 +288,9 @@ export async function applyBackupOps(
   userId: string,
   ops: readonly PairedMacBackupOp[],
   nowMs: number,
+  clientScope?: string | null,
 ): Promise<SyncDeltaFrame<unknown>[]> {
-  const collection = pairedMacsCollection(userId);
+  const collection = pairedMacsCollection(userId, clientScope);
   // One listing gives both the live count (cap on visible Macs) AND the total
   // record count (live + RETAINED tombstones). Capping the total bounds storage
   // against create/delete churn: a delete keeps a tombstone for the GC retention
@@ -397,8 +412,9 @@ async function clearOtherActiveBackupRecords(
 export async function listLiveBackup(
   storage: SyncStorage,
   userId: string,
+  clientScope?: string | null,
 ): Promise<PairedMacBackupRecord[]> {
-  return (await listBackupSnapshot(storage, userId)).records;
+  return (await listBackupSnapshot(storage, userId, clientScope)).records;
 }
 
 /** The full restore snapshot for a user: live records plus delete tombstones.
@@ -408,8 +424,9 @@ export async function listLiveBackup(
 export async function listBackupSnapshot(
   storage: SyncStorage,
   userId: string,
+  clientScope?: string | null,
 ): Promise<PairedMacBackupSnapshot> {
-  const all = await listRecords<PairedMacBackupRecord>(storage, pairedMacsCollection(userId));
+  const all = await listRecords<PairedMacBackupRecord>(storage, pairedMacsCollection(userId, clientScope));
   const records = all
     .filter((r) => !r.deleted)
     .map((r) => r.payload)

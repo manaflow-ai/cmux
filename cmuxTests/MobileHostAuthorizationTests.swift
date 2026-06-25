@@ -11,6 +11,40 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct MobileHostAuthorizationTests {
+    @Test func testMobileHostIdentityPrefersSharedIDAcrossBundleDefaults() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sharedIDURL = directory.appendingPathComponent("mobile-host-device-id")
+        try "shared-mac-id".write(to: sharedIDURL, atomically: true, encoding: .utf8)
+
+        let suiteName = "mobile-host-identity-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("per-bundle-id", forKey: "mobileHost.deviceID")
+
+        #expect(MobileHostIdentity.deviceID(defaults: defaults, sharedIDURL: sharedIDURL) == "shared-mac-id")
+        #expect(defaults.string(forKey: "mobileHost.deviceID") == "shared-mac-id")
+    }
+
+    @Test func testMobileHostIdentityMigratesExistingBundleIDToSharedFile() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sharedIDURL = directory.appendingPathComponent("mobile-host-device-id")
+
+        let suiteName = "mobile-host-identity-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("old-bundle-id", forKey: "mobileHost.deviceID")
+
+        #expect(MobileHostIdentity.deviceID(defaults: defaults, sharedIDURL: sharedIDURL) == "old-bundle-id")
+        let persisted = try String(contentsOf: sharedIDURL, encoding: .utf8)
+        #expect(persisted == "old-bundle-id")
+    }
+
     @Test func testAttachTicketStoreKeepsMultipleTicketsForSameTerminal() throws {
         let store = MobileAttachTicketStore()
         let route = try CmxAttachRoute(

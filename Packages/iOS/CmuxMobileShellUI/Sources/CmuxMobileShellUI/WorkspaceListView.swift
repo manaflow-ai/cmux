@@ -97,6 +97,9 @@ struct WorkspaceListView: View {
     /// The active row filter (All / Unread), shared-model state behind the
     /// toolbar ``WorkspaceListFilterMenu``. Session-transient like a search.
     @State private var filter: MobileWorkspaceListFilter = .all
+    /// Which Mac's workspaces the list is focused on. Starts as "the connected
+    /// Mac" so aggregation does not flatten multiple Macs by default.
+    @State private var macSelection: WorkspaceMacSelection = .automatic
     /// The workspace whose destructive close action is awaiting confirmation.
     /// Stored at list scope so reusable rows do not own transient presentation
     /// state while `List` is recycling swipe-action rows.
@@ -115,9 +118,13 @@ struct WorkspaceListView: View {
     /// action). A search flattens to a single matched, pinned-first list so
     /// members can be found across groups; floating pinned members out of their
     /// group is acceptable while filtering. An active row filter (Unread)
-    /// flattens the same way, for the same reason.
+    /// flattens the same way, for the same reason. A single-Mac picker scope
+    /// still renders groups; "All Macs" flattens because group ids are Mac-local.
     private var rendersGroupedSections: Bool {
-        !groups.isEmpty && trimmedQuery.isEmpty && !filter.isActive
+        !groups.isEmpty
+            && trimmedQuery.isEmpty
+            && filter.readState == .all
+            && visibleMacSelection != .all
     }
 
     private func matchesQuery(_ workspace: MobileWorkspacePreview, query: String) -> Bool {
@@ -133,7 +140,7 @@ struct WorkspaceListView: View {
     private var filteredWorkspaces: [MobileWorkspacePreview] {
         let query = trimmedQuery
         let matches = workspaces.filter { workspace in
-            filter.matches(workspace)
+            activeFilter.matches(workspace)
                 && (query.isEmpty || matchesQuery(workspace, query: query))
         }
         return matches.enumerated()
@@ -150,7 +157,58 @@ struct WorkspaceListView: View {
     /// member order and contiguity (no pinned-first flattening, which would
     /// scatter group members).
     private var groupedListItems: [MobileWorkspaceListItem] {
-        MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
+        MobileWorkspaceListItem.items(workspaces: groupedWorkspaces, groups: groups)
+    }
+
+    private var groupedWorkspaces: [MobileWorkspacePreview] {
+        workspaces.filter { activeFilter.matches($0) }
+    }
+
+    private var activeFilter: MobileWorkspaceListFilter {
+        var active = filter
+        switch visibleMacSelection {
+        case .automatic:
+            break
+        case .all:
+            active.machines.removeAll()
+        case .machine(let id):
+            active.machines = Set([id])
+        }
+        return active
+    }
+
+    private var visibleMacSelection: WorkspaceMacSelection {
+        let machineIDs = Set(macPickerMachines.map(\.id))
+        switch macSelection {
+        case .automatic:
+            if let connectedID = store?.connectedMacDeviceID, machineIDs.contains(connectedID) {
+                return .machine(connectedID)
+            }
+            return .all
+        case .machine(let id):
+            return machineIDs.contains(id) ? .machine(id) : .all
+        case .all:
+            return .all
+        }
+    }
+
+    private var macPickerMachines: [WorkspaceFilterMachine] {
+        var names: [String: String] = [:]
+        for device in store?.deviceTreeDevices ?? [] {
+            if let name = device.displayName, !name.isEmpty {
+                names[device.deviceId] = name
+            }
+        }
+        for mac in store?.pairedMacs ?? [] {
+            names[mac.macDeviceID] = mac.resolvedName
+        }
+        var ids = Set(MobileWorkspaceListFilter.machineIDs(in: workspaces))
+        if let connectedID = store?.connectedMacDeviceID {
+            ids.insert(connectedID)
+        }
+        return ids
+            .map { WorkspaceFilterMachine(id: $0, name: names[$0] ?? $0) }
+            .sorted { lhs, rhs in lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending }
     }
 
     var body: some View {
@@ -196,12 +254,15 @@ struct WorkspaceListView: View {
             Section {
                 if rendersGroupedSections {
                     groupedRows
-                } else if filter.isActive && trimmedQuery.isEmpty && filteredWorkspaces.isEmpty && !workspaces.isEmpty {
+                } else if activeFilter.isActive && trimmedQuery.isEmpty && filteredWorkspaces.isEmpty && !workspaces.isEmpty {
                     // The filter alone (not the Mac, and not a search query)
                     // emptied the list; offer the way back. While searching, the
                     // standard empty search result is shown instead, since "Show
                     // All" would not resolve a query that matches nothing.
-                    WorkspaceListFilterEmptyRow(filter: filter) { filter = .all }
+                    WorkspaceListFilterEmptyRow(filter: activeFilter) {
+                        filter = .all
+                        macSelection = .all
+                    }
                         .listRowSeparator(.hidden)
                 } else {
                     flatRows
@@ -226,13 +287,16 @@ struct WorkspaceListView: View {
             ToolbarItem(placement: .topBarLeading) {
                 settingsMenu
             }
+            ToolbarItem(placement: .principal) {
+                macTitlePicker
+            }
             if store != nil {
                 ToolbarItem(placement: .topBarLeading) {
                     devicesButton
                 }
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
-                WorkspaceListFilterMenu(filter: $filter, machines: filterMachines)
+                WorkspaceListFilterMenu(filter: $filter, machines: [])
                 if canCreateWorkspace {
                     newWorkspaceButton
                 }
@@ -283,6 +347,24 @@ struct WorkspaceListView: View {
     }
 
     #if os(iOS)
+    private var macTitlePicker: some View {
+        Picker(
+            L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Mac"),
+            selection: Binding(
+                get: { visibleMacSelection },
+                set: { macSelection = $0 }
+            )
+        ) {
+            ForEach(macPickerMachines) { machine in
+                Text(machine.name).tag(WorkspaceMacSelection.machine(machine.id))
+            }
+            Text(L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Macs"))
+                .tag(WorkspaceMacSelection.all)
+        }
+        .pickerStyle(.menu)
+        .accessibilityIdentifier("MobileWorkspaceMacPicker")
+    }
+
     private var devicesButton: some View {
         Button {
             showingDeviceTree = true
@@ -448,4 +530,10 @@ struct WorkspaceListView: View {
         workspacePendingCloseID = nil
         closeWorkspace?(workspaceID)
     }
+}
+
+private enum WorkspaceMacSelection: Hashable {
+    case automatic
+    case all
+    case machine(String)
 }

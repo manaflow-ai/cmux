@@ -1350,13 +1350,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The Macs signed in to your account. Workspaces from every computer appear together in the main list."
+            "value": "The Macs signed in to your account. Use the workspace title picker to focus one Mac or show All Macs."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アカウントにサインインしている Mac。すべてのコンピュータのワークスペースがメインのリストにまとめて表示されます。"
+            "value": "アカウントにサインインしている Mac。ワークスペースのタイトルピッカーで 1 台の Mac に絞り込むか、すべての Mac を表示できます。"
           }
         }
       }
@@ -6899,6 +6899,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "設定"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.macPicker.allMacs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All Macs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての Mac"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.macPicker.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac"
           }
         }
       }

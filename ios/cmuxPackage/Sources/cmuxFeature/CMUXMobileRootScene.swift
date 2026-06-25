@@ -184,8 +184,15 @@ public struct CMUXMobileRootScene: View {
     ) -> (any MobilePairedMacStoring)? {
         guard let store = pairedMacStore else { return nil }
         let coordinator = auth.coordinator
+        let buildScope = MobileIOSBuildScope.current()
+        let buildScopedStore: any MobilePairedMacStoring
+        if let buildScope {
+            buildScopedStore = IOSBuildScopedPairedMacStore(inner: store, scope: buildScope)
+        } else {
+            buildScopedStore = store
+        }
         let scopedStore = TeamScopedPairedMacStore(
-            inner: store,
+            inner: buildScopedStore,
             teamIDProvider: { await coordinator.resolvedTeamID }
         )
         guard MobilePairedMacBackup.resolved().isEnabled,
@@ -198,7 +205,8 @@ public struct CMUXMobileRootScene: View {
                 accessToken: { try? await coordinator.accessToken() },
                 currentUserID: { await coordinator.currentUser?.id }
             ),
-            teamIDProvider: { await coordinator.resolvedTeamID }
+            teamIDProvider: { await coordinator.resolvedTeamID },
+            clientScopeProvider: { buildScope.map { "ios:\($0.storageComponent)" } }
         )
         return BackingUpPairedMacStore(
             inner: scopedStore,

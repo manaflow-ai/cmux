@@ -198,15 +198,55 @@ struct MobileAttachTicketAuthorization {
 
 enum MobileHostIdentity {
     private static let deviceIDKey = "mobileHost.deviceID"
+    private static let sharedDeviceIDFileName = "mobile-host-device-id"
 
     static func deviceID() -> String {
-        if let existing = UserDefaults.standard.string(forKey: deviceIDKey),
-           !existing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return existing
+        deviceID(defaults: .standard, sharedIDURL: defaultSharedDeviceIDURL())
+    }
+
+    static func deviceID(defaults: UserDefaults, sharedIDURL: URL?) -> String {
+        if let sharedIDURL,
+           let existing = try? String(contentsOf: sharedIDURL, encoding: .utf8),
+           let id = normalizedID(existing) {
+            defaults.set(id, forKey: deviceIDKey)
+            return id
         }
+
+        if let id = normalizedID(defaults.string(forKey: deviceIDKey)) {
+            writeSharedDeviceID(id, to: sharedIDURL)
+            return id
+        }
+
         let generated = UUID().uuidString
-        UserDefaults.standard.set(generated, forKey: deviceIDKey)
+        defaults.set(generated, forKey: deviceIDKey)
+        writeSharedDeviceID(generated, to: sharedIDURL)
         return generated
+    }
+
+    private static func defaultSharedDeviceIDURL(fileManager: FileManager = .default) -> URL? {
+        guard let appSupport = try? fileManager.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        ) else {
+            return nil
+        }
+        let directory = appSupport.appendingPathComponent("cmux", isDirectory: true)
+        if !fileManager.fileExists(atPath: directory.path) {
+            try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        return directory.appendingPathComponent(sharedDeviceIDFileName)
+    }
+
+    private static func normalizedID(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func writeSharedDeviceID(_ id: String, to url: URL?) {
+        guard let url else { return }
+        try? id.write(to: url, atomically: true, encoding: .utf8)
     }
 
     static func displayName() -> String? {

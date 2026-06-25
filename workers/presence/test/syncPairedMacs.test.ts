@@ -12,6 +12,7 @@ import {
   MAX_BACKUP_OPS,
   MAX_PAIRED_MAC_RECORDS_PER_USER,
   MAX_PAIRED_MACS_PER_USER,
+  normalizeClientScope,
   pairedMacsCollection,
   PAIRED_MACS_COLLECTION,
   parsePairedMacBackup,
@@ -110,6 +111,30 @@ describe("parsePairedMacBackup", () => {
 });
 
 describe("applyBackupOps", () => {
+  it("normalizes optional client scopes into separate per-user collections", async () => {
+    const storage = new FakeStorage();
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [{ kind: "upsert", id: "mac-a", record: record("mac-a", "10.0.0.1", 22) }],
+      T0,
+      "ios:Feature Tag",
+    );
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [{ kind: "upsert", id: "mac-b", record: record("mac-b", "10.0.0.2", 22) }],
+      T0,
+      "ios:other",
+    );
+
+    expect(normalizeClientScope(" ios:Feature Tag ")).toBe("ios:feature-tag");
+    expect(pairedMacsCollection("user-1", "ios:Feature Tag")).toBe("pairedMacsScoped:user-1:ios:feature-tag");
+    expect((await listBackupSnapshot(storage, "user-1", "ios:Feature Tag")).records.map((r) => r.macDeviceID)).toEqual(["mac-a"]);
+    expect((await listBackupSnapshot(storage, "user-1", "ios:other")).records.map((r) => r.macDeviceID)).toEqual(["mac-b"]);
+    expect((await listBackupSnapshot(storage, "user-1")).records).toEqual([]);
+  });
+
   it("writes the per-user physical collection and relabels frames to the logical name", async () => {
     const storage = new FakeStorage();
     const deltas = await applyBackupOps(
