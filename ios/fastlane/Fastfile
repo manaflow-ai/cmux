@@ -66,9 +66,12 @@ end
 # Resolve an App Store Connect API key from env (CI / agents) or the repo-local
 # plist used by ios/scripts. Mirrors the resolution in upload-testflight.sh.
 def asc_api_key
-  key_id = ENV["ASC_API_KEY_ID"]
-  issuer_id = ENV["ASC_API_ISSUER_ID"]
-  key_path = ENV["ASC_API_KEY_PATH"]
+  # Accept both the fastlane-style names (ASC_API_*) and the names used by the
+  # machine-wide secret store ~/.secrets/cmux-appstoreconnect.env
+  # (ASC_KEY_ID / ASC_ISSUER_ID / ASC_PRIVATE_KEY_PATH).
+  key_id = ENV["ASC_API_KEY_ID"] || ENV["ASC_KEY_ID"]
+  issuer_id = ENV["ASC_API_ISSUER_ID"] || ENV["ASC_ISSUER_ID"]
+  key_path = ENV["ASC_API_KEY_PATH"] || ENV["ASC_PRIVATE_KEY_PATH"]
 
   if key_id.nil? || issuer_id.nil?
     plist = File.expand_path("../Config/AppStoreConnect.local.plist", __dir__)

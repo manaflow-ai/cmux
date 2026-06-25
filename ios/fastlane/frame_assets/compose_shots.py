@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
 """Compose premium App Store screenshots with ImageMagick.
 
-Why this instead of `fastlane frameit` directly: frameit fits the whole (tall)
-device under the title inside the fixed App Store canvas, which shrinks the
-device and leaves big dead margins. Here we stitch the screenshot into the real
-device frame ourselves and place it LARGE (bleeding off the bottom) under a bold
-header, for a polished, full composition. We still use frameit's real frame PNGs
-(the same Facebook Design frames frameit uses), downloaded on demand.
-
-- iPhone: real iPhone 17 Pro Max frame (Silver), stitched + large + bold header.
-- iPad (landscape): bezel-less rounded screen, large, + bold header (frameit has
-  no current/landscape iPad frame).
+- iPhone: the screenshot is masked to the device frame's REAL screen opening
+  (extracted from the frame's alpha, so the screen follows the bezel's exact
+  rounded corners) and placed under the real iPhone 17 Pro Max frame, large and
+  bleeding off the bottom, under a bold SF Pro header.
+- iPad (landscape): large bezel-less rounded screen with a bold header (frameit
+  has no current/landscape iPad frame).
+- Agent shots (Claude/Codex/OpenCode/pi) show the agent's logo before the header.
+- Backgrounds are tranquil nature photos (bg_portrait/bg_landscape).
 
 Usage: compose_shots.py <screenshots_dir>
 """
@@ -24,26 +22,24 @@ import tempfile
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+LOGO_DIR = os.path.join(HERE, "logos")
 MAGICK = shutil.which("magick") or shutil.which("convert")
 FRAME_DIR = os.path.expanduser("~/.fastlane/frameit/latest")
 IPHONE_FRAME = "Apple iPhone 17 Pro Max Silver.png"
 IPHONE_FRAME_URL = ("https://fastlane.github.io/frameit-frames/latest/"
                     "Apple%20iPhone%2017%20Pro%20Max%20Silver.png")
-# Screen offset of the screenshot inside the frame (from frameit offsets.json).
 IPHONE_SCREEN_OFFSET = (75, 66)
 IPHONE_FRAME_SIZE = (1470, 3000)
 
-# Apple's SF Pro for the header (the native iOS font); a Unicode font covers
-# locales SF Pro lacks glyphs for (CJK, Arabic, Hebrew, Thai, Hindi, ...).
 SF_PRO = "/System/Library/Fonts/SFNS.ttf"
 FONT_UNICODE = "/System/Library/Fonts/Supplemental/Arial Unicode.ttf"
 FONT_CANDIDATES = [SF_PRO, "/System/Library/Fonts/SFNSRounded.ttf", FONT_UNICODE,
                    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"]
+# shot name (from <Device>-<NN>-<Name>.png) -> agent logo file
+LOGOS = {"claude": "Claude.png", "codex": "Codex.png", "opencode": "OpenCode.png", "pi": "Pi.png"}
 
 
 def font_for(title):
-    # SF Pro for Latin/Cyrillic/Greek; fall back to a Unicode font for scripts
-    # SF Pro doesn't cover (CJK etc.).
     if any(ord(c) > 0x52F for c in title) and os.path.exists(FONT_UNICODE):
         return FONT_UNICODE
     return next((c for c in FONT_CANDIDATES if os.path.exists(c)), FONT_UNICODE)
@@ -55,6 +51,18 @@ def ensure_iphone_frame():
         os.makedirs(FRAME_DIR, exist_ok=True)
         urllib.request.urlretrieve(IPHONE_FRAME_URL, path)
     return path
+
+
+def build_opening_mask(frame, out):
+    # White = the frame's screen opening (the transparent region enclosed by the
+    # opaque bezel). bezel->white; flood-fill the OUTER transparent area from a
+    # corner; the still-black inner region is the opening, so invert.
+    tmp = out + ".bezel.png"
+    subprocess.run([MAGICK, frame, "-alpha", "extract", "-threshold", "50%", tmp], check=True)
+    subprocess.run([MAGICK, tmp, "-bordercolor", "black", "-border", "1",
+                    "-fill", "white", "-draw", "color 0,0 floodfill", "-shave", "1x1",
+                    "-negate", out], check=True)
+    os.remove(tmp)
 
 
 def load_titles():
@@ -71,58 +79,60 @@ def identify(path):
     return int(w), int(h)
 
 
-def header_layer(tmp, title, cw, font, pt, box_w, box_h):
+def header_image(tmp, title, font, pt, box_w, logo):
     cap = os.path.join(tmp, "cap.png")
     cmd = [MAGICK, "-background", "none", "-fill", "white", "-font", font]
-    if font == SF_PRO:  # SF Pro is a variable font; render heavy for a bold header
+    if font == SF_PRO:
         cmd += ["-weight", "800"]
-    cmd += ["-pointsize", str(pt), "-size", f"{box_w}x{box_h}", "-gravity", "center",
-            f"caption:{title}", cap]
+    cmd += ["-pointsize", str(pt), "-size", f"{box_w}x", "-gravity", "center",
+            f"caption:{title}", "-trim", "+repage", cap]
     subprocess.run(cmd, check=True)
-    return cap
+    if not logo or not os.path.exists(logo):
+        return cap
+    out = os.path.join(tmp, "header.png")
+    lh = int(pt * 1.25)
+    lg = os.path.join(tmp, "lg.png")
+    subprocess.run([MAGICK, logo, "-resize", f"{lh}x{lh}", lg], check=True)
+    # [logo] <gap> [caption], vertically centered (+smush joins horizontally,
+    # centered, with a gap).
+    subprocess.run([MAGICK, lg, cap, "-background", "none", "+smush", str(int(pt * 0.32)), out], check=True)
+    return out
 
 
-def compose_iphone(raw, out, bg, title, frame):
+def compose_iphone(raw, out, bg, frame, mask, title, font, logo):
     cw, ch = 1320, 2868
     fw, fh = IPHONE_FRAME_SIZE
     ox, oy = IPHONE_SCREEN_OFFSET
-    font = font_for(title)
     with tempfile.TemporaryDirectory() as tmp:
-        # Round the (square) simulator capture to the screen corner radius so its
-        # corners don't poke past the frame's rounded screen opening.
-        rraw = os.path.join(tmp, "raw_round.png")
-        rw, rh = identify(raw)
-        rad = round(rw * 0.097)
-        subprocess.run([MAGICK, raw,
-                        "(", "+clone", "-alpha", "transparent", "-background", "none", "-fill", "white",
-                        "-draw", f"roundrectangle 0,0,{rw-1},{rh-1},{rad},{rad}", ")",
-                        "-compose", "DstIn", "-composite", rraw], check=True)
+        placed = os.path.join(tmp, "placed.png")
+        masked = os.path.join(tmp, "masked.png")
         device = os.path.join(tmp, "device.png")
+        subprocess.run([MAGICK, "-size", f"{fw}x{fh}", "xc:black",
+                        "(", raw, "-geometry", f"+{ox}+{oy}", ")", "-composite", placed], check=True)
+        subprocess.run([MAGICK, placed, mask, "-alpha", "off",
+                        "-compose", "CopyOpacity", "-composite", masked], check=True)
         subprocess.run([MAGICK, "-size", f"{fw}x{fh}", "xc:none",
-                        "(", rraw, "-geometry", f"+{ox}+{oy}", ")", "-composite",
-                        frame, "-composite", device], check=True)
+                        masked, "-composite", frame, "-composite", device], check=True)
         dw = int(cw * 0.885)
         dh = int(fh * dw / fw)
-        dx = (cw - dw) // 2
         dy = int(ch * 0.18)
         base = os.path.join(tmp, "base.png")
         subprocess.run([MAGICK, bg, "-resize", f"{cw}x{ch}^", "-gravity", "center",
                         "-extent", f"{cw}x{ch}", base], check=True)
-        cap = header_layer(tmp, title, cw, font, 120, int(cw * 0.88), 320)
+        hdr = header_image(tmp, title, font, 120, int(cw * 0.86), logo)
         subprocess.run([
             MAGICK, base,
             "(", device, "-resize", f"{dw}x{dh}!",
             "(", "+clone", "-background", "black", "-shadow", "55x42+0+26", ")", "+swap",
             "-background", "none", "-layers", "merge", "+repage", ")",
             "-gravity", "north", "-geometry", f"+0+{dy}", "-compose", "over", "-composite",
-            cap, "-gravity", "north", "-geometry", f"+0+{int(ch*0.05)}", "-compose", "over", "-composite",
+            hdr, "-gravity", "north", "-geometry", f"+0+{int(ch*0.05)}", "-compose", "over", "-composite",
             out,
         ], check=True)
 
 
-def compose_ipad(raw, out, bg, title):
+def compose_ipad(raw, out, bg, title, font, logo):
     w, h = identify(raw)
-    font = font_for(title)
     with tempfile.TemporaryDirectory() as tmp:
         dh = int(h * 0.80)
         dw = int(w * dh / h)
@@ -134,17 +144,17 @@ def compose_ipad(raw, out, bg, title):
         subprocess.run([MAGICK, bg, "-resize", f"{w}x{h}^", "-gravity", "center",
                         "-extent", f"{w}x{h}", base], check=True)
         subprocess.run([MAGICK, raw, "-resize", f"{dw}x{dh}!",
-                        "(", "+clone", "-alpha", "transparent", "-background", "none",
-                        "-fill", "white", "-draw", f"roundrectangle 0,0,{dw-1},{dh-1},{r},{r}", ")",
+                        "(", "+clone", "-alpha", "transparent", "-background", "none", "-fill", "white",
+                        "-draw", f"roundrectangle 0,0,{dw-1},{dh-1},{r},{r}", ")",
                         "-compose", "DstIn", "-composite", screen], check=True)
-        cap = header_layer(tmp, title, w, font, int(h * 0.05), int(w * 0.8), int(h * 0.12))
+        hdr = header_image(tmp, title, font, int(h * 0.05), int(w * 0.8), logo)
         subprocess.run([
             MAGICK, base,
             "(", screen, "-background", "black", "-shadow", "55x40+0+22", ")",
             "-gravity", "northwest", "-geometry", f"+{dx-int(dw*0.012)}+{dy-int(dw*0.006)}",
             "-compose", "over", "-composite",
             screen, "-gravity", "northwest", "-geometry", f"+{dx}+{dy}", "-composite",
-            cap, "-gravity", "north", "-geometry", f"+0+{int(h*0.04)}", "-compose", "over", "-composite",
+            hdr, "-gravity", "north", "-geometry", f"+0+{int(h*0.04)}", "-compose", "over", "-composite",
             out,
         ], check=True)
 
@@ -156,6 +166,8 @@ def main():
     bg_portrait = os.path.join(HERE, "bg_portrait.jpg")
     bg_landscape = os.path.join(HERE, "bg_landscape.jpg")
     frame = ensure_iphone_frame()
+    mask = os.path.join(tempfile.gettempdir(), "cmux_iphone_opening_mask.png")
+    build_opening_mask(frame, mask)
     en, loc = load_titles()
     n = 0
     for locale in sorted(os.listdir(ss)):
@@ -169,12 +181,16 @@ def main():
             m = re.match(r"(.+?)-(\d+)-(.+?)\.png", f)
             if not m:
                 continue
-            title = titles.get(f"{m.group(2)}-{m.group(3)}") or en.get(f"{m.group(2)}-{m.group(3)}") or ""
+            name = m.group(3)
+            title = titles.get(f"{m.group(2)}-{name}") or en.get(f"{m.group(2)}-{name}") or ""
+            font = font_for(title)
+            logo_file = LOGOS.get(name.lower())
+            logo = os.path.join(LOGO_DIR, logo_file) if logo_file else None
             src, dst = os.path.join(d, f), os.path.join(d, f[:-4] + "_framed.png")
             if "ipad" in m.group(1).lower():
-                compose_ipad(src, dst, bg_landscape, title)
+                compose_ipad(src, dst, bg_landscape, title, font, logo)
             else:
-                compose_iphone(src, dst, bg_portrait, title, frame)
+                compose_iphone(src, dst, bg_portrait, frame, mask, title, font, logo)
             n += 1
     print(f"composed {n} framed screenshots")
 
