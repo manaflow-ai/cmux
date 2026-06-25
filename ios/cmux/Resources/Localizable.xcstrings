@@ -6920,6 +6920,23 @@
         }
       }
     },
+    "mobile.workspaces.macPicker.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac を選択"
+          }
+        }
+      }
+    },
     "mobile.workspaces.macPicker.label": {
       "extractionState": "manual",
       "localizations": {

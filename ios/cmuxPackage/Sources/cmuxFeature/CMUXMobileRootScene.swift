@@ -4,6 +4,7 @@ import CmuxMobileAnalytics
 import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxMobileSupport
 @_exported import CmuxMobileShellUI
 import CmuxMobileTransport
 import Foundation
@@ -232,7 +233,9 @@ public struct CMUXMobileRootScene: View {
     private var content: some View {
         #if os(iOS)
         #if DEBUG
-        if ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS"] == "1" {
+        if UITestConfig.workspaceListLayoutPreviewEnabled {
+            WorkspaceListLayoutPreviewView()
+        } else if ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS"] == "1" {
             MobileZoomStressView()
         } else {
             CMUXMobileAppView(store: makeStore(), onboardingStore: onboardingStore)

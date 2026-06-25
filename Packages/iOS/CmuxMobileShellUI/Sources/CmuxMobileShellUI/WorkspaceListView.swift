@@ -96,6 +96,7 @@ struct WorkspaceListView: View {
     /// aggregation is explicit in the title picker and can be narrowed from
     /// there.
     @State private var macSelection: WorkspaceMacSelection = .all
+    @State private var showingMacPickerDialog = false
     /// The workspace whose destructive close action is awaiting confirmation.
     /// Stored at list scope so reusable rows do not own transient presentation
     /// state while `List` is recycling swipe-action rows.
@@ -300,7 +301,7 @@ struct WorkspaceListView: View {
             ToolbarItem(placement: .principal) {
                 macTitlePicker
             }
-            if store != nil {
+            if showsDevicesButton {
                 ToolbarItem(placement: .topBarLeading) {
                     devicesButton
                 }
@@ -367,40 +368,39 @@ struct WorkspaceListView: View {
     }
 
     private var macTitlePicker: some View {
-        Menu {
-            Button {
-                macSelection = .all
-            } label: {
-                macMenuItemLabel(
-                    title: L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Macs"),
-                    isSelected: visibleMacSelection == .all
-                )
-            }
-            ForEach(macPickerMachines) { machine in
-                Button {
-                    macSelection = .machine(machine.id)
-                } label: {
-                    macMenuItemLabel(
-                        title: machine.name,
-                        isSelected: visibleMacSelection == .machine(machine.id)
-                    )
-                }
-            }
+        Button {
+            showingMacPickerDialog = true
         } label: {
             WorkspaceMacTitlePickerLabel(title: macTitlePickerTitle)
         }
         .buttonStyle(.plain)
         .tint(.white)
+        .confirmationDialog(
+            L10n.string("mobile.workspaces.macPicker.title", defaultValue: "Choose Mac"),
+            isPresented: $showingMacPickerDialog,
+            titleVisibility: .hidden
+        ) {
+            Button(L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Macs")) {
+                macSelection = .all
+            }
+            ForEach(macPickerMachines) { machine in
+                Button(machine.name) {
+                    macSelection = .machine(machine.id)
+                }
+            }
+        }
         .accessibilityIdentifier("MobileWorkspaceMacPicker")
     }
 
-    @ViewBuilder
-    private func macMenuItemLabel(title: String, isSelected: Bool) -> some View {
-        if isSelected {
-            Label(title, systemImage: "checkmark")
-        } else {
-            Text(title)
+    private var showsDevicesButton: Bool {
+        if store != nil {
+            return true
         }
+        #if DEBUG
+        return UITestConfig.workspaceListLayoutPreviewEnabled
+        #else
+        return false
+        #endif
     }
 
     private var devicesButton: some View {
@@ -572,25 +572,28 @@ struct WorkspaceListView: View {
 
 #if os(iOS)
 private struct WorkspaceMacTitlePickerLabel: View {
-    private static let titleWidth: CGFloat = 220
+    private static let titleWidth: CGFloat = 155
 
     let title: String
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 6) {
+            Spacer(minLength: 0)
             Text(title)
+                .font(.headline.weight(.bold))
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .frame(maxWidth: Self.titleWidth - 24, alignment: .center)
+                .allowsTightening(true)
+                .minimumScaleFactor(0.9)
                 .layoutPriority(1)
             Image(systemName: "chevron.down")
                 .font(.caption.weight(.bold))
                 .accessibilityHidden(true)
+            Spacer(minLength: 0)
         }
-        .font(.headline)
-        .bold()
         .foregroundStyle(.white)
         .frame(width: Self.titleWidth, alignment: .center)
+        .clipped()
         .contentShape(Rectangle())
     }
 }
