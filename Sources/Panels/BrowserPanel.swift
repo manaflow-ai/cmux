@@ -4613,6 +4613,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     @discardableResult
     private func prepareRestoredInlineVSCodeServeWebURL(_ restoredURL: URL) -> Bool {
+        guard VSCodeServeWebController.isPersistentServeWebURL(restoredURL) else { return false }
         restoredInlineVSCodeServeWebURLAwaitingPreparation = restoredURL
         let didStartPreparation = VSCodeServeWebController.shared.prepareRestoredServeWebURL(
             restoredURL,

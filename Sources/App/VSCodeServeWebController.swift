@@ -168,7 +168,9 @@ final class VSCodeServeWebController {
             return false
         }
         guard let vscodeApplicationURL else {
-            completion?(nil)
+            if let completion {
+                Self.completeOnMain(completion, with: nil)
+            }
             return true
         }
         ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { url in
