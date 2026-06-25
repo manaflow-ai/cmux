@@ -56,6 +56,19 @@ import Testing
         #expect(messages[0].text == "Actual user question about flaky tests")
     }
 
+    @Test func xmlLikeUserPromptsAreKept() {
+        let lines = [
+            messageLine(role: "user", content: "<person>John</person> parse this XML"),
+            messageLine(role: "user", content: "<Button disabled>Fix this JSX prop</Button>"),
+            messageLine(role: "user", content: "<environment_context>cwd: /tmp</environment_context>"),
+        ]
+        let messages = engine.extractCodexMessages(fromRolloutLines: lines)
+        #expect(messages == [
+            AutoNamingTranscriptMessage(role: "user", text: "<person>John</person> parse this XML"),
+            AutoNamingTranscriptMessage(role: "user", text: "<Button disabled>Fix this JSX prop</Button>"),
+        ])
+    }
+
     @Test func missingOrEmptyRolloutYieldsNoContext() {
         #expect(engine.extractCodexMessages(fromRolloutLines: []).isEmpty)
         let onlyNoise = [

@@ -212,6 +212,8 @@ struct AutoNamingEnvironmentPolicy: Sendable {
 /// Pure auto-naming logic: throttle decisions, transcript extraction,
 /// prompt construction, and response sanitization.
 struct AutoNamingEngine: Sendable {
+    private static let codexInjectedUserPrefixes = ["<user_instructions", "<environment_context", "<permissions", "<collaboration_mode",
+                                                    "<turn_aborted", "<subagent_notification", "# AGENTS.md instructions"]
     var config: AutoNamingConfig
 
     init(config: AutoNamingConfig = AutoNamingConfig()) {
@@ -324,8 +326,7 @@ struct AutoNamingEngine: Sendable {
     // MARK: - Transcript extraction (Codex rollout JSONL)
 
     /// Extracts user/assistant text messages from Codex rollout JSONL lines
-    /// (`response_item` payloads of type `message`). Injected context blocks
-    /// (environment context, user instructions, subagent notifications) are
+    /// (`response_item` payloads of type `message`). Known Codex context blocks are
     /// skipped along with tool calls and event noise.
     func extractCodexMessages(fromRolloutLines lines: [String]) -> [AutoNamingTranscriptMessage] {
         extractCodexRollout(fromRolloutLines: lines).messages
@@ -348,9 +349,8 @@ struct AutoNamingEngine: Sendable {
                 skipped += 1
                 continue
             }
-            // Codex injects framework context as user messages wrapped in
-            // angle-bracket tags; they describe the harness, not the topic.
-            if trimmed.hasPrefix("<"), trimmed.contains(">") {
+            // Drop only known Codex harness blocks; keep user XML/HTML/JSX prompts.
+            if role == "user", Self.codexInjectedUserPrefixes.contains(where: { trimmed.hasPrefix($0) }) {
                 skipped += 1
                 continue
             }
