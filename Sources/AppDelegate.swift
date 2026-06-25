@@ -7396,6 +7396,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
             arguments: ["vm", "new", "--workspace", workspace.id.uuidString],
             showsProgress: false,
+            presentsFailureAlert: false,
             onCompletion: { completion in
                 if !completion.succeeded,
                    let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel {

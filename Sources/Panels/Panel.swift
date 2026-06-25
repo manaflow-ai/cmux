@@ -381,6 +381,7 @@ final class CloudVMLoadingPanel: Panel {
     let id: UUID
     let workspaceId: UUID
     let panelType: PanelType = .cloudVMLoading
+    let startedAt: Date
     @Published var phase: Phase = .loading
 
     var displayTitle: String {
@@ -389,9 +390,10 @@ final class CloudVMLoadingPanel: Panel {
 
     var displayIcon: String? { "cloud.fill" }
 
-    init(id: UUID = UUID(), workspaceId: UUID) {
+    init(id: UUID = UUID(), workspaceId: UUID, startedAt: Date = Date()) {
         self.id = id
         self.workspaceId = workspaceId
+        self.startedAt = startedAt
     }
 
     func close() {}
@@ -400,9 +402,61 @@ final class CloudVMLoadingPanel: Panel {
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {}
 
     func showFailure(_ message: String) {
-        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = Self.presentableFailureMessage(from: message)
         phase = .failed(trimmed.isEmpty
             ? String(localized: "panel.cloudVM.loading.failed.generic", defaultValue: "Cloud VM could not be opened.")
             : trimmed)
+    }
+
+    private static func presentableFailureMessage(from rawMessage: String) -> String {
+        let cleaned = rawMessage
+            .replacingOccurrences(of: "\u{001B}[2K", with: "")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .components(separatedBy: .newlines)
+            .map { line in
+                line
+                    .replacingOccurrences(of: #"\[[0-9;]*[A-Za-z]"#, with: "", options: .regularExpression)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            .filter { !$0.isEmpty }
+        let joined = cleaned.joined(separator: "\n")
+        let lowercased = joined.lowercased()
+
+        if lowercased.contains("local cmux web server") || lowercased.contains("localhost:") || lowercased.contains("127.0.0.1:") {
+            return String(
+                localized: "panel.cloudVM.loading.failed.localServer",
+                defaultValue: "The local cmux web server is offline. Start it and retry Open Cloud VM."
+            )
+        }
+        if lowercased.contains("waiting for the cloud vm service")
+            || lowercased.contains("vm_cloud_service_unavailable")
+            || lowercased.contains("http 502")
+            || lowercased.contains("http 503")
+            || lowercased.contains("service unavailable") {
+            return String(
+                localized: "panel.cloudVM.loading.failed.serviceUnavailable",
+                defaultValue: "The Cloud VM service did not become ready after repeated retries. The workspace is still here; try again in a moment."
+            )
+        }
+        if lowercased.contains("password") || lowercased.contains("permission denied") {
+            return String(
+                localized: "panel.cloudVM.loading.failed.auth",
+                defaultValue: "cmux could not open a passwordless terminal session. Try opening the Cloud VM again."
+            )
+        }
+
+        var seen = Set<String>()
+        let collapsed = cleaned.filter { line in
+            let key = line.lowercased()
+            if seen.contains(key) { return false }
+            seen.insert(key)
+            return !key.contains("created cloud vm")
+                && !key.contains("[cmux]")
+                && !key.contains("freestyle")
+                && !key.contains("provider")
+                && !key.contains("http://")
+                && !key.contains("https://")
+        }
+        return String(collapsed.joined(separator: "\n").prefix(600))
     }
 }

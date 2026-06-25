@@ -4951,6 +4951,25 @@ final class WorkspaceSidebarExtensionBrowserSurfaceTests: XCTestCase {
         XCTAssertEqual(terminal?.surface.initialCommand, command)
     }
 
+    func testCloudVMLoadingFailureSummarizesRetrySpam() {
+        let panel = CloudVMLoadingPanel(workspaceId: UUID())
+        panel.showFailure("""
+        Created Cloud VM in066h50tkjqapx042qn
+        \u{001B}[2K[cmux] Waiting for the Cloud VM service. Retrying in 2s (attempt 1/120).
+        \u{001B}[2K[cmux] Waiting for the Cloud VM service. Retrying in 2s (attempt 2/120).
+        \u{001B}[2K[cmux] Waiting for the Cloud VM service. Retrying in 2s (attempt 3/120).
+        """)
+
+        guard case .failed(let message) = panel.phase else {
+            XCTFail("Expected failed loading panel")
+            return
+        }
+        XCTAssertTrue(message.contains("Cloud VM service did not become ready"))
+        XCTAssertFalse(message.contains("[cmux]"))
+        XCTAssertFalse(message.contains("[2K"))
+        XCTAssertFalse(message.contains("in066h50"))
+    }
+
     func testCreatesExtensionBrowserTabInFocusedPane() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
