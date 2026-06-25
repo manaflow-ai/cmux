@@ -100,13 +100,13 @@ export default function IosLanding() {
         {/* Phone */}
         <div
           data-dev="ios-screenshot"
-          className="my-14 grid grid-cols-2 gap-5 sm:gap-10 max-w-lg mx-auto"
+          className="my-14 grid grid-cols-2 gap-4 sm:gap-6"
         >
           <RevealImage
             src={iosWorkspaces}
             alt={t("screenshotAlt")}
             priority
-            sizes="(max-width: 640px) 42vw, 240px"
+            sizes="(max-width: 640px) 42vw, 336px"
             className="w-full h-auto drop-shadow-[0_24px_56px_rgba(0,0,0,0.5)]"
           />
           <RevealImage
@@ -114,7 +114,7 @@ export default function IosLanding() {
             alt={t("screenshotAlt")}
             priority
             delay={90}
-            sizes="(max-width: 640px) 42vw, 240px"
+            sizes="(max-width: 640px) 42vw, 336px"
             className="w-full h-auto drop-shadow-[0_24px_56px_rgba(0,0,0,0.5)]"
           />
         </div>
