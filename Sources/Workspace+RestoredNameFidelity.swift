@@ -5,16 +5,41 @@ extension Workspace {
         _ snapshot: SessionWorkspaceSnapshot,
         panelSnapshotsById: [UUID: SessionPanelSnapshot]
     ) -> Bool {
+        restoredWorkspaceNameIsVerified(
+            snapshot,
+            panelSnapshotsById: panelSnapshotsById,
+            verificationByPanelId: [:]
+        )
+    }
+
+    static func restoredWorkspaceNameIsVerified(
+        _ snapshot: SessionWorkspaceSnapshot,
+        panelSnapshotsById: [UUID: SessionPanelSnapshot],
+        verificationByPanelId: [UUID: CrashRecoveryVerification]
+    ) -> Bool {
         guard snapshot.customTitleSource == .auto,
               let focusedPanelId = snapshot.focusedPanelId,
               let panelSnapshot = panelSnapshotsById[focusedPanelId] else {
             return false
         }
-        return restoredPanelNameIsVerified(panelSnapshot)
+        return restoredPanelNameIsVerified(
+            panelSnapshot,
+            cachedVerification: verificationByPanelId[focusedPanelId]
+        )
     }
 
     static func restoredPanelNameIsVerified(_ snapshot: SessionPanelSnapshot) -> Bool {
+        restoredPanelNameIsVerified(snapshot, cachedVerification: nil)
+    }
+
+    static func restoredPanelNameIsVerified(
+        _ snapshot: SessionPanelSnapshot,
+        cachedVerification: CrashRecoveryVerification?
+    ) -> Bool {
         guard snapshot.customTitleSource == .auto else { return false }
+        if let cachedVerification {
+            return ResumeFidelityGate().isVerified(cachedVerification.facts)
+        }
         let snapshotRestorableAgent = snapshot.terminal?.agent
         let resumeBinding = resumeBindingForSessionRestore(
             snapshot.terminal?.resumeBinding,
@@ -24,14 +49,16 @@ extension Workspace {
             snapshotRestorableAgent,
             resumeBinding: resumeBinding
         ) {
-            return ResumeFidelityGate().isVerified(
-                crashRecoveryVerification(agent: restorableAgent).facts
-            )
+            guard let verification = crashRecoveryVerificationWithoutFilesystemScan(agent: restorableAgent) else {
+                return false
+            }
+            return ResumeFidelityGate().isVerified(verification.facts)
         }
         if let resumeBinding {
-            return ResumeFidelityGate().isVerified(
-                crashRecoveryVerification(binding: resumeBinding).facts
-            )
+            guard let verification = crashRecoveryVerificationWithoutFilesystemScan(binding: resumeBinding) else {
+                return false
+            }
+            return ResumeFidelityGate().isVerified(verification.facts)
         }
         return false
     }
@@ -66,7 +93,8 @@ extension Workspace {
             source: snapshot.customTitleSource,
             isVerified: Self.restoredWorkspaceNameIsVerified(
                 snapshot,
-                panelSnapshotsById: panelSnapshotsById
+                panelSnapshotsById: panelSnapshotsById,
+                verificationByPanelId: restoredAgentVerificationByPanelId
             )
         )
         applyProcessTitle(snapshot.processTitle)
@@ -88,7 +116,10 @@ extension Workspace {
         let restoredPanelName = Self.restoredName(
             persistedTitle: snapshot.customTitle,
             source: snapshot.customTitleSource,
-            isVerified: Self.restoredPanelNameIsVerified(snapshot)
+            isVerified: Self.restoredPanelNameIsVerified(
+                snapshot,
+                cachedVerification: restoredAgentVerificationByPanelId[panelId]
+            )
         )
         applyRestoredPanelName(restoredPanelName, toPanelId: panelId)
     }

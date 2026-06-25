@@ -130,13 +130,7 @@ struct WorkspaceResumeCoordinator {
             case .honestRecovery(_, let reason):
                 return .skipped(Self.skipReason(for: reason))
             case .resumeVerified(let breadcrumb):
-                if !surface.isAgentLive {
-                    surface.runNativeResume()
-                }
-                if let breadcrumb {
-                    surface.deliverResumeBreadcrumb(breadcrumb)
-                }
-                return .resumed(deliveredBreadcrumb: breadcrumb != nil)
+                return performVerifiedResume(surface, breadcrumb: breadcrumb)
             }
         }
     }
@@ -242,13 +236,7 @@ struct WorkspaceResumeCoordinator {
         let facts = bindingFacts(for: surface)
         switch router.route(facts, context: recoveryContext(for: surface)) {
         case .resumeVerified(let breadcrumb):
-            if !surface.isAgentLive {
-                surface.runNativeResume()
-            }
-            if let breadcrumb {
-                surface.deliverResumeBreadcrumb(breadcrumb)
-            }
-            return .resumed(deliveredBreadcrumb: breadcrumb != nil)
+            return performVerifiedResume(surface, breadcrumb: breadcrumb)
         case .honestRecovery(let prompt, let reason):
             surface.deliverHonestRecoveryPrompt(prompt)
             return .honestRecovery(reason: reason)

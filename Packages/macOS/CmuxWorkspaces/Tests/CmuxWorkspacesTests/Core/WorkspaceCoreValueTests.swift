@@ -35,4 +35,8 @@ import Testing
     @Test func configurationCommandTimeoutMatchesLegacyPolicy() {
         #expect(WorkspacePendingTerminalInputReason.configurationCommand.timeout == 3.0)
     }
+
+    @Test func recoveryInputWaitsForReadinessWithoutWallClockExpiry() {
+        #expect(WorkspacePendingTerminalInputReason.recoveryInput.timeout == nil)
+    }
 }

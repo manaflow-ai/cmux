@@ -32,7 +32,7 @@ enum ResumeBreadcrumbBuilder {
             switch self {
             case .noSessionId: return "no saved agent session to resume"
             case .unprovenSession: return "saved session could not be verified"
-            case .unsupportedAgent(let kind): return "resume not supported for \(kind.displayName)"
+            case .unsupportedAgent: return "resume not supported for this agent type"
             }
         }
     }

@@ -65,7 +65,7 @@ enum UncleanShutdownSentinel {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let source = trimmed.isEmpty ? fallbackLifecycleScope : trimmed
         let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-")
-        let replacement = UnicodeScalar("_")!
+        let replacement = UnicodeScalar("_")
         let scalars = source.unicodeScalars.map { scalar in
             allowed.contains(scalar) ? scalar : replacement
         }

@@ -825,6 +825,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var splitButtonTooltipRefreshScheduled = false
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
     private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
+    private var crashRecoveryStartupTask: Task<Void, Never>?
+    private var crashRecoveryStartupTaskToken: UUID?
     private struct PendingConfiguredShortcutChord {
         let firstStroke: ShortcutStroke
         let windowNumber: Int?
@@ -2013,6 +2015,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         BrowserProfileStore.shared.flushPendingSaves()
         ghosttyCrashBreadcrumbTask?.cancel()
         ghosttyCrashBreadcrumbTask = nil
+        crashRecoveryStartupTask?.cancel()
+        crashRecoveryStartupTask = nil
+        crashRecoveryStartupTaskToken = nil
         notificationStore?.clearAll()
         GhosttyCrashBreadcrumb.markCleanExit()
         // Clean shutdown: clear the unclean-shutdown sentinel only after the
@@ -7253,8 +7258,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Crash recovery: after restore, offer to resume agents if the prior run crashed and the user opted in.
         // Deferred so the window is visible first; normal and intentional-relaunch launches stay silent.
-        Task { @MainActor [weak self] in
+        crashRecoveryStartupTask?.cancel()
+        let taskToken = UUID()
+        crashRecoveryStartupTaskToken = taskToken
+        crashRecoveryStartupTask = Task { @MainActor [weak self] in
             guard let self else { return }
+            defer {
+                if self.crashRecoveryStartupTaskToken == taskToken {
+                    self.crashRecoveryStartupTask = nil
+                    self.crashRecoveryStartupTaskToken = nil
+                }
+            }
             let managers = self.mainWindowContexts.values
                 .sorted { $0.windowId.uuidString < $1.windowId.uuidString }
                 .map(\.tabManager)

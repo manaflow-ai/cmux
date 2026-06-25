@@ -73,7 +73,7 @@ nonisolated enum UnverifiedReason: Hashable, Sendable {
         switch self {
         case .noBinding: return "no saved session binding for this window"
         case .noSessionId: return "saved binding had no agent session id"
-        case .unsupportedAgent(let kind): return "resume not supported for \(kind.displayName)"
+        case .unsupportedAgent: return "resume not supported for this agent type"
         case .resumeUnavailable: return "no resume command could be built for the saved session"
         case .transcriptMissing: return "no transcript found on disk for the saved session"
         case .cwdMismatch: return "the saved session belongs to a different working directory"

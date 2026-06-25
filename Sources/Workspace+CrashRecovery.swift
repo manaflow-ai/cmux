@@ -1,5 +1,10 @@
 import Foundation
 
+nonisolated struct CrashRecoveryVerification: Equatable, Sendable {
+    var facts: ResumeBindingFacts
+    var presence: ClaudeTranscriptPresence
+}
+
 // MARK: - Crash recovery: resumable surface conformance
 
 /// Bridges the live workspace into the crash-recovery resume coordinator. The
@@ -24,9 +29,18 @@ extension Workspace: ResumableWorkspaceSurface {
         return restoredAgentResumeStatesByPanelId[panelId]
     }
 
-    private var crashRecoveryStoredVerification: (facts: ResumeBindingFacts, presence: ClaudeTranscriptPresence)? {
+    private var crashRecoveryStoredVerification: CrashRecoveryVerification? {
         guard let panelId = focusedPanelId else { return nil }
-        return restoredAgentVerificationByPanelId[panelId]
+        if let verification = restoredAgentVerificationByPanelId[panelId] {
+            return verification
+        }
+        if let agent = crashRecoveryRestoredAgent {
+            return Self.crashRecoveryVerificationWithoutFilesystemScan(agent: agent)
+        }
+        if let binding = crashRecoveryResumeBinding {
+            return Self.crashRecoveryVerificationWithoutFilesystemScan(binding: binding)
+        }
+        return nil
     }
 
     var resumeWorkspaceName: String { title }
@@ -103,19 +117,24 @@ extension Workspace: ResumableWorkspaceSurface {
             ?? crashRecoveryResumeBinding?.inlineStartupInput(repairPortableAgentExecutable: false)
         guard let input = startupInput,
               !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        sendInputWhenReady(input, to: panel)
+        sendInputWhenReady(input, to: panel, reason: .recoveryInput)
     }
 
     func deliverResumeBreadcrumb(_ text: String) {
         guard let panel = focusedTerminalPanel else { return }
-        sendInputWhenReady(text + "\n", to: panel)
+        sendInputWhenReady(text + "\n", to: panel, reason: .recoveryInput)
+    }
+
+    func deliverHonestRecoveryPrompt(_ text: String) {
+        guard let panel = focusedTerminalPanel else { return }
+        sendInputWhenReady(text + "\n", to: panel, reason: .recoveryInput)
     }
 
     nonisolated static func crashRecoveryVerification(
         agent: SessionRestorableAgentSnapshot,
         fileManager: FileManager = .default,
         homeDirectory: String = NSHomeDirectory()
-    ) -> (facts: ResumeBindingFacts, presence: ClaudeTranscriptPresence) {
+    ) -> CrashRecoveryVerification {
         let presence = transcriptPresence(
             kind: agent.kind,
             sessionId: agent.sessionId,
@@ -132,14 +151,14 @@ extension Workspace: ResumableWorkspaceSurface {
             transcriptExistsAtWindowCwd: presence.existsAtWindowCwd,
             transcriptExistsElsewhere: presence.existsElsewhere
         )
-        return (facts, presence)
+        return CrashRecoveryVerification(facts: facts, presence: presence)
     }
 
     nonisolated static func crashRecoveryVerification(
         binding: SurfaceResumeBindingSnapshot,
         fileManager: FileManager = .default,
         homeDirectory: String = NSHomeDirectory()
-    ) -> (facts: ResumeBindingFacts, presence: ClaudeTranscriptPresence) {
+    ) -> CrashRecoveryVerification {
         let kind = binding.kind.flatMap(RestorableAgentKind.init(rawValue:))
         let sessionId = binding.checkpointId ?? WorkspaceResumeCoordinator.bareSessionId(from: binding.command)
         let presence: ClaudeTranscriptPresence
@@ -164,7 +183,25 @@ extension Workspace: ResumableWorkspaceSurface {
             transcriptExistsAtWindowCwd: presence.existsAtWindowCwd,
             transcriptExistsElsewhere: presence.existsElsewhere
         )
-        return (facts, presence)
+        return CrashRecoveryVerification(facts: facts, presence: presence)
+    }
+
+    nonisolated static func crashRecoveryVerificationWithoutFilesystemScan(
+        agent: SessionRestorableAgentSnapshot,
+        fileManager: FileManager = .default,
+        homeDirectory: String = NSHomeDirectory()
+    ) -> CrashRecoveryVerification? {
+        guard agent.kind != .claude else { return nil }
+        return crashRecoveryVerification(agent: agent, fileManager: fileManager, homeDirectory: homeDirectory)
+    }
+
+    nonisolated static func crashRecoveryVerificationWithoutFilesystemScan(
+        binding: SurfaceResumeBindingSnapshot,
+        fileManager: FileManager = .default,
+        homeDirectory: String = NSHomeDirectory()
+    ) -> CrashRecoveryVerification? {
+        guard binding.kind.flatMap(RestorableAgentKind.init(rawValue:)) != .claude else { return nil }
+        return crashRecoveryVerification(binding: binding, fileManager: fileManager, homeDirectory: homeDirectory)
     }
 
     nonisolated private static func transcriptPresence(
@@ -200,6 +237,9 @@ extension Workspace: ResumableWorkspaceSurface {
     @MainActor
     func prepareCrashRecoveryResumeVerification() async -> Bool {
         guard let panelId = focusedPanelId else { return false }
+        if let verification = restoredAgentVerificationByPanelId[panelId] {
+            return ResumeFidelityGate().isVerified(verification.facts)
+        }
         if let agent = crashRecoveryRestoredAgent {
             let verification = await Task.detached(priority: .utility) {
                 Self.crashRecoveryVerification(agent: agent)
@@ -254,6 +294,125 @@ extension Workspace: ResumableWorkspaceSurface {
         ).canResume(self)
     }
 
+    func scheduleRestoredAgentVerificationRefresh(
+        workspaceSnapshot: SessionWorkspaceSnapshot,
+        panelSnapshotsById: [UUID: SessionPanelSnapshot],
+        oldToNewPanelIds: [UUID: UUID]
+    ) {
+        let agentJobs = restoredAgentSnapshotsByPanelId
+            .map { (panelId: $0.key, agent: $0.value) }
+            .sorted { $0.panelId.uuidString < $1.panelId.uuidString }
+        let bindingJobs = surfaceResumeBindingsByPanelId
+            .compactMap { item -> (panelId: UUID, binding: SurfaceResumeBindingSnapshot)? in
+                guard restoredAgentSnapshotsByPanelId[item.key] == nil,
+                      item.value.isAgentHookBinding else {
+                    return nil
+                }
+                return (item.key, item.value)
+            }
+            .sorted { $0.panelId.uuidString < $1.panelId.uuidString }
+        guard !agentJobs.isEmpty || !bindingJobs.isEmpty else { return }
+
+        let workspaceAutoTitle = workspaceSnapshot.customTitleSource == .auto
+            ? (
+                title: workspaceSnapshot.customTitle,
+                source: workspaceSnapshot.customTitleSource,
+                focusedPanelId: workspaceSnapshot.focusedPanelId.flatMap { oldToNewPanelIds[$0] }
+            )
+            : nil
+        let panelAutoTitles = oldToNewPanelIds.compactMap { oldPanelId, newPanelId -> (panelId: UUID, snapshot: SessionPanelSnapshot)? in
+            guard let snapshot = panelSnapshotsById[oldPanelId],
+                  snapshot.customTitleSource == .auto else {
+                return nil
+            }
+            return (newPanelId, snapshot)
+        }
+
+        restoredAgentVerificationTask?.cancel()
+        restoredAgentVerificationTask = Task.detached(priority: .utility) {
+            var agentResults: [(panelId: UUID, agent: SessionRestorableAgentSnapshot, verification: CrashRecoveryVerification)] = []
+            var bindingResults: [(panelId: UUID, binding: SurfaceResumeBindingSnapshot, verification: CrashRecoveryVerification)] = []
+            var cache: [String: CrashRecoveryVerification] = [:]
+
+            func cachedVerification(
+                key: String,
+                compute: () -> CrashRecoveryVerification
+            ) -> CrashRecoveryVerification {
+                if let cached = cache[key] { return cached }
+                let verification = compute()
+                cache[key] = verification
+                return verification
+            }
+
+            for job in agentJobs {
+                guard !Task.isCancelled else { return }
+                let configDir = job.agent.launchCommand?.environment?["CLAUDE_CONFIG_DIR"] ?? ""
+                let key = "agent|\(job.agent.kind.rawValue)|\(job.agent.sessionId)|\(job.agent.workingDirectory ?? "")|\(configDir)"
+                let verification = cachedVerification(key: key) {
+                    Workspace.crashRecoveryVerification(agent: job.agent)
+                }
+                agentResults.append((job.panelId, job.agent, verification))
+            }
+
+            for job in bindingJobs {
+                guard !Task.isCancelled else { return }
+                let key = [
+                    "binding",
+                    job.binding.kind ?? "",
+                    job.binding.checkpointId ?? "",
+                    job.binding.command,
+                    job.binding.cwd ?? "",
+                    job.binding.environment?["CLAUDE_CONFIG_DIR"] ?? "",
+                ].joined(separator: "|")
+                let verification = cachedVerification(key: key) {
+                    Workspace.crashRecoveryVerification(binding: job.binding)
+                }
+                bindingResults.append((job.panelId, job.binding, verification))
+            }
+
+            guard !Task.isCancelled else { return }
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                for result in agentResults {
+                    guard self.restoredAgentSnapshotsByPanelId[result.panelId]?.kind == result.agent.kind,
+                          self.restoredAgentSnapshotsByPanelId[result.panelId]?.sessionId == result.agent.sessionId else {
+                        continue
+                    }
+                    self.restoredAgentVerificationByPanelId[result.panelId] = result.verification
+                }
+                for result in bindingResults {
+                    guard self.surfaceResumeBindingsByPanelId[result.panelId] == result.binding else {
+                        continue
+                    }
+                    self.restoredAgentVerificationByPanelId[result.panelId] = result.verification
+                }
+
+                let gate = ResumeFidelityGate()
+                if let workspaceAutoTitle,
+                   let focusedPanelId = workspaceAutoTitle.focusedPanelId,
+                   self.effectiveCustomTitleSource != .user,
+                   let verification = self.restoredAgentVerificationByPanelId[focusedPanelId],
+                   gate.isVerified(verification.facts) {
+                    let restoredName = Self.restoredName(
+                        persistedTitle: workspaceAutoTitle.title,
+                        source: workspaceAutoTitle.source,
+                        isVerified: true
+                    )
+                    self.applyRestoredWorkspaceName(restoredName)
+                }
+                for item in panelAutoTitles {
+                    guard self.panelCustomTitleSources[item.panelId] != .user,
+                          let verification = self.restoredAgentVerificationByPanelId[item.panelId],
+                          gate.isVerified(verification.facts) else {
+                        continue
+                    }
+                    self.applyRestoredPanelName(from: item.snapshot, toPanelId: item.panelId)
+                }
+                self.restoredAgentVerificationTask = nil
+            }
+        }
+    }
+
     /// Silent-path agent-first re-entry for a cold-restored agent panel (U11/R17).
     ///
     /// cmux already issues the native `claude --resume` during restore (PR #6741
@@ -284,7 +443,17 @@ extension Workspace: ResumableWorkspaceSurface {
         let sessionId = agent.sessionId
         let cwd = agent.workingDirectory
 
-        Task { [weak self] in
+        cancelCrashRecoveryReentryTask(panelId: panelId)
+        let taskToken = UUID()
+        crashRecoveryReentryTaskTokensByPanelId[panelId] = taskToken
+        crashRecoveryReentryTasksByPanelId[panelId] = Task { @MainActor [weak self] in
+            defer {
+                if let self,
+                   self.crashRecoveryReentryTaskTokensByPanelId[panelId] == taskToken {
+                    self.crashRecoveryReentryTasksByPanelId.removeValue(forKey: panelId)
+                    self.crashRecoveryReentryTaskTokensByPanelId.removeValue(forKey: panelId)
+                }
+            }
             let result = await Task.detached(priority: .utility) {
                 let verification = Self.crashRecoveryVerification(agent: agent)
                 let context = RecoveryContext(
@@ -302,6 +471,7 @@ extension Workspace: ResumableWorkspaceSurface {
                 }
                 return (verification: verification, message: message)
             }.value
+            guard !Task.isCancelled else { return }
             guard result.verification.facts.agentKind == agentKind,
                   result.verification.facts.sessionId == sessionId,
                   let message = result.message,
@@ -311,7 +481,7 @@ extension Workspace: ResumableWorkspaceSurface {
                self.restoredAgentSnapshotsByPanelId[panelId]?.sessionId == sessionId {
                 self.restoredAgentVerificationByPanelId[panelId] = result.verification
             }
-            self.sendInputWhenReady(message + "\n", to: panel)
+            self.sendInputWhenReady(message + "\n", to: panel, reason: .recoveryInput)
         }
     }
 }
