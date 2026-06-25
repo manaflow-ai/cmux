@@ -29749,7 +29749,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return boundSurface
             }
 
-            if hookWsFlag == nil, (env["CMUX_WORKSPACE_ID"] != nil || env["CMUX_SURFACE_ID"] != nil), processBinding() == nil, !agentHookMappedSessionHasDurableTargetEvidence(kind: def.name, mapped: mapped) { return nil }
             if let workspaceId = resolvedDirectWorkspaceArg {
                 let preferredSurfaceId = correctedDirectSurfaceId(workspaceId: workspaceId)
                     ?? (hookWsFlag == nil ? processBinding()?.surfaceId : nil)
