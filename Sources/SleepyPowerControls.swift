@@ -102,13 +102,22 @@ enum SleepyPowerControls {
         return unsafeBitCast(symbol, to: AuthExecFn.self)
     }()
 
+    // One long-lived authorization for the whole app session. Reusing it (rather
+    // than creating + destroying one per call) lets macOS keep the admin
+    // credential cached (~5 min), so back-to-back toggles don't re-prompt.
+    nonisolated(unsafe) private static var sharedAuthorization: AuthorizationRef?
+
+    private static func authorizationRef() -> AuthorizationRef? {
+        if let sharedAuthorization { return sharedAuthorization }
+        var ref: AuthorizationRef?
+        guard AuthorizationCreate(nil, nil, [], &ref) == errAuthorizationSuccess, let ref else { return nil }
+        sharedAuthorization = ref
+        return ref
+    }
+
     @discardableResult
     private static func runPrivileged(_ tool: String, _ args: [String]) -> Bool {
-        guard let authExec else { return false }
-        var authorization: AuthorizationRef?
-        guard AuthorizationCreate(nil, nil, [], &authorization) == errAuthorizationSuccess,
-              let authorization else { return false }
-        defer { AuthorizationFree(authorization, [.destroyRights]) }
+        guard let authExec, let authorization = authorizationRef() else { return false }
 
         var cArgs: [UnsafeMutablePointer<CChar>?] = args.map { strdup($0) }
         cArgs.append(nil)

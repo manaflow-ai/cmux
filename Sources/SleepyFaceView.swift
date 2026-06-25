@@ -42,6 +42,14 @@ struct SleepyFaceView: View {
             Spacer()
             HStack(spacing: 16) {
                 Button {
+                    // Exits (casual) or prompts Touch ID / password (locked).
+                    SleepyModeController.shared.toggle()
+                } label: {
+                    Label(String(localized: "sleepyMode.button.exit", defaultValue: "Exit"), systemImage: "xmark")
+                }
+                .buttonStyle(PixelButtonStyle(tint: Color(red: 0.52, green: 0.30, blue: 0.40)))
+
+                Button {
                     SleepyPowerControls.sleepDisplayNow()
                 } label: {
                     Label(String(localized: "sleepyMode.button.sleepDisplay", defaultValue: "Sleep Display"), systemImage: "moon.fill")
