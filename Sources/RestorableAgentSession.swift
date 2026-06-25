@@ -1240,9 +1240,10 @@ struct RestorableAgentSessionIndex: Sendable {
         if kind == .codex {
             guard record.isRestorable != false else { return false }
             guard normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased() != "rejected" else { return false }
+            let launchSource = normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased()
             if record.isRestorable == true || record.launchCommand == nil
                 || (record.launchCommand?.arguments.isEmpty == false
-                    && ["environment", "process"].contains(normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased()))
+                    && (launchSource == nil || ["environment", "process"].contains(launchSource)))
                 || normalizedNonEmptyValue(record.launchCommand?.environment?["CODEX_HOME"]) != nil {
                 return true
             }

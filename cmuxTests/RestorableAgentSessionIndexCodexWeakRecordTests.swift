@@ -57,7 +57,7 @@ final class RestorableAgentSessionIndexCodexWeakRecordTests: XCTestCase {
                 ),
                 missingSourceId: codexHookRecord(
                     sessionId: missingSourceId, workspaceId: ws, panelId: panel, cwd: worktree.path,
-                    transcriptPath: nil, updatedAt: 40,
+                    transcriptPath: nil, updatedAt: 5,
                     launchCommand: [
                         "launcher": "codex",
                         "executablePath": "/usr/local/bin/codex",
@@ -74,6 +74,42 @@ final class RestorableAgentSessionIndexCodexWeakRecordTests: XCTestCase {
                 .snapshot(workspaceId: ws, panelId: panel)
         )
         XCTAssertEqual(snapshot.sessionId, goodId)
+        XCTAssertEqual(snapshot.workingDirectory, repo.path)
+    }
+
+    func testCodexLegacyArgvRecordWithoutSourceIsRestorable() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-codex-legacy-argv-restore-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let repo = root.appendingPathComponent("cmuxterm-hq", isDirectory: true)
+        try fm.createDirectory(at: repo, withIntermediateDirectories: true)
+
+        let ws = UUID()
+        let panel = UUID()
+        let sessionId = "019ef7f5-c049-7728-82f6-15995b83c40f"
+        try writeHookStore(
+            root: root,
+            sessions: [
+                sessionId: codexHookRecord(
+                    sessionId: sessionId, workspaceId: ws, panelId: panel, cwd: repo.path,
+                    transcriptPath: nil, updatedAt: 10,
+                    launchCommand: [
+                        "launcher": "codex",
+                        "executablePath": "/usr/local/bin/codex",
+                        "arguments": ["/usr/local/bin/codex", "--yolo"],
+                        "workingDirectory": repo.path,
+                        "capturedAt": 10,
+                    ]
+                ),
+            ]
+        )
+
+        let snapshot = try XCTUnwrap(
+            RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+                .snapshot(workspaceId: ws, panelId: panel)
+        )
+        XCTAssertEqual(snapshot.sessionId, sessionId)
         XCTAssertEqual(snapshot.workingDirectory, repo.path)
     }
 
