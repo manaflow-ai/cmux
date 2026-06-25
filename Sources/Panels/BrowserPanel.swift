@@ -3753,7 +3753,9 @@ final class BrowserPanel: Panel, ObservableObject {
         guard let navigationDelegate else { return }
         let boundWebViewInstanceID = webViewInstanceID
         let boundHistoryStore = historyStore
-        webView.onSubframeDownloadIntent = { [weak navigationDelegate] in navigationDelegate?.recordSubframeDownloadIntent($0) }
+        (webView as? CmuxWebView)?.onSubframeDownloadIntent = { [weak navigationDelegate] in
+            navigationDelegate?.recordSubframeDownloadIntent($0)
+        }
 
         navigationDelegate.didStartProvisionalNavigation = { [weak self] webView in
             MainActor.assumeIsolated {
