@@ -16,6 +16,8 @@ You do not need to edit JSON to use Dock. The Dock tab bar carries the same spli
 
 The Dock toolbar `+` menu and an empty Dock pane offer the same New Terminal / New Browser actions. The optional `dock.json` config only **seeds** the initial Dock layout.
 
+When a Dock pane has keyboard focus, the standard creation/split shortcuts act on the Dock instead of the main content area: New Browser (Cmd+Shift+L), New Surface (Cmd+T), and Split Right / Split Down (Cmd+D / Cmd+Shift+D) create or split inside the focused Dock pane. When the main area is focused, the same shortcuts behave as usual.
+
 ## CLI / socket
 
 Dock panes are scriptable through the same creation commands as the main area, with `--placement dock`:
