@@ -575,19 +575,23 @@ private struct WorkspaceMacTitlePickerLabel: View {
     let title: String
 
     var body: some View {
-        ZStack(alignment: .trailing) {
+        HStack(spacing: 4) {
+            Image(systemName: "chevron.down")
+                .font(.caption.weight(.bold))
+                .hidden()
+                .accessibilityHidden(true)
             Text(title)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.horizontal, 18)
+                .layoutPriority(1)
             Image(systemName: "chevron.down")
-                .font(.caption2.weight(.bold))
+                .font(.caption.weight(.bold))
                 .accessibilityHidden(true)
         }
-        .font(.headline.weight(.semibold))
+        .font(.headline)
+        .bold()
         .foregroundStyle(.white)
-        .frame(width: 180, alignment: .center)
+        .frame(minWidth: 165, maxWidth: 220, alignment: .center)
         .contentShape(Rectangle())
     }
 }
