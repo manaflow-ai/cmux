@@ -572,20 +572,16 @@ struct WorkspaceListView: View {
 
 #if os(iOS)
 private struct WorkspaceMacTitlePickerLabel: View {
-    private static let titleWidth: CGFloat = 165
+    private static let titleWidth: CGFloat = 220
 
     let title: String
 
     var body: some View {
         HStack(spacing: 4) {
-            Image(systemName: "chevron.down")
-                .font(.caption.weight(.bold))
-                .hidden()
-                .accessibilityHidden(true)
             Text(title)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .center)
+                .frame(maxWidth: Self.titleWidth - 24, alignment: .center)
                 .layoutPriority(1)
             Image(systemName: "chevron.down")
                 .font(.caption.weight(.bold))
