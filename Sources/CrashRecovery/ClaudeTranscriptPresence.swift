@@ -26,12 +26,23 @@ nonisolated struct ClaudeTranscriptPresence: Equatable, Sendable {
     /// The resolved on-disk transcript path when found at the window's cwd.
     /// Internal evidence only; user-facing breadcrumbs do not expose it.
     var resolvedPathAtWindowCwd: String?
+    /// Whether the resolver performed the historical-project fallback scan.
+    /// Restore-time name verification leaves this false to avoid unbounded launch
+    /// filesystem work; explicit recovery can recompute with the scan enabled.
+    var searchedElsewhere: Bool = true
 
     static let absent = ClaudeTranscriptPresence(
         existsAtWindowCwd: false,
         existsElsewhere: false,
-        resolvedPathAtWindowCwd: nil
+        resolvedPathAtWindowCwd: nil,
+        searchedElsewhere: false
     )
+
+    static func == (lhs: ClaudeTranscriptPresence, rhs: ClaudeTranscriptPresence) -> Bool {
+        lhs.existsAtWindowCwd == rhs.existsAtWindowCwd
+            && lhs.existsElsewhere == rhs.existsElsewhere
+            && lhs.resolvedPathAtWindowCwd == rhs.resolvedPathAtWindowCwd
+    }
 }
 
 /// Resolves `ClaudeTranscriptPresence` from the filesystem. Pure given its
@@ -47,6 +58,7 @@ enum ClaudeTranscriptPresenceResolver {
         sessionId: String?,
         cwd: String?,
         configDirOverride: String? = nil,
+        searchElsewhere: Bool = true,
         fileManager: FileManager = .default,
         homeDirectory: String = NSHomeDirectory()
     ) -> ClaudeTranscriptPresence {
@@ -83,7 +95,8 @@ enum ClaudeTranscriptPresenceResolver {
             // transcript was not found at this window's cwd; once at-cwd exists,
             // the binding is verified and "elsewhere too" does not change the
             // routing decision.
-            if resolvedAtCwd == nil,
+            if searchElsewhere,
+               resolvedAtCwd == nil,
                !existsElsewhere,
                let children = try? fileManager.contentsOfDirectory(atPath: projectsDir) {
                 for child in children where child != windowProjectDir {
@@ -99,7 +112,8 @@ enum ClaudeTranscriptPresenceResolver {
         return ClaudeTranscriptPresence(
             existsAtWindowCwd: resolvedAtCwd != nil,
             existsElsewhere: existsElsewhere,
-            resolvedPathAtWindowCwd: resolvedAtCwd
+            resolvedPathAtWindowCwd: resolvedAtCwd,
+            searchedElsewhere: searchElsewhere
         )
     }
 
@@ -245,7 +259,8 @@ enum CodexTranscriptPresenceResolver {
         return ClaudeTranscriptPresence(
             existsAtWindowCwd: resolvedAtCwd != nil,
             existsElsewhere: resolvedAtCwd == nil && existsElsewhere,
-            resolvedPathAtWindowCwd: resolvedAtCwd
+            resolvedPathAtWindowCwd: resolvedAtCwd,
+            searchedElsewhere: true
         )
     }
 

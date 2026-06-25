@@ -47,10 +47,20 @@ import Testing
         #expect(text.contains("Clarify unclear connection"))
     }
 
-    @Test func embeddedQuotesCannotBreakTheWrapper() {
+    @Test func embeddedQuotesAreRemovedFromQueuedPrompt() {
         let text = ResumeBreadcrumbBuilder.breadcrumb(workspaceName: "the \"big\" release", agent: .claude)
-        // Exactly two double-quotes: the wrapper around the sanitized name.
-        #expect(text.filter { $0 == "\"" }.count == 2)
+        #expect(!text.contains("\""))
+        #expect(text.contains("the big release"))
+    }
+
+    @Test func queuedPromptRemovesShellMetacharactersFromTemplateAndFragments() {
+        let text = ResumeBreadcrumbBuilder.honestRecoveryPrompt(
+            workspaceName: "ship $(touch /tmp/pwn) `date` \\ ; | &",
+            cwd: "/tmp/cmux-$(touch pwn);repo`date`\\x"
+        )
+        for character in ["$", "`", "\\", ";", "|", "&", "\"", "'", "(", ")"] {
+            #expect(!text.contains(character))
+        }
     }
 
     @Test func sanitizerReturnsNilForEmptyAndCapsLength() {

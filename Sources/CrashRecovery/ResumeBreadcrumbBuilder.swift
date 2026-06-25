@@ -12,9 +12,14 @@ import Foundation
 ///
 /// Everything here is pure and side-effect free so it is trivially testable and
 /// carries no UI/process coupling. The text is delivered as terminal *startup
-/// input*, so it is sanitized to a single line (embedded newlines would submit
-/// the prompt prematurely).
+/// input*, so it is sanitized to a single shell-inert line (embedded newlines
+/// would submit the prompt prematurely, and shell metacharacters could expand if
+/// a queued prompt ever falls through to a shell).
 enum ResumeBreadcrumbBuilder {
+    private static let shellMetacharacters: Set<UnicodeScalar> = [
+        "\"", "'", "`", "$", "\\", ";", "|", "&", "<", ">",
+        "(", ")", "{", "}", "[", "]", "*", "!", "?", "#",
+    ]
 
     /// Why a restored workspace cannot be auto-resumed. Surfaced to the user
     /// (offer modal / disabled menu tooltip) — never thrown.
@@ -63,12 +68,12 @@ enum ResumeBreadcrumbBuilder {
                     defaultValue: "We were working on \"%@\" in this window last session. Please review your context and notes, then pick up where we left off."
                 ),
                 name
-            )
+            ).sanitizedTerminalStartupInputLine()
         }
         return String(
             localized: "crashRecovery.breadcrumb.unnamed",
             defaultValue: "We were working in this window last session. Please review your context and notes, then pick up where we left off."
-        )
+        ).sanitizedTerminalStartupInputLine()
     }
 
     /// A *verified* restored binding's anchor for the forensic-recovery
@@ -142,7 +147,7 @@ enum ResumeBreadcrumbBuilder {
                 ),
                 name,
                 folder
-            )
+            ).sanitizedTerminalStartupInputLine()
         case (.some(let name), .none):
             return String.localizedStringWithFormat(
                 String(
@@ -150,7 +155,7 @@ enum ResumeBreadcrumbBuilder {
                     defaultValue: "cmux restarted this window but could not verify which agent session it was running before (its last label was \"%@\"). If you can tell with confidence from the files here what was in progress, summarize it and continue; otherwise ask what I'd like to work on. Do not adopt or guess another window's session."
                 ),
                 name
-            )
+            ).sanitizedTerminalStartupInputLine()
         case (.none, .some(let folder)):
             return String.localizedStringWithFormat(
                 String(
@@ -158,12 +163,12 @@ enum ResumeBreadcrumbBuilder {
                     defaultValue: "cmux restarted this window but could not verify which agent session it was running before. This window's working directory is %@. If you can tell with confidence from the files here what was in progress, summarize it and continue; otherwise ask what I'd like to work on. Do not adopt or guess another window's session."
                 ),
                 folder
-            )
+            ).sanitizedTerminalStartupInputLine()
         case (.none, .none):
             return String(
                 localized: "crashRecovery.honestRecovery.unnamedNoCwd",
                 defaultValue: "cmux restarted this window but could not verify which agent session it was running before. If you can tell with confidence from the files here what was in progress, summarize it and continue; otherwise ask what I'd like to work on. Do not adopt or guess another window's session."
-            )
+            ).sanitizedTerminalStartupInputLine()
         }
     }
 
@@ -187,10 +192,11 @@ enum ResumeBreadcrumbBuilder {
         for scalar in expanded.unicodeScalars {
             if CharacterSet.controlCharacters.contains(scalar)
                 || CharacterSet.newlines.contains(scalar)
-                || scalar == "\"" {
-                continue
+                || shellMetacharacters.contains(scalar) {
+                scalars.append(" ")
+            } else {
+                scalars.append(scalar)
             }
-            scalars.append(scalar)
         }
         let cleaned = String(scalars).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleaned.isEmpty else { return nil }
@@ -207,13 +213,16 @@ enum ResumeBreadcrumbBuilder {
     ///
     /// - Strips control characters and newlines (which would submit the prompt
     ///   early or corrupt the input).
-    /// - Removes embedded double quotes so they cannot break the `"…"` wrapper.
+    /// - Replaces shell metacharacters so queued prompts cannot trigger shell
+    ///   expansion if they fall through to a shell.
     /// - Collapses runs of whitespace and trims.
     /// - Caps length to keep the injected line bounded.
     static func sanitizedName(_ raw: String, maxLength: Int = 120) -> String? {
         var scalars = String.UnicodeScalarView()
         for scalar in raw.unicodeScalars {
-            if CharacterSet.controlCharacters.contains(scalar) || scalar == "\"" {
+            if CharacterSet.controlCharacters.contains(scalar)
+                || CharacterSet.newlines.contains(scalar)
+                || shellMetacharacters.contains(scalar) {
                 scalars.append(" ")
             } else {
                 scalars.append(scalar)
@@ -229,5 +238,33 @@ enum ResumeBreadcrumbBuilder {
             return clipped.isEmpty ? nil : clipped + "\u{2026}"
         }
         return collapsed
+    }
+
+    /// Collapses a finished prompt to one line and strips shell syntax from both
+    /// template text and interpolated fragments. If a queued agent prompt falls
+    /// through to an interactive shell, the shell may attempt to run a harmless
+    /// prose command, but it will not expand user-controlled substitutions or
+    /// operators first.
+    static func sanitizedTerminalStartupInputLine(_ raw: String) -> String {
+        var scalars = String.UnicodeScalarView()
+        for scalar in raw.unicodeScalars {
+            if CharacterSet.controlCharacters.contains(scalar)
+                || CharacterSet.newlines.contains(scalar)
+                || shellMetacharacters.contains(scalar) {
+                scalars.append(" ")
+            } else {
+                scalars.append(scalar)
+            }
+        }
+        return String(scalars)
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+}
+
+private extension String {
+    func sanitizedTerminalStartupInputLine() -> String {
+        ResumeBreadcrumbBuilder.sanitizedTerminalStartupInputLine(self)
     }
 }

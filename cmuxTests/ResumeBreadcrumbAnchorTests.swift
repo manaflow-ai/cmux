@@ -65,11 +65,10 @@ import Testing
     // MARK: - Path sanitization
 
     @Test func tildePathIsExpanded() {
-        let text = ResumeBreadcrumbBuilder.breadcrumb(
-            forVerified: anchor(path: "~/.claude/projects/x/sess.jsonl")
-        )
-        #expect(!text.contains("~/"))
-        #expect(text.contains("/.claude/projects/x/sess.jsonl"))
+        let cleaned = ResumeBreadcrumbBuilder.sanitizedPath("~/.claude/projects/x/sess.jsonl")
+        #expect(cleaned != nil)
+        #expect(cleaned?.contains("~/") == false)
+        #expect(cleaned?.contains("/.claude/projects/x/sess.jsonl") == true)
     }
 
     @Test func pathPreservesSpacesButStripsControlChars() {
@@ -104,11 +103,13 @@ import Testing
     }
 
     @Test func quotesInPathCannotBreakInjection() {
-        // A path with a stray quote must not introduce an unbalanced wrapper.
-        let text = ResumeBreadcrumbBuilder.breadcrumb(
-            forVerified: anchor(name: "task", path: "/Users/me/a\"b/sess.jsonl")
+        let cleaned = ResumeBreadcrumbBuilder.sanitizedPath("/Users/me/a\"b/sess.jsonl")
+        #expect(cleaned?.contains("\"") == false)
+
+        let text = ResumeBreadcrumbBuilder.honestRecoveryPrompt(
+            workspaceName: "task",
+            cwd: "/Users/me/a\"b/sess.jsonl"
         )
-        // Only the two quotes wrapping the sanitized name remain.
-        #expect(text.filter { $0 == "\"" }.count == 2)
+        #expect(!text.contains("\""))
     }
 }

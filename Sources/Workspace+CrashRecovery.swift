@@ -4,6 +4,13 @@ nonisolated struct CrashRecoveryVerification: Equatable, Sendable {
     var facts: ResumeBindingFacts
     var presence: ClaudeTranscriptPresence
     var fingerprint: CrashRecoveryVerificationFingerprint
+
+    var needsFullRecoveryVerification: Bool {
+        facts.agentKind == .claude
+            && facts.hasBinding
+            && !facts.transcriptExistsAtWindowCwd
+            && !presence.searchedElsewhere
+    }
 }
 
 nonisolated struct CrashRecoveryVerificationFingerprint: Equatable, Sendable {
@@ -158,6 +165,7 @@ extension Workspace: ResumableWorkspaceSurface {
 
     nonisolated static func crashRecoveryVerification(
         agent: SessionRestorableAgentSnapshot,
+        searchElsewhere: Bool = true,
         fileManager: FileManager = .default,
         homeDirectory: String = NSHomeDirectory()
     ) -> CrashRecoveryVerification {
@@ -167,6 +175,7 @@ extension Workspace: ResumableWorkspaceSurface {
             cwd: agent.workingDirectory,
             configDirOverride: agent.launchCommand?.environment?["CLAUDE_CONFIG_DIR"],
             codexHomeOverride: agent.launchCommand?.environment?["CODEX_HOME"],
+            searchElsewhere: searchElsewhere,
             fileManager: fileManager,
             homeDirectory: homeDirectory
         )
@@ -187,6 +196,7 @@ extension Workspace: ResumableWorkspaceSurface {
 
     nonisolated static func crashRecoveryVerification(
         binding: SurfaceResumeBindingSnapshot,
+        searchElsewhere: Bool = true,
         fileManager: FileManager = .default,
         homeDirectory: String = NSHomeDirectory()
     ) -> CrashRecoveryVerification {
@@ -200,6 +210,7 @@ extension Workspace: ResumableWorkspaceSurface {
                 cwd: binding.cwd,
                 configDirOverride: binding.environment?["CLAUDE_CONFIG_DIR"],
                 codexHomeOverride: binding.environment?["CODEX_HOME"],
+                searchElsewhere: searchElsewhere,
                 fileManager: fileManager,
                 homeDirectory: homeDirectory
             )
@@ -271,6 +282,7 @@ extension Workspace: ResumableWorkspaceSurface {
         cwd: String?,
         configDirOverride: String?,
         codexHomeOverride: String?,
+        searchElsewhere: Bool,
         fileManager: FileManager,
         homeDirectory: String
     ) -> ClaudeTranscriptPresence {
@@ -280,6 +292,7 @@ extension Workspace: ResumableWorkspaceSurface {
                 sessionId: sessionId,
                 cwd: cwd,
                 configDirOverride: configDirOverride,
+                searchElsewhere: searchElsewhere,
                 fileManager: fileManager,
                 homeDirectory: homeDirectory
             )
@@ -312,7 +325,8 @@ extension Workspace: ResumableWorkspaceSurface {
     @MainActor
     func prepareCrashRecoveryRecoveryVerification() async -> Bool {
         guard let panelId = focusedPanelId else { return false }
-        if let verification = crashRecoveryStoredVerification {
+        if let verification = crashRecoveryStoredVerification,
+           !verification.needsFullRecoveryVerification {
             return verification.facts.hasBinding
         }
         if let agent = crashRecoveryRestoredAgent {
@@ -433,7 +447,7 @@ extension Workspace: ResumableWorkspaceSurface {
                 let codexHome = job.agent.launchCommand?.environment?["CODEX_HOME"] ?? ""
                 let key = "agent|\(job.agent.kind.rawValue)|\(job.agent.sessionId)|\(job.agent.workingDirectory ?? "")|\(configDir)|\(codexHome)"
                 let verification = cachedVerification(key: key) {
-                    Workspace.crashRecoveryVerification(agent: job.agent)
+                    Workspace.crashRecoveryVerification(agent: job.agent, searchElsewhere: false)
                 }
                 agentResults.append((job.panelId, job.agent, verification))
             }
@@ -450,7 +464,7 @@ extension Workspace: ResumableWorkspaceSurface {
                     job.binding.environment?["CODEX_HOME"] ?? "",
                 ].joined(separator: "|")
                 let verification = cachedVerification(key: key) {
-                    Workspace.crashRecoveryVerification(binding: job.binding)
+                    Workspace.crashRecoveryVerification(binding: job.binding, searchElsewhere: false)
                 }
                 bindingResults.append((job.panelId, job.binding, verification))
             }

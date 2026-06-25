@@ -107,6 +107,24 @@ import Testing
         #expect(presence.resolvedPathAtWindowCwd == nil)
     }
 
+    @Test func elsewhereScanCanBeSkippedForLaunchRefresh() throws {
+        let home = try makeHome()
+        defer { try? fm.removeItem(atPath: home) }
+        let id = "sess-foreign"
+        try seedTranscript(home: home, cwd: "/Users/me/other-repo", sessionId: id)
+
+        let presence = ClaudeTranscriptPresenceResolver.resolve(
+            sessionId: id,
+            cwd: "/Users/me/repo",
+            searchElsewhere: false,
+            homeDirectory: home
+        )
+
+        #expect(presence.existsAtWindowCwd == false)
+        #expect(presence.existsElsewhere == false)
+        #expect(presence.searchedElsewhere == false)
+    }
+
     @Test func noTranscriptAnywhereIsAbsent() throws {
         let home = try makeHome()
         defer { try? fm.removeItem(atPath: home) }

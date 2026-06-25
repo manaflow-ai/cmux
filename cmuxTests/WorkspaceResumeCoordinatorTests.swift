@@ -103,6 +103,12 @@ import Testing
         #expect(WorkspaceResumeCoordinator.bareSessionId(from: "'sess-B'") == "sess-B")
     }
 
+    @Test func bareSessionIdParsesLegacyCodexResumeCommand() {
+        #expect(WorkspaceResumeCoordinator.bareSessionId(from: "codex resume s2") == "s2")
+        #expect(WorkspaceResumeCoordinator.bareSessionId(from: "cd '/tmp/project' && codex resume s3 -m gpt-5") == "s3")
+        #expect(WorkspaceResumeCoordinator.bareSessionId(from: "'codex' 'resume' 's4'") == "s4")
+    }
+
     @Test func canResumeReflectsDecision() {
         let coordinator = WorkspaceResumeCoordinator(injectBreadcrumb: false)
         #expect(coordinator.canResume(FakeSurface()))

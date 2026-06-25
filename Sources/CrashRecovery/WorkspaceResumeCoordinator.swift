@@ -204,8 +204,19 @@ struct WorkspaceResumeCoordinator {
             if word.hasPrefix("--resume=") {
                 return nonEmpty(stripShellQuotes(String(word.dropFirst("--resume=".count))))
             }
+            if word == "resume",
+               index > words.startIndex,
+               isCodexExecutable(words[words.index(before: index)]) {
+                let next = words.index(after: index)
+                return next < words.endIndex ? nonEmpty(words[next]) : nil
+            }
         }
         return nonEmpty(stripShellQuotes(trimmed))
+    }
+
+    nonisolated private static func isCodexExecutable(_ word: String) -> Bool {
+        let leaf = (word as NSString).lastPathComponent
+        return leaf == "codex"
     }
 
     nonisolated private static func stripShellQuotes(_ value: String) -> String {
