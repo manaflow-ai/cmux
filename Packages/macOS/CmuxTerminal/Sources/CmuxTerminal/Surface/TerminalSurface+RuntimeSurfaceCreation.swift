@@ -114,6 +114,13 @@ extension TerminalSurface {
         if !claudeHooksEnabled {
             setManagedEnvironmentValue("CMUX_CLAUDE_HOOKS_DISABLED", "1")
         }
+        // The codex wrapper shim is still installed (it stays on PATH so a
+        // resumed codex routes through it), but when the Codex integration is
+        // off the wrapper no-ops on this env var and injects no hooks, mirroring
+        // the Claude toggle.
+        if !spawnPolicy.codexHooksEnabled {
+            setManagedEnvironmentValue("CMUX_CODEX_HOOKS_DISABLED", "1")
+        }
         if let customClaudePath = spawnPolicy.customClaudePath {
             setManagedEnvironmentValue("CMUX_CUSTOM_CLAUDE_PATH", customClaudePath)
         }
