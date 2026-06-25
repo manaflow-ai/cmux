@@ -721,7 +721,7 @@
       "rowPane": "A pane in a native split inside that tab.",
       "mappingPanes": "The new capability is panes inside a tab: a cmux tab used to hold a single terminal, but a tmux window with several panes is now rendered as a real cmux split layout within one tab — each remote pane is a native cmux terminal pane with the usual chrome. The bridge is two-way: splitting or closing a pane in that tab runs tmux split-window, and reordering the tabs reorders the tmux windows with swap-window.",
       "requirementsTitle": "Requirements",
-      "requirementsDesc": "A reachable SSH host (cmux reads your ~/.ssh/config) with tmux installed. Control mode (tmux -CC) is a standard tmux feature, so no special build is needed; a current tmux is recommended for the full feature set. cmux attaches over an SSH ControlMaster connection, and the remote tmux server keeps running when you detach.",
+      "requirementsDesc": "A reachable SSH host (cmux reads your ~/.ssh/config) with tmux 3.2 or newer installed. Control mode (tmux -CC) is a standard tmux feature, so no special build is needed; cmux checks the remote tmux version before attaching and fails clearly on older servers. cmux attaches over an SSH ControlMaster connection, and the remote tmux server keeps running when you detach.",
       "enableTitle": "Enable it",
       "enableDesc": "Open Settings → Beta Features and turn on Remote tmux. The toggle is off by default, so nothing changes for local terminals until you opt in.",
       "attachTitle": "Attaching",
@@ -756,7 +756,7 @@
       "limitationsTitle": "Limitations",
       "limitReconnect": "Transient SSH drops reconnect automatically: if the connection blips mid-session the mirror freezes and cmux retries with capped exponential backoff, re-seeding the panes when it resumes. The mirror only closes for good when the remote session itself ends, or when you close the mirror window or quit cmux — and it isn't restored on relaunch (re-attach with cmux ssh-tmux).",
       "limitPaste": "Only single-line paste/drop (such as a file or image path) is delivered as a real bracketed paste via paste-buffer -p; multi-line text is sent as plain keystrokes, so a remote app won't treat it as one paste.",
-      "limitCwd": "Live working-directory updates use control-mode subscriptions (tmux 3.2+); on older tmux the tab shows the initial folder but doesn't update on cd.",
+      "limitCwd": "Live working-directory updates use control-mode subscriptions, which is why cmux requires tmux 3.2 or newer before it opens the mirror.",
       "limitReflow": "Primary-screen scrollback isn't re-wrapped on resize — cmux leaves reflow to tmux, so older lines can stay at the previous width until the app repaints. Full-screen TUIs, which redraw on resize, are unaffected."
     },
     "layoutTitle": "cmux docs",
