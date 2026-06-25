@@ -133,13 +133,13 @@ def compose_iphone(raw, out, bg, frame, mask, title, font, logo):
         x0, y0, x1, y1, r = IPHONE_ISLAND
         subprocess.run([MAGICK, device, "-fill", "black",
                         "-draw", f"roundrectangle {x0},{y0},{x1},{y1},{r},{r}", device], check=True)
-        dw = int(cw * 0.885)
+        dw = int(cw * 0.95)
         dh = int(fh * dw / fw)
-        dy = int(ch * 0.18)
+        dy = int(ch * 0.165)
         base = os.path.join(tmp, "base.png")
         subprocess.run([MAGICK, bg, "-resize", f"{cw}x{ch}^", "-gravity", "center",
                         "-extent", f"{cw}x{ch}", base], check=True)
-        hdr = header_image(tmp, title, font, 120, int(cw * 0.86), logo)
+        hdr = header_image(tmp, title, font, 104, int(cw * 0.9), logo)
         subprocess.run([
             MAGICK, base,
             "(", device, "-resize", f"{dw}x{dh}!",
