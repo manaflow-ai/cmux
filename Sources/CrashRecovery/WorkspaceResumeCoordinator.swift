@@ -191,10 +191,10 @@ struct WorkspaceResumeCoordinator {
                 return next < words.endIndex ? nonEmpty(words[next]) : nil
             }
             if word.hasPrefix("--resume=") {
-                return nonEmpty(String(word.dropFirst("--resume=".count)))
+                return nonEmpty(stripShellQuotes(String(word.dropFirst("--resume=".count))))
             }
         }
-        return trimmed
+        return nonEmpty(stripShellQuotes(trimmed))
     }
 
     private static func stripShellQuotes(_ value: String) -> String {

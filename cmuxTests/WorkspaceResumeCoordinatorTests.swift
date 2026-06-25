@@ -98,6 +98,11 @@ import Testing
         #expect(WorkspaceResumeCoordinator(injectBreadcrumb: true).resume(surface) == .skipped(.noSessionId))
     }
 
+    @Test func bareSessionIdStripsQuotesFromResumeEqualsAndFallback() {
+        #expect(WorkspaceResumeCoordinator.bareSessionId(from: "claude --resume='sess-A'") == "sess-A")
+        #expect(WorkspaceResumeCoordinator.bareSessionId(from: "'sess-B'") == "sess-B")
+    }
+
     @Test func canResumeReflectsDecision() {
         let coordinator = WorkspaceResumeCoordinator(injectBreadcrumb: false)
         #expect(coordinator.canResume(FakeSurface()))

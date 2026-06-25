@@ -1993,10 +1993,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillTerminate(_ notification: Notification) {
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
-        // Clean shutdown: clear the unclean-shutdown sentinel so the next launch
-        // does not show the crash-recovery offer. (Intentional update relaunches
-        // mark this earlier via updaterWillRelaunchApplication.)
-        crashRecoveryLaunchState.markCleanExit()
         sentryStopMemoryContextRefresh()
         isTerminatingApp = true
         // Plain quit detaches local ssh clients; explicit close already killed marked sessions.
@@ -2019,6 +2015,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ghosttyCrashBreadcrumbTask = nil
         notificationStore?.clearAll()
         GhosttyCrashBreadcrumb.markCleanExit()
+        // Clean shutdown: clear the unclean-shutdown sentinel only after the
+        // shutdown tail has completed, so a crash during teardown still fails
+        // closed into recovery on the next launch.
+        crashRecoveryLaunchState.markCleanExit()
         StartupBreadcrumbLog.append("appDelegate.willTerminate.complete")
         enableSuddenTerminationIfNeeded()
     }
@@ -17755,16 +17755,16 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
     }
 
     func updaterWillRelaunchApplication() {
-        // Intentional relaunch: mark clean exit + restore-intent so the next launch
-        // restores all windows (the "Update & reload all windows" guarantee) and
-        // never misreads the update as a crash.
-        crashRecoveryLaunchState.markIntentionalRelaunch(reason: "sparkle-update")
         persistSessionForUpdateRelaunch()
         TerminalController.shared.stop()
         NSApp.invalidateRestorableState()
         for window in NSApp.windows {
             window.invalidateRestorableState()
         }
+        // Intentional relaunch: record restore intent only after the relaunch
+        // handoff work succeeds, so a crash during update teardown is still
+        // treated as unclean on the next launch.
+        crashRecoveryLaunchState.markIntentionalRelaunch(reason: "sparkle-update")
     }
 
     func attemptUpdate() {
