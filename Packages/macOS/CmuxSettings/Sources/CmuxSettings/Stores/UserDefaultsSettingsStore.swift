@@ -124,8 +124,11 @@ public actor UserDefaultsSettingsStore {
         }
     }
 
-    private func mutationSource(for storageKey: String) -> UserDefaultsSettingsMutationSource? {
-        mutationSources[storageKey]
+    private func valueEvent<Value>(for key: DefaultsKey<Value>) -> UserDefaultsSettingsValueEvent<Value> {
+        UserDefaultsSettingsValueEvent(
+            value: storage.value(for: key),
+            mutationSource: mutationSources[key.userDefaultsKey]
+        )
     }
 
     /// Returns an `AsyncStream` that yields the current value and every later change.
@@ -211,23 +214,20 @@ public actor UserDefaultsSettingsStore {
                 }
             )
 
-            let storageKey = key.userDefaultsKey
             let drainTask = Task { [weak self] in
                 guard let self else {
                     continuation.finish()
                     return
                 }
-                var lastYielded = await self.value(for: key)
-                let initialSource = await self.mutationSource(for: storageKey)
-                continuation.yield(UserDefaultsSettingsValueEvent(value: lastYielded, mutationSource: initialSource))
+                var lastYieldedEvent = await self.valueEvent(for: key)
+                continuation.yield(lastYieldedEvent)
 
                 for await _ in signals {
                     if Task.isCancelled { break }
-                    let current = await self.value(for: key)
-                    if current != lastYielded {
-                        lastYielded = current
-                        let source = await self.mutationSource(for: storageKey)
-                        continuation.yield(UserDefaultsSettingsValueEvent(value: current, mutationSource: source))
+                    let currentEvent = await self.valueEvent(for: key)
+                    if currentEvent.value != lastYieldedEvent.value {
+                        lastYieldedEvent = currentEvent
+                        continuation.yield(currentEvent)
                     }
                 }
                 continuation.finish()
