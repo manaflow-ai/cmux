@@ -317,8 +317,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         urlObservation = nil
 
         // Tear down web view
-        webAuthnCoordinator.uninstall(from: webView)
-        webView.stopLoading()
+        webAuthnCoordinator.tearDown(from: webView); webView.stopLoading()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
 
