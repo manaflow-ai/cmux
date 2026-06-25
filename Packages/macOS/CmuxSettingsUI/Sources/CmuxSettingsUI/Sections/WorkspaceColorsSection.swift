@@ -157,12 +157,9 @@ public struct WorkspaceColorsSection: View {
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                 }
-                ColorPicker("", selection: Binding(
-                    get: { Color(cmuxHex: model.current) ?? Self.cmuxAccentColor() },
-                    set: { newColor in model.set(newColor.cmuxHexString) }
-                ), supportsOpacity: false)
-                .labelsHidden()
-                .frame(width: 38)
+                HexColorPicker(storedHex: model.current, fallback: Self.cmuxAccentColor()) { hex in
+                    model.set(hex)
+                }
                 Text(isCustom ? model.current : String(localized: "settings.sidebarAppearance.defaultLabel", defaultValue: "Default"))
                     .cmuxFont(size: 12, weight: .medium, design: .monospaced)
                     .foregroundStyle(.secondary)
@@ -189,20 +186,15 @@ public struct WorkspaceColorsSection: View {
             subtitle: subtitle
         ) {
             HStack(spacing: 8) {
-                ColorPicker("", selection: Binding(
-                    get: { Color(cmuxHex: entry.hex) ?? Color(nsColor: .systemBlue) },
-                    set: { newColor in
-                        // Legacy semantics: persist the full effective
-                        // palette (built-ins filled in at their default
-                        // hex when missing) so editing one entry never
-                        // drops the rest.
-                        var snapshot = effectivePaletteMap(stored: paletteModel.current)
-                        snapshot[entry.name] = newColor.cmuxHexString
-                        paletteModel.set(snapshot)
-                    }
-                ), supportsOpacity: false)
-                .labelsHidden()
-                .frame(width: 38)
+                HexColorPicker(storedHex: entry.hex, fallback: Color(nsColor: .systemBlue)) { hex in
+                    // Legacy semantics: persist the full effective
+                    // palette (built-ins filled in at their default
+                    // hex when missing) so editing one entry never
+                    // drops the rest.
+                    var snapshot = effectivePaletteMap(stored: paletteModel.current)
+                    snapshot[entry.name] = hex
+                    paletteModel.set(snapshot)
+                }
                 Text(entry.hex)
                     .cmuxFont(size: 12, weight: .medium, design: .monospaced)
                     .foregroundStyle(.secondary)
