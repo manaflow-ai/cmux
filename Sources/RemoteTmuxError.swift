@@ -33,16 +33,40 @@ extension RemoteTmuxError {
         switch self {
         case let .commandFailed(exitCode, stderr):
             let detail = Self.sanitizedDetail(stderr)
-            return detail.isEmpty
-                ? "remote command failed (exit \(exitCode))"
-                : "remote command failed (exit \(exitCode)): \(detail)"
+            if detail.isEmpty {
+                let format = String(
+                    localized: "remoteTmux.error.commandFailed",
+                    defaultValue: "remote command failed (exit %d)"
+                )
+                return String(format: format, Int(exitCode))
+            }
+            let format = String(
+                localized: "remoteTmux.error.commandFailedWithDetail",
+                defaultValue: "remote command failed (exit %d): %@"
+            )
+            return String(format: format, Int(exitCode), detail)
         case let .launchFailed(detail):
-            return "failed to launch ssh: \(Self.sanitizedDetail(detail))"
+            let format = String(
+                localized: "remoteTmux.error.launchFailed",
+                defaultValue: "failed to launch SSH: %@"
+            )
+            return String(format: format, Self.sanitizedDetail(detail))
         case let .unreachable(detail):
-            return "host unreachable: \(Self.sanitizedDetail(detail))"
+            let format = String(
+                localized: "remoteTmux.error.unreachable",
+                defaultValue: "host unreachable: %@"
+            )
+            return String(format: format, Self.sanitizedDetail(detail))
         case let .unsupportedTmux(detected):
-            return "remote tmux is too old (found \(Self.sanitizedDetail(detected)); "
-                + "cmux ssh-tmux needs tmux \(RemoteTmuxVersion.minimumSupported.displayString) or newer)"
+            let format = String(
+                localized: "remoteTmux.error.unsupportedVersion",
+                defaultValue: "remote session server is too old (found %@; cmux needs version %@ or newer)"
+            )
+            return String(
+                format: format,
+                Self.sanitizedDetail(detected),
+                RemoteTmuxVersion.minimumSupported.displayString
+            )
         }
     }
 

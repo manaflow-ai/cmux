@@ -64,5 +64,6 @@ import Testing
         #expect(msg.contains("2.6"))
         #expect(msg.contains("3.2"))
         #expect(msg.lowercased().contains("too old"))
+        #expect(!msg.lowercased().contains("tmux"))
     }
 }
