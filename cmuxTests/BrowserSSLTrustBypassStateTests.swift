@@ -53,6 +53,21 @@ struct BrowserSSLTrustBypassStateTests {
     }
 
     @Test
+    func replayShapeMatchRequiresSameHeaders() throws {
+        let url = try #require(URL(string: "https://example.internal/submit"))
+        var request = URLRequest(url: url)
+        request.setValue("Bearer token-a", forHTTPHeaderField: "Authorization")
+
+        var matchingRequest = URLRequest(url: url)
+        matchingRequest.setValue("Bearer token-a", forHTTPHeaderField: "authorization")
+        #expect(matchingRequest.browserMatchesReplayShape(of: request))
+
+        var mismatchedRequest = URLRequest(url: url)
+        mismatchedRequest.setValue("Bearer token-b", forHTTPHeaderField: "Authorization")
+        #expect(!mismatchedRequest.browserMatchesReplayShape(of: request))
+    }
+
+    @Test
     func secureConnectionFailedPermitsSSLBypass() {
         let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorSecureConnectionFailed)
 

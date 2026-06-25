@@ -55,17 +55,13 @@ struct BrowserErrorPage {
         :root {
             color-scheme: light dark;
             --background: #f7f7f8;
-            --surface: #ffffff;
             --border: rgba(0, 0, 0, 0.12);
             --text: #1d1d1f;
             --secondary: #666a70;
             --tertiary: #80858c;
             --code-background: rgba(0, 0, 0, 0.045);
-            --primary-background: #1d1d1f;
-            --primary-background-hover: #343437;
-            --primary-text: #ffffff;
             --secondary-background-hover: rgba(0, 0, 0, 0.055);
-            --focus-ring: rgba(0, 122, 255, 0.32);
+            --focus-ring: rgba(29, 29, 31, 0.22);
         }
 
         body {
@@ -86,18 +82,21 @@ struct BrowserErrorPage {
         .container {
             width: min(520px, 100%);
             box-sizing: border-box;
-            padding: 28px;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            background: var(--surface);
-            box-shadow: 0 12px 34px rgba(0, 0, 0, 0.08);
+            padding: 0;
             text-align: left;
         }
 
         .icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
             margin-bottom: 14px;
+            border: 1px solid var(--border);
+            border-radius: 50%;
             color: var(--secondary);
-            font-size: 22px;
+            font-size: 16px;
             font-weight: 700;
             line-height: 1;
         }
@@ -157,12 +156,12 @@ struct BrowserErrorPage {
         }
 
         .reload {
-            background: var(--primary-background);
-            color: var(--primary-text);
+            background: var(--text);
+            color: var(--background);
         }
 
         .reload:hover {
-            background: var(--primary-background-hover);
+            opacity: 0.86;
         }
 
         .bypass {
@@ -183,26 +182,19 @@ struct BrowserErrorPage {
         @media (prefers-color-scheme: dark) {
             :root {
                 --background: #1c1c1e;
-                --surface: #242426;
                 --border: rgba(255, 255, 255, 0.14);
                 --text: #f5f5f7;
                 --secondary: #a1a1a6;
                 --tertiary: #8e8e93;
                 --code-background: rgba(255, 255, 255, 0.07);
-                --primary-background: #f5f5f7;
-                --primary-background-hover: #ffffff;
-                --primary-text: #1d1d1f;
                 --secondary-background-hover: rgba(255, 255, 255, 0.08);
+                --focus-ring: rgba(245, 245, 247, 0.24);
             }
         }
 
         @media (max-width: 420px) {
             body {
                 padding: 20px;
-            }
-
-            .container {
-                padding: 22px;
             }
 
             .button {

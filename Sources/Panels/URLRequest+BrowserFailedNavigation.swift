@@ -19,7 +19,16 @@ extension URLRequest {
             return false
         }
 
-        return httpBody == other.httpBody
+        let headers = Self.browserNormalizedHTTPHeaderFields(allHTTPHeaderFields)
+        let otherHeaders = Self.browserNormalizedHTTPHeaderFields(other.allHTTPHeaderFields)
+        return httpBody == other.httpBody && headers == otherHeaders
+    }
+
+    private static func browserNormalizedHTTPHeaderFields(_ fields: [String: String]?) -> [String: String] {
+        guard let fields else { return [:] }
+        return fields.reduce(into: [:]) { normalized, field in
+            normalized[field.key.lowercased()] = field.value
+        }
     }
 }
 
