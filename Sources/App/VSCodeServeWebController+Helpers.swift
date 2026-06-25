@@ -123,6 +123,33 @@ extension VSCodeServeWebController {
         return sourceComponents?.url
     }
 
+    static func validatedServeWebLaunchURL(
+        _ sourceURL: URL,
+        launchOptions: VSCodeServeWebLaunchOptions,
+        fileManager: FileManager = .default
+    ) -> URL? {
+        guard isLoopbackHTTPURL(sourceURL),
+              let expectedToken = VSCodeServeWebLaunchOptions.usableConnectionToken(
+                launchOptions.connectionTokenFileURL,
+                fileManager: fileManager
+              ) else {
+            return nil
+        }
+
+        if let sourceToken = connectionTokenQueryValue(sourceURL) {
+            return sourceToken == expectedToken ? sourceURL : nil
+        }
+
+        var sourceComponents = URLComponents(url: sourceURL, resolvingAgainstBaseURL: false)
+        var queryItems = sourceComponents?.queryItems ?? []
+        guard !queryItems.contains(where: { $0.name == "tkn" }) else {
+            return nil
+        }
+        queryItems.insert(URLQueryItem(name: "tkn", value: expectedToken), at: 0)
+        sourceComponents?.queryItems = queryItems
+        return sourceComponents?.url
+    }
+
     static func stableServeWebURL(
         for launchedURL: URL,
         launchOptions: VSCodeServeWebLaunchOptions? = VSCodeServeWebLaunchOptions.resolve()

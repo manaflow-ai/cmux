@@ -338,7 +338,14 @@ final class VSCodeServeWebController {
                     finish(.failed(retryable: true))
                     return
                 }
-                finish(.launched(process: process, url: url))
+                guard let validatedURL = Self.validatedServeWebLaunchURL(
+                    url,
+                    launchOptions: launchOptions
+                ) else {
+                    finish(.failed(retryable: true))
+                    return
+                }
+                finish(.launched(process: process, url: validatedURL))
             }
         }
 
@@ -400,7 +407,14 @@ final class VSCodeServeWebController {
             guard !didFinish else { return }
             clearOutputHandlers()
             if let serveWebURL = collector.webUIURL, process.isRunning {
-                finish(.launched(process: process, url: serveWebURL))
+                guard let validatedURL = Self.validatedServeWebLaunchURL(
+                    serveWebURL,
+                    launchOptions: launchOptions
+                ) else {
+                    finish(.failed(retryable: true))
+                    return
+                }
+                finish(.launched(process: process, url: validatedURL))
                 return
             }
             guard process.isRunning else {

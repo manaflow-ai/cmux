@@ -834,6 +834,42 @@ final class VSCodeServeWebControllerTests: XCTestCase {
         }
     }
 
+    func testValidatedLaunchURLReattachesTokenOmittedFromServeWebOutput() throws {
+        try withTemporaryDirectory { rootURL in
+            try withDefaults { defaults in
+                let dataDirectoryURL = rootURL.appendingPathComponent("stable-data", isDirectory: true)
+                let options = try XCTUnwrap(VSCodeServeWebLaunchOptions.resolve(
+                    environment: [VSCodeServeWebLaunchOptions.dataDirectoryEnvironmentKey: dataDirectoryURL.path],
+                    defaults: defaults,
+                    applicationSupportDirectoryURL: rootURL
+                ))
+                let token = try XCTUnwrap(String(data: Data(contentsOf: options.connectionTokenFileURL), encoding: .utf8))
+                let tokenlessURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(options.port)/?folder=/tmp/cmux"))
+                let validatedURL = try XCTUnwrap(VSCodeServeWebController.validatedServeWebLaunchURL(
+                    tokenlessURL,
+                    launchOptions: options
+                ))
+                let validatedComponents = URLComponents(url: validatedURL, resolvingAgainstBaseURL: false)
+
+                XCTAssertEqual(validatedComponents?.queryItems?.first(where: { $0.name == "tkn" })?.value, token)
+                XCTAssertEqual(validatedComponents?.queryItems?.first(where: { $0.name == "folder" })?.value, "/tmp/cmux")
+                XCTAssertEqual(
+                    VSCodeServeWebController.persistentServeWebSnapshotOrigin(
+                        for: validatedURL,
+                        launchOptions: options
+                    )?.absoluteString,
+                    validatedURL.absoluteString
+                )
+
+                let wrongTokenURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(options.port)/?tkn=wrong-token"))
+                XCTAssertNil(VSCodeServeWebController.validatedServeWebLaunchURL(
+                    wrongTokenURL,
+                    launchOptions: options
+                ))
+            }
+        }
+    }
+
     func testStopDuringInFlightLaunchDoesNotDropNextGenerationCompletion() {
         let firstLaunchStarted = expectation(description: "first launch started")
         let firstCompletionCalled = expectation(description: "first generation completion called")
