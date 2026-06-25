@@ -102,10 +102,14 @@ final class GPUSpinnerNSView: NSView {
         let side = min(bounds.width, bounds.height)
         guard side > 0, spokeLayers.count == Self.spokeCount else { return }
         let center = CGPoint(x: bounds.midX, y: bounds.midY)
+        // Match the native macOS spinner's compact proportions: spokes occupy an
+        // outer ring with a clear center gap, not reaching the bounds edge.
+        let outerRadius = side * 0.40
+        let innerRadius = side * 0.18
         let thickness = max(1, side * 0.10)
-        let length = max(2, side * 0.34)
+        let length = max(1, outerRadius - innerRadius)
         // Distance from the center to each spoke's own center.
-        let radius = side / 2 - length / 2
+        let radius = (outerRadius + innerRadius) / 2
         for (index, spoke) in spokeLayers.enumerated() {
             let angle = CGFloat(index) / CGFloat(Self.spokeCount) * .pi * 2
             spoke.bounds = CGRect(x: 0, y: 0, width: thickness, height: length)
@@ -150,7 +154,7 @@ final class GPUSpinnerNSView: NSView {
                 // spokes fade. Only the ring rotates, so the bright spoke chases
                 // around the circle.
                 let t = Float(index) / Float(Self.spokeCount - 1)
-                spoke.opacity = 0.2 + 0.8 * t
+                spoke.opacity = 0.35 + 0.65 * t
                 contentLayer.addSublayer(spoke)
                 spokeLayers.append(spoke)
             }
