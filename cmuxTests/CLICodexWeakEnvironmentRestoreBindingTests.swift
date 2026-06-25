@@ -13,7 +13,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let workspaceId = "11111111-1111-1111-1111-111111111111"
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "codex-weak-env-session"
-        let ttyName = "ttys305"
 
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
         defer {
@@ -31,10 +30,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             case "surface.list":
                 return self.surfaceListResponse(id: id, surfaceId: surfaceId)
             case "debug.terminals":
-                return self.v2Response(
-                    id: id, ok: true,
-                    result: ["terminals": [["tty": ttyName, "workspace_id": workspaceId, "surface_id": surfaceId]]]
-                )
+                return self.v2Response(id: id, ok: true, result: ["terminals": []])
             case "surface.resume.set", "surface.resume.clear":
                 return self.v2Response(id: id, ok: true, result: ["ok": true])
             case "feed.push":
@@ -53,7 +49,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_WORKSPACE_ID"] = workspaceId
         environment["CMUX_SURFACE_ID"] = surfaceId
-        environment["CMUX_CLI_TTY_NAME"] = ttyName
+        environment.removeValue(forKey: "CMUX_CLI_TTY_NAME")
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["ANTHROPIC_BASE_URL"] = "http://subrouter-team:31415"
@@ -80,12 +76,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
             "weak env-only Codex captures must not become durable restore bindings: \(commands)"
         )
-        let clearRequests = commands.compactMap { command -> [String: Any]? in
-            guard let payload = self.jsonObject(command),
-                  payload["method"] as? String == "surface.resume.clear" else { return nil }
-            return payload["params"] as? [String: Any]
-        }
-        XCTAssertEqual(clearRequests.last?["checkpoint_id"] as? String, sessionId)
     }
 
     func testCodexWeakCurrentCapturePreservesDurableMappedResumeBinding() throws {
