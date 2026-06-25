@@ -4,16 +4,22 @@ import Foundation
 import Testing
 
 @Suite struct MacComputerSnapshotTests {
-    @Test func stableSortIgnoresConnectionStatusChanges() {
+    @Test func stableSortOrdersActiveComputersFirst() {
         let now = Date()
         let offlineAlpha = snapshot("mac-b", title: "Alpha", status: .unavailable, now: now)
         let connectedBravo = snapshot("mac-c", title: "Bravo", status: .connected, now: now)
         let reconnectingAlpha = snapshot("mac-a", title: "Alpha", status: .reconnecting, now: now)
+        let connectedAlpha = snapshot("mac-d", title: "Alpha", status: .connected, now: now)
 
-        let sorted = MacComputerSnapshot.stableSorted([connectedBravo, offlineAlpha, reconnectingAlpha])
+        let sorted = MacComputerSnapshot.stableSorted([
+            connectedBravo,
+            offlineAlpha,
+            reconnectingAlpha,
+            connectedAlpha,
+        ])
 
-        #expect(sorted.map(\.deviceId) == ["mac-a", "mac-b", "mac-c"])
-        #expect(sorted.map(\.title) == ["Alpha", "Alpha", "Bravo"])
+        #expect(sorted.map(\.deviceId) == ["mac-d", "mac-c", "mac-a", "mac-b"])
+        #expect(sorted.map(\.title) == ["Alpha", "Bravo", "Alpha", "Alpha"])
     }
 
     private func snapshot(

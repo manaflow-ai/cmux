@@ -7,9 +7,22 @@ import Foundation
 extension MacComputerSnapshot {
     static func stableSorted(_ computers: [MacComputerSnapshot]) -> [MacComputerSnapshot] {
         computers.sorted { lhs, rhs in
+            let connectionOrder = lhs.connectionSortRank < rhs.connectionSortRank
+            if lhs.connectionSortRank != rhs.connectionSortRank { return connectionOrder }
             let nameOrder = lhs.title.localizedStandardCompare(rhs.title)
             if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
             return lhs.deviceId.localizedStandardCompare(rhs.deviceId) == .orderedAscending
+        }
+    }
+
+    private var connectionSortRank: Int {
+        switch connectionStatus {
+        case .connected:
+            return 0
+        case .reconnecting:
+            return 1
+        case .unavailable, nil:
+            return 2
         }
     }
 }

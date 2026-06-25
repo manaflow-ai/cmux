@@ -12,7 +12,7 @@ struct WorkspaceComputerStripView: View {
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            LazyHStack(alignment: .top, spacing: 14) {
+            HStack(alignment: .top, spacing: 14) {
                 ForEach(computers) { computer in
                     WorkspaceComputerStripItem(
                         computer: computer,
