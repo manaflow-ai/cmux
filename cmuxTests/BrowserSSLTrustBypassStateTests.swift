@@ -123,6 +123,30 @@ struct BrowserSSLTrustBypassStateTests {
     }
 
     @Test
+    func errorPageBypassRequestAllowsURLOnlyHTTPSFailures() throws {
+        let state = BrowserSSLTrustBypassState()
+        let url = try #require(URL(string: "https://redirected.internal/final"))
+        let scope = try #require(BrowserSSLTrustScope(url: url))
+        let fingerprint = BrowserServerTrustFingerprint(sha256: Data("leaf-a".utf8))
+        state.recordObservedServerTrustFingerprint(fingerprint, for: scope)
+
+        let request = try #require(BrowserErrorPage.bypassRequest(from: url.absoluteString, retry: .urlOnly))
+        #expect(request.url == url)
+        #expect(request.httpMethod == nil)
+        #expect(request.allHTTPHeaderFields == nil)
+        #expect(request.httpBody == nil)
+        #expect(request.httpBodyStream == nil)
+        #expect(state.createPendingBypassAction(for: request) != nil)
+    }
+
+    @Test
+    func errorPageBypassRequestRejectsDisabledAndNonWebURLOnlyFailures() throws {
+        #expect(BrowserErrorPage.bypassRequest(from: "https://self-signed.internal", retry: .disabled) == nil)
+        #expect(BrowserErrorPage.bypassRequest(from: "http://self-signed.internal", retry: .urlOnly) == nil)
+        #expect(BrowserErrorPage.bypassRequest(from: "file:///tmp/cert.html", retry: .urlOnly) == nil)
+    }
+
+    @Test
     func pendingBypassRejectsOversizedAndStreamedRequestBodies() throws {
         let url = try #require(URL(string: "https://upload.internal/submit"))
         let scope = try #require(BrowserSSLTrustScope(url: url))

@@ -185,13 +185,11 @@ import WebKit
         if let lastAttemptedRequest {
             guard lastAttemptedRequest.url != nil,
                   lastAttemptedRequest.browserMatchesFailedNavigationURLString(failedURL) else {
-                return .urlOnly
+                return lastAttemptedRequest.browserCanReloadWithURLOnly ? .urlOnly : .disabled
             }
             return .request(lastAttemptedRequest)
         }
-        if lastAttemptedRequestWasDiscardedForReplay,
-           let lastAttemptedURL,
-           URLRequest(url: lastAttemptedURL).browserMatchesFailedNavigationURLString(failedURL) {
+        if lastAttemptedRequestWasDiscardedForReplay {
             return .disabled
         }
         return .urlOnly

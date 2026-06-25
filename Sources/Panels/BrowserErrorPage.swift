@@ -35,7 +35,7 @@ struct BrowserErrorPage {
 
         let bypassButtonHTML: String
         if content.permitsSSLBypass,
-           case let .request(failedRequest) = retry,
+           let failedRequest = Self.bypassRequest(from: failedURL, retry: retry),
            let bypassURL = sslBypassState.createPendingBypassAction(for: failedRequest) {
             let token = URLComponents(url: bypassURL, resolvingAgainstBaseURL: false)?
                 .queryItems?
@@ -251,6 +251,21 @@ struct BrowserErrorPage {
             return nil
         }
         return url
+    }
+
+    static func bypassRequest(from failedURL: String, retry: BrowserErrorPageRetry) -> URLRequest? {
+        switch retry {
+        case .disabled:
+            return nil
+        case .request(let request):
+            return request
+        case .urlOnly:
+            guard let url = retryURL(from: failedURL, retry: .urlOnly),
+                  url.scheme?.lowercased() == "https" else {
+                return nil
+            }
+            return URLRequest(url: url)
+        }
     }
 
     private static let bypassOnClickScript = """
