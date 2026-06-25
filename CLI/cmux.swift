@@ -365,13 +365,16 @@ final class ClaudeHookSessionStore {
 
     /// Records a completed naming pass. On a confirmed apply, the durable
     /// baseline (title, line count, timestamp) advances; on failure only the
-    /// in-flight marker clears, so the next qualifying Stop retries.
+    /// in-flight marker clears, so the next qualifying Stop retries. Extraction
+    /// failures can stamp the attempt cooldown without incrementing the
+    /// consecutive summarizer/apply failure count.
     func finishAutoNaming(
         sessionId: String,
         passId: String?,
         appliedTitle: String?,
         baselineLineCount: Int?,
-        now: Date
+        now: Date,
+        countFailure: Bool = true
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
@@ -388,7 +391,7 @@ final class ClaudeHookSessionStore {
                 record.autoNameLastLineCount = baselineLineCount
                 record.autoNameLastNamedAt = now.timeIntervalSince1970
                 record.autoNameFailureCount = 0
-            } else {
+            } else if countFailure {
                 record.autoNameFailureCount = min((record.autoNameFailureCount ?? 0) + 1, 32)
             }
             record.updatedAt = Date().timeIntervalSince1970

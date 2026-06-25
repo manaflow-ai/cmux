@@ -124,12 +124,7 @@ extension CMUXCLI {
         if let diagnostic = sourceResult?.diagnostic {
             telemetry.breadcrumb("\(telemetryKey).extraction.\(diagnostic)")
         }
-        guard let sourceResult, !sourceResult.messages.isEmpty else {
-            telemetry.breadcrumb("\(telemetryKey).extraction-empty")
-            reportAutoNamingProblem("extraction_failed", agent: def.name, workspaceId: workspaceId, client: client)
-            return
-        }
-        guard let context = engine.buildContext(from: sourceResult.messages) else {
+        guard let sourceResult else {
             telemetry.breadcrumb("\(telemetryKey).extraction-empty")
             reportAutoNamingProblem("extraction_failed", agent: def.name, workspaceId: workspaceId, client: client)
             return
@@ -151,6 +146,11 @@ extension CMUXCLI {
             telemetryKey: telemetryKey,
             telemetry: telemetry
         ) { engine, outcome in
+            guard let context = engine.buildContext(from: sourceResult.messages) else {
+                telemetry.breadcrumb("\(telemetryKey).extraction-empty")
+                reportAutoNamingProblem("extraction_failed", agent: def.name, workspaceId: workspaceId, client: client)
+                return (nil, false)
+            }
             let prompt = engine.buildPrompt(
                 currentTitle: outcome.lastTitle,
                 context: context,
@@ -164,9 +164,9 @@ extension CMUXCLI {
                 telemetry: telemetry
             ) else {
                 reportAutoNamingProblem("failed", agent: resolution.agent, workspaceId: workspaceId, client: client)
-                return nil
+                return (nil, true)
             }
-            return raw
+            return (raw, true)
         }
     }
 
@@ -182,7 +182,7 @@ extension CMUXCLI {
         missingOverride: String?,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry,
-        rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> String?
+        rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> (raw: String?, countsTowardBackoff: Bool)
     ) {
         guard !lines.isEmpty else { return }
         runAutoNamingPass(
@@ -212,9 +212,8 @@ extension CMUXCLI {
         missingOverride: String?,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry,
-        rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> String?
+        rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> (raw: String?, countsTowardBackoff: Bool)
     ) {
-        guard !messages.isEmpty else { return }
         runAutoNamingPass(
             sessionId: sessionId,
             workspaceId: workspaceId,
@@ -241,7 +240,7 @@ extension CMUXCLI {
         missingOverride: String?,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry,
-        rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> String?
+        rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> (raw: String?, countsTowardBackoff: Bool)
     ) {
         let engine = AutoNamingEngine()
         guard let outcome = try? sessionStore.beginAutoNaming(
@@ -258,17 +257,23 @@ extension CMUXCLI {
         }
 
         var confirmedTitle: String?
+        var countFailure = true
         defer {
             try? sessionStore.finishAutoNaming(
                 sessionId: sessionId,
                 passId: outcome.passId,
                 appliedTitle: confirmedTitle,
                 baselineLineCount: confirmedTitle != nil ? baseline : nil,
-                now: Date()
+                now: Date(),
+                countFailure: countFailure
             )
         }
-        guard let rawResponse = rawResponse(engine, outcome) else {
-            telemetry.breadcrumb("\(telemetryKey).llm-failed")
+        let rawResponseResult = rawResponse(engine, outcome)
+        guard let rawResponse = rawResponseResult.raw else {
+            countFailure = rawResponseResult.countsTowardBackoff
+            if countFailure {
+                telemetry.breadcrumb("\(telemetryKey).llm-failed")
+            }
             return
         }
         guard let action = autoNamingSanitizedAction(
@@ -314,7 +319,7 @@ extension CMUXCLI {
             return (title, true)
         case .unchanged(let title):
             telemetry.breadcrumb("\(telemetryKey).unchanged")
-            return (title, false)
+            return (title, true)
         case .unusable:
             telemetry.breadcrumb("\(telemetryKey).unusable-response")
             return nil
