@@ -693,6 +693,20 @@
           "default": true,
           "description": "Show custom workspace descriptions in the sidebar."
         },
+        "workspaceStatusStyle": {
+          "type": "string",
+          "enum": ["sentence", "dot"],
+          "default": "sentence",
+          "descriptionKey": "schemaDescriptions.sidebar.workspaceStatusStyle",
+          "description": "How extension-sidebar workspace rows show agent status: `sentence` keeps the subtitle text, while `dot` uses a compact colored indicator."
+        },
+        "scrollEdgeFade": {
+          "type": "string",
+          "enum": ["full", "subtle", "off"],
+          "default": "full",
+          "descriptionKey": "schemaDescriptions.sidebar.scrollEdgeFade",
+          "description": "Strength of the top and bottom scroll-edge fade over the sidebar tab list."
+        },
         "branchLayout": {
           "type": "string",
           "enum": ["vertical", "inline"],

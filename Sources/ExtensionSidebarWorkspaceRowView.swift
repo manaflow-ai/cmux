@@ -1,5 +1,6 @@
 import CmuxFoundation
 import AppKit
+import CmuxSettings
 import CmuxSidebarProviderKit
 import SwiftUI
 import WebKit
@@ -10,6 +11,7 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
     let providerId: String
     let relativeNow: Date
     let isSelected: Bool
+    let workspaceStatusStyle: SidebarWorkspaceStatusStyle
     let onSelect: (UUID) -> Void
     let onOpenWindow: (CmuxSidebarProviderWorkspace) -> Void
     @State private var showsInspector = false
@@ -20,7 +22,8 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
             lhs.workspace == rhs.workspace &&
             lhs.providerId == rhs.providerId &&
             lhs.relativeNow == rhs.relativeNow &&
-            lhs.isSelected == rhs.isSelected
+            lhs.isSelected == rhs.isSelected &&
+            lhs.workspaceStatusStyle == rhs.workspaceStatusStyle
     }
 
     private var isSuperCompact: Bool {
@@ -34,15 +37,25 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
     var body: some View {
         let primarySize: CGFloat = isSuperCompact ? 10.5 : 12.5
         let secondarySize: CGFloat = isSuperCompact ? 9 : 10
+        let subtitle = rendered(row.subtitle)
         HStack(spacing: isSuperCompact ? 5 : 7) {
             VStack(alignment: .leading, spacing: isSuperCompact ? 0 : 2) {
-                Text(row.title)
-                    .cmuxFont(size: primarySize, weight: .regular)
-                    .foregroundColor(isSelected ? .primary : .primary.opacity(0.86))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                HStack(spacing: 5) {
+                    Text(row.title)
+                        .cmuxFont(size: primarySize, weight: .regular)
+                        .foregroundColor(isSelected ? .primary : .primary.opacity(0.86))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
 
-                if !isSuperCompact, let subtitle = rendered(row.subtitle) {
+                    if workspaceStatusStyle == .dot, let subtitle {
+                        Circle()
+                            .fill(agentStatusColor(for: subtitle))
+                            .frame(width: 6, height: 6)
+                            .accessibilityLabel(Text(subtitle))
+                    }
+                }
+
+                if workspaceStatusStyle == .sentence, !isSuperCompact, let subtitle {
                     Text(subtitle)
                         .cmuxFont(size: secondarySize, weight: .regular)
                         .foregroundColor(.secondary)
@@ -95,8 +108,8 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
         }
         .padding(.leading, isSuperCompact ? 14 : 28)
         .padding(.trailing, 8)
-        .padding(.vertical, isSuperCompact ? 2 : (isThin ? 5 : 7))
-        .frame(minHeight: isSuperCompact ? 22 : 32)
+        .padding(.vertical, rowVerticalPadding)
+        .frame(minHeight: rowMinimumHeight)
         .background {
             if isSelected {
                 Rectangle()
@@ -107,6 +120,38 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
         .onTapGesture {
             onSelect(row.workspaceId)
         }
+    }
+
+    private var rowVerticalPadding: CGFloat {
+        if isSuperCompact { return 2 }
+        if isThin || workspaceStatusStyle == .dot { return 5 }
+        return 7
+    }
+
+    private var rowMinimumHeight: CGFloat {
+        if isSuperCompact { return 22 }
+        if workspaceStatusStyle == .dot { return 28 }
+        return 32
+    }
+
+    private func agentStatusColor(for subtitle: String) -> Color {
+        let normalized = subtitle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalized.contains("needs input")
+            || normalized.contains("need input")
+            || normalized.contains("waiting for input")
+            || normalized.contains("waiting for your input")
+            || normalized.contains("your input") {
+            return .orange
+        }
+        if normalized.contains("running")
+            || normalized.contains("working")
+            || normalized.contains("processing")
+            || normalized.contains("thinking")
+            || normalized.contains("in progress")
+            || normalized.contains("executing") {
+            return .green
+        }
+        return .secondary
     }
 
     private func rendered(_ text: CmuxSidebarProviderText?) -> String? {

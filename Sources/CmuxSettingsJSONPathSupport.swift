@@ -180,6 +180,13 @@ enum SidebarSettingsFileMapping {
         let defaultsKey: String
     }
 
+    struct StringEnumSetting {
+        let jsonKey: String
+        let defaultsKey: String
+        let acceptedValues: Set<String>
+        let invalidPath: String
+    }
+
     static let booleanSettings: [BooleanSetting] = [
         .init(
             jsonKey: "hideAllDetails",
@@ -239,6 +246,21 @@ enum SidebarSettingsFileMapping {
         .init(
             jsonKey: "showCustomMetadata",
             defaultsKey: SidebarWorkspaceDetailDefaults.showCustomMetadataKey
+        ),
+    ]
+
+    static let stringEnumSettings: [StringEnumSetting] = [
+        .init(
+            jsonKey: "workspaceStatusStyle",
+            defaultsKey: sidebar.workspaceStatusStyle.userDefaultsKey,
+            acceptedValues: Set(SidebarWorkspaceStatusStyle.allCases.map(\.rawValue)),
+            invalidPath: "sidebar.workspaceStatusStyle"
+        ),
+        .init(
+            jsonKey: "scrollEdgeFade",
+            defaultsKey: sidebar.scrollEdgeFade.userDefaultsKey,
+            acceptedValues: Set(SidebarScrollEdgeFadeStyle.allCases.map(\.rawValue)),
+            invalidPath: "sidebar.scrollEdgeFade"
         ),
     ]
 
@@ -369,6 +391,8 @@ extension CmuxSettingsFileStore {
         "sidebar.hideAllDetails",
         "sidebar.wrapWorkspaceTitles",
         "sidebar.showWorkspaceDescription",
+        "sidebar.workspaceStatusStyle",
+        "sidebar.scrollEdgeFade",
         "sidebar.branchLayout",
         "sidebar.stackBranchDirectory",
         "sidebar.pathLastSegmentOnly",

@@ -10069,6 +10069,8 @@ struct VerticalTabsSidebar: View {
     @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsExperimentalEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
+    @LiveSetting(\.sidebar.workspaceStatusStyle) private var sidebarWorkspaceStatusStyle
+    @LiveSetting(\.sidebar.scrollEdgeFade) private var sidebarScrollEdgeFade
 
     // The provider to actually render. Built-in views are always honored; only
     // the hosted-extension selection falls back to the default workspaces
@@ -10262,11 +10264,22 @@ struct VerticalTabsSidebar: View {
     }
 
     private var sidebarTopScrimHeight: CGFloat {
-        SidebarWorkspaceListMetrics.topScrimHeight
+        SidebarWorkspaceListMetrics.topScrimHeight * sidebarScrollEdgeFadeHeightScale
     }
 
     private var sidebarBottomScrimHeight: CGFloat {
-        SidebarWorkspaceListMetrics.bottomScrimHeight
+        SidebarWorkspaceListMetrics.bottomScrimHeight * sidebarScrollEdgeFadeHeightScale
+    }
+
+    private var sidebarScrollEdgeFadeHeightScale: CGFloat {
+        switch sidebarScrollEdgeFade {
+        case .full:
+            return 1
+        case .subtle:
+            return 0.5
+        case .off:
+            return 0
+        }
     }
 
     private var isMinimalMode: Bool {
@@ -10603,7 +10616,8 @@ struct VerticalTabsSidebar: View {
                 .mask(
                     SidebarWorkspaceScrollEdgeFadeMask(
                         topHeight: sidebarTopScrimHeight,
-                        bottomHeight: sidebarBottomScrimHeight
+                        bottomHeight: sidebarBottomScrimHeight,
+                        fadeStyle: sidebarScrollEdgeFade
                     )
                 )
                 .overlay(alignment: .top) {
@@ -10781,7 +10795,8 @@ struct VerticalTabsSidebar: View {
             .mask(
                 SidebarWorkspaceScrollEdgeFadeMask(
                     topHeight: 0,
-                    bottomHeight: sidebarBottomScrimHeight
+                    bottomHeight: sidebarBottomScrimHeight,
+                    fadeStyle: sidebarScrollEdgeFade
                 )
             )
         } else if effectiveExtensionSidebarProviderId.hasPrefix(CmuxExtensionSidebarSelection.customSidebarProviderPrefix),
@@ -10814,7 +10829,8 @@ struct VerticalTabsSidebar: View {
             .mask(
                 SidebarWorkspaceScrollEdgeFadeMask(
                     topHeight: sidebarTopScrimHeight,
-                    bottomHeight: sidebarBottomScrimHeight
+                    bottomHeight: sidebarBottomScrimHeight,
+                    fadeStyle: sidebarScrollEdgeFade
                 )
             )
         } else {
@@ -10890,7 +10906,8 @@ struct VerticalTabsSidebar: View {
             .mask(
                 SidebarWorkspaceScrollEdgeFadeMask(
                     topHeight: sidebarTopScrimHeight,
-                    bottomHeight: sidebarBottomScrimHeight
+                    bottomHeight: sidebarBottomScrimHeight,
+                    fadeStyle: sidebarScrollEdgeFade
                 )
             )
             .overlay(alignment: .top) {
@@ -11800,6 +11817,7 @@ struct VerticalTabsSidebar: View {
                             providerId: providerId,
                             relativeNow: now,
                             isSelected: row.workspaceId == selectedWorkspaceId,
+                            workspaceStatusStyle: sidebarWorkspaceStatusStyle,
                             onSelect: selectExtensionSidebarWorkspace,
                             onOpenWindow: CmuxExtensionSidebarInspectorWindowController.show
                         )
