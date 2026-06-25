@@ -1,5 +1,8 @@
 import Foundation
 
+// Safe to share across tasks: this narrow mirror stores only monotonic per-key
+// sequence baselines, protects all mutable state with `lock`, and does no async
+// work or user-callback invocation while the lock is held.
 private final class UserDefaultsSettingsMutationSourceSequenceMirror: @unchecked Sendable {
     private let lock = NSLock()
     private var sequences: [String: UInt64] = [:]
