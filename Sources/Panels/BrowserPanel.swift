@@ -8289,6 +8289,8 @@ private extension NSObject {
 /// during WebKit callbacks), then moving the finished file to the user's
 /// Downloads folder unless the browser save-panel setting is enabled.
 class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
+    private static let maxDownloadDestinationCollisionRetries = 100
+
     private struct DownloadState: Sendable {
         let tempURL: URL
         let suggestedFilename: String
@@ -8340,13 +8342,24 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
     ) throws -> URL {
         let directory = filenameResolver.downloadsDirectory(fileManager: fileManager)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
-        let destinationURL = filenameResolver.uniqueDownloadDestination(
-            suggestedFilename: suggestedFilename,
-            in: directory,
-            fileManager: fileManager
-        )
-        try fileManager.moveItem(at: tempURL, to: destinationURL)
-        return destinationURL
+        var lastCollisionError: Error?
+        for _ in 0..<Self.maxDownloadDestinationCollisionRetries {
+            let destinationURL = filenameResolver.uniqueDownloadDestination(
+                suggestedFilename: suggestedFilename,
+                in: directory,
+                fileManager: fileManager
+            )
+            do {
+                try fileManager.moveItem(at: tempURL, to: destinationURL)
+                return destinationURL
+            } catch {
+                guard fileManager.fileExists(atPath: destinationURL.path) else {
+                    throw error
+                }
+                lastCollisionError = error
+            }
+        }
+        throw lastCollisionError ?? CocoaError(.fileWriteUnknown)
     }
 
     @MainActor
@@ -8684,6 +8697,9 @@ func browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
 }
 
 private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
+    private static let subframeDownloadIntentLifetime: TimeInterval = 10
+
+    private var recentSubframeDownloadIntentKeys: [(key: String, recordedAt: TimeInterval)] = []
     var didStartProvisionalNavigation: ((WKWebView) -> Void)?
     var didCommit: ((WKWebView) -> Void)?
     var didFinish: ((WKWebView) -> Void)?
@@ -8881,6 +8897,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             buttonNumber: navigationAction.buttonNumber,
             hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
         )
+        recordSubframeDownloadIntentIfNeeded(navigationAction)
 #if DEBUG
         let currentEventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
         let currentEventButton = NSApp.currentEvent.map { String($0.buttonNumber) } ?? "nil"
@@ -9005,11 +9022,14 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
 
         let contentDisposition = (navigationResponse.response as? HTTPURLResponse)?
             .value(forHTTPHeaderField: "Content-Disposition")
+        let allowsSubframeDownload = navigationResponse.isForMainFrame
+            || consumeRecentSubframeDownloadIntent(for: navigationResponse.response.url)
         if let reason = BrowserDownloadFilenameResolver().navigationResponseDownloadReason(
             mimeType: mime,
             canShowMIMEType: canShow,
             contentDisposition: contentDisposition,
-            isForMainFrame: navigationResponse.isForMainFrame
+            isForMainFrame: navigationResponse.isForMainFrame,
+            allowsSubframeDownload: allowsSubframeDownload
         ) {
             NSLog("BrowserPanel download: %@ mime=%@ url=%@", reason, mime, responseURL)
             #if DEBUG
@@ -9020,6 +9040,49 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         }
 
         decisionHandler(.allow)
+    }
+
+    private func recordSubframeDownloadIntentIfNeeded(_ navigationAction: WKNavigationAction) {
+        guard navigationAction.targetFrame?.isMainFrame == false,
+              let url = navigationAction.request.url,
+              Self.isHTTPDownloadIntentURL(url) else { return }
+        guard navigationAction.navigationType == .linkActivated
+            || browserNavigationHasSimpleUserActivation() else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        pruneSubframeDownloadIntents(now: now)
+        recentSubframeDownloadIntentKeys.append((Self.downloadIntentKey(for: url), now))
+    }
+
+    private func consumeRecentSubframeDownloadIntent(for responseURL: URL?) -> Bool {
+        guard let responseURL,
+              Self.isHTTPDownloadIntentURL(responseURL) else { return false }
+        let now = ProcessInfo.processInfo.systemUptime
+        pruneSubframeDownloadIntents(now: now)
+        let key = Self.downloadIntentKey(for: responseURL)
+        guard let index = recentSubframeDownloadIntentKeys.firstIndex(where: { $0.key == key }) else {
+            return false
+        }
+        recentSubframeDownloadIntentKeys.remove(at: index)
+        return true
+    }
+
+    private func pruneSubframeDownloadIntents(now: TimeInterval) {
+        recentSubframeDownloadIntentKeys.removeAll {
+            now - $0.recordedAt > Self.subframeDownloadIntentLifetime
+        }
+    }
+
+    private static func isHTTPDownloadIntentURL(_ url: URL) -> Bool {
+        let scheme = url.scheme?.lowercased()
+        return scheme == "http" || scheme == "https"
+    }
+
+    private static func downloadIntentKey(for url: URL) -> String {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url.absoluteString
+        }
+        components.fragment = nil
+        return components.string ?? url.absoluteString
     }
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {

@@ -26,12 +26,16 @@ nonisolated struct BrowserDownloadFilenameResolver: Sendable {
         mimeType: String?,
         canShowMIMEType: Bool,
         contentDisposition: String?,
-        isForMainFrame: Bool = true
+        isForMainFrame: Bool = true,
+        allowsSubframeDownload: Bool = false
     ) -> String? {
-        if shouldForceDownload(mimeType: nil, contentDisposition: contentDisposition) {
+        let canUseExplicitDownloadSignals = isForMainFrame || allowsSubframeDownload
+        if canUseExplicitDownloadSignals,
+           shouldForceDownload(mimeType: nil, contentDisposition: contentDisposition) {
             return "content-disposition"
         }
-        if shouldForceDownload(mimeType: mimeType, contentDisposition: nil) {
+        if canUseExplicitDownloadSignals,
+           shouldForceDownload(mimeType: mimeType, contentDisposition: nil) {
             return "forceDownloadMIME"
         }
         guard isForMainFrame else { return nil }

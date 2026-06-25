@@ -44,14 +44,31 @@ import WebKit
             mimeType: "text/html",
             canShowMIMEType: true,
             contentDisposition: "attachment; filename=index.html",
-            isForMainFrame: false
+            isForMainFrame: false,
+            allowsSubframeDownload: true
         ) == "content-disposition")
         #expect(resolver.navigationResponseDownloadReason(
             mimeType: "text/csv",
             canShowMIMEType: true,
             contentDisposition: nil,
-            isForMainFrame: false
+            isForMainFrame: false,
+            allowsSubframeDownload: true
         ) == "forceDownloadMIME")
+    }
+
+    @Test func navigationResponseRejectsUnactivatedSubframeDownloads() {
+        #expect(resolver.navigationResponseDownloadReason(
+            mimeType: "text/html",
+            canShowMIMEType: true,
+            contentDisposition: "attachment; filename=index.html",
+            isForMainFrame: false
+        ) == nil)
+        #expect(resolver.navigationResponseDownloadReason(
+            mimeType: "text/csv",
+            canShowMIMEType: true,
+            contentDisposition: nil,
+            isForMainFrame: false
+        ) == nil)
     }
 
     @Test func navigationResponseKeepsUnshowableSubframesInlineWithoutExplicitDownloadSignal() {
