@@ -7701,14 +7701,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
 
-            guard targetTabManager.openBrowser(
+            guard let browserPanelId = targetTabManager.openBrowser(
                 inWorkspace: targetWorkspaceId,
                 url: openFolderURL,
                 preferSplitRight: true
-            ) != nil else {
+            ) else {
                 NSSound.beep()
                 return
             }
+            targetTabManager
+                .browserPanel(tabId: targetWorkspaceId, panelId: browserPanelId)?
+                .setInlineVSCodeServeWebStableSnapshotOrigin(
+                    VSCodeServeWebController.stableServeWebURL(for: serveWebURL)
+                )
         }
 
         return true

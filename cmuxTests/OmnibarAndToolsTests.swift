@@ -800,6 +800,13 @@ final class VSCodeServeWebControllerTests: XCTestCase {
                     )?.absoluteString,
                     matchingURL.absoluteString
                 )
+                XCTAssertEqual(
+                    VSCodeServeWebController.stableServeWebURL(
+                        for: fallbackURL,
+                        launchOptions: options
+                    )?.absoluteString,
+                    "http://127.0.0.1:\(options.port)/?tkn=\(token)"
+                )
                 XCTAssertNil(VSCodeServeWebController.preparedRestoredServeWebURL(matchingURL, launchedURL: wrongTokenURL))
             }
         }

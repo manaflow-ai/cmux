@@ -2,13 +2,13 @@
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 34629	CLI/cmux.swift
-17826	Sources/AppDelegate.swift
+17831	Sources/AppDelegate.swift
 16128	Sources/ContentView.swift
 13832	Sources/TerminalController.swift
 12878	Sources/Workspace.swift
 12237	Sources/GhosttyTerminalView.swift
 12144	cmuxTests/AppDelegateShortcutRoutingTests.swift
-11639	Sources/Panels/BrowserPanel.swift
+11646	Sources/Panels/BrowserPanel.swift
 9497	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 8016	CLI/cmux_open.swift
 7986	Sources/Panels/BrowserPanelView.swift
@@ -48,7 +48,7 @@
 2078	Sources/SessionPersistence.swift
 1952	Sources/KeyboardShortcutSettingsFileStore.swift
 1945	Sources/RestorableAgentSession.swift
-1934	cmuxTests/OmnibarAndToolsTests.swift
+1941	cmuxTests/OmnibarAndToolsTests.swift
 1900	cmuxTests/NotificationAndMenuBarTests.swift
 1866	Sources/Panels/BrowserWebAuthnSupport.swift
 1810	Sources/SessionIndexStore.swift

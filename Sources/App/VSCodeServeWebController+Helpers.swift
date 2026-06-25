@@ -93,6 +93,25 @@ extension VSCodeServeWebController {
         return sourceComponents?.url
     }
 
+    static func stableServeWebURL(
+        for launchedURL: URL,
+        launchOptions: VSCodeServeWebLaunchOptions? = VSCodeServeWebLaunchOptions.resolve()
+    ) -> URL? {
+        guard isLoopbackHTTPURL(launchedURL),
+              let launchOptions,
+              launchedURL.port != launchOptions.port,
+              let token = VSCodeServeWebLaunchOptions.usableConnectionToken(
+                launchOptions.connectionTokenFileURL,
+                fileManager: .default
+              ),
+              connectionTokenQueryValue(launchedURL) == token else {
+            return nil
+        }
+        var components = URLComponents(url: launchedURL, resolvingAgainstBaseURL: false)
+        components?.port = launchOptions.port
+        return components?.url
+    }
+
     private static func isPossiblePersistentServeWebURL(_ candidateURL: URL?) -> Bool {
         guard let candidateURL, isLoopbackHTTPURL(candidateURL) else { return false }
         return connectionTokenQueryValue(candidateURL) != nil

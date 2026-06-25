@@ -2851,6 +2851,10 @@ final class BrowserPanel: Panel, ObservableObject {
     private var restoredInlineVSCodeServeWebURLAwaitingPreparation: URL?
     private var restoredInlineVSCodeServeWebStableSnapshotOriginURL: URL?
 
+    func setInlineVSCodeServeWebStableSnapshotOrigin(_ stableOriginURL: URL?) {
+        restoredInlineVSCodeServeWebStableSnapshotOriginURL = stableOriginURL
+    }
+
     @Published private(set) var webViewLifecycleState: BrowserWebViewLifecycleState = .newTab
     private(set) var webViewLastVisibleAt: Date?
     private(set) var webViewLastHiddenAt: Date?
@@ -4594,7 +4598,10 @@ final class BrowserPanel: Panel, ObservableObject {
                 return
             }
             self.restoredInlineVSCodeServeWebURLAwaitingPreparation = nil
-            guard let preparedURL else { return }
+            guard let preparedURL else {
+                _ = self.reactivateDiscardedWebViewWithoutNavigation(reason: "serve_web_unavailable")
+                return
+            }
             let usedFallbackPort = preparedURL.absoluteString != restoredURL.absoluteString
             self.restoredInlineVSCodeServeWebStableSnapshotOriginURL = usedFallbackPort ? restoredURL : nil
             self.currentURL = preparedURL
