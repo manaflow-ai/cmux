@@ -2423,7 +2423,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let scope = await currentScopeSnapshot() else { return }
         let isActiveMac = pairedMacsForIdentityMatching.first { $0.macDeviceID == macDeviceID }?.isActive == true
         if isActiveMac, connectionState == .connected {
-            disconnectLiveConnection()
+            disconnectLiveConnection(preservingOtherMacWorkspaceState: true)
         }
         // Tear down any live SECONDARY (non-foreground) connection + its aggregated
         // workspace rows for this Mac, so forgetting it removes its workspaces from
@@ -2971,14 +2971,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// ``forgetMac(macDeviceID:)`` and ``switchToMac(macDeviceID:)`` reuse this,
     /// so it must not clear ``hasKnownPairedMac`` (that belongs to the explicit
     /// forget-active path below).
-    private func disconnectLiveConnection() {
+    private func disconnectLiveConnection(preservingOtherMacWorkspaceState: Bool = false) {
         suppressNextConnectionOutageEdge = true
         invalidatePairingAttempt()
         clearPairingError()
         connectionRequiresReauth = false
         connectionState = .disconnected
         macConnectionStatus = .unavailable
-        clearRemoteConnectionContext()
+        clearRemoteConnectionContext(preservingOtherMacWorkspaceState: preservingOtherMacWorkspaceState)
     }
 
     /// Disconnect from the currently paired Mac and forget it so the next
@@ -4793,7 +4793,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectedHostName = ""
     }
 
-    private func clearRemoteConnectionContext() {
+    private func clearRemoteConnectionContext(preservingOtherMacWorkspaceState: Bool = false) {
         connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()
         cancelRemoteOperationTasks()
@@ -4807,11 +4807,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connections[foreground] = nil
         }
         foregroundMacDeviceID = nil
-        // Cancel the live secondary subscriptions (slice 3) and keep only the
-        // now-offline foreground Mac's last-known workspaces for the offline view;
-        // the derived list recomputes to just the offline Mac's rows.
-        teardownSecondaryMacSubscriptions()
-        workspacesByMac = workspacesByMac.filter { $0.key == offlineForegroundKey }
+        if !preservingOtherMacWorkspaceState {
+            // Cancel the live secondary subscriptions (slice 3) and keep only the
+            // now-offline foreground Mac's last-known workspaces for the offline
+            // view; the derived list recomputes to just the offline Mac's rows.
+            teardownSecondaryMacSubscriptions()
+            workspacesByMac = workspacesByMac.filter { $0.key == offlineForegroundKey }
+        }
         // The retained foreground entry still carries its last-known
         // `status: .connected`; `macConnectionStatuses` (the Computers screen's
         // per-Mac dots) derives from these per-Mac states, so without this the
