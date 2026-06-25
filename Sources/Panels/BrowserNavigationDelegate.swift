@@ -19,6 +19,7 @@ import WebKit
     /// The URL of the last navigation that was attempted. Used to preserve the omnibar URL
     /// when a provisional navigation fails (e.g. connection refused on localhost:3000).
     var lastAttemptedURL: URL?
+    private(set) var activeErrorPageDisplayURL: URL?
     private let basicAuthPromptCoordinator = BrowserHTTPBasicAuthPromptCoordinator()
     private let sslBypassState = BrowserSSLTrustBypassState()
     private var lastAttemptedRequest: URLRequest?
@@ -34,6 +35,7 @@ import WebKit
         sslBypassState.clearPendingBypasses()
         acceptsSSLTrustBypassMessages = false
         activeSSLTrustBypassErrorPageFailedURL = nil
+        activeErrorPageDisplayURL = nil
         lastAttemptedURL = displayURL ?? request.url
         if sslBypassState.canRetainRequestForReplay(request) {
             lastAttemptedRequest = request
@@ -50,6 +52,7 @@ import WebKit
             acceptsSSLTrustBypassMessages = false
             activeSSLTrustBypassErrorPageFailedURL = nil
         }
+        activeErrorPageDisplayURL = nil
         lastAttemptedRequest = nil
         lastAttemptedRequestWasDiscardedForReplay = false
         lastAttemptedURL = nil
@@ -59,6 +62,7 @@ import WebKit
         sslBypassState.clearAllTrustState()
         acceptsSSLTrustBypassMessages = false
         activeSSLTrustBypassErrorPageFailedURL = nil
+        activeErrorPageDisplayURL = nil
         lastAttemptedRequest = nil
         lastAttemptedRequestWasDiscardedForReplay = false
         lastAttemptedURL = nil
@@ -182,6 +186,7 @@ import WebKit
     }
 
     private func loadErrorPage(in webView: WKWebView, failedURL: String, failedRequest: URLRequest?, error: NSError) {
+        activeErrorPageDisplayURL = URL(string: failedURL)
         let canBypass = BrowserErrorPage(
             failedURL: failedURL,
             failedRequest: failedRequest,
