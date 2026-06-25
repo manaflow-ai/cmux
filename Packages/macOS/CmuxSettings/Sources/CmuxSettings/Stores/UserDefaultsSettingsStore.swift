@@ -25,35 +25,6 @@ import Foundation
 ///     applyAppearance(mode)
 /// }
 /// ```
-/// Identifies one caller-originated `UserDefaultsSettingsStore` mutation.
-///
-/// Consumers that optimistically update UI can attach a source to their store
-/// write and ignore the matching observation echo without suppressing unrelated
-/// external writes that happen to carry the same setting value.
-public struct UserDefaultsSettingsMutationSource: Sendable, Hashable {
-    fileprivate let rawValue: UUID
-
-    /// Creates a unique mutation source for one logical write.
-    public init() {
-        self.rawValue = UUID()
-    }
-}
-
-/// One observed `UserDefaults` setting value plus its optional mutation source.
-public struct UserDefaultsSettingsValueEvent<Value: SettingCodable>: Sendable, Equatable {
-    /// The decoded value for the observed key.
-    public let value: Value
-
-    /// The source attached to the latest store-owned write for the key, if any.
-    public let mutationSource: UserDefaultsSettingsMutationSource?
-
-    /// Creates an observed value event.
-    public init(value: Value, mutationSource: UserDefaultsSettingsMutationSource? = nil) {
-        self.value = value
-        self.mutationSource = mutationSource
-    }
-}
-
 public actor UserDefaultsSettingsStore {
     /// The `UserDefaults` suite this store reads and writes.
     ///
