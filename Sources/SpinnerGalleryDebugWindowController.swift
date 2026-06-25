@@ -30,13 +30,18 @@ final class SpinnerGalleryDebugWindowController: ReleasingWindowController {
         window.title = "Spinner Gallery"
         window.identifier = NSUserInterfaceItemIdentifier("cmux.spinnerGallery")
         window.minSize = NSSize(width: 420, height: 480)
+        // Float above the workspace windows so frame-capture screenshots reliably
+        // target this window (the debug screenshot picks key/main/largest, and
+        // the restored terminal window would otherwise win as main).
+        window.level = .floating
         window.center()
         window.contentView = NSHostingView(rootView: SpinnerGalleryRootView())
         return window
     }
 
     func show() {
-        showManagedWindow(activateApplication: true)
+        showManagedWindow(activateApplication: true, orderFrontRegardless: true)
+        window?.makeKey()
     }
 }
 
