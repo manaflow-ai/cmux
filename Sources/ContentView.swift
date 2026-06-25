@@ -11702,9 +11702,8 @@ struct VerticalTabsSidebar: View {
         return snapshotsById
     }
 
-    private func extensionSidebarWorkspaceAgentLifecycleStatesById(for rows: [CmuxSidebarProviderRow])
+    private func extensionSidebarWorkspaceAgentLifecycleStatesById(for rows: [CmuxSidebarProviderRow], workspaceById: [UUID: Workspace])
         -> [UUID: AgentHibernationLifecycleState] {
-        let workspaceById = Dictionary(uniqueKeysWithValues: tabManager.tabs.map { ($0.id, $0) })
         var statesById: [UUID: AgentHibernationLifecycleState] = [:]
         for row in rows where statesById[row.workspaceId] == nil {
             guard let workspace = workspaceById[row.workspaceId],
@@ -11719,10 +11718,7 @@ struct VerticalTabsSidebar: View {
     private func extensionSidebarAgentLifecycleState(for workspace: Workspace) -> AgentHibernationLifecycleState? {
         let states = workspace.agentLifecycleStatesByPanelId.values.flatMap { Array($0.values) }
         guard !states.isEmpty else { return nil }
-        if states.contains(.needsInput) { return .needsInput }
-        if states.contains(.running) { return .running }
-        if states.contains(.idle) { return .idle }
-        return .unknown
+        return AgentHibernationLifecycleState.dominant(in: states, fallback: .unknown)
     }
 
     private func extensionBrowserStackIcon(
@@ -11786,7 +11782,7 @@ struct VerticalTabsSidebar: View {
         let canCreateWorktree = section.treeSection.projectRootPath != nil
         let selectedWorkspaceId = tabManager.selectedTabId
         let workspaceSnapshotsById = extensionSidebarWorkspaceSnapshotsById(for: section.rows)
-        let workspaceAgentLifecycleStatesById = extensionSidebarWorkspaceAgentLifecycleStatesById(for: section.rows)
+        let workspaceAgentLifecycleStatesById = extensionSidebarWorkspaceAgentLifecycleStatesById(for: section.rows, workspaceById: renderContext.workspaceById)
 
         VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 7) {
