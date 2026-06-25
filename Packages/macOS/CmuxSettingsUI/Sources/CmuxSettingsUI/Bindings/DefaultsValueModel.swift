@@ -45,7 +45,6 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     @ObservationIgnored private var nextMutationSequence: UInt64 = 0
     @ObservationIgnored private var minimumRetainedMutationSequence: UInt64 = 1
     @ObservationIgnored private var hasObservedInitialStoreEvent = false
-    @ObservationIgnored private var protectsPendingEchoesFromInitialObservation = false
 
     /// Owns the change-stream subscription and cancels it when this model
     /// deallocates.
@@ -97,7 +96,6 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     /// ignored by ``SettingReadDriver``. Views should call this from a mounted
     /// lifecycle hook such as `.task`, not from their initializer.
     public func startObserving() {
-        protectsPendingEchoesFromInitialObservation = !pendingStoreEchoes.isEmpty
         observation.activate(makeStream) { [weak self] value in
             self?.acceptObservedValue(value)
         }
@@ -173,14 +171,10 @@ public final class DefaultsValueModel<Value: SettingCodable> {
             return
         }
         if isInitialStoreEvent,
-           protectsPendingEchoesFromInitialObservation,
            event.mutationSource == nil,
-           !pendingStoreEchoes.isEmpty,
-           event.value != current {
-            protectsPendingEchoesFromInitialObservation = false
+           !pendingStoreEchoes.isEmpty {
             return
         }
-        protectsPendingEchoesFromInitialObservation = false
         clearPendingStoreEchoes()
         updateCurrent(event.value)
     }

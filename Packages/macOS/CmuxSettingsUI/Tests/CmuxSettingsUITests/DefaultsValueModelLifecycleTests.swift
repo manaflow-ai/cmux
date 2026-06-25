@@ -244,24 +244,33 @@ import Testing
         )
         model.startObserving()
 
-        let source = model.set(false)
+        continuation.yield(event(false))
+        var spins = 0
+        while model.revision != 1, spins < 100_000 {
+            await Task.yield()
+            spins += 1
+        }
+        #expect(model.current == false)
         #expect(model.revision == 1)
 
+        let source = model.set(false)
+        #expect(model.revision == 2)
+
         continuation.yield(event(true))
-        var spins = 0
+        spins = 0
         while model.current != true, spins < 100_000 {
             await Task.yield()
             spins += 1
         }
         #expect(model.current == true)
-        #expect(model.revision == 2)
+        #expect(model.revision == 3)
 
         continuation.yield(event(false, source: source))
         for _ in 0..<10 {
             await Task.yield()
         }
         #expect(model.current == true)
-        #expect(model.revision == 2)
+        #expect(model.revision == 3)
     }
 
     @Test func rapidLocalWriteEchoesDoNotRevertCurrentOrRevision() async {
