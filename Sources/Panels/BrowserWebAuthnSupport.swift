@@ -997,6 +997,7 @@ private final class BrowserPasskeyAuthorizationGate {
 
     private let manager = ASAuthorizationWebBrowserPublicKeyCredentialManager()
     private var inFlightRequest: Task<ASAuthorizationWebBrowserPublicKeyCredentialManager.AuthorizationState, Never>?
+    private var lastAuthorizationRequestCompletedAt: Date?
 
     func currentAuthorizationState() -> ASAuthorizationWebBrowserPublicKeyCredentialManager.AuthorizationState {
         manager.authorizationStateForPlatformCredentials
@@ -1021,7 +1022,20 @@ private final class BrowserPasskeyAuthorizationGate {
         inFlightRequest = request
         let result = await request.value
         inFlightRequest = nil
+        lastAuthorizationRequestCompletedAt = Date()
         return result
+    }
+
+    func waitForCredentialRequestReadinessIfNeeded() async {
+        guard let completedAt = lastAuthorizationRequestCompletedAt else { return }
+
+        let settleInterval: TimeInterval = 0.5
+        let elapsed = Date().timeIntervalSince(completedAt)
+        guard elapsed < settleInterval else { return }
+
+        let remaining = settleInterval - elapsed
+        browserWebAuthnTrace("authRequests settlingAfterAuthorization delayMs=\(Int(remaining * 1000))")
+        try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
     }
 }
 
@@ -1211,7 +1225,7 @@ extension BrowserWebAuthnCoordinator: ASAuthorizationControllerDelegate, ASAutho
         cmuxDebugLog("webauthn.asAuth.didFail domain=\(nsError.domain) code=\(nsError.code)")
         #endif
         browserWebAuthnTrace("asAuth.didFail domain=\(nsError.domain) code=\(nsError.code) description=\(nsError.localizedDescription)")
-        finishAuthorization(with: .failure(bridgeError(from: error)))
+        finishAuthorization(with: .failure(error))
     }
 
     func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
@@ -1356,6 +1370,8 @@ private extension BrowserWebAuthnCoordinator {
                 browserWebAuthnTrace("authRequests authorizeIfNeeded result=\(authorizationState.rawValue)")
                 if authorizationState != .authorized {
                     includePlatformRequests = false
+                } else {
+                    await BrowserPasskeyAuthorizationGate.shared.waitForCredentialRequestReadinessIfNeeded()
                 }
             }
         }
@@ -1387,6 +1403,38 @@ private extension BrowserWebAuthnCoordinator {
     }
 
     func performAuthorization(
+        requests: [ASAuthorizationRequest],
+        window: NSWindow?,
+        prefersImmediatelyAvailableCredentials: Bool
+    ) async throws -> [String: Any] {
+        do {
+            return try await performAuthorizationAttempt(
+                requests: requests,
+                window: window,
+                prefersImmediatelyAvailableCredentials: prefersImmediatelyAvailableCredentials
+            )
+        } catch {
+            guard isRequestAlreadyInProgress(error) else {
+                throw bridgeError(from: error)
+            }
+
+            browserWebAuthnTrace("performAuth alreadyInProgress retryingAfterDelay")
+            cancelActiveAuthorization()
+            try? await Task.sleep(nanoseconds: 500_000_000)
+
+            do {
+                return try await performAuthorizationAttempt(
+                    requests: requests,
+                    window: window,
+                    prefersImmediatelyAvailableCredentials: prefersImmediatelyAvailableCredentials
+                )
+            } catch {
+                throw bridgeError(from: error)
+            }
+        }
+    }
+
+    func performAuthorizationAttempt(
         requests: [ASAuthorizationRequest],
         window: NSWindow?,
         prefersImmediatelyAvailableCredentials: Bool
@@ -1441,10 +1489,13 @@ private extension BrowserWebAuthnCoordinator {
     }
 
     func finishAuthorization(with result: Result<[String: Any], Error>) {
+        let controller = activeAuthorizationController
         let continuation = activeAuthorizationContinuation
         activeAuthorizationController = nil
         activeAuthorizationContinuation = nil
         activePresentationWindow = nil
+        controller?.delegate = nil
+        controller?.presentationContextProvider = nil
 
         switch result {
         case .success(let reply):
@@ -1828,6 +1879,16 @@ private extension BrowserWebAuthnCoordinator {
         default:
             return .unknown("The passkey request failed.")
         }
+    }
+
+    func isRequestAlreadyInProgress(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        guard nsError.domain == ASAuthorizationErrorDomain,
+              nsError.code == BrowserWebAuthnAuthorizationErrorCode.failed else {
+            return false
+        }
+
+        return nsError.localizedDescription.localizedCaseInsensitiveContains("request already in progress")
     }
 
     func capabilityReply(
