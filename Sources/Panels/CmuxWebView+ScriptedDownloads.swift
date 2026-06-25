@@ -147,7 +147,7 @@ extension CmuxWebView {
           return false;
         };
 
-        if (isMainFrame && typeof originalCreateObjectURL === "function") {
+        if (typeof originalCreateObjectURL === "function") {
           URLCtor.createObjectURL = function(object) {
             const url = originalCreateObjectURL.apply(this, arguments);
             try {
@@ -159,7 +159,7 @@ extension CmuxWebView {
           };
         }
 
-        if (isMainFrame && typeof originalRevokeObjectURL === "function") {
+        if (typeof originalRevokeObjectURL === "function") {
           URLCtor.revokeObjectURL = function(url) {
             try {
               objectURLs.delete(String(url));
@@ -307,6 +307,30 @@ extension CmuxWebView {
             NSNumber(value: true),
             .OBJC_ASSOCIATION_RETAIN_NONATOMIC
         )
+    }
+
+    @discardableResult
+    func startSubframeResponseSessionDownload(
+        navigationResponse: WKNavigationResponse,
+        reason: String
+    ) -> Bool {
+        guard let url = navigationResponse.response.url,
+              ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
+            return false
+        }
+        let traceID = Self.makeContextDownloadTraceID(prefix: "subframe")
+#if DEBUG
+        debugContextDownload("download.subframeSession trace=\(traceID) reason=\(reason) host=\(url.host ?? "nil")")
+#endif
+        downloadURLViaSession(
+            url,
+            suggestedFilename: navigationResponse.response.suggestedFilename,
+            sender: nil,
+            fallbackAction: nil,
+            fallbackTarget: nil,
+            traceID: traceID
+        )
+        return true
     }
 
     fileprivate func handleScriptedDownloadMessage(_ body: [String: Any]) {

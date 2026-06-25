@@ -671,13 +671,17 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         let contentDisposition = (navigationResponse.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition")
         let allowsSubframeDownload = navigationResponse.isForMainFrame
             || consumeRecentSubframeDownloadIntent(for: navigationResponse.response.url)
-        if BrowserDownloadFilenameResolver().navigationResponseDownloadReason(
+        if let reason = BrowserDownloadFilenameResolver().navigationResponseDownloadReason(
             mimeType: navigationResponse.response.mimeType,
             canShowMIMEType: navigationResponse.canShowMIMEType,
             contentDisposition: contentDisposition,
             isForMainFrame: navigationResponse.isForMainFrame,
             allowsSubframeDownload: allowsSubframeDownload
-        ) != nil {
+        ) {
+            if !navigationResponse.isForMainFrame,
+               (webView as? CmuxWebView)?.startSubframeResponseSessionDownload(navigationResponse: navigationResponse, reason: reason) == true {
+                decisionHandler(.cancel); return
+            }
             decisionHandler(.download)
             return
         }
@@ -706,12 +710,7 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         let now = ProcessInfo.processInfo.systemUptime
         pruneSubframeDownloadIntents(now: now)
         guard navigationAction.navigationType == .linkActivated
-            || browserNavigationHasSimpleUserActivation() else {
-            if recentSubframeDownloadIntentKeys.count == 1 {
-                recentSubframeDownloadIntentKeys[0] = (Self.downloadIntentKey(for: url), now)
-            }
-            return
-        }
+            || browserNavigationHasSimpleUserActivation() else { return }
         let key = Self.downloadIntentKey(for: url)
         recentSubframeDownloadIntentKeys.removeAll { $0.key == key }
         recentSubframeDownloadIntentKeys.append((key, now))

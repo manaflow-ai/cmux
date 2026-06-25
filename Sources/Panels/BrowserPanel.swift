@@ -9053,6 +9053,10 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             #if DEBUG
             cmuxDebugLog("download.policy=download reason=\(reason) mime=\(mime) mainFrame=\(navigationResponse.isForMainFrame ? 1 : 0)")
             #endif
+            if !navigationResponse.isForMainFrame,
+               (webView as? CmuxWebView)?.startSubframeResponseSessionDownload(navigationResponse: navigationResponse, reason: reason) == true {
+                decisionHandler(.cancel); return
+            }
             decisionHandler(.download)
             return
         }
@@ -9067,12 +9071,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         let now = ProcessInfo.processInfo.systemUptime
         pruneSubframeDownloadIntents(now: now)
         guard navigationAction.navigationType == .linkActivated
-            || browserNavigationHasSimpleUserActivation() else {
-            if recentSubframeDownloadIntentKeys.count == 1 {
-                recentSubframeDownloadIntentKeys[0] = (Self.downloadIntentKey(for: url), now)
-            }
-            return
-        }
+            || browserNavigationHasSimpleUserActivation() else { return }
         let key = Self.downloadIntentKey(for: url)
         recentSubframeDownloadIntentKeys.removeAll { $0.key == key }
         recentSubframeDownloadIntentKeys.append((key, now))
