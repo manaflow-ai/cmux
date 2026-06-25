@@ -10233,15 +10233,12 @@ struct VerticalTabsSidebar: View {
     /// indicator from a value snapshot without holding a `SidebarDragState`
     /// reference (snapshot-boundary rule). Delegates to a pure predicate so
     /// the logic is unit-testable in isolation from view state.
-    private func emptyAreaTopDropIndicatorVisible() -> Bool {
-        let reorderIds = tabManager.sidebarReorderWorkspaceIds(
-            forDraggedWorkspaceId: dragState.draggedTabId,
-            usesTopLevelRows: dragState.dropIndicatorUsesTopLevelRows
-        )
+    private func emptyAreaTopDropIndicatorVisible(renderContext: WorkspaceListRenderContext) -> Bool {
         return SidebarTabDropIndicatorPredicate().emptyAreaTopVisible(
             draggedTabId: dragState.draggedTabId,
             dropIndicator: dragState.dropIndicator,
-            lastTabId: reorderIds.last
+            lastTabId: renderContext.dropIndicatorRowIds.last,
+            isExternalDragActive: renderContext.isExternalWorkspaceDropActive
         )
     }
 
@@ -10370,6 +10367,10 @@ struct VerticalTabsSidebar: View {
         let tabIds: [UUID]
         /// Drag-scope row ids shared by every visible row for this render pass.
         let sidebarReorderIds: [UUID]
+        /// Row ids used to render a current drop indicator. Sidebar workspace
+        /// drags use reorder scope; external Bonsplit tab drags use visible rows.
+        let dropIndicatorRowIds: [UUID]
+        let isExternalWorkspaceDropActive: Bool
         let workspaceCount: Int
         let canCloseWorkspace: Bool
         let workspaceNumberShortcut: StoredShortcut
@@ -10434,10 +10435,14 @@ struct VerticalTabsSidebar: View {
                 usesTopLevelRows: dragState.dropIndicatorUsesTopLevelRows
             )
         } ?? []
+        let isExternalWorkspaceDropActive = draggedSidebarTabId == nil && isBonsplitWorkspaceDropTargetCollectionActive
+        let dropIndicatorRowIds = draggedSidebarTabId == nil ? visibleWorkspaceRowIds : sidebarReorderIds
         let renderContext = WorkspaceListRenderContext(
             tabs: tabs,
             tabIds: tabIds,
             sidebarReorderIds: sidebarReorderIds,
+            dropIndicatorRowIds: dropIndicatorRowIds,
+            isExternalWorkspaceDropActive: isExternalWorkspaceDropActive,
             workspaceCount: workspaceCount,
             canCloseWorkspace: canCloseWorkspace,
             workspaceNumberShortcut: workspaceNumberShortcut,
@@ -10854,7 +10859,7 @@ struct VerticalTabsSidebar: View {
                             selectedTabIds: $selectedTabIds,
                             lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
                             dragAutoScrollController: dragAutoScrollController,
-                            topDropIndicatorVisible: emptyAreaTopDropIndicatorVisible(),
+                            topDropIndicatorVisible: emptyAreaTopDropIndicatorVisible(renderContext: renderContext),
                             tabDropDelegate: emptyAreaTabDropDelegate(renderContext: renderContext),
                             bonsplitDropIndicator: dropIndicatorBinding
                         )
@@ -11874,7 +11879,7 @@ struct VerticalTabsSidebar: View {
         // #5845; regressed by #6033). Drop/tap = background; indicator on rows.
         workspaceRows(renderContext: renderContext)
             .overlay(alignment: .bottom) {
-                if emptyAreaTopDropIndicatorVisible() {
+                if emptyAreaTopDropIndicatorVisible(renderContext: renderContext) {
                     Rectangle()
                         .fill(cmuxAccentColor())
                         .frame(height: 2)
@@ -12112,12 +12117,12 @@ struct VerticalTabsSidebar: View {
         // Equatable conformance ignores closures, so rows whose snapshot is
         // unchanged skip re-render when drag state moves.
         let isBeingDragged = dragState.draggedTabId == tab.id
-        let sidebarReorderIds = renderContext.sidebarReorderIds
         let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate().topVisible(
             forTabId: tab.id,
             draggedTabId: dragState.draggedTabId,
             dropIndicator: dragState.dropIndicator,
-            tabIds: sidebarReorderIds
+            tabIds: renderContext.dropIndicatorRowIds,
+            isExternalDragActive: renderContext.isExternalWorkspaceDropActive
         )
         let onDragStart: () -> NSItemProvider = { [tabId = tab.id] in
             #if DEBUG

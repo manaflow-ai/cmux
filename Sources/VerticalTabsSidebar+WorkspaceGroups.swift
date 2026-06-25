@@ -53,7 +53,8 @@ extension VerticalTabsSidebar {
             forTabId: group.anchorWorkspaceId,
             draggedTabId: dragState.draggedTabId,
             dropIndicator: dragState.dropIndicator,
-            tabIds: renderContext.sidebarReorderIds
+            tabIds: renderContext.dropIndicatorRowIds,
+            isExternalDragActive: renderContext.isExternalWorkspaceDropActive
         )
         let onDragStart: () -> NSItemProvider = { [anchorId = group.anchorWorkspaceId] in
             #if DEBUG
