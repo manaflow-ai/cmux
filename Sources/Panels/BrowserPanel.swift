@@ -4479,7 +4479,9 @@ final class BrowserPanel: Panel, ObservableObject {
         focusFlashToken &+= 1
     }
 
-    func sessionNavigationHistorySnapshot() -> (
+    func sessionNavigationHistorySnapshot(
+        rewriteInlineVSCodeServeWebFallbackForPersistence: Bool = false
+    ) -> (
         backHistoryURLStrings: [String],
         forwardHistoryURLStrings: [String]
     ) {
@@ -4490,7 +4492,30 @@ final class BrowserPanel: Panel, ObservableObject {
             nativeForwardURLs: webView.backForwardList.forwardList.map { $0.url },
             isLiveAligned: isLiveSessionHistoryAlignedWithRestoredCurrent
         )
-        return (snapshot.backHistoryURLStrings, snapshot.forwardHistoryURLStrings)
+        guard rewriteInlineVSCodeServeWebFallbackForPersistence else {
+            return (snapshot.backHistoryURLStrings, snapshot.forwardHistoryURLStrings)
+        }
+        return (
+            stableInlineVSCodeServeWebHistoryURLStrings(snapshot.backHistoryURLStrings),
+            stableInlineVSCodeServeWebHistoryURLStrings(snapshot.forwardHistoryURLStrings)
+        )
+    }
+
+    private func stableInlineVSCodeServeWebHistoryURLStrings(_ urlStrings: [String]) -> [String] {
+        guard let stableOriginURL = restoredInlineVSCodeServeWebStableSnapshotOriginURL else {
+            return urlStrings
+        }
+        return urlStrings.map { urlString in
+            guard let url = URL(string: urlString),
+                  let stableURL = VSCodeServeWebController.serveWebURL(
+                    url,
+                    rewrittenToLoopbackOrigin: stableOriginURL
+                  ),
+                  let stableURLString = Self.serializableSessionHistoryURLString(stableURL) else {
+                return urlString
+            }
+            return stableURLString
+        }
     }
 
     private func resolvedLiveSessionHistoryURL() -> URL? {
