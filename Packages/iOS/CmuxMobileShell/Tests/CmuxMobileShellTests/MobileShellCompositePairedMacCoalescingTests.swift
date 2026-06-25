@@ -414,6 +414,9 @@ import Testing
 
         #expect(store.pairedMacs.map(\.macDeviceID) == ["mac-b"])
         #expect(store.workspaces.map(\.rpcWorkspaceID.rawValue) == ["remaining-workspace"])
+        #expect(store.connectionState == .disconnected)
+        #expect(store.macConnectionStatus == .unavailable)
+        #expect(store.workspaceListConnectionStatus == .connected)
     }
 
     @Test func forgettingMacSuppressesStaleStoreWriteFromSameSession() async throws {

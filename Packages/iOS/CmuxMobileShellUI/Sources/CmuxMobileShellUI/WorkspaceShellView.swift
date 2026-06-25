@@ -43,7 +43,11 @@ struct WorkspaceShellView: View {
         if isInitialConnectionLoading || initialConnectionTimedOut {
             return .reconnecting
         }
-        return store.macConnectionStatus
+        return store.workspaceListConnectionStatus
+    }
+
+    private var canCreateWorkspaceOnForegroundConnection: Bool {
+        store.connectionState == .connected
     }
 
     var body: some View {
@@ -278,7 +282,7 @@ struct WorkspaceShellView: View {
     }
 
     private var canCreateWorkspace: Bool {
-        listConnectionStatus == .connected
+        canCreateWorkspaceOnForegroundConnection
     }
 
     /// Group collapse/expand closure. Present when the Mac advertises

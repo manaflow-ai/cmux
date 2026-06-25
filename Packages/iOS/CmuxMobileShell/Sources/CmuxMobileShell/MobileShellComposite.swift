@@ -248,6 +248,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return result
     }
 
+    /// Aggregate status for the workspace LIST chrome.
+    ///
+    /// `macConnectionStatus` describes the foreground RPC connection. After the
+    /// user deletes that foreground computer, the remaining workspace rows can
+    /// still belong to connected secondary Macs. In that state the list should
+    /// not show a disconnected banner, because the visible workspace list is
+    /// healthy even though the old foreground session was intentionally torn
+    /// down.
+    public var workspaceListConnectionStatus: MobileMacConnectionStatus {
+        let visibleStates = workspacesByMac.values.filter { !$0.workspaces.isEmpty }
+        if visibleStates.contains(where: { $0.status == .connected }) {
+            return .connected
+        }
+        if visibleStates.contains(where: { $0.status == .reconnecting }) {
+            return .reconnecting
+        }
+        return macConnectionStatus
+    }
+
     /// Reachability prober for the Computers screen, injected via `init` (default
     /// = production network pinger) so the UI depends only on the core
     /// ``CmxRoutePinging`` seam and tests can pass a fake. `@ObservationIgnored`:
