@@ -8624,8 +8624,9 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     private var lastAttemptedRequest: URLRequest?
     private var acceptsSSLTrustBypassMessages = false
 
-    init(sslBypassState: BrowserSSLTrustBypassState = BrowserSSLTrustBypassState()) {
+    init(sslBypassState: BrowserSSLTrustBypassState? = nil) {
         self.sslBypassState = sslBypassState
+            ?? BrowserSSLTrustBypassState()
         super.init()
     }
 
