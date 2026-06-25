@@ -18,11 +18,9 @@ nonisolated struct VSCodeCLILaunchConfiguration {
         if usesCodeTunnelWrapper {
             processEnvironment["VSCODE_CLI_USE_FILE_KEYCHAIN"] = "1"
             processEnvironment["VSCODE_CLI_USE_FILE_KEYRING"] = "1"
-            if processEnvironment["VSCODE_CLI_DATA_DIR"]?.isEmpty ?? true {
-                processEnvironment["VSCODE_CLI_DATA_DIR"] = launchOptions.serverDataDirectoryURL
-                    .appendingPathComponent("cli-data", isDirectory: true)
-                    .path
-            }
+            processEnvironment["VSCODE_CLI_DATA_DIR"] = launchOptions.serverDataDirectoryURL
+                .appendingPathComponent("cli-data", isDirectory: true)
+                .path
         }
         return processEnvironment
     }

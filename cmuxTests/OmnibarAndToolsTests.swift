@@ -353,7 +353,7 @@ final class VSCodeCLILaunchConfigurationBuilderTests: XCTestCase {
         let configuration = VSCodeCLILaunchConfiguration(
             executableURL: URL(fileURLWithPath: "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel"),
             argumentsPrefix: ["serve-web"],
-            environment: [:],
+            environment: ["VSCODE_CLI_DATA_DIR": "/tmp/ambient-vscode-cli-data"],
             usesCodeTunnelWrapper: true,
             supportsUserDataDirectoryArgument: false
         )

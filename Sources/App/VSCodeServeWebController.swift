@@ -6,20 +6,20 @@ import Foundation
 final class VSCodeServeWebController {
     static let shared = VSCodeServeWebController()
     private static let serveWebStartupTimeoutSeconds: TimeInterval = 60
-    private static let serveWebTerminationTimeoutSeconds: TimeInterval = 5
-    private static let serveWebKillTimeoutSeconds: TimeInterval = 2
+    static let serveWebTerminationTimeoutSeconds: TimeInterval = 5
+    static let serveWebKillTimeoutSeconds: TimeInterval = 2
 
-    private let queue = DispatchQueue(label: "cmux.vscode.serveWeb")
-    private let launchQueue = DispatchQueue(label: "cmux.vscode.serveWeb.launch")
+    let queue = DispatchQueue(label: "cmux.vscode.serveWeb")
+    let launchQueue = DispatchQueue(label: "cmux.vscode.serveWeb.launch")
     private let launchProcessOverride: ((URL, UInt64) -> (process: Process, url: URL)?)?
     private let launchConfigurationBuilder: VSCodeCLILaunchConfigurationBuilder
-    private var serveWebProcess: Process?
-    private var launchingProcess: Process?
-    private var serveWebURL: URL?
-    private var pendingCompletions: [(generation: UInt64, completion: (URL?) -> Void)] = []
-    private var isLaunching = false
-    private var activeLaunchGeneration: UInt64?
-    private var lifecycleGeneration: UInt64 = 0
+    var serveWebProcess: Process?
+    var launchingProcess: Process?
+    var serveWebURL: URL?
+    var pendingCompletions: [(generation: UInt64, completion: (URL?) -> Void)] = []
+    var isLaunching = false
+    var activeLaunchGeneration: UInt64?
+    var lifecycleGeneration: UInt64 = 0
 
     init(
         launchProcessOverride: ((URL, UInt64) -> (process: Process, url: URL)?)? = nil,
@@ -97,8 +97,7 @@ final class VSCodeServeWebController {
     }
 
     func restart(vscodeApplicationURL: URL, completion: @escaping (URL?) -> Void) {
-        stop()
-        ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL, completion: completion)
+        restartAfterOwnedProcessExit(vscodeApplicationURL: vscodeApplicationURL, completion: completion)
     }
 
     func isServeWebURL(_ candidateURL: URL?) -> Bool {
@@ -109,7 +108,7 @@ final class VSCodeServeWebController {
         return Self.urlsShareLoopbackOrigin(candidateURL, serveWebURL)
     }
 
-    private func launchServeWebProcess(
+    func launchServeWebProcess(
         vscodeApplicationURL: URL,
         expectedGeneration: UInt64
     ) {
@@ -350,7 +349,7 @@ final class VSCodeServeWebController {
         startupTimer?.resume()
     }
 
-    private func completeServeWebLaunch(
+    func completeServeWebLaunch(
         _ launchResult: (process: Process, url: URL)?,
         expectedGeneration: UInt64
     ) {
@@ -414,13 +413,13 @@ final class VSCodeServeWebController {
         return timer
     }
 
-    private static func completeOnMain(_ completion: @escaping (URL?) -> Void, with url: URL?) {
+    static func completeOnMain(_ completion: @escaping (URL?) -> Void, with url: URL?) {
         Task { @MainActor in
             completion(url)
         }
     }
 
-    private static func completeOnMain(_ completions: [(URL?) -> Void], with url: URL?) {
+    static func completeOnMain(_ completions: [(URL?) -> Void], with url: URL?) {
         Task { @MainActor in
             completions.forEach { $0(url) }
         }
