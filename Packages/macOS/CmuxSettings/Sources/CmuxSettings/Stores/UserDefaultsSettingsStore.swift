@@ -1,30 +1,9 @@
 import Foundation
 
-// Safe to share across tasks: this narrow mirror stores only monotonic per-key
-// sequence baselines, protects all mutable state with `lock`, and does no async
-// work or user-callback invocation while the lock is held.
-private final class UserDefaultsSettingsMutationSourceSequenceMirror: @unchecked Sendable {
-    private let lock = NSLock()
-    private var sequences: [String: UInt64] = [:]
-
-    func sequence(for storageKey: String) -> UInt64 {
-        lock.lock()
-        defer { lock.unlock() }
-        return sequences[storageKey] ?? 0
-    }
-
-    func store(_ sequence: UInt64, for storageKey: String) {
-        lock.lock()
-        sequences[storageKey] = sequence
-        lock.unlock()
-    }
-}
-
 /// Typed read/write/observe access to settings persisted in `UserDefaults`.
 ///
-/// The store is an `actor`. Reads, writes, and reset are all `async`. There
-/// is one narrow nonisolated lock for stream-baseline sequence snapshots; all
-/// storage access remains serialized through actor isolation.
+/// The store is an `actor`. Reads, writes, reset, and source-tagged
+/// observation setup all run through actor isolation.
 ///
 /// The store only accepts ``DefaultsKey``; a ``JSONKey`` would be rejected at
 /// compile time. There are no runtime store/key-mismatch traps.
@@ -53,7 +32,6 @@ public actor UserDefaultsSettingsStore {
     /// instance inside a private unchecked-Sendable wrapper and expose only
     /// typed operations.
     private let storage: UserDefaultsSettingsStorage
-    private nonisolated let mutationSourceSequenceMirror = UserDefaultsSettingsMutationSourceSequenceMirror()
     private var mutationSources: [String: UserDefaultsSettingsMutationSourceRecord] = [:]
     private var mutationSourceSequences: [String: UInt64] = [:]
 
@@ -159,7 +137,6 @@ public actor UserDefaultsSettingsStore {
     private func nextMutationSourceSequence(for storageKey: String) -> UInt64 {
         let nextSequence = (mutationSourceSequences[storageKey] ?? 0) &+ 1
         mutationSourceSequences[storageKey] = nextSequence
-        mutationSourceSequenceMirror.store(nextSequence, for: storageKey)
         return nextSequence
     }
 
@@ -251,13 +228,11 @@ public actor UserDefaultsSettingsStore {
     /// ``reset(_:source:)``. Callers use it to distinguish their own async
     /// store echoes from external settings changes without relying on lossy
     /// value equality.
-    public nonisolated func valueEvents<Value>(
+    public func valueEvents<Value>(
         for key: DefaultsKey<Value>
     ) -> AsyncStream<UserDefaultsSettingsValueEvent<Value>> {
-        AsyncStream<UserDefaultsSettingsValueEvent<Value>>(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            let initialConsumedSourceSequence = mutationSourceSequenceMirror.sequence(
-                for: key.userDefaultsKey
-            )
+        let initialConsumedSourceSequence = mutationSourceSequences[key.userDefaultsKey] ?? 0
+        return AsyncStream<UserDefaultsSettingsValueEvent<Value>>(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
                 bufferingPolicy: .bufferingNewest(1)
             )

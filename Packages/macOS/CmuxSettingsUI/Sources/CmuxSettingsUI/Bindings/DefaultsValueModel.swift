@@ -38,7 +38,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
 
     private let store: UserDefaultsSettingsStore
     private let key: DefaultsKey<Value>
-    @ObservationIgnored private let makeStream: () -> AsyncStream<UserDefaultsSettingsValueEvent<Value>>
+    @ObservationIgnored private let makeStream: @MainActor () async -> AsyncStream<UserDefaultsSettingsValueEvent<Value>>
     @ObservationIgnored private var pendingStoreEchoes: [(source: UserDefaultsSettingsMutationSource, value: Value)] = []
     @ObservationIgnored private let maximumPendingStoreEchoes = 16
     @ObservationIgnored private let mutationOwnerID = UUID()
@@ -60,7 +60,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
             store: store,
             key: key,
             initialValue: store.initialValue(for: key),
-            makeStream: { store.valueEvents(for: key) }
+            makeStream: { await store.valueEvents(for: key) }
         )
     }
 
@@ -69,7 +69,8 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     /// The `makeStream` seam lets tests drive the observation with a stream
     /// whose teardown they can observe, proving the model cancels its
     /// observation on deallocation. Production code uses the public
-    /// `init(store:key:)`, which wires `makeStream` to the store.
+    /// `init(store:key:)`, which wires `makeStream` to the store's actor-isolated
+    /// source-tagged event stream.
     ///
     /// - Parameters:
     ///   - store: The UserDefaults store used for writes (`set`/`reset`).
@@ -79,7 +80,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         store: UserDefaultsSettingsStore,
         key: DefaultsKey<Value>,
         initialValue: Value? = nil,
-        makeStream: @escaping () -> AsyncStream<UserDefaultsSettingsValueEvent<Value>>
+        makeStream: @escaping @MainActor () async -> AsyncStream<UserDefaultsSettingsValueEvent<Value>>
     ) {
         self.store = store
         self.key = key
@@ -96,7 +97,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     /// ignored by ``SettingReadDriver``. Views should call this from a mounted
     /// lifecycle hook such as `.task`, not from their initializer.
     public func startObserving() {
-        observation.activate(makeStream) { [weak self] value in
+        observation.activateAsync(makeStream) { [weak self] value in
             self?.acceptObservedValue(value)
         }
     }

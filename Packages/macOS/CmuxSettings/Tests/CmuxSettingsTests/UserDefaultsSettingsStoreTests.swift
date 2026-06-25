@@ -10,25 +10,9 @@ struct UserDefaultsSettingsStoreTests {
         return (store, SettingCatalog())
     }
 
-    private actor EventRecorder<Value: SettingCodable> {
-        private var events: [UserDefaultsSettingsValueEvent<Value>] = []
-
-        func append(_ event: UserDefaultsSettingsValueEvent<Value>) {
-            events.append(event)
-        }
-
-        func count() -> Int {
-            events.count
-        }
-
-        func snapshot() -> [UserDefaultsSettingsValueEvent<Value>] {
-            events
-        }
-    }
-
     private func waitForEventCount<Value: SettingCodable>(
         _ expectedCount: Int,
-        in recorder: EventRecorder<Value>
+        in recorder: UserDefaultsSettingsEventRecorder<Value>
     ) async {
         var spins = 0
         while await recorder.count() < expectedCount, spins < 100_000 {
@@ -108,7 +92,8 @@ struct UserDefaultsSettingsStoreTests {
     @Test func valueEventsCarryExplicitMutationSource() async {
         let (store, catalog) = makeStore()
         let key = catalog.app.appearance
-        var iterator = store.valueEvents(for: key).makeAsyncIterator()
+        let stream = await store.valueEvents(for: key)
+        var iterator = stream.makeAsyncIterator()
 
         let initial = await iterator.next()
         #expect(initial?.value == .system)
@@ -130,7 +115,8 @@ struct UserDefaultsSettingsStoreTests {
         let suiteName = "cmux.tests.\(UUID().uuidString)"
         let store = UserDefaultsSettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
         let key = SettingCatalog().app.appearance
-        var iterator = store.valueEvents(for: key).makeAsyncIterator()
+        let stream = await store.valueEvents(for: key)
+        var iterator = stream.makeAsyncIterator()
 
         let initial = await iterator.next()
         #expect(initial?.value == .system)
@@ -157,7 +143,8 @@ struct UserDefaultsSettingsStoreTests {
         let source = UserDefaultsSettingsMutationSource()
         await store.set(.dark, for: key, source: source)
 
-        var iterator = store.valueEvents(for: key).makeAsyncIterator()
+        let stream = await store.valueEvents(for: key)
+        var iterator = stream.makeAsyncIterator()
         let initial = await iterator.next()
         #expect(initial?.value == .dark)
         #expect(initial?.mutationSource == nil)
@@ -166,7 +153,7 @@ struct UserDefaultsSettingsStoreTests {
     @Test func valueEventsTagWritesAfterStreamCreationBeforeFirstRead() async {
         let (store, catalog) = makeStore()
         let key = catalog.app.appearance
-        let stream = store.valueEvents(for: key)
+        let stream = await store.valueEvents(for: key)
 
         let source = UserDefaultsSettingsMutationSource()
         await store.set(.dark, for: key, source: source)
@@ -180,8 +167,10 @@ struct UserDefaultsSettingsStoreTests {
     @Test func valueEventsDeliverMutationSourceToEveryActiveObserver() async {
         let (store, catalog) = makeStore()
         let key = catalog.app.appearance
-        var firstIterator = store.valueEvents(for: key).makeAsyncIterator()
-        var secondIterator = store.valueEvents(for: key).makeAsyncIterator()
+        let firstStream = await store.valueEvents(for: key)
+        let secondStream = await store.valueEvents(for: key)
+        var firstIterator = firstStream.makeAsyncIterator()
+        var secondIterator = secondStream.makeAsyncIterator()
 
         let firstInitial = await firstIterator.next()
         let secondInitial = await secondIterator.next()
@@ -204,11 +193,12 @@ struct UserDefaultsSettingsStoreTests {
     @Test func valueEventsDeliverSameValueMutationSourceToEveryActiveObserver() async {
         let (store, catalog) = makeStore()
         let key = catalog.app.appearance
-        let firstRecorder = EventRecorder<AppearanceMode>()
-        let secondRecorder = EventRecorder<AppearanceMode>()
+        let firstRecorder = UserDefaultsSettingsEventRecorder<AppearanceMode>()
+        let secondRecorder = UserDefaultsSettingsEventRecorder<AppearanceMode>()
 
         let firstTask = Task {
-            for await event in store.valueEvents(for: key) {
+            let stream = await store.valueEvents(for: key)
+            for await event in stream {
                 await firstRecorder.append(event)
                 if await firstRecorder.count() >= 2 {
                     break
@@ -216,7 +206,8 @@ struct UserDefaultsSettingsStoreTests {
             }
         }
         let secondTask = Task {
-            for await event in store.valueEvents(for: key) {
+            let stream = await store.valueEvents(for: key)
+            for await event in stream {
                 await secondRecorder.append(event)
                 if await secondRecorder.count() >= 2 {
                     break
