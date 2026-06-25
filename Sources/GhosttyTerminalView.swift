@@ -8386,7 +8386,7 @@ final class GhosttySurfaceScrollView: NSView {
             keyboardCopyModeBadgeContainerView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
         ])
 
-        startBadgeConfigObservation()
+        ensureBadgeConfigObservationStarted()
         observeBadgeIdentityChanges()
 
         imageTransferIndicatorContainerView.translatesAutoresizingMaskIntoConstraints = false
@@ -8956,20 +8956,40 @@ final class GhosttySurfaceScrollView: NSView {
     /// This is **not** on the typing-latency path; it fires only on attach,
     /// workspace/tab identity changes, and `badge.*` config edits.
     private func refreshBadge() {
+        // The runtime may not have existed when this view was first created, so
+        // (re)attempt config-stream observation here; it no-ops once attached.
+        ensureBadgeConfigObservationStarted()
         let configuration = TerminalBadgeConfiguration.snapshot(runtime: AppDelegate.shared?.settingsRuntime)
         guard configuration.enabled, let surface = surfaceView.terminalSurface else {
             badgeOverlayView.apply(configuration: configuration, text: "")
             return
         }
         let context = TerminalBadgeContextResolver(surface: surface).resolve()
+        // Fail closed: with no resolvable workspace/tab identity (e.g. a
+        // transiently-unattached surface) the template's literal separators
+        // would render as a stray watermark, so render nothing instead.
+        guard context.hasIdentity else {
+            badgeOverlayView.apply(configuration: configuration, text: "")
+            return
+        }
         let text = configuration.template.render(context: context)
         badgeOverlayView.apply(configuration: configuration, text: text)
     }
 
-    /// Observes the `badge.*` config streams and refreshes the badge on any
-    /// change, including the initial value yielded on subscription.
-    private func startBadgeConfigObservation() {
-        guard let runtime = AppDelegate.shared?.settingsRuntime else { return }
+    /// Starts observing the `badge.*` config streams (refreshing the badge on
+    /// any change, including the initial value yielded on subscription), unless
+    /// observation is already running.
+    ///
+    /// Idempotent and retryable: it bails when the task already exists, and
+    /// bails *without* marking itself started when the settings runtime is not
+    /// yet available. The runtime can be absent when a surface is created during
+    /// very early startup, so ``refreshBadge()`` calls this again on each refresh
+    /// to attach the live subscription once the runtime appears — otherwise a
+    /// one-time guard would leave that surface unable to react to later
+    /// `badge.*` edits until it was recreated.
+    private func ensureBadgeConfigObservationStarted() {
+        guard badgeConfigObservationTask == nil,
+              let runtime = AppDelegate.shared?.settingsRuntime else { return }
         let store = runtime.jsonStore
         let catalog = runtime.catalog
         badgeConfigObservationTask = Task { @MainActor [weak self] in
@@ -8996,9 +9016,15 @@ final class GhosttySurfaceScrollView: NSView {
 
     /// Registers notification observers for workspace/tab identity changes that
     /// affect the rendered badge text, refreshing the badge when they fire.
+    ///
+    /// Surface *focus* is intentionally not observed: it changes none of the
+    /// badge placeholders (`{workspace}`, `{tab}`, `{tabIndex}`,
+    /// `{workspaceIndex}`), and the attach-time refresh is already handled by
+    /// ``attachSurface(_:)``. Observing `.ghosttyDidFocusSurface` here (with
+    /// `object: nil`) would make every open surface re-render its badge on every
+    /// click — O(open surfaces) work per focus change for no content change.
     private func observeBadgeIdentityChanges() {
         let names: [Notification.Name] = [
-            .ghosttyDidFocusSurface,
             .workspaceOrderDidChange,
             .workspaceTitleDidChange,
         ]

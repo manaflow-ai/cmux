@@ -30,7 +30,7 @@ struct TerminalBadgeConfiguration: Equatable {
         enabled: false,
         template: TerminalBadgeTemplate(rawValue: TerminalBadgeTemplate.defaultRawValue),
         position: .topTrailing,
-        opacity: BadgeCatalogSection().opacity.defaultValue,
+        opacity: BadgeCatalogSection.opacityDefault,
         fontSize: BadgeCatalogSection.fontSizeDefault,
         color: nil
     )
@@ -60,7 +60,7 @@ struct TerminalBadgeConfiguration: Equatable {
 
     /// Clamps an opacity to `0...1`, mapping a non-finite value to the default.
     static func clampedOpacity(_ value: Double) -> Double {
-        guard value.isFinite else { return BadgeCatalogSection().opacity.defaultValue }
+        guard value.isFinite else { return BadgeCatalogSection.opacityDefault }
         return min(max(value, 0), 1)
     }
 

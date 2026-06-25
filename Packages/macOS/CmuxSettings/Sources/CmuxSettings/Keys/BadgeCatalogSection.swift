@@ -18,6 +18,8 @@ public struct BadgeCatalogSection: SettingCatalogSection {
     public static let fontSizeMaximum = 96.0
     /// Default badge font size, in points.
     public static let fontSizeDefault = 28.0
+    /// Default badge opacity, from `0` (invisible) to `1` (opaque).
+    public static let opacityDefault = 0.18
 
     /// Whether the terminal badge watermark is shown. Off by default.
     public let enabled = JSONKey<Bool>(
@@ -42,7 +44,7 @@ public struct BadgeCatalogSection: SettingCatalogSection {
     /// Badge opacity, from `0` (invisible) to `1` (opaque).
     public let opacity = JSONKey<Double>(
         id: "badge.opacity",
-        defaultValue: 0.18
+        defaultValue: BadgeCatalogSection.opacityDefault
     )
 
     /// Badge text color as a `#RRGGBB` hex string. Empty means follow the

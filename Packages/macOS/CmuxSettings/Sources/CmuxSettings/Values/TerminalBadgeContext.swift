@@ -29,6 +29,17 @@ public struct TerminalBadgeContext: Sendable, Equatable {
     /// The workspace's 1-based position in the sidebar, or `nil` when unknown.
     public var workspaceIndex: Int?
 
+    /// Whether any identity field resolved to a usable value.
+    ///
+    /// `false` when every field is `nil` — e.g. a surface that is not yet
+    /// attached to a workspace. Callers use this to *fail closed* and render an
+    /// empty badge rather than a best-effort string, which would otherwise leave
+    /// a template's literal separators (e.g. the `·` in `"{workspace} · {tab}"`)
+    /// as a stray watermark with no identity behind it.
+    public var hasIdentity: Bool {
+        workspace != nil || tab != nil || tabIndex != nil || workspaceIndex != nil
+    }
+
     /// Creates a badge substitution context.
     ///
     /// - Parameters:
