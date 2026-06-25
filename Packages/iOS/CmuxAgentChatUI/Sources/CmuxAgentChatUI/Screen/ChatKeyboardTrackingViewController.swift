@@ -24,12 +24,6 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
     private let transcriptHostingController: UIHostingController<Transcript>
     private let composerHostingController: UIHostingController<Composer>
     private typealias ScrollSnapshot = (scrollView: ChatTranscriptUITableView, snapshot: MobileScrollViewportSnapshot)
-    private struct KeyboardFrameAnimation {
-        let id: Int
-        let startOverlap: CGFloat
-        let targetOverlap: CGFloat
-        let scrollSnapshots: [ScrollSnapshot]
-    }
 
     private let keyboardProgressView = UIView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
     private var composerBottomConstraint: NSLayoutConstraint?
@@ -38,7 +32,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
     private var isRestoringKeyboardViewport = false
     private var keyboardOverlap: CGFloat = 0
     private var keyboardTransitionID = 0
-    private var keyboardFrameAnimation: KeyboardFrameAnimation?
+    private var keyboardFrameAnimation: ChatKeyboardFrameAnimation?
     private var keyboardFrameDisplayLink: CADisplayLink?
     #if DEBUG
     private var keyboardDebugEventCount = 0
@@ -218,7 +212,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         }
 
         keyboardProgressView.center = CGPoint(x: 0, y: 0)
-        keyboardFrameAnimation = KeyboardFrameAnimation(
+        keyboardFrameAnimation = ChatKeyboardFrameAnimation(
             id: transitionID,
             startOverlap: startOverlap,
             targetOverlap: targetOverlap,
