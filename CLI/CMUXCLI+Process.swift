@@ -355,7 +355,7 @@ enum CLIProcessRunner {
                 timedOut = false
             case .timedOut:
                 timedOut = true
-                terminate(process: process, finished: finished, grace: terminationGrace)
+                terminate(process: process, waitForExit: { finished.wait(timeout: .now() + $0) == .success }, grace: terminationGrace)
             }
         } else {
             finished.wait()
@@ -457,7 +457,7 @@ enum CLIProcessRunner {
                 timedOut = false
             case .timedOut:
                 timedOut = true
-                terminate(process: process, finished: finished, grace: terminationGrace)
+                terminate(process: process, waitForExit: { finished.wait(timeout: .now() + $0) == .success }, grace: terminationGrace)
             }
         } else {
             finished.wait()
@@ -485,15 +485,13 @@ enum CLIProcessRunner {
         )
     }
 
-    private static func terminate(process: Process, finished: DispatchSemaphore, grace: TimeInterval) {
+    private static func terminate(process: Process, waitForExit: (TimeInterval) -> Bool, grace: TimeInterval) {
         guard process.isRunning else { return }
         process.terminate()
-        if finished.wait(timeout: .now() + grace) == .success {
-            return
-        }
+        if waitForExit(grace) { return }
         if process.isRunning {
             kill(process.processIdentifier, SIGKILL)
         }
-        _ = finished.wait(timeout: .now() + 0.5)
+        _ = waitForExit(0.5)
     }
 }

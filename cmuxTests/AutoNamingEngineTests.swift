@@ -302,24 +302,6 @@ import Testing
         #expect(engine.sanitizeResponse("Fix auth bug", currentTitle: "Other title") == "Fix auth bug")
     }
 
-    @Test func unchangedActionStillAppliesForPanelSideEffects() throws {
-        let telemetry = CLISocketSentryTelemetry(
-            command: "cmux",
-            commandArgs: ["codex-hook"],
-            socketPath: "/tmp/cmux-test.sock",
-            processEnv: ["CMUX_CLI_SENTRY_DISABLED": "1"]
-        )
-        let action = try #require(CMUXCLI(args: []).autoNamingSanitizedAction(
-            engine: engine,
-            rawResponse: "Fix auth bug",
-            currentTitle: "Fix auth bug",
-            telemetryKey: "test.auto-name",
-            telemetry: telemetry
-        ))
-        #expect(action.title == "Fix auth bug")
-        #expect(action.shouldApply)
-    }
-
     // MARK: - Environment policy
 
     @Test func summarizerEnvironmentScrubsRecursionVarsAndPreservesBackend() {

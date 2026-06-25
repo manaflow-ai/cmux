@@ -36,19 +36,19 @@ public struct AutoNamingLanguageResolver: Sendable {
         if let option = catalog.option(forSlug: raw) {
             return AutoNamingResolvedLanguage(promptName: option.promptName, bcp47Tag: option.bcp47Tag)
         }
-        return Self.language(fromIdentifier: raw) ?? Self.fallback
+        return language(fromIdentifier: raw) ?? Self.fallback
     }
 
     private func resolveSystemLanguage() -> AutoNamingResolvedLanguage {
         for identifier in preferredLanguages + [currentLocaleIdentifier] {
-            if let language = Self.language(fromIdentifier: identifier) {
+            if let language = language(fromIdentifier: identifier) {
                 return language
             }
         }
         return Self.fallback
     }
 
-    private static func language(fromIdentifier raw: String) -> AutoNamingResolvedLanguage? {
+    private func language(fromIdentifier raw: String) -> AutoNamingResolvedLanguage? {
         guard let tag = normalizedBCP47Tag(raw) else { return nil }
         let languageCode = tag.split(separator: "-", maxSplits: 1).first.map(String.init) ?? tag
         let englishLocale = Locale(identifier: "en")
@@ -62,11 +62,11 @@ public struct AutoNamingLanguageResolver: Sendable {
         return AutoNamingResolvedLanguage(promptName: promptName, bcp47Tag: tag)
     }
 
-    private static func normalizedBCP47Tag(_ raw: String) -> String? {
+    private func normalizedBCP47Tag(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         guard trimmed.utf8.allSatisfy({ byte in
-            Self.isASCIIAlphanumeric(byte) || byte == Self.hyphen || byte == Self.underscore
+            isASCIIAlphanumeric(byte) || byte == UInt8(ascii: "-") || byte == UInt8(ascii: "_")
         }) else {
             return nil
         }
@@ -82,24 +82,24 @@ public struct AutoNamingLanguageResolver: Sendable {
         var normalized = [language]
         var index = pieces.index(after: pieces.startIndex)
         if index < pieces.endIndex,
-           Self.isASCIILetterSubtag(pieces[index], length: 4...4) {
-            normalized.append(Self.titlecasedScriptSubtag(pieces[index]))
+           isASCIILetterSubtag(pieces[index], length: 4...4) {
+            normalized.append(titlecasedScriptSubtag(pieces[index]))
             index = pieces.index(after: index)
         }
         if index < pieces.endIndex,
-           Self.isASCIIRegionSubtag(pieces[index]) {
+           isASCIIRegionSubtag(pieces[index]) {
             normalized.append(pieces[index].uppercased())
             index = pieces.index(after: index)
         }
         while index < pieces.endIndex {
             let piece = pieces[index]
             let lowercased = piece.lowercased()
-            if Self.isASCIIAlphanumericSubtag(piece, length: 4...8) {
+            if isASCIIAlphanumericSubtag(piece, length: 4...8) {
                 normalized.append(lowercased)
                 index = pieces.index(after: index)
                 continue
             }
-            guard Self.isASCIIAlphanumericSubtag(piece, length: 1...1) else {
+            guard isASCIIAlphanumericSubtag(piece, length: 1...1) else {
                 return nil
             }
             normalized.append(lowercased)
@@ -107,7 +107,7 @@ public struct AutoNamingLanguageResolver: Sendable {
             let subtagLength = lowercased == "x" ? 1...8 : 2...8
             let subtagStart = index
             while index < pieces.endIndex,
-                  Self.isASCIIAlphanumericSubtag(pieces[index], length: subtagLength) {
+                  isASCIIAlphanumericSubtag(pieces[index], length: subtagLength) {
                 normalized.append(pieces[index].lowercased())
                 index = pieces.index(after: index)
             }
@@ -116,42 +116,39 @@ public struct AutoNamingLanguageResolver: Sendable {
         return normalized.joined(separator: "-")
     }
 
-    private static let hyphen = UInt8(ascii: "-")
-    private static let underscore = UInt8(ascii: "_")
-
-    private static func isASCIILetterSubtag(_ value: String, length: ClosedRange<Int>) -> Bool {
+    private func isASCIILetterSubtag(_ value: String, length: ClosedRange<Int>) -> Bool {
         let bytes = Array(value.utf8)
-        return length.contains(bytes.count) && bytes.allSatisfy(Self.isASCIILetter)
+        return length.contains(bytes.count) && bytes.allSatisfy(isASCIILetter)
     }
 
-    private static func isASCIIRegionSubtag(_ value: String) -> Bool {
+    private func isASCIIRegionSubtag(_ value: String) -> Bool {
         let bytes = Array(value.utf8)
         if bytes.count == 2 {
-            return bytes.allSatisfy(Self.isASCIILetter)
+            return bytes.allSatisfy(isASCIILetter)
         }
-        return bytes.count == 3 && bytes.allSatisfy(Self.isASCIIDigit)
+        return bytes.count == 3 && bytes.allSatisfy(isASCIIDigit)
     }
 
-    private static func isASCIIAlphanumericSubtag(_ value: String, length: ClosedRange<Int>) -> Bool {
+    private func isASCIIAlphanumericSubtag(_ value: String, length: ClosedRange<Int>) -> Bool {
         let bytes = Array(value.utf8)
-        return length.contains(bytes.count) && bytes.allSatisfy(Self.isASCIIAlphanumeric)
+        return length.contains(bytes.count) && bytes.allSatisfy(isASCIIAlphanumeric)
     }
 
-    private static func titlecasedScriptSubtag(_ value: String) -> String {
+    private func titlecasedScriptSubtag(_ value: String) -> String {
         let lowercased = value.lowercased()
         return lowercased.prefix(1).uppercased() + String(lowercased.dropFirst())
     }
 
-    private static func isASCIIAlphanumeric(_ byte: UInt8) -> Bool {
+    private func isASCIIAlphanumeric(_ byte: UInt8) -> Bool {
         isASCIILetter(byte) || isASCIIDigit(byte)
     }
 
-    private static func isASCIILetter(_ byte: UInt8) -> Bool {
+    private func isASCIILetter(_ byte: UInt8) -> Bool {
         (UInt8(ascii: "A")...UInt8(ascii: "Z")).contains(byte)
             || (UInt8(ascii: "a")...UInt8(ascii: "z")).contains(byte)
     }
 
-    private static func isASCIIDigit(_ byte: UInt8) -> Bool {
+    private func isASCIIDigit(_ byte: UInt8) -> Bool {
         (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(byte)
     }
 }

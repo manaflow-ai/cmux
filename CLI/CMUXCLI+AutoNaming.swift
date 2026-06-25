@@ -89,61 +89,6 @@ struct AutoNamingTranscriptMessage: Codable, Equatable, Sendable {
     var text: String
 }
 
-/// Language instruction carried from the app probe into the naming prompt.
-struct AutoNamingPromptLanguage: Equatable, Sendable {
-    static let fallback = AutoNamingPromptLanguage(name: "English", tag: "en")
-
-    var name: String
-    var tag: String
-
-    init(name: String, tag: String) {
-        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedTag = tag.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmedName.isEmpty || trimmedTag.isEmpty {
-            self = Self.fallback
-        } else {
-            self.name = trimmedName
-            self.tag = trimmedTag
-        }
-    }
-}
-
-/// Diagnostics from parsing an agent transcript or hook payload.
-struct AutoNamingTranscriptExtraction: Equatable, Sendable {
-    enum Source: String, Sendable {
-        case claudeTranscript
-        case codexRollout
-        case grokHistory
-        case hookPayload
-    }
-
-    var source: Source
-    var messages: [AutoNamingTranscriptMessage]
-    var recordCount: Int
-    var malformedRecordCount: Int
-    var skippedRecordCount: Int
-
-    var hasFailures: Bool {
-        malformedRecordCount > 0 || (recordCount > 0 && messages.isEmpty)
-    }
-
-    var diagnosticSummary: String? {
-        guard hasFailures else { return nil }
-        return "\(source.rawValue): messages=\(messages.count) records=\(recordCount) malformed=\(malformedRecordCount) skipped=\(skippedRecordCount)"
-    }
-}
-
-/// Result of normalizing a summarizer response.
-enum AutoNamingSanitizationOutcome: Equatable, Sendable {
-    /// A new title should be applied.
-    case title(String)
-    /// The model explicitly kept the current title; count this as a successful
-    /// no-op so a good title does not back off like a failed summarizer.
-    case unchanged(String)
-    /// The response did not contain a usable title.
-    case unusable
-}
-
 /// Environment policy for the summarizer subprocess: scrub the variables
 /// that would recurse into cmux hooks or the parent agent session while
 /// preserving backend selection (Vertex/Bedrock/Anthropic) so the call works

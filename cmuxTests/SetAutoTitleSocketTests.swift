@@ -299,6 +299,31 @@ import Testing
         }
     }
 
+    @Test func repeatedWorkspaceTitleStillAppliesPanelTitleAfterSplit() throws {
+        try withAutoNamingSetting(true) {
+            try withManager { _, workspace in
+                let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+                let panelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+                _ = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "title": "Fix auth bug"
+                ])
+
+                _ = try #require(workspace.newTerminalSurface(inPane: pane, focus: false)?.id)
+                let envelope = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "panel_id": panelId.uuidString,
+                    "panel_only_if_multiple": true,
+                    "title": "Fix auth bug"
+                ])
+                let result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["workspace_applied"] as? Bool == true)
+                #expect(result["panel_applied"] as? Bool == true)
+                #expect(workspace.panelCustomTitles[panelId] == "Fix auth bug")
+            }
+        }
+    }
+
     @Test func appliesAutoTitleToUntitledWorkspace() throws {
         try withAutoNamingSetting(true) {
             try withManager { _, workspace in
