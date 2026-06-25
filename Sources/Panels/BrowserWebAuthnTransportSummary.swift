@@ -41,6 +41,11 @@ struct BrowserWebAuthnTransportSummary {
         self.containsUnspecifiedTransport = containsUnspecifiedTransport
     }
 
+    var debugSummary: String {
+        "bt=\(containsBluetooth) hybrid=\(containsHybrid) internal=\(containsInternal) " +
+            "securityKey=\(containsSecurityKeyTransport) unspecified=\(containsUnspecifiedTransport)"
+    }
+
     var allowsPlatformCredentials: Bool {
         containsInternal || containsUnspecifiedTransport
     }
