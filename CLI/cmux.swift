@@ -316,7 +316,8 @@ final class ClaudeHookSessionStore {
         surfaceId: String,
         transcriptLineCount: Int,
         now: Date,
-        engine: AutoNamingEngine
+        engine: AutoNamingEngine,
+        bypassMinTranscriptLines: Bool = false
     ) throws -> AutoNamingBeginOutcome {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else {
@@ -340,7 +341,8 @@ final class ClaudeHookSessionStore {
             let decision = engine.throttleDecision(
                 snapshot: snapshot,
                 transcriptLineCount: transcriptLineCount,
-                now: now
+                now: now,
+                bypassMinTranscriptLines: bypassMinTranscriptLines
             )
             switch decision {
             case .proceed:
@@ -23423,7 +23425,8 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     sessionStore: sessionStore,
                     client: client,
-                    telemetry: telemetry
+                    telemetry: telemetry,
+                    kickoff: hookArgs.contains("--kickoff")
                 )
             } catch {
                 telemetry.breadcrumb("claude-hook.auto-name.error")

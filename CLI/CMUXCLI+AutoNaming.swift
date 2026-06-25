@@ -25,8 +25,11 @@ struct AutoNamingConfig: Sendable {
     /// Transcripts shorter than this are skipped entirely (subagent or
     /// trivial sessions).
     var minTranscriptLines: Int = 12
-    /// Hard deadline for the summarizer subprocess.
-    var llmTimeout: TimeInterval = 60
+    /// Hard deadline for the summarizer subprocess. Generous enough to absorb
+    /// model latency when several agents run concurrently (a one-shot Stop pass
+    /// that times out under load is what left heavy sessions unnamed); kept
+    /// below the 120s hook timeout once `inFlightExpiryGrace` is added.
+    var llmTimeout: TimeInterval = 90
     /// Extra slack on top of `llmTimeout` before an in-flight marker is
     /// considered stale: covers the termination grace window and the socket
     /// apply, so a pass still finishing cannot be doubled by a concurrent
@@ -191,10 +194,19 @@ struct AutoNamingEngine: Sendable {
     func throttleDecision(
         snapshot: AutoNamingSessionSnapshot,
         transcriptLineCount: Int,
-        now: Date
+        now: Date,
+        bypassMinTranscriptLines: Bool = false
     ) -> AutoNamingThrottleDecision {
-        guard transcriptLineCount >= config.minTranscriptLines else {
-            return .skipShortTranscript
+        // Kickoff naming summarizes the submitted prompt itself (not the
+        // transcript), so the short-transcript floor — which exists to skip
+        // trivial/subagent sessions judged by transcript size — must not apply.
+        // Single-Bash skills like last30days produce no transcript growth until
+        // the turn ends, so without this bypass they never name before the run
+        // completes.
+        if !bypassMinTranscriptLines {
+            guard transcriptLineCount >= config.minTranscriptLines else {
+                return .skipShortTranscript
+            }
         }
         let nowInterval = now.timeIntervalSince1970
         if let inFlightAt = snapshot.inFlightAt, nowInterval - inFlightAt < config.inFlightExpiry {
@@ -448,7 +460,10 @@ struct AutoNamingEngine: Sendable {
         messages.append(AutoNamingTranscriptMessage(role: role, text: text))
     }
 
-    private func hookUserText(in object: [String: Any]) -> String? {
+    /// Extracts the user prompt from a hook payload. Internal (not private) so
+    /// the kickoff naming path can source the submitted prompt from the
+    /// UserPromptSubmit payload to name a workspace before any work runs.
+    func hookUserText(in object: [String: Any]) -> String? {
         firstText(in: object, keys: [
             "lastUserMessage",
             "last_user_message",

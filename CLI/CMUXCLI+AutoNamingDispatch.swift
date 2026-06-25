@@ -131,10 +131,16 @@ extension CMUXCLI {
             environment: policy.summarizerEnvironment(from: env),
             timeout: timeout,
             onFailure: { reason, exitStatus, stderrTail in
+                let exit = exitStatus.map { String($0) } ?? "n/a"
                 telemetry.breadcrumb("claude-hook.auto-name.summarizer-failed", data: [
                     "reason": reason,
-                    "exit": exitStatus.map { String($0) } ?? "n/a",
+                    "exit": exit,
                     "stderr": stderrTail
+                ])
+                self.autoNameDebugLog("summarizer-failed", [
+                    "reason": reason,
+                    "exit": exit,
+                    "stderr": String(stderrTail.prefix(160))
                 ])
             }
         )

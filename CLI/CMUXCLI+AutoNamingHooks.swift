@@ -2,7 +2,30 @@ import Darwin
 import Foundation
 
 extension CMUXCLI {
-    /// Drives one auto-naming pass for a Claude session at turn end.
+    /// Appends a one-line auto-naming diagnostic to `~/.cmuxterm/auto-name-debug.log`
+    /// when `CMUX_AUTONAME_DEBUG=1`. Sentry breadcrumbs are not readable on the
+    /// machine; this makes a naming failure (throttle skip, summarizer nil,
+    /// unusable output, applied title) diagnosable locally. No-op otherwise, and
+    /// never logs transcript/prompt content.
+    func autoNameDebugLog(_ event: String, _ fields: [String: String] = [:]) {
+        guard ProcessInfo.processInfo.environment["CMUX_AUTONAME_DEBUG"] == "1" else { return }
+        let ts = ISO8601DateFormatter().string(from: Date())
+        let kv = fields.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: " ")
+        let line = "\(ts) auto-name \(event) \(kv)\n"
+        guard let data = line.data(using: .utf8) else { return }
+        let path = NSString(string: "~/.cmuxterm/auto-name-debug.log").expandingTildeInPath
+        if let handle = FileHandle(forWritingAtPath: path) {
+            defer { try? handle.close() }
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: data)
+        } else {
+            try? data.write(to: URL(fileURLWithPath: path))
+        }
+    }
+
+    /// Drives one auto-naming pass for a Claude session. Registered on Stop
+    /// (final refine), UserPromptSubmit (name at kickoff from the prompt), and
+    /// PreToolUse (mid-turn refresh); the throttle below dedups across them.
     func runClaudeAutoNameHook(
         parsedInput: ClaudeHookParsedInput,
         mappedSession: ClaudeHookSessionRecord?,
@@ -10,7 +33,8 @@ extension CMUXCLI {
         surfaceId: String,
         sessionStore: ClaudeHookSessionStore,
         client: SocketClient,
-        telemetry: CLISocketSentryTelemetry
+        telemetry: CLISocketSentryTelemetry,
+        kickoff: Bool = false
     ) {
         guard let sessionId = parsedInput.sessionId else { return }
         let env = ProcessInfo.processInfo.environment
@@ -42,24 +66,44 @@ extension CMUXCLI {
             return
         }
 
-        guard let transcriptPath = parsedInput.transcriptPath ?? mappedSession?.transcriptPath else { return }
-        guard let lines = readRecentTextFileLines(path: transcriptPath, maxBytes: 512 * 1024), !lines.isEmpty else {
-            return
-        }
-        let lineCount = textFileGrowthMetric(path: transcriptPath, fallbackLineCount: lines.count)
         let engine = AutoNamingEngine()
+        let messages: [AutoNamingTranscriptMessage]
+        let lineCount: Int
+        if kickoff {
+            // Kickoff names from the submitted prompt itself (carried in the
+            // hook payload), not the transcript file — which is empty/tiny at
+            // UserPromptSubmit and stays tiny for single-Bash skills. This is
+            // the only way to name before the work runs.
+            let promptText = engine.hookUserText(in: parsedInput.object ?? [:])
+            guard let prompt = promptText?.trimmingCharacters(in: .whitespacesAndNewlines), !prompt.isEmpty else {
+                autoNameDebugLog("kickoff-no-prompt", ["session": String(sessionId.prefix(8))])
+                return
+            }
+            messages = [AutoNamingTranscriptMessage(role: "user", text: prompt)]
+            lineCount = engine.config.minTranscriptLines // nominal; floor bypassed below
+        } else {
+            guard let transcriptPath = parsedInput.transcriptPath ?? mappedSession?.transcriptPath else { return }
+            guard let lines = readRecentTextFileLines(path: transcriptPath, maxBytes: 512 * 1024), !lines.isEmpty else {
+                return
+            }
+            lineCount = textFileGrowthMetric(path: transcriptPath, fallbackLineCount: lines.count)
+            messages = engine.extractMessages(fromTranscriptLines: lines)
+        }
         guard let outcome = try? sessionStore.beginAutoNaming(
             sessionId: sessionId,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             transcriptLineCount: lineCount,
             now: Date(),
-            engine: engine
+            engine: engine,
+            bypassMinTranscriptLines: kickoff
         ) else { return }
         guard case .proceed(let baseline) = outcome.decision else {
+            autoNameDebugLog("skip", ["session": String(sessionId.prefix(8)), "decision": "\(outcome.decision)", "kickoff": "\(kickoff)"])
             telemetry.breadcrumb("claude-hook.auto-name.throttled")
             return
         }
+        autoNameDebugLog("proceed", ["session": String(sessionId.prefix(8)), "lines": "\(lineCount)", "kickoff": "\(kickoff)"])
 
         var confirmedTitle: String?
         defer {
@@ -71,7 +115,6 @@ extension CMUXCLI {
             )
         }
 
-        let messages = engine.extractMessages(fromTranscriptLines: lines)
         guard let context = engine.buildContext(from: messages) else { return }
         let prompt = engine.buildPrompt(currentTitle: outcome.lastTitle, context: context)
 
@@ -85,6 +128,7 @@ extension CMUXCLI {
             timeout: engine.config.llmTimeout,
             telemetry: telemetry
         ) else {
+            autoNameDebugLog("summarize-nil", ["agent": resolution.agent])
             telemetry.breadcrumb("claude-hook.auto-name.llm-failed")
             reportAutoNamingProblem("failed", agent: resolution.agent, workspaceId: workspaceId, client: client)
             return
@@ -96,6 +140,7 @@ extension CMUXCLI {
             // Distinct from `llm-failed` above so a "ran but produced no
             // usable name" outcome is not silently indistinguishable from a
             // healthy pass.
+            autoNameDebugLog("unusable-response")
             telemetry.breadcrumb("claude-hook.auto-name.unusable-response")
             return
         }
@@ -108,6 +153,7 @@ extension CMUXCLI {
             telemetryKey: "claude-hook.auto-name",
             telemetry: telemetry
         )
+        autoNameDebugLog("applied", ["title": confirmedTitle ?? "<nil>"])
         // Re-report a missing override only after the fallback apply, so the
         // app's clear-on-apply doesn't immediately wipe the Settings note.
         if confirmedTitle != nil, let missing = resolution.missingOverride {

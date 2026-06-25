@@ -366,4 +366,53 @@ import Testing
         try #require(modelIdx + 1 < args.count)
         #expect(args[modelIdx + 1] == "sonnet")
     }
+
+    // MARK: - Kickoff naming (name from the prompt at UserPromptSubmit)
+
+    @Test func kickoffBypassesShortTranscriptFloor() {
+        // A short prompt is below minTranscriptLines, so the normal path skips —
+        // but the kickoff path names from the prompt itself, so it must proceed.
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let shortCount = 1
+        #expect(shortCount < config.minTranscriptLines)
+
+        let normal = engine.throttleDecision(
+            snapshot: snapshot(),
+            transcriptLineCount: shortCount,
+            now: now
+        )
+        #expect(normal == .skipShortTranscript)
+
+        let kickoff = engine.throttleDecision(
+            snapshot: snapshot(),
+            transcriptLineCount: shortCount,
+            now: now,
+            bypassMinTranscriptLines: true
+        )
+        #expect(kickoff == .proceed(baseline: shortCount))
+    }
+
+    @Test func kickoffStillRespectsInFlightAndAlreadyNamed() {
+        let base = TimeInterval(1_000_000)
+        // In-flight marker still blocks a kickoff (no double-spawn).
+        let inFlight = engine.throttleDecision(
+            snapshot: snapshot(inFlightAt: base),
+            transcriptLineCount: 1,
+            now: Date(timeIntervalSince1970: base + 1),
+            bypassMinTranscriptLines: true
+        )
+        #expect(inFlight == .skipInFlight)
+    }
+
+    @Test func hookUserTextExtractsPromptFromPayload() {
+        #expect(engine.hookUserText(in: ["prompt": "last30days Taylor Swift"]) == "last30days Taylor Swift")
+        #expect(engine.hookUserText(in: ["user_prompt": "fix the bug"]) == "fix the bug")
+        #expect(engine.hookUserText(in: ["unrelated": "x"]) == nil)
+    }
+
+    @Test func buildContextFromSinglePromptMessageIsUsable() throws {
+        let messages = [AutoNamingTranscriptMessage(role: "user", text: "last30days Taylor Swift")]
+        let context = try #require(engine.buildContext(from: messages))
+        #expect(context.contains("Taylor Swift"))
+    }
 }
