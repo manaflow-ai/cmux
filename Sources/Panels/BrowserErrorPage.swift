@@ -27,10 +27,9 @@ struct BrowserErrorPage {
                 .first { $0.name == "token" }?
                 .value ?? ""
             let escapedToken = escapeHTML(token)
-            let escapedBypassURL = escapeHTML(bypassURL.absoluteString)
             let escapedBypassOnClick = escapeHTML(Self.bypassOnClickScript)
             bypassButtonHTML = """
-                <button class="button bypass" type="button" data-token="\(escapedToken)" data-action-url="\(escapedBypassURL)" onclick="\(escapedBypassOnClick)">\(escapedBypassLabel)</button>
+                <button class="button bypass" type="button" data-token="\(escapedToken)" onclick="\(escapedBypassOnClick)">\(escapedBypassLabel)</button>
             """
         } else {
             bypassButtonHTML = ""
@@ -85,7 +84,8 @@ struct BrowserErrorPage {
         </body>
         </html>
         """
-        webView.loadHTMLString(html, baseURL: URL(string: failedURL))
+        // Keep token-bearing interstitials out of the failed site's origin.
+        webView.loadHTMLString(html, baseURL: nil)
         return !bypassButtonHTML.isEmpty
     }
 
@@ -101,8 +101,6 @@ struct BrowserErrorPage {
     var handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(BrowserSSLTrustBypassMessageHandler.name);
     if (handler) {
         handler.postMessage(this.dataset.token);
-    } else {
-        window.location.href = this.dataset.actionUrl;
     }
     """
 }
