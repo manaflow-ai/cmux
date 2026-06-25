@@ -62,7 +62,7 @@ final class MobileTerminalByteTee {
         // surface, including normal desktop use with no phone attached. Bail
         // before any allocation or main-actor hop when no mobile client wants
         // these bytes. The check is an O(1) dictionary read of the single
-        // subscription source of truth (`MobileHostEventSubscriptionTracker`),
+        // subscription source of truth (`MobileHostEventSubscriptionRegistry`),
         // the same accessor `MobileTerminalRenderObserver` already uses; it is
         // not a new lock, and its only writers are the rare subscribe /
         // unsubscribe RPCs, so the IO thread never meaningfully contends. We

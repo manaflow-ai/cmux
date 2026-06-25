@@ -25,6 +25,9 @@ let package = Package(
         .package(path: "../CmuxAppKitSupportUI"),
         // DEBUG-only drag-trace logging for the external-drop delegate.
         .package(path: "../CMUXDebugLog"),
+        // UpdatePill / UpdateStateModel / UpdateActionsHost back the sidebar
+        // footer's update pill (CmuxUpdaterUI only deps CmuxUpdater; acyclic).
+        .package(path: "../CmuxUpdaterUI"),
     ],
     targets: [
         .target(
@@ -36,6 +39,7 @@ let package = Package(
                 .product(name: "CmuxSidebarProviderKit", package: "CmuxSidebarProviderKit"),
                 .product(name: "CmuxAppKitSupportUI", package: "CmuxAppKitSupportUI"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
+                .product(name: "CmuxUpdaterUI", package: "CmuxUpdaterUI"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

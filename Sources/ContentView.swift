@@ -5950,6 +5950,62 @@ struct VerticalTabsSidebar: View {
         )
     }
 
+    /// Builds the sidebar empty-area hit target, supplying the package view's
+    /// injected app couplings: the accent color, the double-tap new-workspace
+    /// effect, and the Bonsplit new-workspace drop overlay (an app-target
+    /// `NSViewRepresentable` that cannot move into the package).
+    @ViewBuilder
+    private func sidebarEmptyArea(
+        renderContext: WorkspaceListRenderContext,
+        topDropIndicatorVisible: Bool,
+        expandsVertically: Bool = true,
+        minimumHeight: CGFloat? = nil
+    ) -> some View {
+        SidebarEmptyArea(
+            rowSpacing: tabRowSpacing,
+            dragAutoScrollController: dragAutoScrollController,
+            topDropIndicatorVisible: topDropIndicatorVisible,
+            tabDropDelegate: emptyAreaTabDropDelegate(renderContext: renderContext),
+            accent: cmuxAccentColor(),
+            expandsVertically: expandsVertically,
+            minimumHeight: minimumHeight,
+            onActivateEmptyArea: { activateSidebarEmptyArea() },
+            overlay: {
+                SidebarBonsplitTabNewWorkspaceDropOverlay(
+                    tabManager: tabManager,
+                    selectedTabIds: $selectedTabIds,
+                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+                    dropIndicator: dropIndicatorBinding
+                )
+            }
+        )
+    }
+
+    /// The double-tap effect for the sidebar empty area: create a new workspace
+    /// and sync sidebar selection, then route selection to the tabs lane.
+    private func activateSidebarEmptyArea() {
+        // When the active workspace is a remote-tmux mirror, route through
+        // performNewWorkspaceAction so a new workspace becomes a new tmux
+        // session instead of a local (orphan) workspace. Gate on the
+        // SELECTED tab, not `tabs.contains`: a dedicated remote window can
+        // be polluted with a dragged-in local workspace (move targets don't
+        // exclude dedicated windows), and `contains` would then misroute a
+        // local empty-area double-tap into spawning an unwanted tmux session.
+        if tabManager.selectedTab?.isRemoteTmuxMirror == true {
+            _ = AppDelegate.shared?.performNewWorkspaceAction(
+                tabManager: tabManager,
+                debugSource: "sidebar.emptyArea.remoteTmux"
+            )
+        } else {
+            tabManager.addWorkspace(placementOverride: .end)
+        }
+        if let selectedId = tabManager.selectedTabId {
+            selectedTabIds = [selectedId]
+            lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
+        }
+        selection = .tabs
+    }
+
     private var sidebarTopScrimHeight: CGFloat {
         SidebarWorkspaceListMetrics.topScrimHeight
     }
@@ -6146,7 +6202,7 @@ struct VerticalTabsSidebar: View {
             } else {
                 extensionSidebarScrollArea(renderContext: renderContext)
             }
-            SidebarFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
+            SidebarFooterContainer(updateViewModel: updateViewModel, onSendFeedback: onSendFeedback)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityIdentifier("Sidebar")
@@ -6531,15 +6587,9 @@ struct VerticalTabsSidebar: View {
                             extensionSidebarSection(section, providerId: model.providerId, now: now)
                         }
 
-                        SidebarEmptyArea(
-                            rowSpacing: tabRowSpacing,
-                            selection: $selection,
-                            selectedTabIds: $selectedTabIds,
-                            lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-                            dragAutoScrollController: dragAutoScrollController,
-                            topDropIndicatorVisible: emptyAreaTopDropIndicatorVisible(),
-                            tabDropDelegate: emptyAreaTabDropDelegate(renderContext: renderContext),
-                            bonsplitDropIndicator: dropIndicatorBinding
+                        sidebarEmptyArea(
+                            renderContext: renderContext,
+                            topDropIndicatorVisible: emptyAreaTopDropIndicatorVisible()
                         )
                         .frame(maxWidth: .infinity, minHeight: 48)
                     }
@@ -7233,15 +7283,9 @@ struct VerticalTabsSidebar: View {
             }
             .frame(minHeight: minHeight, alignment: .top)
             .background(alignment: .top) {
-                SidebarEmptyArea(
-                    rowSpacing: tabRowSpacing,
-                    selection: $selection,
-                    selectedTabIds: $selectedTabIds,
-                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-                    dragAutoScrollController: dragAutoScrollController,
+                sidebarEmptyArea(
+                    renderContext: renderContext,
                     topDropIndicatorVisible: false,
-                    tabDropDelegate: emptyAreaTabDropDelegate(renderContext: renderContext),
-                    bonsplitDropIndicator: dropIndicatorBinding,
                     expandsVertically: true
                 )
             }
@@ -7576,64 +7620,35 @@ struct VerticalTabsSidebar: View {
     }
 }
 
-private struct SidebarFooter: View {
+/// App-target host for the package ``CmuxSidebarUI.SidebarFooter``.
+///
+/// The footer view itself lives in `CmuxSidebarUI` as pure presentation. This
+/// thin wrapper resolves the app-only reactive inputs (the experimental
+/// extensions flag, the send-feedback shortcut hint, and on debug builds the
+/// dev-build banner visibility) and builds the help-menu options + action
+/// closures + titlebar anchor that invert the legacy `AppDelegate.shared` /
+/// `BrowserDataImportCoordinator.shared` / `TitlebarControlAnchorView` couplings
+/// into injected seams.
+private struct SidebarFooterContainer: View {
     var updateViewModel: UpdateStateModel
-    @ObservedObject var fileExplorerState: FileExplorerState
     let onSendFeedback: () -> Void
-
-    var body: some View {
-#if DEBUG
-        SidebarDevFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
-#else
-        SidebarFooterButtons(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
-            .padding(.leading, 6)
-            .padding(.trailing, 10)
-            .padding(.bottom, 6)
-#endif
-    }
-}
-
-private struct SidebarFooterButtons: View {
-    var updateViewModel: UpdateStateModel
-    @ObservedObject var fileExplorerState: FileExplorerState
-    let onSendFeedback: () -> Void
-    @State private var extensionBrowserAnchorView: NSView?
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+#if DEBUG
+    @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
+    private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
+#endif
 
-    var body: some View {
-        HStack(spacing: 4) {
-            SidebarHelpMenuButton(
-                helpTitle: String(localized: "sidebar.help.button", defaultValue: "Help"),
-                options: helpMenuOptions
-            )
-            // The puzzle button opens the extensions browser; it only shows
-            // while the experimental Extensions feature is enabled.
-            if extensionsExperimentalEnabled {
-                Button {
-                    _ = AppDelegate.shared?.openSidebarExtensionBrowser(
-                        from: extensionBrowserAnchorView,
-                        title: String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
-                    )
-                } label: {
-                    Image(systemName: "puzzlepiece.extension")
-                        .symbolRenderingMode(.monochrome)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-                        .frame(width: 22, height: 22, alignment: .center)
-                }
-                .buttonStyle(SidebarFooterIconButtonStyle())
-                .frame(width: 22, height: 22, alignment: .center)
-                .safeHelp(String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions"))
-                .accessibilityLabel(String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions"))
-                .accessibilityIdentifier("SidebarExtensionMenuButton")
-                .background(TitlebarControlAnchorView { extensionBrowserAnchorView = $0 })
-            }
-            if let updateActionsHost = AppDelegate.shared {
-                UpdatePill(model: updateViewModel, accent: cmuxAccentColor(), actions: updateActionsHost)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    /// Dev-build banner visibility, resolved per build configuration. The package
+    /// ``CmuxSidebarUI/SidebarFooter`` takes this as a plain `Bool` (default
+    /// `false`); release builds always hide the banner, matching the legacy
+    /// `#if DEBUG`-only `SidebarDevFooter`.
+    private var devBuildBannerVisible: Bool {
+#if DEBUG
+        showSidebarDevBuildBanner
+#else
+        false
+#endif
     }
 
     private static let docsURL = URL(string: "https://cmux.com/docs")
@@ -7641,6 +7656,37 @@ private struct SidebarFooterButtons: View {
     private static let githubURL = URL(string: "https://github.com/manaflow-ai/cmux")
     private static let githubIssuesURL = URL(string: "https://github.com/manaflow-ai/cmux/issues")
     private static let discordURL = URL(string: "https://discord.gg/xsgFEVrWCZ")
+    private static let extensionsTitle = String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
+
+    var body: some View {
+        // Faithful to the legacy footer: it rendered UNCONDITIONALLY at the call
+        // site, and only the update pill was gated on `AppDelegate.shared` via
+        // `if let updateActionsHost = AppDelegate.shared { UpdatePill(...) }`.
+        // So the host is passed through as an optional (nil when AppDelegate is
+        // absent); the package omits only the pill in that case and still shows
+        // the help and extensions buttons.
+        let extensionsTitle = Self.extensionsTitle
+        SidebarFooter(
+            updateViewModel: updateViewModel,
+            accentColor: cmuxAccentColor(),
+            updateActionsHost: AppDelegate.shared,
+            helpTitle: String(localized: "sidebar.help.button", defaultValue: "Help"),
+            helpMenuOptions: helpMenuOptions,
+            extensionsExperimentalEnabled: extensionsExperimentalEnabled,
+            extensionsTitle: extensionsTitle,
+            openExtensionBrowser: { anchorView in
+                _ = AppDelegate.shared?.openSidebarExtensionBrowser(
+                    from: anchorView,
+                    title: extensionsTitle
+                )
+            },
+            extensionAnchor: { report in
+                AnyView(TitlebarControlAnchorView { report($0) })
+            },
+            showDevBuildBanner: devBuildBannerVisible,
+            devBuildBannerText: String(localized: "debug.devBuildBanner.title", defaultValue: "THIS IS A DEV BUILD")
+        )
+    }
 
     private var sendFeedbackShortcutHint: String {
         let _ = keyboardShortcutSettingsObserver.revision
@@ -7755,104 +7801,6 @@ private struct SidebarFooterButtons: View {
             }
         })
         return options
-    }
-}
-
-#if DEBUG
-private struct SidebarDevFooter: View {
-    var updateViewModel: UpdateStateModel
-    @ObservedObject var fileExplorerState: FileExplorerState
-    let onSendFeedback: () -> Void
-    @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
-    private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            SidebarFooterButtons(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
-            if showSidebarDevBuildBanner {
-                SidebarDevBuildBanner(
-                    text: String(localized: "debug.devBuildBanner.title", defaultValue: "THIS IS A DEV BUILD")
-                )
-            }
-        }
-        .padding(.leading, 6)
-        .padding(.trailing, 10)
-        .padding(.bottom, 6)
-    }
-}
-#endif
-
-private struct SidebarEmptyArea: View {
-    @Environment(TabManager.self) var tabManager
-    let rowSpacing: CGFloat
-    @Binding var selection: SidebarSelection
-    @Binding var selectedTabIds: Set<UUID>
-    @Binding var lastSidebarSelectionIndex: Int?
-    let dragAutoScrollController: SidebarDragAutoScrollController
-    // Value snapshot + closure bundles instead of an @Observable store
-    // reference (snapshot-boundary rule).
-    let topDropIndicatorVisible: Bool
-    let tabDropDelegate: SidebarTabDropDelegate
-    let bonsplitDropIndicator: Binding<SidebarDropIndicator?>
-    var expandsVertically = true
-    var minimumHeight: CGFloat? = nil
-
-    var body: some View {
-        hitTarget
-            .onTapGesture(count: 2) {
-                // When the active workspace is a remote-tmux mirror, route through
-                // performNewWorkspaceAction so a new workspace becomes a new tmux
-                // session instead of a local (orphan) workspace. Gate on the
-                // SELECTED tab, not `tabs.contains`: a dedicated remote window can
-                // be polluted with a dragged-in local workspace (move targets don't
-                // exclude dedicated windows), and `contains` would then misroute a
-                // local empty-area double-tap into spawning an unwanted tmux session.
-                if tabManager.selectedTab?.isRemoteTmuxMirror == true {
-                    _ = AppDelegate.shared?.performNewWorkspaceAction(
-                        tabManager: tabManager,
-                        debugSource: "sidebar.emptyArea.remoteTmux"
-                    )
-                } else {
-                    tabManager.addWorkspace(placementOverride: .end)
-                }
-                if let selectedId = tabManager.selectedTabId {
-                    selectedTabIds = [selectedId]
-                    lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
-                }
-                selection = .tabs
-            }
-            .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegate)
-            .overlay {
-                SidebarBonsplitTabNewWorkspaceDropOverlay(
-                    tabManager: tabManager,
-                    selectedTabIds: $selectedTabIds,
-                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-                    dropIndicator: bonsplitDropIndicator
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            .overlay(alignment: .top) {
-                if topDropIndicatorVisible {
-                    Rectangle()
-                        .fill(cmuxAccentColor())
-                        .frame(height: 2)
-                        .padding(.horizontal, 8)
-                        .offset(y: -(rowSpacing / 2))
-                }
-            }
-    }
-
-    @ViewBuilder
-    private var hitTarget: some View {
-        if expandsVertically {
-            Color.clear
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .contentShape(Rectangle())
-        } else {
-            Color.clear
-                .frame(maxWidth: .infinity, minHeight: minimumHeight ?? 0)
-                .contentShape(Rectangle())
-        }
     }
 }
 

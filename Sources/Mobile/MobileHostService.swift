@@ -24,74 +24,6 @@ extension Notification.Name {
     )
 }
 
-private enum MobileHostEventSubscriptionTracker {
-    private static let lock = NSLock()
-    private nonisolated(unsafe) static var topicCounts: [String: Int] = [:]
-
-    static func hasSubscribers(topic: String) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return (topicCounts[topic] ?? 0) > 0
-    }
-
-    static func replace(previousTopics: Set<String>?, nextTopics: Set<String>?) {
-        let changedTopics = updateCounts(previousTopics: previousTopics, nextTopics: nextTopics)
-        guard !changedTopics.isEmpty else { return }
-        NotificationCenter.default.post(
-            name: .mobileHostEventSubscriptionsDidChange,
-            object: nil,
-            userInfo: ["topics": Array(changedTopics).sorted()]
-        )
-    }
-
-    private static func updateCounts(previousTopics: Set<String>?, nextTopics: Set<String>?) -> Set<String> {
-        lock.lock()
-        defer { lock.unlock() }
-
-        var changedTopics = Set<String>()
-        let allTopics = Set(previousTopics ?? []).union(nextTopics ?? [])
-        let before = Dictionary(uniqueKeysWithValues: allTopics.map { ($0, topicCounts[$0] ?? 0) })
-
-        for topic in previousTopics ?? [] {
-            let nextCount = max(0, (topicCounts[topic] ?? 0) - 1)
-            if nextCount == 0 {
-                topicCounts.removeValue(forKey: topic)
-            } else {
-                topicCounts[topic] = nextCount
-            }
-        }
-        for topic in nextTopics ?? [] {
-            topicCounts[topic] = (topicCounts[topic] ?? 0) + 1
-        }
-
-        for topic in allTopics {
-            let wasActive = (before[topic] ?? 0) > 0
-            let isActive = (topicCounts[topic] ?? 0) > 0
-            if wasActive != isActive {
-                changedTopics.insert(topic)
-            }
-        }
-        return changedTopics
-    }
-
-    static func reset() {
-        lock.lock()
-        topicCounts.removeAll()
-        lock.unlock()
-        NotificationCenter.default.post(
-            name: .mobileHostEventSubscriptionsDidChange,
-            object: nil,
-            userInfo: ["topics": []]
-        )
-    }
-
-    #if DEBUG
-    static func resetForTesting() {
-        reset()
-    }
-    #endif
-}
-
 private final class MobileHostConnectionRegistry: @unchecked Sendable {
     static let shared = MobileHostConnectionRegistry()
 
@@ -327,6 +259,11 @@ final class MobileHostService {
     private let routeResolver = MobileRouteResolver()
     private let ticketStore = MobileAttachTicketStore()
     nonisolated private let ticketAuthorizationResolver = MobileAttachTicketAuthorizationResolver()
+    /// Owns the per-topic subscription refcounts and posts
+    /// `.mobileHostEventSubscriptionsDidChange`. Injected into every
+    /// `MobileHostConnection` this service creates; the `nonisolated static`
+    /// emit/has-subscribers forwarders read it through `shared`.
+    nonisolated let eventSubscriptionRegistry = MobileHostEventSubscriptionRegistry()
     private var listener: NWListener?
     private var listenerGeneration = UUID()
     private var listenerUsesEphemeralFallback = false
@@ -415,7 +352,7 @@ final class MobileHostService {
     /// notification closures. This path only touches the connection registry,
     /// not actor-isolated listener state.
     nonisolated static func emitEvent(topic: String, payload: [String: Any]) {
-        guard MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic) else {
+        guard shared.eventSubscriptionRegistry.hasSubscribers(topic: topic) else {
             return
         }
         let connections = MobileHostConnectionRegistry.shared.snapshot()
@@ -434,7 +371,7 @@ final class MobileHostService {
     }
 
     nonisolated static func hasEventSubscribers(topic: String) -> Bool {
-        MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic)
+        shared.eventSubscriptionRegistry.hasSubscribers(topic: topic)
     }
 
     /// User-default key for the opt-in Mac-side iOS pairing listener.
@@ -752,7 +689,7 @@ final class MobileHostService {
         }
         activeConnections.removeAll()
         clientIDsByConnectionID.removeAll()
-        MobileHostEventSubscriptionTracker.reset()
+        eventSubscriptionRegistry.reset()
         MobileHostPublicStatusCache.update(routes: [])
         TerminalController.shared.clearAllMobileViewportReports(reason: "mobile.host.stopped")
         drainReadinessWaiters()
@@ -958,7 +895,8 @@ final class MobileHostService {
                 onClose: { id in
                     MobileHostConnectionRegistry.shared.remove(id: id)
                     await MobileHostService.shared.removeConnection(id: id)
-                }
+                },
+                eventSubscriptionRegistry: MobileHostService.shared.eventSubscriptionRegistry
             )
             guard MobileHostConnectionRegistry.shared.insert(
                 session,
@@ -1053,7 +991,8 @@ final class MobileHostService {
             },
             onClose: { id in
                 await MobileHostService.shared.removeConnection(id: id)
-            }
+            },
+            eventSubscriptionRegistry: eventSubscriptionRegistry
         )
         activeConnections[id] = session
         Task { await session.start() }
@@ -1434,7 +1373,7 @@ extension MobileHostService {
         activeConnections.removeAll()
         clientIDsByConnectionID.removeAll()
         MobileHostRequestActivity.resetForTesting()
-        MobileHostEventSubscriptionTracker.resetForTesting()
+        eventSubscriptionRegistry.resetForTesting()
     }
 
     func debugRecordClientIDForTesting(_ clientID: String, connectionID: UUID) {
@@ -1484,11 +1423,11 @@ extension MobileHostService {
     }
 
     nonisolated static func debugHasEventSubscribersForTesting(topic: String) -> Bool {
-        MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic)
+        shared.eventSubscriptionRegistry.hasSubscribers(topic: topic)
     }
 
     nonisolated static func debugResetEventSubscriptionsForTesting() {
-        MobileHostEventSubscriptionTracker.resetForTesting()
+        shared.eventSubscriptionRegistry.resetForTesting()
     }
 }
 #endif
@@ -1507,6 +1446,9 @@ actor MobileHostConnection {
     private let onAuthorizedRequest: @Sendable (MobileHostRPCRequest) async -> Void
     private let handleRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
     private let onClose: @Sendable (UUID) async -> Void
+    /// Injected per connection by `MobileHostService`. Owns the cross-connection
+    /// per-topic subscription refcounts that gate server-pushed event delivery.
+    private let eventSubscriptionRegistry: MobileHostEventSubscriptionRegistry
     private var receiveBuffer = Data()
     private var firstFrameTimeoutTask: Task<Void, Never>?
     private var idleTimeoutTask: Task<Void, Never>?
@@ -1525,7 +1467,8 @@ actor MobileHostConnection {
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
-        onClose: @escaping @Sendable (UUID) async -> Void
+        onClose: @escaping @Sendable (UUID) async -> Void,
+        eventSubscriptionRegistry: MobileHostEventSubscriptionRegistry
     ) {
         self.id = id
         self.connection = connection
@@ -1536,6 +1479,7 @@ actor MobileHostConnection {
         self.onAuthorizedRequest = onAuthorizedRequest
         self.handleRequest = handleRequest
         self.onClose = onClose
+        self.eventSubscriptionRegistry = eventSubscriptionRegistry
     }
 
     func start() {
@@ -1565,7 +1509,7 @@ actor MobileHostConnection {
         let previousSubscriptions = Array(subscriptions.values)
         subscriptions.removeAll()
         for topics in previousSubscriptions where !topics.isEmpty {
-            MobileHostEventSubscriptionTracker.replace(
+            eventSubscriptionRegistry.replace(
                 previousTopics: topics,
                 nextTopics: nil
             )
@@ -1826,7 +1770,7 @@ actor MobileHostConnection {
     func subscribe(streamID: String, topics: Set<String>) {
         let previousTopics = subscriptions[streamID]
         subscriptions[streamID] = topics
-        MobileHostEventSubscriptionTracker.replace(
+        eventSubscriptionRegistry.replace(
             previousTopics: previousTopics,
             nextTopics: topics
         )
@@ -1840,7 +1784,7 @@ actor MobileHostConnection {
         let previousTopics = subscriptions.removeValue(forKey: streamID)
         let removed = previousTopics != nil
         if let previousTopics {
-            MobileHostEventSubscriptionTracker.replace(previousTopics: previousTopics, nextTopics: nil)
+            eventSubscriptionRegistry.replace(previousTopics: previousTopics, nextTopics: nil)
         }
         if subscriptions.isEmpty {
             startIdleTimeout()

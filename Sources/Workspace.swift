@@ -8318,16 +8318,12 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         )
     }
 
-    /// Relaxed from `private` to `internal` so the lifted fork host conformance
-    /// (`Workspace+AgentForkHosting.swift`) can reach it; the body is unchanged.
+    /// Thin forwarder onto ``Swift/Array/firstNonEmptyTrimmedPath`` in
+    /// CmuxFoundation. Relaxed from `private` to `internal` so the lifted fork
+    /// host conformance (`Workspace+AgentForkHosting.swift`) can reach it; the
+    /// returned value is unchanged.
     static func firstNonEmptyPath(_ candidates: [String?]) -> String? {
-        for candidate in candidates {
-            let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let trimmed, !trimmed.isEmpty {
-                return trimmed
-            }
-        }
-        return nil
+        candidates.firstNonEmptyTrimmedPath
     }
 
     /// Forwards to ``WorkspaceDropCoordinator/handleExternalTabDrop(_:)``. Kept

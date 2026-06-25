@@ -811,7 +811,8 @@ struct MobileHostAuthorizationTests {
             handleRequest: { _ in .ok([:]) },
             onClose: { id in
                 await recorder.record(id)
-            }
+            },
+            eventSubscriptionRegistry: MobileHostService.shared.eventSubscriptionRegistry
         )
 
         await session.debugStartFirstFrameTimeoutForTesting()
@@ -844,7 +845,8 @@ struct MobileHostAuthorizationTests {
             handleRequest: { _ in .ok([:]) },
             onClose: { id in
                 await recorder.record(id)
-            }
+            },
+            eventSubscriptionRegistry: MobileHostService.shared.eventSubscriptionRegistry
         )
 
         await session.debugStartIdleTimeoutAfterFrameForTesting()
@@ -877,7 +879,8 @@ struct MobileHostAuthorizationTests {
             handleRequest: { _ in .ok([:]) },
             onClose: { id in
                 await recorder.record(id)
-            }
+            },
+            eventSubscriptionRegistry: MobileHostService.shared.eventSubscriptionRegistry
         )
 
         await session.subscribe(streamID: "events", topics: ["terminal.updated"])
@@ -929,7 +932,8 @@ struct MobileHostAuthorizationTests {
             authorizeRequest: { _ in nil },
             onAuthorizedRequest: { _ in },
             handleRequest: { _ in .ok([:]) },
-            onClose: { _ in }
+            onClose: { _ in },
+            eventSubscriptionRegistry: MobileHostService.shared.eventSubscriptionRegistry
         )
 
         await session.subscribe(streamID: "events", topics: ["terminal.updated"])
@@ -987,7 +991,8 @@ struct MobileHostAuthorizationTests {
             handleRequest: { _ in .ok([:]) },
             onClose: { id in
                 await recorder.record(id)
-            }
+            },
+            eventSubscriptionRegistry: MobileHostService.shared.eventSubscriptionRegistry
         )
         let frame = try MobileSyncFrameCodec.encodeFrame(
             Data(#"{"id":"subscribe","method":"mobile.events.subscribe","params":{"stream_id":"events","topics":["terminal.updated"]}}"#.utf8)
@@ -1042,7 +1047,8 @@ struct MobileHostAuthorizationTests {
                 firstRecorded.fulfill()
             },
             handleRequest: { _ in .ok([:]) },
-            onClose: { _ in }
+            onClose: { _ in },
+            eventSubscriptionRegistry: MobileHostService.shared.eventSubscriptionRegistry
         )
         await sessionBox.set(session)
 
