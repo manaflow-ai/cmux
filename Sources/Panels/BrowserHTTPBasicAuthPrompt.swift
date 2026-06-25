@@ -126,7 +126,7 @@ private func browserDismissHTTPBasicAuthPrompt(_ alert: NSAlert) {
 func browserHandleHTTPBasicAuthenticationChallenge(
     in webView: WKWebView,
     challenge: URLAuthenticationChallenge,
-    alertFactory: @escaping () -> NSAlert = { NSAlert() },
+    alertFactory: @escaping @MainActor () -> NSAlert = { NSAlert() },
     windowProvider: (() -> NSWindow?)? = nil,
     presentAlert: @escaping BrowserAlertPresenter = browserPresentAlert,
     registerCancelPrompt: ((@escaping () -> Void) -> Void)? = nil,
