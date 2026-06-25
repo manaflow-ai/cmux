@@ -33,12 +33,16 @@ extension CMUXCLI {
         if normalizedHookValue(current?.source)?.lowercased() == "rejected" {
             return current
         }
-        if let current, agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: current) {
+        let currentSource = normalizedHookValue(current?.source)?.lowercased()
+        if let current, currentSource != "default", agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: current) {
             return current
         }
         if let launchCommand = mapped?.launchCommand,
            agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand) {
             return launchCommand
+        }
+        if let current, currentSource == "default", agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: current) {
+            return current
         }
         if agentHookMappedSessionHasDurableTargetEvidence(kind: kind, mapped: mapped) {
             return nil
@@ -55,8 +59,13 @@ extension CMUXCLI {
         if normalizedHookValue(current?.source)?.lowercased() == "rejected" {
             return currentCwd ?? mapped?.cwd
         }
-        if let current, agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: current) {
+        let currentSource = normalizedHookValue(current?.source)?.lowercased()
+        if let current, currentSource != "default", agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: current) {
             return currentCwd ?? mapped?.cwd
+        }
+        if let launchCommand = mapped?.launchCommand,
+           agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand) {
+            return mapped?.cwd ?? currentCwd
         }
         if agentHookMappedSessionHasDurableTargetEvidence(kind: kind, mapped: mapped) {
             return mapped?.cwd ?? currentCwd
