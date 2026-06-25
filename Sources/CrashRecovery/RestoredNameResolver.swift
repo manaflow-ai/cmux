@@ -1,7 +1,7 @@
 import Foundation
 
 /// What name a restored window should display (U13/R16/KTD14).
-enum RestoredName: Equatable, Sendable {
+nonisolated enum RestoredName: Equatable, Sendable {
     /// A user-set title was persisted — always kept, never clobbered by restore.
     case keepUserTitle(String)
     /// The window's binding verified and it had an auto-generated summary — its
@@ -27,7 +27,7 @@ enum RestoredName: Equatable, Sendable {
 /// 1. A user-set (`.user`) title is sacrosanct — kept regardless of verification.
 /// 2. An auto (`.auto`) summary is re-applied ONLY when the binding verified.
 /// 3. Otherwise the window shows a neutral name (never a foreign summary).
-struct RestoredNameResolver {
+nonisolated struct RestoredNameResolver {
 
     func resolve(
         persistedTitle: String?,
@@ -37,18 +37,13 @@ struct RestoredNameResolver {
         let trimmed = persistedTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasTitle = (trimmed?.isEmpty == false)
 
-        // Absent provenance is treated as user-set — the conservative choice the
-        // snapshot decoder already makes (`customTitleSource ?? .user`), so a
-        // legacy title is never silently dropped.
-        let effectiveSource = source ?? .user
-
         // 1. A user title is never overwritten by restore.
-        if hasTitle, effectiveSource == .user, let title = trimmed {
+        if hasTitle, source == .user, let title = trimmed {
             return .keepUserTitle(title)
         }
 
         // 2. An auto summary is trustworthy only for a verified window.
-        if hasTitle, effectiveSource == .auto, isVerified, let title = trimmed {
+        if hasTitle, source == .auto, isVerified, let title = trimmed {
             return .applyVerifiedSummary(title)
         }
 

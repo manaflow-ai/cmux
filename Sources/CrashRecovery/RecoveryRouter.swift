@@ -6,13 +6,13 @@ import Foundation
 /// `ResumeBindingFacts` (which is purely about whether the binding is
 /// trustworthy) so the router can build the right human prompt for either branch
 /// without the gate needing to know about names or folders.
-struct RecoveryContext: Equatable, Sendable {
+nonisolated struct RecoveryContext: Equatable, Sendable {
     /// The window's persisted display name (auto- or user-set `customTitle`).
     var workspaceName: String
     /// The working directory the window is restoring into.
     var cwd: String?
-    /// The verified transcript path, when the binding carried one (passed
-    /// through to the breadcrumb on the verified branch).
+    /// The verified transcript path, when the binding carried one. Kept as
+    /// internal evidence only; user-facing breadcrumbs do not expose it.
     var transcriptPath: String?
 
     init(workspaceName: String, cwd: String?, transcriptPath: String? = nil) {
@@ -27,7 +27,7 @@ struct RecoveryContext: Equatable, Sendable {
 /// session; an unverified one hands the agent an honest, bounded recovery prompt.
 /// There is deliberately no third "pick a session from a list" branch — a
 /// cross-session picker is a non-goal.
-enum RecoveryAction: Equatable, Sendable {
+nonisolated enum RecoveryAction: Equatable, Sendable {
     /// The binding verified: drive the native `claude --resume <id>` (the caller
     /// already constructs the same-flag command) and, when breadcrumb injection
     /// is enabled, deliver `breadcrumb` once the agent is live. `breadcrumb` is
@@ -54,7 +54,7 @@ enum RecoveryAction: Equatable, Sendable {
 /// conservative `ResumableWorkspaceSurface` defaults route every real restore to
 /// honest recovery (never a blind resume). By contract neither delivery surface
 /// may auto-resume an unverified binding, and neither enumerates sessions.
-struct RecoveryRouter {
+nonisolated struct RecoveryRouter {
     /// Whether to attach the breadcrumb on the verified branch (mirrors
     /// `WorkspaceResumePlanner.injectBreadcrumb`; native resume is unaffected).
     var injectBreadcrumb: Bool

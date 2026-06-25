@@ -8,7 +8,7 @@ import Testing
 #endif
 
 /// Behavior tests for the agent-first recovery router (U11/R14/R17): a verified
-/// binding resumes with the transcript-anchored breadcrumb; an unverified one
+/// binding resumes with a privacy-safe breadcrumb; an unverified one
 /// yields an honest cwd-scoped prompt that fabricates no session; the silent
 /// path never auto-resumes an unverified binding; and the outcome is always
 /// binary (never a session list).
@@ -42,7 +42,7 @@ import Testing
 
     // MARK: - Verified branch
 
-    @Test func verifiedBindingResumesWithAnchoredBreadcrumb() {
+    @Test func verifiedBindingResumesWithPrivacySafeBreadcrumb() {
         let router = RecoveryRouter(injectBreadcrumb: true)
         let action = router.route(facts(), context: context())
         guard case .resumeVerified(let breadcrumb) = action else {
@@ -50,7 +50,7 @@ import Testing
             return
         }
         #expect(breadcrumb?.contains("Fix order-to-go CLI") == true)
-        #expect(breadcrumb?.contains("sess-123.jsonl") == true)
+        #expect(breadcrumb?.contains("sess-123.jsonl") == false)
         // Covers R14: a verified window is told to continue, never to reconstruct-or-ask.
         #expect(breadcrumb?.localizedCaseInsensitiveContains("otherwise ask") != true)
     }

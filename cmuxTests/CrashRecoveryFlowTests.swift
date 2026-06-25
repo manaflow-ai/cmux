@@ -97,7 +97,7 @@ import Testing
 
     @Test func cleanQuitDoesNotOffer() {
         let home = makeTempHome()
-        CrashRecoveryLaunchState.markCleanExit(homeDirectory: home, environment: [:])
+        CrashRecoveryLaunchState().markCleanExit(homeDirectory: home, environment: [:])
         let launch = CrashRecoveryLaunchState()
         launch.captureAtLaunch(homeDirectory: home, environment: [:])
         let defaults = makeDefaults()
@@ -109,7 +109,11 @@ import Testing
         // Intentional relaunch: forces restore, but is not a crash => no offer.
         let home = makeTempHome()
         UncleanShutdownSentinel.markRunning(homeDirectory: home, environment: [:])
-        CrashRecoveryLaunchState.markIntentionalRelaunch(reason: "sparkle-update", homeDirectory: home, environment: [:])
+        CrashRecoveryLaunchState().markIntentionalRelaunch(
+            reason: "sparkle-update",
+            homeDirectory: home,
+            environment: [:]
+        )
         let launch = CrashRecoveryLaunchState()
         launch.captureAtLaunch(homeDirectory: home, environment: [:])
         #expect(launch.restoreWasIntended)

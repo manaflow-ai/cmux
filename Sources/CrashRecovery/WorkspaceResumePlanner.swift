@@ -4,7 +4,7 @@ import Foundation
 /// auto-resumed and, if so, what breadcrumb to deliver. A plain value type with
 /// no app coupling so the decision is unit-testable; the call sites (crash offer,
 /// manual action) populate it from the live `Workspace` / resume binding.
-struct ResumeWorkspaceContext: Equatable, Sendable {
+nonisolated struct ResumeWorkspaceContext: Equatable, Sendable {
     /// The workspace's persisted display name (auto- or user-set `customTitle`).
     var workspaceName: String
     /// The agent kind backing the workspace, if known.
@@ -29,7 +29,7 @@ struct ResumeWorkspaceContext: Equatable, Sendable {
 }
 
 /// What to do with a restored workspace.
-enum ResumeDecision: Equatable, Sendable {
+nonisolated enum ResumeDecision: Equatable, Sendable {
     /// Resume the agent; deliver `breadcrumb` once it is live (nil when breadcrumb
     /// injection is disabled — native resume still runs).
     case resume(breadcrumb: String?)
@@ -42,7 +42,7 @@ enum ResumeDecision: Equatable, Sendable {
 /// the breadcrumb (and the native resume itself) is the caller's concern. This
 /// is the orchestrator's brain; keeping it side-effect free makes the full
 /// skip-reason matrix testable without the app host.
-struct WorkspaceResumePlanner {
+nonisolated struct WorkspaceResumePlanner {
     /// Whether to attach the breadcrumb prompt when a workspace is resumable.
     var injectBreadcrumb: Bool
 

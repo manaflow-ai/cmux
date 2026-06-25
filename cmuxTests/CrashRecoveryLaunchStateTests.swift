@@ -42,7 +42,11 @@ import Testing
         let home = makeTempHome()
         // Intentional relaunch marks clean exit + restore-intent.
         UncleanShutdownSentinel.markRunning(homeDirectory: home, environment: [:])
-        CrashRecoveryLaunchState.markIntentionalRelaunch(reason: "sparkle-update", homeDirectory: home, environment: [:])
+        CrashRecoveryLaunchState().markIntentionalRelaunch(
+            reason: "sparkle-update",
+            homeDirectory: home,
+            environment: [:]
+        )
         let state = CrashRecoveryLaunchState()
         state.captureAtLaunch(homeDirectory: home, environment: [:])
         #expect(!state.priorRunCrashed)
@@ -52,7 +56,7 @@ import Testing
     @Test func cleanQuitIsNeitherCrashNorIntent() {
         let home = makeTempHome()
         UncleanShutdownSentinel.markRunning(homeDirectory: home, environment: [:])
-        CrashRecoveryLaunchState.markCleanExit(homeDirectory: home, environment: [:])
+        CrashRecoveryLaunchState().markCleanExit(homeDirectory: home, environment: [:])
         let state = CrashRecoveryLaunchState()
         state.captureAtLaunch(homeDirectory: home, environment: [:])
         #expect(!state.priorRunCrashed)
@@ -93,7 +97,7 @@ import Testing
 
     @Test func cleanRunNeverOffersEvenWhenOptedIn() {
         let home = makeTempHome()
-        CrashRecoveryLaunchState.markCleanExit(homeDirectory: home, environment: [:])
+        CrashRecoveryLaunchState().markCleanExit(homeDirectory: home, environment: [:])
         let state = CrashRecoveryLaunchState()
         state.captureAtLaunch(homeDirectory: home, environment: [:])
         let defaults = makeDefaults()

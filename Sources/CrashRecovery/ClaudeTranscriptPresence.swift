@@ -13,18 +13,18 @@ import CMUXAgentLaunch
 /// This deliberately READS where the transcript lives; it does NOT fix where the
 /// auto-resume binding points (that is PR #6741's `ClaudeResumeWorkingDirectory`).
 /// The two compose: #6741 makes `claude --resume` cd into the right project dir,
-/// and this check decides whether cmux should hand the agent the transcript-
-/// anchored breadcrumb vs. the honest recovery prompt. Self-contained so the PR
+/// and this check decides whether cmux should hand the agent a verified
+/// breadcrumb vs. the honest recovery prompt. Self-contained so the PR
 /// stands alone before #6741 lands; once #6741 is in, the resolver can defer to
 /// its shared `ClaudeProjectDirEncoding`.
-struct ClaudeTranscriptPresence: Equatable, Sendable {
+nonisolated struct ClaudeTranscriptPresence: Equatable, Sendable {
     /// A transcript for the session exists at the project dir derived from this
     /// window's cwd.
     var existsAtWindowCwd: Bool
     /// A transcript for the session exists under some other project dir.
     var existsElsewhere: Bool
-    /// The resolved on-disk transcript path when found at the window's cwd (for
-    /// the transcript-anchored breadcrumb). Nil when not found at-cwd.
+    /// The resolved on-disk transcript path when found at the window's cwd.
+    /// Internal evidence only; user-facing breadcrumbs do not expose it.
     var resolvedPathAtWindowCwd: String?
 
     static let absent = ClaudeTranscriptPresence(
@@ -79,9 +79,12 @@ enum ClaudeTranscriptPresenceResolver {
                 }
             }
 
-            // Under any *other* project dir (only worth scanning if not yet found
-            // elsewhere — one hit is enough to distinguish missing from mismatch).
-            if !existsElsewhere,
+            // Under any *other* project dir. This scan is only needed when the
+            // transcript was not found at this window's cwd; once at-cwd exists,
+            // the binding is verified and "elsewhere too" does not change the
+            // routing decision.
+            if resolvedAtCwd == nil,
+               !existsElsewhere,
                let children = try? fileManager.contentsOfDirectory(atPath: projectsDir) {
                 for child in children where child != windowProjectDir {
                     let projectRoot = (projectsDir as NSString).appendingPathComponent(child)

@@ -12,7 +12,7 @@ import Foundation
 /// transcript lookup; that override + its live validation are the U14 step). The
 /// gate itself never reads a file — keeping the filesystem at the edge is what
 /// lets the full verified/unverified matrix be proven without the app host.
-struct ResumeBindingFacts: Equatable, Sendable {
+nonisolated struct ResumeBindingFacts: Equatable, Sendable {
     /// Whether *any* binding was persisted for this restored panel. A panel that
     /// never recorded a session (the common "[no agent]" pre-crash pane, U9)
     /// has no binding at all and must not be guessed at.
@@ -37,27 +37,12 @@ struct ResumeBindingFacts: Equatable, Sendable {
     /// restore would otherwise grep every transcript and adopt a foreign one.
     var transcriptExistsElsewhere: Bool
 
-    init(
-        hasBinding: Bool,
-        agentKind: RestorableAgentKind?,
-        sessionId: String?,
-        resumeCommandConstructable: Bool,
-        transcriptExistsAtWindowCwd: Bool,
-        transcriptExistsElsewhere: Bool
-    ) {
-        self.hasBinding = hasBinding
-        self.agentKind = agentKind
-        self.sessionId = sessionId
-        self.resumeCommandConstructable = resumeCommandConstructable
-        self.transcriptExistsAtWindowCwd = transcriptExistsAtWindowCwd
-        self.transcriptExistsElsewhere = transcriptExistsElsewhere
-    }
 }
 
 /// The outcome of verifying a restored binding.
-enum BindingVerdict: Equatable, Sendable {
+nonisolated enum BindingVerdict: Equatable, Sendable {
     /// The binding is trustworthy: resume this exact session and deliver the
-    /// transcript-anchored breadcrumb (U11 verified path → U12).
+    /// privacy-safe breadcrumb (U11 verified path → U12).
     case verified
     /// The binding could not be trusted; the reason routes the restore to the
     /// honest, cwd-scoped agent recovery (U11 unverified path). Never resumed,
@@ -67,7 +52,7 @@ enum BindingVerdict: Equatable, Sendable {
 
 /// Why a restored binding failed verification. Stable raw form for logging and
 /// tests; localized at the display call site.
-enum UnverifiedReason: Hashable, Sendable {
+nonisolated enum UnverifiedReason: Hashable, Sendable {
     /// No binding was persisted for this panel — nothing to verify.
     case noBinding
     /// A binding exists but carries no usable session id.
@@ -108,7 +93,7 @@ enum UnverifiedReason: Hashable, Sendable {
 ///
 /// Side-effect free by construction. The single `verify` entry point mirrors
 /// `WorkspaceResumePlanner.decide` — same shape, same testability contract.
-struct ResumeFidelityGate {
+nonisolated struct ResumeFidelityGate {
 
     /// Agents whose native-resume + verification flow v1 supports. Mirrors
     /// `ResumeBreadcrumbBuilder.isSupported` so the gate and the breadcrumb agree

@@ -136,12 +136,12 @@ import Testing
         func deliverHonestRecoveryPrompt(_ text: String) { deliveredHonestPrompts.append(text) }
     }
 
-    @Test func recoverVerifiedBindingResumesAndAnchorsBreadcrumb() {
+    @Test func recoverVerifiedBindingResumesAndKeepsBreadcrumbPrivacySafe() {
         let surface = VerifiableFakeSurface(live: false, atWindowCwd: true)
         let outcome = WorkspaceResumeCoordinator(injectBreadcrumb: true).recover(surface)
         #expect(outcome == .resumed(deliveredBreadcrumb: true))
         #expect(surface.nativeResumeCount == 1)
-        #expect(surface.deliveredBreadcrumbs.first?.contains("sess-1.jsonl") == true)
+        #expect(surface.deliveredBreadcrumbs.first?.contains("sess-1.jsonl") == false)
         #expect(surface.deliveredHonestPrompts.isEmpty)
     }
 

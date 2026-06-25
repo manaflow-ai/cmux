@@ -14,6 +14,7 @@ import Testing
     @Test func messageNamesTheResumableCount() {
         let content = CrashRecoveryOfferText.make(resumableCount: 3)
         #expect(content.message.contains("3"))
+        #expect(!content.message.contains("workspace(s)"))
     }
 
     @Test func allFieldsArePopulated() {

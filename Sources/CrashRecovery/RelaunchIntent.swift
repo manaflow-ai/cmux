@@ -57,10 +57,16 @@ enum RelaunchIntent {
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Bool {
         let url = markerURL(homeDirectory: homeDirectory, environment: environment)
-        let intended = fileManager.fileExists(atPath: url.path)
-        if intended {
-            try? fileManager.removeItem(at: url)
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory),
+              !isDirectory.boolValue else {
+            return false
         }
-        return intended
+        do {
+            try fileManager.removeItem(at: url)
+            return true
+        } catch {
+            return false
+        }
     }
 }

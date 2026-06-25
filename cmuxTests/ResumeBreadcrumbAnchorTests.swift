@@ -7,10 +7,10 @@ import Testing
 @testable import cmux
 #endif
 
-/// Behavior tests for the transcript-anchored breadcrumb (U12/R15/KTD12): a
-/// verified binding with a transcript path names that exact file; without a path
-/// it degrades to a summary-only nudge; an unverified verdict produces no
-/// breadcrumb at all; and the path is sanitized to stay a single safe line.
+/// Behavior tests for the verified breadcrumb (U12/R15/KTD12): a
+/// verified binding with a transcript path stays privacy-safe, an unverified
+/// verdict produces no breadcrumb at all, and path fragments used elsewhere are
+/// sanitized to stay a single safe line.
 @Suite struct ResumeBreadcrumbAnchorTests {
 
     private func anchor(
@@ -25,10 +25,11 @@ import Testing
         )
     }
 
-    @Test func verifiedWithPathNamesSummaryAndTranscript() {
+    @Test func verifiedWithPathNamesSummaryWithoutExposingTranscript() {
         let text = ResumeBreadcrumbBuilder.breadcrumb(forVerified: anchor())
         #expect(text.contains("Fix order-to-go CLI"))
-        #expect(text.contains("/Users/me/.claude/projects/-Users-me-repo/sess-123.jsonl"))
+        #expect(!text.contains("/Users/me/.claude/projects/-Users-me-repo/sess-123.jsonl"))
+        #expect(!text.contains("sess-123.jsonl"))
         #expect(text.localizedCaseInsensitiveContains("pick up where we left off"))
         #expect(!text.contains("\n"))
     }
@@ -51,13 +52,13 @@ import Testing
     @Test func verifiedVerdictProducesAnchoredBreadcrumb() {
         let text = ResumeBreadcrumbBuilder.breadcrumbIfVerified(.verified, anchor: anchor())
         #expect(text != nil)
-        #expect(text?.contains("sess-123.jsonl") == true)
+        #expect(text?.contains("sess-123.jsonl") == false)
     }
 
-    @Test func emptyNameWithPathStillNamesTranscript() {
+    @Test func emptyNameWithPathStillOmitsTranscript() {
         let text = ResumeBreadcrumbBuilder.breadcrumb(forVerified: anchor(name: "   "))
         #expect(!text.contains("\"\""))
-        #expect(text.contains("sess-123.jsonl"))
+        #expect(!text.contains("sess-123.jsonl"))
         #expect(text.localizedCaseInsensitiveContains("pick up where we left off"))
     }
 

@@ -53,5 +53,9 @@ import Testing
         #expect(byJson["offerResumeAfterCrash"] == CrashRecoverySettings.offerResumeAfterCrashKey)
         #expect(byJson["injectResumeBreadcrumb"] == CrashRecoverySettings.injectResumeBreadcrumbKey)
         #expect(byJson["resumeAgentsAfterUpdate"] == CrashRecoverySettings.resumeAgentsAfterUpdateKey)
+
+        #expect(CmuxSettingsFileStore.supportedSettingsJSONPaths.contains("terminal.offerResumeAfterCrash"))
+        #expect(CmuxSettingsFileStore.supportedSettingsJSONPaths.contains("terminal.injectResumeBreadcrumb"))
+        #expect(CmuxSettingsFileStore.supportedSettingsJSONPaths.contains("terminal.resumeAgentsAfterUpdate"))
     }
 }

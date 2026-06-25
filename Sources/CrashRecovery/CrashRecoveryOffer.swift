@@ -17,10 +17,10 @@ enum CrashRecoveryOfferText {
                 localized: "crashRecovery.offer.title",
                 defaultValue: "Resume where you left off?"
             ),
-            message: String(
-                format: String(
+            message: String.localizedStringWithFormat(
+                String(
                     localized: "crashRecovery.offer.message",
-                    defaultValue: "cmux didn't shut down cleanly last time. Pick up where the agents left off in %lld workspace(s)?"
+                    defaultValue: "cmux didn't shut down cleanly last time. Pick up where the agents left off in %lld workspaces?"
                 ),
                 resumableCount
             ),
@@ -49,7 +49,7 @@ enum CrashRecoveryOfferPresenter {
     /// opted in and there is something resumable. On accept, resumes all.
     static func presentOfferIfNeeded(
         in manager: TabManager,
-        launchState: CrashRecoveryLaunchState = .shared,
+        launchState: CrashRecoveryLaunchState,
         defaults: UserDefaults = .standard
     ) {
         guard launchState.shouldOfferResume(defaults: defaults) else { return }
@@ -73,7 +73,7 @@ enum CrashRecoveryOfferPresenter {
     /// was deliberate. Windows always restore regardless; this only resumes agents.
     static func resumeAfterIntentionalRelaunchIfNeeded(
         in manager: TabManager,
-        launchState: CrashRecoveryLaunchState = .shared,
+        launchState: CrashRecoveryLaunchState,
         defaults: UserDefaults = .standard
     ) {
         guard launchState.restoreWasIntended,

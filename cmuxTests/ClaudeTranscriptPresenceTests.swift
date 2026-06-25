@@ -18,9 +18,7 @@ import Testing
     /// Build an isolated fake home; returns its path. Caller seeds transcripts.
     private func makeHome() throws -> String {
         let base = NSTemporaryDirectory() as NSString
-        // Vary by a stable counter-free unique name via UUID-free timestamp-free
-        // approach: use a content-addressed dir under the temp root.
-        let dir = base.appendingPathComponent("cmux-transcript-test-\(abs("\(self)".hashValue))-\(Int.random(in: 0...999999))")
+        let dir = base.appendingPathComponent("cmux-transcript-test-\(UUID().uuidString)")
         try? fm.removeItem(atPath: dir)
         try fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
         return dir

@@ -145,11 +145,50 @@ struct WorkspaceResumeCoordinator {
         return ResumeBindingFacts(
             hasBinding: surface.resumeAgentKind != nil || hasToken,
             agentKind: surface.resumeAgentKind,
-            sessionId: surface.resumeSessionToken,
+            sessionId: Self.bareSessionId(from: surface.resumeSessionToken),
             resumeCommandConstructable: surface.resumeCommandConstructable,
             transcriptExistsAtWindowCwd: surface.transcriptExistsAtWindowCwd,
             transcriptExistsElsewhere: surface.transcriptExistsElsewhere
         )
+    }
+
+    /// Return the bare session id from either the modern checkpoint id or a
+    /// legacy resume command token such as `claude --resume <id>`.
+    private static func bareSessionId(from token: String?) -> String? {
+        guard let trimmed = token?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else { return nil }
+
+        let words = trimmed.split { $0.isWhitespace }.map { stripShellQuotes(String($0)) }
+        for (index, word) in words.enumerated() {
+            if word == "--resume" || word == "-r" {
+                let next = words.index(after: index)
+                return next < words.endIndex ? nonEmpty(words[next]) : nil
+            }
+            if word.hasPrefix("--resume=") {
+                return nonEmpty(String(word.dropFirst("--resume=".count)))
+            }
+        }
+        return trimmed
+    }
+
+    private static func stripShellQuotes(_ value: String) -> String {
+        var result = value
+        while result.count >= 2 {
+            let first = result.first
+            let last = result.last
+            if (first == "'" && last == "'") || (first == "\"" && last == "\"") {
+                result.removeFirst()
+                result.removeLast()
+            } else {
+                break
+            }
+        }
+        return result
+    }
+
+    private static func nonEmpty(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     /// Build the window-scoped recovery context from a live surface.
@@ -163,7 +202,7 @@ struct WorkspaceResumeCoordinator {
 
     /// The verification-gated recovery entry point for the silent restore path
     /// (R14/R17): verify the binding, then either resume the exact session +
-    /// deliver the transcript-anchored breadcrumb, or deliver the honest
+    /// deliver the privacy-safe breadcrumb, or deliver the honest
     /// cwd-scoped recovery prompt and resume nothing. Never auto-resumes an
     /// unverified binding; never enumerates sessions. Distinct from `resume(_:)`,
     /// which backs the opt-in offer (U5) and manual action (U6) under the v1

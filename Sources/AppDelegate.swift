@@ -511,6 +511,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var aboutTitlebarDebugStore: AboutTitlebarDebugStore { debugWindowsCoordinator.aboutTitlebarStore }
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
     let remoteTmuxController = RemoteTmuxController()
+    /// Owns per-launch crash/update recovery classification for this app process.
+    let crashRecoveryLaunchState = CrashRecoveryLaunchState()
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
 
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
@@ -1287,7 +1289,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // intentional update relaunch) BEFORE arming this run's sentinel. Skipped
         // under XCTest so the test host never touches the real lifecycle markers.
         if !isRunningUnderXCTest {
-            CrashRecoveryLaunchState.shared.captureAtLaunch()
+            crashRecoveryLaunchState.captureAtLaunch()
         }
 
         // Prewarm the shared restorable-agent index off the main thread so the first
@@ -1994,7 +1996,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Clean shutdown: clear the unclean-shutdown sentinel so the next launch
         // does not show the crash-recovery offer. (Intentional update relaunches
         // mark this earlier via updaterWillRelaunchApplication.)
-        CrashRecoveryLaunchState.markCleanExit()
+        crashRecoveryLaunchState.markCleanExit()
         sentryStopMemoryContextRefresh()
         isTerminatingApp = true
         // Plain quit detaches local ssh clients; explicit close already killed marked sessions.
@@ -3198,7 +3200,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // An intentional relaunch (Sparkle update) forces restore so windows are
         // never lost even if the relaunch passed launch arguments.
         guard SessionRestorePolicy.shouldAttemptRestore(
-            restoreIntended: CrashRecoveryLaunchState.shared.restoreWasIntended
+            restoreIntended: crashRecoveryLaunchState.restoreWasIntended
         ) else { return }
         startupSessionSnapshot = sanitizedStartupSnapshot
     }
@@ -7259,9 +7261,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     ?? self.mainWindowContexts.values.first(where: { $0.windowId == windowId })?.tabManager
                     ?? self.mainWindowContexts.values.first?.tabManager else { return }
             // Update relaunch: silently auto-resume agents if opted in.
-            CrashRecoveryOfferPresenter.resumeAfterIntentionalRelaunchIfNeeded(in: manager)
+            CrashRecoveryOfferPresenter.resumeAfterIntentionalRelaunchIfNeeded(
+                in: manager,
+                launchState: self.crashRecoveryLaunchState
+            )
             // Crash: offer to resume (gated on crash + opt-in).
-            CrashRecoveryOfferPresenter.presentOfferIfNeeded(in: manager)
+            CrashRecoveryOfferPresenter.presentOfferIfNeeded(
+                in: manager,
+                launchState: self.crashRecoveryLaunchState
+            )
         }
         return windowId
     }
@@ -17751,7 +17759,7 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
         // Intentional relaunch: mark clean exit + restore-intent so the next launch
         // restores all windows (the "Update & reload all windows" guarantee) and
         // never misreads the update as a crash.
-        CrashRecoveryLaunchState.markIntentionalRelaunch(reason: "sparkle-update")
+        crashRecoveryLaunchState.markIntentionalRelaunch(reason: "sparkle-update")
         persistSessionForUpdateRelaunch()
         TerminalController.shared.stop()
         NSApp.invalidateRestorableState()

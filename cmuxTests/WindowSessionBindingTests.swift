@@ -62,7 +62,7 @@ import Testing
         let context = coordinator.recoveryContext(for: surface)
         #expect(facts.hasBinding)
         #expect(facts.agentKind == .claude)
-        #expect(facts.sessionId == "claude --resume sess-A")
+        #expect(facts.sessionId == "sess-A")
         #expect(context.cwd == "/Users/me/ordertogo")
         #expect(context.workspaceName == "Fix order-to-go CLI")
     }
@@ -99,5 +99,6 @@ import Testing
         let surface = BindingFakeSurface(name: "w", kind: nil, session: "claude --resume sess-C", cwd: "/Users/me")
         let facts = coordinator.bindingFacts(for: surface)
         #expect(facts.hasBinding == true)
+        #expect(facts.sessionId == "sess-C")
     }
 }

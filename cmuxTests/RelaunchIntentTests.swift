@@ -38,6 +38,20 @@ import Testing
         #expect(!RelaunchIntent.consumeRestoreIntent(homeDirectory: home, environment: [:]))
     }
 
+    @Test func directoryAtMarkerPathReportsNotIntended() throws {
+        let home = makeTempHome()
+        let marker = RelaunchIntent.markerURL(homeDirectory: home, environment: [:])
+        try FileManager.default.createDirectory(
+            at: marker,
+            withIntermediateDirectories: true
+        )
+
+        #expect(!RelaunchIntent.consumeRestoreIntent(homeDirectory: home, environment: [:]))
+        var isDirectory: ObjCBool = false
+        #expect(FileManager.default.fileExists(atPath: marker.path, isDirectory: &isDirectory))
+        #expect(isDirectory.boolValue)
+    }
+
     @Test func markerHonorsXDGStateHome() {
         let home = makeTempHome()
         let xdg = makeTempHome()

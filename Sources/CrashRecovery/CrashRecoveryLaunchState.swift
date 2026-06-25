@@ -10,8 +10,6 @@ import Foundation
 /// path could fire.
 @MainActor
 final class CrashRecoveryLaunchState {
-    static let shared = CrashRecoveryLaunchState()
-
     /// The prior run left an unclean-shutdown sentinel (crash / kill / power loss)
     /// AND that run was not an intentional relaunch.
     private(set) var priorRunCrashed = false
@@ -59,7 +57,7 @@ final class CrashRecoveryLaunchState {
 
     /// Records a clean exit. Call on `applicationWillTerminate` and other clean
     /// shutdown paths.
-    static func markCleanExit(
+    func markCleanExit(
         fileManager: FileManager = .default,
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
         environment: [String: String] = ProcessInfo.processInfo.environment
@@ -71,7 +69,7 @@ final class CrashRecoveryLaunchState {
 
     /// Records an intentional, restore-intended relaunch (Sparkle / Rosetta): clears
     /// the sentinel and writes the restore-intent marker. Call from the relaunch hook.
-    static func markIntentionalRelaunch(
+    func markIntentionalRelaunch(
         reason: String,
         fileManager: FileManager = .default,
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
@@ -83,12 +81,5 @@ final class CrashRecoveryLaunchState {
         RelaunchIntent.markRestoreIntended(
             reason: reason, fileManager: fileManager, homeDirectory: homeDirectory, environment: environment
         )
-    }
-
-    /// Test seam: reset captured state.
-    func resetForTesting() {
-        captured = false
-        priorRunCrashed = false
-        restoreWasIntended = false
     }
 }

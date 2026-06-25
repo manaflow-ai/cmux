@@ -56,18 +56,24 @@ enum ResumeBreadcrumbBuilder {
     ///     context).
     static func breadcrumb(workspaceName: String, agent: RestorableAgentKind) -> String {
         let name = sanitizedName(workspaceName)
-        let lead: String
         if let name {
-            lead = "We were working on \"\(name)\" in this window last session."
-        } else {
-            lead = "We were working in this window last session."
+            return String.localizedStringWithFormat(
+                String(
+                    localized: "crashRecovery.breadcrumb.named",
+                    defaultValue: "We were working on \"%@\" in this window last session. Please review your context and notes, then pick up where we left off."
+                ),
+                name
+            )
         }
-        return "\(lead) Please review your context and notes, then pick up where we left off."
+        return String(
+            localized: "crashRecovery.breadcrumb.unnamed",
+            defaultValue: "We were working in this window last session. Please review your context and notes, then pick up where we left off."
+        )
     }
 
     /// A *verified* restored binding's anchor for the forensic-recovery
     /// breadcrumb (U12/R15): the window's summary, its agent, and — when known —
-    /// the exact on-disk transcript path that `ResumeFidelityGate` confirmed
+    /// the internal transcript evidence that `ResumeFidelityGate` confirmed
     /// belongs to this window. Constructed only from a verified binding; the
     /// unverified path never reaches here (R15).
     struct VerifiedResumeAnchor: Equatable, Sendable {
@@ -84,33 +90,20 @@ enum ResumeBreadcrumbBuilder {
         }
     }
 
-    /// Builds the breadcrumb for a *verified* restored binding, pointing the
-    /// agent at its **specific** transcript when one is known (U12/KTD12).
+    /// Builds the breadcrumb for a *verified* restored binding.
     ///
-    /// The v1 breadcrumb said "review your context and notes" — open-ended, which
-    /// is what let restored agents grep every transcript and adopt a foreign one
-    /// (Examples 2/3). When the binding verifies *and* carries a transcript path,
-    /// this names that exact file so reconstruction is bounded to the right
-    /// source. With no path, it degrades to the summary-only nudge (the verified
-    /// session id still drove a correct native `--resume`).
+    /// The verified session id already drove the correct native `--resume`, so
+    /// the user-facing breadcrumb stays privacy-safe: it anchors on the workspace
+    /// label and asks the resumed agent to review its restored context without
+    /// exposing vendor transcript paths or session-derived filenames.
     ///
     /// Like `breadcrumb(workspaceName:agent:)` the result is a single sanitized
     /// line, safe to inject as terminal startup input.
     static func breadcrumb(forVerified anchor: VerifiedResumeAnchor) -> String {
-        let name = sanitizedName(anchor.workspaceName)
-        let lead: String
-        if let name {
-            lead = "We were working on \"\(name)\" in this window last session."
-        } else {
-            lead = "We were working in this window last session."
-        }
-        if let path = sanitizedPath(anchor.transcriptPath) {
-            return "\(lead) Your prior transcript for this window is at \(path) — review that file and pick up where we left off."
-        }
-        return "\(lead) Please review your context and notes, then pick up where we left off."
+        breadcrumb(workspaceName: anchor.workspaceName, agent: anchor.agentKind)
     }
 
-    /// Verdict-gated breadcrumb: returns the transcript-anchored breadcrumb only
+    /// Verdict-gated breadcrumb: returns the verified breadcrumb only
     /// for a `.verified` binding, and `nil` for any unverified one (R15 — a
     /// context-less / mis-mapped window gets no confident nudge; it routes to the
     /// honest cwd-scoped recovery in U11 instead). Encodes the "suppress when
@@ -140,21 +133,41 @@ enum ResumeBreadcrumbBuilder {
         let name = sanitizedName(workspaceName)
         let folder = sanitizedPath(cwd)
 
-        var sentence = "cmux restarted this window but could not verify which agent session it was running before"
-        if let name {
-            sentence += " (its last label was \"\(name)\")"
+        switch (name, folder) {
+        case (.some(let name), .some(let folder)):
+            return String.localizedStringWithFormat(
+                String(
+                    localized: "crashRecovery.honestRecovery.namedWithCwd",
+                    defaultValue: "cmux restarted this window but could not verify which agent session it was running before (its last label was \"%1$@\"). This window's working directory is %2$@. If you can tell with confidence from the files here what was in progress, summarize it and continue; otherwise ask what I'd like to work on. Do not adopt or guess another window's session."
+                ),
+                name,
+                folder
+            )
+        case (.some(let name), .none):
+            return String.localizedStringWithFormat(
+                String(
+                    localized: "crashRecovery.honestRecovery.namedNoCwd",
+                    defaultValue: "cmux restarted this window but could not verify which agent session it was running before (its last label was \"%@\"). If you can tell with confidence from the files here what was in progress, summarize it and continue; otherwise ask what I'd like to work on. Do not adopt or guess another window's session."
+                ),
+                name
+            )
+        case (.none, .some(let folder)):
+            return String.localizedStringWithFormat(
+                String(
+                    localized: "crashRecovery.honestRecovery.unnamedWithCwd",
+                    defaultValue: "cmux restarted this window but could not verify which agent session it was running before. This window's working directory is %@. If you can tell with confidence from the files here what was in progress, summarize it and continue; otherwise ask what I'd like to work on. Do not adopt or guess another window's session."
+                ),
+                folder
+            )
+        case (.none, .none):
+            return String(
+                localized: "crashRecovery.honestRecovery.unnamedNoCwd",
+                defaultValue: "cmux restarted this window but could not verify which agent session it was running before. If you can tell with confidence from the files here what was in progress, summarize it and continue; otherwise ask what I'd like to work on. Do not adopt or guess another window's session."
+            )
         }
-        sentence += "."
-
-        if let folder {
-            sentence += " This window's working directory is \(folder)."
-        }
-
-        sentence += " If you can tell with confidence from the files here what was in progress, summarize it and continue; otherwise ask what I'd like to work on. Do not adopt or guess another window's session."
-        return sentence
     }
 
-    /// Collapses a raw transcript path into a safe single-line fragment for
+    /// Collapses a raw path into a safe single-line fragment for
     /// injection as terminal startup input. Paths may legitimately contain
     /// spaces, so internal whitespace is preserved (unlike `sanitizedName`); only
     /// line-breaking scalars are stripped, the tilde is expanded so the path is

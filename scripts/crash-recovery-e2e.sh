@@ -247,9 +247,25 @@ cmd_forcequit() {
   done
 }
 
+wait_for_tagged_exit() {
+  local deadline=$((SECONDS + 10))
+  local pids
+  while true; do
+    pids="$(tagged_pids || true)"
+    if [[ -z "$pids" ]]; then
+      return 0
+    fi
+    if (( SECONDS >= deadline )); then
+      echo "[relaunch] timed out waiting for tagged PIDs to exit: $pids" >&2
+      return 1
+    fi
+    sleep 0.1
+  done
+}
+
 cmd_relaunch() {
   cmd_forcequit
-  sleep 1
+  wait_for_tagged_exit
   cmd_launch
 }
 
@@ -262,7 +278,7 @@ cmd_verify() {
 
 Manual acceptance (observe the relaunched tagged app):
   [ ] A window with a verified binding resumed ITS OWN session (continues the
-      specific task; the breadcrumb named the verified transcript path).
+      specific task without exposing transcript paths or session filenames).
   [ ] A window whose binding could NOT be verified showed the HONEST recovery
       prompt (cwd-scoped, names no session) — not a confident wrong guess, not a
       filesystem meander, not a session picker.
