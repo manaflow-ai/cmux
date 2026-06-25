@@ -366,6 +366,9 @@ extension Workspace {
     ) -> SessionPanelSnapshot? {
         guard let panel = panels[panelId] else { return nil }
 
+        // A livesh bridge is the durable startup owner for this terminal. Do not
+        // persist a nested agent snapshot that would launch a competing session.
+        let liveShellResumeOwnsStartup = resumeBinding?.kind == "livesh"
         let indexedRestorableAgent = restorableAgentObservation?.snapshot
         let compatibleIndexedRestorableAgent = indexedRestorableAgent.flatMap {
             Self.restorableAgentForSessionRestore(
@@ -417,14 +420,16 @@ extension Workspace {
             ) == nil ? nil : state
         }
         let restoredAgentCompleted = restoredAgentResumeStatesByPanelId[panelId] == .completedAgentExit
-        let effectiveRestorableAgent = restoredAgentCompleted ? nil : Self.restorableAgentForSessionRestore(
-            restoredAgentLifecycle.reconcileSnapshotWithQueuedRestoreIntent(
-                panelId: panelId,
-                proposedSnapshot: effectiveHibernationState?.agent
-                    ?? restoredAgentSnapshotsByPanelId[panelId]
-            ),
-            resumeBinding: resumeBinding
-        )
+        let effectiveRestorableAgent = liveShellResumeOwnsStartup
+            ? nil
+            : (restoredAgentCompleted ? nil : Self.restorableAgentForSessionRestore(
+                restoredAgentLifecycle.reconcileSnapshotWithQueuedRestoreIntent(
+                    panelId: panelId,
+                    proposedSnapshot: effectiveHibernationState?.agent
+                        ?? restoredAgentSnapshotsByPanelId[panelId]
+                ),
+                resumeBinding: resumeBinding
+            ))
 
         let panelTitle = panelTitle(panelId: panelId)
         let customTitle = panelCustomTitles[panelId]

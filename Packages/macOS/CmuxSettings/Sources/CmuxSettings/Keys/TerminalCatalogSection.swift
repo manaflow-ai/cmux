@@ -185,5 +185,22 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.runawayMemoryGuardrail.thresholdGB"
     )
 
+    /// Absolute path override for the `livesh` executable. Empty means cmux
+    /// searches the user's default install locations and `PATH`.
+    public let liveshExecutablePath = DefaultsKey<String>(
+        id: "terminal.liveshExecutablePath",
+        defaultValue: "",
+        userDefaultsKey: "terminalLiveshExecutablePath"
+    )
+
+    /// Absolute path override for the `liveshctl` executable used by live-shell
+    /// management commands. Empty means cmux searches the user's default install
+    /// locations and `PATH`.
+    public let liveshctlExecutablePath = DefaultsKey<String>(
+        id: "terminal.liveshctlExecutablePath",
+        defaultValue: "",
+        userDefaultsKey: "terminalLiveshctlExecutablePath"
+    )
+
     public init() {}
 }
