@@ -30,38 +30,8 @@ struct DeviceTreeView: View {
     /// The computer pending a remove confirmation.
     @State private var pendingRemoval: MacComputerSnapshot?
 
-    /// The user's computers as immutable snapshots, sourced from the paired-Mac
-    /// backup (`pairedMacs`) — this feature's source of truth, the same set that
-    /// feeds the workspace aggregation, and the one ``CMUXMobileShellStore/forgetMac``
-    /// actually removes. (Building from `deviceTreeDevices`, which prefers the team
-    /// registry, would make Remove ineffective: a registry-backed row reappears on
-    /// the next registry load.) Each is enriched with presence, live status, and how
-    /// many aggregated workspaces it contributes.
     private var computers: [MacComputerSnapshot] {
-        let workspaces = store.workspaces
-        let colorIndex = store.machineColorIndex
-        // The PHONE's own per-Mac connection (foreground or live secondary) — the
-        // source of truth for the dot, distinct from presence.
-        let connectionStatuses = store.macConnectionStatuses
-        return store.pairedMacs.map { mac in
-            let summary = store.presenceMap.deviceSummary(deviceId: mac.macDeviceID)
-            let presence: DeviceTreePresence? = summary
-                .map { $0.online ? .online : .offline(lastSeenAt: $0.lastSeenAt) }
-            return MacComputerSnapshot(
-                deviceId: mac.macDeviceID,
-                title: mac.resolvedName,
-                platform: "mac",
-                colorIndex: colorIndex[mac.macDeviceID],
-                customColor: mac.customColor,
-                customIcon: mac.customIcon,
-                connectionStatus: connectionStatuses[mac.macDeviceID],
-                presence: presence,
-                buildLabel: summary?.buildLabel,
-                routeDescription: CmxAttachRoute.deviceTreeRouteDescription(for: mac.routes),
-                lastSeenAt: mac.lastSeenAt,
-                workspaceCount: workspaces.filter { $0.macDeviceID == mac.macDeviceID }.count
-            )
-        }
+        store.stableComputerSnapshots
     }
 
     var body: some View {

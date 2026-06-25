@@ -3613,6 +3613,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         suppressTerminalAutoFocusOnNextAttach(for: selectedTerminalID)
     }
 
+    /// Switch to a specific paired Mac, then create a workspace there.
+    @discardableResult
+    public func createWorkspace(onMacDeviceID macDeviceID: String) async -> Bool {
+        guard await switchToMac(macDeviceID: macDeviceID) else { return false }
+        createWorkspace()
+        return true
+    }
+
     /// Creates a terminal in `workspaceID`, or the selected workspace when nil.
     ///
     /// Callers that act on a specific workspace (e.g. the "+" button on a

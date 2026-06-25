@@ -96,11 +96,13 @@ struct WorkspaceListView: View {
     @State private var showingDeviceTree = false
     /// The active row filter (All / Unread), shared-model state behind the
     /// toolbar ``WorkspaceListFilterMenu``. Session-transient like a search.
-    @State private var filter: MobileWorkspaceListFilter = .all
+    @State var filter: MobileWorkspaceListFilter = .all
     /// The workspace whose destructive close action is awaiting confirmation.
     /// Stored at list scope so reusable rows do not own transient presentation
     /// state while `List` is recycling swipe-action rows.
     @State private var workspacePendingCloseID: MobileWorkspacePreview.ID?
+    @State var computerWorkspaceCreationFailureID: String?
+    @State var computerWorkspaceCreationFailureName = ""
 
     private var trimmedQuery: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -170,6 +172,24 @@ struct WorkspaceListView: View {
                     .listRowSeparator(.hidden)
                 }
             }
+            #if os(iOS)
+            if let store {
+                let computers = store.stableComputerSnapshots
+                if !computers.isEmpty {
+                    Section {
+                        WorkspaceComputerStripView(
+                            computers: computers,
+                            selectedMachineIDs: filter.machines,
+                            selectComputer: selectComputerInStrip,
+                            createWorkspace: createWorkspaceOnComputer,
+                            showAddDevice: showAddDevice
+                        )
+                        .listRowInsets(EdgeInsets())
+                        .listRowSeparator(.hidden)
+                    }
+                }
+            }
+            #endif
             if connectionStatus != .connected {
                 Section {
                     MobileMacConnectionStatusRow(
@@ -268,6 +288,30 @@ struct WorkspaceListView: View {
                 DeviceTreeView(store: store, selectWorkspace: selectWorkspace, showAddDevice: showAddDevice)
             }
         }
+        .alert(
+            L10n.string(
+                "mobile.workspaces.computerStrip.createFailedTitle",
+                defaultValue: "Could not connect to Mac"
+            ),
+            isPresented: computerWorkspaceCreationFailurePresented
+        ) {
+            Button(L10n.string("mobile.common.retry", defaultValue: "Retry")) {
+                guard let macDeviceID = computerWorkspaceCreationFailureID else { return }
+                clearComputerWorkspaceCreationFailure()
+                createWorkspaceOnComputer(macDeviceID)
+            }
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
+                clearComputerWorkspaceCreationFailure()
+            }
+        } message: {
+            Text(String(
+                format: L10n.string(
+                    "mobile.workspaces.computerStrip.createFailedMessageFormat",
+                    defaultValue: "%@ is not connected. Check that the Mac app is running, then retry."
+                ),
+                computerWorkspaceCreationFailureName
+            ))
+        }
         #endif
     }
 
@@ -276,10 +320,6 @@ struct WorkspaceListView: View {
         return store.connectionRequiresReauth
             || store.connectionRecoveryFailed
             || store.isRecoveringConnection
-    }
-
-    private var canCreateWorkspace: Bool {
-        connectionStatus == .connected
     }
 
     #if os(iOS)
