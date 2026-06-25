@@ -23,6 +23,8 @@ final class DockSplitStore: BonsplitDelegate {
     private(set) var errorMessage: String?
     private(set) var trustRequest: DockTrustRequest?
     private(set) var isVisibleInUI: Bool = false
+    private(set) var renderHostId: UUID?
+    private var visibleUIHostIds: Set<UUID> = []
 
     private let baseDirectoryProvider: () -> String?
     private let remoteBrowserSettingsProvider: () -> DockRemoteBrowserSettings
@@ -159,7 +161,7 @@ final class DockSplitStore: BonsplitDelegate {
 
     /// Drives Dock activation from the right sidebar: loads config on first
     /// visible activation and toggles panel UI visibility.
-    func setActive(isVisible: Bool, mode: RightSidebarMode) {
+    func setActive(isVisible: Bool, mode: RightSidebarMode, visibilityHostId: UUID? = nil) {
         let shouldBeVisible = isVisible && mode == .dock
         if shouldBeVisible {
             if hasLoadedConfiguration {
@@ -168,7 +170,11 @@ final class DockSplitStore: BonsplitDelegate {
                 ensureLoaded()
             }
         }
-        setVisibleInUI(shouldBeVisible)
+        if let visibilityHostId {
+            setVisibleInUI(shouldBeVisible, hostId: visibilityHostId)
+        } else {
+            setVisibleInUI(shouldBeVisible)
+        }
     }
 
     func setRootDirectory(_ directory: String?) {
@@ -192,8 +198,31 @@ final class DockSplitStore: BonsplitDelegate {
     }
 
     func setVisibleInUI(_ visible: Bool) {
+        if !visible {
+            visibleUIHostIds.removeAll()
+            renderHostId = nil
+        }
         guard isVisibleInUI != visible else { return }
         isVisibleInUI = visible
+        applyFocusedDockSelection()
+    }
+
+    func setVisibleInUI(_ visible: Bool, hostId: UUID) {
+        let previousRenderHostId = renderHostId
+        if visible {
+            visibleUIHostIds.insert(hostId)
+            if renderHostId == nil {
+                renderHostId = hostId
+            }
+        } else {
+            visibleUIHostIds.remove(hostId)
+            if renderHostId == hostId {
+                renderHostId = visibleUIHostIds.first
+            }
+        }
+        let anyHostVisible = !visibleUIHostIds.isEmpty
+        guard isVisibleInUI != anyHostVisible || renderHostId != previousRenderHostId else { return }
+        isVisibleInUI = anyHostVisible
         applyFocusedDockSelection()
     }
 

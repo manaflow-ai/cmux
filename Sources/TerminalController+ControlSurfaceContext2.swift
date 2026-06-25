@@ -319,26 +319,23 @@ extension TerminalController {
             ))
         }
 
-        guard let ws = resolveSurfaceCreateWorkspace(
-            placement: placement,
-            routing: routing,
-            tabManager: tabManager,
-            requestedPaneID: inputs.requestedPaneID
-        ) else {
-            return .workspaceNotFound
-        }
-        v2MaybeFocusWindow(for: tabManager)
-        v2MaybeSelectWorkspace(tabManager, workspace: ws)
-
         if case .dock = placement {
             return dockSurfaceCreate(
-                ws: ws,
                 tabManager: tabManager,
                 panelType: panelType,
                 url: url,
                 inputs: inputs
             )
         }
+
+        guard let ws = resolveSurfaceCreateWorkspace(
+            routing: routing,
+            tabManager: tabManager
+        ) else {
+            return .workspaceNotFound
+        }
+        v2MaybeFocusWindow(for: tabManager)
+        v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
         let paneId: PaneID? = {
             if let paneUUID = inputs.requestedPaneID {
@@ -425,13 +422,56 @@ extension TerminalController {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
+        if let globalDock = globalDockForRouting(routing) {
+            let resolved = resolvedGlobalDockSurfaceId(
+                explicitSurfaceID: surfaceID,
+                hasSurfaceIDParam: false,
+                routing: routing,
+                dock: globalDock
+            )
+            guard let surfaceId = resolved.surfaceID else {
+                return .noFocusedSurface
+            }
+            guard globalDock.containsPanel(surfaceId) else {
+                return .closeFailed(surfaceId)
+            }
+            guard globalDock.closePanel(surfaceId, force: true) else {
+                return .closeFailed(surfaceId)
+            }
+            AppDelegate.shared?.notificationStore?.clearNotifications(
+                forTabId: globalDock.workspaceId,
+                surfaceId: surfaceId
+            )
+            return .closed(
+                windowID: v2ResolveWindowId(tabManager: tabManager),
+                workspaceID: globalDock.workspaceId,
+                surfaceID: surfaceId
+            )
+        }
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
         }
-        guard let surfaceId = surfaceID ?? ws.focusedPanelId else {
+        guard let surfaceId = resolvedSurfaceIdForClose(
+            explicitSurfaceID: surfaceID,
+            routing: routing,
+            fallbackWorkspace: ws
+        ) else {
             return .noFocusedSurface
         }
-        if ws.containsDockPanel(surfaceId) {
+        if let globalDock = globalDockContainingPanel(surfaceId) {
+            guard globalDock.closePanel(surfaceId, force: true) else {
+                return .closeFailed(surfaceId)
+            }
+            AppDelegate.shared?.notificationStore?.clearNotifications(
+                forTabId: globalDock.workspaceId,
+                surfaceId: surfaceId
+            )
+            return .closed(
+                windowID: v2ResolveWindowId(tabManager: tabManager),
+                workspaceID: globalDock.workspaceId,
+                surfaceID: surfaceId
+            )
+        } else if ws.containsDockPanel(surfaceId) {
             guard ws.closeDockPanelAndClearNotifications(surfaceId, force: true) else {
                 return .closeFailed(surfaceId)
             }

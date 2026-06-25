@@ -19,9 +19,8 @@ extension AppDelegate {
         case dock(DockSplitStore, panelId: UUID)
     }
 
-    /// Locates a Bonsplit tab across both workspace pane trees and every created
-    /// Dock (per-workspace today; global Docks join this search in a later
-    /// milestone). Returns nil when no live surface owns the id.
+    /// Locates a Bonsplit tab across workspace pane trees and every created Dock.
+    /// Returns nil when no live surface owns the id.
     func locateContainerSurface(tabId: UUID) -> ContainerSurfaceLocation? {
         if let located = locateBonsplitSurface(tabId: tabId),
            let workspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }) {

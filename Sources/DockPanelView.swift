@@ -4,37 +4,29 @@ import CmuxAppKitSupportUI
 import CmuxTerminal
 import SwiftUI
 
-/// Right-sidebar Dock. Renders the workspace's Dock `BonsplitController` tree
+/// Right-sidebar Dock. Renders the global Dock `BonsplitController` tree
 /// (terminals + browsers) using the same split machinery as the main content
 /// area, just constrained to the sidebar width.
 struct DockPanelView: View {
     let store: DockSplitStore
-    /// Which Dock this panel is presenting (Workspace vs Global). Drives the
-    /// toolbar scope toggle's selection.
-    let scope: DockScope
     let isSidebarVisible: Bool
     let mode: RightSidebarMode
     let rootDirectory: String?
     let windowAppearance: WindowAppearanceSnapshot
-    /// Invoked when the user flips the toolbar scope toggle.
-    var onSelectScope: (DockScope) -> Void = { _ in }
     /// True when the right sidebar (this Dock) owns keyboard focus. The Dock
     /// dims its focus ring when false so Dock and main-pane focus are mutually
     /// exclusive (the main pane dims its ring when this is true).
     var rightSidebarOwnsInputFocus: Bool = false
 
     @State private var appearanceConfig = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "dock.initial")
+    @State private var visibilityHostId = UUID()
 
     private var appearance: PanelAppearance {
         PanelAppearance.fromConfig(appearanceConfig)
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            toolbar
-            Divider()
-            content
-        }
+        content
         .background(Color(nsColor: appearance.backgroundColor))
         .background(
             DockKeyboardFocusBridge(store: store)
@@ -44,18 +36,18 @@ struct DockPanelView: View {
         .onAppear {
             refreshAppearance(reason: "onAppear")
             store.setRootDirectory(rootDirectory)
-            store.setActive(isVisible: isSidebarVisible, mode: mode)
+            store.setActive(isVisible: isSidebarVisible, mode: mode, visibilityHostId: visibilityHostId)
         }
-        .onDisappear { store.setVisibleInUI(false) }
+        .onDisappear { store.setVisibleInUI(false, hostId: visibilityHostId) }
         .onChange(of: isSidebarVisible) { _, visible in
-            store.setActive(isVisible: visible, mode: mode)
+            store.setActive(isVisible: visible, mode: mode, visibilityHostId: visibilityHostId)
         }
         .onChange(of: mode) { _, newMode in
-            store.setActive(isVisible: isSidebarVisible, mode: newMode)
+            store.setActive(isVisible: isSidebarVisible, mode: newMode, visibilityHostId: visibilityHostId)
         }
         .onChange(of: rootDirectory) { _, _ in
             store.setRootDirectory(rootDirectory)
-            store.setActive(isVisible: isSidebarVisible, mode: mode)
+            store.setActive(isVisible: isSidebarVisible, mode: mode, visibilityHostId: visibilityHostId)
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
             refreshAppearance(reason: "ghosttyConfigDidReload")
@@ -71,114 +63,6 @@ struct DockPanelView: View {
         store.applyGhosttyChrome(from: next)
     }
 
-    /// Tab/folder-style scope switcher (Workspace ↔ Global). The selected scope
-    /// reads as a raised tab connected to the Dock content below.
-    private var scopeToggle: some View {
-        HStack(spacing: 2) {
-            ForEach(DockScope.allCases, id: \.self) { dockScope in
-                scopeTab(dockScope)
-            }
-        }
-        .padding(2)
-        .background(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(Color.primary.opacity(0.06))
-        )
-        .help(String(
-            localized: "dock.scope.help",
-            defaultValue: "Switch between this workspace's Dock and the Global Dock"
-        ))
-        .accessibilityIdentifier("DockScopeToggle")
-    }
-
-    private func scopeTab(_ dockScope: DockScope) -> some View {
-        let isSelected = scope == dockScope
-        return Button {
-            guard scope != dockScope else { return }
-            onSelectScope(dockScope)
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: dockScope.symbolName)
-                    .font(.system(size: 9, weight: .medium))
-                Text(dockScope.label)
-                    .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
-            }
-            .foregroundStyle(isSelected ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(isSelected ? Color(nsColor: appearance.backgroundColor) : .clear)
-                    .shadow(color: isSelected ? .black.opacity(0.18) : .clear, radius: 1, y: 0.5)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(isSelected ? 0.10 : 0), lineWidth: 1)
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("DockScopeTab.\(dockScope.rawValue)")
-    }
-
-    private var toolbar: some View {
-        HStack(spacing: 6) {
-            scopeToggle
-
-            Spacer(minLength: 4)
-
-            Menu {
-                Button {
-                    store.newInFocusedPane(kind: .terminal)
-                } label: {
-                    Label(
-                        String(localized: "dock.action.newTerminal", defaultValue: "New Terminal"),
-                        systemImage: "terminal.fill"
-                    )
-                }
-                Button {
-                    store.newInFocusedPane(kind: .browser)
-                } label: {
-                    Label(
-                        String(localized: "dock.action.newBrowser", defaultValue: "New Browser"),
-                        systemImage: "globe"
-                    )
-                }
-            } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 11, weight: .medium))
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help(String(localized: "dock.action.newSurface", defaultValue: "New Dock Pane"))
-            .accessibilityLabel(String(localized: "dock.action.newSurface", defaultValue: "New Dock Pane"))
-
-            Button {
-                store.openConfiguration()
-            } label: {
-                Image(systemName: "doc.text")
-                    .font(.system(size: 11, weight: .medium))
-            }
-            .buttonStyle(.plain)
-            .help(String(localized: "dock.action.openConfig", defaultValue: "Open Dock Config"))
-            .accessibilityLabel(String(localized: "dock.action.openConfig", defaultValue: "Open Dock Config"))
-
-            Button {
-                store.reload()
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 11, weight: .medium))
-            }
-            .buttonStyle(.plain)
-            .help(String(localized: "dock.action.reload", defaultValue: "Reload Dock"))
-            .accessibilityLabel(String(localized: "dock.action.reload", defaultValue: "Reload Dock"))
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .frame(height: 29)
-    }
-
     @ViewBuilder
     private var content: some View {
         if let trustRequest = store.trustRequest {
@@ -187,6 +71,8 @@ struct DockPanelView: View {
             }
         } else if let error = store.errorMessage {
             DockErrorView(message: error)
+        } else if store.renderHostId != visibilityHostId {
+            DockInactiveHostView()
         } else {
             DockSplitContentView(
                 store: store,

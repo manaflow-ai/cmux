@@ -4,10 +4,8 @@ import CmuxTerminal
 /// App-wide Global Dock.
 ///
 /// A single `DockSplitStore` whose live panels (terminals/browsers) persist
-/// across every workspace and window for the app's lifetime — distinct from
-/// each workspace's `dockSplit` (the Workspace Dock, torn down with the
-/// workspace). The right-sidebar Dock panel switches between the two with a
-/// toolbar toggle; see `DockScope`.
+/// across every workspace and window for the app's lifetime. The right-sidebar
+/// Dock panel mounts this store directly.
 extension AppDelegate {
     /// Stable owner id for the Global Dock's panels. This is NOT a real
     /// workspace id — cross-container moves resolve a reference window via the

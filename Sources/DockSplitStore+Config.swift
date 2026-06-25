@@ -109,14 +109,12 @@ extension DockSplitStore {
             at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        let file = DockConfigFile(controls: [
-            DockControlDefinition(
-                id: "git",
-                title: "Git",
-                command: "lazygit",
-                height: 300
-            )
-        ])
+        // Intentionally empty: cmux ships no opinionated default controls (no
+        // assumed tools like lazygit). The starter file is schema-valid and
+        // ready for the user to add their own controls; an empty Dock is a
+        // fully supported state — the toolbar `+` menu and empty panes offer
+        // New Terminal / New Browser. See docs/dock.md.
+        let file = DockConfigFile(controls: [])
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         let data = try encoder.encode(file)

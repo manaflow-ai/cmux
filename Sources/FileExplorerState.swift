@@ -6,7 +6,6 @@ import SwiftUI
 final class FileExplorerState: ObservableObject {
     private static let modeKey = "rightSidebar.mode"
     private static let customSidebarNameKey = "rightSidebar.customSidebarName"
-    private static let dockScopeKey = "rightSidebar.dockScope"
 
     @Published var isVisible: Bool {
         didSet { UserDefaults.standard.set(isVisible, forKey: "fileExplorer.isVisible") }
@@ -28,7 +27,6 @@ final class FileExplorerState: ObservableObject {
 
     @Published private var storedMode: RightSidebarMode
     @Published private var storedCustomSidebarName: String?
-    @Published private var storedDockScope: DockScope
 
     /// Whether the right sidebar (Files / Find / Dock / …) currently owns
     /// keyboard/input focus in this window. Driven by `MainWindowFocusController`
@@ -37,17 +35,6 @@ final class FileExplorerState: ObservableObject {
     /// focus ring when the sidebar owns focus, and vice versa. Runtime-only (not
     /// persisted).
     @Published var rightSidebarOwnsInputFocus: Bool = false
-
-    /// Which Dock the right-sidebar Dock panel shows (`.workspace` vs `.global`),
-    /// toggled from the Dock toolbar and persisted across launches.
-    var dockScope: DockScope {
-        get { storedDockScope }
-        set {
-            guard storedDockScope != newValue else { return }
-            storedDockScope = newValue
-            UserDefaults.standard.set(newValue.rawValue, forKey: Self.dockScopeKey)
-        }
-    }
 
     /// Active mode for the right sidebar (file tree, search, sessions, or enabled beta modes).
     var mode: RightSidebarMode {
@@ -70,7 +57,6 @@ final class FileExplorerState: ObservableObject {
         self.showHiddenFiles = storedShowHidden == nil ? true : defaults.bool(forKey: "fileExplorer.showHidden")
         let customSidebarName = defaults.string(forKey: Self.customSidebarNameKey)?.nilIfEmpty
         self.storedCustomSidebarName = customSidebarName
-        self.storedDockScope = DockScope(rawValue: defaults.string(forKey: Self.dockScopeKey) ?? "") ?? .workspace
         let storedMode = RightSidebarMode(rawValue: defaults.string(forKey: Self.modeKey) ?? "") ?? .files
         self.storedMode = Self.availableMode(storedMode, defaults: defaults)
         defaults.set(self.storedMode.rawValue, forKey: Self.modeKey)

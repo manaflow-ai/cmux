@@ -52,8 +52,21 @@ extension Workspace {
     }
 
     static func openDockBrowserLinkInNewTabIfNeeded(panel: BrowserPanel, seed: BrowserNewTabNavigationSeed) -> Bool {
-        guard let app = AppDelegate.shared,
-              let manager = app.tabManagerFor(tabId: panel.workspaceId) ?? app.tabManager,
+        guard let app = AppDelegate.shared else { return false }
+        if let dock = app.existingGlobalDock,
+           dock.browserPanel(for: panel.id) === panel,
+           let paneId = dock.paneId(forPanelId: panel.id) {
+            return dock.newSurface(
+                kind: .browser,
+                inPane: paneId,
+                url: seed.url,
+                initialRequest: seed.initialRequest,
+                focus: true,
+                preferredProfileID: panel.profileID,
+                bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce
+            ) != nil
+        }
+        guard let manager = app.tabManagerFor(tabId: panel.workspaceId) ?? app.tabManager,
               let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }) else { return false }
         return workspace.openDockBrowserLinkInNewTab(panel: panel, seed: seed)
     }
@@ -64,6 +77,13 @@ extension AppDelegate {
     func closeFocusedDockPanelForCommand(preferredWindow: NSWindow?) -> Bool {
         guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow) else { return false }
         guard context.keyboardFocusCoordinator.activeRightSidebarMode == .dock else { return false }
+        if let globalDock = existingGlobalDock {
+            guard let panelId = globalDock.focusedPanelId else { return true }
+            if globalDock.closePanel(panelId, force: false) {
+                notificationStore?.clearNotifications(forTabId: globalDock.workspaceId, surfaceId: panelId)
+            }
+            return true
+        }
         guard let workspace = context.tabManager.selectedWorkspace,
               let panelId = workspace.focusedDockPanelId else { return true }
         _ = workspace.closeDockPanelAndClearNotifications(panelId, force: false)

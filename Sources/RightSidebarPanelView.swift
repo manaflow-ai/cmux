@@ -81,17 +81,6 @@ nonisolated enum FileExplorerRootSyncPolicy {
     }
 }
 
-nonisolated enum RightSidebarDirectoryContext {
-    static func normalizedDirectory(_ directory: String?) -> String? {
-        let trimmed = directory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    static func dockRootDirectory(workspaceDirectory: String?, fallbackDirectory: String?) -> String? {
-        normalizedDirectory(workspaceDirectory) ?? normalizedDirectory(fallbackDirectory)
-    }
-}
-
 extension RightSidebarMode {
     static func modeShortcut(for event: NSEvent) -> RightSidebarMode? {
         modeShortcut(for: event, allowingAction: { _ in true })
@@ -424,52 +413,22 @@ struct RightSidebarPanelView: View {
         sessionIndexStore.currentDirectory
     }
 
-    /// Renders the Dock panel for the currently selected scope. The Workspace
-    /// Dock is keyed to its workspace so it remounts on workspace switch; the
-    /// Global Dock keeps a constant identity so it persists across workspace
-    /// switches (and is the same store in every window).
+    /// Renders the app-wide Global Dock, shared across every workspace and
+    /// window.
     @ViewBuilder
     private func dockPanel(windowAppearance: WindowAppearanceSnapshot) -> some View {
-        let scope = fileExplorerState.dockScope
-        let onSelectScope: (DockScope) -> Void = { newScope in
-            fileExplorerState.dockScope = newScope
-        }
-        switch scope {
-        case .workspace:
-            if let workspace = tabManager.selectedWorkspace {
-                DockPanelView(
-                    store: workspace.dockSplit,
-                    scope: .workspace,
-                    isSidebarVisible: fileExplorerState.isVisible,
-                    mode: fileExplorerState.mode,
-                    rootDirectory: RightSidebarDirectoryContext.dockRootDirectory(
-                        workspaceDirectory: workspace.currentDirectory,
-                        fallbackDirectory: sessionIndexDirectory
-                    ),
-                    windowAppearance: windowAppearance,
-                    onSelectScope: onSelectScope,
-                    rightSidebarOwnsInputFocus: fileExplorerState.rightSidebarOwnsInputFocus
-                )
-                .id("dock.workspace.\(workspace.id)")
-            } else {
-                Color.clear
-            }
-        case .global:
-            if let app = AppDelegate.shared {
-                DockPanelView(
-                    store: app.globalDock,
-                    scope: .global,
-                    isSidebarVisible: fileExplorerState.isVisible,
-                    mode: fileExplorerState.mode,
-                    rootDirectory: nil,
-                    windowAppearance: windowAppearance,
-                    onSelectScope: onSelectScope,
-                    rightSidebarOwnsInputFocus: fileExplorerState.rightSidebarOwnsInputFocus
-                )
-                .id("dock.global")
-            } else {
-                Color.clear
-            }
+        if let app = AppDelegate.shared {
+            DockPanelView(
+                store: app.globalDock,
+                isSidebarVisible: fileExplorerState.isVisible,
+                mode: fileExplorerState.mode,
+                rootDirectory: nil,
+                windowAppearance: windowAppearance,
+                rightSidebarOwnsInputFocus: fileExplorerState.rightSidebarOwnsInputFocus
+            )
+            .id("dock.global")
+        } else {
+            Color.clear
         }
     }
 

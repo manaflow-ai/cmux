@@ -13543,6 +13543,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog("shortcut.action name=splitRight \(debugShortcutRouteSnapshot(event: event))")
 #endif
+            // When the Dock owns keyboard focus, split the focused Dock pane
+            // instead of the main area (checked before the transient-focus
+            // suppression, which only guards main-terminal states).
+            if routeSplitToFocusedDock(kind: .terminal, direction: .right, preferredWindow: event.window) {
+                return true
+            }
             if shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: .right) {
                 return true
             }
@@ -13557,6 +13563,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog("shortcut.action name=splitDown \(debugShortcutRouteSnapshot(event: event))")
 #endif
+            if routeSplitToFocusedDock(kind: .terminal, direction: .down, preferredWindow: event.window) {
+                return true
+            }
             if shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: .down) {
                 return true
             }
@@ -13571,6 +13580,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog("shortcut.action name=splitBrowserRight \(debugShortcutRouteSnapshot(event: event))")
 #endif
+            if routeSplitToFocusedDock(kind: .browser, direction: .right, preferredWindow: event.window) {
+                return true
+            }
             _ = performBrowserSplitShortcut(direction: .right)
             return true
         }
@@ -13579,6 +13591,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog("shortcut.action name=splitBrowserDown \(debugShortcutRouteSnapshot(event: event))")
 #endif
+            if routeSplitToFocusedDock(kind: .browser, direction: .down, preferredWindow: event.window) {
+                return true
+            }
             _ = performBrowserSplitShortcut(direction: .down)
             return true
         }
@@ -13595,12 +13610,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // New surface: Cmd+T
         if matchConfiguredShortcut(event: event, action: .newSurface) {
+            if routeCreateToFocusedDock(.terminal, focusAddressBar: false, preferredWindow: event.window) != nil {
+                return true
+            }
             tabManager?.newSurface()
             return true
         }
 
         // Open browser: Cmd+Shift+L
         if matchConfiguredShortcut(event: event, action: .openBrowser) {
+            if routeCreateToFocusedDock(.browser, focusAddressBar: true, preferredWindow: event.window) != nil {
+                return true
+            }
             _ = openBrowserAndFocusAddressBar(insertAtEnd: true)
             return true
         }
@@ -13992,7 +14013,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )?.id
     }
 
-    private func focusBrowserAddressBar(in panel: BrowserPanel) {
+    func focusBrowserAddressBar(in panel: BrowserPanel) {
 #if DEBUG
         let requestId = panel.requestAddressBarFocus(selectionIntent: .selectAll)
         cmuxDebugLog(
