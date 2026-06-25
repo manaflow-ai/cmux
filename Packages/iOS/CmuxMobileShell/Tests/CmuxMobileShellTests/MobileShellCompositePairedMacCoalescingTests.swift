@@ -306,6 +306,51 @@ import Testing
         #expect(store.displayPairedMacs.map(\.macDeviceID) == ["mac-a", "mac-b"])
     }
 
+    @Test func forgettingMacClearsAnonymousWorkspaceSnapshotOwnedByThatMac() async throws {
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "mac-a",
+                        displayName: "Lawrence Mac",
+                        host: "100.82.214.112",
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: false
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" }
+        )
+        await store.loadPairedMacs()
+        store.setWorkspaceStatesForTesting([
+            MobileShellComposite.foregroundAnonymousKey: MacWorkspaceState(
+                macDeviceID: MobileShellComposite.foregroundAnonymousKey,
+                workspaces: [
+                    MobileWorkspacePreview(
+                        id: "stale-workspace",
+                        macDeviceID: "mac-a",
+                        name: "Stale",
+                        terminals: []
+                    ),
+                ],
+                status: .unavailable
+            ),
+        ], foregroundMacDeviceID: nil)
+        #expect(store.workspaces.map(\.rpcWorkspaceID.rawValue) == ["stale-workspace"])
+
+        await store.forgetMac(macDeviceID: "mac-a")
+
+        #expect(store.pairedMacs.isEmpty)
+        #expect(store.displayPairedMacs.isEmpty)
+        #expect(store.workspaces.isEmpty)
+    }
+
     @Test func destructiveActionsDoNothingWithoutSignedInScope() async throws {
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [
