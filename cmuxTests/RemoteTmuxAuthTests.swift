@@ -124,6 +124,49 @@ import Testing
         #expect(!args.contains("BatchMode=no"))
     }
 
+    @Test func controlModeArgumentsFindUserLocalTmuxWithMinimalSSHPath() throws {
+        let root = try temporaryDirectory(prefix: "remote-tmux-path")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let bin = home.appendingPathComponent(".local/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let fakeTmux = bin.appendingPathComponent("tmux")
+        try writeExecutable(
+            at: fakeTmux,
+            contents: """
+            #!/bin/sh
+            printf 'fake-tmux'
+            for arg in "$@"; do printf ' <%s>' "$arg"; done
+            printf '\\n'
+            """
+        )
+
+        let host = RemoteTmuxHost(destination: "user@example.test")
+        let args = host.controlModeArguments(sessionName: "work session", createIfMissing: false)
+        let dashDash = try #require(args.firstIndex(of: "--"))
+        let command = args[dashDash + 2]
+        let result = try runShell(
+            command,
+            environment: [
+                "HOME": home.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            ]
+        )
+
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "fake-tmux <-CC> <attach-session> <-t> <work session>\n")
+    }
+
+    @Test func controlModeArgumentsUseRemoteTmuxResolverAfterDestinationGuard() throws {
+        let host = RemoteTmuxHost(destination: "-oProxyCommand=evil")
+        let args = host.controlModeArguments(sessionName: "work session", createIfMissing: false)
+        let dashDash = try #require(args.firstIndex(of: "--"))
+        #expect(args[dashDash + 1] == "-oProxyCommand=evil")
+        let remoteCommand = args[dashDash + 2]
+        #expect(remoteCommand.contains("/opt/homebrew/bin"))
+        #expect(remoteCommand.hasSuffix("'cmux-remote-tmux' '-CC' 'attach-session' '-t' 'work session'"))
+    }
+
     @Test func controlArgsAppendPortAndIdentity() {
         let host = RemoteTmuxHost(destination: "user@host", port: 2222, identityFile: "/keys/id")
         let args = host.sshControlArguments(controlPersistSeconds: 180, batchMode: true)
@@ -405,5 +448,40 @@ import Testing
             return true
         }
         return false
+    }
+
+    private func temporaryDirectory(prefix: String) throws -> URL {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func writeExecutable(at url: URL, contents: String) throws {
+        try contents.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
+    private func runShell(
+        _ command: String,
+        environment: [String: String]
+    ) throws -> (status: Int32, stdout: String, stderr: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = environment
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+        try process.run()
+        process.waitUntilExit()
+        let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
+        let stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
+        return (
+            process.terminationStatus,
+            String(decoding: stdoutData, as: UTF8.self),
+            String(decoding: stderrData, as: UTF8.self)
+        )
     }
 }
