@@ -7,6 +7,7 @@ import SwiftUI
 /// art stays crisp; all motion is a pure function of the timeline date.
 struct SleepyFaceView: View {
     var store = SleepyModeSettingsStore.shared
+    @State private var energyMode: SleepyEnergyMode = .automatic
 
     var body: some View {
         let config = store.snapshot()
@@ -26,21 +27,43 @@ struct SleepyFaceView: View {
                     draw(in: &context, size: size, time: t, config: config, agents: agents)
                 }
             }
-            hint(config: config)
+            bottomBar(config: config)
         }
         .ignoresSafeArea()
+        .task { energyMode = await Task.detached { SleepyPowerControls.currentEnergyMode() }.value }
     }
 
-    private func hint(config: SleepyModeConfig) -> some View {
-        let text = config.requireAuth
+    private func bottomBar(config: SleepyModeConfig) -> some View {
+        let accent = SleepyPalette.colors(for: config.theme)["O"] ?? .white
+        let hintText = config.requireAuth
             ? String(localized: "sleepyMode.dismissHint", defaultValue: "Touch ID or password to unlock")
             : String(localized: "sleepyMode.dismissHintCasual", defaultValue: "Click or press any key to wake")
-        return VStack {
+        return VStack(spacing: 0) {
             Spacer()
-            Text(text)
+            HStack(spacing: 16) {
+                Button {
+                    SleepyPowerControls.sleepDisplayNow()
+                } label: {
+                    Label(String(localized: "sleepyMode.button.sleepDisplay", defaultValue: "Sleep Display"), systemImage: "moon.fill")
+                }
+                .buttonStyle(PixelButtonStyle(tint: Color(red: 0.28, green: 0.40, blue: 0.62)))
+
+                Button {
+                    // Off the main thread: the admin prompt blocks until answered.
+                    Task.detached {
+                        let mode = SleepyPowerControls.cycleEnergyMode()
+                        await MainActor.run { energyMode = mode }
+                    }
+                } label: {
+                    Label("\(String(localized: "sleepyMode.button.energy", defaultValue: "Energy")): \(energyMode.displayName)", systemImage: "bolt.fill")
+                }
+                .buttonStyle(PixelButtonStyle(tint: Color(red: 0.18, green: 0.50, blue: 0.44)))
+            }
+            Spacer().frame(height: 50)
+            Text(hintText)
                 .font(.system(size: 13, weight: .medium, design: .monospaced))
-                .foregroundStyle(SleepyPalette.colors(for: config.theme)["O"]?.opacity(0.4) ?? .white.opacity(0.4))
-                .padding(.bottom, 44)
+                .foregroundStyle(accent.opacity(0.4))
+                .padding(.bottom, 38)
         }
     }
 
@@ -162,8 +185,9 @@ struct SleepyFaceView: View {
     /// logoFace: cmux chevron `>` as the left eye, a `-` dash as the (winking)
     /// right eye, blush, and a small sleepy mouth.
     private func drawLogoFace(in ctx: inout GraphicsContext, center: CGPoint, pixel: CGFloat, breath: Double, time t: Double, palette: [Character: Color], ink: Color) {
-        let eyePixel = max(2, (pixel * 0.7).rounded())
-        let chevW = 9, chevH = 13
+        let eyePixel = max(2, (pixel * 0.6).rounded())
+        let chevW = SleepyArt.cmuxLogo.first?.count ?? 11
+        let chevH = SleepyArt.cmuxLogo.count
         let gap = 3 * eyePixel
 
         // Left eye: cmux chevron.
@@ -294,11 +318,12 @@ struct SleepyFaceView: View {
         func put(_ col: Int, _ row: Int, _ c: Color) {
             ctx.fill(Path(CGRect(x: x + CGFloat(col) * cell, y: y + CGFloat(row) * cell, width: cell, height: cell)), with: .color(c))
         }
-        // Border.
+        // Border — paint each cell exactly once (corners drawn by the top/bottom
+        // rows only) so they don't stack to a brighter alpha.
         for col in 0..<cols { put(col, 0, frame); put(col, rows - 1, frame) }
-        for row in 0..<rows { put(0, row, frame); put(cols - 1, row, frame) }
-        // Terminal nub.
-        put(cols, rows / 2 - 1, frame); put(cols, rows / 2, frame); put(cols, rows / 2 + 1, frame)
+        for row in 1..<(rows - 1) { put(0, row, frame); put(cols - 1, row, frame) }
+        // Terminal nub (a tidy 2-cell cap, vertically centered).
+        put(cols, rows / 2 - 1, frame); put(cols, rows / 2, frame)
         // Level fill (1-cell padding inside the border).
         let region = cols - 4
         let filled = max(0, min(region, Int((Double(region) * level).rounded())))
@@ -347,5 +372,35 @@ struct SleepyFaceView: View {
 
     private func fillCell(in ctx: inout GraphicsContext, origin: CGPoint, pixel: CGFloat, col: Int, row: Int, color: Color) {
         ctx.fill(Path(CGRect(x: origin.x + CGFloat(col) * pixel, y: origin.y + CGFloat(row) * pixel, width: pixel, height: pixel)), with: .color(color))
+    }
+}
+
+/// Big chunky pixel-art button: square corners, a raised bevel (light top/left,
+/// dark bottom/right) that inverts and sinks on press, and a hard offset shadow.
+private struct PixelButtonStyle: ButtonStyle {
+    var tint: Color
+
+    func makeBody(configuration: Configuration) -> some View {
+        let pressed = configuration.isPressed
+        return configuration.label
+            .font(.system(size: 16, weight: .heavy, design: .monospaced))
+            .foregroundStyle(.white)
+            .padding(.vertical, 13)
+            .padding(.horizontal, 22)
+            .background(tint.opacity(pressed ? 1.0 : 0.85))
+            .overlay(alignment: .top) { bar(pressed ? .black.opacity(0.35) : .white.opacity(0.4), height: 3) }
+            .overlay(alignment: .leading) { bar(pressed ? .black.opacity(0.35) : .white.opacity(0.4), width: 3) }
+            .overlay(alignment: .bottom) { bar(pressed ? .white.opacity(0.3) : .black.opacity(0.5), height: 3) }
+            .overlay(alignment: .trailing) { bar(pressed ? .white.opacity(0.3) : .black.opacity(0.5), width: 3) }
+            .overlay(Rectangle().strokeBorder(.black.opacity(0.55), lineWidth: 2))
+            .compositingGroup()
+            .shadow(color: .black.opacity(0.5), radius: 0, x: 0, y: pressed ? 1 : 4)
+            .offset(y: pressed ? 2 : 0)
+            .contentShape(Rectangle())
+            .animation(.easeOut(duration: 0.08), value: pressed)
+    }
+
+    private func bar(_ color: Color, width: CGFloat? = nil, height: CGFloat? = nil) -> some View {
+        Rectangle().fill(color).frame(width: width, height: height)
     }
 }

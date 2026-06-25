@@ -51,6 +51,7 @@ enum SleepyPalette {
             "p": capShade,
             "W": .white,
             "B": Color(red: 1.0, green: 0.60, blue: 0.71),
+            "H": Color(red: 0.74, green: 0.96, blue: 1.0),   // cmux logo highlight
             "C": Color(red: 0.42, green: 0.87, blue: 1.0),
             "c": Color(red: 0.16, green: 0.52, blue: 0.93),
             "Y": Color(red: 1.0, green: 0.93, blue: 0.70),
@@ -157,22 +158,25 @@ enum SleepyArt {
         "..OOO.OOO.OOO...",
     ]
 
-    /// Bold right-pointing cmux chevron (9x13). Doubles as the left eye of the
-    /// logoFace mascot.
+    /// Detailed beveled right-pointing cmux chevron (11x15): highlight (H) on the
+    /// leading edge, main (C) body, shadow (c) trailing edge. Doubles as the left
+    /// eye of the logoFace mascot.
     static let cmuxLogo: [String] = [
-        "CCC......",
-        "CCCC.....",
-        ".CCCC....",
-        "..CCCC...",
-        "...CCCC..",
-        "....CCCC.",
-        ".....CCCC",
-        "....cCCC.",
-        "...cCCC..",
-        "..cCCC...",
-        ".cCCC....",
-        "cCCC.....",
-        "cCC......",
+        "HCCc.......",
+        ".HCCc......",
+        "..HCCc.....",
+        "...HCCc....",
+        "....HCCc...",
+        ".....HCCc..",
+        "......HCCc.",
+        ".......HCCc",
+        "......HCCc.",
+        ".....HCCc..",
+        "....HCCc...",
+        "...HCCc....",
+        "..HCCc.....",
+        ".HCCc......",
+        "HCCc.......",
     ]
 
     static let moon: [String] = [
