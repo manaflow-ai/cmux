@@ -53,8 +53,9 @@ async function sendPush(request: Request): Promise<Response> {
   const user = await verifyRequest(request, { allowCookie: false });
   if (!user) return unauthorized();
 
-  if (process.env.VERCEL === "1" && env.CMUX_PUSH_RATE_LIMIT_ID) {
-    const { error, rateLimited } = await checkRateLimit(env.CMUX_PUSH_RATE_LIMIT_ID, {
+  const pushRateLimitId = process.env.CMUX_PUSH_RATE_LIMIT_ID?.trim() || env.CMUX_PUSH_RATE_LIMIT_ID;
+  if (process.env.VERCEL === "1" && pushRateLimitId) {
+    const { error, rateLimited } = await checkRateLimit(pushRateLimitId, {
       request,
       rateLimitKey: user.id,
     });
@@ -65,7 +66,7 @@ async function sendPush(request: Request): Promise<Response> {
       });
     }
     if (error === "not-found") {
-      console.error("notifications.push.rate_limit_not_found", env.CMUX_PUSH_RATE_LIMIT_ID);
+      console.error("notifications.push.rate_limit_not_found", pushRateLimitId);
     }
   }
 
