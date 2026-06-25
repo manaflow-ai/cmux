@@ -124,6 +124,30 @@ struct UserDefaultsSettingsStoreTests {
         #expect(external?.mutationSource == nil)
     }
 
+    @Test func valueEventsDeliverMutationSourceToEveryActiveObserver() async {
+        let (store, catalog) = makeStore()
+        let key = catalog.app.appearance
+        var firstIterator = store.valueEvents(for: key).makeAsyncIterator()
+        var secondIterator = store.valueEvents(for: key).makeAsyncIterator()
+
+        let firstInitial = await firstIterator.next()
+        let secondInitial = await secondIterator.next()
+        #expect(firstInitial?.value == .system)
+        #expect(firstInitial?.mutationSource == nil)
+        #expect(secondInitial?.value == .system)
+        #expect(secondInitial?.mutationSource == nil)
+
+        let source = UserDefaultsSettingsMutationSource()
+        await store.set(.dark, for: key, source: source)
+
+        let firstTagged = await firstIterator.next()
+        let secondTagged = await secondIterator.next()
+        #expect(firstTagged?.value == .dark)
+        #expect(firstTagged?.mutationSource == source)
+        #expect(secondTagged?.value == .dark)
+        #expect(secondTagged?.mutationSource == source)
+    }
+
     @Test func migratesLegacyKey() async {
         let suiteName = "cmux.tests.\(UUID().uuidString)"
         do {

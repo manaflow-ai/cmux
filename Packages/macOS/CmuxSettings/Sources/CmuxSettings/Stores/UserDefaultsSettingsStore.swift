@@ -32,7 +32,8 @@ public actor UserDefaultsSettingsStore {
     /// instance inside a private unchecked-Sendable wrapper and expose only
     /// typed operations.
     private let storage: UserDefaultsSettingsStorage
-    private var mutationSources: [String: UserDefaultsSettingsMutationSource] = [:]
+    private var mutationSources: [String: UserDefaultsSettingsMutationSourceRecord] = [:]
+    private var mutationSourceSequences: [String: UInt64] = [:]
 
     /// Creates a store backed by the given `UserDefaults` instance.
     ///
@@ -77,7 +78,7 @@ public actor UserDefaultsSettingsStore {
         for key: DefaultsKey<Value>,
         source: UserDefaultsSettingsMutationSource? = nil
     ) -> UserDefaultsSettingsMutationSource? {
-        recordMutationSource(source, for: key.userDefaultsKey)
+        recordMutationSource(source, value: value, for: key.userDefaultsKey)
         storage.set(value, for: key)
         return source
     }
@@ -89,7 +90,7 @@ public actor UserDefaultsSettingsStore {
         _ key: DefaultsKey<Value>,
         source: UserDefaultsSettingsMutationSource? = nil
     ) -> UserDefaultsSettingsMutationSource? {
-        recordMutationSource(source, for: key.userDefaultsKey)
+        recordMutationSource(source, value: key.defaultValue, for: key.userDefaultsKey)
         storage.removeObject(forKey: key.userDefaultsKey)
         return source
     }
@@ -116,18 +117,54 @@ public actor UserDefaultsSettingsStore {
         }
     }
 
-    private func recordMutationSource(_ source: UserDefaultsSettingsMutationSource?, for storageKey: String) {
+    private func recordMutationSource<Value: SettingCodable>(
+        _ source: UserDefaultsSettingsMutationSource?,
+        value: Value,
+        for storageKey: String
+    ) {
         if let source {
-            mutationSources[storageKey] = source
+            let sequence = nextMutationSourceSequence(for: storageKey)
+            mutationSources[storageKey] = UserDefaultsSettingsMutationSourceRecord(
+                source: source,
+                sequence: sequence,
+                value: value
+            )
         } else {
             mutationSources.removeValue(forKey: storageKey)
         }
     }
 
-    private func valueEvent<Value>(for key: DefaultsKey<Value>) -> UserDefaultsSettingsValueEvent<Value> {
-        UserDefaultsSettingsValueEvent(
-            value: storage.value(for: key),
-            mutationSource: mutationSources.removeValue(forKey: key.userDefaultsKey)
+    private func nextMutationSourceSequence(for storageKey: String) -> UInt64 {
+        let nextSequence = (mutationSourceSequences[storageKey] ?? 0) &+ 1
+        mutationSourceSequences[storageKey] = nextSequence
+        return nextSequence
+    }
+
+    private func currentMutationSourceSequence(for storageKey: String) -> UInt64 {
+        mutationSourceSequences[storageKey] ?? 0
+    }
+
+    private func valueEvent<Value>(
+        for key: DefaultsKey<Value>,
+        consumedSourceSequence: UInt64
+    ) -> (
+        event: UserDefaultsSettingsValueEvent<Value>,
+        consumedSourceSequence: UInt64
+    ) {
+        let value = storage.value(for: key)
+        var nextConsumedSourceSequence = consumedSourceSequence
+        var source: UserDefaultsSettingsMutationSource?
+        if let record = mutationSources[key.userDefaultsKey],
+           record.sequence > consumedSourceSequence {
+            nextConsumedSourceSequence = record.sequence
+            if record.matches(value) {
+                source = record.source
+            }
+        }
+
+        return (
+            UserDefaultsSettingsValueEvent(value: value, mutationSource: source),
+            nextConsumedSourceSequence
         )
     }
 
@@ -219,12 +256,25 @@ public actor UserDefaultsSettingsStore {
                     continuation.finish()
                     return
                 }
-                var lastYieldedEvent = await self.valueEvent(for: key)
-                continuation.yield(lastYieldedEvent)
+                var consumedSourceSequence = await self.currentMutationSourceSequence(
+                    for: key.userDefaultsKey
+                )
+                let initialSnapshot = await self.valueEvent(
+                    for: key,
+                    consumedSourceSequence: consumedSourceSequence
+                )
+                consumedSourceSequence = initialSnapshot.consumedSourceSequence
+                var lastYieldedEvent = initialSnapshot.event
+                continuation.yield(initialSnapshot.event)
 
                 for await _ in signals {
                     if Task.isCancelled { break }
-                    let currentEvent = await self.valueEvent(for: key)
+                    let snapshot = await self.valueEvent(
+                        for: key,
+                        consumedSourceSequence: consumedSourceSequence
+                    )
+                    consumedSourceSequence = snapshot.consumedSourceSequence
+                    let currentEvent = snapshot.event
                     if currentEvent.value != lastYieldedEvent.value {
                         lastYieldedEvent = currentEvent
                         continuation.yield(currentEvent)

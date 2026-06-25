@@ -198,6 +198,39 @@ import Testing
         #expect(model.revision == 2)
     }
 
+    @Test func initialStaleObservationDoesNotConsumePendingLocalEcho() async {
+        let store = UserDefaultsSettingsStore(
+            defaults: UserDefaults(suiteName: "defaults-value-model-stale-initial")!
+        )
+        let key = SettingCatalog().workspaceColors.selectionColorHex
+        let (stream, continuation) = AsyncStream<DefaultsEvent<String>>.makeStream()
+        let model = DefaultsValueModel(
+            store: store,
+            key: key,
+            initialValue: "#000000",
+            makeStream: { stream }
+        )
+
+        let source = model.set("#111111")
+        model.startObserving()
+
+        continuation.yield(event("#000000"))
+        for _ in 0..<10 {
+            await Task.yield()
+        }
+
+        #expect(model.current == "#111111")
+        #expect(model.revision == 1)
+
+        continuation.yield(event("#111111", source: source))
+        for _ in 0..<10 {
+            await Task.yield()
+        }
+
+        #expect(model.current == "#111111")
+        #expect(model.revision == 1)
+    }
+
     @Test func externalObservationSuppressesLaterStaleLocalEcho() async {
         let store = UserDefaultsSettingsStore(
             defaults: UserDefaults(suiteName: "defaults-value-model-stale-echo")!
