@@ -49,16 +49,82 @@ public final class GhosttyRuntime {
     private static var clipboardWriter: @MainActor (String?) -> Void = { UIPasteboard.general.string = $0 }
 
     /// Replaces the theme used when the runtime builds its config and the theme
-    /// the surrounding terminal chrome blends with. Pass `nil`, an invalid theme,
-    /// or an incomplete palette to fall back to Monokai. Call before ``shared()``
-    /// is first invoked, since the runtime reads the theme once while building
-    /// its config; setting it afterward has no effect on the live runtime.
+    /// the surrounding terminal chrome blends with, then pushes the new colors to
+    /// the live runtime so an already-running app/surface recolors in place. Pass
+    /// `nil`, an invalid theme, or an incomplete palette to fall back to Monokai.
+    ///
+    /// Unlike a bare ``TerminalThemeStore`` write, this also rebuilds the shared
+    /// `ghostty_config_t` and calls `ghostty_app_update_config` /
+    /// `ghostty_surface_update_config`, so the Metal renderer's default
+    /// background/foreground/palette follow the new theme without recreating the
+    /// runtime. Safe to call before or after ``shared()`` is first built: before,
+    /// it just seeds the store; after, it live-applies.
     public static func setTheme(_ theme: TerminalTheme?) {
         TerminalThemeStore.set(theme)
+        applyLiveThemeIfRunning()
     }
 
     /// The theme the runtime will apply (or has applied) to its config.
     public static var currentTheme: TerminalTheme { TerminalThemeStore.current }
+
+    /// The active theme's background as a `UIColor`, for the surrounding chrome
+    /// and the surface's own view background (the area behind/around the cells).
+    /// Sourcing the local background from the synced theme — not from the
+    /// once-built `ghostty_config_t` — is what lets a theme change recolor the
+    /// background of a running surface. Falls back to Monokai's background when
+    /// the stored theme's background cannot be parsed.
+    public static var currentBackgroundUIColor: UIColor {
+        backgroundUIColor(for: TerminalThemeStore.current)
+    }
+
+    static func backgroundUIColor(for theme: TerminalTheme) -> UIColor {
+        guard let rgb = TerminalTheme.rgbComponents(theme.background)
+            ?? TerminalTheme.rgbComponents(TerminalTheme.monokai.background) else {
+            return UIColor(red: 0x27 / 255.0, green: 0x28 / 255.0, blue: 0x22 / 255.0, alpha: 1)
+        }
+        return UIColor(
+            red: CGFloat(rgb.red) / 255.0,
+            green: CGFloat(rgb.green) / 255.0,
+            blue: CGFloat(rgb.blue) / 255.0,
+            alpha: 1
+        )
+    }
+
+    /// Rebuilds the shared config from the current ``TerminalThemeStore`` and
+    /// pushes it to the live app and every registered surface, then refreshes the
+    /// local view background of each surface. No-op when the runtime has not been
+    /// built yet (the next ``shared()`` reads the store directly).
+    ///
+    /// Public so a consumer that updated the store through another path (the iOS
+    /// shell writes ``TerminalThemeStore`` directly to avoid linking GhosttyKit)
+    /// can drive the live recolor once it observes a theme change.
+    public static func applyLiveThemeIfRunning() {
+        guard case .success(let runtime)? = sharedResult else { return }
+        runtime.rebuildConfigFromStore()
+        GhosttySurfaceView.refreshAllSurfacesForThemeChange()
+    }
+
+    /// Rebuilds `self.config` from the current theme store and feeds it to the
+    /// live `ghostty_app_t` (and, transitively, the surfaces) so the renderer's
+    /// default colors and palette match the new theme. The old config is freed
+    /// after the app has adopted the new one.
+    func rebuildConfigFromStore() {
+        guard let app else { return }
+        let newConfig = ghostty_config_new()
+        Self.loadConfig(newConfig)
+        ghostty_config_finalize(newConfig)
+        ghostty_app_update_config(app, newConfig)
+        for box in GhosttySurfaceView.registeredSurfaceViews.values {
+            if let surface = box.value?.surface {
+                ghostty_surface_update_config(surface, newConfig)
+            }
+        }
+        let oldConfig = config
+        config = newConfig
+        if let oldConfig {
+            ghostty_config_free(oldConfig)
+        }
+    }
 
     // libghostty handles are opaque C pointers (typedef `void *`). They
     // aren't Sendable in Swift's type system, but `GhosttyRuntime` is a

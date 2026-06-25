@@ -300,6 +300,16 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     private var accessoryBackgroundTrailingConstraint: NSLayoutConstraint?
     private var accessoryDismissLeadingConstraint: NSLayoutConstraint?
     private var accessoryScrollTrailingConstraint: NSLayoutConstraint?
+    /// The fill behind the input accessory bar, kept so a live theme change can
+    /// recolor it from the new theme's background.
+    private weak var accessoryBarBackgroundView: UIView?
+
+    /// Re-applies the active theme's background to the input accessory bar fill.
+    /// Called on a live theme change so the bar blends with the recolored
+    /// terminal instead of keeping the old theme's color.
+    func refreshThemeColors() {
+        accessoryBarBackgroundView?.backgroundColor = Self.themeBarColor
+    }
 
     private lazy var terminalAccessoryToolbar: UIView = {
         let container = UIView()
@@ -312,6 +322,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         let backgroundView = UIView()
         backgroundView.backgroundColor = Self.themeBarColor
         backgroundView.translatesAutoresizingMaskIntoConstraints = false
+        self.accessoryBarBackgroundView = backgroundView
 
         // Pinned keyboard dismiss button on the left
         let dismissButton = UIButton(type: .system)

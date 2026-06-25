@@ -319,7 +319,13 @@ struct WorkspaceDetailView: View {
                     // field).
                     autoFocusOnWindowAttach: store.shouldAutoFocusTerminalSurface(terminalID)
                         && !store.isComposerPresented,
-                    isComposerActive: store.isComposerPresented
+                    isComposerActive: store.isComposerPresented,
+                    // Drives the live recolor: when the synced theme changes the
+                    // shell bumps this, and the representable rebuilds the runtime
+                    // config + recolors the mounted surface in place (background,
+                    // letterbox, default cell colors) without a remount, so
+                    // scrollback survives a theme change.
+                    themeGeneration: store.terminalThemeGeneration
                 )
                 // Identity must track the selected terminal. The representable's
                 // coordinator binds its byte sink to the surfaceID at make time and
@@ -328,14 +334,11 @@ struct WorkspaceDetailView: View {
                 // Keying on terminalID tears down the old surface (unregistering its
                 // sink via dismantleUIView) and builds the newly-selected one.
                 //
-                // The theme generation is folded into the identity so a terminal
-                // theme change (the Mac reporting different colors) also remounts
-                // the surface: libghostty reads its palette once while building
-                // config and has no live-recolor API, so a rebuild is the only
-                // way to apply a new theme to an already-mounted surface. The
-                // generation only advances on a real theme change, so steady-state
-                // reconnects keep the same id and preserve the surface/scrollback.
-                .id("\(terminalID)#theme\(store.terminalThemeGeneration)")
+                // The theme is NOT folded into the identity: a theme change recolors
+                // the live surface in place (config rebuild + view recolor driven by
+                // `themeGeneration`), so remounting would only throw away scrollback
+                // for no visual benefit.
+                .id(terminalID)
                 .onAppear {
                     store.consumeTerminalAutoFocusSuppression(for: terminalID)
                 }
