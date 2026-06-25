@@ -43,6 +43,17 @@ struct TerminalLayoutPreviewView: View {
                     ToolbarItem(placement: .topBarLeading) {
                         Image(systemName: "chevron.left").fontWeight(.semibold)
                     }
+                    // Title on its own Liquid Glass pill so it stays legible over
+                    // terminal text when the bar background is cleared (iOS 26),
+                    // matching WorkspaceDetailView.glassTitle.
+                    ToolbarItem(placement: .principal) {
+                        Text(title)
+                            .font(.headline)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .foregroundStyle(TerminalPalette.foreground)
+                            .mobileGlassNavigationTitle()
+                    }
                     ToolbarItemGroup(placement: .topBarTrailing) {
                         Image(systemName: "bubble.left.and.bubble.right")
                         Image(systemName: "terminal")
