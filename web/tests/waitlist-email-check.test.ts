@@ -98,4 +98,24 @@ describe("checkEmailDeliverable", () => {
     expect(await checkEmailDeliverable("a@hung.test", 20)).toBe("unknown");
     expect(Date.now() - start).toBeLessThan(500);
   });
+
+  test("coalesces concurrent lookups for one domain onto a single DNS call", async () => {
+    let mxCalls = 0;
+    let release!: (v: { exchange: string; priority: number }[]) => void;
+    resolveMx = () => {
+      mxCalls += 1;
+      return new Promise((res) => {
+        release = res;
+      });
+    };
+    resolve4 = noRecord;
+    resolve6 = noRecord;
+    const p1 = checkEmailDeliverable("a@coalesce.test");
+    const p2 = checkEmailDeliverable("b@coalesce.test");
+    await new Promise((r) => setTimeout(r, 5));
+    release([{ exchange: "mx.coalesce.test", priority: 10 }]);
+    expect(await p1).toBe("ok");
+    expect(await p2).toBe("ok");
+    expect(mxCalls).toBe(1);
+  });
 });

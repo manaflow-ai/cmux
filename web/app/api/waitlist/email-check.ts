@@ -134,6 +134,21 @@ async function withTimeout(
   }
 }
 
+// Coalesce concurrent/sequential lookups for the same domain onto one in-flight
+// resolveDomain call. Without this, a slow domain that the timeout abandons
+// would be resolved again by the follow-up `notify` request (and by any other
+// caller), multiplying lingering c-ares work. Sharing one promise means a slow
+// domain has at most one outstanding lookup, which drains when c-ares settles.
+const inflight = new Map<string, Promise<EmailCheck>>();
+
+function resolveDomainShared(domain: string): Promise<EmailCheck> {
+  const existing = inflight.get(domain);
+  if (existing) return existing;
+  const pending = resolveDomain(domain).finally(() => inflight.delete(domain));
+  inflight.set(domain, pending);
+  return pending;
+}
+
 async function resolveDomain(domain: string): Promise<EmailCheck> {
   try {
     const mx = await dns.resolveMx(domain);
@@ -172,7 +187,7 @@ export async function checkEmailDeliverable(
   const cached = cacheGet(domain);
   if (cached) return cached;
 
-  const status = await withTimeout(resolveDomain(domain), timeoutMs);
+  const status = await withTimeout(resolveDomainShared(domain), timeoutMs);
   // Cache only stable answers; let `unknown` (transient failure or timeout)
   // retry on the next submit.
   if (status !== "unknown") cacheSet(domain, status);
