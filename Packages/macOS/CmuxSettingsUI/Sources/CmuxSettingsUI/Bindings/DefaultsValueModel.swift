@@ -171,7 +171,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         guard let index = pendingStoreEchoValues.firstIndex(of: value) else {
             return false
         }
-        pendingStoreEchoValues.remove(at: index)
+        pendingStoreEchoValues.removeFirst(index + 1)
         return true
     }
 }
