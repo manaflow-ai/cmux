@@ -137,7 +137,13 @@ extension CMUXCLI {
                 telemetry: telemetry
             )
         } else {
-            confirmedTitle = action.title
+            confirmedTitle = confirmAutoNamingSuccess(
+                workspaceId: workspaceId,
+                agent: resolution.agent,
+                client: client,
+                telemetryKey: telemetryKey,
+                telemetry: telemetry
+            ) ? action.title : nil
         }
         // Re-report a missing override only after the fallback pass succeeds,
         // so clear-on-apply does not immediately wipe the Settings note.

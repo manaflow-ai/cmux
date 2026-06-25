@@ -803,7 +803,8 @@
           "ampIntegration": "Omogući cmux integracijske kuke za Amp. Kada je onemogućeno, priloženi dodatak ostaje neaktivan bez potrebe za uklanjanjem.",
           "suppressSubagentNotifications": "Sakrij vidljiva obavještenja o završetku i promjene statusa od ugniježđenih Codex ili Claude podagenata, uz zadržavanje njihovih događaja u Feed telemetriji.",
           "workspaceAutoNaming": "Opcionalno AI automatsko imenovanje radnih prostora i kartica iz sadržaja razgovora agenta. Kada je omogućeno, cmux sažima podržane sesije agenata u kratke naslove koristeći vlastiti binarni fajl svakog agenta; ručna preimenovanja uvijek imaju prednost.",
-          "autoNamingAgent": "Koji agent generiše automatska imena za svaku sesiju. \"auto\" (zadano) imenuje svaku sesiju njenim vlastitim agentom; bilo koji slug agenta (claude, codex, grok, opencode, pi, omp, …) zamjenjuje imenovanje za sve sesije, čak i za sesije drugih agenata. Agenti koji se ne mogu pokrenuti ili nisu instalirani vraćaju se na vlastiti agent sesije, tako da se imenovanje nikada ne prekida."
+          "autoNamingAgent": "Koji agent generiše automatska imena za svaku sesiju. \"auto\" (zadano) imenuje svaku sesiju njenim vlastitim agentom; bilo koji slug agenta (claude, codex, grok, opencode, pi, omp, …) zamjenjuje imenovanje za sve sesije, čak i za sesije drugih agenata. Agenti koji se ne mogu pokrenuti ili nisu instalirani vraćaju se na vlastiti agent sesije, tako da se imenovanje nikada ne prekida.",
+          "autoNamingLanguage": "Jezik za generisana imena radnih prostora i tabova. \"auto\" prati prvi preferirani sistemski jezik; koristite BCP-47 oznaku poput \"en\" ili \"ja\" da nametnete jezik."
         },
         "app": {
           "confirmQuit": "Određuje kada cmux traži potvrdu prije izlaska. DEV verzije se uvijek odmah zatvaraju bez obzira na ovu postavku. Naslijeđeni app.warnBeforeQuit se i dalje prihvata kao boolean rezervna opcija.",

@@ -803,7 +803,8 @@
           "ampIntegration": "Aktiver cmux-integrasjonskroker for Amp. Når deaktivert, forblir den medfølgende programtillegget inaktivt uten å måtte fjernes.",
           "suppressSubagentNotifications": "Undertrykk synlige fullføringsvarsler og statusendringer fra innebygde Codex- eller Claude-underagenter, samtidig som hendelsene deres beholdes i Feed-telemetri.",
           "workspaceAutoNaming": "Valgfri AI-basert automatisk navngiving av arbeidsområder og faner fra agentens samtaleinnhold. Når aktivert, oppsummerer cmux støttede agentøkter til korte titler med hver agents egen binærfil; manuelle navneendringer vinner alltid.",
-          "autoNamingAgent": "Hvilken agent som genererer automatiske navn for hver økt. \"auto\" (standard) navngir hver økt med sin egen agent; en hvilken som helst agent-slug (claude, codex, grok, opencode, pi, omp, …) overstyrer navngivingen for alle økter, også andre agenters. Agenter som ikke kan styres eller ikke er installert, faller tilbake til øktens egen agent, så navngivingen aldri svikter."
+          "autoNamingAgent": "Hvilken agent som genererer automatiske navn for hver økt. \"auto\" (standard) navngir hver økt med sin egen agent; en hvilken som helst agent-slug (claude, codex, grok, opencode, pi, omp, …) overstyrer navngivingen for alle økter, også andre agenters. Agenter som ikke kan styres eller ikke er installert, faller tilbake til øktens egen agent, så navngivingen aldri svikter.",
+          "autoNamingLanguage": "Språk for genererte arbeidsområde- og fanenavn. \"auto\" følger det første foretrukne systemspråket; bruk en BCP-47-tagg som \"en\" eller \"ja\" for å tvinge et språk."
         },
         "app": {
           "confirmQuit": "Styrer når cmux ber om bekreftelse før avslutning. DEV-bygg avslutter alltid umiddelbart uansett denne innstillingen. Den eldre app.warnBeforeQuit godtas fortsatt som boolsk fallback.",

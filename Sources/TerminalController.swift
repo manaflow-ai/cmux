@@ -3286,6 +3286,10 @@ class TerminalController {
             )
             return .ok(["recorded": true, "enabled": true])
         }
+        if v2Bool(params, "success") == true {
+            AutoNamingStatusStore.clear()
+            return .ok(["confirmed": true, "status_cleared": true, "enabled": true])
+        }
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
@@ -3342,26 +3346,6 @@ class TerminalController {
             "enabled": true
         ])
     }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     private nonisolated func v2RequestedRemotePTYWorkspaceID(params: [String: Any]) -> (
         workspaceId: UUID?,

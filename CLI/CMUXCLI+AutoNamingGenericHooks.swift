@@ -298,7 +298,13 @@ extension CMUXCLI {
                 telemetry: telemetry
             )
         } else {
-            confirmedTitle = action.title
+            confirmedTitle = confirmAutoNamingSuccess(
+                workspaceId: workspaceId,
+                agent: summarizerAgent,
+                client: client,
+                telemetryKey: telemetryKey,
+                telemetry: telemetry
+            ) ? action.title : nil
         }
         // Re-report a missing override only after the fallback pass succeeds,
         // so clear-on-apply does not immediately wipe the Settings note.
@@ -319,10 +325,30 @@ extension CMUXCLI {
             return (title, true)
         case .unchanged(let title):
             telemetry.breadcrumb("\(telemetryKey).unchanged")
-            return (title, true)
+            return (title, false)
         case .unusable:
             telemetry.breadcrumb("\(telemetryKey).unusable-response")
             return nil
+        }
+    }
+
+    func confirmAutoNamingSuccess(
+        workspaceId: String,
+        agent: String,
+        client: SocketClient,
+        telemetryKey: String,
+        telemetry: CLISocketSentryTelemetry
+    ) -> Bool {
+        do {
+            _ = try client.sendV2(method: "workspace.set_auto_title", params: [
+                "success": true,
+                "workspace_id": workspaceId
+            ])
+            return true
+        } catch {
+            telemetry.breadcrumb("\(telemetryKey).success-confirm-failed")
+            reportAutoNamingProblem("apply_failed", agent: agent, workspaceId: workspaceId, client: client)
+            return false
         }
     }
 

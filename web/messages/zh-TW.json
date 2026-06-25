@@ -803,7 +803,8 @@
           "ampIntegration": "啟用 cmux 與 Amp 的整合鉤子。停用時，隨附的外掛程式會保持非啟用狀態，無需移除。",
           "suppressSubagentNotifications": "隱藏巢狀 Codex 或 Claude 子代理的可見完成通知和狀態變更，同時將其事件保留在 Feed 遙測中。",
           "workspaceAutoNaming": "可選的 AI 自動命名：根據代理對話內容自動命名工作區與分頁。啟用後，cmux 會使用各受支援代理自己的二進位檔將工作階段摘要為簡短標題；手動重新命名永遠優先。",
-          "autoNamingAgent": "為每個工作階段產生自動名稱的代理。\"auto\"（預設）使用各工作階段自己的代理來命名；任意代理識別碼（claude、codex、grok、opencode、pi、omp 等）會覆寫所有工作階段的命名，包括其他代理的工作階段。無法驅動或未安裝的代理會回退到工作階段自身的代理，因此命名永不中斷。"
+          "autoNamingAgent": "為每個工作階段產生自動名稱的代理。\"auto\"（預設）使用各工作階段自己的代理來命名；任意代理識別碼（claude、codex、grok、opencode、pi、omp 等）會覆寫所有工作階段的命名，包括其他代理的工作階段。無法驅動或未安裝的代理會回退到工作階段自身的代理，因此命名永不中斷。",
+          "autoNamingLanguage": "產生的工作區與分頁名稱所用的語言。「auto」會跟隨系統偏好語言清單中的第一項；可使用「en」或「ja」等 BCP-47 標籤強制指定語言。"
         },
         "app": {
           "confirmQuit": "控制 cmux 在退出前何時要求確認。無論此設定為何，DEV 建置都會立即退出。舊的 app.warnBeforeQuit 仍會作為布林後備值接受。",

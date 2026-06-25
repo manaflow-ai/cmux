@@ -157,6 +157,29 @@ import Testing
         }
     }
 
+    @Test func successfulNoOpClearsRecordedFailureWithoutApplyingTitle() throws {
+        try withAutoNamingSetting(true) {
+            try withManager { _, workspace in
+                AutoNamingStatusStore.record(rawCategory: "failed", agent: "codex", at: 1)
+                #expect(AutoNamingStatusStore.current() != nil)
+                let originalTitle = workspace.title
+                let originalSource = workspace.effectiveCustomTitleSource
+                let envelope = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "success": true
+                ])
+                let result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["confirmed"] as? Bool == true)
+                #expect(result["status_cleared"] as? Bool == true)
+                #expect(result["workspace_applied"] == nil)
+                #expect(workspace.title == originalTitle)
+                #expect(workspace.effectiveCustomTitleSource == originalSource)
+                #expect(AutoNamingStatusStore.current() == nil)
+                AutoNamingStatusStore.clear()
+            }
+        }
+    }
+
     @Test func notInstalledSurvivesAReportAfterSuccessfulApply() throws {
         // Regression: a missing-override pass applies a fallback title (which
         // clears stale status) and THEN reports not_installed. The order must
