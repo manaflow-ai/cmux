@@ -262,6 +262,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(resume["cwd"] as? String, repo.path)
         XCTAssertTrue((resume["command"] as? String)?.contains("codex") == true)
         XCTAssertTrue((resume["command"] as? String)?.contains("resume") == true)
+        let storeJSON = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: Data(contentsOf: root.appendingPathComponent("codex-hook-sessions.json"))
+        ) as? [String: Any])
+        let sessions = try XCTUnwrap(storeJSON["sessions"] as? [String: Any])
+        let persisted = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        XCTAssertEqual((persisted["launchCommand"] as? [String: Any])?["source"] as? String, "default")
     }
 
     private func writeCodexHookStore(

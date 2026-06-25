@@ -1112,7 +1112,7 @@ final class ClaudeHookSessionStore {
             // captured) only when we don't already hold an argv-bearing one — so the durable store
             // keeps the non-default home for the fork/resume path without ever downgrading a richer
             // earlier capture to an env-only stub.
-            if incomingHasArguments || normalizeOptional(launchCommand.source)?.lowercased() == "rejected" || (incomingHasEnvironment && !existingHasArguments) {
+            if incomingHasArguments || ["default", "rejected"].contains(normalizeOptional(launchCommand.source)?.lowercased()) || (incomingHasEnvironment && !existingHasArguments) {
                 record.launchCommand = launchCommand
             }
         }
@@ -26671,7 +26671,9 @@ struct CMUXCLI {
         // keeps the historical nil. This deliberately does NOT cover a captured-but-rejected argv (see
         // the sanitizer guard below), so non-restorable invocations stay non-resumable.
         func environmentOnlyRecord() -> AgentHookLaunchCommandRecord? {
-            guard !environment.isEmpty else { return nil }
+            guard !environment.isEmpty else {
+                return fallbackKind == "codex" ? AgentHookLaunchCommandRecord(launcher: launcher, executablePath: nil, arguments: [], workingDirectory: workingDirectory, environment: nil, capturedAt: Date().timeIntervalSince1970, source: "default") : nil
+            }
             return AgentHookLaunchCommandRecord(
                 launcher: launcher,
                 executablePath: nil,

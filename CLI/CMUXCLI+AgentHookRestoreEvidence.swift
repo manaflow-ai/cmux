@@ -11,6 +11,7 @@ extension CMUXCLI {
         if normalizedHookValue(launchCommand.environment?["CODEX_HOME"]) != nil {
             return true
         }
+        if normalizedHookValue(launchCommand.source)?.lowercased() == "default" { return true }
         guard !launchCommand.arguments.isEmpty else { return false }
         switch normalizedHookValue(launchCommand.source)?.lowercased() {
         case nil, "environment", "process":
@@ -70,6 +71,7 @@ extension CMUXCLI {
         if normalizedHookValue(mapped.transcriptPath) != nil { return true }
         guard let launchCommand = mapped.launchCommand else { return false }
         if normalizedHookValue(launchCommand.environment?["CODEX_HOME"]) != nil { return true }
+        if normalizedHookValue(launchCommand.source)?.lowercased() == "default" { return true }
         guard !launchCommand.arguments.isEmpty else { return false }
         switch normalizedHookValue(launchCommand.source)?.lowercased() {
         case nil, "environment", "process":
