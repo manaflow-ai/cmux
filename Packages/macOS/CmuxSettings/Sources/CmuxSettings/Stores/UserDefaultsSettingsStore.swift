@@ -1,9 +1,27 @@
 import Foundation
 
+private final class UserDefaultsSettingsMutationSourceSequenceMirror: @unchecked Sendable {
+    private let lock = NSLock()
+    private var sequences: [String: UInt64] = [:]
+
+    func sequence(for storageKey: String) -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        return sequences[storageKey] ?? 0
+    }
+
+    func store(_ sequence: UInt64, for storageKey: String) {
+        lock.lock()
+        sequences[storageKey] = sequence
+        lock.unlock()
+    }
+}
+
 /// Typed read/write/observe access to settings persisted in `UserDefaults`.
 ///
 /// The store is an `actor`. Reads, writes, and reset are all `async`. There
-/// are no locks; cross-thread access is serialized through actor isolation.
+/// is one narrow nonisolated lock for stream-baseline sequence snapshots; all
+/// storage access remains serialized through actor isolation.
 ///
 /// The store only accepts ``DefaultsKey``; a ``JSONKey`` would be rejected at
 /// compile time. There are no runtime store/key-mismatch traps.
@@ -32,6 +50,7 @@ public actor UserDefaultsSettingsStore {
     /// instance inside a private unchecked-Sendable wrapper and expose only
     /// typed operations.
     private let storage: UserDefaultsSettingsStorage
+    private nonisolated let mutationSourceSequenceMirror = UserDefaultsSettingsMutationSourceSequenceMirror()
     private var mutationSources: [String: UserDefaultsSettingsMutationSourceRecord] = [:]
     private var mutationSourceSequences: [String: UInt64] = [:]
 
@@ -137,11 +156,8 @@ public actor UserDefaultsSettingsStore {
     private func nextMutationSourceSequence(for storageKey: String) -> UInt64 {
         let nextSequence = (mutationSourceSequences[storageKey] ?? 0) &+ 1
         mutationSourceSequences[storageKey] = nextSequence
+        mutationSourceSequenceMirror.store(nextSequence, for: storageKey)
         return nextSequence
-    }
-
-    private func currentMutationSourceSequence(for storageKey: String) -> UInt64 {
-        mutationSourceSequences[storageKey] ?? 0
     }
 
     private func valueEvent<Value>(
@@ -236,6 +252,9 @@ public actor UserDefaultsSettingsStore {
         for key: DefaultsKey<Value>
     ) -> AsyncStream<UserDefaultsSettingsValueEvent<Value>> {
         AsyncStream<UserDefaultsSettingsValueEvent<Value>>(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let initialConsumedSourceSequence = mutationSourceSequenceMirror.sequence(
+                for: key.userDefaultsKey
+            )
             let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
                 bufferingPolicy: .bufferingNewest(1)
             )
@@ -256,9 +275,7 @@ public actor UserDefaultsSettingsStore {
                     continuation.finish()
                     return
                 }
-                var consumedSourceSequence = await self.currentMutationSourceSequence(
-                    for: key.userDefaultsKey
-                )
+                var consumedSourceSequence = initialConsumedSourceSequence
                 let initialSnapshot = await self.valueEvent(
                     for: key,
                     consumedSourceSequence: consumedSourceSequence
