@@ -1,5 +1,6 @@
 import CmuxCore
 import CmuxFoundation
+import CmuxNotifications
 import AppKit
 import Foundation
 import os
@@ -38,54 +39,6 @@ extension UNUserNotificationCenter {
     }
 }
 
-enum NotificationBadgeSettings {
-    static let dockBadgeEnabledKey = "notificationDockBadgeEnabled"
-    static let defaultDockBadgeEnabled = true
-
-    static func isDockBadgeEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: dockBadgeEnabledKey) == nil {
-            return defaultDockBadgeEnabled
-        }
-        return defaults.bool(forKey: dockBadgeEnabledKey)
-    }
-}
-
-enum NotificationPaneRingSettings {
-    static let enabledKey = "notificationPaneRingEnabled"
-    static let defaultEnabled = true
-}
-
-enum NotificationPaneFlashSettings {
-    static let enabledKey = "notificationPaneFlashEnabled"
-    static let defaultEnabled = true
-
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: enabledKey) == nil {
-            return defaultEnabled
-        }
-        return defaults.bool(forKey: enabledKey)
-    }
-}
-
-enum TaggedRunBadgeSettings {
-    static let environmentKey = "CMUX_TAG"
-    private static let maxTagLength = 10
-
-    static func normalizedTag(from env: [String: String] = ProcessInfo.processInfo.environment) -> String? {
-        normalizedTag(env[environmentKey])
-    }
-
-    static func normalizedTag(_ rawTag: String?) -> String? {
-        guard var tag = rawTag?.trimmingCharacters(in: .whitespacesAndNewlines), !tag.isEmpty else {
-            return nil
-        }
-        if tag.count > maxTagLength {
-            tag = String(tag.prefix(maxTagLength))
-        }
-        return tag
-    }
-}
-
 enum AppFocusState {
     static var overrideIsFocused: Bool?
 
@@ -108,84 +61,6 @@ enum AppFocusState {
             return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
         }
         return false
-    }
-}
-
-enum TerminalNotificationClickAction: Codable, Hashable, Sendable {
-    case revealInFinder(path: String)
-
-    private static let kindUserInfoKey = "cmuxClickAction"
-    private static let revealInFinderPathUserInfoKey = "cmuxRevealInFinderPath"
-    private static let revealInFinderKind = "revealInFinder"
-
-    var userInfo: [String: String] {
-        switch self {
-        case .revealInFinder(let path):
-            return [
-                Self.kindUserInfoKey: Self.revealInFinderKind,
-                Self.revealInFinderPathUserInfoKey: path,
-            ]
-        }
-    }
-
-    init?(userInfo: [AnyHashable: Any]) {
-        guard let kind = userInfo[Self.kindUserInfoKey] as? String else { return nil }
-        switch kind {
-        case Self.revealInFinderKind:
-            guard let path = userInfo[Self.revealInFinderPathUserInfoKey] as? String,
-                  !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-            self = .revealInFinder(path: path)
-        default:
-            return nil
-        }
-    }
-}
-
-struct TerminalNotification: Identifiable, Hashable, Sendable {
-    let id: UUID
-    let tabId: UUID
-    let surfaceId: UUID?
-    let panelId: UUID?
-    let title: String
-    let subtitle: String
-    let body: String
-    let createdAt: Date
-    var isRead: Bool
-    var paneFlash: Bool = true
-    var clickAction: TerminalNotificationClickAction?
-
-    init(
-        id: UUID,
-        tabId: UUID,
-        surfaceId: UUID?,
-        panelId: UUID? = nil,
-        title: String,
-        subtitle: String,
-        body: String,
-        createdAt: Date,
-        isRead: Bool,
-        paneFlash: Bool = true,
-        clickAction: TerminalNotificationClickAction? = nil
-    ) {
-        self.id = id
-        self.tabId = tabId
-        self.surfaceId = surfaceId
-        self.panelId = panelId
-        self.title = title
-        self.subtitle = subtitle
-        self.body = body
-        self.createdAt = createdAt
-        self.isRead = isRead
-        self.paneFlash = paneFlash
-        self.clickAction = clickAction
-    }
-
-    func matches(tabId targetTabId: UUID, surfaceId targetSurfaceId: UUID?) -> Bool {
-        guard tabId == targetTabId else { return false }
-        guard let targetSurfaceId else {
-            return surfaceId == nil && panelId == nil
-        }
-        return surfaceId == targetSurfaceId || panelId == targetSurfaceId
     }
 }
 
@@ -535,23 +410,15 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
+    /// Thin forward to the core ``DockBadgeLabel`` formatter, normalizing the run
+    /// tag through ``TaggedRunBadge`` first. Kept so the test surface
+    /// (`TerminalNotificationStore.dockBadgeLabel(...)`) stays byte-for-byte.
     static func dockBadgeLabel(unreadCount: Int, isEnabled: Bool, runTag: String? = nil) -> String? {
-        let unreadLabel: String? = {
-            guard isEnabled, unreadCount > 0 else { return nil }
-            if unreadCount > 99 {
-                return "99+"
-            }
-            return String(unreadCount)
-        }()
-
-        if let tag = TaggedRunBadgeSettings.normalizedTag(runTag) {
-            if let unreadLabel {
-                return "\(tag):\(unreadLabel)"
-            }
-            return tag
-        }
-
-        return unreadLabel
+        DockBadgeLabel(
+            unreadCount: unreadCount,
+            isEnabled: isEnabled,
+            normalizedRunTag: TaggedRunBadge(rawTag: runTag).normalizedTag
+        ).value
     }
 
     var unreadCount: Int {
@@ -624,20 +491,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     private static func authorizationStatusLabel(_ status: UNAuthorizationStatus) -> String {
-        switch status {
-        case .notDetermined:
-            return "notDetermined"
-        case .denied:
-            return "denied"
-        case .authorized:
-            return "authorized"
-        case .provisional:
-            return "provisional"
-        case .ephemeral:
-            return "ephemeral"
-        @unknown default:
-            return "unknown(\(status.rawValue))"
-        }
+        NotificationAuthorizationState.authorizationStatusLabel(status)
     }
 
     func refreshAuthorizationStatus() {
@@ -884,7 +738,7 @@ final class TerminalNotificationStore: ObservableObject {
         body: String,
         cooldownKey: String? = nil,
         cooldownInterval: TimeInterval? = nil,
-        clickAction: TerminalNotificationClickAction? = nil
+        clickAction: NotificationNavClickAction? = nil
     ) {
 #if DEBUG
         cmuxDebugLog(
@@ -1066,7 +920,7 @@ final class TerminalNotificationStore: ObservableObject {
         envelope: TerminalNotificationPolicyEnvelope,
         now: Date,
         cooldownReservation: NotificationCooldownReservation?,
-        clickAction: TerminalNotificationClickAction?
+        clickAction: NotificationNavClickAction?
     ) {
         let payload = envelope.notification
         applyNotification(
@@ -1093,7 +947,7 @@ final class TerminalNotificationStore: ObservableObject {
         effects: TerminalNotificationPolicyEffects,
         now: Date,
         cooldownReservation: NotificationCooldownReservation?,
-        clickAction: TerminalNotificationClickAction?
+        clickAction: NotificationNavClickAction?
     ) {
         let shouldSuppressExternalDelivery = shouldSuppressExternalDelivery(
             tabId: request.tabId,
@@ -1979,36 +1833,31 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
+    // Thin forwards to the core ``NotificationAuthorizationState`` policy methods.
+    // Kept so the test surface (`TerminalNotificationStore.*`) stays byte-for-byte.
+
     static func authorizationState(from status: UNAuthorizationStatus) -> NotificationAuthorizationState {
-        switch status {
-        case .authorized:
-            return .authorized
-        case .denied:
-            return .denied
-        case .notDetermined:
-            return .notDetermined
-        case .provisional:
-            return .provisional
-        case .ephemeral:
-            return .ephemeral
-        @unknown default:
-            return .unknown
-        }
+        NotificationAuthorizationState.authorizationState(from: status)
     }
 
     static func shouldDeferAutomaticAuthorizationRequest(
         status: UNAuthorizationStatus,
         isAppActive: Bool
     ) -> Bool {
-        status == .notDetermined && !isAppActive
+        NotificationAuthorizationState.shouldDeferAutomaticAuthorizationRequest(
+            status: status,
+            isAppActive: isAppActive
+        )
     }
 
     static func shouldRequestAuthorization(
         isAutomaticRequest: Bool,
         hasRequestedAutomaticAuthorization: Bool
     ) -> Bool {
-        guard isAutomaticRequest else { return true }
-        return !hasRequestedAutomaticAuthorization
+        NotificationAuthorizationState.shouldRequestAuthorization(
+            isAutomaticRequest: isAutomaticRequest,
+            hasRequestedAutomaticAuthorization: hasRequestedAutomaticAuthorization
+        )
     }
 
     private static func shouldDeferAutomaticAuthorizationRequest(
@@ -2140,8 +1989,8 @@ final class TerminalNotificationStore: ObservableObject {
     private func refreshDockBadge() {
         let label = Self.dockBadgeLabel(
             unreadCount: unreadCount,
-            isEnabled: NotificationBadgeSettings.isDockBadgeEnabled(),
-            runTag: TaggedRunBadgeSettings.normalizedTag()
+            isEnabled: NotificationBadgeSettings().isDockBadgeEnabled,
+            runTag: TaggedRunBadge(environment: ProcessInfo.processInfo.environment).normalizedTag
         )
         NSApp?.dockTile.badgeLabel = label
     }

@@ -1,5 +1,6 @@
 import CMUXAgentLaunch
 import CmuxBrowser
+import CmuxNotifications
 import CmuxSettings
 import Foundation
 

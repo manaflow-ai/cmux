@@ -2,10 +2,11 @@
 /// terminal notification may be delivered.
 ///
 /// This is a pure value type: it carries no reference to `UNUserNotificationCenter`
-/// or any other system object. The app-side mapper
-/// `authorizationState(from: UNAuthorizationStatus)` (which is coupled to
-/// `UserNotifications`) feeds this enum; this type only owns the resolved state
-/// and the two values derived from it.
+/// or any other system object. The mapper
+/// `authorizationState(from: UNAuthorizationStatus)` (in
+/// `NotificationAuthorizationState+Policy.swift`) maps the `Sendable`
+/// `UserNotifications` status enum into this state, alongside the
+/// debug-log label and the request-policy predicates.
 ///
 /// `statusLabel` strings appear only in debug-log interpolation, never in
 /// localized UI, so they are plain English literals.

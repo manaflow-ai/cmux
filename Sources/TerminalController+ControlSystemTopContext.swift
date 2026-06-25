@@ -7,10 +7,11 @@ import Foundation
 /// live-state tree walk of the former `TerminalController.v2TopWorkspaceNode` /
 /// `v2TopTagNodes`, producing the Sendable ``ControlSystemTopWorkspaceNode``
 /// instead of payload dictionaries. The coordinator shapes the node into the
-/// payload via ``ControlCommandCoordinator/systemTopWorkspacePayload(_:)``; the
-/// app bridges that JSON value back to a `[String: Any]` dictionary so the
-/// nonisolated `system.top` process-annotation pipeline keeps consuming the same
-/// dict tree.
+/// payload via ``ControlCommandCoordinator/systemTopWorkspacePayload(_:)`` (driven
+/// from the window-node builder, which nests the workspace nodes inside a
+/// ``ControlSystemTopWindowNode`` and shapes the whole window node through the
+/// coordinator), so the nonisolated `system.top` process-annotation pipeline
+/// keeps consuming the same dict tree.
 ///
 /// The dict shaping (including the tag id/ref percent-escaping) moved into the
 /// package; only the live `AppDelegate` / `TabManager` / `Workspace` /
@@ -32,25 +33,15 @@ extension TerminalController {
         return nil
     }
 
-    /// Builds the `system.top` payload dictionary for one workspace, byte-faithful
-    /// to the former `v2TopWorkspaceNode`: builds the typed node from live state,
-    /// shapes it through the coordinator, then bridges the JSON value back to a
-    /// Foundation dictionary for the worker-lane annotation pipeline.
-    func v2TopWorkspaceNode(
-        workspace: Workspace,
-        index: Int,
-        selected: Bool
-    ) -> [String: Any] {
-        let node = systemTopWorkspaceNode(workspace: workspace, index: index, selected: selected)
-        let payload = controlCommandCoordinator.systemTopWorkspacePayload(node)
-        // The shaped payload is always a JSON object; `.foundationObject` of an
-        // object is a `[String: Any]`, so this cast never fails for valid input.
-        return (payload.foundationObject as? [String: Any]) ?? [:]
-    }
-
     /// The byte-faithful twin of the former `v2TopWorkspaceNode` tree walk,
-    /// producing a Sendable node instead of a payload dictionary.
-    private func systemTopWorkspaceNode(
+    /// producing a Sendable node instead of a payload dictionary. The
+    /// `system.top` / `system.memory` window-node builders
+    /// (``TerminalController/v2TopWindowNode(summary:index:workspaceNodes:)`` and
+    /// `taskManagerTopPayload`) carry these typed nodes into a
+    /// ``ControlSystemTopWindowNode`` and shape the whole window node through the
+    /// coordinator, so the per-workspace dictionary shaping happens inside the
+    /// package now.
+    func systemTopWorkspaceNode(
         workspace: Workspace,
         index: Int,
         selected: Bool

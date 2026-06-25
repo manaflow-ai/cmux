@@ -11,6 +11,7 @@ import WebKit
 import AppKit
 import Bonsplit
 import CmuxTerminalCore
+import CmuxNotifications
 import Network
 import CFNetwork
 import Darwin
@@ -280,27 +281,10 @@ final class BrowserPanel: Panel, ObservableObject {
 #if DEBUG
                 cmuxDebugLog("browser.find.state.created panel=\(id.uuidString.prefix(5))")
 #endif
-                searchNeedleCancellable = searchState.$needle
-                    .removeDuplicates()
-                    .map { needle -> AnyPublisher<String, Never> in
-                        if needle.isEmpty || needle.count >= 3 {
-                            return Just(needle).eraseToAnyPublisher()
-                        }
-                        return Just(needle)
-                            .delay(for: .milliseconds(300), scheduler: DispatchQueue.main)
-                            .eraseToAnyPublisher()
-                    }
-                    .switchToLatest()
-                    .sink { [weak self] needle in
-                        guard let self else { return }
-#if DEBUG
-                        cmuxDebugLog("browser.find.needle.updated panel=\(self.id.uuidString.prefix(5)) bytes=\(needle.lengthOfBytes(using: .utf8))")
-#endif
-                        self.executeFindSearch(needle)
-                    }
+                findNeedleDebounceCoordinator.observe(searchState)
             } else if let oldValue {
                 lastSearchNeedle = oldValue.needle
-                searchNeedleCancellable = nil
+                findNeedleDebounceCoordinator.stop()
                 if preferredFocusIntent == .findField { preferredFocusIntent = .webView }
                 invalidateSearchFocusRequests(reason: "searchStateCleared")
 #if DEBUG
@@ -311,7 +295,21 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
     @Published private(set) var isElementFullscreenActive: Bool = false
-    private var searchNeedleCancellable: AnyCancellable?
+
+    /// Debounces find-in-page needle edits and forwards each settled query to ``executeFindSearch(_:)``.
+    /// Owns the policy the panel used to inline as a Combine pipeline on `BrowserSearchState.$needle`:
+    /// it observes `needle` via `withObservationTracking` (so `BrowserSearchState` stays `@Observable`)
+    /// and applies the same dedup + count>=3-immediate-else-300ms-delay policy via an injected,
+    /// cancellable `Clock`. Seeded when `searchState` is created, torn down when it is cleared.
+    private lazy var findNeedleDebounceCoordinator = BrowserFindNeedleDebounceCoordinator(
+        onNeedle: { [weak self] needle in
+            guard let self else { return }
+#if DEBUG
+            cmuxDebugLog("browser.find.needle.updated panel=\(self.id.uuidString.prefix(5)) bytes=\(needle.lengthOfBytes(using: .utf8))")
+#endif
+            self.executeFindSearch(needle)
+        }
+    )
 
     /// Find-in-page search execution: generates the find scripts, evaluates them against the
     /// panel's live `webView` through ``BrowserFindWebViewEvaluator``, and parses results into
@@ -1683,7 +1681,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
         _ = reason
-        guard NotificationPaneFlashSettings.isEnabled() else { return }
+        guard NotificationPaneFlashSettings().isEnabled else { return }
         focusFlashToken &+= 1
     }
 

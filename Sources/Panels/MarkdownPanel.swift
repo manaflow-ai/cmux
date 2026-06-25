@@ -1,5 +1,6 @@
 import AppKit
 import CmuxFoundation
+import CmuxNotifications
 import CmuxPanes
 import Combine
 import Foundation
@@ -256,7 +257,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
         _ = reason
-        guard NotificationPaneFlashSettings.isEnabled() else { return }
+        guard NotificationPaneFlashSettings().isEnabled else { return }
         focusFlashToken += 1
     }
 

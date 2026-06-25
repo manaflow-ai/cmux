@@ -887,8 +887,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var windowKeyObservers: [NSObjectProtocol] = []
     private var shortcutMonitor: Any?
     private var shortcutDefaultsObserver: NSObjectProtocol?
-    private var menuBarVisibilityObserver: NSObjectProtocol?
-    private var mobileHostSettingsObserver: NSObjectProtocol?
     private var reloadConfigurationMenuItemRefreshScheduled = false
     /// Orchestrates per-window cmux config-store reloads + window-title refresh.
     /// Holds `self` weakly through the environment seam to avoid a retain cycle.
@@ -1014,9 +1012,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private lazy var updateController = UpdateController(log: updateLog)
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(updateLog: updateLog, settingsRuntime: settingsRuntime)
     private let windowDecorationsController = WindowDecorationsController()
-    private var menuBarExtraController: MenuBarExtraController?
-    private var transientGlobalSearchMenuBarExtraController: MenuBarExtraController?
-    private var lastMenuBarExtraShouldInstall: Bool?
+    /// Owns the menu-bar-extra presentation lifecycle (the persistent + transient
+    /// ``MenuBarExtraController`` instances, the two `UserDefaults` change observer
+    /// tokens, and the last-install latch), relocated off this god object into
+    /// `CmuxWindowing`. This delegate is the composition root: it builds each
+    /// controller (wiring the `NSStatusBarButton` / `GlobalSearchCoordinator` /
+    /// `MobileHostService` / `TaskManagerWindowController` / `NSApp` / settings &
+    /// notification effects that stay app-side) through the coordinator's effects
+    /// seam and forwards the lifecycle entry points to it.
+    private lazy var menuBarExtraPresentation: MenuBarExtraPresentationCoordinator = {
+        MenuBarExtraPresentationCoordinator(
+            effects: MenuBarExtraPresentationEffects(
+                makeController: { [unowned self] in
+                    self.makeMenuBarExtraController()
+                },
+                shouldInstallMenuBarExtra: { defaults in
+                    MenuBarExtraSettings.shouldInstallMenuBarExtra(defaults: defaults)
+                },
+                normalizeLegacyStoredPreference: { defaults in
+                    MenuBarOnlySettings.normalizeLegacyStoredPreference(defaults: defaults)
+                },
+                applyActivationPolicy: { defaults in
+                    MenuBarOnlySettings.applyActivationPolicy(defaults: defaults)
+                },
+                syncMobileHostService: {
+                    MobileHostService.shared.syncToSettings()
+                },
+                log: { message in
+#if DEBUG
+                    cmuxDebugLog(message)
+#endif
+                }
+            )
+        )
+    }()
     private lazy var mainWindowVisibilityController = MainWindowVisibilityController(
         dependencies: .init(
             isActivationSuppressed: {
@@ -7007,12 +7036,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         restartSocketListenerIfEnabled(source: "menu.command")
     }
 
-    private func setupMenuBarExtra() {
-        guard menuBarExtraController == nil else { return }
-        removeTransientGlobalSearchMenuBarExtraController()
-        menuBarExtraController = makeMenuBarExtraController()
-    }
-
     private func makeMenuBarExtraController() -> MenuBarExtraController {
         let store = TerminalNotificationStore.shared
         return MenuBarExtraController(
@@ -7048,123 +7071,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func toggleGlobalSearchPaletteFromGlobalHotkey() {
-        if menuBarExtraController == nil,
-           MenuBarExtraSettings.shouldInstallMenuBarExtra() {
-            setupMenuBarExtra()
-        }
-
-        if let menuBarExtraController,
-           menuBarExtraController.toggleGlobalSearchPalette() {
-            return
-        }
-
-        if toggleGlobalSearchPaletteFromTransientMenuBarExtra() {
-            return
-        }
-
-        NSSound.beep()
-    }
-
-    private func toggleGlobalSearchPaletteFromTransientMenuBarExtra() -> Bool {
-        if let controller = transientGlobalSearchMenuBarExtraController {
-            if controller.toggleGlobalSearchPalette(
-                onDismiss: transientGlobalSearchDismissalHandler(for: controller)
-            ) {
-                return true
-            }
-            controller.removeFromMenuBar()
-            transientGlobalSearchMenuBarExtraController = nil
-        }
-
-        let controller = makeMenuBarExtraController()
-        transientGlobalSearchMenuBarExtraController = controller
-
-        let onDismiss = transientGlobalSearchDismissalHandler(for: controller)
-
-        guard controller.toggleGlobalSearchPalette(onDismiss: onDismiss) else {
-            controller.removeFromMenuBar()
-            transientGlobalSearchMenuBarExtraController = nil
-            return false
-        }
-
-        return true
-    }
-
-    private func removeTransientGlobalSearchMenuBarExtraController() {
-        transientGlobalSearchMenuBarExtraController?.removeFromMenuBar()
-        transientGlobalSearchMenuBarExtraController = nil
-    }
-
-    private func transientGlobalSearchDismissalHandler(
-        for controller: MenuBarExtraController
-    ) -> () -> Void {
-        return { [weak self, weak controller] in
-            guard let self,
-                  let controller,
-                  self.transientGlobalSearchMenuBarExtraController === controller else {
-                return
-            }
-            controller.removeFromMenuBar()
-            self.transientGlobalSearchMenuBarExtraController = nil
+        if !menuBarExtraPresentation.toggleGlobalSearchPaletteFromGlobalHotkey() {
+            NSSound.beep()
         }
     }
 
     private func installMenuBarVisibilityObserver() {
-        guard menuBarVisibilityObserver == nil else { return }
-        menuBarVisibilityObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.syncApplicationPresentationPreferences()
-            }
-        }
+        menuBarExtraPresentation.installMenuBarVisibilityObserver()
     }
 
     private func syncApplicationPresentationPreferences(defaults: UserDefaults = .standard) {
-        MenuBarOnlySettings.normalizeLegacyStoredPreference(defaults: defaults)
-        syncActivationPolicy(defaults: defaults)
-        syncMenuBarExtraVisibility(defaults: defaults)
+        menuBarExtraPresentation.syncApplicationPresentationPreferences(defaults: defaults)
     }
 
     private func installMobileHostSettingsObserver() {
-        guard mobileHostSettingsObserver == nil else { return }
-        mobileHostSettingsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.syncMobileHostService()
-            }
-        }
-    }
-
-    private func syncMobileHostService() {
-        MobileHostService.shared.syncToSettings()
+        menuBarExtraPresentation.installMobileHostSettingsObserver()
     }
 
     private func syncActivationPolicy(defaults: UserDefaults = .standard) {
-        MenuBarOnlySettings.applyActivationPolicy(defaults: defaults)
-    }
-
-    private func syncMenuBarExtraVisibility(defaults: UserDefaults = .standard) {
-        let shouldInstall = MenuBarExtraSettings.shouldInstallMenuBarExtra(defaults: defaults)
-        let previousShouldInstall = lastMenuBarExtraShouldInstall
-        lastMenuBarExtraShouldInstall = shouldInstall
-
-        if shouldInstall {
-            setupMenuBarExtra()
-            return
-        }
-
-        let hadPersistentController = menuBarExtraController != nil
-        menuBarExtraController?.removeFromMenuBar()
-        menuBarExtraController = nil
-        if previousShouldInstall == true || hadPersistentController {
-            removeTransientGlobalSearchMenuBarExtraController()
-        }
+        menuBarExtraPresentation.syncActivationPolicy(defaults: defaults)
     }
 
     @MainActor
@@ -7200,7 +7125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func refreshMenuBarExtraForDebug() {
-        menuBarExtraController?.refreshForDebugControls()
+        menuBarExtraPresentation.refreshForDebug()
     }
 
     func openTaskManagerWindow() {
@@ -7521,7 +7446,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
 #if DEBUG
-    private let debugColorWorkspaceTitlePrefix = "Debug Color - "
     // Read by `logSlowShortcutMonitorLatencyIfNeeded` here and set by the
     // `DebugStressWorkspaceHosting` conformance in a sibling file; `internal`
     // so the cross-file extension can flip it on at batch start.
@@ -7548,67 +7472,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var debugStressLoadTargets: [UUID: DebugStressTerminalLoadTarget] = [:]
 
     @objc func openDebugScrollbackTab(_ sender: Any?) {
-        guard let tabManager else { return }
-        let tab = tabManager.addTab()
-        let config = GhosttyConfig.load()
-        let command = DebugTerminalTabContent.scrollback(scrollbackLimit: config.scrollbackLimit).text
-        sendTextWhenReady(command, to: tab)
+        debugStressWorkspaceDriver.openScrollbackTab()
     }
 
     @objc func openDebugLoremTab(_ sender: Any?) {
-        guard let tabManager else { return }
-        let tab = tabManager.addTab()
-        let payload = DebugTerminalTabContent.lorem.text
-        sendTextWhenReady(payload, to: tab)
+        debugStressWorkspaceDriver.openLoremTab()
     }
 
     @objc func openDebugAgentSessionReact(_ sender: Any?) {
-        openDebugAgentSession(rendererKind: .react)
+        debugStressWorkspaceDriver.openAgentSessionReact()
     }
 
     @objc func openDebugAgentSessionSolid(_ sender: Any?) {
-        openDebugAgentSession(rendererKind: .solid)
-    }
-
-    private func openDebugAgentSession(rendererKind: AgentSessionRendererKind) {
-        guard let manager = activeTabManagerForCommands(),
-              let workspace = manager.selectedWorkspace,
-              let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
-            return
-        }
-        _ = workspace.newAgentSessionSurface(
-            inPane: paneId,
-            providerID: .codex,
-            rendererKind: rendererKind,
-            workingDirectory: workspace.currentDirectory,
-            focus: true
-        )
+        debugStressWorkspaceDriver.openAgentSessionSolid()
     }
 
     @objc func openDebugColorComparisonWorkspaces(_ sender: Any?) {
-        guard let tabManager else { return }
-
-        let palette = WorkspaceTabColorSettings.palette()
-        guard !palette.isEmpty else { return }
-
-        var existingByTitle: [String: Workspace] = [:]
-        for tab in tabManager.tabs {
-            guard let title = tab.customTitle,
-                  title.hasPrefix(debugColorWorkspaceTitlePrefix) else { continue }
-            existingByTitle[title] = tab
-        }
-
-        for entry in palette {
-            let title = "\(debugColorWorkspaceTitlePrefix)\(entry.name)"
-            let targetTab: Workspace
-            if let existing = existingByTitle[title] {
-                targetTab = existing
-            } else {
-                targetTab = tabManager.addTab()
-            }
-            tabManager.setCustomTitle(tabId: targetTab.id, title: title)
-            tabManager.setTabColor(tabId: targetTab.id, color: entry.hex)
-        }
+        debugStressWorkspaceDriver.openColorComparisonWorkspaces()
     }
 
     @objc func openDebugStressWorkspacesWithLoadedSurfaces(_ sender: Any?) {

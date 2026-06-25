@@ -1,5 +1,6 @@
 import CmuxBrowser
 import CmuxCommandPalette
+import CmuxNotifications
 import Foundation
 import CmuxSettings
 

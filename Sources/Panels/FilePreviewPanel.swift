@@ -1,5 +1,6 @@
 import AppKit
 import AVKit
+import CmuxNotifications
 import CmuxPanes
 import Bonsplit
 import Foundation
@@ -134,7 +135,7 @@ final class FilePreviewPanel: Panel, FilePreviewTextEditingPanel, FilePreviewIma
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
         _ = reason
-        guard NotificationPaneFlashSettings.isEnabled() else { return }
+        guard NotificationPaneFlashSettings().isEnabled else { return }
         focusFlashToken += 1
     }
 

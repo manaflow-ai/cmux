@@ -2439,7 +2439,7 @@ final class CmuxConfigStore {
     /// matching key wins. Returns nil when nothing matches.
     func resolveWorkspaceGroupConfig(forCwd cwd: String?) -> CmuxResolvedWorkspaceGroupConfig? {
         guard let cwd, !cwd.isEmpty, !workspaceGroupConfigs.isEmpty else { return nil }
-        let normalizedCwd = Self.normalizeAbsolutePath(cwd)
+        let normalizedCwd = CmuxConfigCwdResolver().normalizeAbsolutePath(cwd)
         var best: (CmuxResolvedWorkspaceGroupConfig, Int)?
         for entry in workspaceGroupConfigs {
             guard Self.cwdEntryMatches(entry, cwd: normalizedCwd) else { continue }
@@ -2451,36 +2451,13 @@ final class CmuxConfigStore {
         return best?.0
     }
 
-    /// Replace a leading `~` with the user's home directory while preserving
-    /// the rest of the pattern (including `*`/`?` glob characters). Unlike
-    /// `normalizeAbsolutePath`, this skips `standardizingPath` so trailing
-    /// glob segments aren't collapsed.
-    private static func expandTildePreservingGlob(_ pattern: String) -> String {
-        let trimmed = pattern.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("~") else { return trimmed }
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let suffix = trimmed.dropFirst()
-        return suffix.isEmpty ? home : home + String(suffix)
-    }
-
-    private static func normalizeAbsolutePath(_ path: String) -> String {
-        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty { return "" }
-        if trimmed.hasPrefix("~") {
-            let home = FileManager.default.homeDirectoryForCurrentUser.path
-            let suffix = trimmed.dropFirst()
-            return suffix.isEmpty ? home : home + String(suffix)
-        }
-        return (trimmed as NSString).standardizingPath
-    }
-
     private static func cwdEntryMatches(
         _ entry: CmuxResolvedWorkspaceGroupConfig,
         cwd: String
     ) -> Bool {
         let key = entry.normalizedKey
         if entry.isGlob {
-            return fnmatchStyle(pattern: key, candidate: cwd)
+            return CmuxConfigCwdResolver.fnmatchStyle(pattern: key, candidate: cwd)
         }
         if cwd == key { return true }
         // Root prefix `/` is a documented catch-all; without this branch
@@ -2491,36 +2468,6 @@ final class CmuxConfigStore {
             return cwd.hasPrefix("/")
         }
         return cwd.hasPrefix(key + "/")
-    }
-
-    /// Minimal fnmatch: `*` matches any run of characters within a path segment
-    /// (and across path separators); `?` matches a single character. Sufficient
-    /// for the byCwd matching contract — full fnmatch features can come later.
-    private static func fnmatchStyle(pattern: String, candidate: String) -> Bool {
-        let p = Array(pattern)
-        let s = Array(candidate)
-        var pi = 0
-        var si = 0
-        var starP = -1
-        var starS = -1
-        while si < s.count {
-            if pi < p.count && (p[pi] == "?" || p[pi] == s[si]) {
-                pi += 1
-                si += 1
-            } else if pi < p.count && p[pi] == "*" {
-                starP = pi
-                starS = si
-                pi += 1
-            } else if starP != -1 {
-                pi = starP + 1
-                starS += 1
-                si = starS
-            } else {
-                return false
-            }
-        }
-        while pi < p.count && p[pi] == "*" { pi += 1 }
-        return pi == p.count
     }
 
     private func resolveWorkspaceGroupConfigsFromLayers(
@@ -2577,8 +2524,8 @@ final class CmuxConfigStore {
         // through `standardizingPath` so trailing `/.` and similar are
         // canonicalized.
         let normalizedKey = isGlob
-            ? Self.expandTildePreservingGlob(trimmed)
-            : Self.normalizeAbsolutePath(trimmed)
+            ? CmuxConfigCwdResolver().expandTildePreservingGlob(trimmed)
+            : CmuxConfigCwdResolver().normalizeAbsolutePath(trimmed)
         let menuResolution = resolvedConfigContextMenuItems(
             entry.contextMenu,
             actions: actions,
@@ -3082,18 +3029,9 @@ final class CmuxConfigStore {
 }
 
 extension CmuxConfigStore {
+    /// Thin forwarder kept for source compatibility; the implementation lives on
+    /// ``CmuxConfigCwdResolver`` in CmuxFoundation.
     static func resolveCwd(_ cwd: String?, relativeTo baseCwd: String) -> String {
-        guard let cwd, !cwd.isEmpty, cwd != "." else {
-            return baseCwd
-        }
-        if cwd.hasPrefix("~/") || cwd == "~" {
-            let home = FileManager.default.homeDirectoryForCurrentUser.path
-            if cwd == "~" { return home }
-            return (home as NSString).appendingPathComponent(String(cwd.dropFirst(2)))
-        }
-        if cwd.hasPrefix("/") {
-            return cwd
-        }
-        return (baseCwd as NSString).appendingPathComponent(cwd)
+        CmuxConfigCwdResolver().resolveCwd(cwd, relativeTo: baseCwd)
     }
 }

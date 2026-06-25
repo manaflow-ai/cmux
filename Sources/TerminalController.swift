@@ -301,6 +301,15 @@ class TerminalController: MobileViewportSurfaceLimiting {
     /// `nonisolated`.
     nonisolated(unsafe) var controlBrowserQueryWorker: ControlBrowserQueryWorker?
 
+    /// The worker-lane `system.top` / `system.memory` RPC handler
+    /// (CmuxControlSocket), reaching the live window graph (the base-payload tree
+    /// walk) and the `CmuxTopProcessSnapshot` annotation pipeline strictly through
+    /// the ``ControlSystemTopReading`` seam conformed over this controller. Built
+    /// in `init` once `self` is available (the seam conformer holds `self`
+    /// weakly). Read from the nonisolated socket-worker lane, so stored
+    /// `nonisolated`.
+    nonisolated(unsafe) var controlSystemTopWorker: ControlSystemTopWorker?
+
 #if DEBUG
     /// The worker-lane `debug.sidebar.simulate_drag` RPC handler
     /// (CmuxControlSocket), reaching the live per-window `TabManager` + the
@@ -431,6 +440,9 @@ class TerminalController: MobileViewportSurfaceLimiting {
         controlAuthWorker = ControlAuthWorker(reading: TerminalControllerAuthReading(owner: self))
         controlBrowserQueryWorker = ControlBrowserQueryWorker(
             reading: TerminalControllerBrowserQueryReading(owner: self)
+        )
+        controlSystemTopWorker = ControlSystemTopWorker(
+            reading: TerminalControllerSystemTopReading(owner: self)
         )
         controlRemotePTYWorker = ControlRemotePTYWorker(
             reading: TerminalControllerRemotePTYReading(owner: self)
@@ -951,10 +963,17 @@ class TerminalController: MobileViewportSurfaceLimiting {
             // ``ControlSystemProbe`` (shared with the coordinator). Built here with
             // no main hop, exactly as the legacy inline bodies did.
             return Self.v2Encoder.response(id: request.control.id, systemProbeResponse(request.method))
-        case "system.top":
-            return v2Result(id: request.id, v2SystemTop(params: request.params))
-        case "system.memory":
-            return v2Result(id: request.id, v2SystemMemory(params: request.params))
+        case "system.top", "system.memory":
+            // The `system.top` / `system.memory` resource-monitor commands are
+            // owned by CmuxControlSocket's ``ControlSystemTopWorker``, reaching the
+            // live window graph + the `CmuxTopProcessSnapshot` annotation pipeline
+            // strictly through the ``ControlSystemTopReading`` seam
+            // (`controlResolveSystemTop` / `controlResolveSystemMemory`). The worker
+            // is synchronous and blocks the worker thread exactly as the legacy
+            // `nonisolated` `v2SystemTop` / `v2SystemMemory` bodies did (the snapshot
+            // sampling and annotation run on the worker thread; only the base-payload
+            // tree walk hops to main via `v2MainSync` inside the conformer).
+            return runSystemTopWorker(request.control)
         case "workspace.env":
             // Worker-lane method owned by ControlCommandCoordinator
             // (`workspaceEnv`, reached via `handle`). Its body is entirely a
@@ -1524,90 +1543,11 @@ class TerminalController: MobileViewportSurfaceLimiting {
         return result
     }
 
-    private struct V2WindowRouting {
-        let includeAllWindows: Bool
-        let requestedWindowId: UUID?
-        let focused: [String: Any]
-        let caller: [String: Any]
-        let focusedWindowId: UUID?
-    }
-
-    private func v2WindowSelectorDetails(params: [String: Any]) -> [String: Any]? {
-        guard let rawWindowId = params["window_id"] else { return nil }
-        if let string = rawWindowId as? String {
-            return ["window_id": string]
-        }
-        return ["window_id": String(describing: rawWindowId)]
-    }
-
-    private func parseV2WindowRouting(params: [String: Any]) -> (routing: V2WindowRouting?, error: V2CallResult?) {
-        if params["all_windows"] != nil, v2Bool(params, "all_windows") == nil {
-            return (
-                nil,
-                .err(
-                    code: "invalid_params",
-                    message: "Invalid all_windows. Pass true or false, or omit it. Use --window <id|ref|index> to target one window or --all-windows to target all windows.",
-                    data: nil
-                )
-            )
-        }
-
-        let includeAllWindows = v2Bool(params, "all_windows") ?? false
-        let requestedWindowId = v2UUID(params, "window_id")
-        if params["window_id"] != nil && requestedWindowId == nil {
-            return (
-                nil,
-                .err(
-                    code: "invalid_params",
-                    message: "Invalid window selector. Use --window <id|ref|index> to target one window, or run `cmux list-windows` to see available windows and retry.",
-                    data: v2WindowSelectorDetails(params: params)
-                )
-            )
-        }
-        if includeAllWindows, requestedWindowId != nil {
-            return (
-                nil,
-                .err(
-                    code: "invalid_params",
-                    message: "Choose either --window <id|ref|index> or --all-windows, not both. Run `cmux list-windows` to see available windows and retry.",
-                    data: v2WindowSelectorDetails(params: params)
-                )
-            )
-        }
-
-        var identifyParams: [String: Any] = [:]
-        if let caller = params["caller"] as? [String: Any], !caller.isEmpty {
-            identifyParams["caller"] = caller
-        }
-        if let requestedWindowId {
-            identifyParams["window_id"] = requestedWindowId.uuidString
-        }
-        let identifyPayload = v2Identify(params: identifyParams)
-        let focused = identifyPayload["focused"] as? [String: Any] ?? [:]
-        let caller = identifyPayload["caller"] as? [String: Any] ?? [:]
-        let focusedWindowId = v2UUIDAny(focused["window_id"]) ?? v2UUIDAny(focused["window_ref"])
-        return (
-            V2WindowRouting(
-                includeAllWindows: includeAllWindows,
-                requestedWindowId: requestedWindowId,
-                focused: focused,
-                caller: caller,
-                focusedWindowId: focusedWindowId
-            ),
-            nil
-        )
-    }
-
-    private func v2WindowNotFoundResult(params: [String: Any], windowId: UUID) -> V2CallResult {
-        .err(
-            code: "not_found",
-            message: "Window not found. Run `cmux list-windows` to see available windows, then retry with --window <id|ref|index>.",
-            data: v2WindowSelectorDetails(params: params) ?? ["window_id": windowId.uuidString]
-        )
-    }
-
-#if DEBUG
-#endif
+    // `V2WindowRouting` + `v2WindowSelectorDetails` / `parseV2WindowRouting` /
+    // `v2WindowNotFoundResult` (the `system.top` / `system.memory` window-routing
+    // helpers) moved with the command bodies into
+    // TerminalController+ControlSystemTopReading.swift; only that worker-lane slice
+    // used them.
 
     func taskManagerTopPayload(includeProcesses: Bool) async throws -> [String: Any] {
         v2RefreshKnownRefs()
@@ -1622,7 +1562,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
             for (windowIndex, summary) in summaries.enumerated() {
                 guard let manager = app.tabManagerFor(windowId: summary.windowId) else { continue }
                 let workspaceNodes = manager.tabs.enumerated().map { workspaceIndex, workspace in
-                    v2TopWorkspaceNode(
+                    systemTopWorkspaceNode(
                         workspace: workspace,
                         index: workspaceIndex,
                         selected: workspace.id == manager.selectedTabId
@@ -1674,7 +1614,12 @@ class TerminalController: MobileViewportSurfaceLimiting {
         ]
     }
 
-    private nonisolated func processAggregates(
+    /// The `program_totals` / `coding_agents` aggregate payloads, shared by the
+    /// task-manager snapshot (`taskManagerTopPayload`, app-side) and the worker-lane
+    /// `system.top` / `system.memory` bodies (`v2SystemTop` / `v2SystemMemory` in
+    /// TerminalController+ControlSystemTopReading.swift). Internal so the moved
+    /// worker-lane bodies can reach it from their extension file.
+    nonisolated func processAggregates(
         from processSnapshot: CmuxTopProcessSnapshot,
         totalPIDs: Set<Int>
     ) -> (programs: [[String: Any]], codingAgents: [[String: Any]]) {
@@ -1683,216 +1628,6 @@ class TerminalController: MobileViewportSurfaceLimiting {
             codingAgents: processSnapshot.codingAgentSummaryPayload(for: totalPIDs)
         )
     }
-
-    private nonisolated func v2SystemTop(params: [String: Any]) -> V2CallResult {
-        let base = v2MainSync {
-            self.v2RefreshKnownRefs()
-            return self.v2SystemTopBasePayload(params: params)
-        }
-        guard case .ok(let value) = base else { return base }
-        guard var payload = value as? [String: Any],
-              let includeProcesses = payload.removeValue(forKey: "include_processes") as? Bool,
-              var windowNodes = payload.removeValue(forKey: "windows") as? [[String: Any]] else {
-            return .err(code: "internal_error", message: "Invalid system.top payload", data: nil)
-        }
-        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: includeProcesses)
-        let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
-        let totalPIDs = v2AnnotateTopWindows(
-            &windowNodes,
-            processSnapshot: processSnapshot,
-            browserPIDOccurrences: browserPIDOccurrences,
-            includeProcesses: includeProcesses
-        )
-        let aggregates = processAggregates(from: processSnapshot, totalPIDs: totalPIDs)
-        let memoryDiagnostic = v2TopMemoryDiagnosticPayload(
-            processSnapshot: processSnapshot,
-            annotatedWindows: windowNodes
-        )
-
-        payload["sample"] = processSnapshot.samplePayload()
-        payload["totals"] = processSnapshot.summaryPayload(for: totalPIDs)
-        payload["memory_diagnostic"] = memoryDiagnostic
-        payload["program_totals"] = aggregates.programs
-        payload["coding_agents"] = aggregates.codingAgents
-        payload["windows"] = windowNodes
-        return .ok(payload)
-    }
-
-    private nonisolated func v2SystemMemory(params: [String: Any]) -> V2CallResult {
-        var baseParams = params
-        baseParams["include_processes"] = false
-        let base = v2MainSync {
-            self.v2RefreshKnownRefs()
-            return self.v2SystemTopBasePayload(params: baseParams)
-        }
-        guard case .ok(let value) = base else { return base }
-        guard var payload = value as? [String: Any],
-              var windowNodes = payload.removeValue(forKey: "windows") as? [[String: Any]] else {
-            return .err(code: "internal_error", message: "Invalid system.memory payload", data: nil)
-        }
-        // The former inline `intParam` closure was a byte-equivalent twin of the
-        // shared `v2StrictIntAny` strict-integer parser (non-boolean integral
-        // number truncated toward zero with range/finite guards, or a decimal
-        // string), so the group-limit validation reuses the single shared helper
-        // rather than carrying a duplicate parser in the god dispatch path.
-        var invalidLimitKey: String?
-        func groupLimitParam(_ key: String) -> Int? {
-            guard params[key] != nil else { return nil }
-            guard let value = v2StrictIntAny(params[key]), (1...100).contains(value) else {
-                invalidLimitKey = key
-                return nil
-            }
-            return value
-        }
-        let topGroupLimitValue = groupLimitParam("top_group_limit")
-        if let invalidLimitKey {
-            return .err(code: "invalid_params", message: "\(invalidLimitKey) must be an integer from 1 to 100", data: nil)
-        }
-        let groupLimitValue = groupLimitParam("group_limit")
-        if let invalidLimitKey {
-            return .err(code: "invalid_params", message: "\(invalidLimitKey) must be an integer from 1 to 100", data: nil)
-        }
-        let topGroupLimit = topGroupLimitValue ?? groupLimitValue ?? 12
-        let processSnapshot = CmuxTopProcessSnapshot.captureCached(
-            includeProcessDetails: true,
-            maximumAge: 2
-        )
-        let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
-        _ = v2AnnotateTopWindows(
-            &windowNodes,
-            processSnapshot: processSnapshot,
-            browserPIDOccurrences: browserPIDOccurrences,
-            includeProcesses: false
-        )
-        payload["sample"] = processSnapshot.samplePayload()
-        payload["memory_diagnostic"] = v2TopMemoryDiagnosticPayload(
-            processSnapshot: processSnapshot,
-            annotatedWindows: windowNodes,
-            topGroupLimit: topGroupLimit
-        )
-        return .ok(payload)
-    }
-
-    private func v2SystemTopBasePayload(params: [String: Any]) -> V2CallResult {
-        let workspaceFilter = v2UUID(params, "workspace_id")
-        if params["workspace_id"] != nil && workspaceFilter == nil {
-            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
-        }
-        if params["include_processes"] != nil, v2Bool(params, "include_processes") == nil { return .err(code: "invalid_params", message: "Missing or invalid include_processes", data: nil) }
-        let includeProcesses = v2Bool(params, "include_processes") ?? false
-        let routingResult = parseV2WindowRouting(params: params)
-        if let error = routingResult.error { return error }
-        guard let routing = routingResult.routing else {
-            return .err(code: "internal_error", message: "Invalid window routing payload", data: nil)
-        }
-
-        var windowNodes: [[String: Any]] = []
-        var workspaceFound = (workspaceFilter == nil)
-        var windowFound = (routing.requestedWindowId == nil)
-
-        if let app = AppDelegate.shared {
-            let summaries = app.listMainWindowSummaries()
-            let defaultWindowId = routing.requestedWindowId ?? routing.focusedWindowId ?? summaries.first?.windowId
-
-            for (windowIndex, summary) in summaries.enumerated() {
-                if let requestedWindowId = routing.requestedWindowId, summary.windowId != requestedWindowId {
-                    continue
-                }
-                windowFound = true
-                guard let manager = app.tabManagerFor(windowId: summary.windowId) else { continue }
-
-                if let workspaceFilter {
-                    guard let workspaceIndex = manager.tabs.firstIndex(where: { $0.id == workspaceFilter }) else {
-                        continue
-                    }
-                    let workspace = manager.tabs[workspaceIndex]
-                    let workspaceNode = v2TopWorkspaceNode(
-                        workspace: workspace,
-                        index: workspaceIndex,
-                        selected: workspace.id == manager.selectedTabId
-                    )
-                    windowNodes = [
-                        v2TopWindowNode(
-                            summary: summary,
-                            index: windowIndex,
-                            workspaceNodes: [workspaceNode]
-                        )
-                    ]
-                    workspaceFound = true
-                    break
-                }
-
-                if !routing.includeAllWindows && summary.windowId != defaultWindowId {
-                    continue
-                }
-
-                let workspaceNodesForWindow = manager.tabs.enumerated().map { workspaceIndex, workspace in
-                    v2TopWorkspaceNode(
-                        workspace: workspace,
-                        index: workspaceIndex,
-                        selected: workspace.id == manager.selectedTabId
-                    )
-                }
-
-                windowNodes.append(
-                    v2TopWindowNode(
-                        summary: summary,
-                        index: windowIndex,
-                        workspaceNodes: workspaceNodesForWindow
-                    )
-                )
-            }
-        }
-
-        v2AttachTopApplicationProcess(to: &windowNodes, workspaceFilter: workspaceFilter)
-
-        if let requestedWindowId = routing.requestedWindowId, !windowFound {
-            return v2WindowNotFoundResult(params: params, windowId: requestedWindowId)
-        }
-        if let workspaceFilter, !workspaceFound {
-            return .err(
-                code: "not_found",
-                message: "Workspace not found",
-                data: [
-                    "workspace_id": workspaceFilter.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceFilter)
-                ]
-            )
-        }
-
-        return .ok([
-            "active": routing.focused.isEmpty ? (NSNull() as Any) : routing.focused,
-            "caller": routing.caller.isEmpty ? (NSNull() as Any) : routing.caller,
-            "include_processes": includeProcesses,
-            "windows": windowNodes
-        ])
-    }
-
-    private func v2TopWindowNode(
-        summary: AppDelegate.MainWindowSummary,
-        index: Int,
-        workspaceNodes: [[String: Any]]
-    ) -> [String: Any] {
-        return [
-            "kind": "window",
-            "id": summary.windowId.uuidString,
-            "ref": v2Ref(kind: .window, uuid: summary.windowId),
-            "index": index,
-            "key": summary.isKeyWindow,
-            "visible": summary.isVisible,
-            "workspace_count": workspaceNodes.count,
-            "selected_workspace_id": v2OrNull(summary.selectedWorkspaceId?.uuidString),
-            "selected_workspace_ref": v2Ref(kind: .workspace, uuid: summary.selectedWorkspaceId),
-            "workspaces": workspaceNodes
-        ]
-    }
-
-    // The byte-faithful `v2TopWorkspaceNode` / `v2TopTagNodes` payload builders
-    // moved to TerminalController+ControlSystemTopContext.swift (live-state tree
-    // walk producing typed `ControlSystemTopWorkspaceNode`s) and
-    // ControlCommandCoordinator+SystemTop.swift (the dictionary shaping). The
-    // app `v2TopWorkspaceNode(workspace:index:selected:)` bridge lives in that
-    // conformance file.
 
     // MARK: - V2 Helpers (encoding + result plumbing)
     // MARK: - V2 Helpers (encoding + result plumbing)

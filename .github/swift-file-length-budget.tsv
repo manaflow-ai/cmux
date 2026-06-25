@@ -38,7 +38,7 @@
 2568	Sources/Panels/CmuxWebView.swift
 2546	cmuxTests/WorkspaceManualUnreadTests.swift
 2472	cmuxTests/CommandPaletteSearchEngineTests.swift
-2395	Sources/Mobile/MobileHostService.swift
+2128	Sources/Mobile/MobileHostService.swift
 2355	Sources/FileExplorerView.swift
 2328	cmuxTests/CJKIMEInputTests.swift
 2291	Sources/TerminalNotificationStore.swift

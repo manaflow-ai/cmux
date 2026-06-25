@@ -3,6 +3,7 @@ import CmuxPanes
 import CoreGraphics
 import CmuxCore
 import CmuxFoundation
+import CmuxNotifications
 import Foundation
 import Bonsplit
 import CmuxWorkspaces
@@ -1686,7 +1687,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
     var createdAt: TimeInterval
     var isRead: Bool
     var paneFlash: Bool?
-    var clickAction: TerminalNotificationClickAction?
+    var clickAction: NotificationNavClickAction?
 
     init(
         id: UUID,
@@ -1696,7 +1697,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
         createdAt: TimeInterval,
         isRead: Bool,
         paneFlash: Bool? = nil,
-        clickAction: TerminalNotificationClickAction? = nil
+        clickAction: NotificationNavClickAction? = nil
     ) {
         self.id = id
         self.title = title

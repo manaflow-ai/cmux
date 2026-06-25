@@ -1,5 +1,6 @@
 import Foundation
 import CmuxTerminalCore
+import CmuxNotifications
 import CmuxPanes
 import Combine
 import AppKit
@@ -752,7 +753,7 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
-        guard NotificationPaneFlashSettings.isEnabled() else { return }
+        guard NotificationPaneFlashSettings().isEnabled else { return }
 
         switch TmuxOverlayExperimentSettings.target() {
         case .bonsplitPane:
