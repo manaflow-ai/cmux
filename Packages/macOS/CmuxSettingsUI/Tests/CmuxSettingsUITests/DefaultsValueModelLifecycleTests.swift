@@ -160,6 +160,35 @@ import Testing
         #expect(model.revision == 3)
     }
 
+    @Test func localWriteEchoDoesNotAdvanceRevision() async {
+        let store = UserDefaultsSettingsStore(
+            defaults: UserDefaults(suiteName: "defaults-value-model-local-echo")!
+        )
+        let key = SettingCatalog().betaFeatures.extensions
+        let (stream, continuation) = AsyncStream<Bool>.makeStream()
+        let model = DefaultsValueModel(
+            store: store,
+            key: key,
+            makeStream: { stream }
+        )
+        model.startObserving()
+
+        model.set(true)
+        #expect(model.current == true)
+        #expect(model.revision == 1)
+
+        continuation.yield(true)
+        continuation.yield(false)
+        var spins = 0
+        while model.current != false, spins < 100_000 {
+            await Task.yield()
+            spins += 1
+        }
+
+        #expect(model.current == false)
+        #expect(model.revision == 2)
+    }
+
     @Test func setAfterCommitRunsAfterStoreWrite() async {
         let suiteName = "defaults-value-model-after-commit"
         UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)

@@ -39,6 +39,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     private let store: UserDefaultsSettingsStore
     private let key: DefaultsKey<Value>
     @ObservationIgnored private let makeStream: () -> AsyncStream<Value>
+    @ObservationIgnored private var pendingStoreEchoValue: Value?
 
     /// Owns the change-stream subscription and cancels it when this model
     /// deallocates.
@@ -91,7 +92,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     /// lifecycle hook such as `.task`, not from their initializer.
     public func startObserving() {
         observation.activate(makeStream) { [weak self] value in
-            self?.updateCurrent(value)
+            self?.acceptObservedValue(value)
         }
     }
 
@@ -101,6 +102,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     /// SwiftUI `Binding` setters can't `await`; the write itself runs in a
     /// fire-and-forget `Task`.
     public func set(_ value: Value) {
+        pendingStoreEchoValue = value
         updateCurrent(value)
         Task { [store, key] in
             await store.set(value, for: key)
@@ -118,6 +120,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     ///   - afterCommit: Main-actor work to run after ``UserDefaultsSettingsStore``
     ///     has completed the write.
     public func set(_ value: Value, afterCommit: @escaping @MainActor @Sendable () -> Void) {
+        pendingStoreEchoValue = value
         updateCurrent(value)
         Task { [store, key, afterCommit] in
             await store.set(value, for: key)
@@ -137,10 +140,20 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     /// Removes the override; ``current`` updates when the stream observes
     /// the reset.
     public func reset() {
-        updateCurrent(key.defaultValue)
+        let defaultValue = key.defaultValue
+        pendingStoreEchoValue = defaultValue
+        updateCurrent(defaultValue)
         Task { [store, key] in
             await store.reset(key)
         }
+    }
+
+    private func acceptObservedValue(_ value: Value) {
+        if pendingStoreEchoValue == value {
+            pendingStoreEchoValue = nil
+            return
+        }
+        updateCurrent(value)
     }
 
     private func updateCurrent(_ value: Value) {
