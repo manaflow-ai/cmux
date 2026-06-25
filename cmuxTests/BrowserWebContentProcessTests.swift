@@ -118,7 +118,7 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
-    func webAuthnPageBridgeRelaysCapabilitiesThroughContentWorldHandler() async throws {
+    func webAuthnPageBridgeRelaysCredentialGetThroughContentWorldHandler() async throws {
         let configuration = WKWebViewConfiguration()
         BrowserPanel.configureWebViewConfiguration(
             configuration,
@@ -162,19 +162,32 @@ struct BrowserWebContentProcessTests {
                 window.webkit.messageHandlers.cmuxWebAuthn &&
                 typeof window.webkit.messageHandlers.cmuxWebAuthn.postMessage === "function"
               );
-              const uvpaa =
-                window.PublicKeyCredential &&
-                typeof window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable === "function"
-                  ? await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
-                  : null;
-              return { handlerVisible, uvpaa };
+              const credential = await navigator.credentials.get({
+                publicKey: {
+                  challenge: new Uint8Array([1, 2, 3, 4]).buffer,
+                  rpId: "example.com",
+                  userVerification: "preferred"
+                }
+              });
+              return {
+                handlerVisible,
+                credentialId: credential && credential.id,
+                rawIDLength: credential && credential.rawId && credential.rawId.byteLength,
+                signatureLength:
+                  credential &&
+                  credential.response &&
+                  credential.response.signature &&
+                  credential.response.signature.byteLength
+              };
             })()
             """
         ) as? [String: Any]
 
         #expect(result?["handlerVisible"] as? Bool == false)
-        #expect(result?["uvpaa"] as? Bool == true)
-        #expect(probe.receivedKinds == ["capabilities"])
+        #expect(result?["credentialId"] as? String == "AQID")
+        #expect((result?["rawIDLength"] as? NSNumber)?.intValue == 3)
+        #expect((result?["signatureLength"] as? NSNumber)?.intValue == 2)
+        #expect(probe.receivedKinds == ["getCredential"])
     }
 
     @Test
@@ -437,15 +450,39 @@ private final class BrowserWebAuthnReplyProbe: NSObject, WKScriptMessageHandlerW
         }
 
         receivedKinds.append(kind)
-        replyHandler(
-            [
-                "ok": true,
-                "capabilities": [
-                    "userVerifyingPlatformAuthenticatorAvailable": true,
-                    "conditionalMediationAvailable": true,
+        switch kind {
+        case "getCredential":
+            replyHandler(
+                [
+                    "ok": true,
+                    "credential": [
+                        "type": "public-key",
+                        "id": "AQID",
+                        "rawId": "AQID",
+                        "authenticatorAttachment": "platform",
+                        "responseKind": "assertion",
+                        "response": [
+                            "clientDataJSON": "BAU",
+                            "authenticatorData": "Bgc",
+                            "signature": "CAk",
+                            "userHandle": "Cg",
+                        ],
+                        "clientExtensionResults": [:],
+                    ],
                 ],
-            ],
-            nil
-        )
+                nil
+            )
+        default:
+            replyHandler(
+                [
+                    "ok": false,
+                    "error": [
+                        "name": "NotSupportedError",
+                        "message": "Native passkey support is unavailable.",
+                    ],
+                ],
+                nil
+            )
+        }
     }
 }

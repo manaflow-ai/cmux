@@ -554,32 +554,47 @@ enum BrowserWebAuthnBridgeContract {
               })
               .catch(() => (typeof fallback === "function" ? fallback() : !!fallback));
 
-          if (window.CredentialsContainer && window.CredentialsContainer.prototype) {
-            const prototype = window.CredentialsContainer.prototype;
-            const originalCreate = prototype.create;
-            const originalGet = prototype.get;
+          const credentialsPatchTarget = () => {
+            if (!navigator.credentials) {
+              return null;
+            }
+            if (window.CredentialsContainer && window.CredentialsContainer.prototype) {
+              return window.CredentialsContainer.prototype;
+            }
+            const prototype = Object.getPrototypeOf(navigator.credentials);
+            return prototype && prototype !== Object.prototype ? prototype : navigator.credentials;
+          };
 
-            Object.defineProperty(prototype, "create", {
-              configurable: true,
-              writable: true,
-              value: function create(options) {
-                if (!options || !options.publicKey) {
-                  return originalCreate.call(this, options);
-                }
-                return nativeCreateCredential(originalCreate, this, options);
-              },
-            });
+          const credentialsTarget = credentialsPatchTarget();
+          if (credentialsTarget) {
+            const originalCreate = credentialsTarget.create;
+            const originalGet = credentialsTarget.get;
 
-            Object.defineProperty(prototype, "get", {
-              configurable: true,
-              writable: true,
-              value: function get(options) {
-                if (!options || !options.publicKey) {
-                  return originalGet.call(this, options);
-                }
-                return nativeGetCredential(originalGet, this, options);
-              },
-            });
+            if (typeof originalCreate === "function") {
+              Object.defineProperty(credentialsTarget, "create", {
+                configurable: true,
+                writable: true,
+                value: function create(options) {
+                  if (!options || !options.publicKey) {
+                    return originalCreate.call(this, options);
+                  }
+                  return nativeCreateCredential(originalCreate, this, options);
+                },
+              });
+            }
+
+            if (typeof originalGet === "function") {
+              Object.defineProperty(credentialsTarget, "get", {
+                configurable: true,
+                writable: true,
+                value: function get(options) {
+                  if (!options || !options.publicKey) {
+                    return originalGet.call(this, options);
+                  }
+                  return nativeGetCredential(originalGet, this, options);
+                },
+              });
+            }
           }
 
           if (window.PublicKeyCredential) {
@@ -999,12 +1014,6 @@ final class BrowserWebAuthnCoordinator: NSObject, WKScriptMessageHandlerWithRepl
         super.init()
     }
 
-    #if DEBUG
-    private func debugHasValue(_ value: String?) -> Int {
-        value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? 1 : 0
-    }
-    #endif
-
     func install(on webView: WKWebView) {
         let controller = webView.configuration.userContentController
         controller.removeScriptMessageHandler(
@@ -1081,8 +1090,8 @@ final class BrowserWebAuthnCoordinator: NSObject, WKScriptMessageHandlerWithRepl
                     )
                     #if DEBUG
                     cmuxDebugLog(
-                        "webauthn.createCredential hasRP=\(debugHasValue(request.publicKey.rp?.id)) " +
-                        "hasUserName=\(debugHasValue(request.publicKey.user.name)) " +
+                        "webauthn.createCredential hasRP=\((request.publicKey.rp?.id?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false) ? 1 : 0) " +
+                        "hasUserName=\((request.publicKey.user.name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false) ? 1 : 0) " +
                         "userIDBytes=\(request.publicKey.user.id.data.count) " +
                         "attachment=\(request.publicKey.authenticatorSelection?.attachment ?? "(nil)") " +
                         "algorithmCount=\(request.publicKey.requestedAlgorithms.count)"
@@ -1100,7 +1109,7 @@ final class BrowserWebAuthnCoordinator: NSObject, WKScriptMessageHandlerWithRepl
                     )
                     #if DEBUG
                     cmuxDebugLog(
-                        "webauthn.getCredential hasRPID=\(debugHasValue(request.publicKey.rpId)) " +
+                        "webauthn.getCredential hasRPID=\((request.publicKey.rpId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false) ? 1 : 0) " +
                         "allowCredentials=\(request.publicKey.allowCredentials?.count ?? 0) " +
                         "mediation=\(request.mediation ?? "(nil)")"
                     )
