@@ -4003,6 +4003,7 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         dlDelegate.onDownloadReadyToSave = { [weak self] filename in
             guard let self else { return }
+            self.endDownloadActivity()
             NotificationCenter.default.post(
                 name: .browserDownloadEventDidArrive,
                 object: self,
@@ -9049,7 +9050,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             cmuxDebugLog("download.policy=download reason=\(reason) mime=\(mime) mainFrame=\(navigationResponse.isForMainFrame ? 1 : 0)")
             #endif
             if !navigationResponse.isForMainFrame,
-               (webView as? CmuxWebView)?.startSubframeResponseSessionDownload(navigationResponse: navigationResponse, reason: reason) == true {
+               (webView as? CmuxWebView)?.startSubframeResponseWebKitDownload(navigationResponse: navigationResponse, reason: reason) == true {
                 decisionHandler(.cancel); return
             }
             decisionHandler(.download)
@@ -9062,7 +9063,8 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     private func updateSubframeDownloadIntentIfNeeded(_ navigationAction: WKNavigationAction) {
         guard navigationAction.targetFrame?.isMainFrame == false,
               let url = navigationAction.request.url,
-              Self.isHTTPDownloadIntentURL(url) else { return }
+              Self.isHTTPDownloadIntentURL(url),
+              (navigationAction.request.httpMethod?.uppercased() ?? "GET") == "GET" else { return }
         let now = ProcessInfo.processInfo.systemUptime; pruneSubframeDownloadIntents(now: now)
         guard navigationAction.navigationType == .linkActivated else { return }
         recordSubframeDownloadIntent(url)

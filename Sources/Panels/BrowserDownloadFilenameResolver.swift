@@ -11,26 +11,25 @@ nonisolated enum BrowserDownloadHTTPStatusDecision: Equatable, Sendable {
 
 extension CmuxWebView {
     @discardableResult
-    func startSubframeResponseSessionDownload(
+    func startSubframeResponseWebKitDownload(
         navigationResponse: WKNavigationResponse,
         reason: String
     ) -> Bool {
         guard let url = navigationResponse.response.url,
-              ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
+              ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+              let downloadDelegate = cmuxDownloadDelegate else {
             return false
         }
         let traceID = Self.makeContextDownloadTraceID(prefix: "subframe")
 #if DEBUG
-        debugContextDownload("download.subframeSession trace=\(traceID) reason=\(reason) host=\(url.host ?? "nil")")
+        debugContextDownload("download.subframeWebKit trace=\(traceID) reason=\(reason) host=\(url.host ?? "nil")")
 #endif
-        downloadURLViaSession(
-            url,
-            suggestedFilename: navigationResponse.response.suggestedFilename,
-            sender: nil,
-            fallbackAction: nil,
-            fallbackTarget: nil,
-            traceID: traceID
-        )
+        startDownload(using: URLRequest(url: url)) { download in
+            if let browserDownloadDelegate = downloadDelegate as? BrowserDownloadDelegate {
+                browserDownloadDelegate.setSuggestedFilenameOverride(navigationResponse.response.suggestedFilename, for: download)
+            }
+            download.delegate = downloadDelegate
+        }
         return true
     }
 }
