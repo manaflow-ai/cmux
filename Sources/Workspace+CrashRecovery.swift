@@ -140,6 +140,7 @@ extension Workspace: ResumableWorkspaceSurface {
             sessionId: agent.sessionId,
             cwd: agent.workingDirectory,
             configDirOverride: agent.launchCommand?.environment?["CLAUDE_CONFIG_DIR"],
+            codexHomeOverride: agent.launchCommand?.environment?["CODEX_HOME"],
             fileManager: fileManager,
             homeDirectory: homeDirectory
         )
@@ -168,6 +169,7 @@ extension Workspace: ResumableWorkspaceSurface {
                 sessionId: sessionId,
                 cwd: binding.cwd,
                 configDirOverride: binding.environment?["CLAUDE_CONFIG_DIR"],
+                codexHomeOverride: binding.environment?["CODEX_HOME"],
                 fileManager: fileManager,
                 homeDirectory: homeDirectory
             )
@@ -191,7 +193,7 @@ extension Workspace: ResumableWorkspaceSurface {
         fileManager: FileManager = .default,
         homeDirectory: String = NSHomeDirectory()
     ) -> CrashRecoveryVerification? {
-        guard agent.kind != .claude else { return nil }
+        guard agent.kind != .claude, agent.kind != .codex else { return nil }
         return crashRecoveryVerification(agent: agent, fileManager: fileManager, homeDirectory: homeDirectory)
     }
 
@@ -200,7 +202,8 @@ extension Workspace: ResumableWorkspaceSurface {
         fileManager: FileManager = .default,
         homeDirectory: String = NSHomeDirectory()
     ) -> CrashRecoveryVerification? {
-        guard binding.kind.flatMap(RestorableAgentKind.init(rawValue:)) != .claude else { return nil }
+        let kind = binding.kind.flatMap(RestorableAgentKind.init(rawValue:))
+        guard kind != .claude, kind != .codex else { return nil }
         return crashRecoveryVerification(binding: binding, fileManager: fileManager, homeDirectory: homeDirectory)
     }
 
@@ -209,10 +212,12 @@ extension Workspace: ResumableWorkspaceSurface {
         sessionId: String?,
         cwd: String?,
         configDirOverride: String?,
+        codexHomeOverride: String?,
         fileManager: FileManager,
         homeDirectory: String
     ) -> ClaudeTranscriptPresence {
-        if kind == .claude {
+        switch kind {
+        case .claude:
             return ClaudeTranscriptPresenceResolver.resolve(
                 sessionId: sessionId,
                 cwd: cwd,
@@ -220,12 +225,17 @@ extension Workspace: ResumableWorkspaceSurface {
                 fileManager: fileManager,
                 homeDirectory: homeDirectory
             )
+        case .codex:
+            return CodexTranscriptPresenceResolver.resolve(
+                sessionId: sessionId,
+                cwd: cwd,
+                codexHomeOverride: codexHomeOverride,
+                fileManager: fileManager,
+                homeDirectory: homeDirectory
+            )
+        default:
+            return .absent
         }
-        return ClaudeTranscriptPresence(
-            existsAtWindowCwd: nonEmpty(sessionId) != nil,
-            existsElsewhere: false,
-            resolvedPathAtWindowCwd: nil
-        )
     }
 
     nonisolated private static func nonEmpty(_ value: String?) -> String? {

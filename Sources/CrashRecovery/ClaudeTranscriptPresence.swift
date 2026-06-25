@@ -129,6 +129,7 @@ enum ClaudeTranscriptPresenceResolver {
             #else
             add(override)
             #endif
+            return roots
         }
 
         let home = ((homeDirectory as NSString).expandingTildeInPath as NSString).standardizingPath
@@ -177,6 +178,148 @@ enum ClaudeTranscriptPresenceResolver {
 
     /// Guards against a session id that would escape the project dir or name a
     /// path separator (the transcript filename is `<id>.jsonl`).
+    private static func isSafeFilename(_ id: String) -> Bool {
+        !id.contains("/") && !id.contains("..") && id == id.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+/// Resolves Codex rollout transcript presence by exact session id and cwd.
+///
+/// Codex rollouts live under `CODEX_HOME` (or `~/.codex`) as
+/// `sessions/YYYY/MM/DD/rollout-...<session-id>....jsonl`. The first line is
+/// `session_meta`, which carries both the canonical session id and the cwd. This
+/// resolver only verifies a binding when both values match the restored window.
+enum CodexTranscriptPresenceResolver {
+    private static let headByteCap = 64 * 1024
+
+    static func resolve(
+        sessionId: String?,
+        cwd: String?,
+        codexHomeOverride: String? = nil,
+        fileManager: FileManager = .default,
+        homeDirectory: String = NSHomeDirectory()
+    ) -> ClaudeTranscriptPresence {
+        guard let sessionId = nonEmpty(sessionId),
+              isSafeFilename(sessionId),
+              let cwd = nonEmpty(cwd) else {
+            return .absent
+        }
+
+        var resolvedAtCwd: String?
+        var existsElsewhere = false
+        let needle = sessionId.lowercased()
+
+        for root in codexRoots(
+            codexHomeOverride: codexHomeOverride,
+            homeDirectory: homeDirectory
+        ) {
+            let sessionsRoot = URL(fileURLWithPath: root, isDirectory: true)
+                .appendingPathComponent("sessions", isDirectory: true)
+            guard let enumerator = fileManager.enumerator(
+                at: sessionsRoot,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            ) else {
+                continue
+            }
+
+            for case let url as URL in enumerator {
+                guard !Task.isCancelled else { return .absent }
+                guard resolvedAtCwd == nil else { break }
+                guard url.pathExtension == "jsonl",
+                      url.lastPathComponent.lowercased().contains(needle),
+                      let meta = sessionMeta(in: url),
+                      meta.sessionId == sessionId else {
+                    continue
+                }
+                if cwdMatches(meta.cwd, cwd) {
+                    resolvedAtCwd = url.path
+                } else if nonEmpty(meta.cwd) != nil {
+                    existsElsewhere = true
+                }
+            }
+        }
+
+        return ClaudeTranscriptPresence(
+            existsAtWindowCwd: resolvedAtCwd != nil,
+            existsElsewhere: resolvedAtCwd == nil && existsElsewhere,
+            resolvedPathAtWindowCwd: resolvedAtCwd
+        )
+    }
+
+    private static func codexRoots(codexHomeOverride: String?, homeDirectory: String) -> [String] {
+        var roots: [String] = []
+        var seen = Set<String>()
+        func add(_ path: String?) {
+            guard let path = nonEmpty(path) else { return }
+            let standardized = ((path as NSString).expandingTildeInPath as NSString).standardizingPath
+            guard seen.insert(standardized).inserted else { return }
+            roots.append(standardized)
+        }
+
+        if let codexHomeOverride = nonEmpty(codexHomeOverride) {
+            add(codexHomeOverride)
+            return roots
+        }
+        let home = ((homeDirectory as NSString).expandingTildeInPath as NSString).standardizingPath
+        add((home as NSString).appendingPathComponent(".codex"))
+        return roots
+    }
+
+    private static func sessionMeta(in url: URL) -> (sessionId: String, cwd: String?)? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        let data = handle.readData(ofLength: headByteCap)
+        guard !data.isEmpty else {
+            return nil
+        }
+        let head = String(decoding: data, as: UTF8.self)
+        let firstLine = head.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).first
+        guard let firstLine,
+              let lineData = String(firstLine).data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+              (obj["type"] as? String) == "session_meta",
+              let payload = obj["payload"] as? [String: Any],
+              let sessionId = nonEmpty(payload["id"] as? String) else {
+            return nil
+        }
+        return (sessionId, payload["cwd"] as? String)
+    }
+
+    private static func cwdMatches(_ transcriptCwd: String?, _ windowCwd: String) -> Bool {
+        guard let transcriptCwd = nonEmpty(transcriptCwd) else { return false }
+        let transcriptCandidates = Set(cwdCandidates(transcriptCwd))
+        let windowCandidates = Set(cwdCandidates(windowCwd))
+        return !transcriptCandidates.isDisjoint(with: windowCandidates)
+    }
+
+    private static func cwdCandidates(_ value: String) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        func add(_ path: String) {
+            let standardized = ((path as NSString).expandingTildeInPath as NSString).standardizingPath
+            guard !standardized.isEmpty, seen.insert(standardized).inserted else { return }
+            result.append(standardized)
+        }
+
+        let privateRoot = "/private"
+        let resolved = URL(fileURLWithPath: value).resolvingSymlinksInPath().path
+        for base in [value, resolved] {
+            add(base)
+            if base.hasPrefix(privateRoot + "/") {
+                add(String(base.dropFirst(privateRoot.count)))
+            } else if base.hasPrefix("/") {
+                add(privateRoot + base)
+            }
+        }
+        return result
+    }
+
+    private static func nonEmpty(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+
     private static func isSafeFilename(_ id: String) -> Bool {
         !id.contains("/") && !id.contains("..") && id == id.trimmingCharacters(in: .whitespacesAndNewlines)
     }

@@ -72,12 +72,18 @@ import Testing
         )
         let updateLaunch = CrashRecoveryLaunchState()
         updateLaunch.captureAtLaunch(homeDirectory: updateHome, environment: [:])
-        #expect(!CrashRecoverySettings.shouldGateRestoredAgentStartup(
+        #expect(CrashRecoverySettings.shouldGateRestoredAgentStartup(
             launchState: updateLaunch,
             defaults: d
         ))
 
         CrashRecoverySettings.setInjectResumeBreadcrumb(true, defaults: d)
+        #expect(!CrashRecoverySettings.shouldGateRestoredAgentStartup(
+            launchState: crashedLaunch,
+            defaults: d
+        ))
+
+        CrashRecoverySettings.setOfferResumeAfterCrash(true, defaults: d)
         #expect(CrashRecoverySettings.shouldGateRestoredAgentStartup(
             launchState: crashedLaunch,
             defaults: d

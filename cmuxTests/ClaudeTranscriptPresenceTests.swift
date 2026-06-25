@@ -39,6 +39,24 @@ import Testing
         return path
     }
 
+    @discardableResult
+    private func seedCodexRollout(
+        home: String,
+        cwd: String,
+        sessionId: String,
+        payloadSessionId: String? = nil
+    ) throws -> String {
+        let dir = (home as NSString).appendingPathComponent(".codex/sessions/2026/06/25")
+        try fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let path = (dir as NSString).appendingPathComponent("rollout-2026-06-25T000000-\(sessionId).jsonl")
+        let payloadId = payloadSessionId ?? sessionId
+        let escapedCwd = cwd.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        let escapedId = payloadId.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        let transcript = #"{"type":"session_meta","payload":{"id":"\#(escapedId)","cwd":"\#(escapedCwd)"}}"# + "\n"
+        try transcript.write(toFile: path, atomically: true, encoding: .utf8)
+        return path
+    }
+
     @Test func transcriptAtWindowCwdIsFoundAndResolved() throws {
         let home = try makeHome()
         defer { try? fm.removeItem(atPath: home) }
@@ -124,6 +142,24 @@ import Testing
         #expect(presence.existsAtWindowCwd == true)
     }
 
+    @Test func configDirOverrideDoesNotFallbackToDefaultClaudeRoot() throws {
+        let home = try makeHome()
+        defer { try? fm.removeItem(atPath: home) }
+        let cwd = "/Users/me/repo"
+        let id = "sess-default-only"
+        try seedTranscript(home: home, cwd: cwd, sessionId: id)
+        let customRoot = (home as NSString).appendingPathComponent("custom-claude")
+
+        let presence = ClaudeTranscriptPresenceResolver.resolve(
+            sessionId: id,
+            cwd: cwd,
+            configDirOverride: customRoot,
+            homeDirectory: home
+        )
+
+        #expect(presence == .absent)
+    }
+
     @Test func emptyTranscriptFileIsNotCounted() throws {
         let home = try makeHome()
         defer { try? fm.removeItem(atPath: home) }
@@ -137,5 +173,78 @@ import Testing
 
         let presence = ClaudeTranscriptPresenceResolver.resolve(sessionId: id, cwd: cwd, homeDirectory: home)
         #expect(presence.existsAtWindowCwd == false)
+    }
+
+    @Test func codexRolloutAtWindowCwdIsFoundAndResolved() throws {
+        let home = try makeHome()
+        defer { try? fm.removeItem(atPath: home) }
+        let cwd = "/Users/me/repo"
+        let id = "codex-session-abc"
+        let path = try seedCodexRollout(home: home, cwd: cwd, sessionId: id)
+
+        let presence = CodexTranscriptPresenceResolver.resolve(
+            sessionId: id,
+            cwd: cwd,
+            homeDirectory: home
+        )
+
+        #expect(presence.existsAtWindowCwd == true)
+        #expect(presence.existsElsewhere == false)
+        #expect(presence.resolvedPathAtWindowCwd == path)
+    }
+
+    @Test func codexRolloutUnderDifferentCwdIsElsewhereNotAtCwd() throws {
+        let home = try makeHome()
+        defer { try? fm.removeItem(atPath: home) }
+        let id = "codex-session-foreign"
+        try seedCodexRollout(home: home, cwd: "/Users/me/other-repo", sessionId: id)
+
+        let presence = CodexTranscriptPresenceResolver.resolve(
+            sessionId: id,
+            cwd: "/Users/me/repo",
+            homeDirectory: home
+        )
+
+        #expect(presence.existsAtWindowCwd == false)
+        #expect(presence.existsElsewhere == true)
+        #expect(presence.resolvedPathAtWindowCwd == nil)
+    }
+
+    @Test func codexRolloutRequiresExactSessionMetaId() throws {
+        let home = try makeHome()
+        defer { try? fm.removeItem(atPath: home) }
+        let cwd = "/Users/me/repo"
+        try seedCodexRollout(
+            home: home,
+            cwd: cwd,
+            sessionId: "codex-session-requested",
+            payloadSessionId: "codex-session-other"
+        )
+
+        let presence = CodexTranscriptPresenceResolver.resolve(
+            sessionId: "codex-session-requested",
+            cwd: cwd,
+            homeDirectory: home
+        )
+
+        #expect(presence == .absent)
+    }
+
+    @Test func codexHomeOverrideDoesNotFallbackToDefaultRoot() throws {
+        let home = try makeHome()
+        defer { try? fm.removeItem(atPath: home) }
+        let cwd = "/Users/me/repo"
+        let id = "codex-session-default-only"
+        try seedCodexRollout(home: home, cwd: cwd, sessionId: id)
+        let customRoot = (home as NSString).appendingPathComponent("custom-codex")
+
+        let presence = CodexTranscriptPresenceResolver.resolve(
+            sessionId: id,
+            cwd: cwd,
+            codexHomeOverride: customRoot,
+            homeDirectory: home
+        )
+
+        #expect(presence == .absent)
     }
 }
