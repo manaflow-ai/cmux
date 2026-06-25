@@ -103,9 +103,9 @@ import Testing
 
         await store.forgetMac(macDeviceID: "mac-fresh")
 
-        #expect(store.pairedMacs.map(\.macDeviceID) == ["mac-old", "mac-other"])
-        #expect(store.displayPairedMacs.map(\.macDeviceID) == ["mac-old", "mac-other"])
-        #expect(try await pairedStore.loadAll(stackUserID: "user-1", teamID: "team-a").map(\.macDeviceID) == ["mac-old", "mac-other"])
+        #expect(store.pairedMacs.map(\.macDeviceID) == ["mac-other"])
+        #expect(store.displayPairedMacs.map(\.macDeviceID) == ["mac-other"])
+        #expect(try await pairedStore.loadAll(stackUserID: "user-1", teamID: "team-a").map(\.macDeviceID) == ["mac-other"])
     }
 
     @Test func presenceRoutesForHiddenDuplicateRefreshOnlyTheEmittingRow() async throws {
