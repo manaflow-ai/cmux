@@ -182,7 +182,7 @@ private struct CloudVMLoadingPanelView: View {
                 case .loading:
                     ProgressView()
                         .controlSize(.small)
-                    Text(String(localized: "panel.cloudVM.loading.headline", defaultValue: "Opening Cloud VM"))
+                    Text(String(localized: "panel.cloudVM.loading.headline", defaultValue: "Opening Base"))
                         .cmuxFont(size: 14, weight: .semibold)
                         .foregroundStyle(.primary)
                     CloudVMLoadingStatusView(elapsedSeconds: elapsedSeconds)
@@ -190,7 +190,7 @@ private struct CloudVMLoadingPanelView: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .cmuxSymbolRasterSize(18)
                         .foregroundStyle(.orange)
-                    Text(String(localized: "panel.cloudVM.loading.failed.headline", defaultValue: "Cloud VM unavailable"))
+                    Text(String(localized: "panel.cloudVM.loading.failed.headline", defaultValue: "Base unavailable"))
                         .cmuxFont(size: 14, weight: .semibold)
                         .foregroundStyle(.primary)
                     Text(message)

@@ -227,7 +227,7 @@ struct TitlebarCloudVMButton: View {
                 .font(.system(size: config.iconSize, weight: .medium))
                 .frame(width: config.buttonSize, height: config.buttonSize)
         }
-        .safeHelp(String(localized: "titlebar.cloudVM.tooltip", defaultValue: "Open Cloud VM"))
+        .safeHelp(String(localized: "titlebar.cloudVM.tooltip", defaultValue: "Open Base"))
     }
 
     @MainActor
@@ -255,7 +255,7 @@ struct TitlebarCloudVMButton: View {
     @MainActor
     static func appendCloudVMMenuItems(to menu: NSMenu) {
         menu.addItem(mouseDownMenuItem(
-            title: String(localized: "command.cloudVM.open.title", defaultValue: "Open Cloud VM"),
+            title: String(localized: "command.cloudVM.open.title", defaultValue: "Open Base"),
             action: {
                 CloudVMMenuTarget.shared.open()
             }

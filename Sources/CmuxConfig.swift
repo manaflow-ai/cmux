@@ -1555,8 +1555,8 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
             title = String(localized: "command.newWorkspace.title", defaultValue: "New Workspace")
             keywords = ["create", "new", "workspace"]
         case .cloudVM:
-            title = String(localized: "command.cloudVM.title", defaultValue: "Start Cloud VM")
-            keywords = ["cloud", "vm", "virtual", "machine", "remote"]
+            title = String(localized: "command.cloudVM.title", defaultValue: "Open Base")
+            keywords = ["base", "cloud", "vm", "virtual", "machine", "remote"]
         case .newTerminal:
             title = String(localized: "command.newTerminalTab.title", defaultValue: "New Terminal Tab")
             keywords = ["new", "terminal", "tab", "surface"]

@@ -8,6 +8,7 @@ export type NavLink = {
 export type NavSection = { sectionKey: string; children: NavLink[] };
 export type NavEntry = NavLink | NavSection;
 
+export const baseDocsLocales = ["en"] as const satisfies readonly Locale[];
 export const remoteTmuxDocsLocales = ["en", "ja"] as const satisfies readonly Locale[];
 
 export function isSection(entry: NavEntry): entry is NavSection {
@@ -41,6 +42,7 @@ export function navItemsForLocale(locale: string): NavEntry[] {
 export const navItems: NavEntry[] = [
   { titleKey: "gettingStarted", href: "/docs/getting-started" },
   { titleKey: "concepts", href: "/docs/concepts" },
+  { titleKey: "base", href: "/docs/base", locales: baseDocsLocales },
   { titleKey: "workspaceGroups", href: "/docs/workspace-groups" },
   { titleKey: "configuration", href: "/docs/configuration" },
   { titleKey: "textBox", href: "/docs/textbox" },

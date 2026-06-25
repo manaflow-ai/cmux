@@ -80,9 +80,9 @@ extension ContentView {
         return [
             CommandPaletteCommandContribution(
                 commandId: commandPaletteCloudOpenCommandId,
-                title: constant(String(localized: "command.cloudVM.open.title", defaultValue: "Open Cloud VM")),
+                title: constant(String(localized: "command.cloudVM.open.title", defaultValue: "Open Base")),
                 subtitle: subtitle,
-                keywords: ["cloud", "vm", "ssh", "sshd", "open", "reconnect"]
+                keywords: ["base", "cloud", "vm", "ssh", "sshd", "open", "reconnect"]
             ),
             CommandPaletteCommandContribution(
                 commandId: commandPaletteCloudForkCommandId,

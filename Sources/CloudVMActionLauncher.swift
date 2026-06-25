@@ -200,8 +200,8 @@ final class CloudVMActionLauncher {
     private static func progressPresentation(arguments: [String]) -> ProgressPresentation {
         if arguments.starts(with: ["vm", "new"]) {
             return ProgressPresentation(
-                title: String(localized: "command.cloudVM.loading.open.title", defaultValue: "Opening Cloud VM"),
-                message: String(localized: "command.cloudVM.loading.open.message", defaultValue: "Creating or reattaching to your persistent Cloud VM.")
+                title: String(localized: "command.cloudVM.loading.open.title", defaultValue: "Opening Base"),
+                message: String(localized: "command.cloudVM.loading.open.message", defaultValue: "Creating or reattaching to your persistent cloud workspace.")
             )
         }
         if arguments.contains("fork") {
