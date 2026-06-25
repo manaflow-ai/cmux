@@ -18,7 +18,7 @@ struct BrowserErrorPage {
         let escapedReloadLabel = escapeHTML(String(localized: "browser.error.reload", defaultValue: "Reload"))
         let escapedBypassLabel = escapeHTML(String(localized: "browser.error.bypass", defaultValue: "Proceed Anyway (Unsafe)"))
         let reloadControlHTML: String
-        if let retryURL = Self.retryURL(from: failedURL) {
+        if let retryURL = Self.retryURL(from: failedURL, failedRequest: failedRequest) {
             reloadControlHTML = """
                 <a class="button reload" href="\(escapeHTML(retryURL.absoluteString))">\(escapedReloadLabel)</a>
             """
@@ -227,7 +227,10 @@ struct BrowserErrorPage {
             .replacingOccurrences(of: "\"", with: "&quot;")
     }
 
-    static func retryURL(from failedURL: String) -> URL? {
+    static func retryURL(from failedURL: String, failedRequest: URLRequest? = nil) -> URL? {
+        if let failedRequest, !failedRequest.browserCanReloadWithURLOnly {
+            return nil
+        }
         guard let url = URL(string: failedURL),
               let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https",

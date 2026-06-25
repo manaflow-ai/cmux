@@ -91,6 +91,24 @@ struct BrowserSSLTrustBypassStateTests {
     }
 
     @Test
+    func errorPageRetryURLRejectsRequestShapesThatNeedReplay() throws {
+        let url = try #require(URL(string: "https://self-signed.internal/submit"))
+
+        var postRequest = URLRequest(url: url)
+        postRequest.httpMethod = "POST"
+        postRequest.httpBody = Data("confirm=true".utf8)
+        #expect(BrowserErrorPage.retryURL(from: url.absoluteString, failedRequest: postRequest) == nil)
+
+        var headerRequest = URLRequest(url: url)
+        headerRequest.setValue("Bearer token", forHTTPHeaderField: "Authorization")
+        #expect(BrowserErrorPage.retryURL(from: url.absoluteString, failedRequest: headerRequest) == nil)
+
+        var headRequest = URLRequest(url: url)
+        headRequest.httpMethod = "HEAD"
+        #expect(BrowserErrorPage.retryURL(from: url.absoluteString, failedRequest: headRequest) == url)
+    }
+
+    @Test
     func pendingBypassRequiresHTTPSRequest() throws {
         let state = BrowserSSLTrustBypassState()
         let httpURL = try #require(URL(string: "http://example.internal"))

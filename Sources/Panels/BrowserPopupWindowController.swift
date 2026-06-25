@@ -628,6 +628,7 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
     private var lastAttemptedRequestWasDiscardedForReplay = false
     private var acceptsSSLTrustBypassMessages = false
     private var activeSSLTrustBypassErrorPageFailedURL: String?
+    private var activeSSLTrustBypassReplayRequest: URLRequest?
 
     func cancelPendingHTTPBasicAuthPrompts() {
         basicAuthPromptCoordinator.cancelAll()
@@ -637,6 +638,7 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         sslBypassState.clearPendingBypasses()
         acceptsSSLTrustBypassMessages = false
         activeSSLTrustBypassErrorPageFailedURL = nil
+        activeSSLTrustBypassReplayRequest = nil
         lastAttemptedURL = request.url
         if sslBypassState.canRetainRequestForReplay(request) {
             lastAttemptedRequest = request
@@ -653,6 +655,7 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
             acceptsSSLTrustBypassMessages = false
             activeSSLTrustBypassErrorPageFailedURL = nil
         }
+        activeSSLTrustBypassReplayRequest = nil
         lastAttemptedRequest = nil
         lastAttemptedRequestWasDiscardedForReplay = false
         lastAttemptedURL = nil
@@ -747,7 +750,7 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
-        clearAttemptedRequest()
+        clearAttemptedRequest(discardPendingBypasses: activeSSLTrustBypassReplayRequest != nil)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -766,6 +769,7 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         let failedURL = nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String
             ?? lastAttemptedURL?.absoluteString
             ?? ""
+        activeSSLTrustBypassReplayRequest = nil
         let canBypass = BrowserErrorPage(
             failedURL: failedURL,
             failedRequest: requestForFailedNavigation(failedURL: failedURL),
@@ -814,7 +818,7 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         }
         acceptsSSLTrustBypassMessages = false
         activeSSLTrustBypassErrorPageFailedURL = nil
-        recordAttemptedRequest(request)
+        recordSSLTrustBypassReplayRequest(request)
         browserLoadRequest(request, in: webView)
     }
 
@@ -825,14 +829,22 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         }
         acceptsSSLTrustBypassMessages = false
         activeSSLTrustBypassErrorPageFailedURL = nil
-        recordAttemptedRequest(request)
+        recordSSLTrustBypassReplayRequest(request)
         browserLoadRequest(request, in: webView)
+    }
+
+    private func recordSSLTrustBypassReplayRequest(_ request: URLRequest) {
+        sslBypassState.clearPendingBypasses()
+        activeSSLTrustBypassReplayRequest = request
+        lastAttemptedURL = request.url
+        lastAttemptedRequest = request
+        lastAttemptedRequestWasDiscardedForReplay = false
     }
 
     private func shouldPreserveSSLTrustBypassForErrorPageNavigation(_ navigationAction: WKNavigationAction) -> Bool {
         let request = navigationAction.request
-        guard acceptsSSLTrustBypassMessages,
-              navigationAction.navigationType == .other else {
+        guard navigationAction.navigationType == .other,
+              acceptsSSLTrustBypassMessages || activeSSLTrustBypassReplayRequest != nil else {
             return false
         }
 
@@ -842,6 +854,10 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         }
         guard scheme == "http" || scheme == "https" else {
             return true
+        }
+        if let replayRequest = activeSSLTrustBypassReplayRequest,
+           let replayURL = replayRequest.url?.absoluteString {
+            return request.browserMatchesFailedNavigationURLString(replayURL)
         }
         guard let failedURL = activeSSLTrustBypassErrorPageFailedURL,
               let lastAttemptedRequest else {

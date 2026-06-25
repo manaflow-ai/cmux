@@ -1,6 +1,12 @@
 import Foundation
 
 extension URLRequest {
+    var browserCanReloadWithURLOnly: Bool {
+        let method = httpMethod?.uppercased() ?? "GET"
+        let hasHeaders = allHTTPHeaderFields?.isEmpty == false
+        return (method == "GET" || method == "HEAD") && !hasHeaders && httpBody == nil && httpBodyStream == nil
+    }
+
     func browserMatchesFailedNavigationURLString(_ failedURL: String) -> Bool {
         guard let requestURL = url else { return false }
         guard !failedURL.isEmpty else { return false }
