@@ -700,23 +700,23 @@ final class SessionPersistenceTests: XCTestCase {
 
     func testNormalizedExportedScreenPathAcceptsAbsoluteAndFileURL() {
         XCTAssertEqual(
-            TerminalController.normalizedExportedScreenPath("/tmp/cmux-screen.txt"),
+            TerminalSurface.normalizedExportedScreenPath("/tmp/cmux-screen.txt"),
             "/tmp/cmux-screen.txt"
         )
         XCTAssertEqual(
-            TerminalController.normalizedExportedScreenPath(" file:///tmp/cmux-screen.txt "),
+            TerminalSurface.normalizedExportedScreenPath(" file:///tmp/cmux-screen.txt "),
             "/tmp/cmux-screen.txt"
         )
     }
 
     func testNormalizedExportedScreenPathRejectsRelativeAndWhitespace() {
-        XCTAssertNil(TerminalController.normalizedExportedScreenPath("relative/path.txt"))
-        XCTAssertNil(TerminalController.normalizedExportedScreenPath("   "))
-        XCTAssertNil(TerminalController.normalizedExportedScreenPath(nil))
+        XCTAssertNil(TerminalSurface.normalizedExportedScreenPath("relative/path.txt"))
+        XCTAssertNil(TerminalSurface.normalizedExportedScreenPath("   "))
+        XCTAssertNil(TerminalSurface.normalizedExportedScreenPath(nil))
     }
 
     func testNormalizedMobileVTExportTextSplitsGhosttyCRLFRows() {
-        let normalized = TerminalController.normalizedMobileVTExportText("first\r\nsecond\r\nthird")
+        let normalized = TerminalSurface.normalizedMobileVTExportText("first\r\nsecond\r\nthird")
         let rows = normalized.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
 
         XCTAssertEqual(rows, ["first", "second", "third"])
@@ -731,13 +731,13 @@ final class SessionPersistenceTests: XCTestCase {
         let outsideFile = URL(fileURLWithPath: "/Users/example/screen.txt")
 
         XCTAssertTrue(
-            TerminalController.shouldRemoveExportedScreenDirectory(
+            TerminalSurface.shouldRemoveExportedScreenDirectory(
                 fileURL: tempFile,
                 temporaryDirectory: tempRoot
             )
         )
         XCTAssertFalse(
-            TerminalController.shouldRemoveExportedScreenDirectory(
+            TerminalSurface.shouldRemoveExportedScreenDirectory(
                 fileURL: outsideFile,
                 temporaryDirectory: tempRoot
             )
@@ -753,13 +753,13 @@ final class SessionPersistenceTests: XCTestCase {
         let outsideFile = URL(fileURLWithPath: "/Users/example/screen.txt")
 
         XCTAssertTrue(
-            TerminalController.shouldRemoveExportedScreenFile(
+            TerminalSurface.shouldRemoveExportedScreenFile(
                 fileURL: tempFile,
                 temporaryDirectory: tempRoot
             )
         )
         XCTAssertFalse(
-            TerminalController.shouldRemoveExportedScreenFile(
+            TerminalSurface.shouldRemoveExportedScreenFile(
                 fileURL: outsideFile,
                 temporaryDirectory: tempRoot
             )

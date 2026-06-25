@@ -49,6 +49,11 @@ let package = Package(
         // launch service expands into a `cmux ssh` argument vector) is owned by
         // CmuxRemoteWorkspace.
         .package(path: "../CmuxRemoteWorkspace"),
+        // CmuxVaultConfigDefinition (the `cmux.json` `vault` block carried by
+        // CustomLayout/CmuxConfigFile) is owned by CMUXAgentLaunch. The edge is
+        // acyclic: CMUXAgentLaunch deps only CmuxFoundation/CmuxCore/CmuxPanes/
+        // bonsplit, none of which reach CmuxWorkspaces.
+        .package(path: "../CMUXAgentLaunch"),
     ],
     targets: [
         .target(
@@ -65,6 +70,7 @@ let package = Package(
                 .product(name: "CmuxWindowing", package: "CmuxWindowing"),
                 .product(name: "CmuxTerminalCore", package: "CmuxTerminalCore"),
                 .product(name: "CmuxRemoteWorkspace", package: "CmuxRemoteWorkspace"),
+                .product(name: "CMUXAgentLaunch", package: "CMUXAgentLaunch"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

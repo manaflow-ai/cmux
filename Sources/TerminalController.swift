@@ -170,15 +170,17 @@ class TerminalController: MobileViewportSurfaceLimiting {
     /// thread-dictionary static. One instance per controller (one router per
     /// process today), so the allowance is genuinely instance-scoped.
     nonisolated let socketCommandFocusAllowance = ControlSocketFocusAllowanceStack()
-    private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
+    /// The per-key socket-listener-failure capture throttle (CmuxControlSocket),
+    /// constructed at the composition root and injected. Replaces the former
+    /// process-wide `socketListenerFailureCaptureLock`/`socketListenerFailureLastCapturedAt`
+    /// statics; the instance owns its NSLock-guarded dedupe state.
+    nonisolated let socketListenerFailureThrottle: SocketListenerFailureThrottle
     // The download-wait timeout bounds moved to `BrowserAutomationController`
     // (CmuxBrowser); these aliases keep the worker-lane call sites byte identical.
     private nonisolated static let v2BrowserDownloadWaitDefaultTimeoutMs =
         BrowserAutomationController.downloadWaitDefaultTimeoutMs
     private nonisolated static let v2BrowserDownloadWaitMaxTimeoutMs =
         BrowserAutomationController.downloadWaitMaxTimeoutMs
-    private nonisolated static let socketListenerFailureCaptureLock = NSLock()
-    private nonisolated(unsafe) static var socketListenerFailureLastCapturedAt: [String: Date] = [:]
     /// Reference to the shared mobile-terminal viewport state machine
     /// (per-surface, per-client reported grids + TTL cleanup), whose owning model
     /// type `HostMobileViewportReportModel` lives in `CMUXMobileCore`. Lazily
@@ -411,16 +413,21 @@ class TerminalController: MobileViewportSurfaceLimiting {
         listenerPolicy: SocketListenerPolicy = SocketListenerPolicy(),
         remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
             tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
-        )
+        ),
+        socketListenerFailureThrottle: SocketListenerFailureThrottle = SocketListenerFailureThrottle()
     ) {
         self.passwordStore = passwordStore
         self.transport = transport
         self.remoteProxyBroker = remoteProxyBroker
+        self.socketListenerFailureThrottle = socketListenerFailureThrottle
         let serverEventTarget = ServerEventTarget()
         let socketServer = SocketControlServer(
             transport: transport,
             listenerPolicy: listenerPolicy,
-            events: Self.makeSocketServerEvents(target: serverEventTarget)
+            events: Self.makeSocketServerEvents(
+                target: serverEventTarget,
+                failureThrottle: socketListenerFailureThrottle
+            )
         )
         self.socketServer = socketServer
         // Single consumer of the accepted-connection stream, detached so
@@ -571,39 +578,6 @@ class TerminalController: MobileViewportSurfaceLimiting {
     }
 #endif
 
-    // The VT-export path helpers now live on `TerminalSurface` in
-    // `CmuxTerminal` (`TerminalSurface+TextRead.swift`), beside the VT-export
-    // reader that uses them. These app-target entry points forward to the
-    // single package implementation so existing unit tests
-    // (`SessionPersistenceTests`) keep calling `TerminalController.…`.
-    nonisolated static func normalizedExportedScreenPath(_ raw: String?) -> String? {
-        TerminalSurface.normalizedExportedScreenPath(raw)
-    }
-
-    nonisolated static func shouldRemoveExportedScreenFile(
-        fileURL: URL,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
-    ) -> Bool {
-        TerminalSurface.shouldRemoveExportedScreenFile(
-            fileURL: fileURL,
-            temporaryDirectory: temporaryDirectory
-        )
-    }
-
-    nonisolated static func shouldRemoveExportedScreenDirectory(
-        fileURL: URL,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
-    ) -> Bool {
-        TerminalSurface.shouldRemoveExportedScreenDirectory(
-            fileURL: fileURL,
-            temporaryDirectory: temporaryDirectory
-        )
-    }
-
-    nonisolated static func normalizedMobileVTExportText(_ text: String) -> String {
-        TerminalSurface.normalizedMobileVTExportText(text)
-    }
-
     /// Update which window's TabManager receives socket commands.
     /// This is used when the user switches between multiple terminal windows.
     func setActiveTabManager(_ tabManager: TabManager?) {
@@ -615,28 +589,12 @@ class TerminalController: MobileViewportSurfaceLimiting {
 
     func activeTabManagerForCallerNotification() -> TabManager? { tabManager }
 
-    private nonisolated static func shouldCaptureSocketListenerFailure(
-        message: String,
-        stage: String,
-        path: String,
-        errnoCode: Int32?
-    ) -> Bool {
-        let key = "\(message)|\(stage)|\(path)|\(errnoCode.map(String.init) ?? "none")"
-        let now = Date()
-        socketListenerFailureCaptureLock.lock()
-        defer { socketListenerFailureCaptureLock.unlock() }
-        if let lastCapturedAt = socketListenerFailureLastCapturedAt[key],
-           now.timeIntervalSince(lastCapturedAt) < socketListenerFailureCaptureCooldown {
-            return false
-        }
-        socketListenerFailureLastCapturedAt[key] = now
-        return true
-    }
-
     /// Builds the package server's host-callback seam. `target` is filled in
     /// at the end of `init`; no listener event can fire before `start`.
+    /// `failureThrottle` is the injected per-key capture cooldown gate.
     private nonisolated static func makeSocketServerEvents(
-        target: ServerEventTarget
+        target: ServerEventTarget,
+        failureThrottle: SocketListenerFailureThrottle
     ) -> SocketControlServerEvents {
         SocketControlServerEvents(
             breadcrumb: { message, data in
@@ -644,7 +602,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
             },
             failure: { message, stage, errnoCode, data in
                 sentryBreadcrumb(message, category: "socket", data: data)
-                guard shouldCaptureSocketListenerFailure(
+                guard failureThrottle.shouldCapture(
                     message: message,
                     stage: stage,
                     path: data["path"] as? String ?? "",
