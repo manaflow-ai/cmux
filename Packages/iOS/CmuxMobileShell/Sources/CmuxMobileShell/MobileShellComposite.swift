@@ -2434,7 +2434,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             subscription.cancel()
             secondaryMacSubscriptions[macDeviceID] = nil
         }
-        workspacesByMac[macDeviceID] = nil
+        pruneWorkspaceStateForForgottenMac(macDeviceID)
         guard await isScopeCurrent(scope) else { return }
         do {
             try await pairedMacStore?.remove(
@@ -2446,6 +2446,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             mobileShellLog.error("paired mac store remove failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
         }
         await loadPairedMacs()
+    }
+
+    /// Remove every workspace snapshot owned by a forgotten stored Mac.
+    ///
+    /// Most per-Mac snapshots are keyed by the Mac's real device id, but older
+    /// manual/anonymous foreground attaches can keep the snapshot under
+    /// ``foregroundAnonymousKey`` while its rows are already stamped with the
+    /// real `macDeviceID`. Deleting the computer must clear both shapes so the
+    /// workspace list cannot keep routing taps into a removed Mac.
+    private func pruneWorkspaceStateForForgottenMac(_ macDeviceID: String) {
+        guard !macDeviceID.isEmpty else { return }
+        if foregroundMacDeviceID == macDeviceID {
+            foregroundMacDeviceID = nil
+        }
+        let pruned = workspacesByMac.filter { key, state in
+            guard key != macDeviceID, state.macDeviceID != macDeviceID else { return false }
+            return !state.workspaces.contains { $0.macDeviceID == macDeviceID }
+        }
+        if pruned.count != workspacesByMac.count {
+            workspacesByMac = pruned
+        }
     }
 
     /// Whether route selection should avoid loopback routes. A loopback route
