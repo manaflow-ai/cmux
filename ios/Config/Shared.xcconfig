@@ -24,6 +24,15 @@ CURRENT_PROJECT_VERSION = 1
 CMUX_GIT_SHA =
 CMUX_DEV_TAG =
 
+// Per-developer presence/paired-Mac-backup worker override, baked into the
+// CMUXPresenceBaseURL Info.plist key so a normally-tapped dev device build (which
+// sees no shell env) talks to an isolated worker instead of the shared
+// cmux-presence-dev. Empty by default (release/TestFlight resolve to nil/disabled
+// or the Debug default). ios/scripts/reload.sh overrides it from
+// $CMUX_PRESENCE_BASE_URL. See workers/presence/scripts/deploy-dev.sh and
+// PresenceServiceConfiguration.resolvedServiceBaseURL.
+CMUX_PRESENCE_BASE_URL =
+
 // ==========================================
 // Platform Configuration
 // ==========================================

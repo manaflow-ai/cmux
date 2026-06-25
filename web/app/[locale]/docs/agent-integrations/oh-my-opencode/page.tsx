@@ -2,6 +2,8 @@ import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { CodeBlock } from "../../../components/code-block";
 import { DocsHeading } from "../../../components/docs-heading";
+import { buildAlternates } from "../../../../../i18n/seo";
+import { DocsSchema } from "../../docs-schema";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -9,6 +11,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   return {
     title: t("metaTitle"),
     description: t("metaDescription"),
+    alternates: buildAlternates(locale, "/docs/agent-integrations/oh-my-opencode"),
   };
 }
 
@@ -17,6 +20,7 @@ export default function OhMyOpenCodePage() {
 
   return (
     <>
+      <DocsSchema namespace="docs.ohMyOpenCode" path="/docs/agent-integrations/oh-my-opencode" />
       <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
 
       <p>{t("intro")}</p>

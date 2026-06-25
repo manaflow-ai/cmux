@@ -100,6 +100,28 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
         return nil
     }
 
+    /// Applies host presentation state that changes while the direct-hosted
+    /// terminal stays mounted.
+    func updatePresentation(
+        isFocused: Bool,
+        showsInactiveOverlay: Bool,
+        inactiveOverlayColor: NSColor,
+        inactiveOverlayOpacity: Double
+    ) {
+        switch content {
+        case .terminal(let panel):
+            let hostedView = panel.hostedView
+            hostedView.setActive(isFocused)
+            hostedView.setInactiveOverlay(
+                color: inactiveOverlayColor,
+                opacity: CGFloat(inactiveOverlayOpacity),
+                visible: showsInactiveOverlay
+            )
+        case .hosted:
+            break
+        }
+    }
+
     /// Applies the explicit canvas lifecycle state to the mounted content.
     /// Offscreen terminals stop rendering (Ghostty occlusion) but keep their
     /// size, so re-entering the viewport never reflows.
@@ -123,7 +145,9 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
         switch content {
         case .terminal(let panel):
             let hostedView = panel.hostedView
+            hostedView.setActive(false)
             hostedView.setFocusHandler(nil)
+            hostedView.setInactiveOverlay(color: .clear, opacity: 0, visible: false)
             panel.surface.setOcclusion(true)
             hostedView.removeFromSuperview()
         case .hosted(let panel, let view):

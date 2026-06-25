@@ -2,6 +2,7 @@ public import CMUXMobileCore
 internal import CmuxMobileShellModel
 internal import CmuxMobileSupport
 public import Foundation
+internal import os
 
 /// A multiplexed RPC client over a single persistent transport to a paired Mac.
 ///
@@ -12,7 +13,11 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private let route: CmxAttachRoute
     private let ticket: CmxAttachTicket
     private let allowsStackAuthFallback: Bool
-    private let session: MobileCoreRPCSession
+    // `internal` (not `private`) so `@testable import` can observe session
+    // queue state from tests, instead of exposing a debug hook in production.
+    let session: MobileCoreRPCSession
+    private let stackTokenGate: RPCStackTokenGate
+    private let stackTokenForceRefreshGate: RPCStackTokenGate
 
     /// Create a client bound to one route + attach ticket.
     /// - Parameters:
@@ -25,13 +30,27 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         runtime: any MobileSyncRuntime,
         route: CmxAttachRoute,
         ticket: CmxAttachTicket,
-        allowsStackAuthFallback: Bool = false
+        allowsStackAuthFallback: Bool = false,
+        connectAttemptRegistry: MobileRPCConnectAttemptRegistry = MobileRPCConnectAttemptRegistry(),
+        stackTokenGate: RPCStackTokenGate? = nil,
+        stackTokenForceRefreshGate: RPCStackTokenGate? = nil,
+        abandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000,
+        lateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000,
+        stackTokenGateResetNanoseconds: UInt64 = 30_000_000_000
     ) {
         self.runtime = runtime
         self.route = route
         self.ticket = ticket
         self.allowsStackAuthFallback = allowsStackAuthFallback
+        self.stackTokenGate = stackTokenGate
+            ?? RPCStackTokenGate(timedOutResetNanoseconds: stackTokenGateResetNanoseconds)
+        self.stackTokenForceRefreshGate = stackTokenForceRefreshGate
+            ?? RPCStackTokenGate(timedOutResetNanoseconds: stackTokenGateResetNanoseconds)
         self.session = MobileCoreRPCSession(
+            connectAttemptKey: route.mobileRPCConnectAttemptKey,
+            connectAttemptRegistry: connectAttemptRegistry,
+            abandonedConnectCleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
+            lateAbandonedConnectCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds,
             makeTransport: { [route, runtime] in
                 try runtime.transportFactory.makeTransport(for: route)
             }
@@ -70,11 +89,18 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         return try JSONSerialization.data(withJSONObject: request)
     }
 
+    /// Sends one JSON-RPC request over the paired Mac connection.
+    ///
+    /// The optional timeout is a hard end-to-end deadline for auth augmentation,
+    /// connection setup, and response wait, not a per-subphase timeout.
     public func sendRequest(_ requestData: Data, timeoutNanoseconds: UInt64? = nil) async throws -> Data {
+        let deadline = RPCRequestDeadline(
+            timeoutNanoseconds: timeoutNanoseconds ?? runtime.rpcRequestTimeoutNanoseconds
+        )
         do {
             return try await sendAuthenticatedRequest(
                 requestData,
-                timeoutNanoseconds: timeoutNanoseconds,
+                deadline: deadline,
                 allowAuthRetry: true
             )
         } catch let error as MobileShellConnectionError {
@@ -89,12 +115,12 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             // help and would only weaken the same-account gate; it surfaces as
             // `.rpcError("account_mismatch", _)`, not `.authorizationFailed`.
             guard case .authorizationFailed = error else { throw error }
-            try await forceRefreshStackTokenForRetry()
+            try await forceRefreshStackTokenForRetry(deadline: deadline)
             // Re-run with retry disabled so a fresh token that is still rejected
             // surfaces as a definitive auth failure instead of looping.
             return try await sendAuthenticatedRequest(
                 requestData,
-                timeoutNanoseconds: timeoutNanoseconds,
+                deadline: deadline,
                 allowAuthRetry: false
             )
         }
@@ -106,11 +132,17 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     /// intact) to `.connectionClosed` so a network blip stays retryable and does
     /// not trip the re-auth prompt; a definitive failure surfaces as
     /// `.authorizationFailed` to drive re-auth.
-    private func forceRefreshStackTokenForRetry() async throws {
+    private func forceRefreshStackTokenForRetry(deadline: RPCRequestDeadline) async throws {
         do {
-            _ = try await runtime.stackAccessTokenForceRefresher()
+            _ = try await stackTokenForceRefreshGate.token(
+                timeoutNanoseconds: try deadline.remainingNanoseconds()
+            ) { [runtime] in
+                try await runtime.stackAccessTokenForceRefresher()
+            }
         } catch let error as MobileShellConnectionError {
             throw error
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw MobileShellConnectionError.authorizationFailed(
                 L10n.string(
@@ -123,7 +155,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
 
     private func sendAuthenticatedRequest(
         _ requestData: Data,
-        timeoutNanoseconds: UInt64?,
+        deadline: RPCRequestDeadline,
         allowAuthRetry: Bool
     ) async throws -> Data {
         // Multiplexed over a persistent transport: each request gets a unique
@@ -135,12 +167,16 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             requestData,
             forceID: !allowAuthRetry
         )
-        let authenticated = try await requestDataWithAuth(augmented)
-        return try await Self.withRequestTimeout(
-            timeoutNanoseconds: timeoutNanoseconds ?? runtime.rpcRequestTimeoutNanoseconds
-        ) {
-            try await self.session.send(payload: authenticated, requestID: id)
-        }
+        let authenticated = try await requestDataWithAuth(
+            augmented,
+            deadline: deadline
+        )
+        try Task.checkCancellation()
+        return try await session.send(
+            payload: authenticated,
+            requestID: id,
+            deadlineUptimeNanoseconds: deadline.uptimeNanoseconds
+        )
     }
 
     private static func requestWithGuaranteedID(
@@ -161,7 +197,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         return (id, data)
     }
 
-    private func requestDataWithAuth(_ requestData: Data) async throws -> Data {
+    private func requestDataWithAuth(_ requestData: Data, deadline: RPCRequestDeadline) async throws -> Data {
         guard var request = try JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
             return requestData
         }
@@ -198,7 +234,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 throw MobileShellConnectionError.insecureManualRoute
             }
             do {
-                auth["stack_access_token"] = try await runtime.stackAccessTokenProvider()
+                auth["stack_access_token"] = try await stackAccessToken(deadline: deadline)
             } catch let error as MobileShellConnectionError {
                 // The provider already classified the failure: a transient
                 // token-fetch failure (offline / refresh server hiccup, session
@@ -209,6 +245,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 // everything to `.authorizationFailed` here is what made retry
                 // fail permanently.
                 throw error
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
                 throw MobileShellConnectionError.authorizationFailed(
                     L10n.string(
@@ -218,25 +256,38 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 )
             }
         }
-        // The status probe is deliberately unauthenticated (it must answer
-        // before the phone has anything to present), but the host reports its
-        // identity (`mac_device_id`, `mac_display_name`) only to a verified
-        // same-account caller, so attach the Stack token opportunistically
-        // when policy allows sending it on this route. Never fail the probe
-        // over a missing token: reachability and capabilities don't need one,
-        // and a QR-pairing connect (where the identity matters) is always
-        // signed in, so the token is present there.
         if !requestNeedsAuth,
            isHostStatusRequest(request),
            allowsStackAuthFallback,
            MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
-           let stackAccessToken = try? await runtime.stackAccessTokenProvider() {
+           let stackAccessToken = try await stackAccessTokenForStatus(deadline: deadline) {
             auth["stack_access_token"] = stackAccessToken
         }
         if !auth.isEmpty {
             request["auth"] = auth
         }
         return try JSONSerialization.data(withJSONObject: request)
+    }
+
+    private func stackAccessTokenForStatus(deadline: RPCRequestDeadline) async throws -> String? {
+        let task = Task<String?, any Error> { [runtime] in
+            await runtime.stackAccessTokenForStatusProvider()
+        }
+        do {
+            return try await RPCTaskTimeout().value(
+                task,
+                timeoutNanoseconds: try deadline.remainingNanoseconds()
+            )
+        } catch {
+            task.cancel()
+            throw error
+        }
+    }
+
+    private func stackAccessToken(deadline: RPCRequestDeadline) async throws -> String {
+        try await stackTokenGate.token(timeoutNanoseconds: try deadline.remainingNanoseconds()) { [runtime] in
+            try await runtime.stackAccessTokenProvider()
+        }
     }
 
     private static func requestNeedsStackAuthFallback(_ request: [String: Any], ticket: CmxAttachTicket) -> Bool {
@@ -315,47 +366,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         let hasConflict: Bool
     }
 
-    private static func withRequestTimeout<T: Sendable>(
-        timeoutNanoseconds: UInt64,
-        operation: @escaping @Sendable () async throws -> T
-    ) async throws -> T {
-        try Task.checkCancellation()
-        return try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask {
-                try await operation()
-            }
-            group.addTask {
-                try await Task.sleep(nanoseconds: timeoutNanoseconds)
-                throw MobileShellConnectionError.requestTimedOut
-            }
-            do {
-                guard let result = try await group.next() else {
-                    throw CancellationError()
-                }
-                group.cancelAll()
-                return result
-            } catch {
-                group.cancelAll()
-                throw error
-            }
-        }
-    }
 }
-
-#if DEBUG
-extension MobileCoreRPCClient {
-    /// Test-only hook exposing the private request-timeout race for unit tests.
-    public static func debugWithRequestTimeout<T: Sendable>(
-        timeoutNanoseconds: UInt64,
-        operation: @escaping @Sendable () async throws -> T
-    ) async throws -> T {
-        try await withRequestTimeout(
-            timeoutNanoseconds: timeoutNanoseconds,
-            operation: operation
-        )
-    }
-}
-#endif
 
 private extension MobileCoreRPCClient {
     /// Whether `request` is the unauthenticated `mobile.host.status` probe, the
@@ -363,5 +374,11 @@ private extension MobileCoreRPCClient {
     func isHostStatusRequest(_ request: [String: Any]) -> Bool {
         let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         return method == "mobile.host.status"
+    }
+}
+
+private extension CmxAttachRoute {
+    var mobileRPCConnectAttemptKey: String {
+        "\(kind.rawValue)|\(id)|\(endpoint.logDescription)"
     }
 }

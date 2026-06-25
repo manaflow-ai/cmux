@@ -10,7 +10,6 @@ import SwiftUI
 #elseif os(macOS)
 import AppKit
 #endif
-
 struct SignInView: View {
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(\.analytics) private var analytics
@@ -23,9 +22,9 @@ struct SignInView: View {
     @State private var shouldAutofocusCode = false
     @State private var shouldAutofocusEmail = false
     @State private var signInTask: Task<Void, Never>?
+    private let errorPresentation = SignInErrorPresentation()
     @FocusState private var isEmailFocused: Bool
     @FocusState private var isCodeFocused: Bool
-
     var body: some View {
         NavigationStack {
             ZStack {
@@ -38,10 +37,8 @@ struct SignInView: View {
                         UIApplication.shared.dismissMobileKeyboard()
                     }
                     .ignoresSafeArea()
-
                 VStack(spacing: 0) {
                     Spacer(minLength: 0)
-
                     signInEntrySwitcher
                 }
             }
@@ -77,6 +74,7 @@ struct SignInView: View {
         authCard {
             VStack(spacing: 20) {
                 brandHeader
+                SignInAuthRestoreStatusView()
 
                 Button {
                     signInTask = Task {
@@ -167,6 +165,7 @@ struct SignInView: View {
         authCard {
             VStack(spacing: 18) {
                 brandHeader
+                SignInAuthRestoreStatusView()
 
                 VStack(spacing: 6) {
                     Text(L10n.string("mobile.signIn.checkEmail", defaultValue: "Check your email"))
@@ -244,8 +243,12 @@ struct SignInView: View {
         }
     }
 
-    private var isAuthInProgress: Bool {
+    private var isInteractiveAuthInProgress: Bool {
         authManager.isLoading || isAppleSigningIn || isGoogleSigningIn
+    }
+
+    private var isAuthInProgress: Bool {
+        isInteractiveAuthInProgress || authManager.isRestoringSession
     }
 
     /// Escape hatch while a sign-in flow is in flight: cancels the running
@@ -254,7 +257,7 @@ struct SignInView: View {
     /// whole screen disabled with no way out.
     @ViewBuilder
     private var cancelSignInButton: some View {
-        if isAuthInProgress {
+        if isInteractiveAuthInProgress {
             Button {
                 signInTask?.cancel()
             } label: {
@@ -287,7 +290,7 @@ struct SignInView: View {
             self.error = detailedErrorMessage(error)
             analytics.capture("ios_sign_in_failed", [
                 "method": .string("email_code"),
-                "failure_reason": .string(Self.signInFailureReason(error)),
+                "failure_reason": .string(signInFailureReason(error)),
             ])
         }
     }
@@ -305,7 +308,7 @@ struct SignInView: View {
             code = ""
             analytics.capture("ios_sign_in_failed", [
                 "method": .string("email_code"),
-                "failure_reason": .string(Self.signInFailureReason(error)),
+                "failure_reason": .string(signInFailureReason(error)),
             ])
         }
     }
@@ -329,7 +332,7 @@ struct SignInView: View {
             self.error = detailedErrorMessage(error)
             analytics.capture("ios_sign_in_failed", [
                 "method": .string("apple"),
-                "failure_reason": .string(Self.signInFailureReason(error)),
+                "failure_reason": .string(signInFailureReason(error)),
             ])
         }
     }
@@ -353,43 +356,15 @@ struct SignInView: View {
             self.error = detailedErrorMessage(error)
             analytics.capture("ios_sign_in_failed", [
                 "method": .string("google"),
-                "failure_reason": .string(Self.signInFailureReason(error)),
+                "failure_reason": .string(signInFailureReason(error)),
             ])
         }
     }
 
     /// Maps a sign-in error to the `ios_sign_in_failed` `failure_reason` enum
     /// (enums only, never the error text or the user's email).
-    private static func signInFailureReason(_ error: Error) -> String {
-        if let authError = error as? AuthError {
-            switch authError {
-            case .timedOut:
-                return "timeout"
-            case .offline:
-                return "offline"
-            case .networkError:
-                return "network"
-            default:
-                break
-            }
-        }
-        if let stackError = error as? StackAuthErrorProtocol {
-            switch stackError.code {
-            case "VERIFICATION_CODE_ERROR", "INVALID_OTP", "INVALID_TOTP_CODE":
-                return "invalid_code"
-            case "OTP_EXPIRED":
-                return "code_expired"
-            case "RATE_LIMIT":
-                return "rate_limit"
-            default:
-                return "oauth_error"
-            }
-        }
-        let nsError = error as NSError
-        if nsError.domain == NSURLErrorDomain {
-            return "network"
-        }
-        return "other"
+    private func signInFailureReason(_ error: Error) -> String {
+        errorPresentation.failureReason(for: error)
     }
 
     private func errorText(_ message: String) -> some View {
@@ -403,61 +378,7 @@ struct SignInView: View {
     }
 
     private func detailedErrorMessage(_ error: Error) -> String {
-        let displayError = AuthError(displaySafe: error) ?? error
-        if let stackError = displayError as? StackAuthErrorProtocol {
-            switch stackError.code {
-            case "SCHEMA_ERROR":
-                return L10n.string("auth.error.invalid_email", defaultValue: "Please enter a valid email address.")
-            case "USER_EMAIL_ALREADY_EXISTS":
-                return L10n.string("auth.error.email_exists", defaultValue: "An account with this email already exists. Try signing in instead.")
-            case "VERIFICATION_CODE_ERROR", "INVALID_OTP":
-                return L10n.string("auth.error.invalid_code", defaultValue: "Invalid code. Please check and try again.")
-            case "OTP_EXPIRED":
-                return L10n.string("auth.error.code_expired", defaultValue: "Code expired. Please request a new one.")
-            case "RATE_LIMIT":
-                return L10n.string("auth.error.rate_limit", defaultValue: "Too many attempts. Please wait a moment and try again.")
-            case "EMAIL_PASSWORD_MISMATCH":
-                return L10n.string("auth.error.wrong_password", defaultValue: "Incorrect email or password.")
-            case "USER_NOT_FOUND":
-                return L10n.string("auth.error.user_not_found", defaultValue: "No account found with this email.")
-            case "PASSKEY_AUTHENTICATION_FAILED", "PASSKEY_WEBAUTHN_ERROR":
-                return L10n.string("auth.error.passkey_failed", defaultValue: "Passkey authentication failed. Please try again.")
-            case "INVALID_TOTP_CODE":
-                return L10n.string("auth.error.invalid_mfa", defaultValue: "Incorrect verification code. Please try again.")
-            case "REDIRECT_URL_NOT_WHITELISTED":
-                return L10n.string("auth.error.config", defaultValue: "Sign in is temporarily unavailable. Please try again later.")
-            case "OAUTH_PROVIDER_ACCOUNT_ID_ALREADY_USED_FOR_SIGN_IN":
-                return L10n.string("auth.error.oauth_linked", defaultValue: "This account is already linked to another sign-in method.")
-            case "INVALID_APPLE_CREDENTIALS":
-                return L10n.string("auth.error.apple_config", defaultValue: "Apple Sign In is not available yet. Please use another sign-in method.")
-            case "oauth_cancelled":
-                return ""
-            default:
-                break
-            }
-        }
-
-        if let authError = displayError as? AuthError {
-            return authError.localizedDescription
-        }
-
-        let nsError = displayError as NSError
-        if nsError.domain == NSURLErrorDomain {
-            return L10n.string("auth.error.network", defaultValue: "Could not connect to the server. Check your internet connection and try again.")
-        }
-
-        #if DEBUG
-        var debug = "\(displayError.localizedDescription)\n\(String(reflecting: type(of: displayError)))"
-        if let stackError = displayError as? StackAuthErrorProtocol {
-            debug += "\ncode: \(stackError.code)\nmessage: \(stackError.message)"
-            if let details = stackError.details {
-                debug += "\ndetails: \(details)"
-            }
-        }
-        return debug
-        #else
-        return L10n.string("auth.error.generic", defaultValue: "Something went wrong. Please try again.")
-        #endif
+        errorPresentation.message(for: error)
     }
 
     private func authCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {

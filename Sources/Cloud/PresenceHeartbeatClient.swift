@@ -115,13 +115,17 @@ final class PresenceHeartbeatClient {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             ?? defaults.string(forKey: PresenceSettings.serviceURLKey)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        #if DEBUG
         if raw == nil || raw?.isEmpty == true {
+            #if DEBUG
             // Debug builds authenticate against the dev Stack project, which is
             // what the dev/staging worker verifies — see PresenceSettings.
             raw = PresenceSettings.debugDefaultServiceURL
+            #else
+            // Release builds talk to the production presence worker, so stable
+            // cmux announces presence once mobile is enabled (gated by isEnabled).
+            raw = PresenceSettings.productionServiceURL
+            #endif
         }
-        #endif
         guard let raw, !raw.isEmpty else { return nil }
         return URL(string: raw)
     }
@@ -181,6 +185,7 @@ final class PresenceHeartbeatClient {
         let bodyDict = Self.heartbeatBody(
             deviceID: MobileHostIdentity.deviceID(),
             tag: Self.buildTag(),
+            bundleID: Bundle.main.bundleIdentifier,
             displayName: MobileHostIdentity.displayName(),
             routes: currentRoutes,
             stopping: stopping
@@ -221,6 +226,7 @@ final class PresenceHeartbeatClient {
     nonisolated static func heartbeatBody(
         deviceID: String,
         tag: String,
+        bundleID: String?,
         displayName: String?,
         routes: [CmxAttachRoute],
         stopping: Bool
@@ -231,6 +237,12 @@ final class PresenceHeartbeatClient {
             "tag": tag,
             "routes": routes.map(\.mobileHostJSONObject),
         ]
+        // The app's bundle id lets the phone label the build channel on the
+        // Computers screen (com.cmuxterm.app = Stable, .nightly/.rc/.staging
+        // suffixes, dev.cmux.* = a DEV build — paired with `tag` for the dev tag).
+        if let bundleID, !bundleID.isEmpty {
+            bodyDict["bundleId"] = bundleID
+        }
         if let displayName, !displayName.isEmpty {
             bodyDict["displayName"] = displayName
         }
