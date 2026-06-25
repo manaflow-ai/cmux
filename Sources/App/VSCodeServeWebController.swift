@@ -162,15 +162,18 @@ final class VSCodeServeWebController {
     func prepareRestoredServeWebURL(
         _ candidateURL: URL?,
         vscodeApplicationURL: URL?,
-        completion: ((Bool) -> Void)? = nil
+        completion: ((URL?) -> Void)? = nil
     ) -> Bool {
-        guard Self.isPersistentServeWebURL(candidateURL) else { return false }
+        guard let restoredURL = candidateURL,
+              Self.isPersistentServeWebURL(restoredURL) else {
+            return false
+        }
         guard let vscodeApplicationURL else {
-            completion?(false)
+            completion?(nil)
             return true
         }
         ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { url in
-            completion?(url != nil)
+            completion?(Self.preparedRestoredServeWebURL(restoredURL, launchedURL: url))
         }
         return true
     }

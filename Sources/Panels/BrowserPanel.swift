@@ -2828,6 +2828,10 @@ final class BrowserPanel: Panel, ObservableObject {
     @Published private(set) var currentURL: URL? {
         didSet {
             guard oldValue != currentURL else { return }
+            if let pendingURL = restoredInlineVSCodeServeWebURLAwaitingPreparation,
+               currentURL?.absoluteString != pendingURL.absoluteString {
+                restoredInlineVSCodeServeWebURLAwaitingPreparation = nil
+            }
             applyConfiguredWebViewBackground()
         }
     }
@@ -2844,6 +2848,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
     @Published private(set) var backgroundAppearanceRevision: UInt64 = 0
     private let hiddenWebViewDiscardManager = BrowserHiddenWebViewDiscardManager()
+    private var restoredInlineVSCodeServeWebURLAwaitingPreparation: URL?
 
     @Published private(set) var webViewLifecycleState: BrowserWebViewLifecycleState = .newTab
     private(set) var webViewLastVisibleAt: Date?
@@ -3407,6 +3412,7 @@ final class BrowserPanel: Panel, ObservableObject {
         reason: String,
         cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy
     ) -> Bool {
+        guard restoredInlineVSCodeServeWebURLAwaitingPreparation == nil else { return false }
         return hiddenWebViewDiscardManager.restoreIfNeeded(reason: reason) {
             shouldRenderWebView = true
             guard let restoreURL = restoredHistoryCurrentURL ?? currentURL else {
@@ -4571,30 +4577,42 @@ final class BrowserPanel: Panel, ObservableObject {
             return
         }
 
-        prepareRestoredInlineVSCodeServeWebURL(restoredURL)
+        _ = prepareRestoredInlineVSCodeServeWebURL(restoredURL)
         deferRestoredWebViewLoadUntilVisible(url: restoredURL, reason: "session_restore")
     }
 
-    private func prepareRestoredInlineVSCodeServeWebURL(_ restoredURL: URL) {
-        VSCodeServeWebController.shared.prepareRestoredServeWebURL(
+    @discardableResult
+    private func prepareRestoredInlineVSCodeServeWebURL(_ restoredURL: URL) -> Bool {
+        restoredInlineVSCodeServeWebURLAwaitingPreparation = restoredURL
+        let didStartPreparation = VSCodeServeWebController.shared.prepareRestoredServeWebURL(
             restoredURL,
             vscodeApplicationURL: TerminalDirectoryOpenTarget.vscodeInline.applicationURL()
-        ) { [weak self] didPrepare in
-            guard didPrepare,
-                  let self,
-                  self.currentURL?.absoluteString == restoredURL.absoluteString else {
+        ) { [weak self] preparedURL in
+            guard let self,
+                  self.restoredInlineVSCodeServeWebURLAwaitingPreparation?.absoluteString == restoredURL.absoluteString else {
                 return
+            }
+            self.restoredInlineVSCodeServeWebURLAwaitingPreparation = nil
+            guard let preparedURL else { return }
+            let usedFallbackPort = preparedURL.absoluteString != restoredURL.absoluteString
+            self.currentURL = preparedURL
+            if usedFallbackPort {
+                self.abandonRestoredSessionHistoryIfNeeded()
             }
             if self.shouldRenderWebView {
                 self.navigateWithoutInsecureHTTPPrompt(
-                    to: restoredURL,
+                    to: preparedURL,
                     recordTypedNavigation: false,
-                    preserveRestoredSessionHistory: true
+                    preserveRestoredSessionHistory: !usedFallbackPort
                 )
             } else if self.isWebViewVisibleInUI {
                 _ = self.restoreDiscardedWebViewIfNeeded(reason: "serve_web_ready")
             }
         }
+        if !didStartPreparation {
+            restoredInlineVSCodeServeWebURLAwaitingPreparation = nil
+        }
+        return didStartPreparation
     }
 
     private func deferRestoredWebViewLoadUntilVisible(url: URL, reason: String) {

@@ -61,24 +61,55 @@ extension VSCodeServeWebController {
               let token = VSCodeServeWebLaunchOptions.usableConnectionToken(
                 launchOptions.connectionTokenFileURL,
                 fileManager: .default
-              ),
-              let queryItems = URLComponents(url: candidateURL, resolvingAgainstBaseURL: false)?.queryItems else {
+              ) else {
             return false
         }
-        let tokenQueryItems = queryItems.filter { $0.name == "tkn" }
-        return tokenQueryItems.count == 1 && tokenQueryItems.first?.value == token
+        return connectionTokenQueryValue(candidateURL) == token
+    }
+
+    static func preparedRestoredServeWebURL(_ restoredURL: URL, launchedURL: URL?) -> URL? {
+        guard let launchedURL,
+              connectionTokenQueryValue(restoredURL) == connectionTokenQueryValue(launchedURL),
+              isLoopbackHTTPURL(launchedURL) else {
+            return nil
+        }
+        if urlsShareLoopbackOrigin(restoredURL, launchedURL) {
+            return restoredURL
+        }
+
+        var restoredComponents = URLComponents(url: restoredURL, resolvingAgainstBaseURL: false)
+        let launchedComponents = URLComponents(url: launchedURL, resolvingAgainstBaseURL: false)
+        restoredComponents?.scheme = launchedComponents?.scheme
+        restoredComponents?.host = launchedComponents?.host
+        restoredComponents?.port = launchedComponents?.port
+        return restoredComponents?.url
     }
 
     private static func isPossiblePersistentServeWebURL(_ candidateURL: URL?) -> Bool {
-        guard let candidateURL,
-              candidateURL.scheme?.lowercased() == "http",
+        guard let candidateURL, isLoopbackHTTPURL(candidateURL) else { return false }
+        return connectionTokenQueryValue(candidateURL) != nil
+    }
+
+    private static func isLoopbackHTTPURL(_ candidateURL: URL) -> Bool {
+        guard candidateURL.scheme?.lowercased() == "http",
               candidateURL.port != nil,
-              let host = BrowserInsecureHTTPSettings.normalizeHost(candidateURL.host ?? ""),
-              RemoteLoopbackProxyAlias.isLoopbackHost(host),
-              let queryItems = URLComponents(url: candidateURL, resolvingAgainstBaseURL: false)?.queryItems else {
+              let host = BrowserInsecureHTTPSettings.normalizeHost(candidateURL.host ?? "") else {
             return false
         }
-        return queryItems.contains { $0.name == "tkn" && $0.value?.isEmpty == false }
+        return RemoteLoopbackProxyAlias.isLoopbackHost(host)
+    }
+
+    private static func connectionTokenQueryValue(_ url: URL) -> String? {
+        guard let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems else {
+            return nil
+        }
+        let tokenQueryItems = queryItems.filter { $0.name == "tkn" }
+        guard tokenQueryItems.count == 1,
+              let value = tokenQueryItems.first?.value,
+              !value.isEmpty else {
+            return nil
+        }
+        return value
     }
 
     static func terminateProcessesBeforeRestart(
