@@ -166,7 +166,7 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
         subtitle: String?,
         state: AgentHibernationLifecycleState
     ) -> String? {
-        if let subtitle { return subtitle }
+        if state == .needsInput, let subtitle { return subtitle }
         switch state {
         case .needsInput:
             return String(localized: "feed.status.needsInput", defaultValue: "Needs input")
