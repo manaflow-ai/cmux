@@ -47,6 +47,20 @@ struct HexColorPickerSelectionTests {
         #expect(selection.color.cmuxHexString == "#123456")
     }
 
+    @Test func externalStoredHexMatchingLiveQuantizedHexRebuildsColor() throws {
+        let sourceHue: CGFloat = 0.72
+        let initialHex = Color(nsColor: nsColor(hue: sourceHue, brightness: 1)).cmuxHexString
+        var selection = HexColorPickerSelection(storedHex: initialHex, fallback: Color(nsColor: .systemBlue))
+        let dimmedColor = Color(nsColor: nsColor(hue: sourceHue, brightness: 0.001))
+
+        let storedHex = selection.applyPickerSelection(dimmedColor)
+        selection.reconcile(storedHex: storedHex)
+        #expect(hueDistance(sourceHue, try hue(of: selection.color)) < 0.01)
+
+        selection.reconcile(storedHex: storedHex)
+        #expect(hueDistance(sourceHue, try hue(of: selection.color)) > 0.2)
+    }
+
     private func nsColor(hue: CGFloat, brightness: CGFloat) -> NSColor {
         NSColor(calibratedHue: hue, saturation: 1, brightness: brightness, alpha: 1)
     }

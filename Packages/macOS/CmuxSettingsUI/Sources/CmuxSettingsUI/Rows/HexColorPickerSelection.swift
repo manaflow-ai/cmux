@@ -3,6 +3,7 @@ import SwiftUI
 @MainActor
 struct HexColorPickerSelection {
     private let fallback: Color
+    private var pendingPickerHex: String?
     private(set) var color: Color
 
     init(storedHex: String, fallback: Color) {
@@ -12,11 +13,17 @@ struct HexColorPickerSelection {
 
     mutating func applyPickerSelection(_ newColor: Color) -> String {
         color = newColor
-        return newColor.cmuxHexString
+        let hex = newColor.cmuxHexString
+        pendingPickerHex = hex
+        return hex
     }
 
     mutating func reconcile(storedHex: String) {
-        guard storedHex != color.cmuxHexString else { return }
+        if pendingPickerHex == storedHex {
+            pendingPickerHex = nil
+            return
+        }
+        pendingPickerHex = nil
         color = Color(cmuxHex: storedHex) ?? fallback
     }
 }
