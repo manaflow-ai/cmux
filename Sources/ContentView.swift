@@ -11718,7 +11718,7 @@ struct VerticalTabsSidebar: View {
     private func extensionSidebarAgentLifecycleState(for workspace: Workspace) -> AgentHibernationLifecycleState? {
         let states = workspace.agentLifecycleStatesByPanelId.values.flatMap { Array($0.values) }
         guard !states.isEmpty else { return nil }
-        return AgentHibernationLifecycleState.dominantForStatusIndicator(in: states, fallback: .unknown)
+        return AgentHibernationLifecycleState.dominantForHibernation(in: states, fallback: .unknown)
     }
 
     private func extensionBrowserStackIcon(

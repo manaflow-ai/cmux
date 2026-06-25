@@ -81,6 +81,13 @@ struct SettingsFileStringMapping {
     let defaultsKey: String
 }
 
+struct SettingsFileStringEnumMapping {
+    let jsonKey: String
+    let defaultsKey: String
+    let acceptedValues: Set<String>
+    let invalidPath: String
+}
+
 struct SettingsFileStringArrayMapping {
     let jsonKey: String
     let defaultsKey: String
@@ -180,13 +187,6 @@ enum SidebarSettingsFileMapping {
         let defaultsKey: String
     }
 
-    struct StringEnumSetting {
-        let jsonKey: String
-        let defaultsKey: String
-        let acceptedValues: Set<String>
-        let invalidPath: String
-    }
-
     static let booleanSettings: [BooleanSetting] = [
         .init(
             jsonKey: "hideAllDetails",
@@ -249,7 +249,7 @@ enum SidebarSettingsFileMapping {
         ),
     ]
 
-    static let stringEnumSettings: [StringEnumSetting] = [
+    static let stringEnumSettings: [SettingsFileStringEnumMapping] = [
         .init(
             jsonKey: "workspaceStatusStyle",
             defaultsKey: sidebarCatalog.workspaceStatusStyle.userDefaultsKey,

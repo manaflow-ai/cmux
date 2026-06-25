@@ -1,5 +1,6 @@
+import Combine
 import Foundation
-import XCTest
+import Testing
 
 import CmuxSidebar
 
@@ -10,8 +11,10 @@ import CmuxSidebar
 #endif
 
 @MainActor
-final class WorkspaceSidebarObservationTests: XCTestCase {
-    func testSidebarObservationPublisherEmitsForLateStatusSubscriber() {
+@Suite("Workspace sidebar observation", .serialized)
+struct WorkspaceSidebarObservationTests {
+    @Test
+    func sidebarObservationPublisherEmitsForLateStatusSubscriber() {
         let workspace = Workspace()
         workspace.statusEntries["test_probe"] = SidebarStatusEntry(
             key: "test_probe",
@@ -27,14 +30,14 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
         }
         defer { cancellable.cancel() }
 
-        XCTAssertGreaterThan(
-            publishCount,
-            0,
+        #expect(
+            publishCount > 0,
             "A sidebar row that subscribes after status metadata already exists must still refresh from the current workspace state."
         )
     }
 
-    func testSidebarImmediateObservationPublisherEmitsForLateTitleSubscriber() {
+    @Test
+    func sidebarImmediateObservationPublisherEmitsForLateTitleSubscriber() {
         let workspace = Workspace()
         workspace.title = "Restored Workspace"
 
@@ -44,14 +47,14 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
         }
         defer { cancellable.cancel() }
 
-        XCTAssertGreaterThan(
-            publishCount,
-            0,
+        #expect(
+            publishCount > 0,
             "A sidebar row that subscribes after immediate workspace fields already exist must still refresh from the current workspace state."
         )
     }
 
-    func testSidebarObservationPublisherIgnoresRemoteHeartbeatOnlyChanges() {
+    @Test
+    func sidebarObservationPublisherIgnoresRemoteHeartbeatOnlyChanges() {
         let workspace = Workspace()
 
         var publishCount = 0
@@ -64,16 +67,16 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
         workspace.remoteHeartbeatCount = 1
         workspace.remoteLastHeartbeatAt = Date()
 
-        XCTAssertEqual(
-            publishCount,
-            0,
+        #expect(
+            publishCount == 0,
             "Expected non-visible remote heartbeat updates to avoid invalidating sidebar rows"
         )
     }
 
-    func testSidebarObservationPublisherEmitsForAgentLifecycleOnlyChange() throws {
+    @Test
+    func sidebarObservationPublisherEmitsForAgentLifecycleOnlyChange() throws {
         let workspace = Workspace()
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let panelId = try #require(workspace.focusedPanelId)
 
         var publishCount = 0
         let cancellable = workspace.sidebarObservationPublisher.sink {
@@ -84,9 +87,8 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
 
         workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .needsInput)
 
-        XCTAssertGreaterThan(
-            publishCount,
-            0,
+        #expect(
+            publishCount > 0,
             "Agent lifecycle changes must refresh extension sidebar status dots even when no visible metadata text changes"
         )
     }

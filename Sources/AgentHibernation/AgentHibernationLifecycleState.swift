@@ -24,14 +24,6 @@ enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseI
         return fallback ?? .unknown
     }
 
-    static func dominantForStatusIndicator(in states: [Self], fallback: Self?) -> Self {
-        if states.contains(.needsInput) { return .needsInput }
-        if states.contains(.running) { return .running }
-        if states.contains(.unknown) { return .unknown }
-        if states.contains(.idle) { return .idle }
-        return fallback ?? .unknown
-    }
-
     func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(rawValue)

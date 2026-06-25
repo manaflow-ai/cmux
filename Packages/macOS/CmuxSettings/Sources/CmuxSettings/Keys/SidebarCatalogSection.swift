@@ -21,12 +21,14 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowWorkspaceDescription"
     )
 
+    /// Stores how agent status subtitles are presented in workspace rows.
     public let workspaceStatusStyle = DefaultsKey<SidebarWorkspaceStatusStyle>(
         id: "sidebar.workspaceStatusStyle",
         defaultValue: .sentence,
         userDefaultsKey: "sidebarWorkspaceStatusStyle"
     )
 
+    /// Stores how strongly the sidebar workspace list fades at scroll edges.
     public let scrollEdgeFade = DefaultsKey<SidebarScrollEdgeFadeStyle>(
         id: "sidebar.scrollEdgeFade",
         defaultValue: .full,

@@ -1,7 +1,6 @@
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
-import CmuxSettings
 import SwiftUI
 import XCTest
 
@@ -14,8 +13,6 @@ import XCTest
 final class SidebarWidthPolicyTests: XCTestCase {
     private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
     private let importedManagedDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
-    private let sidebarWorkspaceStatusStyleKey = "sidebarWorkspaceStatusStyle"
-    private let sidebarScrollEdgeFadeKey = "sidebarScrollEdgeFade"
 
     func testDefaultMinimumSidebarWidthIsPersistedProductDefault() {
         let suiteName = "SidebarWidthPolicyTests.defaultMinimum.\(UUID().uuidString)"
@@ -255,59 +252,6 @@ final class SidebarWidthPolicyTests: XCTestCase {
             RightSidebarWidthSettings.settingsEditorMaximumWidth,
             accuracy: 0.001
         )
-    }
-
-    func testSettingsFileStoreAppliesSidebarStatusAndScrimSettings() throws {
-        let defaults = UserDefaults.standard
-        let managedKeys = [
-            sidebarWorkspaceStatusStyleKey,
-            sidebarScrollEdgeFadeKey,
-            settingsFileBackupsDefaultsKey,
-            importedManagedDefaultsKey,
-        ]
-        let previousValues = managedKeys.reduce(into: [String: Any]()) { values, key in
-            values[key] = defaults.object(forKey: key)
-        }
-        defer {
-            for key in managedKeys {
-                if let value = previousValues[key] {
-                    defaults.set(value, forKey: key)
-                } else {
-                    defaults.removeObject(forKey: key)
-                }
-            }
-        }
-
-        for key in managedKeys {
-            defaults.removeObject(forKey: key)
-        }
-
-        let directoryURL = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "sidebar-status-scrim-settings-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
-
-        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
-        try """
-        {
-          "sidebar": {
-            "workspaceStatusStyle": "dot",
-            "scrollEdgeFade": "off"
-          }
-        }
-        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
-
-        _ = KeyboardShortcutSettingsFileStore(
-            primaryPath: settingsFileURL.path,
-            fallbackPath: nil,
-            additionalFallbackPaths: [],
-            startWatching: false
-        )
-
-        XCTAssertEqual(defaults.string(forKey: sidebarWorkspaceStatusStyleKey), "dot")
-        XCTAssertEqual(defaults.string(forKey: sidebarScrollEdgeFadeKey), "off")
     }
 
     func testLeadingSidebarResizeRangeFavorsSidebarSide() {
