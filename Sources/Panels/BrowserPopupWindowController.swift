@@ -603,12 +603,9 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
 // MARK: - PopupNavigationDelegate
 
 private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
-    private static let subframeDownloadIntentLifetime: TimeInterval = 10
-    private static let maxSubframeDownloadIntentCount = 64
-
     weak var controller: BrowserPopupWindowController?
     var downloadDelegate: WKDownloadDelegate?
-    private var recentSubframeDownloadIntentKeys: [(key: String, recordedAt: TimeInterval)] = []
+    private let subframeDownloadIntents = BrowserSubframeDownloadIntentTracker()
 
     func webView(
         _ webView: WKWebView,
@@ -633,7 +630,7 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
             decisionHandler(.cancel)
             return
         }
-        updateSubframeDownloadIntentIfNeeded(navigationAction)
+        subframeDownloadIntents.updateIfNeeded(navigationAction)
 
         // Only guard main-frame navigations
         guard navigationAction.targetFrame?.isMainFrame != false else {
@@ -671,7 +668,7 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
 
         let contentDisposition = (navigationResponse.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition")
         let allowsSubframeDownload = navigationResponse.isForMainFrame
-            || consumeRecentSubframeDownloadIntent(for: navigationResponse.response.url)
+            || subframeDownloadIntents.consume(for: navigationResponse.response.url)
         if let reason = BrowserDownloadFilenameResolver().navigationResponseDownloadReason(
             mimeType: navigationResponse.response.mimeType,
             canShowMIMEType: navigationResponse.canShowMIMEType,
@@ -703,55 +700,8 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         controller?.handleWebContentProcessTermination(for: webView)
     }
-    private func updateSubframeDownloadIntentIfNeeded(_ navigationAction: WKNavigationAction) {
-        guard navigationAction.targetFrame?.isMainFrame == false,
-              let url = navigationAction.request.url,
-              Self.isHTTPDownloadIntentURL(url),
-              (navigationAction.request.httpMethod?.uppercased() ?? "GET") == "GET" else { return }
-        let now = ProcessInfo.processInfo.systemUptime; pruneSubframeDownloadIntents(now: now)
-        if navigationAction.navigationType == .linkActivated { recordSubframeDownloadIntent(url); return }
-        guard let sourceURL = navigationAction.targetFrame?.request.url else { return }
-        let sourceKey = Self.downloadIntentKey(for: sourceURL)
-        guard sourceKey != Self.downloadIntentKey(for: url),
-              recentSubframeDownloadIntentKeys.contains(where: { $0.key == sourceKey }) else { return }
-        recordSubframeDownloadIntent(url)
-    }
     func recordSubframeDownloadIntent(_ url: URL) {
-        guard Self.isHTTPDownloadIntentURL(url) else { return }
-        let now = ProcessInfo.processInfo.systemUptime; pruneSubframeDownloadIntents(now: now)
-        let key = Self.downloadIntentKey(for: url); recentSubframeDownloadIntentKeys.removeAll { $0.key == key }
-        recentSubframeDownloadIntentKeys.append((key, now))
-        if recentSubframeDownloadIntentKeys.count > Self.maxSubframeDownloadIntentCount {
-            recentSubframeDownloadIntentKeys.removeFirst(recentSubframeDownloadIntentKeys.count - Self.maxSubframeDownloadIntentCount)
-        }
-    }
-
-    private func consumeRecentSubframeDownloadIntent(for responseURL: URL?) -> Bool {
-        guard let responseURL, Self.isHTTPDownloadIntentURL(responseURL) else { return false }
-        let now = ProcessInfo.processInfo.systemUptime; pruneSubframeDownloadIntents(now: now)
-        let key = Self.downloadIntentKey(for: responseURL)
-        if let index = recentSubframeDownloadIntentKeys.firstIndex(where: { $0.key == key }) {
-            recentSubframeDownloadIntentKeys.remove(at: index)
-            return true
-        }
-        return false
-    }
-
-    private func pruneSubframeDownloadIntents(now: TimeInterval) {
-        recentSubframeDownloadIntentKeys.removeAll { now - $0.recordedAt > Self.subframeDownloadIntentLifetime }
-    }
-
-    private static func isHTTPDownloadIntentURL(_ url: URL) -> Bool {
-        let scheme = url.scheme?.lowercased()
-        return scheme == "http" || scheme == "https"
-    }
-
-    private static func downloadIntentKey(for url: URL) -> String {
-        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
-            return url.absoluteString
-        }
-        components.fragment = nil
-        return components.string ?? url.absoluteString
+        subframeDownloadIntents.record(url)
     }
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
