@@ -76,7 +76,7 @@ public struct AutoNamingLanguageResolver: Sendable {
             .map(String.init)
         guard pieces.allSatisfy({ !$0.isEmpty }),
               let language = pieces.first?.lowercased(),
-              Self.isASCIILetterSubtag(language, length: 2...3) else {
+              isASCIILetterSubtag(language, length: 2...3) else {
             return nil
         }
         var normalized = [language]
