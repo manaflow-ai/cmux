@@ -96,6 +96,9 @@ struct SettingsSearchIndexTests {
         ("naming agent", "setting:automation:workspace-auto-naming"),
         ("automation.autoNamingAgent", "setting:automation:workspace-auto-naming"),
         ("autoNamingAgent", "setting:automation:workspace-auto-naming"),
+        ("naming language", "setting:automation:workspace-auto-naming"),
+        ("automation.autoNamingLanguage", "setting:automation:workspace-auto-naming"),
+        ("Japanese auto naming", "setting:automation:workspace-auto-naming"),
         ("option as alt", "setting:app:terminal-config"),
         ("option", "setting:app:terminal-config"),
         ("environment variables", "setting:app:notification-command"),
@@ -169,6 +172,7 @@ struct SettingsSearchIndexTests {
     @Test func conditionalAutoNamingAgentSearchUsesVisibleWorkspaceAutoNamingRow() throws {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         #expect(index.anchorID(forSettingsPath: "automation.autoNamingAgent") == nil)
+        #expect(index.anchorID(forSettingsPath: "automation.autoNamingLanguage") == nil)
         let hit = try #require(index.match("naming agent").first {
             $0.id == "setting:automation:workspace-auto-naming"
         })
@@ -207,8 +211,8 @@ struct SettingsSearchIndexTests {
     }
 
     /// The auto-naming card renders two rows: the toggle and, when
-    /// enabled, the Naming Agent picker. Only the toggle's path may anchor
-    /// the workspace-auto-naming entry; the picker's `automation.autoNamingAgent`
+    /// enabled, the Naming Agent and Naming Language pickers. Only the toggle's path may anchor
+    /// the workspace-auto-naming entry; picker paths like `automation.autoNamingAgent`
     /// path must NOT resolve to it, or both rendered rows would carry the
     /// same scroll `.id` and `scrollTo` would be ambiguous (the collision
     /// guarded by ``SettingsRowAnchorResolutionTests/rowAnchorsAreUniqueAcrossRows``).
@@ -217,6 +221,7 @@ struct SettingsSearchIndexTests {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         #expect(index.anchorID(forSettingsPath: "automation.workspaceAutoNaming") == "setting:automation:workspace-auto-naming")
         #expect(index.anchorID(forSettingsPath: "automation.autoNamingAgent") == nil)
+        #expect(index.anchorID(forSettingsPath: "automation.autoNamingLanguage") == nil)
     }
 
     @Test func localizedAutoNamingAliasesRemainSearchableWithoutAgentPickerCollision() {
@@ -227,15 +232,17 @@ struct SettingsSearchIndexTests {
                     section: .automation,
                     id: "workspace-auto-naming",
                     title: "Workspace Auto-Naming",
-                    synonyms: "automation.workspaceAutoNaming automation.autoNamingAgent 命名 エージェント",
+                    synonyms: "automation.workspaceAutoNaming automation.autoNamingAgent automation.autoNamingLanguage 命名 エージェント 言語",
                     anchorPath: "automation.workspaceAutoNaming"
                 ),
             ]
         )
 
         #expect(index.match("命名 エージェント").contains { $0.id == "setting:automation:workspace-auto-naming" })
+        #expect(index.match("命名 言語").contains { $0.id == "setting:automation:workspace-auto-naming" })
         #expect(index.anchorID(forSettingsPath: "automation.workspaceAutoNaming") == "setting:automation:workspace-auto-naming")
         #expect(index.anchorID(forSettingsPath: "automation.autoNamingAgent") == nil)
+        #expect(index.anchorID(forSettingsPath: "automation.autoNamingLanguage") == nil)
     }
 
     @Test func unknownPathHasNoAnchor() {

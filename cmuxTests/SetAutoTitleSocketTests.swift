@@ -59,6 +59,22 @@ import Testing
         return try body()
     }
 
+    /// Runs `body` with the auto-naming language override set to `slug`,
+    /// restoring the user's previous value afterwards.
+    private func withAutoNamingLanguageSetting<T>(_ slug: String, _ body: () throws -> T) rethrows -> T {
+        let key = AutomationCatalogSection().autoNamingLanguage.userDefaultsKey
+        let previous = UserDefaults.standard.object(forKey: key)
+        UserDefaults.standard.set(slug, forKey: key)
+        defer {
+            if let previous {
+                UserDefaults.standard.set(previous, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+        return try body()
+    }
+
     private func withManager<T>(_ body: (TabManager, Workspace) throws -> T) throws -> T {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         let workspace = try #require(manager.tabs.first)
@@ -80,6 +96,23 @@ import Testing
                 let envelope = try call(method: "workspace.set_auto_title", params: ["probe": true])
                 let result = try #require(envelope["result"] as? [String: Any])
                 #expect(result["summarizer_agent"] as? String == "codex")
+            }
+        }
+    }
+
+    @Test func probeReportsResolvedAutoNamingLanguage() throws {
+        try withAutoNamingSetting(true) {
+            try withAutoNamingLanguageSetting("ja") {
+                let envelope = try call(method: "workspace.set_auto_title", params: ["probe": true])
+                let result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["auto_naming_language_name"] as? String == "Japanese")
+                #expect(result["auto_naming_language_tag"] as? String == "ja")
+            }
+            try withAutoNamingLanguageSetting("en") {
+                let envelope = try call(method: "workspace.set_auto_title", params: ["probe": true])
+                let result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["auto_naming_language_name"] as? String == "English")
+                #expect(result["auto_naming_language_tag"] as? String == "en")
             }
         }
     }
@@ -231,6 +264,53 @@ import Testing
                 #expect(result["workspace_applied"] as? Bool == true)
                 #expect(workspace.title == "Fix auth bug")
                 #expect(workspace.effectiveCustomTitleSource == .auto)
+            }
+        }
+    }
+
+    @Test func mockedAutoNamingPipelineUsesProbeLanguageAndApplySocket() throws {
+        try withAutoNamingSetting(true) {
+            try withAutoNamingLanguageSetting("ja") {
+                try withManager { _, workspace in
+                    let probeEnvelope = try call(method: "workspace.set_auto_title", params: [
+                        "probe": true,
+                        "workspace_id": workspace.id.uuidString
+                    ])
+                    let probe = try #require(probeEnvelope["result"] as? [String: Any])
+                    let language = AutoNamingPromptLanguage(
+                        name: try #require(probe["auto_naming_language_name"] as? String),
+                        tag: try #require(probe["auto_naming_language_tag"] as? String)
+                    )
+                    let engine = AutoNamingEngine()
+                    let lines = [
+                        #"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"ログインの不具合を直して"}]}}"#,
+                        #"{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"認証フローを確認します。"}]}}"#,
+                    ]
+                    let messages = engine.extractCodexMessages(fromRolloutLines: lines)
+                    let context = try #require(engine.buildContext(from: messages))
+                    let prompt = engine.buildPrompt(currentTitle: nil, context: context, language: language)
+                    #expect(prompt.contains("Write the title in Japanese (ja) only."))
+
+                    let sanitized = try #require(engine.sanitizeResponse("ログイン修正", currentTitle: nil))
+                    let applyEnvelope = try call(method: "workspace.set_auto_title", params: [
+                        "workspace_id": workspace.id.uuidString,
+                        "title": sanitized
+                    ])
+                    let result = try #require(applyEnvelope["result"] as? [String: Any])
+                    #expect(result["workspace_applied"] as? Bool == true)
+                    #expect(workspace.title == "ログイン修正")
+                    #expect(workspace.effectiveCustomTitleSource == .auto)
+
+                    workspace.setCustomTitle("My Project")
+                    let rejectedEnvelope = try call(method: "workspace.set_auto_title", params: [
+                        "workspace_id": workspace.id.uuidString,
+                        "title": "別名"
+                    ])
+                    let rejected = try #require(rejectedEnvelope["result"] as? [String: Any])
+                    #expect(rejected["workspace_applied"] as? Bool == false)
+                    #expect(workspace.title == "My Project")
+                    #expect(workspace.effectiveCustomTitleSource == .user)
+                }
             }
         }
     }

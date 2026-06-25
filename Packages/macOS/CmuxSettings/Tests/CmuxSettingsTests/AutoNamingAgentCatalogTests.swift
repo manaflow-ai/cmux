@@ -65,6 +65,45 @@ struct AutoNamingAgentCatalogTests {
     }
 }
 
+@Suite("AutoNamingLanguageResolver")
+struct AutoNamingLanguageResolverTests {
+    @Test func explicitEnglishAndJapaneseSettingsResolveToPromptLanguage() {
+        let resolver = AutoNamingLanguageResolver(
+            preferredLanguages: ["fr-FR"],
+            currentLocaleIdentifier: "fr_FR"
+        )
+        #expect(resolver.resolve(rawSetting: "en") == AutoNamingResolvedLanguage(promptName: "English", bcp47Tag: "en"))
+        #expect(resolver.resolve(rawSetting: "ja") == AutoNamingResolvedLanguage(promptName: "Japanese", bcp47Tag: "ja"))
+    }
+
+    @Test func autoUsesFirstPreferredSystemLanguage() {
+        let resolver = AutoNamingLanguageResolver(
+            preferredLanguages: ["ja-JP", "en-US"],
+            currentLocaleIdentifier: "en_US"
+        )
+        let resolved = resolver.resolve(rawSetting: "auto")
+        #expect(resolved.promptName.contains("Japanese"))
+        #expect(resolved.bcp47Tag == "ja-JP")
+        #expect(resolver.resolve(rawSetting: " AUTO ") == resolved)
+    }
+
+    @Test func autoFallsBackToCurrentLocaleThenEnglish() {
+        let currentLocaleResolver = AutoNamingLanguageResolver(
+            preferredLanguages: [],
+            currentLocaleIdentifier: "en_US"
+        )
+        let current = currentLocaleResolver.resolve(rawSetting: "auto")
+        #expect(current.promptName.contains("English"))
+        #expect(current.bcp47Tag == "en-US")
+
+        let fallbackResolver = AutoNamingLanguageResolver(
+            preferredLanguages: ["-"],
+            currentLocaleIdentifier: "-"
+        )
+        #expect(fallbackResolver.resolve(rawSetting: "auto") == AutoNamingLanguageResolver.fallback)
+    }
+}
+
 @Suite("AutoNamingStatusStore")
 struct AutoNamingStatusStoreTests {
     private func makeDefaults() -> UserDefaults {
@@ -85,6 +124,14 @@ struct AutoNamingStatusStoreTests {
         let defaults = makeDefaults()
         AutoNamingStatusStore.record(rawCategory: "not_installed", agent: "omp", at: 1, in: defaults)
         #expect(AutoNamingStatusStore.current(in: defaults)?.category == .notInstalled)
+    }
+
+    @Test func diagnosticCategoriesMapFromRawSocketFields() {
+        for raw in ["probe_failed", "extraction_failed", "apply_failed"] {
+            let defaults = makeDefaults()
+            AutoNamingStatusStore.record(rawCategory: raw, agent: "codex", at: 1, in: defaults)
+            #expect(AutoNamingStatusStore.current(in: defaults)?.category.rawValue == raw)
+        }
     }
 
     @Test func unknownCategoryIsIgnored() {

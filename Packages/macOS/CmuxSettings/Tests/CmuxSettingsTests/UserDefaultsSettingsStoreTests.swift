@@ -49,6 +49,18 @@ struct UserDefaultsSettingsStoreTests {
         #expect(reset == "auto")
     }
 
+    @Test func autoNamingLanguageDefaultsToAutoAndRoundTrips() async {
+        let (store, catalog) = makeStore()
+        let unset = await store.value(for: catalog.automation.autoNamingLanguage)
+        #expect(unset == "auto")
+        await store.set("ja", for: catalog.automation.autoNamingLanguage)
+        let set = await store.value(for: catalog.automation.autoNamingLanguage)
+        #expect(set == "ja")
+        await store.reset(catalog.automation.autoNamingLanguage)
+        let reset = await store.value(for: catalog.automation.autoNamingLanguage)
+        #expect(reset == "auto")
+    }
+
     @Test func resetReturnsToDefault() async {
         let (store, catalog) = makeStore()
         await store.set(.light, for: catalog.app.appearance)

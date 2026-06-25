@@ -17,15 +17,27 @@ import Testing
         lastLineCount: Int? = nil,
         lastNamedAt: TimeInterval? = nil,
         inFlightAt: TimeInterval? = nil,
-        lastAttemptAt: TimeInterval? = nil
+        lastAttemptAt: TimeInterval? = nil,
+        failureCount: Int = 0
     ) -> AutoNamingSessionSnapshot {
         AutoNamingSessionSnapshot(
             lastTitle: lastTitle,
             lastLineCount: lastLineCount,
             lastNamedAt: lastNamedAt,
             inFlightAt: inFlightAt,
-            lastAttemptAt: lastAttemptAt
+            lastAttemptAt: lastAttemptAt,
+            failureCount: failureCount
         )
+    }
+
+    private func withSessionStore<T>(_ body: (ClaudeHookSessionStore) throws -> T) throws -> T {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-auto-naming-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let path = directory.appendingPathComponent("sessions.json", isDirectory: false).path
+        let store = ClaudeHookSessionStore(processEnv: ["CMUX_CLAUDE_HOOK_STATE_PATH": path])
+        return try body(store)
     }
 
     // MARK: - Throttle
@@ -119,6 +131,25 @@ import Testing
         #expect(decision == .skipTooSoon)
     }
 
+    @Test func repeatedFailuresUseExponentialBackoff() {
+        let base = TimeInterval(1_000_000)
+        let failedTwice = snapshot(lastAttemptAt: base, failureCount: 2)
+
+        let tooSoon = engine.throttleDecision(
+            snapshot: failedTwice,
+            transcriptLineCount: 100,
+            now: Date(timeIntervalSince1970: base + config.minInterval * 2 - 1)
+        )
+        #expect(tooSoon == .skipTooSoon)
+
+        let afterBackoff = engine.throttleDecision(
+            snapshot: failedTwice,
+            transcriptLineCount: 100,
+            now: Date(timeIntervalSince1970: base + config.minInterval * 2 + 1)
+        )
+        #expect(afterBackoff == .proceed(baseline: 100))
+    }
+
     @Test func compactionReseedsInsteadOfSkippingForever() {
         let base = TimeInterval(1_000_000)
         let now = Date(timeIntervalSince1970: base + config.minInterval + 1)
@@ -181,6 +212,19 @@ import Testing
         #expect(engine.extractMessages(fromTranscriptLines: ["", "garbage", "{}"]).isEmpty)
     }
 
+    @Test func extractionDiagnosticsExposeMalformedOrUnknownFormats() throws {
+        let extraction = engine.extractClaudeTranscript(fromTranscriptLines: [
+            "not json",
+            #"{"type":"unknown","message":{"content":"ignored"}}"#,
+        ])
+        #expect(extraction.messages.isEmpty)
+        #expect(extraction.malformedRecordCount == 1)
+        #expect(extraction.skippedRecordCount == 1)
+        let diagnostic = try #require(extraction.diagnosticSummary)
+        #expect(diagnostic.contains("claudeTranscript"))
+        #expect(diagnostic.contains("malformed=1"))
+    }
+
     @Test func contextCombinesHeadUserMessagesAndTailWithTruncation() throws {
         let longText = String(repeating: "x", count: config.contextMessageMaxChars + 100)
         var messages: [AutoNamingTranscriptMessage] = [
@@ -210,9 +254,117 @@ import Testing
         #expect(prompt.contains("The current title is: Fix auth bug"))
         #expect(prompt.contains("EXACTLY"))
         #expect(prompt.contains("user: hello"))
+        #expect(prompt.contains("Write the title in English (en) only."))
+        #expect(!prompt.contains("same language as the conversation"))
 
         let untitled = engine.buildPrompt(currentTitle: nil, context: "user: hello")
         #expect(!untitled.contains("current title"))
+    }
+
+    @Test func promptUsesExplicitJapaneseLanguageInstruction() {
+        let prompt = engine.buildPrompt(
+            currentTitle: nil,
+            context: "user: ログインの不具合を直して",
+            language: AutoNamingPromptLanguage(name: "Japanese", tag: "ja")
+        )
+        #expect(prompt.contains("Write the title in Japanese (ja) only."))
+        #expect(prompt.contains("ログインの不具合"))
+    }
+
+    // MARK: - Session store
+
+    @Test func staleAutoNamingPassCannotFinishOverNewerPass() throws {
+        try withSessionStore { store in
+            let sessionId = "session-\(UUID().uuidString)"
+            let first = try store.beginAutoNaming(
+                sessionId: sessionId,
+                workspaceId: "workspace",
+                surfaceId: "surface",
+                transcriptLineCount: 100,
+                now: Date(timeIntervalSince1970: 1_000),
+                engine: engine
+            )
+            let second = try store.beginAutoNaming(
+                sessionId: sessionId,
+                workspaceId: "workspace",
+                surfaceId: "surface",
+                transcriptLineCount: 200,
+                now: Date(timeIntervalSince1970: 1_000 + config.inFlightExpiry + 1),
+                engine: engine
+            )
+
+            #expect(first.passId != nil)
+            #expect(second.passId != nil)
+            #expect(first.passId != second.passId)
+            let staleFinished = try store.finishAutoNaming(
+                sessionId: sessionId,
+                passId: first.passId,
+                appliedTitle: "Old title",
+                baselineLineCount: 100,
+                now: Date(timeIntervalSince1970: 2_000)
+            )
+            #expect(!staleFinished)
+            let freshFinished = try store.finishAutoNaming(
+                sessionId: sessionId,
+                passId: second.passId,
+                appliedTitle: "New title",
+                baselineLineCount: 200,
+                now: Date(timeIntervalSince1970: 2_001)
+            )
+            #expect(freshFinished)
+            let record = try #require(store.lookup(sessionId: sessionId))
+            #expect(record.autoNameLastTitle == "New title")
+            #expect(record.autoNameLastLineCount == 200)
+        }
+    }
+
+    @Test func hookMessageCacheDedupesByContentAndStaysBounded() throws {
+        try withSessionStore { store in
+            let sessionId = "session-\(UUID().uuidString)"
+            let duplicateMessages = [
+                AutoNamingTranscriptMessage(role: "user", text: "Fix login"),
+                AutoNamingTranscriptMessage(role: "assistant", text: "I will inspect auth."),
+                AutoNamingTranscriptMessage(role: "user", text: "Fix login"),
+            ]
+            _ = try store.recordPromptSubmit(
+                sessionId: sessionId,
+                workspaceId: "workspace",
+                surfaceId: "surface",
+                cwd: nil,
+                pid: nil,
+                launchCommand: nil,
+                autoNameMessages: duplicateMessages
+            )
+            _ = try store.recordPromptSubmit(
+                sessionId: sessionId,
+                workspaceId: "workspace",
+                surfaceId: "surface",
+                cwd: nil,
+                pid: nil,
+                launchCommand: nil,
+                autoNameMessages: duplicateMessages
+            )
+            var snapshot = try store.autoNamingRecentMessagesSnapshot(sessionId: sessionId)
+            #expect(snapshot.messages == Array(duplicateMessages.prefix(2)))
+            #expect(snapshot.totalMessageCount == 2)
+
+            let uniqueMessages = (0..<30).map {
+                AutoNamingTranscriptMessage(role: "user", text: "Unique request \($0)")
+            }
+            _ = try store.recordPromptSubmit(
+                sessionId: sessionId,
+                workspaceId: "workspace",
+                surfaceId: "surface",
+                cwd: nil,
+                pid: nil,
+                launchCommand: nil,
+                autoNameMessages: uniqueMessages
+            )
+            snapshot = try store.autoNamingRecentMessagesSnapshot(sessionId: sessionId)
+            #expect(snapshot.messages.count == 24)
+            #expect(snapshot.totalMessageCount == 32)
+            #expect(snapshot.messages.last?.text == "Unique request 29")
+        }
     }
 
     // MARK: - Sanitization
@@ -251,6 +403,7 @@ import Testing
 
     @Test func identicalTitleIsNoOp() {
         #expect(engine.sanitizeResponse("Fix auth bug", currentTitle: "Fix auth bug") == nil)
+        #expect(engine.sanitizeResponseOutcome("Fix auth bug", currentTitle: "Fix auth bug") == .unchanged("Fix auth bug"))
         #expect(engine.sanitizeResponse("Fix auth bug", currentTitle: "Other title") == "Fix auth bug")
     }
 
