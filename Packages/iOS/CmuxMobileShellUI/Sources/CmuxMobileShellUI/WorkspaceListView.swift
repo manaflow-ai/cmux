@@ -96,7 +96,6 @@ struct WorkspaceListView: View {
     /// aggregation is explicit in the title picker and can be narrowed from
     /// there.
     @State private var macSelection: WorkspaceMacSelection = .all
-    @State private var showingMacPickerDialog = false
     /// The workspace whose destructive close action is awaiting confirmation.
     /// Stored at list scope so reusable rows do not own transient presentation
     /// state while `List` is recycling swipe-action rows.
@@ -368,27 +367,24 @@ struct WorkspaceListView: View {
     }
 
     private var macTitlePicker: some View {
-        Button {
-            showingMacPickerDialog = true
+        Menu {
+            Picker(
+                L10n.string("mobile.workspaces.macPicker.title", defaultValue: "Choose Mac"),
+                selection: $macSelection
+            ) {
+                Text(L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Macs"))
+                    .tag(WorkspaceMacSelection.all)
+                ForEach(macPickerMachines) { machine in
+                    Text(machine.name)
+                        .tag(WorkspaceMacSelection.machine(machine.id))
+                }
+            }
+            .labelsVisibility(.visible)
         } label: {
             WorkspaceMacTitlePickerLabel(title: macTitlePickerTitle)
         }
         .buttonStyle(.plain)
         .tint(.white)
-        .confirmationDialog(
-            L10n.string("mobile.workspaces.macPicker.title", defaultValue: "Choose Mac"),
-            isPresented: $showingMacPickerDialog,
-            titleVisibility: .hidden
-        ) {
-            Button(L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Macs")) {
-                macSelection = .all
-            }
-            ForEach(macPickerMachines) { machine in
-                Button(machine.name) {
-                    macSelection = .machine(machine.id)
-                }
-            }
-        }
         .accessibilityIdentifier("MobileWorkspaceMacPicker")
     }
 
