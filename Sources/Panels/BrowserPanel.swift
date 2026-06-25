@@ -9066,7 +9066,11 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
               Self.isHTTPDownloadIntentURL(url),
               (navigationAction.request.httpMethod?.uppercased() ?? "GET") == "GET" else { return }
         let now = ProcessInfo.processInfo.systemUptime; pruneSubframeDownloadIntents(now: now)
-        guard navigationAction.navigationType == .linkActivated else { return }
+        if navigationAction.navigationType == .linkActivated { recordSubframeDownloadIntent(url); return }
+        guard let sourceURL = navigationAction.targetFrame?.request.url else { return }
+        let sourceKey = Self.downloadIntentKey(for: sourceURL)
+        guard sourceKey != Self.downloadIntentKey(for: url),
+              recentSubframeDownloadIntentKeys.contains(where: { $0.key == sourceKey }) else { return }
         recordSubframeDownloadIntent(url)
     }
 
@@ -9094,9 +9098,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     }
 
     private func pruneSubframeDownloadIntents(now: TimeInterval) {
-        recentSubframeDownloadIntentKeys.removeAll {
-            now - $0.recordedAt > Self.subframeDownloadIntentLifetime
-        }
+        recentSubframeDownloadIntentKeys.removeAll { now - $0.recordedAt > Self.subframeDownloadIntentLifetime }
     }
 
     private static func isHTTPDownloadIntentURL(_ url: URL) -> Bool {

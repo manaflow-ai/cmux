@@ -8608,13 +8608,13 @@ class TerminalController {
     }
 
     private func v2PopBrowserDownloadEvent(surfaceId: UUID) -> [String: Any]? {
-        guard let first = v2BrowserDownloadEventsBySurface[surfaceId]?.first else {
-            return nil
-        }
         var remaining = v2BrowserDownloadEventsBySurface[surfaceId] ?? []
-        remaining.removeFirst()
-        v2BrowserDownloadEventsBySurface[surfaceId] = remaining
-        return first
+        while !remaining.isEmpty {
+            let first = remaining.removeFirst()
+            v2BrowserDownloadEventsBySurface[surfaceId] = remaining
+            if (first["type"] as? String) != "started" { return first }
+        }
+        return nil
     }
 
     private nonisolated func v2WaitForDownloadFile(path: String, timeout: TimeInterval) -> V2DownloadFileWaitResult {
@@ -8702,9 +8702,9 @@ class TerminalController {
             object: nil,
             queue: nil
         ) { note in
-            guard let candidateSurfaceId = note.userInfo?["surfaceId"] as? UUID,
-                  candidateSurfaceId == surfaceId,
-                  let event = note.userInfo?["event"] as? [String: Any] else {
+            guard let candidateSurfaceId = note.userInfo?["surfaceId"] as? UUID, candidateSurfaceId == surfaceId,
+                  let event = note.userInfo?["event"] as? [String: Any],
+                  (event["type"] as? String) != "started" else {
                 return
             }
             finishOnce(event)
