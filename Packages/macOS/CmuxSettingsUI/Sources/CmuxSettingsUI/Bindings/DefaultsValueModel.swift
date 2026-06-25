@@ -39,7 +39,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     private let store: UserDefaultsSettingsStore
     private let key: DefaultsKey<Value>
     @ObservationIgnored private let makeStream: () -> AsyncStream<Value>
-    @ObservationIgnored private var pendingStoreEchoValue: Value?
+    @ObservationIgnored private var pendingStoreEchoValues: [Value] = []
 
     /// Owns the change-stream subscription and cancels it when this model
     /// deallocates.
@@ -102,7 +102,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     /// SwiftUI `Binding` setters can't `await`; the write itself runs in a
     /// fire-and-forget `Task`.
     public func set(_ value: Value) {
-        pendingStoreEchoValue = value
+        recordPendingStoreEcho(value)
         updateCurrent(value)
         Task { [store, key] in
             await store.set(value, for: key)
@@ -120,7 +120,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     ///   - afterCommit: Main-actor work to run after ``UserDefaultsSettingsStore``
     ///     has completed the write.
     public func set(_ value: Value, afterCommit: @escaping @MainActor @Sendable () -> Void) {
-        pendingStoreEchoValue = value
+        recordPendingStoreEcho(value)
         updateCurrent(value)
         Task { [store, key, afterCommit] in
             await store.set(value, for: key)
@@ -141,7 +141,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     /// the reset.
     public func reset() {
         let defaultValue = key.defaultValue
-        pendingStoreEchoValue = defaultValue
+        recordPendingStoreEcho(defaultValue)
         updateCurrent(defaultValue)
         Task { [store, key] in
             await store.reset(key)
@@ -149,16 +149,29 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     }
 
     private func acceptObservedValue(_ value: Value) {
-        if pendingStoreEchoValue == value {
-            pendingStoreEchoValue = nil
+        if consumePendingStoreEcho(value) {
             return
         }
-        pendingStoreEchoValue = nil
+        pendingStoreEchoValues.removeAll()
         updateCurrent(value)
     }
 
     private func updateCurrent(_ value: Value) {
         current = value
         revision &+= 1
+    }
+
+    private func recordPendingStoreEcho(_ value: Value) {
+        if pendingStoreEchoValues.last != value {
+            pendingStoreEchoValues.append(value)
+        }
+    }
+
+    private func consumePendingStoreEcho(_ value: Value) -> Bool {
+        guard let index = pendingStoreEchoValues.lastIndex(of: value) else {
+            return false
+        }
+        pendingStoreEchoValues.removeFirst(index + 1)
+        return true
     }
 }
