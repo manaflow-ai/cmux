@@ -27,6 +27,7 @@ import WebKit
     private var acceptsSSLTrustBypassMessages = false
     private var activeSSLTrustBypassErrorPageFailedURL: String?
     private var activeSSLTrustBypassReplayRequest: URLRequest?
+    private var activeSSLTrustBypassErrorPageRetryRequest: URLRequest?
 
     func cancelPendingHTTPBasicAuthPrompts(allowFuturePrompts: Bool = false) {
         basicAuthPromptCoordinator.cancelAll(allowFuturePrompts: allowFuturePrompts)
@@ -37,6 +38,7 @@ import WebKit
         acceptsSSLTrustBypassMessages = false
         activeSSLTrustBypassErrorPageFailedURL = nil
         activeSSLTrustBypassReplayRequest = nil
+        activeSSLTrustBypassErrorPageRetryRequest = nil
         activeErrorPageDisplayURL = nil
         lastAttemptedURL = displayURL ?? request.url
         if sslBypassState.canRetainRequestForReplay(request) {
@@ -55,6 +57,7 @@ import WebKit
             activeSSLTrustBypassErrorPageFailedURL = nil
         }
         activeSSLTrustBypassReplayRequest = nil
+        activeSSLTrustBypassErrorPageRetryRequest = nil
         activeErrorPageDisplayURL = nil
         lastAttemptedRequest = nil
         lastAttemptedRequestWasDiscardedForReplay = false
@@ -66,6 +69,7 @@ import WebKit
         acceptsSSLTrustBypassMessages = false
         activeSSLTrustBypassErrorPageFailedURL = nil
         activeSSLTrustBypassReplayRequest = nil
+        activeSSLTrustBypassErrorPageRetryRequest = nil
         activeErrorPageDisplayURL = nil
         lastAttemptedRequest = nil
         lastAttemptedRequestWasDiscardedForReplay = false
@@ -78,7 +82,7 @@ import WebKit
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
-        if activeSSLTrustBypassReplayRequest != nil {
+        if activeSSLTrustBypassReplayRequest != nil || activeSSLTrustBypassErrorPageRetryRequest != nil {
             clearAttemptedRequest(discardPendingBypasses: true)
         }
         didCommit?(webView)
@@ -196,6 +200,7 @@ import WebKit
 
     private func loadErrorPage(in webView: WKWebView, failedURL: String, failedRequest: URLRequest?, error: NSError) {
         activeSSLTrustBypassReplayRequest = nil
+        activeSSLTrustBypassErrorPageRetryRequest = nil
         activeErrorPageDisplayURL = URL(string: failedURL)
         let canBypass = BrowserErrorPage(
             failedURL: failedURL,
@@ -409,8 +414,12 @@ import WebKit
               let lastAttemptedRequest else {
             return false
         }
-        return request.browserMatchesFailedNavigationURLString(failedURL)
+        let preservesErrorPageRetry = request.browserMatchesFailedNavigationURLString(failedURL)
             && request.browserMatchesReplayShape(of: lastAttemptedRequest)
+        if preservesErrorPageRetry {
+            activeSSLTrustBypassErrorPageRetryRequest = request
+        }
+        return preservesErrorPageRetry
     }
 
     func webView(
