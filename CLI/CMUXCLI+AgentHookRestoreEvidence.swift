@@ -66,8 +66,9 @@ extension CMUXCLI {
         guard let mapped else { return false }
         guard normalizedHookValue(mapped.launchCommand?.source)?.lowercased() != "rejected" else { return false }
         guard kind == "codex" else { return true }
+        if mapped.isRestorable == true { return true }
         if normalizedHookValue(mapped.transcriptPath) != nil { return true }
-        guard let launchCommand = mapped.launchCommand else { return true }
+        guard let launchCommand = mapped.launchCommand else { return false }
         if normalizedHookValue(launchCommand.environment?["CODEX_HOME"]) != nil { return true }
         guard !launchCommand.arguments.isEmpty else { return false }
         switch normalizedHookValue(launchCommand.source)?.lowercased() {

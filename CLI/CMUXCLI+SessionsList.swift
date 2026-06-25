@@ -192,14 +192,16 @@ extension CMUXCLI {
                     )
                     codexIndexes[codexHome] = index
                     let transcriptPath = index.transcriptPathBySessionId[record.sessionId]
+                    let savedTranscriptPath = sessionsListNormalized(record.transcriptPath)
+                    let expandedSavedTranscriptPath = savedTranscriptPath.map { sessionsListExpandedPath($0) }
                     payload["session_home"] = codexHome
                     payload["session_dir"] = URL(fileURLWithPath: codexHome, isDirectory: true)
                         .appendingPathComponent("sessions", isDirectory: true)
                         .path
                     payload["codex_indexed"] = index.indexedSessionIds.contains(record.sessionId)
-                    payload["codex_transcript_found"] = transcriptPath != nil
-                    payload["codex_transcript_path"] = transcriptPath ?? NSNull()
-                    transcriptBacked = transcriptPath != nil
+                    payload["codex_transcript_found"] = transcriptPath != nil || expandedSavedTranscriptPath.map { fileManager.fileExists(atPath: $0) } == true
+                    payload["codex_transcript_path"] = transcriptPath ?? expandedSavedTranscriptPath ?? NSNull()
+                    transcriptBacked = payload["codex_transcript_found"] as? Bool == true
                 } else if let envKey = spec.configDirEnvOverride,
                           let value = sessionsListNormalized(record.launchCommand?.environment?[envKey]) {
                     payload["session_home"] = sessionsListExpandedPath(value)
