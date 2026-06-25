@@ -111,7 +111,7 @@ extension Workspace: ResumableWorkspaceSurface {
         sendInputWhenReady(text + "\n", to: panel)
     }
 
-    static func crashRecoveryVerification(
+    nonisolated static func crashRecoveryVerification(
         agent: SessionRestorableAgentSnapshot,
         fileManager: FileManager = .default,
         homeDirectory: String = NSHomeDirectory()
@@ -135,7 +135,7 @@ extension Workspace: ResumableWorkspaceSurface {
         return (facts, presence)
     }
 
-    static func crashRecoveryVerification(
+    nonisolated static func crashRecoveryVerification(
         binding: SurfaceResumeBindingSnapshot,
         fileManager: FileManager = .default,
         homeDirectory: String = NSHomeDirectory()
@@ -167,7 +167,7 @@ extension Workspace: ResumableWorkspaceSurface {
         return (facts, presence)
     }
 
-    private static func transcriptPresence(
+    nonisolated private static func transcriptPresence(
         kind: RestorableAgentKind,
         sessionId: String?,
         cwd: String?,
@@ -191,7 +191,7 @@ extension Workspace: ResumableWorkspaceSurface {
         )
     }
 
-    private static func nonEmpty(_ value: String?) -> String? {
+    nonisolated private static func nonEmpty(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else { return nil }
         return trimmed
