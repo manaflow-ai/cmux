@@ -95,16 +95,72 @@ final class AgentChatSessionRegistry {
         source.resume()
     }
 
-    /// Flips a session to `.ended` because its agent process exited. Ignores a
-    /// stale fire: the session may have resumed under a new pid (`claude
-    /// --resume`), and the predecessor's exit must not end the live session.
-    /// `ended` is retained (the GUI stays shown, the input bar disables); only
-    /// the watcher is torn down.
+    /// Observe-floor liveness: the pid of a live agent process matching `kind`
+    /// anywhere under `surfaceID`'s process tree, or nil if none.
+    ///
+    /// A launcher or intermediate process (a subrouter like `sr`, a `node`
+    /// shim) is NOT the agent; the real agent binary (e.g. `codex`, `claude`)
+    /// appears deeper in the tree. So liveness must be judged from the whole
+    /// process tree under the surface, never from a single recorded pid that may
+    /// be a launcher. Nonisolated and snapshot-based so it runs off the main
+    /// actor; callers hop back to the main actor to apply the result. The
+    /// classifier matches by process basename, so only the real agent binary
+    /// matches (a `node …/codex` shim is named `node` and does not).
+    private nonisolated static func liveAgentPID(surfaceID: String, kind: ChatAgentKind) -> Int? {
+        guard let surfaceUUID = UUID(uuidString: surfaceID) else { return nil }
+        let snapshot = CmuxTopProcessSnapshot.capture(
+            includeProcessDetails: true,
+            includeCMUXScope: true
+        )
+        let rootPIDs = snapshot.pids(forCMUXSurfaceID: surfaceUUID)
+        guard !rootPIDs.isEmpty else { return nil }
+        let wantedID = kind.sourceName
+        for pid in snapshot.expandedPIDs(rootPIDs: rootPIDs).sorted() {
+            guard let info = snapshot.process(pid: pid),
+                  let def = CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+                      processName: info.name,
+                      processPath: info.path,
+                      arguments: [],
+                      environment: [:]
+                  ),
+                  def.id == wantedID else { continue }
+            return pid
+        }
+        return nil
+    }
+
+    /// The watched agent process exited. Before ending the session, verify
+    /// against the surface's process tree off-main: the dead pid may be a
+    /// launcher/intermediate (subrouter, `node` shim) while the real agent still
+    /// runs, in which case re-bind to the live agent pid instead of ending.
+    /// Ignores a stale fire (the session may have resumed under a new pid;
+    /// `claude --resume`). `ended` is retained (the GUI stays shown, the input
+    /// bar disables); only the watcher is torn down.
     private func handleProcessExit(sessionID: String, pid: Int) {
         guard let record = records[sessionID], record.pid == pid, record.state != .ended else {
             return
         }
-        update(sessionID: sessionID) { $0.state = .ended }
+        guard let surfaceID = record.surfaceID else {
+            update(sessionID: sessionID) { $0.state = .ended }
+            return
+        }
+        let kind = record.agentKind
+        Task.detached { [weak self] in
+            let livePID = Self.liveAgentPID(surfaceID: surfaceID, kind: kind)
+            await MainActor.run {
+                guard let self,
+                      let current = self.records[sessionID],
+                      current.pid == pid,
+                      current.state != .ended else { return }
+                if let livePID, livePID != pid {
+                    // Real agent still alive under the surface: re-bind to it
+                    // (this re-arms the exit watcher on the real agent pid).
+                    self.update(sessionID: sessionID) { $0.pid = livePID }
+                } else {
+                    self.update(sessionID: sessionID) { $0.state = .ended }
+                }
+            }
+        }
     }
 
     /// One session's record.
@@ -128,8 +184,12 @@ final class AgentChatSessionRegistry {
                 return nil
             }
             if let pid = record.pid, processIsDead(pid) {
-                update(sessionID: sessionID) { $0.state = .ended }
-                continue
+                // The recorded pid is dead, but it may be a launcher while the
+                // real agent still runs under the surface (subrouter / shim).
+                // Defer to the tree-aware check (re-bind or end off-main); keep
+                // showing the session for now so a live agent is never hidden.
+                handleProcessExit(sessionID: sessionID, pid: pid)
+                return record
             }
             return record
         }
