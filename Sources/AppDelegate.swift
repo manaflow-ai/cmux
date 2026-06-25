@@ -7251,23 +7251,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             openPreferencesWindow(debugSource: "uiTestShowSettings.\(debugSource)")
         }
 
-        // Crash recovery: after the first restore, offer to resume agents if the
-        // prior run crashed and the user opted in. Deferred so the window is
-        // visible first; the gate (crash + opt-in, default off) keeps normal and
-        // intentional-relaunch launches silent.
-        DispatchQueue.main.async { [weak self] in
-            guard let self,
-                  let manager = self.tabManagerFor(windowId: windowId)
-                    ?? self.mainWindowContexts.values.first(where: { $0.windowId == windowId })?.tabManager
-                    ?? self.mainWindowContexts.values.first?.tabManager else { return }
+        // Crash recovery: after restore, offer to resume agents if the prior run crashed and the user opted in.
+        // Deferred so the window is visible first; normal and intentional-relaunch launches stay silent.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let managers = self.mainWindowContexts.values
+                .sorted { $0.windowId.uuidString < $1.windowId.uuidString }
+                .map(\.tabManager)
+            guard !managers.isEmpty else { return }
             // Update relaunch: silently auto-resume agents if opted in.
             CrashRecoveryOfferPresenter.resumeAfterIntentionalRelaunchIfNeeded(
-                in: manager,
+                in: managers,
                 launchState: self.crashRecoveryLaunchState
             )
             // Crash: offer to resume (gated on crash + opt-in).
             CrashRecoveryOfferPresenter.presentOfferIfNeeded(
-                in: manager,
+                in: managers,
                 launchState: self.crashRecoveryLaunchState
             )
         }

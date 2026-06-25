@@ -9,6 +9,7 @@ import Testing
 
 /// Behavior tests for the crash-recovery offer copy: it names the count and is
 /// non-empty on every field (so the alert never shows blank buttons).
+@MainActor
 @Suite struct CrashRecoveryOfferTests {
 
     @Test func messageNamesTheResumableCount() {
@@ -23,5 +24,37 @@ import Testing
         #expect(!content.message.isEmpty)
         #expect(!content.resumeButton.isEmpty)
         #expect(!content.dismissButton.isEmpty)
+    }
+
+    @Test func resumableWorkspacesIncludesAllManagersOnce() throws {
+        let first = try makeManagerWithResumeBinding(session: "sess-1")
+        let second = try makeManagerWithResumeBinding(session: "sess-2")
+
+        let resumable = CrashRecoveryOfferPresenter.resumableWorkspaces(
+            in: [first, second, first]
+        )
+
+        #expect(resumable.count == 2)
+        #expect(Set(resumable.map(\.id)).count == 2)
+    }
+
+    private func makeManagerWithResumeBinding(session: String) throws -> TabManager {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+        let didSet = workspace.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                name: "Recovered \(session)",
+                kind: RestorableAgentKind.claude.rawValue,
+                command: "claude --resume \(session)",
+                cwd: FileManager.default.temporaryDirectory.path,
+                checkpointId: session,
+                source: "agent-hook",
+                autoResume: true
+            ),
+            panelId: panelId
+        )
+        #expect(didSet)
+        return manager
     }
 }

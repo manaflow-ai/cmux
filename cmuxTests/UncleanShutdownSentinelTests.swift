@@ -37,6 +37,27 @@ import Testing
         #expect(!UncleanShutdownSentinel.priorRunWasUnclean(homeDirectory: home, environment: env))
     }
 
+    @Test func lifecycleMarkersAreScopedByBundleIdentifier() {
+        let home = makeTempHome()
+        let stable = ["CMUX_BUNDLE_ID": "com.cmuxterm.app"]
+        let tagged = ["CMUX_BUNDLE_ID": "com.cmuxterm.app.debug.crash-fix"]
+
+        UncleanShutdownSentinel.markRunning(homeDirectory: home, environment: stable)
+
+        #expect(UncleanShutdownSentinel.priorRunWasUnclean(homeDirectory: home, environment: stable))
+        #expect(!UncleanShutdownSentinel.priorRunWasUnclean(homeDirectory: home, environment: tagged))
+        #expect(
+            UncleanShutdownSentinel.sentinelURL(homeDirectory: home, environment: stable).path
+                != UncleanShutdownSentinel.sentinelURL(homeDirectory: home, environment: tagged).path
+        )
+
+        UncleanShutdownSentinel.markCleanExit(homeDirectory: home, environment: tagged)
+        #expect(UncleanShutdownSentinel.priorRunWasUnclean(homeDirectory: home, environment: stable))
+
+        UncleanShutdownSentinel.markCleanExit(homeDirectory: home, environment: stable)
+        #expect(!UncleanShutdownSentinel.priorRunWasUnclean(homeDirectory: home, environment: stable))
+    }
+
     @Test func absentStateDirectoryReadsAsClean() {
         let home = makeTempHome()
         // Nothing written, and the lifecycle dir does not exist.

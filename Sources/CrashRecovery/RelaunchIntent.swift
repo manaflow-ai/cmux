@@ -15,15 +15,13 @@ import Foundation
 /// real crash is still classified as unclean. All filesystem operations fail safe
 /// (a missing/unwritable marker simply means "not an intentional relaunch").
 enum RelaunchIntent {
-    private static let lifecycleDirectoryName = "lifecycle"
     private static let markerFileName = "restore-intended.marker"
 
     static func markerURL(
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> URL {
-        UncleanShutdownSentinel.stateDirectoryURL(homeDirectory: homeDirectory, environment: environment)
-            .appendingPathComponent(lifecycleDirectoryName, isDirectory: true)
+        UncleanShutdownSentinel.lifecycleDirectoryURL(homeDirectory: homeDirectory, environment: environment)
             .appendingPathComponent(markerFileName, isDirectory: false)
     }
 

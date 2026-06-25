@@ -42,7 +42,26 @@ enum CrashRecoveryOfferPresenter {
         in manager: TabManager,
         defaults: UserDefaults = .standard
     ) -> [Workspace] {
-        manager.tabs.filter { $0.canResumeWhereWeLeftOff(defaults: defaults) }
+        resumableWorkspaces(in: [manager], defaults: defaults)
+    }
+
+    /// Resumable workspaces across every restored main-window manager. Managers
+    /// and workspaces are de-duplicated defensively because launch wiring has
+    /// several fallback routes to the active manager.
+    static func resumableWorkspaces(
+        in managers: [TabManager],
+        defaults: UserDefaults = .standard
+    ) -> [Workspace] {
+        var seenManagers = Set<ObjectIdentifier>()
+        var seenWorkspaces = Set<ObjectIdentifier>()
+        var workspaces: [Workspace] = []
+        for manager in managers where seenManagers.insert(ObjectIdentifier(manager)).inserted {
+            for workspace in manager.tabs where workspace.canResumeWhereWeLeftOff(defaults: defaults) {
+                guard seenWorkspaces.insert(ObjectIdentifier(workspace)).inserted else { continue }
+                workspaces.append(workspace)
+            }
+        }
+        return workspaces
     }
 
     /// Shows the offer once after restore, if the prior run crashed and the user
@@ -52,8 +71,18 @@ enum CrashRecoveryOfferPresenter {
         launchState: CrashRecoveryLaunchState,
         defaults: UserDefaults = .standard
     ) {
+        presentOfferIfNeeded(in: [manager], launchState: launchState, defaults: defaults)
+    }
+
+    /// Shows the launch offer for all restored windows, if the prior run crashed
+    /// and the user opted in. On accept, resumes every eligible workspace.
+    static func presentOfferIfNeeded(
+        in managers: [TabManager],
+        launchState: CrashRecoveryLaunchState,
+        defaults: UserDefaults = .standard
+    ) {
         guard launchState.shouldOfferResume(defaults: defaults) else { return }
-        let resumable = resumableWorkspaces(in: manager, defaults: defaults)
+        let resumable = resumableWorkspaces(in: managers, defaults: defaults)
         guard !resumable.isEmpty else { return }
 
         let content = CrashRecoveryOfferText.make(resumableCount: resumable.count)
@@ -76,9 +105,19 @@ enum CrashRecoveryOfferPresenter {
         launchState: CrashRecoveryLaunchState,
         defaults: UserDefaults = .standard
     ) {
+        resumeAfterIntentionalRelaunchIfNeeded(in: [manager], launchState: launchState, defaults: defaults)
+    }
+
+    /// After an intentional relaunch, silently auto-resume agents in every
+    /// restored main window when the user opted in.
+    static func resumeAfterIntentionalRelaunchIfNeeded(
+        in managers: [TabManager],
+        launchState: CrashRecoveryLaunchState,
+        defaults: UserDefaults = .standard
+    ) {
         guard launchState.restoreWasIntended,
               CrashRecoverySettings.resumeAgentsAfterUpdate(defaults: defaults) else { return }
-        for workspace in resumableWorkspaces(in: manager, defaults: defaults) {
+        for workspace in resumableWorkspaces(in: managers, defaults: defaults) {
             _ = workspace.resumeWhereWeLeftOff(defaults: defaults)
         }
     }

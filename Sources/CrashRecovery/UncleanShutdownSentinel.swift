@@ -18,6 +18,7 @@ import Foundation
 enum UncleanShutdownSentinel {
     private static let lifecycleDirectoryName = "lifecycle"
     private static let sentinelFileName = "running.sentinel"
+    private static let fallbackLifecycleScope = "com.cmuxterm.app"
 
     /// The cmux state directory, mirroring `SessionPersistencePolicy` crash
     /// storage: `$XDG_STATE_HOME/cmux` when set, else `~/.local/state/cmux`.
@@ -40,13 +41,37 @@ enum UncleanShutdownSentinel {
             .appendingPathComponent("cmux", isDirectory: true)
     }
 
-    static func sentinelURL(
+    static func lifecycleDirectoryURL(
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> URL {
         stateDirectoryURL(homeDirectory: homeDirectory, environment: environment)
             .appendingPathComponent(lifecycleDirectoryName, isDirectory: true)
+            .appendingPathComponent(lifecycleScope(environment: environment), isDirectory: true)
+    }
+
+    static func sentinelURL(
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL {
+        lifecycleDirectoryURL(homeDirectory: homeDirectory, environment: environment)
             .appendingPathComponent(sentinelFileName, isDirectory: false)
+    }
+
+    private static func lifecycleScope(environment: [String: String]) -> String {
+        let raw = environment["CMUX_BUNDLE_ID"]
+            ?? Bundle.main.bundleIdentifier
+            ?? fallbackLifecycleScope
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let source = trimmed.isEmpty ? fallbackLifecycleScope : trimmed
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-")
+        let replacement = UnicodeScalar("_")!
+        let scalars = source.unicodeScalars.map { scalar in
+            allowed.contains(scalar) ? scalar : replacement
+        }
+        let sanitized = String(String.UnicodeScalarView(scalars))
+            .trimmingCharacters(in: CharacterSet(charactersIn: "._-"))
+        return sanitized.isEmpty ? fallbackLifecycleScope : sanitized
     }
 
     /// True when a sentinel from a prior run is present — i.e. the prior run did

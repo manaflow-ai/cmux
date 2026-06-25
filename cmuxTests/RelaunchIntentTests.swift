@@ -33,6 +33,18 @@ import Testing
         #expect(!RelaunchIntent.consumeRestoreIntent(homeDirectory: home, environment: [:]))
     }
 
+    @Test func markerIsScopedByBundleIdentifier() {
+        let home = makeTempHome()
+        let stable = ["CMUX_BUNDLE_ID": "com.cmuxterm.app"]
+        let tagged = ["CMUX_BUNDLE_ID": "com.cmuxterm.app.debug.update-fix"]
+
+        RelaunchIntent.markRestoreIntended(homeDirectory: home, environment: stable)
+
+        #expect(!RelaunchIntent.consumeRestoreIntent(homeDirectory: home, environment: tagged))
+        #expect(RelaunchIntent.consumeRestoreIntent(homeDirectory: home, environment: stable))
+        #expect(!RelaunchIntent.consumeRestoreIntent(homeDirectory: home, environment: stable))
+    }
+
     @Test func absentMarkerReportsNotIntended() {
         let home = makeTempHome()
         #expect(!RelaunchIntent.consumeRestoreIntent(homeDirectory: home, environment: [:]))
