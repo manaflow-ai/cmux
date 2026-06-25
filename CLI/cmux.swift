@@ -364,10 +364,10 @@ final class ClaudeHookSessionStore {
     }
 
     /// Records a completed naming pass. On a confirmed apply, the durable
-    /// baseline (title, line count, timestamp) advances; on failure only the
-    /// in-flight marker clears, so the next qualifying Stop retries. Extraction
-    /// failures can stamp the attempt cooldown without incrementing the
-    /// consecutive summarizer/apply failure count.
+    /// baseline (title, line count, timestamp) advances; on counted failure,
+    /// retry cooldown/backoff advances. Extraction-only misses clear the
+    /// in-flight marker without stamping cooldown, so the next valid transcript
+    /// can retry immediately.
     func finishAutoNaming(
         sessionId: String,
         passId: String?,
@@ -383,9 +383,9 @@ final class ClaudeHookSessionStore {
             guard passId != nil, record.autoNameInFlightPassId == passId else { return false }
             record.autoNameInFlightAt = nil
             record.autoNameInFlightPassId = nil
-            // Stamp every completed pass (success or failure) so the throttle
-            // enforces a cooldown before retrying a failing summarizer.
-            record.autoNameLastAttemptAt = now.timeIntervalSince1970
+            if (appliedTitle != nil && baselineLineCount != nil) || countFailure {
+                record.autoNameLastAttemptAt = now.timeIntervalSince1970
+            }
             if let appliedTitle, let baselineLineCount {
                 record.autoNameLastTitle = appliedTitle
                 record.autoNameLastLineCount = baselineLineCount

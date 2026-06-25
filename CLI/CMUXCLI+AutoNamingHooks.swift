@@ -30,6 +30,7 @@ extension CMUXCLI {
             telemetryKey: telemetryKey,
             telemetry: telemetry
         )
+        let currentTitle = autoNamingCurrentTitle(probe: probe)
 
         let claudePid = mappedSession?.pid ?? claudeAgentPID(from: env)
         guard !shouldSuppressNestedAgentVisibleMutations(currentAgentPID: claudePid, env: env) else {
@@ -95,7 +96,7 @@ extension CMUXCLI {
             return
         }
         let prompt = engine.buildPrompt(
-            currentTitle: outcome.lastTitle,
+            currentTitle: currentTitle,
             context: context,
             language: promptLanguage
         )
@@ -118,7 +119,7 @@ extension CMUXCLI {
         guard let action = autoNamingSanitizedAction(
             engine: engine,
             rawResponse: rawResponse,
-            currentTitle: outcome.lastTitle,
+            currentTitle: currentTitle,
             telemetryKey: telemetryKey,
             telemetry: telemetry
         ) else { return }
@@ -237,6 +238,7 @@ extension CMUXCLI {
             telemetryKey: telemetryKey,
             telemetry: telemetry
         )
+        let currentTitle = autoNamingCurrentTitle(probe: probe)
 
         let sessionStore = ClaudeHookSessionStore(processEnv: env)
         guard (try? sessionStore.isCurrent(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId)) ?? false else {
@@ -265,9 +267,10 @@ extension CMUXCLI {
             client: client,
             summarizerAgent: resolution.agent,
             missingOverride: resolution.missingOverride,
+            currentTitle: currentTitle,
             telemetryKey: telemetryKey,
             telemetry: telemetry
-        ) { engine, outcome in
+        ) { engine, _ in
             let extraction = engine.extractCodexRollout(fromRolloutLines: lines)
             if let diagnostic = extraction.diagnosticSummary {
                 telemetry.breadcrumb("\(telemetryKey).extraction.\(diagnostic)")
@@ -278,7 +281,7 @@ extension CMUXCLI {
                 return (nil, false)
             }
             let prompt = engine.buildPrompt(
-                currentTitle: outcome.lastTitle,
+                currentTitle: currentTitle,
                 context: context,
                 language: promptLanguage
             )

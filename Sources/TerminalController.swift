@@ -3264,11 +3264,16 @@ class TerminalController {
             if let workspaceId = v2UUID(params, "workspace_id"),
                let tabManager = v2ResolveTabManager(params: params) {
                 var userOwned: Bool?
+                var currentAutoTitle: String?
                 v2MainSync {
                     guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
                     userOwned = workspace.effectiveCustomTitleSource == .user
+                    if workspace.effectiveCustomTitleSource == .auto {
+                        currentAutoTitle = workspace.customTitle
+                    }
                 }
                 result["workspace_user_owned"] = v2OrNull(userOwned)
+                result["auto_naming_current_title"] = v2OrNull(currentAutoTitle)
             }
             return .ok(result)
         }
@@ -3977,11 +3982,6 @@ class TerminalController {
         }
     }
 
-
-
-
-
-
     @MainActor
 
     func v2WorkspaceAction(params: [String: Any]) -> V2CallResult {
@@ -4211,21 +4211,7 @@ class TerminalController {
         return tabManager.tabs.first(where: { $0.id == wsId })
     }
 
-
-
-
-
-
-
-
-
-
-
-
     @MainActor
-
-
-
 
     private func v2AgentSessionOptions(params: [String: Any]) -> (
         providerID: AgentSessionProviderID,
@@ -4283,10 +4269,6 @@ class TerminalController {
 
         return (providerID, rendererKind, nil)
     }
-
-
-
-
 
     // `internal` (not `private`): the Pane domain's app conformance forwards
     // `pane.join` to this body. The Surface domain extraction will relocate it.
@@ -4438,8 +4420,6 @@ class TerminalController {
 
         return result
     }
-
-
 
     func v2DebugTerminals(params _: [String: Any]) -> V2CallResult {
         var payload: [String: Any]?
@@ -4701,10 +4681,6 @@ class TerminalController {
         }
         return .ok(payload)
     }
-
-
-
-
 
     struct TerminalTextRawSnapshot {
         var viewport: String?

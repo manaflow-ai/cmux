@@ -57,6 +57,13 @@ extension CMUXCLI {
         return language
     }
 
+    /// The live auto-owned workspace title reported by the app probe. This is
+    /// the authoritative no-op comparison target; the session store's last title
+    /// can be stale when another session renamed the same workspace.
+    func autoNamingCurrentTitle(probe: [String: Any]) -> String? {
+        normalizedHookValue(probe["auto_naming_current_title"] as? String)
+    }
+
     /// Resolves which agent should actually run the summarization for one
     /// naming pass, honoring the user's `automation.autoNamingAgent` override
     /// (carried on the socket probe response as `summarizer_agent`).

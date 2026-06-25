@@ -76,6 +76,7 @@ extension CMUXCLI {
             telemetryKey: telemetryKey,
             telemetry: telemetry
         )
+        let currentTitle = autoNamingCurrentTitle(probe: probe)
 
         let sessionStore = ClaudeHookSessionStore(processEnv: env)
         let mapped = try? sessionStore.lookup(sessionId: sessionId)
@@ -143,16 +144,17 @@ extension CMUXCLI {
             client: client,
             summarizerAgent: resolution.agent,
             missingOverride: resolution.missingOverride,
+            currentTitle: currentTitle,
             telemetryKey: telemetryKey,
             telemetry: telemetry
-        ) { engine, outcome in
+        ) { engine, _ in
             guard let context = engine.buildContext(from: sourceResult.messages) else {
                 telemetry.breadcrumb("\(telemetryKey).extraction-empty")
                 reportAutoNamingProblem("extraction_failed", agent: def.name, workspaceId: workspaceId, client: client)
                 return (nil, false)
             }
             let prompt = engine.buildPrompt(
-                currentTitle: outcome.lastTitle,
+                currentTitle: currentTitle,
                 context: context,
                 language: promptLanguage
             )
@@ -180,6 +182,7 @@ extension CMUXCLI {
         client: SocketClient,
         summarizerAgent: String,
         missingOverride: String?,
+        currentTitle: String?,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry,
         rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> (raw: String?, countsTowardBackoff: Bool)
@@ -194,6 +197,7 @@ extension CMUXCLI {
             client: client,
             summarizerAgent: summarizerAgent,
             missingOverride: missingOverride,
+            currentTitle: currentTitle,
             telemetryKey: telemetryKey,
             telemetry: telemetry,
             rawResponse: rawResponse
@@ -210,6 +214,7 @@ extension CMUXCLI {
         client: SocketClient,
         summarizerAgent: String,
         missingOverride: String?,
+        currentTitle: String?,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry,
         rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> (raw: String?, countsTowardBackoff: Bool)
@@ -223,6 +228,7 @@ extension CMUXCLI {
             client: client,
             summarizerAgent: summarizerAgent,
             missingOverride: missingOverride,
+            currentTitle: currentTitle,
             telemetryKey: telemetryKey,
             telemetry: telemetry,
             rawResponse: rawResponse
@@ -238,6 +244,7 @@ extension CMUXCLI {
         client: SocketClient,
         summarizerAgent: String,
         missingOverride: String?,
+        currentTitle: String?,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry,
         rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> (raw: String?, countsTowardBackoff: Bool)
@@ -279,7 +286,7 @@ extension CMUXCLI {
         guard let action = autoNamingSanitizedAction(
             engine: engine,
             rawResponse: rawResponse,
-            currentTitle: outcome.lastTitle,
+            currentTitle: currentTitle,
             telemetryKey: telemetryKey,
             telemetry: telemetry
         ) else { return }

@@ -298,6 +298,7 @@ import Testing
     @Test func identicalTitleIsNoOp() {
         #expect(engine.sanitizeResponse("Fix auth bug", currentTitle: "Fix auth bug") == nil)
         #expect(engine.sanitizeResponseOutcome("Fix auth bug", currentTitle: "Fix auth bug") == .unchanged("Fix auth bug"))
+        #expect(engine.sanitizeResponseOutcome("Fix auth bug", currentTitle: nil) == .title("Fix auth bug"))
         #expect(engine.sanitizeResponse("Fix auth bug", currentTitle: "Other title") == "Fix auth bug")
     }
 

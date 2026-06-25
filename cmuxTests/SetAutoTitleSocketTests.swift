@@ -241,6 +241,30 @@ import Testing
         }
     }
 
+    @Test func probeReportsCurrentAutoTitleOnlyForAutoOwnedWorkspace() throws {
+        try withAutoNamingSetting(true) {
+            try withManager { _, workspace in
+                workspace.setCustomTitle("Fix auth bug", source: .auto)
+                var envelope = try call(method: "workspace.set_auto_title", params: [
+                    "probe": true,
+                    "workspace_id": workspace.id.uuidString
+                ])
+                var result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["workspace_user_owned"] as? Bool == false)
+                #expect(result["auto_naming_current_title"] as? String == "Fix auth bug")
+
+                workspace.setCustomTitle("My Project")
+                envelope = try call(method: "workspace.set_auto_title", params: [
+                    "probe": true,
+                    "workspace_id": workspace.id.uuidString
+                ])
+                result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["workspace_user_owned"] as? Bool == true)
+                #expect(result["auto_naming_current_title"] is NSNull)
+            }
+        }
+    }
+
     @Test func panelOnlyIfMultipleSuppressesSinglePanelWorkspace() throws {
         try withAutoNamingSetting(true) {
             try withManager { _, workspace in
