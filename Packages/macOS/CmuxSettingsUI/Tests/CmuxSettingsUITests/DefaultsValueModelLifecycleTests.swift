@@ -224,6 +224,39 @@ import Testing
         #expect(model.revision == 3)
     }
 
+    @Test func rapidLocalWriteEchoesDoNotRevertCurrentOrRevision() async {
+        let store = UserDefaultsSettingsStore(
+            defaults: UserDefaults(suiteName: "defaults-value-model-rapid-local-echoes")!
+        )
+        let key = SettingCatalog().workspaceColors.selectionColorHex
+        let (stream, continuation) = AsyncStream<String>.makeStream()
+        let model = DefaultsValueModel(
+            store: store,
+            key: key,
+            initialValue: "#000000",
+            makeStream: { stream }
+        )
+        model.startObserving()
+
+        model.set("#111111")
+        model.set("#222222")
+        #expect(model.current == "#222222")
+        #expect(model.revision == 2)
+
+        continuation.yield("#111111")
+        continuation.yield("#222222")
+        continuation.yield("#333333")
+
+        var spins = 0
+        while model.current != "#333333", spins < 100_000 {
+            await Task.yield()
+            spins += 1
+        }
+
+        #expect(model.current == "#333333")
+        #expect(model.revision == 3)
+    }
+
     @Test func setAfterCommitRunsAfterStoreWrite() async {
         let suiteName = "defaults-value-model-after-commit"
         UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
