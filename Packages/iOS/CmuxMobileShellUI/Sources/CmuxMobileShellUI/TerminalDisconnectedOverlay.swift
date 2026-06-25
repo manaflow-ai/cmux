@@ -29,10 +29,21 @@ struct TerminalDisconnectedOverlay: View {
                 Text(status.label)
                     .font(.headline)
                     .foregroundStyle(.white)
+                // The generic, always-accurate per-status description. We don't
+                // surface the store's classified `connectionError` here because
+                // it is a single global foreground/pairing error not keyed per
+                // Mac, so on a multi-Mac session it could describe a different
+                // Mac. The precise reachability reason is available via the
+                // Computers screen's per-route Ping instead.
+                Text(status.description)
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.85))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
                 if !host.isEmpty {
                     Text(host)
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.7))
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.55))
                         .lineLimit(1)
                 }
                 if status == .unavailable {

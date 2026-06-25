@@ -5,12 +5,11 @@ public import Foundation
 // contiguous group runs, anchor-first member order, pinned tier above
 // unpinned, and the group-dissolve lifecycle bound to anchor removal.
 extension WorkspacesModel {
-    /// Sets a workspace's group membership and preserves selected-row visibility.
+    /// Sets a workspace's group membership (no-op when unchanged).
     func assignGroup(workspaceId: UUID, groupId: UUID?) {
         guard let tab = tabs.first(where: { $0.id == workspaceId }) else { return }
         guard tab.groupId != groupId else { return }
         tab.groupId = groupId
-        expandWorkspaceGroupForSelectionIfNeeded()
     }
 
     /// Rebuild `tabs` by walking a desired top-level workspace order and

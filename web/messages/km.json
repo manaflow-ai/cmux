@@ -12,7 +12,8 @@
     "toggleTheme": "ប្ដូរស្បែក",
     "backToBlog": "ត្រឡប់ទៅប្លក់",
     "readTheDocs": "អានឯកសារ",
-    "viewChangelog": "មើលកំណត់ត្រាផ្លាស់ប្ដូរ"
+    "viewChangelog": "មើលកំណត់ត្រាផ្លាស់ប្ដូរ",
+    "otherPlatforms": "វេទិកាផ្សេងទៀត"
   },
   "nav": {
     "docs": "ឯកសារ",
@@ -846,7 +847,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "លក្ខខណ្ឌបរិបទជាជម្រើសសម្រាប់សកម្មភាពនីមួយៗ (ឃ្លា `when` រចនាប័ទ្ម VS Code) ដែលដាក់សន្ទស្សន៍តាមលេខសម្គាល់សកម្មភាព cmux។ តម្លៃនីមួយៗគឺជាកន្សោម boolean លើគន្លឹះបរិបទ ដែលផ្សំជាមួយ !, &&, || និងវង់ក្រចក។ គន្លឹះ boolean: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible។ គន្លឹះមានប្រភេទគាំទ្រការប្រៀបធៀប: ខ្សែអក្សរ sidebarMode (files, find, sessions, feed ឬ dock) និងចំនួនគត់ paneCount និង workspaceCount។ សញ្ញាប្រៀបធៀបគឺ ==, !=, =~ (regex), <, <=, >, >= និង `in [a, b]`; គន្លឹះមិនស្គាល់ ឬមិនមាននឹងត្រូវអានជា false។ អក្សរ boolean true និង false ក៏អាចប្រើបានដែរ; `key == false` ដូចគ្នានឹង `!key`។ ផ្លូវកាត់របស់សកម្មភាពនឹងដំណើរការ (និងទាស់ជាមួយផ្លូវកាត់ផ្សេងទៀត) តែពេលឃ្លានេះពិតប៉ុណ្ណោះ។ ឧទាហរណ៍: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } ជ្រើសរើស workspace ដោយ Ctrl+1–9 នៅគ្រប់ទីកន្លែង លើកលែងពេលរបារចំហៀងស្តាំមាន focus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } កំណត់ការចងទៅរបារចំហៀង Find ពេល workspace មានផ្ទាំងច្រើន។",
+          "when": "លក្ខខណ្ឌបរិបទជាជម្រើសសម្រាប់សកម្មភាពនីមួយៗ (ឃ្លា `when` រចនាប័ទ្ម VS Code) ដែលដាក់សន្ទស្សន៍តាមលេខសម្គាល់សកម្មភាព cmux។ តម្លៃនីមួយៗគឺជាកន្សោម boolean លើគន្លឹះបរិបទ ដែលផ្សំជាមួយ !, &&, || និងវង់ក្រចក។ គន្លឹះ boolean: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout។ គន្លឹះមានប្រភេទគាំទ្រការប្រៀបធៀប: ខ្សែអក្សរ sidebarMode (files, find, sessions, feed ឬ dock) និងចំនួនគត់ paneCount និង workspaceCount។ សញ្ញាប្រៀបធៀបគឺ ==, !=, =~ (regex), <, <=, >, >= និង `in [a, b]`; គន្លឹះមិនស្គាល់ ឬមិនមាននឹងត្រូវអានជា false។ អក្សរ boolean true និង false ក៏អាចប្រើបានដែរ; `key == false` ដូចគ្នានឹង `!key`។ ផ្លូវកាត់របស់សកម្មភាពនឹងដំណើរការ (និងទាស់ជាមួយផ្លូវកាត់ផ្សេងទៀត) តែពេលឃ្លានេះពិតប៉ុណ្ណោះ។ ឧទាហរណ៍: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } ជ្រើសរើស workspace ដោយ Ctrl+1–9 នៅគ្រប់ទីកន្លែង លើកលែងពេលរបារចំហៀងស្តាំមាន focus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } កំណត់ការចងទៅរបារចំហៀង Find ពេល workspace មានផ្ទាំងច្រើន។",
           "showModifierHoldHints": "បង្ហាញបន្ទះណែនាំផ្លូវកាត់ ខណៈពេលចុច Cmd ឬ Control ជាប់។"
         }
       },
@@ -1868,5 +1869,32 @@
       "faqQ4": "តើ cmux ឥតគិតថ្លៃសម្រាប់ប្រើជាមួយ Cursor CLI ឬ?",
       "faqA4": "ឥតគិតថ្លៃ។ cmux ឥតគិតថ្លៃ និងជាប្រភពកូដបើកចំហសម្រាប់ macOS។"
     }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "ចូលរួមបញ្ជីរង់ចាំ {platform}",
+    "titleAny": "ចូលរួមបញ្ជីរង់ចាំ",
+    "description": "ការគាំទ្រ {platform} កំពុងមកដល់។ ទុកអ៊ីមែលរបស់អ្នក នោះយើងនឹងជូនដំណឹងពេលវារួចរាល់។",
+    "descriptionAny": "បច្ចុប្បន្ន cmux ផ្តោតលើ macOS ជាមុនសិន។ ទុកអ៊ីមែលរបស់អ្នក នោះយើងនឹងជូនដំណឹងពេលកំណែ Linux, Windows ឬ Android រួចរាល់។",
+    "calloutText": "ឆាប់ៗនេះនៅលើ Linux, Windows និង Android។",
+    "platformsLabel": "វេទិកាណាខ្លះ?",
+    "selectPlatform": "សូមជ្រើសវេទិកាយ៉ាងហោចណាស់មួយ។",
+    "emailLabel": "អ៊ីមែល",
+    "emailPlaceholder": "you@example.com",
+    "join": "ចូលរួមបញ្ជី",
+    "joining": "កំពុងចូលរួម…",
+    "cancel": "បោះបង់",
+    "invalidEmail": "សូមបញ្ចូលអាសយដ្ឋានអ៊ីមែលត្រឹមត្រូវ។",
+    "sendError": "មិនអាចផ្ញើបានទេ។ សូមព្យាយាមម្ដងទៀត។",
+    "successTitle": "អ្នកនៅក្នុងបញ្ជីហើយ",
+    "successBody": "យើងនឹងផ្ញើអ៊ីមែលទៅអ្នក ពេលកំណែ {platform} រួចរាល់។",
+    "successBodyAny": "យើងនឹងផ្ញើអ៊ីមែលទៅអ្នក ពេល cmux រួចរាល់សម្រាប់វេទិការបស់អ្នក។",
+    "done": "រួចរាល់"
   }
 }

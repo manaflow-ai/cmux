@@ -12,7 +12,8 @@
     "toggleTheme": "Перемкнути тему",
     "backToBlog": "Назад до блогу",
     "readTheDocs": "Читати документацію",
-    "viewChangelog": "Переглянути журнал змін"
+    "viewChangelog": "Переглянути журнал змін",
+    "otherPlatforms": "Інші платформи"
   },
   "nav": {
     "docs": "Документація",
@@ -846,7 +847,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Необов'язкові контекстні предикати для кожної дії (клаузи `when` у стилі VS Code), індексовані за ідентифікатором дії cmux. Кожне значення — булевий вираз над ключами контексту, поєднаними за допомогою !, &&, || та дужок. Булеві ключі: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Типізовані ключі підтримують порівняння: рядок sidebarMode (files, find, sessions, feed або dock) і цілі числа paneCount та workspaceCount. Оператори порівняння: ==, !=, =~ (регулярний вираз), <, <=, >, >= та `in [a, b]`; невідомий або відсутній ключ вважається false. Також приймаються булеві літерали true і false; `key == false` еквівалентно `!key`. Скорочення дії спрацьовує (і конфліктує з іншими скороченнями) лише тоді, коли клауза істинна. Приклади: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } вибирає робочі простори за допомогою Ctrl+1–9 всюди, крім випадків, коли у фокусі права бічна панель; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } обмежує прив'язку бічною панеллю пошуку, коли в робочому просторі кілька панелей.",
+          "when": "Необов'язкові контекстні предикати для кожної дії (клаузи `when` у стилі VS Code), індексовані за ідентифікатором дії cmux. Кожне значення — булевий вираз над ключами контексту, поєднаними за допомогою !, &&, || та дужок. Булеві ключі: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Типізовані ключі підтримують порівняння: рядок sidebarMode (files, find, sessions, feed або dock) і цілі числа paneCount та workspaceCount. Оператори порівняння: ==, !=, =~ (регулярний вираз), <, <=, >, >= та `in [a, b]`; невідомий або відсутній ключ вважається false. Також приймаються булеві літерали true і false; `key == false` еквівалентно `!key`. Скорочення дії спрацьовує (і конфліктує з іншими скороченнями) лише тоді, коли клауза істинна. Приклади: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } вибирає робочі простори за допомогою Ctrl+1–9 всюди, крім випадків, коли у фокусі права бічна панель; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } обмежує прив'язку бічною панеллю пошуку, коли в робочому просторі кілька панелей.",
           "showModifierHoldHints": "Показувати підказки комбінацій клавіш, доки утримується Cmd або Control."
         }
       },
@@ -1951,5 +1952,32 @@
       "faqQ4": "Чи cmux безкоштовний у використанні з Cursor CLI?",
       "faqA4": "Так. cmux безкоштовний і з відкритим кодом для macOS."
     }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "Приєднатися до списку очікування {platform}",
+    "titleAny": "Приєднатися до списку очікування",
+    "description": "Підтримка {platform} вже на підході. Залиште email, і ми повідомимо, щойно все буде готово.",
+    "descriptionAny": "Зараз cmux передусім для macOS. Залиште email, і ми повідомимо, щойно з’явиться версія для Linux, Windows чи Android.",
+    "calloutText": "Незабаром на Linux, Windows та Android.",
+    "platformsLabel": "Які платформи?",
+    "selectPlatform": "Виберіть принаймні одну платформу.",
+    "emailLabel": "Електронна пошта",
+    "emailPlaceholder": "you@example.com",
+    "join": "До списку очікування",
+    "joining": "Додаємо…",
+    "cancel": "Скасувати",
+    "invalidEmail": "Введіть дійсну електронну адресу.",
+    "sendError": "Не вдалося надіслати. Спробуйте ще раз.",
+    "successTitle": "Ви у списку",
+    "successBody": "Ми напишемо вам, коли версія для {platform} буде готова.",
+    "successBodyAny": "Ми напишемо вам, коли cmux буде готовий для вашої платформи.",
+    "done": "Готово"
   }
 }

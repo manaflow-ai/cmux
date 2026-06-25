@@ -40,7 +40,8 @@
     "toggleTheme": "テーマを切り替え",
     "backToBlog": "ブログに戻る",
     "readTheDocs": "ドキュメントを読む",
-    "viewChangelog": "変更履歴を見る"
+    "viewChangelog": "変更履歴を見る",
+    "otherPlatforms": "その他のプラットフォーム"
   },
   "nav": {
     "docs": "ドキュメント",
@@ -997,7 +998,7 @@
           "defaultLayout": "新しく開く diff ビューアの既定レイアウトです。ツールバーのレイアウト切り替えはユーザーの最後の選択を保持し、明示的な `cmux diff --layout` オプションはその両方を上書きします。"
         },
         "shortcuts": {
-          "when": "アクションごとの任意のコンテキスト述語（VS Code スタイルの `when` 句）です。cmux のアクション ID をキーにします。各値は、コンテキストキーを !、&&、||、括弧で組み合わせた boolean 式です。boolean キー: sidebarFocus、browserFocus、markdownFocus、terminalFocus、commandPaletteVisible、terminalFindVisible。型付きキーは比較できます: 文字列 sidebarMode（files、find、sessions、feed、dock のいずれか）と整数 paneCount、workspaceCount です。比較演算子は ==、!=、=~（正規表現）、<、<=、>、>=、および `in [a, b]` です。未知または存在しないキーは false として扱われます。 boolean リテラル true および false も使えます。`key == false` は `!key` と同じです。その句が成立するときだけアクションのショートカットが発火し、他のショートカットとの競合もそのときだけ扱われます。例: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } は、右サイドバーにフォーカスがある場合を除いて Ctrl+1–9 でワークスペースを選択します。{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } は、ワークスペースに複数のペインがあるときに Find サイドバーへバインドを絞り込みます。",
+          "when": "アクションごとの任意のコンテキスト述語（VS Code スタイルの `when` 句）です。cmux のアクション ID をキーにします。各値は、コンテキストキーを !、&&、||、括弧で組み合わせた boolean 式です。boolean キー: sidebarFocus、browserFocus、markdownFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。型付きキーは比較できます: 文字列 sidebarMode（files、find、sessions、feed、dock のいずれか）と整数 paneCount、workspaceCount です。比較演算子は ==、!=、=~（正規表現）、<、<=、>、>=、および `in [a, b]` です。未知または存在しないキーは false として扱われます。 boolean リテラル true および false も使えます。`key == false` は `!key` と同じです。その句が成立するときだけアクションのショートカットが発火し、他のショートカットとの競合もそのときだけ扱われます。例: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } は、右サイドバーにフォーカスがある場合を除いて Ctrl+1–9 でワークスペースを選択します。{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } は、ワークスペースに複数のペインがあるときに Find サイドバーへバインドを絞り込みます。",
           "showModifierHoldHints": "Cmd または Control を押し続けている間、ショートカットヒントのチップを表示します。"
         }
       },
@@ -1890,6 +1891,33 @@
     "metaDescription": "cmux のダウンロードを開始しています。ドキュメントを見たり、Discord に参加したり、X で cmux をフォローしてください。",
     "heading": "cmux をダウンロードいただきありがとうございます！",
     "subtext": "ダウンロードが始まらない場合は<link>こちら</link>をクリックしてください。"
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "{platform}版の順番待ちリストに登録",
+    "titleAny": "順番待ちリストに登録",
+    "description": "{platform}版は準備中です。メールアドレスをご記入いただくと、公開され次第すぐにお知らせします。",
+    "descriptionAny": "現在 cmux は macOS 専用です。メールアドレスをご記入いただくと、Linux・Windows・Android 版が公開され次第お知らせします。",
+    "calloutText": "Linux・Windows・Android 版も準備中です。",
+    "platformsLabel": "対象プラットフォーム",
+    "selectPlatform": "1つ以上選択してください。",
+    "emailLabel": "メールアドレス",
+    "emailPlaceholder": "you@example.com",
+    "join": "リストに登録",
+    "joining": "登録中…",
+    "cancel": "キャンセル",
+    "invalidEmail": "有効なメールアドレスを入力してください。",
+    "sendError": "送信できませんでした。もう一度お試しください。",
+    "successTitle": "登録が完了しました",
+    "successBody": "{platform}版が利用可能になりましたらメールでお知らせします。",
+    "successBodyAny": "cmux がお使いのプラットフォームで利用可能になりましたらメールでお知らせします。",
+    "done": "完了"
   },
   "testimonialSubtitles": {
     "steipete": "OpenClaw の開発者。PSPDFKit の創業者。"

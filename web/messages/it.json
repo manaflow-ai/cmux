@@ -12,7 +12,8 @@
     "toggleTheme": "Cambia tema",
     "backToBlog": "Torna al blog",
     "readTheDocs": "Leggi la documentazione",
-    "viewChangelog": "Vedi il changelog"
+    "viewChangelog": "Vedi il changelog",
+    "otherPlatforms": "Altre piattaforme"
   },
   "nav": {
     "docs": "Docs",
@@ -846,7 +847,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Predicati di contesto opzionali per azione (clausole `when` in stile VS Code), indicizzati per id azione cmux. Ogni valore è un'espressione booleana sulle chiavi di contesto, combinata con !, &&, || e parentesi. Chiavi booleane: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Le chiavi tipizzate supportano i confronti: la stringa sidebarMode (files, find, sessions, feed o dock) e gli interi paneCount e workspaceCount. Gli operatori di confronto sono ==, !=, =~ (espressione regolare), <, <=, >, >= e `in [a, b]`; una chiave sconosciuta o assente vale false. Sono accettati anche i letterali booleani true e false; `key == false` equivale a `!key`. La scorciatoia dell'azione si attiva (ed entra in conflitto con altre scorciatoie) solo quando la clausola è vera. Esempi: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } seleziona gli spazi di lavoro con Ctrl+1–9 ovunque tranne quando la barra laterale destra ha il focus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limita un'associazione alla barra laterale Trova quando lo spazio di lavoro ha più riquadri.",
+          "when": "Predicati di contesto opzionali per azione (clausole `when` in stile VS Code), indicizzati per id azione cmux. Ogni valore è un'espressione booleana sulle chiavi di contesto, combinata con !, &&, || e parentesi. Chiavi booleane: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Le chiavi tipizzate supportano i confronti: la stringa sidebarMode (files, find, sessions, feed o dock) e gli interi paneCount e workspaceCount. Gli operatori di confronto sono ==, !=, =~ (espressione regolare), <, <=, >, >= e `in [a, b]`; una chiave sconosciuta o assente vale false. Sono accettati anche i letterali booleani true e false; `key == false` equivale a `!key`. La scorciatoia dell'azione si attiva (ed entra in conflitto con altre scorciatoie) solo quando la clausola è vera. Esempi: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } seleziona gli spazi di lavoro con Ctrl+1–9 ovunque tranne quando la barra laterale destra ha il focus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limita un'associazione alla barra laterale Trova quando lo spazio di lavoro ha più riquadri.",
           "showModifierHoldHints": "Mostra i chip dei suggerimenti delle scorciatoie mentre tieni premuto Cmd o Control."
         }
       },
@@ -1868,5 +1869,32 @@
       "faqQ4": "cmux è gratuito da usare con Cursor CLI?",
       "faqA4": "Sì. cmux è gratuito e open source per macOS."
     }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "Iscriviti alla lista d'attesa per {platform}",
+    "titleAny": "Iscriviti alla lista d'attesa",
+    "description": "Il supporto per {platform} è in arrivo. Lascia la tua email e ti avviseremo appena è pronto.",
+    "descriptionAny": "Per ora cmux è prima di tutto per macOS. Lascia la tua email e ti avviseremo appena Linux, Windows o Android sarà pronto.",
+    "calloutText": "In arrivo su Linux, Windows e Android.",
+    "platformsLabel": "Quali piattaforme?",
+    "selectPlatform": "Scegli almeno una piattaforma.",
+    "emailLabel": "Email",
+    "emailPlaceholder": "you@example.com",
+    "join": "Iscriviti alla lista",
+    "joining": "Iscrizione…",
+    "cancel": "Annulla",
+    "invalidEmail": "Inserisci un indirizzo email valido.",
+    "sendError": "Invio non riuscito. Riprova.",
+    "successTitle": "Sei in lista",
+    "successBody": "Ti invieremo un'email quando la versione {platform} sarà pronta.",
+    "successBodyAny": "Ti invieremo un'email quando cmux sarà pronto per la tua piattaforma.",
+    "done": "Fatto"
   }
 }

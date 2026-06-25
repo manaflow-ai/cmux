@@ -4,6 +4,7 @@ import Balancer from "react-wrap-balancer";
 import { TypingTagline } from "./typing";
 import { DownloadButton } from "./components/download-button";
 import { GitHubButton } from "./components/github-button";
+import { WaitlistCallout } from "./components/waitlist-callout";
 import { SiteHeader } from "./components/site-header";
 import { BrandLogoLink } from "./components/brand-logo-link";
 import {
@@ -535,6 +536,9 @@ function HomeContent() {
         <div className="flex flex-wrap items-center justify-center gap-3 mt-12">
           <DownloadButton location="bottom" />
           <GitHubButton />
+        </div>
+        <div className="mt-3 flex justify-center">
+          <WaitlistCallout location="bottom" />
         </div>
         <div className="flex justify-center gap-4 mt-6">
           <Link

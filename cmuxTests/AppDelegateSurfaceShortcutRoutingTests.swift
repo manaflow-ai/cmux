@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCanvasUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -9,6 +10,23 @@ import Testing
 
 private final class ShortcutUnrelatedResponderView: NSView {
     override var acceptsFirstResponder: Bool { true }
+}
+
+@MainActor
+private final class CanvasViewportSpy: CanvasViewportControlling {
+    var revealedPanelIds: [UUID] = []
+    var overviewToggleCount = 0
+    var modelDidChangeCount = 0
+    var resetZoomCount = 0
+    var currentMagnification: CGFloat = 1
+    var currentCenterInCanvas: CGPoint = .zero
+
+    func revealPane(_ panelId: UUID, animated: Bool) { revealedPanelIds.append(panelId) }
+    func toggleOverview() { overviewToggleCount += 1 }
+    func zoom(by factor: CGFloat) {}
+    func resetZoom() { resetZoomCount += 1 }
+    func setViewport(center: CGPoint, magnification: CGFloat?) {}
+    func modelDidChangeExternally(animated: Bool) { modelDidChangeCount += 1 }
 }
 
 @MainActor
@@ -159,11 +177,237 @@ struct AppDelegateSurfaceShortcutRoutingTests {
         }
     }
 
-    private func makeKeyDownEvent(key: String, keyCode: UInt16, windowNumber: Int) -> NSEvent? {
+    @Test func cmdShiftReturnInCanvasModeDoesNotToggleBonsplitSplitZoom() throws {
+        try withTemporaryShortcut(action: .toggleSplitZoom) {
+            let appDelegate = try #require(AppDelegate.shared)
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(for: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let leftPanelId = try #require(workspace.focusedPanelId)
+            _ = try #require(workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal))
+            let event = try #require(makeKeyDownEvent(
+                key: "\r",
+                modifiers: [.command, .shift],
+                keyCode: 36,
+                windowNumber: window.windowNumber
+            ))
+
+            workspace.setLayoutMode(.canvas)
+            let viewport = CanvasViewportSpy()
+            workspace.canvasModel.viewport = viewport
+            #expect(workspace.layoutMode == .canvas)
+            #expect(!workspace.bonsplitController.isSplitZoomed)
+            #expect(KeyboardShortcutSettings.shortcut(for: .toggleSplitZoom).matches(event: event))
+
+#if DEBUG
+            #expect(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+            #expect(
+                !workspace.bonsplitController.isSplitZoomed,
+                "In canvas mode, the split-zoom shortcut should drive canvas overview instead of Bonsplit zoom"
+            )
+            #expect(viewport.overviewToggleCount == 1)
+        }
+    }
+
+    @Test func cmdDInCanvasCreatesFloatingCanvasPaneWithoutBonsplitSplit() throws {
+        try withTemporaryShortcut(action: .splitRight) {
+            let appDelegate = try #require(AppDelegate.shared)
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(for: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let focusedPanelId = try #require(workspace.focusedPanelId)
+            let event = try #require(makeKeyDownEvent(
+                key: "d",
+                modifiers: [.command],
+                keyCode: 2,
+                windowNumber: window.windowNumber
+            ))
+
+            window.makeKeyAndOrderFront(nil)
+            workspace.setLayoutMode(.canvas)
+            let originalBonsplitPaneCount = workspace.bonsplitController.allPaneIds.count
+            let originalPanelIds = Set(workspace.panels.keys)
+            let originalFrame = try #require(workspace.canvasModel.frame(of: focusedPanelId))
+
+#if DEBUG
+            #expect(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+            let newPanelIds = Set(workspace.panels.keys).subtracting(originalPanelIds)
+            #expect(newPanelIds.count == 1)
+            #expect(
+                workspace.bonsplitController.allPaneIds.count == originalBonsplitPaneCount,
+                "Canvas split shortcuts should create visible canvas panes without splitting the hidden Bonsplit tree"
+            )
+            #expect(workspace.canvasModel.persistablePanes.count == 2)
+
+            let newPanelId = try #require(newPanelIds.first)
+            let newFrame = try #require(workspace.canvasModel.frame(of: newPanelId))
+            #expect(newFrame.minX >= originalFrame.maxX)
+            #expect(newFrame.width == originalFrame.width)
+            #expect(newFrame.height == originalFrame.height)
+            #expect(workspace.focusedPanelId == newPanelId)
+        }
+    }
+
+    @Test func cmdShiftDInCanvasPlacesFloatingCanvasPaneBelowFocusedPane() throws {
+        try withTemporaryShortcut(action: .splitDown) {
+            let appDelegate = try #require(AppDelegate.shared)
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(for: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let focusedPanelId = try #require(workspace.focusedPanelId)
+            let event = try #require(makeKeyDownEvent(
+                key: "d",
+                modifiers: [.command, .shift],
+                keyCode: 2,
+                windowNumber: window.windowNumber
+            ))
+
+            window.makeKeyAndOrderFront(nil)
+            workspace.setLayoutMode(.canvas)
+            let originalPanelIds = Set(workspace.panels.keys)
+            let originalFrame = try #require(workspace.canvasModel.frame(of: focusedPanelId))
+
+#if DEBUG
+            #expect(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+            let newPanelIds = Set(workspace.panels.keys).subtracting(originalPanelIds)
+            #expect(newPanelIds.count == 1)
+            let newPanelId = try #require(newPanelIds.first)
+            let newFrame = try #require(workspace.canvasModel.frame(of: newPanelId))
+            #expect(newFrame.minY >= originalFrame.maxY)
+        }
+    }
+
+    @Test func numberedSurfaceShortcutSelectsCanvasPaneTab() throws {
+        try withTemporaryShortcut(action: .selectSurfaceByNumber) {
+            let appDelegate = try #require(AppDelegate.shared)
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(for: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let firstPanelId = try #require(workspace.focusedPanelId)
+            let event = try #require(makeKeyDownEvent(
+                key: "2",
+                keyCode: 19,
+                windowNumber: window.windowNumber
+            ))
+
+            window.makeKeyAndOrderFront(nil)
+            workspace.setLayoutMode(.canvas)
+            let secondPanelId = try #require(workspace.openNewCanvasPane(type: .terminal, focus: true))
+            let viewport = CanvasViewportSpy()
+            workspace.canvasModel.viewport = viewport
+            workspace.focusPanel(firstPanelId)
+            #expect(workspace.focusedPanelId == firstPanelId)
+
+#if DEBUG
+            #expect(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+            #expect(workspace.focusedPanelId == secondPanelId)
+            #expect(viewport.revealedPanelIds.last == secondPanelId)
+        }
+    }
+
+    @Test func canvasSurfaceSelectionKeepsNinthAndLastSeparate() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+        let workspace = try #require(manager.selectedWorkspace)
+        var panelIds = [try #require(workspace.focusedPanelId)]
+
+        workspace.setLayoutMode(.canvas)
+        for _ in 1..<10 {
+            panelIds.append(try #require(workspace.openNewCanvasPane(type: .terminal, focus: true)))
+        }
+        #expect(panelIds.count == 10)
+
+        workspace.focusPanel(panelIds[0])
+        workspace.selectSurface(at: 8)
+        #expect(workspace.focusedPanelId == panelIds[8])
+
+        workspace.selectLastSurface()
+        #expect(workspace.focusedPanelId == panelIds[9])
+    }
+
+    @Test func equalizeSplitsShortcutInCanvasEqualizesCanvasPaneSizesOnly() throws {
+        try withTemporaryShortcut(action: .equalizeSplits) {
+            let appDelegate = try #require(AppDelegate.shared)
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(for: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let firstPanelId = try #require(workspace.focusedPanelId)
+            let event = try #require(makeKeyDownEvent(
+                key: "=",
+                modifiers: [.command, .control],
+                keyCode: 24,
+                windowNumber: window.windowNumber
+            ))
+
+            window.makeKeyAndOrderFront(nil)
+            workspace.setLayoutMode(.canvas)
+            let secondPanelId = try #require(workspace.openNewCanvasPane(type: .terminal, focus: true))
+            let originalBonsplitPaneCount = workspace.bonsplitController.allPaneIds.count
+            workspace.canvasModel.setFrame(CGRect(x: 0, y: 0, width: 640, height: 420), for: firstPanelId)
+            workspace.canvasModel.setFrame(CGRect(x: 720, y: 0, width: 320, height: 260), for: secondPanelId)
+
+#if DEBUG
+            #expect(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+            let firstFrame = try #require(workspace.canvasModel.frame(of: firstPanelId))
+            let secondFrame = try #require(workspace.canvasModel.frame(of: secondPanelId))
+            #expect(firstFrame.width == secondFrame.width)
+            #expect(firstFrame.height == secondFrame.height)
+            #expect(workspace.bonsplitController.allPaneIds.count == originalBonsplitPaneCount)
+        }
+    }
+
+    private func makeKeyDownEvent(
+        key: String,
+        modifiers: NSEvent.ModifierFlags = [.control],
+        keyCode: UInt16,
+        windowNumber: Int
+    ) -> NSEvent? {
         NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
-            modifierFlags: [.control],
+            modifierFlags: modifiers,
             timestamp: ProcessInfo.processInfo.systemUptime,
             windowNumber: windowNumber,
             context: nil,
