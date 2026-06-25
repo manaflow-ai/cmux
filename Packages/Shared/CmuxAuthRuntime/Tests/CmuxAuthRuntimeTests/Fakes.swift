@@ -91,6 +91,8 @@ actor FakeAuthClient: AuthClient {
     func signInWithCredential(email: String, password: String) async throws {
         signedInWithCredential = (email, password)
         access = "access"
+        refresh = "refresh"
+        throwOnCurrentUser = nil
     }
 
     func signInWithOAuth(provider: String, anchor: any AuthPresentationAnchoring) async throws {
