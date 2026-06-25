@@ -299,9 +299,16 @@ extension Workspace: ResumableWorkspaceSurface {
 
     @MainActor
     func prepareCrashRecoveryResumeVerification() async -> Bool {
+        guard await prepareCrashRecoveryRecoveryVerification() else { return false }
+        let coordinator = WorkspaceResumeCoordinator(injectBreadcrumb: false)
+        return ResumeFidelityGate().isVerified(coordinator.bindingFacts(for: self))
+    }
+
+    @MainActor
+    func prepareCrashRecoveryRecoveryVerification() async -> Bool {
         guard let panelId = focusedPanelId else { return false }
         if let verification = crashRecoveryStoredVerification {
-            return ResumeFidelityGate().isVerified(verification.facts)
+            return verification.facts.hasBinding
         }
         if let agent = crashRecoveryRestoredAgent {
             let fingerprint = Self.crashRecoveryVerificationFingerprint(agent: agent)
@@ -313,7 +320,7 @@ extension Workspace: ResumableWorkspaceSurface {
                 return false
             }
             restoredAgentVerificationByPanelId[panelId] = verification
-            return ResumeFidelityGate().isVerified(verification.facts)
+            return true
         }
         if let binding = crashRecoveryResumeBinding {
             let verification = await Task.detached(priority: .utility) {
@@ -321,14 +328,23 @@ extension Workspace: ResumableWorkspaceSurface {
             }.value
             guard surfaceResumeBindingsByPanelId[panelId] == binding else { return false }
             restoredAgentVerificationByPanelId[panelId] = verification
-            return ResumeFidelityGate().isVerified(verification.facts)
+            return true
         }
         return false
     }
 
     @MainActor
     func crashRecoveryVerifiedResumeAction(defaults: UserDefaults = .standard) async -> RecoveryAction? {
-        guard await prepareCrashRecoveryResumeVerification() else { return nil }
+        guard let action = await crashRecoveryRecoveryAction(defaults: defaults) else { return nil }
+        if case .resumeVerified = action {
+            return action
+        }
+        return nil
+    }
+
+    @MainActor
+    func crashRecoveryRecoveryAction(defaults: UserDefaults = .standard) async -> RecoveryAction? {
+        guard await prepareCrashRecoveryRecoveryVerification() else { return nil }
         let coordinator = WorkspaceResumeCoordinator(
             injectBreadcrumb: CrashRecoverySettings.injectResumeBreadcrumb(defaults: defaults)
         )
@@ -336,10 +352,7 @@ extension Workspace: ResumableWorkspaceSurface {
             coordinator.bindingFacts(for: self),
             context: coordinator.recoveryContext(for: self)
         )
-        if case .resumeVerified = action {
-            return action
-        }
-        return nil
+        return action
     }
 
     /// Resume the focused agent and, when enabled, inject the breadcrumb. The

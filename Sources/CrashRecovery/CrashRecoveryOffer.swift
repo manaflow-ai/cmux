@@ -56,6 +56,27 @@ enum CrashRecoveryOfferPresenter {
         return plans.map(\.workspace)
     }
 
+    /// Workspaces the crash offer should handle after acceptance. Verified
+    /// bindings resume; unverified bindings receive the honest recovery prompt.
+    static func recoverableWorkspaces(
+        in managers: [TabManager],
+        defaults: UserDefaults = .standard
+    ) async -> [Workspace] {
+        var seenManagers = Set<ObjectIdentifier>()
+        var seenWorkspaces = Set<ObjectIdentifier>()
+        var workspaces: [Workspace] = []
+        for manager in managers where seenManagers.insert(ObjectIdentifier(manager)).inserted {
+            for workspace in manager.tabs {
+                guard seenWorkspaces.insert(ObjectIdentifier(workspace)).inserted else { continue }
+                guard await workspace.crashRecoveryRecoveryAction(defaults: defaults) != nil else {
+                    continue
+                }
+                workspaces.append(workspace)
+            }
+        }
+        return workspaces
+    }
+
     private static func verifiedResumePlans(
         in managers: [TabManager],
         defaults: UserDefaults
@@ -95,10 +116,10 @@ enum CrashRecoveryOfferPresenter {
         defaults: UserDefaults = .standard
     ) async {
         guard launchState.shouldOfferResume(defaults: defaults) else { return }
-        let plans = await verifiedResumePlans(in: managers, defaults: defaults)
-        guard !plans.isEmpty else { return }
+        let workspaces = await recoverableWorkspaces(in: managers, defaults: defaults)
+        guard !workspaces.isEmpty else { return }
 
-        let content = CrashRecoveryOfferText.make(resumableCount: plans.count)
+        let content = CrashRecoveryOfferText.make(resumableCount: workspaces.count)
         let alert = NSAlert()
         alert.messageText = content.title
         alert.informativeText = content.message
@@ -108,8 +129,8 @@ enum CrashRecoveryOfferPresenter {
         let coordinator = WorkspaceResumeCoordinator(
             injectBreadcrumb: CrashRecoverySettings.injectResumeBreadcrumb(defaults: defaults)
         )
-        for plan in plans {
-            _ = coordinator.performVerifiedResume(plan.workspace, breadcrumb: plan.breadcrumb)
+        for workspace in workspaces {
+            _ = coordinator.recover(workspace)
         }
     }
 

@@ -42,7 +42,32 @@ import Testing
         #expect(Set(resumable.map(\.id)).count == 2)
     }
 
-    private func makeManagerWithResumeBinding(session: String) throws -> (manager: TabManager, root: URL) {
+    @Test func recoverableWorkspacesIncludesUnverifiedBindings() async throws {
+        let verified = try makeManagerWithResumeBinding(session: "sess-verified")
+        let unverified = try makeManagerWithResumeBinding(
+            session: "sess-missing",
+            createTranscript: false
+        )
+        defer {
+            try? FileManager.default.removeItem(at: verified.root)
+            try? FileManager.default.removeItem(at: unverified.root)
+        }
+
+        let resumable = await CrashRecoveryOfferPresenter.resumableWorkspaces(
+            in: [verified.manager, unverified.manager]
+        )
+        let recoverable = await CrashRecoveryOfferPresenter.recoverableWorkspaces(
+            in: [verified.manager, unverified.manager]
+        )
+
+        #expect(resumable.count == 1)
+        #expect(recoverable.count == 2)
+    }
+
+    private func makeManagerWithResumeBinding(
+        session: String,
+        createTranscript: Bool = true
+    ) throws -> (manager: TabManager, root: URL) {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-crash-offer-\(UUID().uuidString)", isDirectory: true)
         let cwd = root.appendingPathComponent("repo", isDirectory: true)
@@ -51,11 +76,13 @@ import Testing
             .appendingPathComponent("projects", isDirectory: true)
             .appendingPathComponent(RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd.path), isDirectory: true)
         try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
-        try "{}\n".write(
-            to: projectDir.appendingPathComponent("\(session).jsonl", isDirectory: false),
-            atomically: true,
-            encoding: .utf8
-        )
+        if createTranscript {
+            try "{}\n".write(
+                to: projectDir.appendingPathComponent("\(session).jsonl", isDirectory: false),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
 
         let manager = TabManager(autoWelcomeIfNeeded: false)
         let workspace = try #require(manager.selectedWorkspace)

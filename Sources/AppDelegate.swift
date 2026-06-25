@@ -540,6 +540,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         Self.detectRunningUnderXCTest(env)
     }
 
+    private func captureCrashRecoveryLaunchStateIfNeeded(
+        env: [String: String] = ProcessInfo.processInfo.environment
+    ) {
+        guard !isRunningUnderXCTest(env) else { return }
+        crashRecoveryLaunchState.captureAtLaunch(environment: env)
+    }
+
     @MainActor
     final class MainWindowContext {
         let windowId: UUID
@@ -1287,11 +1294,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         StartupBreadcrumbLog.append("appDelegate.didFinish.activationPolicy.synced")
 
-        // Crash recovery: classify how the prior run ended (crash vs. clean vs.
-        // intentional update relaunch) BEFORE arming this run's sentinel. Skipped
-        // under XCTest so the test host never touches the real lifecycle markers.
+        // Crash recovery: `configure` captures this before startup restore
+        // decisions; this idempotent call covers nonstandard delegate lifecycles.
         if !isRunningUnderXCTest {
-            crashRecoveryLaunchState.captureAtLaunch()
+            captureCrashRecoveryLaunchStateIfNeeded(env: env)
         }
 
         // Prewarm the shared restorable-agent index off the main thread so the first
@@ -2076,6 +2082,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         startPaneMemoryGuardrailIfNeeded()
         disableSuddenTerminationIfNeeded()
         installLifecycleSnapshotObserversIfNeeded()
+        captureCrashRecoveryLaunchStateIfNeeded(env: ProcessInfo.processInfo.environment)
         prepareStartupSessionSnapshotIfNeeded()
         startSessionAutosaveTimerIfNeeded()
 #if DEBUG
