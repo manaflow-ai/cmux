@@ -5956,8 +5956,8 @@ struct CMUXCLI {
         guard let raw else {
             if !allowCurrent { return nil }
             // Prefer the caller's own workspace before the focused one (see
-            // resolveWorkspaceId). Placed after the !allowCurrent guard so explicit-surface
-            // routing, which passes allowCurrent: false to resolve globally, is unaffected.
+            // resolveWorkspaceId). After the !allowCurrent guard, so explicit-surface
+            // routing (allowCurrent: false, resolves globally) is unaffected.
             if let callerWorkspaceId = callerWorkspaceIdFromEnvironment(windowHandle: windowHandle) {
                 return callerWorkspaceId
             }
@@ -13940,11 +13940,10 @@ struct CMUXCLI {
             .replacingOccurrences(of: "%25", with: "%")
     }
 
-    /// The caller's own workspace, taken from the `CMUX_WORKSPACE_ID` the app injects
-    /// into every terminal surface. Returns nil when the value is unset, blank, not a
-    /// UUID, or when an explicit window is targeted (the caller's workspace may live in a
-    /// different window). Resolvers use this to default to the workspace the command was
-    /// invoked from, falling back to the focused workspace only when there is no caller.
+    /// The caller's own workspace, from the `CMUX_WORKSPACE_ID` the app injects into every
+    /// terminal surface. Nil when unset/blank/non-UUID, or when an explicit window is
+    /// targeted (the caller's workspace may live in another window). Resolvers prefer this
+    /// over the focused workspace so a command defaults to where it was invoked from.
     private func callerWorkspaceIdFromEnvironment(windowHandle: String?) -> String? {
         guard windowHandle == nil else { return nil }
         let value = (ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] ?? "")
@@ -13991,27 +13990,23 @@ struct CMUXCLI {
         }
 
         // Reached only when `raw` was nil, blank, or nonblank-but-unrecognized (valid
-        // UUID/ref/index selectors returned or threw above).
-        //
-        // An explicit, nonblank, unrecognized selector (e.g. a typo) must fail closed
-        // regardless of caller env or window, so a malformed user-supplied workspace name
-        // never silently resolves to — and mutates — a different workspace.
+        // UUID/ref/index selectors returned or threw above). An explicit, nonblank,
+        // unrecognized selector (e.g. a typo) fails closed regardless of caller/window, so a
+        // malformed name never silently resolves to — and mutates — a different workspace.
         if let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             throw CLIError(message: "Workspace not found: \(raw)")
         }
 
-        // `raw` is nil (omitted) or explicitly blank. Prefer the caller's own workspace
-        // over the focused one, so a background agent whose command omits or empties
-        // --workspace never silently acts on whatever workspace is selected in the
-        // foreground.
+        // `raw` is nil (omitted) or blank. Prefer the caller's own workspace over the
+        // focused one, so a background agent that omits/empties --workspace never silently
+        // acts on whatever workspace is selected in the foreground.
         if let callerWorkspaceId = callerWorkspaceIdFromEnvironment(windowHandle: windowHandle) {
             return callerWorkspaceId
         }
 
         // No caller workspace. An explicit but blank selector (the dangerous
-        // `--workspace "${CMUX_WORKSPACE_ID:-}"`-expands-to-empty case) fails closed rather
-        // than retargeting the foreground workspace. Only a truly omitted selector, or an
-        // explicit --window, falls back to the window's selected workspace.
+        // `--workspace "${CMUX_WORKSPACE_ID:-}"`-expands-to-empty case) fails closed; only a
+        // truly omitted selector, or an explicit --window, uses the window's selection.
         if windowHandle == nil, raw != nil {
             throw CLIError(message: "No workspace selected: --workspace was blank and CMUX_WORKSPACE_ID is unset")
         }
