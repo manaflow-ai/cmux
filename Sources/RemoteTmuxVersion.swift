@@ -71,10 +71,45 @@ struct RemoteTmuxVersion: Equatable, Comparable, Sendable {
         for line in output.split(whereSeparator: \.isNewline).reversed() {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             let parts = trimmed.split(whereSeparator: \.isWhitespace)
-            guard parts.count == 1, parts[0].first?.isNumber == true else { continue }
-            return parseVersionToken(in: String(parts[0]))
+            guard parts.count == 1 else { continue }
+            if let version = parseWholeVersionToken(String(parts[0])) {
+                return version
+            }
         }
         return nil
+    }
+
+    private static func parseWholeVersionToken(_ token: String) -> RemoteTmuxVersion? {
+        guard let dot = token.firstIndex(of: "."),
+              dot != token.startIndex,
+              token.index(after: dot) != token.endIndex else {
+            return nil
+        }
+
+        let majorPart = token[..<dot]
+        var minorEnd = token.index(after: dot)
+        while minorEnd < token.endIndex, token[minorEnd].isNumber {
+            minorEnd = token.index(after: minorEnd)
+        }
+        let minorPart = token[token.index(after: dot)..<minorEnd]
+        guard !minorPart.isEmpty,
+              majorPart.allSatisfy(\.isNumber),
+              let major = Int(majorPart),
+              let minor = Int(minorPart) else {
+            return nil
+        }
+
+        var letterRank = 0
+        if minorEnd < token.endIndex {
+            let afterLetter = token.index(after: minorEnd)
+            guard afterLetter == token.endIndex,
+                  let ascii = token[minorEnd].asciiValue,
+                  ascii >= 97, ascii <= 122 else {
+                return nil
+            }
+            letterRank = Int(ascii) - 96
+        }
+        return RemoteTmuxVersion(major: major, minor: minor, letterRank: letterRank)
     }
 
     private static func parseVersionToken(in output: String) -> RemoteTmuxVersion? {
