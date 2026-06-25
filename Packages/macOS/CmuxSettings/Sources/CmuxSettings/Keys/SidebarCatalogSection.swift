@@ -110,6 +110,8 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowProgress"
     )
 
+    /// Whether sidebar workspace rows show a spinner and count for running
+    /// coding agents (`sidebar.showAgentActivity`). Defaults to on.
     public let showAgentActivity = DefaultsKey<Bool>(
         id: "sidebar.showAgentActivity",
         defaultValue: true,
