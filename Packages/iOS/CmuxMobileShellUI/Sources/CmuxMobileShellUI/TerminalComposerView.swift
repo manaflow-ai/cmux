@@ -280,8 +280,8 @@ struct TerminalComposerView: View {
                         .frame(width: controlHeight, height: controlHeight)
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(terminalPalette.foreground.opacity(0.7))
-                .mobileGlassCircle()
+                .foregroundStyle(terminalPalette.controlForeground)
+                .mobileGlassCircle(fill: AnyShapeStyle(terminalPalette.controlFill), stroke: terminalPalette.controlStroke)
                 .accessibilityIdentifier("MobileComposerAttach")
                 .accessibilityLabel(L10n.string("mobile.composer.attach", defaultValue: "Attach Photo"))
 
@@ -331,15 +331,16 @@ struct TerminalComposerView: View {
                     } label: {
                         Image(systemName: "arrow.up")
                             .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(canSend ? .white : terminalPalette.foreground.opacity(0.35))
+                            .foregroundStyle(canSend ? .white : terminalPalette.disabledControlForeground)
                             .frame(width: inlineSendDiameter, height: inlineSendDiameter)
                             .background(
                                 Circle().fill(
                                     canSend
                                         ? AnyShapeStyle(Color.accentColor)
-                                        : AnyShapeStyle(terminalPalette.foreground.opacity(0.12))
+                                        : AnyShapeStyle(terminalPalette.controlFill)
                                 )
                             )
+                            .overlay(Circle().stroke(terminalPalette.controlStroke, lineWidth: canSend ? 0 : 1))
                     }
                     .buttonStyle(.plain)
                     .disabled(!canSend)
@@ -350,13 +351,12 @@ struct TerminalComposerView: View {
                 .padding(.trailing, 6)
                 .padding(.vertical, 6)
                 .frame(minHeight: composerFieldMinHeight, alignment: .top)
-                .mobileGlassField(cornerRadius: 20)
+                .mobileGlassField(cornerRadius: 20, fill: AnyShapeStyle(terminalPalette.controlFill), stroke: terminalPalette.controlStroke)
             }
         }
         .padding(.horizontal, 12)
         // Tighter above the field than below (the user reported too much top
-        // padding); the band height is still driven by content + this padding,
-        // so the host's re-measure stays correct.
+        // padding); the band height is still driven by content + this padding.
         .padding(.top, 2)
         .padding(.bottom, 8)
         .photosPicker(
@@ -386,8 +386,8 @@ struct TerminalComposerView: View {
                 .symbolEffect(.pulse, isActive: listening)
         }
         .buttonStyle(.plain)
-        .foregroundStyle(listening ? AnyShapeStyle(Color.red) : AnyShapeStyle(terminalPalette.foreground.opacity(0.7)))
-        .mobileGlassCircle()
+        .foregroundStyle(listening ? AnyShapeStyle(Color.red) : AnyShapeStyle(terminalPalette.controlForeground))
+        .mobileGlassCircle(fill: AnyShapeStyle(terminalPalette.controlFill), stroke: listening ? Color.red.opacity(0.45) : terminalPalette.controlStroke)
         .disabled(!dictation.isAvailable)
         .accessibilityIdentifier("MobileComposerMic")
         .accessibilityLabel(

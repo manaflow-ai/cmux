@@ -35,7 +35,7 @@ struct CopyableTerminalTextSelectionTests {
     }
 
     @Test("a dismantled view with a retained surface is excluded")
-    func excludedWhenDismantledWithSurface() {
+    func dismantledSurfaceIsExcludedEvenWhenRetained() {
         let dismantled = Candidate(
             hostSurfaceID: "surface:1",
             hasSurface: true,

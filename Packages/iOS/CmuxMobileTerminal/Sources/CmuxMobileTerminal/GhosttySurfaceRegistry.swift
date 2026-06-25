@@ -83,10 +83,10 @@ extension GhosttySurfaceView {
     public static func copyableTerminalTextCapture(surfaceID: String) -> Task<String?, Never> {
         registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
         // Scoped pick: only views stamped with the requested id qualify, and
-        // they must still own a live, non-dismantled surface. A dismantling view can linger in
-        // the registry until its queued dispose runs, and its content stops at
-        // whenever its byte stream detached — prefer the sheet's honest empty
-        // state over silently copying that stale text.
+        // they must still own a live, non-dismantled surface. The menu action
+        // arms this before sheet presentation so transient window/alpha changes
+        // cannot hide the live presenter, but a SwiftUI-dismantled view with a
+        // retained pointer is still excluded as stale.
         // If the same terminal is mounted in several scenes the contents are
         // identical, so the lowest-keyed visible match keeps the pick
         // deterministic. The eligibility rule itself lives in

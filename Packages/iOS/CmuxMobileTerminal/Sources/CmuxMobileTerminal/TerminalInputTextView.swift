@@ -229,24 +229,8 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     var terminalTheme: TerminalTheme = .monokai {
         didSet {
             guard terminalTheme != oldValue else { return }
-            accessoryBackgroundView?.backgroundColor = themeBarColor
+            updateAccessoryThemeColors()
         }
-    }
-
-    private var themeBarColor: UIColor {
-        themeBarColor(for: terminalTheme)
-    }
-
-    private func themeBarColor(for theme: TerminalTheme) -> UIColor {
-        guard let rgb = TerminalTheme.rgbComponents(theme.background) else {
-            return UIColor(red: 0x27 / 255.0, green: 0x28 / 255.0, blue: 0x22 / 255.0, alpha: 1)
-        }
-        return UIColor(
-            red: CGFloat(rgb.red) / 255.0,
-            green: CGFloat(rgb.green) / 255.0,
-            blue: CGFloat(rgb.blue) / 255.0,
-            alpha: 1
-        )
     }
 
     private static let accessoryHorizontalInset: CGFloat = 16
@@ -269,7 +253,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// glass capsule grows to fill the full strip height. The horizontal inset is
     /// trimmed so the capsule hugs its glyph.
     private static let accessoryButtonContentInsets = NSDirectionalEdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
-    private static let accessoryButtonCornerRadius: CGFloat = 6
+    static let accessoryButtonCornerRadius: CGFloat = 6
     /// Button height. Equal to ``dockedNubSize`` so the capsule fills the strip
     /// vertically: the buttons are as tall as the section, with the breathing
     /// room living BELOW the strip (``dockedBottomPadding``) instead of inside it.
@@ -308,7 +292,6 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// hug their icon tightly; the taller capsule supplies the tap area that a
     /// wider button used to.
     private static let accessoryButtonMinWidth: CGFloat = 32
-    private static let accessoryButtonNormalBackground = UIColor(white: 0.35, alpha: 1)
     private var accessoryBackgroundLeadingConstraint: NSLayoutConstraint?
     private var accessoryBackgroundTrailingConstraint: NSLayoutConstraint?
     private var accessoryDismissLeadingConstraint: NSLayoutConstraint?
@@ -330,7 +313,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         // Pinned keyboard dismiss button on the left
         let dismissButton = UIButton(type: .system)
         dismissButton.setImage(UIImage(systemName: "keyboard.chevron.compact.down", withConfiguration: Self.accessoryButtonSymbolConfig), for: .normal)
-        dismissButton.tintColor = UIColor(white: 0.7, alpha: 1)
+        dismissButton.tintColor = themeControlForegroundColor
         dismissButton.addTarget(self, action: #selector(handleHideKeyboard), for: .touchUpInside)
         dismissButton.accessibilityIdentifier = "terminal.inputAccessory.hideKeyboard"
         dismissButton.accessibilityLabel = String(localized: "terminal.input_accessory.hideKeyboard", defaultValue: "Hide Keyboard")
@@ -470,6 +453,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         accessoryBackgroundTrailingConstraint = backgroundTrailingConstraint
         accessoryDismissLeadingConstraint = dismissLeadingConstraint
         accessoryScrollTrailingConstraint = scrollTrailingConstraint
+        updateAccessoryThemeColors()
         // The cmux iOS app always drives a macOS cmux surface, so default the
         // accessory to Mac modifiers: retitle Ctrl/Alt to ⌃/⌥ and insert the ⌘
         // button. `updateModifierLabels(isMacRemote:)` can still switch this if a
@@ -939,10 +923,9 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         var config = UIButton.Configuration.plain()
         config.image = UIImage(systemName: "chevron.down.square")
         config.preferredSymbolConfigurationForImage = Self.accessoryButtonSymbolConfig
-        config.baseForegroundColor = UIColor(white: 0.7, alpha: 1)
         config.contentInsets = Self.accessoryButtonContentInsets
         button.configuration = config
-        button.tintColor = UIColor(white: 0.7, alpha: 1)
+        applyPlainAccessoryControlStyle(button)
         button.heightAnchor.constraint(equalToConstant: Self.accessoryButtonHeight).isActive = true
         button.widthAnchor.constraint(equalToConstant: Self.accessoryButtonMinWidth).isActive = true
         return button
@@ -966,10 +949,9 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         var config = UIButton.Configuration.plain()
         config.image = UIImage(systemName: "slider.horizontal.3")
         config.preferredSymbolConfigurationForImage = Self.accessoryButtonSymbolConfig
-        config.baseForegroundColor = UIColor(white: 0.7, alpha: 1)
         config.contentInsets = Self.accessoryButtonContentInsets
         button.configuration = config
-        button.tintColor = UIColor(white: 0.7, alpha: 1)
+        applyPlainAccessoryControlStyle(button)
         button.heightAnchor.constraint(equalToConstant: Self.accessoryButtonHeight).isActive = true
         button.widthAnchor.constraint(equalToConstant: Self.accessoryButtonMinWidth).isActive = true
         return button
@@ -987,7 +969,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         armed: Bool,
         sticky: Bool
     ) {
-        var config = Self.accessoryButtonConfiguration(armed: armed, sticky: sticky)
+        var config = accessoryButtonConfiguration(armed: armed, sticky: sticky)
         let symbolName: String?
         let title: String
         switch item {
@@ -1035,32 +1017,6 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
                 actionButton.isStickyLocked = false
             }
         }
-    }
-
-    private static func accessoryButtonConfiguration(armed: Bool, sticky: Bool) -> UIButton.Configuration {
-        if #available(iOS 26.0, *) {
-            var config: UIButton.Configuration = (armed || sticky) ? .prominentGlass() : .glass()
-            config.baseForegroundColor = .white
-            if armed || sticky {
-                config.baseBackgroundColor = .systemBlue
-            }
-            return config
-        }
-        var config = UIButton.Configuration.plain()
-        var background = UIBackgroundConfiguration.clear()
-        if sticky {
-            background.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.85)
-            background.strokeColor = .white
-            background.strokeWidth = 2
-        } else if armed {
-            background.backgroundColor = .systemBlue
-        } else {
-            background.backgroundColor = accessoryButtonNormalBackground
-        }
-        background.cornerRadius = accessoryButtonCornerRadius
-        config.background = background
-        config.baseForegroundColor = .white
-        return config
     }
 
     private func handleAccessoryAction(_ action: TerminalInputAccessoryAction) {
@@ -1218,6 +1174,27 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
                 sticky = false
             }
             applyAccessoryButtonStyle(button, item: button.item, armed: armed, sticky: sticky)
+        }
+    }
+
+    private func updateAccessoryThemeColors() {
+        accessoryBackgroundView?.backgroundColor = themeBarColor
+        dismissButton?.tintColor = themeControlForegroundColor
+        if let composerButton {
+            applyAccessoryButtonStyle(composerButton, item: .builtin(.composer), armed: false, sticky: false)
+        }
+        for case let button as UIButton in accessoryStackView?.arrangedSubviews ?? [] {
+            guard let actionButton = button as? AccessoryActionButton else {
+                applyPlainAccessoryControlStyle(button)
+                continue
+            }
+            var armed = false
+            var sticky = false
+            if case let .builtin(builtin) = actionButton.item {
+                armed = isAccessoryActionArmed(builtin)
+                sticky = isAccessoryActionSticky(builtin)
+            }
+            applyAccessoryButtonStyle(actionButton, item: actionButton.item, armed: armed, sticky: sticky)
         }
     }
 

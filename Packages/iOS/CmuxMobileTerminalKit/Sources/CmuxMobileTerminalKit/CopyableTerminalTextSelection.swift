@@ -11,9 +11,10 @@ import Foundation
 /// 1. The candidate predicate is id-scoped AND visibility-scoped. If the chosen
 ///    surface is re-resolved from the registry *after* the sheet has begun
 ///    presenting, a transient `window == nil` / `isHidden` / `alpha` drop on the
-///    presenter can exclude the one live surface, yielding nil. The predicate now
-    ///    scopes by terminal id, live surface pointer, and dismantle state only;
-    ///    those are the safety invariants that prevent stale or cross-terminal reads.
+///    presenter can exclude the one live surface, yielding nil. Callers now arm
+///    the capture before sheet presentation, so visibility is only a preference;
+///    terminal id, live surface pointer, and non-dismantled state remain the
+///    safety invariants that prevent stale or cross-terminal reads.
 /// 2. `surfaceText` returns a non-nil empty string when the range has zero bytes,
 ///    so `screen ?? viewport` never fell back when SCREEN read empty-but-ok. The
 ///    `resolvedText` decision below treats nil OR empty SCREEN as "try VIEWPORT".
@@ -25,11 +26,10 @@ public struct CopyableTerminalTextSelection: Sendable {
     ///
     /// The id scoping keeps a second surface (another iPad scene, an in-flight
     /// transition) from leaking a different workspace's terminal into the
-    /// capture; `hasSurface && !isDismantled` keeps a dismantling view
-    /// (registry-resident until its queued dispose runs) from contributing stale
-    /// text. Window/hidden/alpha are intentionally ignored because UIKit can
-    /// transiently flip them while the menu action presents the sheet, before the
-    /// queued surface read runs.
+    /// capture; `hasSurface && !isDismantled` keeps freed or SwiftUI-removed
+    /// surfaces out. Window/hidden/alpha are intentionally ignored because
+    /// UIKit can transiently flip them while the menu action presents the
+    /// sheet, before the queued surface read runs.
     public func isEligible(_ candidate: CopyableTerminalTextCandidate, for surfaceID: String) -> Bool {
         candidate.hostSurfaceID == surfaceID
             && candidate.hasSurface

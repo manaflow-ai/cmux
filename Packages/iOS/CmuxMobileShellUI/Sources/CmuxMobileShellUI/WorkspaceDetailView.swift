@@ -45,7 +45,6 @@ struct WorkspaceDetailView: View {
     @State private var feedbackEmail = ""
     @State private var isSubmittingFeedback = false
     @State private var feedbackErrorMessage: String?
-    @State private var isTextSheetPresented = false
     /// Drives the rename-workspace dialog launched from the picker menu, and its
     /// editable text (seeded with the current name when presented).
     @State private var isRenamePresented = false
@@ -53,20 +52,10 @@ struct WorkspaceDetailView: View {
     /// Live pane width, used to width-cap the centered glass title pill so a long
     /// workspace name truncates instead of underlapping the toolbar buttons.
     @State private var contentWidth: CGFloat = 0
-    /// Captured at the moment the "View as Text" action is tapped so the
-    /// sheet keeps showing the terminal the user asked about even if the
-    /// workspace selection changes underneath it (e.g. Mac-side sync) while
-    /// the sheet is open; the sheet loads its snapshot once per presentation.
-    @State private var textSheetSurfaceID: String?
-    /// The "View as Text" capture, kicked off the instant the menu item is
-    /// tapped — while the terminal surface is still fully window-attached and
-    /// visible — rather than from the sheet's own `.task`. Presenting a sheet
-    /// can briefly drop the presenter's window/alpha, and the registry pick is
-    /// visibility-scoped, so re-resolving the surface after presentation could
-    /// miss the one live surface and show the empty state. Resolving at tap time
-    /// captures the surface (and FIFO-orders its queued read) before any of that
-    /// can happen; the sheet just awaits the result.
-    @State private var textSheetCapture: Task<String?, Never>?
+    /// Single request value for the "View as Text" sheet. Carries the selected
+    /// terminal id and the already-armed capture together so the sheet cannot
+    /// start with a nil capture and fall back to a late registry lookup.
+    @State private var textSheetRequest: TerminalTextSheetRequest?
     /// Chat-mode toggle: when on (and a session exists) the detail renders
     /// the agent chat inline in place of the terminal. The toolbar button
     /// flips this; there is no cover and no Done button.
@@ -461,8 +450,8 @@ struct WorkspaceDetailView: View {
         .sheet(isPresented: $isFeedbackComposerPresented) {
             feedbackComposer
         }
-        .sheet(isPresented: $isTextSheetPresented, onDismiss: { textSheetCapture = nil }) {
-            TerminalTextSheetView(surfaceID: textSheetSurfaceID, capture: textSheetCapture)
+        .sheet(item: $textSheetRequest) { request in
+            TerminalTextSheetView(surfaceID: request.surfaceID, capture: request.capture)
         }
         .workspaceRenameDialog(
             isPresented: $isRenamePresented,
@@ -676,17 +665,16 @@ struct WorkspaceDetailView: View {
     @MainActor
     private func openTextSheetFromMenu() {
         let surfaceID = selectedTerminal?.id.rawValue
-        textSheetSurfaceID = surfaceID
         // Resolve + read NOW, on the main actor, while the terminal surface is
         // still fully on screen. `copyableTerminalTextCapture` does its
         // visibility-scoped registry pick and FIFO-enqueues the off-main read
         // synchronously before returning the awaitable, so the surface can never
         // be filtered out by a window/alpha drop that the sheet's own presentation
         // would cause.
-        textSheetCapture = surfaceID.map { id in
+        let capture = surfaceID.map { id in
             GhosttySurfaceView.copyableTerminalTextCapture(surfaceID: id)
         }
-        isTextSheetPresented = true
+        textSheetRequest = TerminalTextSheetRequest(surfaceID: surfaceID, capture: capture)
     }
 
     private func openFeedbackComposerFromMenu() {

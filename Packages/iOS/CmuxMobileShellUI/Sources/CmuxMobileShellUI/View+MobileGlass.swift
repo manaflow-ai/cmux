@@ -93,39 +93,49 @@ extension View {
     /// composer field. A capsule (``mobileGlassPill()``) over-rounds once the
     /// field grows to several lines, so the composer uses a fixed corner radius.
     @ViewBuilder
-    func mobileGlassField(cornerRadius: CGFloat = 20) -> some View {
+    func mobileGlassField(
+        cornerRadius: CGFloat = 20,
+        fill: AnyShapeStyle? = nil,
+        stroke: Color? = nil
+    ) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         #if os(iOS)
         if #available(iOS 26.0, *) {
-            self.glassEffect(.regular.interactive(), in: shape)
+            self
+                .background(fill ?? AnyShapeStyle(.clear), in: shape)
+                .glassEffect(.regular.interactive(), in: shape)
+                .overlay(shape.stroke(stroke ?? .clear, lineWidth: stroke == nil ? 0 : 1))
         } else {
             self
-                .background(.thinMaterial, in: shape)
-                .overlay(shape.stroke(.white.opacity(0.18), lineWidth: 1))
+                .background(fill ?? AnyShapeStyle(.thinMaterial), in: shape)
+                .overlay(shape.stroke(stroke ?? .white.opacity(0.18), lineWidth: 1))
         }
         #else
         self
-            .background(.thinMaterial, in: shape)
-            .overlay(shape.stroke(.white.opacity(0.18), lineWidth: 1))
+            .background(fill ?? AnyShapeStyle(.thinMaterial), in: shape)
+            .overlay(shape.stroke(stroke ?? .white.opacity(0.18), lineWidth: 1))
         #endif
     }
 
     /// Glass (iOS 26+) or thin-material circular background for a composer icon
     /// button (send / dismiss). Pair with a fixed-size icon label.
     @ViewBuilder
-    func mobileGlassCircle() -> some View {
+    func mobileGlassCircle(fill: AnyShapeStyle? = nil, stroke: Color? = nil) -> some View {
         #if os(iOS)
         if #available(iOS 26.0, *) {
-            self.glassEffect(.regular.interactive(), in: .circle)
+            self
+                .background(fill ?? AnyShapeStyle(.clear), in: Circle())
+                .glassEffect(.regular.interactive(), in: .circle)
+                .overlay(Circle().stroke(stroke ?? .clear, lineWidth: stroke == nil ? 0 : 1))
         } else {
             self
-                .background(.thinMaterial, in: Circle())
-                .overlay(Circle().stroke(.white.opacity(0.18), lineWidth: 1))
+                .background(fill ?? AnyShapeStyle(.thinMaterial), in: Circle())
+                .overlay(Circle().stroke(stroke ?? .white.opacity(0.18), lineWidth: 1))
         }
         #else
         self
-            .background(.thinMaterial, in: Circle())
-            .overlay(Circle().stroke(.white.opacity(0.18), lineWidth: 1))
+            .background(fill ?? AnyShapeStyle(.thinMaterial), in: Circle())
+            .overlay(Circle().stroke(stroke ?? .white.opacity(0.18), lineWidth: 1))
         #endif
     }
 }
