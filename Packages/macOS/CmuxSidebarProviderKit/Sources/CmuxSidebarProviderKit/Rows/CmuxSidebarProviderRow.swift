@@ -12,6 +12,8 @@ public struct CmuxSidebarProviderRow: Identifiable, Codable, Equatable, Sendable
     public var accessory: CmuxSidebarProviderRowAccessory?
     /// Optional subtitle.
     public var subtitle: CmuxSidebarProviderText?
+    /// Optional semantic role for the subtitle.
+    public var subtitleRole: CmuxSidebarProviderRowSubtitleRole?
     /// Optional trailing text.
     public var trailingText: CmuxSidebarProviderText?
     /// Optional leading icon.
@@ -24,6 +26,7 @@ public struct CmuxSidebarProviderRow: Identifiable, Codable, Equatable, Sendable
         workspaceId: UUID,
         accessory: CmuxSidebarProviderRowAccessory?,
         subtitle: CmuxSidebarProviderText? = nil,
+        subtitleRole: CmuxSidebarProviderRowSubtitleRole? = nil,
         trailingText: CmuxSidebarProviderText? = nil,
         leadingIcon: CmuxSidebarProviderIcon? = nil
     ) {
@@ -32,6 +35,7 @@ public struct CmuxSidebarProviderRow: Identifiable, Codable, Equatable, Sendable
         self.workspaceId = workspaceId
         self.accessory = accessory
         self.subtitle = subtitle
+        self.subtitleRole = subtitleRole
         self.trailingText = trailingText
         self.leadingIcon = leadingIcon
     }

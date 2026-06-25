@@ -30,7 +30,7 @@ public struct AttentionQueueSidebar: CmuxSidebarProvider {
                 projectRootPath: nil,
                 workspaces: active
             )
-            .render(subtitle: rowSubtitle),
+            .render(subtitle: rowSubtitle, subtitleRole: rowSubtitleRole),
             ExampleSidebarSection(
                 id: "pinned",
                 title: localized("example.sidebar.group.pinned", "Pinned"),
@@ -38,7 +38,7 @@ public struct AttentionQueueSidebar: CmuxSidebarProvider {
                 projectRootPath: nil,
                 workspaces: pinned
             )
-            .render(subtitle: rowSubtitle),
+            .render(subtitle: rowSubtitle, subtitleRole: rowSubtitleRole),
             ExampleSidebarSection(
                 id: "attention",
                 title: localized("example.sidebar.group.needsAttention", "Needs Attention"),
@@ -46,7 +46,7 @@ public struct AttentionQueueSidebar: CmuxSidebarProvider {
                 projectRootPath: nil,
                 workspaces: attention
             )
-            .render(subtitle: rowSubtitle),
+            .render(subtitle: rowSubtitle, subtitleRole: rowSubtitleRole),
             ExampleSidebarSection(
                 id: "quiet",
                 title: localized("example.sidebar.group.quiet", "Quiet"),
@@ -54,7 +54,7 @@ public struct AttentionQueueSidebar: CmuxSidebarProvider {
                 projectRootPath: nil,
                 workspaces: quiet
             )
-            .render(subtitle: rowSubtitle),
+            .render(subtitle: rowSubtitle, subtitleRole: rowSubtitleRole),
         ]
 
         return renderModel(providerId: descriptor.id, snapshot: snapshot, sections: sections)
@@ -80,6 +80,10 @@ public struct AttentionQueueSidebar: CmuxSidebarProvider {
             return .plain(remoteState)
         }
         return trimmed(workspace.customDescription).map(CmuxSidebarProviderText.plain)
+    }
+
+    private func rowSubtitleRole(_ workspace: CmuxSidebarProviderWorkspace) -> CmuxSidebarProviderRowSubtitleRole? {
+        trimmed(workspace.latestNotificationText) == nil ? nil : .agentStatus
     }
 
     private func hasRemoteTarget(_ workspace: CmuxSidebarProviderWorkspace) -> Bool {
