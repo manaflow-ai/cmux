@@ -57,13 +57,8 @@ struct WorkspaceListView: View {
     private var filterMachines: [WorkspaceFilterMachine] {
         let ids = MobileWorkspaceListFilter.machineIDs(in: workspaces)
         guard ids.count > 1 else { return [] }
-        var names: [String: String] = [:]
-        for device in store?.deviceTreeDevices ?? [] {
-            if let name = device.displayName, !name.isEmpty {
-                names[device.deviceId] = name
-            }
-        }
-        return ids.map { WorkspaceFilterMachine(id: $0, name: names[$0] ?? $0) }
+        let names = macDisplayNamesByID()
+        return ids.map { WorkspaceFilterMachine(id: $0, name: names[$0] ?? fallbackMacPickerName) }
     }
     /// Optional: rename a workspace on the Mac. When present, each row offers a
     /// Rename context-menu action.
@@ -97,9 +92,10 @@ struct WorkspaceListView: View {
     /// The active row filter (All / Unread), shared-model state behind the
     /// toolbar ``WorkspaceListFilterMenu``. Session-transient like a search.
     @State private var filter: MobileWorkspaceListFilter = .all
-    /// Which Mac's workspaces the list is focused on. Starts as "the connected
-    /// Mac" so aggregation does not flatten multiple Macs by default.
-    @State private var macSelection: WorkspaceMacSelection = .automatic
+    /// Which Mac's workspaces the list is focused on. Starts at "All Macs" so
+    /// aggregation is explicit in the title picker and can be narrowed from
+    /// there.
+    @State private var macSelection: WorkspaceMacSelection = .all
     /// The workspace whose destructive close action is awaiting confirmation.
     /// Stored at list scope so reusable rows do not own transient presentation
     /// state while `List` is recycling swipe-action rows.
@@ -181,9 +177,6 @@ struct WorkspaceListView: View {
         let machineIDs = Set(macPickerMachines.map(\.id))
         switch macSelection {
         case .automatic:
-            if let connectedID = store?.connectedMacDeviceID, machineIDs.contains(connectedID) {
-                return .machine(connectedID)
-            }
             return .all
         case .machine(let id):
             return machineIDs.contains(id) ? .machine(id) : .all
@@ -193,7 +186,30 @@ struct WorkspaceListView: View {
     }
 
     private var macPickerMachines: [WorkspaceFilterMachine] {
+        let names = macDisplayNamesByID()
+        var ids = Set(MobileWorkspaceListFilter.machineIDs(in: workspaces))
+        if let connectedID = store?.connectedMacDeviceID {
+            ids.insert(connectedID)
+        }
+        return ids
+            .map { WorkspaceFilterMachine(id: $0, name: names[$0] ?? fallbackMacPickerName) }
+            .sorted { lhs, rhs in lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending }
+    }
+
+    private var fallbackMacPickerName: String {
+        L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Mac")
+    }
+
+    private func macDisplayNamesByID() -> [String: String] {
         var names: [String: String] = [:]
+        for workspace in workspaces {
+            guard let id = workspace.macDeviceID,
+                  let name = workspace.macDisplayName,
+                  !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                continue
+            }
+            names[id] = name
+        }
         for device in store?.deviceTreeDevices ?? [] {
             if let name = device.displayName, !name.isEmpty {
                 names[device.deviceId] = name
@@ -202,13 +218,7 @@ struct WorkspaceListView: View {
         for mac in store?.pairedMacs ?? [] {
             names[mac.macDeviceID] = mac.resolvedName
         }
-        var ids = Set(MobileWorkspaceListFilter.machineIDs(in: workspaces))
-        if let connectedID = store?.connectedMacDeviceID {
-            ids.insert(connectedID)
-        }
-        return ids
-            .map { WorkspaceFilterMachine(id: $0, name: names[$0] ?? $0) }
-            .sorted { lhs, rhs in lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending }
+        return names
     }
 
     var body: some View {
@@ -347,19 +357,29 @@ struct WorkspaceListView: View {
     }
 
     #if os(iOS)
+    private var macTitlePickerTitle: String {
+        switch visibleMacSelection {
+        case .all, .automatic:
+            L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Macs")
+        case .machine(let id):
+            macPickerMachines.first { $0.id == id }?.name ?? fallbackMacPickerName
+        }
+    }
+
     private var macTitlePicker: some View {
         Picker(
-            L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Mac"),
             selection: Binding(
                 get: { visibleMacSelection },
                 set: { macSelection = $0 }
             )
         ) {
+            Text(L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Macs"))
+                .tag(WorkspaceMacSelection.all)
             ForEach(macPickerMachines) { machine in
                 Text(machine.name).tag(WorkspaceMacSelection.machine(machine.id))
             }
-            Text(L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Macs"))
-                .tag(WorkspaceMacSelection.all)
+        } label: {
+            WorkspaceMacTitlePickerLabel(title: macTitlePickerTitle)
         }
         .pickerStyle(.menu)
         .accessibilityIdentifier("MobileWorkspaceMacPicker")
@@ -531,6 +551,27 @@ struct WorkspaceListView: View {
         closeWorkspace?(workspaceID)
     }
 }
+
+#if os(iOS)
+private struct WorkspaceMacTitlePickerLabel: View {
+    let title: String
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Text(title)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Image(systemName: "chevron.down")
+                .font(.caption2.weight(.bold))
+                .accessibilityHidden(true)
+        }
+        .font(.headline.weight(.semibold))
+        .foregroundStyle(.white)
+        .frame(minWidth: 120, maxWidth: 220, alignment: .center)
+        .contentShape(Rectangle())
+    }
+}
+#endif
 
 private enum WorkspaceMacSelection: Hashable {
     case automatic
