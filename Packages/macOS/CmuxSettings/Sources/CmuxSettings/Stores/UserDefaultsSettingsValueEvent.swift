@@ -3,7 +3,7 @@ public struct UserDefaultsSettingsValueEvent<Value: SettingCodable>: Sendable, E
     /// The decoded value for the observed key.
     public let value: Value
 
-    /// The source attached to the latest store-owned write for the key, if any.
+    /// One-shot source attached to this observed store-owned write, if any.
     public let mutationSource: UserDefaultsSettingsMutationSource?
 
     /// Creates an observed value event.

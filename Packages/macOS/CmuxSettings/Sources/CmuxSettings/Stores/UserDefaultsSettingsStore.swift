@@ -127,7 +127,7 @@ public actor UserDefaultsSettingsStore {
     private func valueEvent<Value>(for key: DefaultsKey<Value>) -> UserDefaultsSettingsValueEvent<Value> {
         UserDefaultsSettingsValueEvent(
             value: storage.value(for: key),
-            mutationSource: mutationSources[key.userDefaultsKey]
+            mutationSource: mutationSources.removeValue(forKey: key.userDefaultsKey)
         )
     }
 
@@ -188,13 +188,13 @@ public actor UserDefaultsSettingsStore {
         }
     }
 
-    /// Returns value changes tagged with the source of the most recent
-    /// store-owned mutation for this key.
+    /// Returns value changes tagged with one-shot store-owned mutation sources.
     ///
-    /// The source is present only for writes that explicitly pass one to
-    /// ``set(_:for:source:)`` or ``reset(_:source:)``. Callers use it to
-    /// distinguish their own async store echoes from external settings
-    /// changes without relying on lossy value equality.
+    /// The source is present only on the observed value produced by a write
+    /// that explicitly passed one to ``set(_:for:source:)`` or
+    /// ``reset(_:source:)``. Callers use it to distinguish their own async
+    /// store echoes from external settings changes without relying on lossy
+    /// value equality.
     public nonisolated func valueEvents<Value>(
         for key: DefaultsKey<Value>
     ) -> AsyncStream<UserDefaultsSettingsValueEvent<Value>> {

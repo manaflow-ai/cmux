@@ -99,6 +99,31 @@ struct UserDefaultsSettingsStoreTests {
         #expect(untagged?.mutationSource == nil)
     }
 
+    @Test func valueEventsDoNotReuseMutationSourceForExternalWrite() async {
+        let suiteName = "cmux.tests.\(UUID().uuidString)"
+        let store = UserDefaultsSettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
+        let key = SettingCatalog().app.appearance
+        var iterator = store.valueEvents(for: key).makeAsyncIterator()
+
+        let initial = await iterator.next()
+        #expect(initial?.value == .system)
+        #expect(initial?.mutationSource == nil)
+
+        let source = UserDefaultsSettingsMutationSource()
+        await store.set(.dark, for: key, source: source)
+        let tagged = await iterator.next()
+        #expect(tagged?.value == .dark)
+        #expect(tagged?.mutationSource == source)
+
+        UserDefaults(suiteName: suiteName)!.set(
+            AppearanceMode.light.encodeForUserDefaults(),
+            forKey: key.userDefaultsKey
+        )
+        let external = await iterator.next()
+        #expect(external?.value == .light)
+        #expect(external?.mutationSource == nil)
+    }
+
     @Test func migratesLegacyKey() async {
         let suiteName = "cmux.tests.\(UUID().uuidString)"
         do {
