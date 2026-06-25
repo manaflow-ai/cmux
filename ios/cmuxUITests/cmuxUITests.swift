@@ -578,9 +578,14 @@ final class cmuxUITests: XCTestCase {
         let beforeKeyboard = try waitForTranscriptMetrics(table, timeout: 4) {
             abs($0.frameMaxY - baselineMaxY) < 4 && $0.frameHeight > 240
         }
-        XCTAssertTrue(
-            focusTextInput(composerField, in: app),
-            "Expected chat composer to focus and raise the keyboard from \(scrollPosition)",
+        let animationSamples = focusTextInputAndSampleTranscriptAnimation(
+            composerField,
+            table: table,
+            in: app
+        )
+        assertChatKeyboardAnimationStayedAttached(
+            animationSamples,
+            scrollPosition: scrollPosition,
             file: file,
             line: line
         )
@@ -1208,14 +1213,22 @@ final class cmuxUITests: XCTestCase {
         let frameMinY: CGFloat
         let frameMaxY: CGFloat
         let frameHeight: CGFloat
+        let presentationFrameMaxY: CGFloat
         let boundsHeight: CGFloat
         let offsetY: CGFloat
         let visibleBottomY: CGFloat
         let contentHeight: CGFloat
         let distanceFromBottom: CGFloat
+        let keyboardOverlap: CGFloat
+        let presentationGap: CGFloat
+        let keyboardAnimationActive: Bool
+        let keyboardAnimationProgress: CGFloat
+        let keyboardTransitionDuration: TimeInterval
+        let maxAnimationPresentationGap: CGFloat
+        let keyboardAnimationSamples: Int
 
         var description: String {
-            "frameMinY=\(frameMinY), frameMaxY=\(frameMaxY), frameHeight=\(frameHeight), boundsHeight=\(boundsHeight), offsetY=\(offsetY), visibleBottomY=\(visibleBottomY), contentHeight=\(contentHeight), distanceFromBottom=\(distanceFromBottom)"
+            "frameMinY=\(frameMinY), frameMaxY=\(frameMaxY), frameHeight=\(frameHeight), presentationFrameMaxY=\(presentationFrameMaxY), boundsHeight=\(boundsHeight), offsetY=\(offsetY), visibleBottomY=\(visibleBottomY), contentHeight=\(contentHeight), distanceFromBottom=\(distanceFromBottom), keyboardOverlap=\(keyboardOverlap), presentationGap=\(presentationGap), keyboardAnimationActive=\(keyboardAnimationActive), keyboardAnimationProgress=\(keyboardAnimationProgress), keyboardTransitionDuration=\(keyboardTransitionDuration), maxAnimationPresentationGap=\(maxAnimationPresentationGap), keyboardAnimationSamples=\(keyboardAnimationSamples)"
         }
 
         init?(_ rawValue: String) {
@@ -1241,11 +1254,80 @@ final class cmuxUITests: XCTestCase {
             self.frameMinY = frameMinY
             self.frameMaxY = frameMaxY
             self.frameHeight = frameHeight
+            self.presentationFrameMaxY = values["presentationFrameMaxY"] ?? frameMaxY
             self.boundsHeight = boundsHeight
             self.offsetY = offsetY
             self.visibleBottomY = visibleBottomY
             self.contentHeight = contentHeight
             self.distanceFromBottom = distanceFromBottom
+            self.keyboardOverlap = values["keyboardOverlap"] ?? 0
+            self.presentationGap = values["presentationGap"] ?? 0
+            self.keyboardAnimationActive = (values["keyboardAnimationActive"] ?? 0) >= 0.5
+            self.keyboardAnimationProgress = values["keyboardAnimationProgress"] ?? 1
+            self.keyboardTransitionDuration = TimeInterval(values["keyboardTransitionDuration"] ?? 0)
+            self.maxAnimationPresentationGap = values["maxAnimationPresentationGap"] ?? 0
+            self.keyboardAnimationSamples = Int(values["keyboardAnimationSamples"] ?? 0)
+        }
+    }
+
+    @MainActor
+    private func focusTextInputAndSampleTranscriptAnimation(
+        _ element: XCUIElement,
+        table: XCUIElement,
+        in app: XCUIApplication
+    ) -> [ChatTranscriptMetrics] {
+        var samples: [ChatTranscriptMetrics] = []
+        for _ in 0..<4 {
+            _ = tapTextInputOnce(element, in: app)
+            let deadline = Date().addingTimeInterval(1.1)
+            var sawKeyboardTransition = false
+            while Date() < deadline {
+                if let metrics = transcriptMetrics(from: table) {
+                    samples.append(metrics)
+                    sawKeyboardTransition = sawKeyboardTransition
+                        || metrics.keyboardAnimationActive
+                        || metrics.keyboardOverlap > 0
+                }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+            }
+            if sawKeyboardTransition {
+                return samples
+            }
+        }
+        return samples
+    }
+
+    @MainActor
+    private func assertChatKeyboardAnimationStayedAttached(
+        _ samples: [ChatTranscriptMetrics],
+        scrollPosition: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let measured = samples.reversed().first(where: { $0.keyboardOverlap > 0 }) else {
+            XCTFail(
+                "Expected keyboard tracking metrics after focusing from \(scrollPosition). Samples: \(samples)",
+                file: file,
+                line: line
+            )
+            return
+        }
+        if measured.keyboardAnimationSamples > 0 {
+            XCTAssertLessThanOrEqual(
+                measured.maxAnimationPresentationGap,
+                8,
+                "Transcript table presentation bottom must stay attached to the composer during keyboard animation from \(scrollPosition). Metrics: \(measured)",
+                file: file,
+                line: line
+            )
+        } else {
+            XCTAssertLessThanOrEqual(
+                measured.presentationGap,
+                8,
+                "Transcript table bottom must stay attached to the composer after keyboard transition from \(scrollPosition). Metrics: \(measured)",
+                file: file,
+                line: line
+            )
         }
     }
 
@@ -1358,6 +1440,23 @@ final class cmuxUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         return waitForKeyboardFocus(of: element, timeout: 0.5) || app.keyboards.firstMatch.exists
+    }
+
+    @MainActor
+    private func tapTextInputOnce(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
+        if element.isHittable {
+            element.tap()
+            return true
+        }
+        if let frame = waitForUsableFrame(of: element, timeout: 1) {
+            app.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: frame.midX, dy: frame.midY))
+                .tap()
+            return true
+        }
+        guard element.exists else { return false }
+        element.tap()
+        return true
     }
 
     @MainActor
