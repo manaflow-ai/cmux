@@ -30,6 +30,13 @@ IPHONE_FRAME_URL = ("https://fastlane.github.io/frameit-frames/latest/"
                     "Apple%20iPhone%2017%20Pro%20Max%20Silver.png")
 IPHONE_SCREEN_OFFSET = (75, 66)
 IPHONE_FRAME_SIZE = (1470, 3000)
+# The iPhone 17 Pro Max frame PNG paints the physical cutouts (a pill + a
+# separate camera hole). iOS renders one unified black Dynamic Island, so we
+# paint a single rounded pill over the frame's island. Coords are in frame
+# space (calibrated to this frame's island bbox); r = height/2 for a full pill.
+IPHONE_ISLAND = (547, 99, 922, 210, 55)
+BG_P_DIR = os.path.join(HERE, "backgrounds", "p")
+BG_L_DIR = os.path.join(HERE, "backgrounds", "l")
 
 SF_PRO = "/System/Library/Fonts/SFNS.ttf"
 FONT_UNICODE = "/System/Library/Fonts/Supplemental/Arial Unicode.ttf"
@@ -37,6 +44,15 @@ FONT_CANDIDATES = [SF_PRO, "/System/Library/Fonts/SFNSRounded.ttf", FONT_UNICODE
                    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"]
 # shot name (from <Device>-<NN>-<Name>.png) -> agent logo file
 LOGOS = {"claude": "Claude.png", "codex": "Codex.png", "opencode": "OpenCode.png", "pi": "Pi.png"}
+
+
+def bg_list(d, fallback):
+    if os.path.isdir(d):
+        fs = sorted(os.path.join(d, f) for f in os.listdir(d)
+                    if f.lower().endswith((".jpg", ".jpeg", ".png")))
+        if fs:
+            return fs
+    return [fallback]
 
 
 def font_for(title):
@@ -113,6 +129,10 @@ def compose_iphone(raw, out, bg, frame, mask, title, font, logo):
                         "-compose", "CopyOpacity", "-composite", masked], check=True)
         subprocess.run([MAGICK, "-size", f"{fw}x{fh}", "xc:none",
                         masked, "-composite", frame, "-composite", device], check=True)
+        # Unify the Dynamic Island (cover the frame's pill + camera hole).
+        x0, y0, x1, y1, r = IPHONE_ISLAND
+        subprocess.run([MAGICK, device, "-fill", "black",
+                        "-draw", f"roundrectangle {x0},{y0},{x1},{y1},{r},{r}", device], check=True)
         dw = int(cw * 0.885)
         dh = int(fh * dw / fw)
         dy = int(ch * 0.18)
@@ -163,8 +183,11 @@ def main():
     if not MAGICK:
         raise SystemExit("ImageMagick not found")
     ss = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else os.path.join(HERE, "..", "screenshots")
-    bg_portrait = os.path.join(HERE, "bg_portrait.jpg")
-    bg_landscape = os.path.join(HERE, "bg_landscape.jpg")
+    # Per-screen backgrounds: each screen (01..06) gets its own bg from the set,
+    # so the listing has varied (not repeated) backdrops. iPhone + iPad of the
+    # same screen share a theme (same index). Falls back to the single legacy bg.
+    bgs_p = bg_list(BG_P_DIR, os.path.join(HERE, "bg_portrait.jpg"))
+    bgs_l = bg_list(BG_L_DIR, os.path.join(HERE, "bg_landscape.jpg"))
     frame = ensure_iphone_frame()
     mask = os.path.join(tempfile.gettempdir(), "cmux_iphone_opening_mask.png")
     build_opening_mask(frame, mask)
@@ -187,10 +210,11 @@ def main():
             logo_file = LOGOS.get(name.lower())
             logo = os.path.join(LOGO_DIR, logo_file) if logo_file else None
             src, dst = os.path.join(d, f), os.path.join(d, f[:-4] + "_framed.png")
+            idx = int(m.group(2)) - 1  # screen 01 -> bg index 0
             if "ipad" in m.group(1).lower():
-                compose_ipad(src, dst, bg_landscape, title, font, logo)
+                compose_ipad(src, dst, bgs_l[idx % len(bgs_l)], title, font, logo)
             else:
-                compose_iphone(src, dst, bg_portrait, frame, mask, title, font, logo)
+                compose_iphone(src, dst, bgs_p[idx % len(bgs_p)], frame, mask, title, font, logo)
             n += 1
     print(f"composed {n} framed screenshots")
 
