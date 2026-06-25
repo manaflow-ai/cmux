@@ -21,7 +21,7 @@ private func XCTAssertFalse(_ condition: Bool) {
 }
 
 private func XCTFail(_ message: String) {
-    Issue.record(message)
+    Issue.record(Comment(rawValue: message))
 }
 
 @Suite(.serialized)
