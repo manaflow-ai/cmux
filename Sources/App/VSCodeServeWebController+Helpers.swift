@@ -161,8 +161,15 @@ extension VSCodeServeWebController {
             func complete(_ didTerminate: Bool) {
                 guard !didComplete else { return }
                 didComplete = true
+                terminationTimer?.setEventHandler {}
+                killTimer?.setEventHandler {}
                 terminationTimer?.cancel()
                 killTimer?.cancel()
+                terminationTimer = nil
+                killTimer = nil
+                for process in runningProcesses {
+                    process.terminationHandler = nil
+                }
                 completion(didTerminate)
             }
 
