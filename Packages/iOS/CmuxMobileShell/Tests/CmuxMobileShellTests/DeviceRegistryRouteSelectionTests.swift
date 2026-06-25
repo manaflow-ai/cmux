@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileShellModel
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -295,6 +296,38 @@ import Testing
         )
         #expect(routes?.count == 1)
         #expect(routes?.first?.id == "good")
+    }
+
+    @Test func extractsRoutesFromDecodedRegistryDevices() throws {
+        let routes = [try route(host: "100.9.9.9", port: 51999, id: "fresh")]
+        let devices = [
+            RegistryDevice(
+                deviceId: "mac-a",
+                platform: "mac",
+                displayName: "A",
+                lastSeenAt: .distantPast,
+                instances: [
+                    RegistryAppInstance(tag: "old", routes: [], lastSeenAt: .distantPast),
+                    RegistryAppInstance(tag: "stable", routes: routes, lastSeenAt: .distantPast),
+                ]
+            ),
+            RegistryDevice(
+                deviceId: "mac-b",
+                platform: "mac",
+                displayName: "B",
+                lastSeenAt: .distantPast,
+                instances: [
+                    RegistryAppInstance(
+                        tag: "stable",
+                        routes: [try route(host: "100.0.0.2", port: 51000, id: "other")],
+                        lastSeenAt: .distantPast
+                    ),
+                ]
+            ),
+        ]
+
+        #expect(DeviceRegistryService.routes(forMacDeviceID: "mac-a", in: devices) == routes)
+        #expect(DeviceRegistryService.routes(in: devices[0]) == routes)
     }
 
     @Test func appliesRefreshWhenStillSignedInSameUserSameActiveMac() {

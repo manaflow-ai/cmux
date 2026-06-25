@@ -9,6 +9,8 @@ struct WorkspaceComputerStripSection: View {
     let createWorkspace: (MacComputerSnapshot) -> Void
     let manageComputer: (MacComputerSnapshot) -> Void
     let removeComputer: (MacComputerSnapshot) -> Void
+    let canCreateFallbackWorkspace: Bool
+    let createFallbackWorkspace: () -> Void
     var showAddDevice: (() -> Void)?
 
     @ViewBuilder
@@ -26,6 +28,13 @@ struct WorkspaceComputerStripSection: View {
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
             }
+        } else if canCreateFallbackWorkspace {
+            Section {
+                Button(action: createFallbackWorkspace) {
+                    Label(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"), systemImage: "plus")
+                }
+                .accessibilityIdentifier("MobileWorkspaceComputerStripFallbackNew")
+            }
         }
     }
 }
@@ -39,13 +48,13 @@ extension WorkspaceListView {
         guard let store else { return }
         let deviceId = computer.deviceId
         let computerName = computer.title
-        guard computer.connectionStatus == .connected else {
-            computerWorkspaceCreationFailureID = deviceId
-            computerWorkspaceCreationFailureName = computerName
-            return
-        }
         Task {
-            let created = await store.createWorkspace(onMacDeviceID: deviceId)
+            let created: Bool
+            if let createWorkspaceOnComputerID {
+                created = await createWorkspaceOnComputerID(deviceId)
+            } else {
+                created = await store.createWorkspace(onMacDeviceID: deviceId)
+            }
             guard !created else { return }
             computerWorkspaceCreationFailureID = deviceId
             computerWorkspaceCreationFailureName = computerName

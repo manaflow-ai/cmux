@@ -28,8 +28,10 @@ struct WorkspaceListView: View {
     var unreadIndicatorLeftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift
     var profilePictureLeftShift: Double = MobileDisplaySettings.defaultProfilePictureLeftShift
     var profilePictureSize: Double = MobileDisplaySettings.defaultProfilePictureSize
+    var computerSnapshots: [MacComputerSnapshot] = []
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     let createWorkspace: () -> Void
+    var createWorkspaceOnComputerID: ((String) async -> Bool)?
     /// Pull-to-refresh action. Awaits the real workspace-list re-sync from the
     /// paired Mac so the system refresh spinner reflects actual completion (and
     /// ends gracefully, leaving the list intact, when the Mac is offline). Passed
@@ -158,7 +160,6 @@ struct WorkspaceListView: View {
     }
 
     var body: some View {
-        let computerSnapshots = store?.stableComputerSnapshots ?? []
         List {
             if let store, showsConnectionRecoveryRow {
                 Section {
@@ -182,6 +183,8 @@ struct WorkspaceListView: View {
                 createWorkspace: createWorkspaceOnComputer,
                 manageComputer: manageComputerFromStrip,
                 removeComputer: requestComputerRemovalFromStrip,
+                canCreateFallbackWorkspace: canCreateWorkspace,
+                createFallbackWorkspace: createWorkspace,
                 showAddDevice: showAddDevice
             )
             #endif

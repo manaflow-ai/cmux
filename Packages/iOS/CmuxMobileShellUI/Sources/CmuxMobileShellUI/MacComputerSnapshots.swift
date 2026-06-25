@@ -6,16 +6,6 @@ import Foundation
 
 extension MacComputerSnapshot {
     static func stableSorted(_ computers: [MacComputerSnapshot]) -> [MacComputerSnapshot] {
-        uniqueByDeviceID(computers).sorted { lhs, rhs in
-            let connectionOrder = lhs.connectionSortRank < rhs.connectionSortRank
-            if lhs.connectionSortRank != rhs.connectionSortRank { return connectionOrder }
-            let nameOrder = lhs.title.localizedStandardCompare(rhs.title)
-            if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
-            return lhs.deviceId.localizedStandardCompare(rhs.deviceId) == .orderedAscending
-        }
-    }
-
-    private static func uniqueByDeviceID(_ computers: [MacComputerSnapshot]) -> [MacComputerSnapshot] {
         var firstIndexByID: [String: Int] = [:]
         var selectedByID: [String: MacComputerSnapshot] = [:]
 
@@ -32,11 +22,19 @@ extension MacComputerSnapshot {
             }
         }
 
-        return selectedByID
+        let uniqueComputers = selectedByID
             .sorted { lhs, rhs in
                 (firstIndexByID[lhs.key] ?? .max) < (firstIndexByID[rhs.key] ?? .max)
             }
             .map(\.value)
+
+        return uniqueComputers.sorted { lhs, rhs in
+            let connectionOrder = lhs.connectionSortRank < rhs.connectionSortRank
+            if lhs.connectionSortRank != rhs.connectionSortRank { return connectionOrder }
+            let nameOrder = lhs.title.localizedStandardCompare(rhs.title)
+            if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
+            return lhs.deviceId.localizedStandardCompare(rhs.deviceId) == .orderedAscending
+        }
     }
 
     private var connectionSortRank: Int {
@@ -64,7 +62,8 @@ extension MacComputerSnapshot {
     }
 
     private func mergingPresentationMetadata(from other: MacComputerSnapshot) -> MacComputerSnapshot {
-        MacComputerSnapshot(
+        var seenAliases: Set<String> = []
+        return MacComputerSnapshot(
             deviceId: deviceId,
             title: title,
             platform: platform,
@@ -77,13 +76,8 @@ extension MacComputerSnapshot {
             routeDescription: routeDescription ?? other.routeDescription,
             lastSeenAt: lastSeenAt,
             workspaceCount: max(workspaceCount, other.workspaceCount),
-            aliasIDs: Self.stableUnique(aliasIDs + other.aliasIDs)
+            aliasIDs: (aliasIDs + other.aliasIDs).filter { seenAliases.insert($0).inserted }
         )
-    }
-
-    private static func stableUnique(_ values: [String]) -> [String] {
-        var seen: Set<String> = []
-        return values.filter { seen.insert($0).inserted }
     }
 }
 

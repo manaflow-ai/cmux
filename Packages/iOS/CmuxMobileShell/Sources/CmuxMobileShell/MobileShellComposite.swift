@@ -1593,6 +1593,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         // Try each candidate until one connects, so a single offline Mac never
         // blocks the others.
+        var registryRoutesByMacID: [String: [CmxAttachRoute]]?
+        func registryRoutesForReconnect() async -> [String: [CmxAttachRoute]] {
+            if let registryRoutesByMacID { return registryRoutesByMacID }
+            let loaded = await loadRegistryRoutesByMacIDForReconnect(scope: scope) ?? [:]
+            registryRoutesByMacID = loaded
+            return loaded
+        }
+        func connectCandidate(_ reconnectMac: MobilePairedMac) async -> Bool {
+            guard generation == storedMacReconnectGeneration,
+                  await isScopeCurrent(scope),
+                  let (host, port) = reachableRoute(reconnectMac) else { return false }
+            await connectStoredMacHost(
+                name: reconnectMac.displayName ?? host, host: host, port: port,
+                pairedMacDeviceID: reconnectMac.macDeviceID)
+            return connectionState == .connected
+        }
         for mac in candidates {
             guard generation == storedMacReconnectGeneration,
                   await isScopeCurrent(scope) else { break }
@@ -1603,18 +1619,29 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             let reconnectMac: MobilePairedMac
             if needsForegroundRefresh {
-                reconnectMac = await refreshedMacForReconnect(mac, scope: scope)
+                let routesByMacID = await registryRoutesForReconnect()
+                let registryRoutes = routesByMacID[mac.macDeviceID]
+                reconnectMac = await refreshedMacForReconnect(
+                    mac,
+                    scope: scope,
+                    registryRoutes: registryRoutes
+                )
             } else {
                 reconnectMac = mac
-                Task { [weak self] in _ = await self?.refreshedMacForReconnect(mac, scope: scope) }
             }
-            guard generation == storedMacReconnectGeneration,
-                  await isScopeCurrent(scope),
-                  let (host, port) = reachableRoute(reconnectMac) else { continue }
-            await connectStoredMacHost(
-                name: reconnectMac.displayName ?? host, host: host, port: port,
-                pairedMacDeviceID: reconnectMac.macDeviceID)
-            if connectionState == .connected { break }
+            if await connectCandidate(reconnectMac) { break }
+            if !needsForegroundRefresh,
+               generation == storedMacReconnectGeneration,
+               await isScopeCurrent(scope) {
+                let routesByMacID = await registryRoutesForReconnect()
+                let refreshed = await refreshedMacForReconnect(
+                    mac,
+                    scope: scope,
+                    registryRoutes: routesByMacID[mac.macDeviceID]
+                )
+                if refreshed.routes != mac.routes,
+                   await connectCandidate(refreshed) { break }
+            }
         }
         restoringDeadline.cancel()
         // A newer attempt may have started during the connect; it now owns the flags.
@@ -1648,10 +1675,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func refreshedMacForReconnect(
         _ mac: MobilePairedMac,
-        scope: MobileShellScopeSnapshot
+        scope: MobileShellScopeSnapshot,
+        registryRoutes: [CmxAttachRoute]?
     ) async -> MobilePairedMac {
-        guard let deviceRegistry else { return mac }
-        let registryRoutes = await deviceRegistry.freshRoutes(forMacDeviceID: mac.macDeviceID)
         let routes = Self.validatedReconnectRoutes(
             local: mac.routes,
             registry: registryRoutes,
@@ -1663,6 +1689,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         refreshed.routes = routes
         await persistRegistryRoutesForReconnect(refreshed, scope: scope)
         return refreshed
+    }
+
+    private func loadRegistryRoutesByMacIDForReconnect(
+        scope: MobileShellScopeSnapshot
+    ) async -> [String: [CmxAttachRoute]]? {
+        guard let deviceRegistry else { return nil }
+        guard case .ok(let devices) = await deviceRegistry.listDevices(),
+              await isScopeCurrent(scope) else { return nil }
+        return devices.reduce(into: [String: [CmxAttachRoute]]()) { result, device in
+            if let routes = DeviceRegistryService.routes(in: device) {
+                result[device.deviceId] = routes
+            }
+        }
     }
 
     private func persistRegistryRoutesForReconnect(
@@ -3767,13 +3806,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
            let macDeviceID = ownerMacDeviceID,
            !macDeviceID.isEmpty,
            macDeviceID != foregroundMacDeviceID {
-            if workspace?.macConnectionStatus == .unavailable {
-                mobileShellLog.info("openWorkspace: ignoring unavailable secondary mac=\(macDeviceID, privacy: .public)")
-                if selectedWorkspaceID == id {
-                    setSelectedWorkspaceID(nil)
-                }
-                return
-            }
             // Only proceed if that Mac actually became the foreground connection.
             // The tap already selected this workspace and pushed its detail
             // synchronously (this runs from the detail's task), so on a failed
