@@ -129,6 +129,11 @@ extension CMUXCLI {
             reportAutoNamingProblem("extraction_failed", agent: def.name, workspaceId: workspaceId, client: client)
             return
         }
+        guard let context = engine.buildContext(from: sourceResult.messages) else {
+            telemetry.breadcrumb("\(telemetryKey).extraction-empty")
+            reportAutoNamingProblem("extraction_failed", agent: def.name, workspaceId: workspaceId, client: client)
+            return
+        }
 
         let resolution = resolvedSummarizerAgent(
             probe: probe, sessionAgent: def.name, env: env, telemetry: telemetry
@@ -146,7 +151,6 @@ extension CMUXCLI {
             telemetryKey: telemetryKey,
             telemetry: telemetry
         ) { engine, outcome in
-            guard let context = engine.buildContext(from: sourceResult.messages) else { return nil }
             let prompt = engine.buildPrompt(
                 currentTitle: outcome.lastTitle,
                 context: context,

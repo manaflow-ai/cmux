@@ -1057,20 +1057,22 @@ final class ClaudeHookSessionStore {
         guard !messages.isEmpty else { return }
         var recent = record.autoNameRecentMessages ?? []
         var seen = Set(recent.map(autoNameMessageDedupKey))
-        var appendedCount = 0
+        var observedCount = 0
         for message in messages {
             guard let normalized = normalizedAutoNameMessage(message) else { continue }
+            // Cache unique content only, but keep the progress counter tied to
+            // every valid observed message so repeated turns still advance the throttle.
+            observedCount += 1
             let key = autoNameMessageDedupKey(normalized)
             guard seen.insert(key).inserted else { continue }
             recent.append(normalized)
-            appendedCount += 1
         }
         if recent.count > Self.maxAutoNameRecentMessages {
             recent.removeFirst(recent.count - Self.maxAutoNameRecentMessages)
         }
         record.autoNameRecentMessages = recent.isEmpty ? nil : recent
-        if appendedCount > 0 {
-            record.autoNameMessageSequence = (record.autoNameMessageSequence ?? 0) + appendedCount
+        if observedCount > 0 {
+            record.autoNameMessageSequence = (record.autoNameMessageSequence ?? 0) + observedCount
         }
     }
 

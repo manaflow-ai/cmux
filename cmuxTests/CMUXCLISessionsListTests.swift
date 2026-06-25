@@ -160,7 +160,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             )
             var snapshot = try store.autoNamingRecentMessagesSnapshot(sessionId: sessionId)
             #expect(snapshot.messages == Array(duplicateMessages.prefix(2)))
-            #expect(snapshot.totalMessageCount == 2)
+            #expect(snapshot.totalMessageCount == 6)
 
             let uniqueMessages = (0..<30).map {
                 AutoNamingTranscriptMessage(role: "user", text: "Unique request \($0)")
@@ -176,7 +176,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             )
             snapshot = try store.autoNamingRecentMessagesSnapshot(sessionId: sessionId)
             #expect(snapshot.messages.count == 24)
-            #expect(snapshot.totalMessageCount == 32)
+            #expect(snapshot.totalMessageCount == 36)
             #expect(snapshot.messages.last?.text == "Unique request 29")
         }
     }

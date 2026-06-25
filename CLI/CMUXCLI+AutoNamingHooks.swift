@@ -59,6 +59,15 @@ extension CMUXCLI {
         }
         let lineCount = textFileGrowthMetric(path: transcriptPath, fallbackLineCount: lines.count)
         let engine = AutoNamingEngine()
+        let extraction = engine.extractClaudeTranscript(fromTranscriptLines: lines)
+        if let diagnostic = extraction.diagnosticSummary {
+            telemetry.breadcrumb("\(telemetryKey).extraction.\(diagnostic)")
+        }
+        guard let context = engine.buildContext(from: extraction.messages) else {
+            telemetry.breadcrumb("\(telemetryKey).extraction-empty")
+            reportAutoNamingProblem("extraction_failed", agent: "claude", workspaceId: workspaceId, client: client)
+            return
+        }
         guard let outcome = try? sessionStore.beginAutoNaming(
             sessionId: sessionId,
             workspaceId: workspaceId,
@@ -81,16 +90,6 @@ extension CMUXCLI {
                 baselineLineCount: confirmedTitle != nil ? baseline : nil,
                 now: Date()
             )
-        }
-
-        let extraction = engine.extractClaudeTranscript(fromTranscriptLines: lines)
-        if let diagnostic = extraction.diagnosticSummary {
-            telemetry.breadcrumb("\(telemetryKey).extraction.\(diagnostic)")
-        }
-        guard let context = engine.buildContext(from: extraction.messages) else {
-            telemetry.breadcrumb("\(telemetryKey).extraction-empty")
-            reportAutoNamingProblem("extraction_failed", agent: "claude", workspaceId: workspaceId, client: client)
-            return
         }
         let prompt = engine.buildPrompt(
             currentTitle: outcome.lastTitle,
@@ -244,6 +243,16 @@ extension CMUXCLI {
             reportAutoNamingProblem("extraction_failed", agent: "codex", workspaceId: workspaceId, client: client)
             return
         }
+        let engine = AutoNamingEngine()
+        let extraction = engine.extractCodexRollout(fromRolloutLines: lines)
+        if let diagnostic = extraction.diagnosticSummary {
+            telemetry.breadcrumb("\(telemetryKey).extraction.\(diagnostic)")
+        }
+        guard let context = engine.buildContext(from: extraction.messages) else {
+            telemetry.breadcrumb("\(telemetryKey).extraction-empty")
+            reportAutoNamingProblem("extraction_failed", agent: "codex", workspaceId: workspaceId, client: client)
+            return
+        }
         let resolution = resolvedSummarizerAgent(
             probe: probe, sessionAgent: "codex", env: env, telemetry: telemetry
         )
@@ -260,15 +269,6 @@ extension CMUXCLI {
             telemetryKey: telemetryKey,
             telemetry: telemetry
         ) { engine, outcome in
-            let extraction = engine.extractCodexRollout(fromRolloutLines: lines)
-            if let diagnostic = extraction.diagnosticSummary {
-                telemetry.breadcrumb("\(telemetryKey).extraction.\(diagnostic)")
-            }
-            guard let context = engine.buildContext(from: extraction.messages) else {
-                telemetry.breadcrumb("\(telemetryKey).extraction-empty")
-                reportAutoNamingProblem("extraction_failed", agent: resolution.agent, workspaceId: workspaceId, client: client)
-                return nil
-            }
             let prompt = engine.buildPrompt(
                 currentTitle: outcome.lastTitle,
                 context: context,
