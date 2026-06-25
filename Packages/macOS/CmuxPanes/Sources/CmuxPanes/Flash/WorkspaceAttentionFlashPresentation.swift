@@ -89,3 +89,34 @@ public struct WorkspaceAttentionFlashPresentation: Equatable, Sendable {
         )
     }
 }
+
+extension WorkspaceAttentionFlashReason {
+    /// The pane-flash style this attention reason flashes.
+    ///
+    /// Navigation flashes a focus ring; every notification/unread/debug reason
+    /// flashes the notification ring. Faithful lift of the legacy
+    /// `GhosttySurfaceScrollView.flashStyle(for:)`, scoped onto the reason that
+    /// owns the mapping (`CmuxCore`'s reason and `CmuxTerminalCore`'s style both
+    /// resolve here, the lowest package that sees both).
+    public var paneFlashStyle: TerminalPaneFlashStyle {
+        switch self {
+        case .navigation:
+            return .navigation
+        case .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
+            return .notification
+        }
+    }
+}
+
+extension TerminalPaneFlashStyle {
+    /// The attention-flash presentation flashed for this pane-flash style.
+    ///
+    /// Faithful lift of the legacy
+    /// `GhosttySurfaceScrollView.flashPresentation(for:)`: every style resolves
+    /// to ``WorkspaceAttentionFlashPresentation/flashRing`` (the legacy code
+    /// mapped `.navigation` and `.notification` through `flashRing(for:)`, which
+    /// returns `flashRing` for every reason).
+    public var flashPresentation: WorkspaceAttentionFlashPresentation {
+        .flashRing
+    }
+}

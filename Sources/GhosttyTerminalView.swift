@@ -5486,37 +5486,6 @@ private final class TerminalViewportBorderOverlayView: NSView {
 }
 
 final class GhosttySurfaceScrollView: NSView {
-    enum FlashStyle {
-        case navigation
-        case notification
-
-        /// The `Sendable` pane-flash style pushed across the overlay seam.
-        var paneFlashStyle: TerminalPaneFlashStyle {
-            switch self {
-            case .navigation: return .navigation
-            case .notification: return .notification
-            }
-        }
-    }
-
-    static func flashStyle(for reason: WorkspaceAttentionFlashReason) -> FlashStyle {
-        switch reason {
-        case .navigation:
-            return .navigation
-        case .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
-            return .notification
-        }
-    }
-
-    private static func flashPresentation(for style: FlashStyle) -> WorkspaceAttentionFlashPresentation {
-        switch style {
-        case .navigation:
-            return WorkspaceAttentionFlashPresentation.flashRing(for: .navigation)
-        case .notification:
-            return WorkspaceAttentionFlashPresentation.flashRing(for: .notificationArrival)
-        }
-    }
-
     private var sharedBackdropCutoutView: NSView?
     private let backgroundView: NSView
     private let scrollView: GhosttyScrollView
@@ -5830,7 +5799,7 @@ final class GhosttySurfaceScrollView: NSView {
             presentation: WorkspaceAttentionFlashPresentation.notificationRing.ringPresentation()
         )
         ringChrome.configureFlash(
-            presentation: Self.flashPresentation(for: .navigation).ringPresentation()
+            presentation: TerminalPaneFlashStyle.navigation.flashPresentation.ringPresentation()
         )
         addSubview(ringChrome)
         keyboardCopyModeBadgeContainerView.translatesAutoresizingMaskIntoConstraints = false
@@ -7077,7 +7046,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 #endif
 
-    func triggerFlash(style: FlashStyle = .navigation) {
+    func triggerFlash(style: TerminalPaneFlashStyle = .navigation) {
         #if DEBUG
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -7087,8 +7056,8 @@ final class GhosttySurfaceScrollView: NSView {
         }
 #endif
         ringChrome.triggerFlash(
-            style: style.paneFlashStyle,
-            presentation: Self.flashPresentation(for: style).ringPresentation(),
+            style: style,
+            presentation: style.flashPresentation.ringPresentation(),
             animation: FocusFlashPattern.standard.paneAnimationSpec
         )
     }

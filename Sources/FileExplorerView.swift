@@ -42,6 +42,10 @@ struct FileExplorerPanelView: NSViewRepresentable {
     var placement: FileExplorerPanelPlacement = .rightSidebar
     var onFocus: (() -> Void)?
     var onContainerChange: ((FileExplorerContainerView?) -> Void)?
+    /// Right-sidebar keyboard-focus + mode-shortcut routing seam. Injected by the
+    /// app composition root at each mount site (and `nil` in tests); the file
+    /// explorer never names `AppDelegate.shared` itself.
+    var focusRouting: (any RightSidebarFocusRouting)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -50,7 +54,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
             onOpenFilePreview: onOpenFilePreview,
             placement: placement,
             onFocus: onFocus,
-            onContainerChange: onContainerChange
+            onContainerChange: onContainerChange,
+            focusRouting: focusRouting
         )
     }
 
@@ -89,6 +94,9 @@ struct FileExplorerPanelView: NSViewRepresentable {
         var placement: FileExplorerPanelPlacement
         var onFocus: (() -> Void)?
         var onContainerChange: ((FileExplorerContainerView?) -> Void)?
+        /// Right-sidebar keyboard-focus + mode-shortcut routing seam, injected by
+        /// `FileExplorerPanelView` instead of reaching `AppDelegate.shared`.
+        let focusRouting: (any RightSidebarFocusRouting)?
         weak var containerView: FileExplorerContainerView?
         weak var outlineView: NSOutlineView?
         private var lastRootNodeCount: Int = -1
@@ -102,7 +110,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
             onOpenFilePreview: @escaping (String) -> Void,
             placement: FileExplorerPanelPlacement = .rightSidebar,
             onFocus: (() -> Void)? = nil,
-            onContainerChange: ((FileExplorerContainerView?) -> Void)? = nil
+            onContainerChange: ((FileExplorerContainerView?) -> Void)? = nil,
+            focusRouting: (any RightSidebarFocusRouting)? = nil
         ) {
             self.store = store
             self.state = state
@@ -110,6 +119,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             self.placement = placement
             self.onFocus = onFocus
             self.onContainerChange = onContainerChange
+            self.focusRouting = focusRouting
             super.init()
             observeStore()
             styleObserver = NotificationCenter.default.addObserver(
@@ -131,7 +141,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         @discardableResult
         func handleModeShortcut(_ mode: RightSidebarMode, in window: NSWindow?) -> Bool {
             guard placement == .rightSidebar else { return false }
-            _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+            _ = focusRouting?.focusRightSidebarInActiveMainWindow(
                 mode: mode,
                 focusFirstItem: true,
                 preferredWindow: window
@@ -144,7 +154,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             switch placement {
             case .rightSidebar:
                 guard let window else { return }
-                AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: mode, in: window)
+                focusRouting?.noteRightSidebarKeyboardFocusIntent(mode: mode, in: window)
             case .pane:
                 onFocus?()
             }
@@ -824,6 +834,7 @@ final class FileExplorerContainerView: NSView {
         addSubview(scrollView)
 
         // Streaming search results
+        searchResultsView.focusRouting = coordinator.focusRouting
         searchResultsView.headerView = nil
         searchResultsView.usesAlternatingRowBackgroundColors = false
         searchResultsView.style = .plain
@@ -931,7 +942,7 @@ final class FileExplorerContainerView: NSView {
         super.viewDidMoveToWindow()
         guard let window else { return }
         if coordinator.placement == .rightSidebar {
-            AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.registerFileExplorerHost(self)
+            coordinator.focusRouting?.registerFileExplorerHost(self, in: window)
         }
 #if DEBUG
         dlog(
@@ -945,7 +956,7 @@ final class FileExplorerContainerView: NSView {
     func registerWithKeyboardFocusCoordinatorIfNeeded() {
         guard coordinator.placement == .rightSidebar else { return }
         guard let window else { return }
-        AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.registerFileExplorerHost(self)
+        coordinator.focusRouting?.registerFileExplorerHost(self, in: window)
     }
 
     override func layout() {
@@ -1413,7 +1424,7 @@ final class FileExplorerContainerView: NSView {
                 _ = focusSearchField()
                 return
             }
-            if AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.focusTerminal() == true {
+            if coordinator.focusRouting?.focusTerminalFromRightSidebar(in: window) == true {
                 return
             }
             window?.makeFirstResponder(nil)
@@ -1712,6 +1723,9 @@ final class FileExplorerSearchResultsTableView: NSTableView {
     var onCommit: (() -> Void)?
     var onFocus: (() -> Void)?
     var onModeShortcut: ((RightSidebarMode, NSWindow?) -> Bool)?
+    /// Right-sidebar mode-shortcut routing seam, injected by the container instead
+    /// of reaching `AppDelegate.shared`.
+    weak var focusRouting: (any RightSidebarFocusRouting)?
 
     override func becomeFirstResponder() -> Bool {
         let result = super.becomeFirstResponder()
@@ -1731,7 +1745,7 @@ final class FileExplorerSearchResultsTableView: NSTableView {
     }
 
     override func keyDown(with event: NSEvent) {
-        if let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event) {
+        if let mode = focusRouting?.rightSidebarModeShortcut(for: event) {
             if onModeShortcut?(mode, window) == true {
                 return
             }
@@ -2073,7 +2087,7 @@ final class FileExplorerNSOutlineView: NSOutlineView {
     private var quickSearchQuery = ""
 
     override func keyDown(with event: NSEvent) {
-        if let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event) {
+        if let mode = fileExplorerCoordinator?.focusRouting?.rightSidebarModeShortcut(for: event) {
             if fileExplorerCoordinator?.handleModeShortcut(mode, in: window) == true {
                 return
             }

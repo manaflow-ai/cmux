@@ -761,9 +761,9 @@ final class TerminalPanel: Panel, ObservableObject {
                 onRequestWorkspacePaneFlash(reason)
                 return
             }
-            hostedView.triggerFlash(style: GhosttySurfaceScrollView.flashStyle(for: reason))
+            hostedView.triggerFlash(style: reason.paneFlashStyle)
         case .surface, .tmuxActivePane:
-            hostedView.triggerFlash(style: GhosttySurfaceScrollView.flashStyle(for: reason))
+            hostedView.triggerFlash(style: reason.paneFlashStyle)
         }
     }
 

@@ -462,14 +462,16 @@ struct RightSidebarPanelView: View {
                     store: fileExplorerStore,
                     state: fileExplorerState,
                     onOpenFilePreview: onOpenFilePreview,
-                    presentation: .files
+                    presentation: .files,
+                    focusRouting: AppDelegate.shared
                 )
             case .find:
                 FileExplorerPanelView(
                     store: fileExplorerStore,
                     state: fileExplorerState,
                     onOpenFilePreview: onOpenFilePreview,
-                    presentation: .find
+                    presentation: .find,
+                    focusRouting: AppDelegate.shared
                 )
             case .sessions:
                 SessionIndexView(store: sessionIndexStore, onResume: onResumeSession)

@@ -267,7 +267,8 @@ struct RightSidebarToolPanelView: View {
                 presentation: .files,
                 placement: .pane,
                 onFocus: requestPanelFocusIfNeeded,
-                onContainerChange: panel.attachFileExplorerContainer
+                onContainerChange: panel.attachFileExplorerContainer,
+                focusRouting: AppDelegate.shared
             )
         case .find:
             FileExplorerPanelView(
@@ -277,7 +278,8 @@ struct RightSidebarToolPanelView: View {
                 presentation: .find,
                 placement: .pane,
                 onFocus: requestPanelFocusIfNeeded,
-                onContainerChange: panel.attachFileExplorerContainer
+                onContainerChange: panel.attachFileExplorerContainer,
+                focusRouting: AppDelegate.shared
             )
         case .sessions:
             let resumeCoordinator = SessionResumeCoordinator(tabManager: tabManager)
