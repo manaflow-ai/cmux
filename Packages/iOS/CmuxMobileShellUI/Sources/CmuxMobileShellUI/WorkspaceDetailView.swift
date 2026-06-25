@@ -327,7 +327,15 @@ struct WorkspaceDetailView: View {
                 // reuses the first terminal's surface and the dropdown never switches.
                 // Keying on terminalID tears down the old surface (unregistering its
                 // sink via dismantleUIView) and builds the newly-selected one.
-                .id(terminalID)
+                //
+                // The theme generation is folded into the identity so a terminal
+                // theme change (the Mac reporting different colors) also remounts
+                // the surface: libghostty reads its palette once while building
+                // config and has no live-recolor API, so a rebuild is the only
+                // way to apply a new theme to an already-mounted surface. The
+                // generation only advances on a real theme change, so steady-state
+                // reconnects keep the same id and preserve the surface/scrollback.
+                .id("\(terminalID)#theme\(store.terminalThemeGeneration)")
                 .onAppear {
                     store.consumeTerminalAutoFocusSuppression(for: terminalID)
                 }
