@@ -5955,6 +5955,12 @@ struct CMUXCLI {
     ) throws -> String? {
         guard let raw else {
             if !allowCurrent { return nil }
+            // Prefer the caller's own workspace before the focused one (see
+            // resolveWorkspaceId). Placed after the !allowCurrent guard so explicit-surface
+            // routing, which passes allowCurrent: false to resolve globally, is unaffected.
+            if let callerWorkspaceId = callerWorkspaceIdFromEnvironment(windowHandle: windowHandle) {
+                return callerWorkspaceId
+            }
             let current: [String: Any]
             if let windowHandle {
                 current = try client.sendV2(method: "workspace.current", params: ["window_id": windowHandle])
@@ -13934,6 +13940,18 @@ struct CMUXCLI {
             .replacingOccurrences(of: "%25", with: "%")
     }
 
+    /// The caller's own workspace, taken from the `CMUX_WORKSPACE_ID` the app injects
+    /// into every terminal surface. Returns nil when the value is unset, blank, not a
+    /// UUID, or when an explicit window is targeted (the caller's workspace may live in a
+    /// different window). Resolvers use this to default to the workspace the command was
+    /// invoked from, falling back to the focused workspace only when there is no caller.
+    private func callerWorkspaceIdFromEnvironment(windowHandle: String?) -> String? {
+        guard windowHandle == nil else { return nil }
+        let value = (ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return isUUID(value) ? value : nil
+    }
+
     private func resolveWorkspaceId(_ raw: String?, client: SocketClient, windowHandle: String? = nil) throws -> String {
         if let raw, isUUID(raw) {
             return raw
@@ -13970,6 +13988,15 @@ struct CMUXCLI {
                 if let id = item["id"] as? String { return id }
             }
             throw CLIError(message: "Workspace index not found")
+        }
+
+        // No explicit workspace handle (nil, blank, or unparseable). Prefer the caller's
+        // own workspace over the focused one, so a background agent whose command omits or
+        // empties --workspace never silently acts on whatever workspace is selected in the
+        // foreground. Only when there is no caller (env unset, or an explicit --window was
+        // targeted) do we fall back to the window's selected workspace.
+        if let callerWorkspaceId = callerWorkspaceIdFromEnvironment(windowHandle: windowHandle) {
+            return callerWorkspaceId
         }
 
         var currentParams: [String: Any] = [:]
