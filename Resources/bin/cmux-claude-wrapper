@@ -102,11 +102,21 @@ resolve_hook_cmux_bin() {
 
 CLAUDE_AUTH_SELECTION_ENV_KEYS=(
     ANTHROPIC_API_KEY
-    ANTHROPIC_MODEL
     ANTHROPIC_SMALL_FAST_MODEL
     CLAUDE_CODE_USE_BEDROCK
     CLAUDE_CODE_USE_VERTEX
 )
+# NOTE: ANTHROPIC_MODEL is intentionally NOT in this list. It is a user model
+# selection, not an auth-selection signal, and stripping it breaks any user who
+# runs Claude Code against a custom ANTHROPIC_BASE_URL with a non-Anthropic model
+# slug (BYOK gateways, OpenAI-compatible proxies, internal LLM endpoints) and
+# resumes sessions: Claude Code reports "Session model <slug> could not be
+# restored ... using the default model instead", falls back to a hardcoded
+# default model, sends it to the custom endpoint (which doesn't recognize it),
+# and the session exits to the shell. When ANTHROPIC_BASE_URL is set there is no
+# "default Anthropic API path" for a stale id to leak into; the Vertex/Bedrock
+# auto-preserve branch in should_preserve_claude_auth_selection_key already
+# covers the only dangerous case.
 
 PRESERVE_CLAUDE_AUTH_SELECTION_ENV=false
 case "${CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV:-}" in

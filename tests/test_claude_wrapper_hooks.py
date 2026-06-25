@@ -940,9 +940,12 @@ def test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures
     expect(auth_env.get("CLAUDE_CONFIG_DIR") == "/tmp/claude-config", f"fresh auth env: expected CLAUDE_CONFIG_DIR preserved, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}", failures)
     expect(auth_env.get("ANTHROPIC_AUTH_TOKEN") == "third-party-auth-token", f"fresh auth env: expected ANTHROPIC_AUTH_TOKEN preserved, got {auth_env.get('ANTHROPIC_AUTH_TOKEN')!r}", failures)
     expect(auth_env.get("ANTHROPIC_BASE_URL") == "https://api.example.test", f"fresh auth env: expected ANTHROPIC_BASE_URL preserved, got {auth_env.get('ANTHROPIC_BASE_URL')!r}", failures)
+    # ANTHROPIC_MODEL is a user model selection, not auth selection — it must be
+    # preserved so custom-endpoint users (ANTHROPIC_BASE_URL + non-Anthropic slug)
+    # can resume sessions without "Session model ... could not be restored".
+    expect(auth_env.get("ANTHROPIC_MODEL") == "stale-model", f"fresh auth env: expected ANTHROPIC_MODEL preserved, got {auth_env.get('ANTHROPIC_MODEL')!r}", failures)
     for key in [
         "ANTHROPIC_API_KEY",
-        "ANTHROPIC_MODEL",
         "ANTHROPIC_SMALL_FAST_MODEL",
         "CLAUDE_CODE_USE_BEDROCK",
         "CLAUDE_CODE_USE_VERTEX",
@@ -965,9 +968,10 @@ def test_hooks_disabled_clears_stale_auth_selection_before_passthrough(failures:
     )
     expect(code == 0, f"hooks-disabled auth env: wrapper exited {code}: {stderr}", failures)
     expect(auth_env.get("CLAUDE_CONFIG_DIR") == "/tmp/claude-config", f"hooks-disabled auth env: expected CLAUDE_CONFIG_DIR preserved, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}", failures)
+    # ANTHROPIC_MODEL is preserved (not auth selection); only API_KEY/SMALL_FAST are stripped.
+    expect(auth_env.get("ANTHROPIC_MODEL") == "stale-model", f"hooks-disabled auth env: expected ANTHROPIC_MODEL preserved, got {auth_env.get('ANTHROPIC_MODEL')!r}", failures)
     for key in [
         "ANTHROPIC_API_KEY",
-        "ANTHROPIC_MODEL",
         "ANTHROPIC_SMALL_FAST_MODEL",
     ]:
         expect(auth_env.get(key) == "__UNSET__", f"hooks-disabled auth env: expected {key} unset, got {auth_env.get(key)!r}", failures)
@@ -1422,6 +1426,30 @@ def test_live_socket_preserves_only_listed_claude_auth_keys(failures: list[str])
     expect("--session-id" not in real_argv, f"listed auth env: expected no injected session id, got {real_argv}", failures)
 
 
+def test_live_socket_preserves_anthropic_model_for_custom_endpoint_resume(failures: list[str]) -> None:
+    # Regression: a user with a custom ANTHROPIC_BASE_URL + non-Anthropic model slug
+    # (BYOK gateway / OpenAI-compatible proxy / internal LLM endpoint) must keep
+    # ANTHROPIC_MODEL across the wrapper, otherwise `claude --resume` reports
+    # "Session model <slug> could not be restored ... using the default model
+    # instead" and the session exits when a later turn re-resolves the model.
+    inherited = {
+        "ANTHROPIC_BASE_URL": "https://my-gateway.example.test/anthropic",
+        "ANTHROPIC_AUTH_TOKEN": "third-party-token",
+        "ANTHROPIC_MODEL": "glm-5.2[1m]",
+        "ANTHROPIC_DEFAULT_SONNET_MODEL": "glm-5.2[1m]",
+    }
+    code, auth_env, real_argv, stderr = run_wrapper_auth_env(
+        argv=["--resume", "claude-session-123"],
+        inherited_env=inherited,
+    )
+    expect(code == 0, f"custom-endpoint resume: wrapper exited {code}: {stderr}", failures)
+    expect(auth_env.get("ANTHROPIC_MODEL") == "glm-5.2[1m]", f"custom-endpoint resume: expected ANTHROPIC_MODEL preserved, got {auth_env.get('ANTHROPIC_MODEL')!r}", failures)
+    expect(auth_env.get("ANTHROPIC_BASE_URL") == "https://my-gateway.example.test/anthropic", f"custom-endpoint resume: expected ANTHROPIC_BASE_URL preserved, got {auth_env.get('ANTHROPIC_BASE_URL')!r}", failures)
+    expect(auth_env.get("ANTHROPIC_AUTH_TOKEN") == "third-party-token", f"custom-endpoint resume: expected ANTHROPIC_AUTH_TOKEN preserved, got {auth_env.get('ANTHROPIC_AUTH_TOKEN')!r}", failures)
+    # ANTHROPIC_API_KEY is genuine auth selection and must still be stripped.
+    expect(auth_env.get("ANTHROPIC_API_KEY") == "__UNSET__", f"custom-endpoint resume: expected ANTHROPIC_API_KEY unset, got {auth_env.get('ANTHROPIC_API_KEY')!r}", failures)
+
+
 def test_live_socket_auto_preserves_vertex_auth_when_truthy(failures: list[str]) -> None:
     # Regression for https://github.com/manaflow-ai/cmux/issues/3641.
     inherited = {
@@ -1561,8 +1589,9 @@ def test_live_socket_does_not_auto_preserve_when_all_backends_are_falsy(failures
         failures,
     )
     expect(
-        auth_env.get("ANTHROPIC_MODEL") == "__UNSET__",
-        f"falsy backends: expected ANTHROPIC_MODEL cleared (no live Vertex/Bedrock backend), got {auth_env.get('ANTHROPIC_MODEL')!r}",
+        auth_env.get("ANTHROPIC_MODEL") == "stale-model",
+        "falsy backends: ANTHROPIC_MODEL is now always preserved (not auth selection); "
+        f"got {auth_env.get('ANTHROPIC_MODEL')!r}",
         failures,
     )
     expect(
@@ -1804,6 +1833,7 @@ def main() -> int:
     test_live_socket_resume_self_heal_ignores_prompt_text_after_double_dash(failures)
     test_live_socket_preserves_claude_auth_for_resume_launch(failures)
     test_live_socket_preserves_only_listed_claude_auth_keys(failures)
+    test_live_socket_preserves_anthropic_model_for_custom_endpoint_resume(failures)
     test_live_socket_auto_preserves_vertex_auth_when_truthy(failures)
     test_live_socket_auto_preserves_bedrock_auth_when_truthy(failures)
     test_live_socket_does_not_auto_preserve_when_all_backends_are_falsy(failures)
