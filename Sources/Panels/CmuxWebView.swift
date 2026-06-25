@@ -43,6 +43,13 @@ final class CmuxWebView: WKWebView {
     /// `CmuxBrowser`. This view forwards the scheme/favicon/image/redirect/MIME
     /// predicates to it (through `contextDownloadService`, which holds it).
     private let downloadURLClassifier = BrowserDownloadURLClassifier()
+    /// Classifies resolved context-menu candidate URLs into a typed
+    /// download / try-next / native-fallback decision, owned in `CmuxBrowser`.
+    /// The `@objc` download actions perform the async WebKit point-resolution
+    /// hops and logging, then forward each resolved URL into this resolver and
+    /// act on the returned decision. Reuses the same classifier instance.
+    private lazy var contextDownloadCandidateResolver =
+        BrowserContextMenuDownloadCandidateResolver(urlClassifier: downloadURLClassifier)
     private let contextMenuItemClassifier = BrowserContextMenuItemClassifier()
     /// Set-membership predicates over the stable drag wire identifiers, owned in
     /// `CmuxBrowser`. The drag-registration filter and the five
@@ -739,18 +746,6 @@ final class CmuxWebView: WKWebView {
         )
     }
 
-    private func isDownloadableScheme(_ url: URL) -> Bool {
-        contextDownloadService.isDownloadableScheme(url)
-    }
-
-    private func isDataURLScheme(_ url: URL) -> Bool {
-        contextDownloadService.isDataURLScheme(url)
-    }
-
-    private func isDownloadSupportedScheme(_ url: URL) -> Bool {
-        contextDownloadService.isDownloadSupportedScheme(url)
-    }
-
     private func isOurContextMenuAction(target: AnyObject?, action: Selector?) -> Bool {
         guard target === self else { return false }
         if action == #selector(contextMenuToggleBrowserFocusMode(_:)) {
@@ -765,14 +760,6 @@ final class CmuxWebView: WKWebView {
 
     private func normalizedLinkedDownloadURL(_ url: URL) -> URL {
         contextDownloadService.normalizedLinkedDownloadURL(url)
-    }
-
-    private func isLikelyFaviconURL(_ url: URL) -> Bool {
-        contextDownloadService.isLikelyFaviconURL(url)
-    }
-
-    private func isLikelyImageURL(_ url: URL) -> Bool {
-        contextDownloadService.isLikelyImageURL(url)
     }
 
     private func captureFallbackForMenuItemIfNeeded(_ item: NSMenuItem) {
@@ -1227,44 +1214,44 @@ final class CmuxWebView: WKWebView {
             )
             var dataImageURL: URL?
             var weakImageURL: URL?
-            if let url {
-                let scheme = url.scheme?.lowercased() ?? ""
-                if scheme == "data" {
-                    dataImageURL = url
-                    self.debugContextDownload(
-                        "browser.ctxdl.resolve trace=\(traceID) kind=image dataURLDetected length=\(url.absoluteString.count)"
-                    )
-                } else if scheme == "http" || scheme == "https" || scheme == "file" {
-                    let normalized = self.normalizedLinkedDownloadURL(url)
-                    self.debugContextDownload(
-                        "browser.ctxdl.resolve trace=\(traceID) kind=image normalizedImageURL=\(normalized.absoluteString)"
-                    )
-                    if self.isLikelyImageURL(normalized) {
-                        if !self.isLikelyFaviconURL(normalized) {
-                            self.startContextMenuDownload(
-                                normalized,
-                                sender: sender,
-                                fallbackAction: fallback.action,
-                                fallbackTarget: fallback.target,
-                                traceID: traceID
-                            )
-                            return
-                        }
-                        weakImageURL = normalized
-                        self.debugContextDownload(
-                            "browser.ctxdl.resolve trace=\(traceID) kind=image weakCandidateURL=\(normalized.absoluteString) reason=favicon_or_low_confidence"
-                        )
-                    } else if self.isDownloadableScheme(normalized), !self.isLikelyFaviconURL(normalized) {
-                        // Some image CDNs use extensionless URLs; keep as last-resort candidate.
-                        weakImageURL = normalized
-                        self.debugContextDownload(
-                            "browser.ctxdl.resolve trace=\(traceID) kind=image weakCandidateURL=\(normalized.absoluteString) reason=unclassified_direct_image_src"
-                        )
-                    }
-                    self.debugContextDownload(
-                        "browser.ctxdl.resolve trace=\(traceID) kind=image rejectedPrimaryImageURL=\(normalized.absoluteString)"
-                    )
-                }
+            switch self.contextDownloadCandidateResolver.classifyPrimaryImageCandidate(url) {
+            case .download(let normalized):
+                self.debugContextDownload(
+                    "browser.ctxdl.resolve trace=\(traceID) kind=image normalizedImageURL=\(normalized.absoluteString)"
+                )
+                self.startContextMenuDownload(
+                    normalized,
+                    sender: sender,
+                    fallbackAction: fallback.action,
+                    fallbackTarget: fallback.target,
+                    traceID: traceID
+                )
+                return
+            case .holdDataImage(let dataURL):
+                dataImageURL = dataURL
+                self.debugContextDownload(
+                    "browser.ctxdl.resolve trace=\(traceID) kind=image dataURLDetected length=\(dataURL.absoluteString.count)"
+                )
+            case .holdWeakImage(let normalized, let reason):
+                weakImageURL = normalized
+                self.debugContextDownload(
+                    "browser.ctxdl.resolve trace=\(traceID) kind=image normalizedImageURL=\(normalized.absoluteString)"
+                )
+                self.debugContextDownload(
+                    "browser.ctxdl.resolve trace=\(traceID) kind=image weakCandidateURL=\(normalized.absoluteString) reason=\(reason.rawValue)"
+                )
+                self.debugContextDownload(
+                    "browser.ctxdl.resolve trace=\(traceID) kind=image rejectedPrimaryImageURL=\(normalized.absoluteString)"
+                )
+            case .rejectDownloadableNonImage(let normalized):
+                self.debugContextDownload(
+                    "browser.ctxdl.resolve trace=\(traceID) kind=image normalizedImageURL=\(normalized.absoluteString)"
+                )
+                self.debugContextDownload(
+                    "browser.ctxdl.resolve trace=\(traceID) kind=image rejectedPrimaryImageURL=\(normalized.absoluteString)"
+                )
+            case .none:
+                break
             }
 
             // Google Images and similar sites often expose blob:/data: image URLs.
@@ -1278,68 +1265,54 @@ final class CmuxWebView: WKWebView {
                     self.debugContextDownload(
                         "browser.ctxdl.resolve trace=\(traceID) kind=image normalizedFallbackLinkURL=\(normalizedLink.absoluteString)"
                     )
-                    if self.isDownloadableScheme(normalizedLink),
-                       self.isLikelyImageURL(normalizedLink),
-                       !self.isLikelyFaviconURL(normalizedLink) {
-                        self.startContextMenuDownload(
-                            normalizedLink,
-                            sender: sender,
-                            fallbackAction: fallback.action,
-                            fallbackTarget: fallback.target,
-                            traceID: traceID
-                        )
-                        return
-                    }
                 }
 
-                if let dataImageURL {
+                let selection = self.contextDownloadCandidateResolver.resolveImageLinkFallback(
+                    linkURL: linkURL,
+                    heldDataImageURL: dataImageURL,
+                    heldWeakImageURL: weakImageURL
+                )
+                switch selection {
+                case .link(let url):
+                    self.startContextMenuDownload(
+                        url,
+                        sender: sender,
+                        fallbackAction: fallback.action,
+                        fallbackTarget: fallback.target,
+                        traceID: traceID
+                    )
+                case .dataImage(let url):
                     self.debugContextDownload(
                         "browser.ctxdl.resolve trace=\(traceID) kind=image fallbackToDataURL=1"
                     )
                     self.startContextMenuDownload(
-                        dataImageURL,
+                        url,
                         sender: sender,
                         fallbackAction: fallback.action,
                         fallbackTarget: fallback.target,
                         traceID: traceID
                     )
-                    return
-                }
-
-                if let weakImageURL {
+                case .weakImage(let url):
                     self.debugContextDownload(
                         "browser.ctxdl.resolve trace=\(traceID) kind=image fallbackToWeakCandidate=1"
                     )
                     self.startContextMenuDownload(
-                        weakImageURL,
+                        url,
                         sender: sender,
                         fallbackAction: fallback.action,
                         fallbackTarget: fallback.target,
                         traceID: traceID
                     )
-                    return
-                }
-
-                if linkURL != nil {
+                case .nativeFallback(let reason):
                     self.debugInspectElementsAtPoint(point, traceID: traceID, kind: "image")
                     self.runContextMenuFallback(
                         action: fallback.action,
                         target: fallback.target,
                         sender: sender,
                         traceID: traceID,
-                        reason: "fallback_link_not_image"
+                        reason: reason
                     )
-                    return
                 }
-
-                self.debugInspectElementsAtPoint(point, traceID: traceID, kind: "image")
-                self.runContextMenuFallback(
-                    action: fallback.action,
-                    target: fallback.target,
-                    sender: sender,
-                    traceID: traceID,
-                    reason: "no_image_or_link_url"
-                )
             }
         }
     }
@@ -1367,20 +1340,22 @@ final class CmuxWebView: WKWebView {
                 "browser.ctxdl.resolve trace=\(traceID) kind=linked linkURL=\(url?.absoluteString ?? "nil")"
             )
             if let url {
-                let normalized = self.normalizedLinkedDownloadURL(url)
                 self.debugContextDownload(
-                    "browser.ctxdl.resolve trace=\(traceID) kind=linked normalizedLinkURL=\(normalized.absoluteString)"
+                    "browser.ctxdl.resolve trace=\(traceID) kind=linked normalizedLinkURL=\(self.normalizedLinkedDownloadURL(url).absoluteString)"
                 )
-                if self.isDownloadSupportedScheme(normalized) {
-                    self.startContextMenuDownload(
-                        normalized,
-                        sender: sender,
-                        fallbackAction: fallback.action,
-                        fallbackTarget: fallback.target,
-                        traceID: traceID
-                    )
-                    return
-                }
+            }
+            switch self.contextDownloadCandidateResolver.classifyLinkedFileCandidate(url) {
+            case .download(let normalized):
+                self.startContextMenuDownload(
+                    normalized,
+                    sender: sender,
+                    fallbackAction: fallback.action,
+                    fallbackTarget: fallback.target,
+                    traceID: traceID
+                )
+                return
+            case .tryNextCandidate, .nativeFallback:
+                break
             }
 
             // Fallback 1: image URL under cursor (useful on image-heavy result pages).
@@ -1389,21 +1364,23 @@ final class CmuxWebView: WKWebView {
                     "browser.ctxdl.resolve trace=\(traceID) kind=linked fallbackImageURL=\(imageURL?.absoluteString ?? "nil")"
                 )
                 var dataImageURL: URL?
-                if let imageURL, self.isDownloadableScheme(imageURL) {
+                switch self.contextDownloadCandidateResolver.classifyLinkedFileImageFallback(imageURL) {
+                case .download(let url):
                     self.startContextMenuDownload(
-                        imageURL,
+                        url,
                         sender: sender,
                         fallbackAction: fallback.action,
                         fallbackTarget: fallback.target,
                         traceID: traceID
                     )
                     return
-                }
-                if let imageURL, self.isDataURLScheme(imageURL) {
-                    dataImageURL = imageURL
+                case .holdDataImage(let dataURL):
+                    dataImageURL = dataURL
                     self.debugContextDownload(
-                        "browser.ctxdl.resolve trace=\(traceID) kind=linked fallbackDataURLDetected length=\(imageURL.absoluteString.count)"
+                        "browser.ctxdl.resolve trace=\(traceID) kind=linked fallbackDataURLDetected length=\(dataURL.absoluteString.count)"
                     )
+                case .holdWeakImage, .rejectDownloadableNonImage, .none:
+                    break
                 }
 
                 // Fallback 2: simpler nearest-anchor lookup.
@@ -1411,65 +1388,45 @@ final class CmuxWebView: WKWebView {
                     self.debugContextDownload(
                         "browser.ctxdl.resolve trace=\(traceID) kind=linked nearestAnchorURL=\(fallbackURL?.absoluteString ?? "nil")"
                     )
-                    guard let fallbackURL else {
-                        if let dataImageURL {
-                            self.debugContextDownload(
-                                "browser.ctxdl.resolve trace=\(traceID) kind=linked fallbackToDataURL=1"
-                            )
-                            self.startContextMenuDownload(
-                                dataImageURL,
-                                sender: sender,
-                                fallbackAction: fallback.action,
-                                fallbackTarget: fallback.target,
-                                traceID: traceID
-                            )
-                            return
-                        }
+                    if let fallbackURL {
+                        self.debugContextDownload(
+                            "browser.ctxdl.resolve trace=\(traceID) kind=linked normalizedNearestAnchorURL=\(self.normalizedLinkedDownloadURL(fallbackURL).absoluteString)"
+                        )
+                    }
+                    let selection = self.contextDownloadCandidateResolver.resolveLinkedFileNearestAnchorFallback(
+                        nearestAnchorURL: fallbackURL,
+                        heldDataImageURL: dataImageURL
+                    )
+                    switch selection {
+                    case .anchor(let url):
+                        self.startContextMenuDownload(
+                            url,
+                            sender: sender,
+                            fallbackAction: fallback.action,
+                            fallbackTarget: fallback.target,
+                            traceID: traceID
+                        )
+                    case .dataImage(let url):
+                        self.debugContextDownload(
+                            "browser.ctxdl.resolve trace=\(traceID) kind=linked fallbackToDataURL=1"
+                        )
+                        self.startContextMenuDownload(
+                            url,
+                            sender: sender,
+                            fallbackAction: fallback.action,
+                            fallbackTarget: fallback.target,
+                            traceID: traceID
+                        )
+                    case .nativeFallback(let reason):
                         self.debugInspectElementsAtPoint(point, traceID: traceID, kind: "linked")
                         self.runContextMenuFallback(
                             action: fallback.action,
                             target: fallback.target,
                             sender: sender,
                             traceID: traceID,
-                            reason: "no_link_or_image_url"
+                            reason: reason
                         )
-                        return
                     }
-                    let normalized = self.normalizedLinkedDownloadURL(fallbackURL)
-                    self.debugContextDownload(
-                        "browser.ctxdl.resolve trace=\(traceID) kind=linked normalizedNearestAnchorURL=\(normalized.absoluteString)"
-                    )
-                    guard self.isDownloadSupportedScheme(normalized) else {
-                        if let dataImageURL {
-                            self.debugContextDownload(
-                                "browser.ctxdl.resolve trace=\(traceID) kind=linked fallbackToDataURL=1"
-                            )
-                            self.startContextMenuDownload(
-                                dataImageURL,
-                                sender: sender,
-                                fallbackAction: fallback.action,
-                                fallbackTarget: fallback.target,
-                                traceID: traceID
-                            )
-                            return
-                        }
-                        self.debugInspectElementsAtPoint(point, traceID: traceID, kind: "linked")
-                        self.runContextMenuFallback(
-                            action: fallback.action,
-                            target: fallback.target,
-                            sender: sender,
-                            traceID: traceID,
-                            reason: "nearest_anchor_unsupported_scheme"
-                        )
-                        return
-                    }
-                    self.startContextMenuDownload(
-                        normalized,
-                        sender: sender,
-                        fallbackAction: fallback.action,
-                        fallbackTarget: fallback.target,
-                        traceID: traceID
-                    )
                 }
             }
         }

@@ -2,77 +2,18 @@ import AppKit
 import Bonsplit
 import CmuxWorkspaces
 
-struct CmuxConfigUIDefinition: Codable, Sendable, Hashable {
-    var newWorkspace: CmuxConfigButtonPlacement?
-    var surfaceTabBar: CmuxSurfaceTabBarUIDefinition?
-}
-
-struct CmuxSurfaceTabBarUIDefinition: Codable, Sendable, Hashable {
-    var buttons: [CmuxSurfaceTabBarButton]?
-}
-
-struct CmuxConfigButtonPlacement: Codable, Sendable, Hashable {
-    var action: String?
-    var icon: CmuxButtonIcon?
-    var tooltip: String?
-    var contextMenu: [CmuxConfigContextMenuItem]?
-
-    private enum CodingKeys: String, CodingKey {
-        case action
-        case icon
-        case tooltip
-        case contextMenu
-        case rightClick
-    }
-
-    init(
-        action: String? = nil,
-        icon: CmuxButtonIcon? = nil,
-        tooltip: String? = nil,
-        contextMenu: [CmuxConfigContextMenuItem]? = nil
-    ) {
-        self.action = action
-        self.icon = icon
-        self.tooltip = tooltip
-        self.contextMenu = contextMenu
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        action = try Self.trimmedString(forKey: .action, in: container)
-        icon = try container.decodeIfPresent(CmuxButtonIcon.self, forKey: .icon)
-        tooltip = try Self.trimmedString(forKey: .tooltip, in: container, allowBlankAsNil: true)
-        contextMenu = try container.decodeIfPresent([CmuxConfigContextMenuItem].self, forKey: .contextMenu)
-            ?? container.decodeIfPresent([CmuxConfigContextMenuItem].self, forKey: .rightClick)
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encodeIfPresent(action, forKey: .action)
-        try container.encodeIfPresent(icon, forKey: .icon)
-        try container.encodeIfPresent(tooltip, forKey: .tooltip)
-        try container.encodeIfPresent(contextMenu, forKey: .contextMenu)
-    }
-
-    private static func trimmedString(
-        forKey key: CodingKeys,
-        in container: KeyedDecodingContainer<CodingKeys>,
-        allowBlankAsNil: Bool = false
-    ) throws -> String? {
-        guard container.contains(key) else { return nil }
-        let raw = try container.decode(String.self, forKey: key)
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            if allowBlankAsNil { return nil }
-            throw DecodingError.dataCorruptedError(
-                forKey: key,
-                in: container,
-                debugDescription: "\(key.stringValue) must not be blank"
-            )
-        }
-        return trimmed
-    }
-}
+// `CmuxConfigUIDefinition` + `CmuxSurfaceTabBarUIDefinition` +
+// `CmuxConfigButtonPlacement` (the `cmux.json` top-level `ui`-block wire-schema
+// value types, including the custom `CmuxConfigButtonPlacement` decoder with the
+// `rightClick` alias + blank-trimming) now live in CmuxWorkspaces/CustomLayout/
+// alongside the field types they reference (`CmuxSurfaceTabBarButton`,
+// `CmuxButtonIcon`, `CmuxConfigContextMenuItem`); the app reaches them through
+// these module-wide typealiases (`import CmuxWorkspaces`, already imported
+// above) so `CmuxConfigFile.ui` + `loadAll()` reads stay byte-identical. The
+// AppKit `CmuxButtonIcon.contextMenuImage(...)` renderer below stays app-side.
+typealias CmuxConfigUIDefinition = CmuxWorkspaces.CmuxConfigUIDefinition
+typealias CmuxSurfaceTabBarUIDefinition = CmuxWorkspaces.CmuxSurfaceTabBarUIDefinition
+typealias CmuxConfigButtonPlacement = CmuxWorkspaces.CmuxConfigButtonPlacement
 
 // `CmuxConfigContextMenuActionItem` + `CmuxConfigContextMenuItem` (the
 // `cmux.json` button-`contextMenu` wire-schema value types) now live in

@@ -162,20 +162,14 @@ struct CmuxConfigFile: Codable, Sendable {
 typealias CmuxConfigWorkspaceGroupsDefinition = CmuxWorkspaces.CmuxConfigWorkspaceGroupsDefinition
 typealias CmuxConfigWorkspaceGroupEntry = CmuxWorkspaces.CmuxConfigWorkspaceGroupEntry
 
-/// Resolved snapshot of a per-cwd workspace group entry, with the JSON key
-/// normalized for matching and any `contextMenu` actions resolved against the
-/// loaded action/command tables.
-struct CmuxResolvedWorkspaceGroupConfig: Sendable, Equatable {
-    let originalKey: String
-    let normalizedKey: String
-    let isGlob: Bool
-    let color: String?
-    let iconSymbol: String?
-    let contextMenuItems: [CmuxResolvedConfigContextMenuItem]
-    /// Parsed override for where the `+` button places its new workspace.
-    /// nil means "fall through to the global default."
-    let newWorkspacePlacement: WorkspaceGroupNewPlacement?
-}
+// CmuxResolvedWorkspaceGroupConfig (the resolved per-cwd workspace group
+// snapshot) now lives in CmuxWorkspaces/CustomLayout/, co-located with the
+// CmuxResolvedConfigContextMenuItem value type its `contextMenuItems` field
+// builds on. Reached through `import CmuxWorkspaces`. The app-side resolution
+// logic (resolveWorkspaceGroupConfig / cwdEntryMatches /
+// resolveWorkspaceGroupConfigsFromLayers / resolveWorkspaceGroupConfigEntry)
+// stays app-side and constructs this value through its public init.
+typealias CmuxResolvedWorkspaceGroupConfig = CmuxWorkspaces.CmuxResolvedWorkspaceGroupConfig
 
 // CmuxNotificationHooksMode, CmuxNotificationConfigDefinition, and
 // CmuxNotificationHookDefinition moved to
