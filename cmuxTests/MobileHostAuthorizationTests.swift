@@ -705,16 +705,16 @@ struct MobileHostAuthorizationTests {
         #expect(service.debugTrackedClientIDsForTesting(connectionID: connectionID) == nil)
     }
     @Test func testIdleMobileConnectionDoesNotKeepRequestActivityBusy() {
-        MobileHostRequestActivity.resetForTesting()
-        MobileHostRequestActivity.beginConnection()
+        MobileHostService.resetRequestActivityForTesting()
+        MobileHostService.beginConnection()
         defer {
-            MobileHostRequestActivity.endConnection()
-            MobileHostRequestActivity.resetForTesting()
+            MobileHostService.endConnection()
+            MobileHostService.resetRequestActivityForTesting()
         }
 
-        #expect(!MobileHostRequestActivity.hasActiveRequest)
-        #expect(!MobileHostRequestActivity.hasRecentActivity(within: 60))
-        #expect(MobileHostRequestActivity.quietDelay(for: 60) == 0)
+        #expect(!MobileHostService.hasActiveRequest)
+        #expect(!MobileHostService.hasRecentActivity(within: 60))
+        #expect(MobileHostService.quietDelay(for: 60) == 0)
     }
     @Test func testMobileHostConnectionCloseClearsOnlyClosedClientViewportReports() {
         let service = MobileHostService.shared

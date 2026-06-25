@@ -41,6 +41,12 @@ final class CmuxWebView: WKWebView {
 
     private static var lastMiddleClickIntent: MiddleClickIntent?
     private static let middleClickIntentMaxAge: TimeInterval = 0.8
+
+    /// Pure URL classification for the context-menu download/copy paths, owned in
+    /// `CmuxBrowser`. This view forwards the scheme/favicon/image/redirect/MIME
+    /// predicates to it.
+    private let downloadURLClassifier = BrowserDownloadURLClassifier()
+    private let contextMenuItemClassifier = BrowserContextMenuItemClassifier()
     private static let pasteAsPlainTextFocusMessageHandlerName = "cmuxPasteAsPlainTextFocus"
     private static let browserFocusModeContextMenuItemIdentifier =
         NSUserInterfaceItemIdentifier("cmux.browserFocusMode.toggle")
@@ -863,127 +869,17 @@ final class CmuxWebView: WKWebView {
 
     func debugContextDownload(_ message: @autoclosure () -> String) {
 #if DEBUG
-        cmuxDebugLog(Self.redactedContextDownloadDebugMessage(message()))
+        cmuxDebugLog(ContextDownloadDebugRedactor().redact(message()))
 #endif
-    }
-
-    #if DEBUG
-    private static let contextDownloadFieldPattern = try! NSRegularExpression(
-        pattern: "(^| )([A-Za-z][A-Za-z0-9_-]*)=",
-        options: []
-    )
-
-    private static func redactedContextDownloadDebugMessage(_ message: String) -> String {
-        let nsMessage = message as NSString
-        let fullRange = NSRange(location: 0, length: nsMessage.length)
-        let matches = contextDownloadFieldPattern.matches(in: message, range: fullRange)
-        guard !matches.isEmpty else { return message }
-
-        var result = ""
-        var cursor = 0
-        var matchIndex = 0
-
-        while matchIndex < matches.count {
-            let match = matches[matchIndex]
-            let fieldStart = match.range.location
-            if cursor < fieldStart {
-                result += nsMessage.substring(
-                    with: NSRange(location: cursor, length: fieldStart - cursor)
-                )
-            }
-
-            let separatorRange = match.range(at: 1)
-            if separatorRange.length > 0 {
-                result += " "
-            }
-
-            let keyRange = match.range(at: 2)
-            let key = nsMessage.substring(with: keyRange)
-            let valueStart = match.range.location + match.range.length
-            let sensitive = shouldRedactContextDownloadField(key)
-            let valueEnd: Int
-
-            if sensitive && key.lowercased() == "payload" {
-                valueEnd = nsMessage.length
-                matchIndex = matches.count
-            } else {
-                valueEnd = matchIndex + 1 < matches.count
-                    ? matches[matchIndex + 1].range.location
-                    : nsMessage.length
-                matchIndex += 1
-            }
-
-            let valueLength = max(0, valueEnd - valueStart)
-            let value = nsMessage.substring(with: NSRange(location: valueStart, length: valueLength))
-
-            if sensitive {
-                result += "\(key)=\(redactedContextDownloadValue(key: key, value: value))"
-            } else {
-                result += nsMessage.substring(
-                    with: NSRange(location: keyRange.location, length: valueEnd - keyRange.location)
-                )
-            }
-
-            cursor = valueEnd
-        }
-
-        if cursor < nsMessage.length {
-            result += nsMessage.substring(
-                with: NSRange(location: cursor, length: nsMessage.length - cursor)
-            )
-        }
-
-        return result
-    }
-
-    private static func shouldRedactContextDownloadField(_ key: String) -> Bool {
-        let normalized = key.lowercased()
-        return normalized == "referer" ||
-            normalized == "path" ||
-            normalized == "payload" ||
-            normalized.hasSuffix("url")
-    }
-
-    private static func redactedContextDownloadValue(key: String, value: String) -> String {
-        guard value != "nil", !value.isEmpty else { return value }
-
-        if shouldTreatContextDownloadFieldAsURL(key),
-           let url = URL(string: value),
-           let scheme = url.scheme?.lowercased(),
-           !scheme.isEmpty {
-            switch scheme {
-            case "http", "https":
-                return "\(scheme)://\(url.host ?? "unknown")"
-            case "data":
-                return "data:<redacted>"
-            case "file":
-                return "file:<redacted>"
-            default:
-                return "\(scheme):<redacted>"
-            }
-        }
-
-        return "<redacted>"
-    }
-
-    private static func shouldTreatContextDownloadFieldAsURL(_ key: String) -> Bool {
-        let normalized = key.lowercased()
-        return normalized == "referer" || normalized.hasSuffix("url")
-    }
-    #endif
-
-    private static func selectorName(_ selector: Selector?) -> String {
-        guard let selector else { return "nil" }
-        return NSStringFromSelector(selector)
     }
 
     private func debugLogContextMenuDownloadCandidate(_ item: NSMenuItem, index: Int) {
         let identifier = item.identifier?.rawValue ?? "nil"
         let title = item.title
-        let actionName = Self.selectorName(item.action)
-        let idToken = Self.normalizedContextMenuToken(identifier)
-        let titleToken = Self.normalizedContextMenuToken(title)
-        let actionToken = Self.normalizedContextMenuToken(actionName)
+        let actionName = contextMenuItemClassifier.selectorName(item.action)
+        let idToken = contextMenuItemClassifier.normalizedContextMenuToken(identifier)
+        let titleToken = contextMenuItemClassifier.normalizedContextMenuToken(title)
+        let actionToken = contextMenuItemClassifier.normalizedContextMenuToken(actionName)
         guard idToken.contains("download")
             || titleToken.contains("download")
             || actionToken.contains("download") else {
@@ -994,94 +890,16 @@ final class CmuxWebView: WKWebView {
         )
     }
 
-    private static func normalizedContextMenuToken(_ value: String?) -> String {
-        guard let value else { return "" }
-        let lowered = value.lowercased()
-        let alphanumerics = CharacterSet.alphanumerics
-        let scalars = lowered.unicodeScalars.filter { alphanumerics.contains($0) }
-        return String(String.UnicodeScalarView(scalars))
-    }
-
-    private func isDownloadImageMenuItem(_ item: NSMenuItem) -> Bool {
-        let identifier = Self.normalizedContextMenuToken(item.identifier?.rawValue)
-        if identifier.contains("downloadimage") {
-            return true
-        }
-
-        let title = Self.normalizedContextMenuToken(item.title)
-        if title.contains("downloadimage") {
-            return true
-        }
-
-        if let action = item.action {
-            let actionName = Self.normalizedContextMenuToken(NSStringFromSelector(action))
-            if actionName.contains("downloadimage") {
-                return true
-            }
-        }
-
-        return false
-    }
-
-    private func isDownloadLinkedFileMenuItem(_ item: NSMenuItem) -> Bool {
-        let identifier = Self.normalizedContextMenuToken(item.identifier?.rawValue)
-        if identifier.contains("downloadlinkedfile")
-            || identifier.contains("downloadlinktodisk") {
-            return true
-        }
-
-        let title = Self.normalizedContextMenuToken(item.title)
-        if title.contains("downloadlinkedfile")
-            || title.contains("downloadlinktodisk") {
-            return true
-        }
-
-        if let action = item.action {
-            let actionName = Self.normalizedContextMenuToken(NSStringFromSelector(action))
-            if actionName.contains("downloadlinkedfile")
-                || actionName.contains("downloadlinktodisk") {
-                return true
-            }
-        }
-
-        return false
-    }
-
-    private func isCopyImageMenuItem(_ item: NSMenuItem) -> Bool {
-        let tokens = [
-            Self.normalizedContextMenuToken(item.identifier?.rawValue),
-            Self.normalizedContextMenuToken(item.title),
-            item.action.map { Self.normalizedContextMenuToken(NSStringFromSelector($0)) } ?? "",
-        ]
-
-        for token in tokens where !token.isEmpty {
-            if token.contains("copyimageaddress")
-                || token.contains("copyimageurl")
-                || token.contains("copyimagelocation") {
-                return false
-            }
-            if token == "copyimage"
-                || token.contains("copyimagetoclipboard")
-                || token.contains("copyimage") {
-                return true
-            }
-        }
-
-        return false
-    }
-
     private func isDownloadableScheme(_ url: URL) -> Bool {
-        let scheme = url.scheme?.lowercased() ?? ""
-        return scheme == "http" || scheme == "https" || scheme == "file"
+        downloadURLClassifier.isDownloadableScheme(url)
     }
 
     private func isDataURLScheme(_ url: URL) -> Bool {
-        let scheme = url.scheme?.lowercased() ?? ""
-        return scheme == "data"
+        downloadURLClassifier.isDataURLScheme(url)
     }
 
     private func isDownloadSupportedScheme(_ url: URL) -> Bool {
-        return isDownloadableScheme(url) || isDataURLScheme(url)
+        downloadURLClassifier.isDownloadSupportedScheme(url)
     }
 
     private func isOurContextMenuAction(target: AnyObject?, action: Selector?) -> Bool {
@@ -1097,70 +915,19 @@ final class CmuxWebView: WKWebView {
     }
 
     private func resolveGoogleRedirectURL(_ url: URL) -> URL? {
-        guard let host = url.host?.lowercased(), host.contains("google.") else { return nil }
-        guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let queryItems = comps.queryItems else { return nil }
-        let map = Dictionary(uniqueKeysWithValues: queryItems.map { ($0.name.lowercased(), $0.value ?? "") })
-        let candidates = ["imgurl", "mediaurl", "url", "q"]
-        for key in candidates {
-            guard let raw = map[key], !raw.isEmpty,
-                  let decoded = raw.removingPercentEncoding ?? raw as String?,
-                  let candidate = URL(string: decoded),
-                  isDownloadableScheme(candidate) else {
-                continue
-            }
-            return candidate
-        }
-        // Some links are wrapped as /url?...
-        if comps.path.lowercased() == "/url" {
-            for key in ["url", "q"] {
-                if let raw = map[key], let candidate = URL(string: raw), isDownloadableScheme(candidate) {
-                    return candidate
-                }
-            }
-        }
-        return nil
+        downloadURLClassifier.resolveGoogleRedirectURL(url)
     }
 
     private func normalizedLinkedDownloadURL(_ url: URL) -> URL {
-        resolveGoogleRedirectURL(url) ?? url
+        downloadURLClassifier.normalizedLinkedDownloadURL(url)
     }
 
     private func isLikelyFaviconURL(_ url: URL) -> Bool {
-        let lower = url.absoluteString.lowercased()
-        if lower.contains("favicon") { return true }
-        let name = url.lastPathComponent.lowercased()
-        return name.hasPrefix("favicon")
+        downloadURLClassifier.isLikelyFaviconURL(url)
     }
 
     private func isLikelyImageURL(_ url: URL) -> Bool {
-        if isDataURLScheme(url) {
-            guard let parsed = BrowserDataURLPayload(url: url),
-                  let mime = parsed.mimeType?.lowercased() else {
-                return false
-            }
-            return mime.hasPrefix("image/")
-        }
-        guard isDownloadableScheme(url) else { return false }
-        let ext = url.pathExtension.lowercased()
-        if [
-            "jpg", "jpeg", "png", "webp", "gif", "bmp",
-            "svg", "avif", "heic", "heif", "tif", "tiff", "ico"
-        ].contains(ext) {
-            return true
-        }
-        let lower = url.absoluteString.lowercased()
-        if lower.contains("imgurl=")
-            || lower.contains("mediaurl=")
-            || lower.contains("encrypted-tbn")
-            || lower.contains("format=jpg")
-            || lower.contains("format=jpeg")
-            || lower.contains("format=png")
-            || lower.contains("format=webp")
-            || lower.contains("format=gif") {
-            return true
-        }
-        return false
+        downloadURLClassifier.isLikelyImageURL(url)
     }
 
     private func captureFallbackForMenuItemIfNeeded(_ item: NSMenuItem) {
@@ -1411,13 +1178,13 @@ final class CmuxWebView: WKWebView {
         // Guard against accidental self-recursion if fallback gets overwritten.
         if isOurContextMenuAction(target: target, action: action) {
             debugContextDownload(
-                "browser.ctxdl.fallback trace=\(trace) reason=\(reason ?? "none") skipped=recursive action=\(Self.selectorName(action))"
+                "browser.ctxdl.fallback trace=\(trace) reason=\(reason ?? "none") skipped=recursive action=\(contextMenuItemClassifier.selectorName(action))"
             )
             return
         }
         let dispatched = NSApp.sendAction(action, to: target, from: sender)
         debugContextDownload(
-            "browser.ctxdl.fallback trace=\(trace) reason=\(reason ?? "none") dispatched=\(dispatched ? 1 : 0) action=\(Self.selectorName(action)) target=\(String(describing: target))"
+            "browser.ctxdl.fallback trace=\(trace) reason=\(reason ?? "none") dispatched=\(dispatched ? 1 : 0) action=\(contextMenuItemClassifier.selectorName(action)) target=\(String(describing: target))"
         )
     }
 
@@ -1679,12 +1446,7 @@ final class CmuxWebView: WKWebView {
     }
 
     private func inferredImageMIMEType(from url: URL) -> String? {
-        guard !url.pathExtension.isEmpty,
-              let type = UTType(filenameExtension: url.pathExtension),
-              type.conforms(to: .image) else {
-            return nil
-        }
-        return type.preferredMIMEType
+        downloadURLClassifier.inferredImageMIMEType(from: url)
     }
 
     private func resolveContextMenuCopyImageSourceURL(
@@ -1955,9 +1717,9 @@ final class CmuxWebView: WKWebView {
                 item.action = #selector(contextMenuOpenLinkInNewTab(_:))
             }
 
-            if isDownloadImageMenuItem(item) {
+            if contextMenuItemClassifier.isDownloadImageMenuItem(item) {
                 debugContextDownload(
-                    "browser.ctxdl.menu hook kind=image index=\(index) id=\(item.identifier?.rawValue ?? "nil") title=\(item.title) action=\(Self.selectorName(item.action))"
+                    "browser.ctxdl.menu hook kind=image index=\(index) id=\(item.identifier?.rawValue ?? "nil") title=\(item.title) action=\(contextMenuItemClassifier.selectorName(item.action))"
                 )
                 captureFallbackForMenuItemIfNeeded(item)
                 // Keep global fallback as a secondary safety net.
@@ -1972,9 +1734,9 @@ final class CmuxWebView: WKWebView {
                 item.action = #selector(contextMenuDownloadImage(_:))
             }
 
-            if isCopyImageMenuItem(item) {
+            if contextMenuItemClassifier.isCopyImageMenuItem(item) {
                 debugContextDownload(
-                    "browser.ctxcopy.menu hook kind=image index=\(index) id=\(item.identifier?.rawValue ?? "nil") title=\(item.title) action=\(Self.selectorName(item.action))"
+                    "browser.ctxcopy.menu hook kind=image index=\(index) id=\(item.identifier?.rawValue ?? "nil") title=\(item.title) action=\(contextMenuItemClassifier.selectorName(item.action))"
                 )
                 captureFallbackForMenuItemIfNeeded(item)
                 if let box = objc_getAssociatedObject(item, &Self.contextMenuFallbackKey) as? ContextMenuFallbackBox {
@@ -1988,9 +1750,9 @@ final class CmuxWebView: WKWebView {
                 item.action = #selector(contextMenuCopyImage(_:))
             }
 
-            if isDownloadLinkedFileMenuItem(item) {
+            if contextMenuItemClassifier.isDownloadLinkedFileMenuItem(item) {
                 debugContextDownload(
-                    "browser.ctxdl.menu hook kind=linked index=\(index) id=\(item.identifier?.rawValue ?? "nil") title=\(item.title) action=\(Self.selectorName(item.action))"
+                    "browser.ctxdl.menu hook kind=linked index=\(index) id=\(item.identifier?.rawValue ?? "nil") title=\(item.title) action=\(contextMenuItemClassifier.selectorName(item.action))"
                 )
                 captureFallbackForMenuItemIfNeeded(item)
                 // Keep global fallback as a secondary safety net.
@@ -2058,7 +1820,7 @@ final class CmuxWebView: WKWebView {
             defaultTarget: fallbackCopyImageTarget
         )
         debugContextDownload(
-            "browser.ctxcopy.click trace=\(traceID) fallback action=\(Self.selectorName(fallback.action)) target=\(String(describing: fallback.target))"
+            "browser.ctxcopy.click trace=\(traceID) fallback action=\(contextMenuItemClassifier.selectorName(fallback.action)) target=\(String(describing: fallback.target))"
         )
 
         resolveContextMenuCopyImageSourceURL(at: point) { [weak self] sourceURL in
@@ -2131,7 +1893,7 @@ final class CmuxWebView: WKWebView {
             defaultTarget: fallbackDownloadImageTarget
         )
         debugContextDownload(
-            "browser.ctxdl.click trace=\(traceID) fallback action=\(Self.selectorName(fallback.action)) target=\(String(describing: fallback.target))"
+            "browser.ctxdl.click trace=\(traceID) fallback action=\(contextMenuItemClassifier.selectorName(fallback.action)) target=\(String(describing: fallback.target))"
         )
         findImageURLAtPoint(point) { [weak self] url in
             guard let self else { return }
@@ -2269,7 +2031,7 @@ final class CmuxWebView: WKWebView {
             defaultTarget: fallbackDownloadLinkedFileTarget
         )
         debugContextDownload(
-            "browser.ctxdl.click trace=\(traceID) fallback action=\(Self.selectorName(fallback.action)) target=\(String(describing: fallback.target))"
+            "browser.ctxdl.click trace=\(traceID) fallback action=\(contextMenuItemClassifier.selectorName(fallback.action)) target=\(String(describing: fallback.target))"
         )
         // Shared link resolution with the Open Link actions: prefer the link
         // captured at contextmenu time (correct under page zoom and inside

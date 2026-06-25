@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import Bonsplit
+import CmuxWorkspaces
 import OSLog
 
 private let closedItemHistoryLogger = Logger(
@@ -8,39 +9,15 @@ private let closedItemHistoryLogger = Logger(
     category: "ClosedItemHistory"
 )
 
-struct ClosedPanelSplitPlacement: Codable {
-    let orientation: SplitOrientation
-    let insertFirst: Bool
-    let anchorPanelId: UUID?
-}
+/// The closed-panel fallback split placement is owned by ``CmuxWorkspaces``; the
+/// app target reuses the single package type rather than redeclaring it.
+typealias ClosedPanelSplitPlacement = CmuxWorkspaces.ClosedPanelSplitPlacement
 
-struct ClosedPanelHistoryEntry: Codable {
-    let workspaceId: UUID
-    let paneId: UUID
-    let paneAnchorPanelId: UUID?
-    let restoreInOriginalPane: Bool
-    let tabIndex: Int
-    let snapshot: SessionPanelSnapshot
-    let fallbackSplitPlacement: ClosedPanelSplitPlacement?
-
-    init(
-        workspaceId: UUID,
-        paneId: UUID,
-        paneAnchorPanelId: UUID? = nil,
-        restoreInOriginalPane: Bool = true,
-        tabIndex: Int,
-        snapshot: SessionPanelSnapshot,
-        fallbackSplitPlacement: ClosedPanelSplitPlacement? = nil
-    ) {
-        self.workspaceId = workspaceId
-        self.paneId = paneId
-        self.paneAnchorPanelId = paneAnchorPanelId
-        self.restoreInOriginalPane = restoreInOriginalPane
-        self.tabIndex = tabIndex
-        self.snapshot = snapshot
-        self.fallbackSplitPlacement = fallbackSplitPlacement
-    }
-}
+/// The closed-panel history value type is owned by ``CmuxWorkspaces`` and stays
+/// generic over the captured panel snapshot (which is app-target). The app binds
+/// it to its `SessionPanelSnapshot`; the persistence layer, the remap planners,
+/// and the `ClosedItemHistoryEntry.panel` case below all use this one type.
+typealias ClosedPanelHistoryEntry = CmuxWorkspaces.ClosedPanelHistoryEntry<SessionPanelSnapshot>
 
 struct ClosedWorkspaceHistoryEntry: Codable {
     let workspaceId: UUID

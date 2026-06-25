@@ -144,11 +144,11 @@ extension TabManager: SidebarGitHosting {
     }
 
     func mobileHostHasRecentActivity(within interval: TimeInterval) -> Bool {
-        MobileHostRequestActivity.hasRecentActivity(within: interval)
+        MobileHostService.hasRecentActivity(within: interval)
     }
 
     func mobileHostQuietDelay(for interval: TimeInterval) -> TimeInterval {
-        MobileHostRequestActivity.quietDelay(for: interval)
+        MobileHostService.quietDelay(for: interval)
     }
 }
 
