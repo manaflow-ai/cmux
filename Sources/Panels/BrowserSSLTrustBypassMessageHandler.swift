@@ -25,7 +25,10 @@ final class BrowserSSLTrustBypassMessageHandler: NSObject, WKScriptMessageHandle
             return
         }
 
-        Task { @MainActor [canHandleToken, handleToken] in
+        // WebKit delivers script messages on the main thread. Keep token gating
+        // synchronous so hostile content cannot enqueue unbounded main-actor work
+        // before the owner rejects stale or mismatched bypass attempts.
+        MainActor.assumeIsolated { [canHandleToken, handleToken] in
             guard canHandleToken(token) else { return }
             handleToken(token)
         }
