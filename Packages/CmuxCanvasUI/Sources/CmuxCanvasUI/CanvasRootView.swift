@@ -29,10 +29,12 @@ public final class CanvasRootView: NSView {
     /// The latest descriptors, by panel id, for mount/chrome lookups.
     private var descriptorsByPanelId: [UUID: CanvasPaneDescriptor] = [:]
     private var renderingByPane: [CanvasPaneID: Bool] = [:]
-    private var isWorkspaceVisible = true
+    var isWorkspaceVisible = true
     /// Canvas coordinates of the document view's (0,0).
     var documentOriginInCanvas: CGPoint = .zero
     var dragSession: DragSession?
+    var spacePanSession: SpacePanSession?
+    var isSpacePanKeyDown = false, didConsumeSpacePanKeyDown = false, didPushSpacePanCursor = false
     var overviewRestore: (magnification: CGFloat, origin: CGPoint)?
     private var clipBoundsObserver: (any NSObjectProtocol)?
     private var scrollSettleObservers: [any NSObjectProtocol] = []
@@ -46,6 +48,7 @@ public final class CanvasRootView: NSView {
     static var didShowCommandScrollHintThisSession = false
     var commandScrollHintTask: Task<Void, Never>?
     var commandScrollHintHost: NSHostingView<CanvasCommandScrollHint>?
+    private var viewportScrollUpdateScheduled = false
     /// A saved viewport waiting to be applied once the scroll view is laid
     /// out (contentSize settled). Cleared when successfully applied.
     private var pendingViewportRestore: (canvasCenter: CGPoint, magnification: CGFloat)?
@@ -150,6 +153,7 @@ public final class CanvasRootView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil {
+            cancelSpacePan()
             removeCommandScrollMonitor()
         } else {
             installCommandScrollMonitor()
@@ -181,6 +185,7 @@ public final class CanvasRootView: NSView {
         commandScrollHintTask = nil
         zoomSettleTask?.cancel()
         zoomSettleTask = nil
+        cancelSpacePan()
         commandScrollHintHost?.removeFromSuperview()
         commandScrollHintHost = nil
         removeCommandScrollMonitor()
@@ -197,6 +202,7 @@ public final class CanvasRootView: NSView {
     public func sync(descriptors: [CanvasPaneDescriptor], focusedPanelId: UUID?, isWorkspaceVisible: Bool) {
         let becameVisible = isWorkspaceVisible && !self.isWorkspaceVisible
         self.isWorkspaceVisible = isWorkspaceVisible
+        if !isWorkspaceVisible { cancelSpacePan() }
         let added = model.syncPanes(
             panelIds: descriptors.map(\.id),
             focusedPanelId: focusedPanelId
@@ -241,7 +247,6 @@ public final class CanvasRootView: NSView {
             revealPane(revealTarget, animated: true)
         }
     }
-
 
     /// Creates/removes pane views to match the model's pane set and brings
     /// each pane's mount and chrome up to date from the cached descriptors.
@@ -377,6 +382,21 @@ public final class CanvasRootView: NSView {
     // MARK: Lifecycle
 
     private func viewportDidScroll() {
+        guard !viewportScrollUpdateScheduled else { return }
+        viewportScrollUpdateScheduled = true
+        // Stay in the active mode so live trackpad scrolls flush during event
+        // tracking without queueing duplicate work for other modes.
+        let mode = RunLoop.current.currentMode ?? .default
+        RunLoop.main.perform(inModes: [mode]) { [weak self] in
+            MainActor.assumeIsolated {
+                self?.flushViewportDidScroll()
+            }
+        }
+    }
+
+    func flushViewportDidScroll() {
+        guard viewportScrollUpdateScheduled else { return }
+        viewportScrollUpdateScheduled = false
         updateLifecycle()
         saveViewportToModel()
         callbacks.onViewportGeometryChanged(window)
