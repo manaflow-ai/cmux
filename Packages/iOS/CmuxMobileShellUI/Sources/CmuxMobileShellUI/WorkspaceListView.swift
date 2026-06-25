@@ -248,9 +248,6 @@ struct WorkspaceListView: View {
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 WorkspaceListFilterMenu(filter: $filter, machines: filterMachines)
-                if canCreateWorkspace {
-                    newWorkspaceButton
-                }
             }
             #else
             ToolbarItemGroup {

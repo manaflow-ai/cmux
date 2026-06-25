@@ -22,19 +22,47 @@ import Testing
         #expect(sorted.map(\.title) == ["Alpha", "Bravo", "Alpha", "Alpha"])
     }
 
+    @Test func stableSortCollapsesDuplicateDeviceIDs() {
+        let oldOffline = snapshot(
+            "mac-a",
+            title: "Old",
+            status: .unavailable,
+            now: Date(timeIntervalSince1970: 10),
+            customColor: "palette:3",
+            customIcon: "desktopcomputer"
+        )
+        let connected = snapshot(
+            "mac-a",
+            title: "Current",
+            status: .connected,
+            now: Date(timeIntervalSince1970: 20)
+        )
+
+        let sorted = MacComputerSnapshot.stableSorted([oldOffline, connected])
+
+        #expect(sorted.count == 1)
+        #expect(sorted.first?.deviceId == "mac-a")
+        #expect(sorted.first?.title == "Current")
+        #expect(sorted.first?.connectionStatus == .connected)
+        #expect(sorted.first?.customColor == "palette:3")
+        #expect(sorted.first?.customIcon == "desktopcomputer")
+    }
+
     private func snapshot(
         _ id: String,
         title: String,
         status: MobileMacConnectionStatus,
-        now: Date
+        now: Date,
+        customColor: String? = nil,
+        customIcon: String? = nil
     ) -> MacComputerSnapshot {
         MacComputerSnapshot(
             deviceId: id,
             title: title,
             platform: "mac",
             colorIndex: nil,
-            customColor: nil,
-            customIcon: nil,
+            customColor: customColor,
+            customIcon: customIcon,
             connectionStatus: status,
             presence: nil,
             buildLabel: nil,
