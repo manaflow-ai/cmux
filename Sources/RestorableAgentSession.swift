@@ -1089,12 +1089,12 @@ struct RestorableAgentSessionIndex: Sendable {
                     )
                     : record
                 // Drop untrusted launch captures before ANY derivation: the
-                // working directory below would otherwise inherit the foreign
-                // agent's launch cwd even though the launch command is stripped.
+                // working directory below would otherwise inherit the foreign launch cwd.
                 effectiveRecord.launchCommand = trustedLaunchCommand(
                     effectiveRecord.launchCommand,
                     kind: kind
                 )
+                if kind == .codex, normalizedNonEmptyValue(effectiveRecord.launchCommand?.source)?.lowercased() == "environment", normalizedNonEmptyValue(effectiveRecord.launchCommand?.environment?["CODEX_HOME"]) == nil, (normalizedNonEmptyValue(effectiveRecord.launchCommand?.environment?["ANTHROPIC_BASE_URL"]) != nil || normalizedNonEmptyValue(effectiveRecord.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]) != nil) { effectiveRecord.launchCommand = nil }
                 let normalizedSessionId = effectiveRecord.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !normalizedSessionId.isEmpty,
                       let workspaceId = UUID(uuidString: effectiveRecord.workspaceId),
