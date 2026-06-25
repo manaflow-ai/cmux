@@ -3,6 +3,15 @@ import Foundation
 nonisolated struct CrashRecoveryVerification: Equatable, Sendable {
     var facts: ResumeBindingFacts
     var presence: ClaudeTranscriptPresence
+    var fingerprint: CrashRecoveryVerificationFingerprint
+}
+
+nonisolated struct CrashRecoveryVerificationFingerprint: Equatable, Sendable {
+    var kind: RestorableAgentKind?
+    var sessionId: String?
+    var cwd: String?
+    var claudeConfigDir: String?
+    var codexHome: String?
 }
 
 // MARK: - Crash recovery: resumable surface conformance
@@ -32,7 +41,19 @@ extension Workspace: ResumableWorkspaceSurface {
     private var crashRecoveryStoredVerification: CrashRecoveryVerification? {
         guard let panelId = focusedPanelId else { return nil }
         if let verification = restoredAgentVerificationByPanelId[panelId] {
-            return verification
+            if let agent = crashRecoveryRestoredAgent {
+                guard verification.fingerprint == Self.crashRecoveryVerificationFingerprint(agent: agent) else {
+                    return Self.crashRecoveryVerificationWithoutFilesystemScan(agent: agent)
+                }
+                return verification
+            }
+            if let binding = crashRecoveryResumeBinding {
+                guard verification.fingerprint == Self.crashRecoveryVerificationFingerprint(binding: binding) else {
+                    return Self.crashRecoveryVerificationWithoutFilesystemScan(binding: binding)
+                }
+                return verification
+            }
+            return nil
         }
         if let agent = crashRecoveryRestoredAgent {
             return Self.crashRecoveryVerificationWithoutFilesystemScan(agent: agent)
@@ -152,7 +173,11 @@ extension Workspace: ResumableWorkspaceSurface {
             transcriptExistsAtWindowCwd: presence.existsAtWindowCwd,
             transcriptExistsElsewhere: presence.existsElsewhere
         )
-        return CrashRecoveryVerification(facts: facts, presence: presence)
+        return CrashRecoveryVerification(
+            facts: facts,
+            presence: presence,
+            fingerprint: crashRecoveryVerificationFingerprint(agent: agent)
+        )
     }
 
     nonisolated static func crashRecoveryVerification(
@@ -185,7 +210,35 @@ extension Workspace: ResumableWorkspaceSurface {
             transcriptExistsAtWindowCwd: presence.existsAtWindowCwd,
             transcriptExistsElsewhere: presence.existsElsewhere
         )
-        return CrashRecoveryVerification(facts: facts, presence: presence)
+        return CrashRecoveryVerification(
+            facts: facts,
+            presence: presence,
+            fingerprint: crashRecoveryVerificationFingerprint(binding: binding)
+        )
+    }
+
+    nonisolated static func crashRecoveryVerificationFingerprint(
+        agent: SessionRestorableAgentSnapshot
+    ) -> CrashRecoveryVerificationFingerprint {
+        CrashRecoveryVerificationFingerprint(
+            kind: agent.kind,
+            sessionId: nonEmpty(agent.sessionId),
+            cwd: nonEmpty(agent.workingDirectory),
+            claudeConfigDir: nonEmpty(agent.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]),
+            codexHome: nonEmpty(agent.launchCommand?.environment?["CODEX_HOME"])
+        )
+    }
+
+    nonisolated static func crashRecoveryVerificationFingerprint(
+        binding: SurfaceResumeBindingSnapshot
+    ) -> CrashRecoveryVerificationFingerprint {
+        CrashRecoveryVerificationFingerprint(
+            kind: binding.kind.flatMap(RestorableAgentKind.init(rawValue:)),
+            sessionId: nonEmpty(binding.checkpointId ?? WorkspaceResumeCoordinator.bareSessionId(from: binding.command)),
+            cwd: nonEmpty(binding.cwd),
+            claudeConfigDir: nonEmpty(binding.environment?["CLAUDE_CONFIG_DIR"]),
+            codexHome: nonEmpty(binding.environment?["CODEX_HOME"])
+        )
     }
 
     nonisolated static func crashRecoveryVerificationWithoutFilesystemScan(
@@ -247,15 +300,16 @@ extension Workspace: ResumableWorkspaceSurface {
     @MainActor
     func prepareCrashRecoveryResumeVerification() async -> Bool {
         guard let panelId = focusedPanelId else { return false }
-        if let verification = restoredAgentVerificationByPanelId[panelId] {
+        if let verification = crashRecoveryStoredVerification {
             return ResumeFidelityGate().isVerified(verification.facts)
         }
         if let agent = crashRecoveryRestoredAgent {
+            let fingerprint = Self.crashRecoveryVerificationFingerprint(agent: agent)
             let verification = await Task.detached(priority: .utility) {
                 Self.crashRecoveryVerification(agent: agent)
             }.value
-            guard restoredAgentSnapshotsByPanelId[panelId]?.kind == agent.kind,
-                  restoredAgentSnapshotsByPanelId[panelId]?.sessionId == agent.sessionId else {
+            guard let currentAgent = restoredAgentSnapshotsByPanelId[panelId],
+                  Self.crashRecoveryVerificationFingerprint(agent: currentAgent) == fingerprint else {
                 return false
             }
             restoredAgentVerificationByPanelId[panelId] = verification
@@ -327,7 +381,8 @@ extension Workspace: ResumableWorkspaceSurface {
             ? (
                 title: workspaceSnapshot.customTitle,
                 source: workspaceSnapshot.customTitleSource,
-                focusedPanelId: workspaceSnapshot.focusedPanelId.flatMap { oldToNewPanelIds[$0] }
+                focusedPanelId: workspaceSnapshot.focusedPanelId.flatMap { oldToNewPanelIds[$0] },
+                focusedPanelSnapshot: workspaceSnapshot.focusedPanelId.flatMap { panelSnapshotsById[$0] }
             )
             : nil
         let panelAutoTitles = oldToNewPanelIds.compactMap { oldPanelId, newPanelId -> (panelId: UUID, snapshot: SessionPanelSnapshot)? in
@@ -357,7 +412,8 @@ extension Workspace: ResumableWorkspaceSurface {
             for job in agentJobs {
                 guard !Task.isCancelled else { return }
                 let configDir = job.agent.launchCommand?.environment?["CLAUDE_CONFIG_DIR"] ?? ""
-                let key = "agent|\(job.agent.kind.rawValue)|\(job.agent.sessionId)|\(job.agent.workingDirectory ?? "")|\(configDir)"
+                let codexHome = job.agent.launchCommand?.environment?["CODEX_HOME"] ?? ""
+                let key = "agent|\(job.agent.kind.rawValue)|\(job.agent.sessionId)|\(job.agent.workingDirectory ?? "")|\(configDir)|\(codexHome)"
                 let verification = cachedVerification(key: key) {
                     Workspace.crashRecoveryVerification(agent: job.agent)
                 }
@@ -373,6 +429,7 @@ extension Workspace: ResumableWorkspaceSurface {
                     job.binding.command,
                     job.binding.cwd ?? "",
                     job.binding.environment?["CLAUDE_CONFIG_DIR"] ?? "",
+                    job.binding.environment?["CODEX_HOME"] ?? "",
                 ].joined(separator: "|")
                 let verification = cachedVerification(key: key) {
                     Workspace.crashRecoveryVerification(binding: job.binding)
@@ -386,8 +443,8 @@ extension Workspace: ResumableWorkspaceSurface {
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 for result in resolvedAgentResults {
-                    guard self.restoredAgentSnapshotsByPanelId[result.panelId]?.kind == result.agent.kind,
-                          self.restoredAgentSnapshotsByPanelId[result.panelId]?.sessionId == result.agent.sessionId else {
+                    guard let currentAgent = self.restoredAgentSnapshotsByPanelId[result.panelId],
+                          Self.crashRecoveryVerificationFingerprint(agent: currentAgent) == result.verification.fingerprint else {
                         continue
                     }
                     self.restoredAgentVerificationByPanelId[result.panelId] = result.verification
@@ -399,12 +456,15 @@ extension Workspace: ResumableWorkspaceSurface {
                     self.restoredAgentVerificationByPanelId[result.panelId] = result.verification
                 }
 
-                let gate = ResumeFidelityGate()
                 if let workspaceAutoTitle,
                    let focusedPanelId = workspaceAutoTitle.focusedPanelId,
+                   let focusedPanelSnapshot = workspaceAutoTitle.focusedPanelSnapshot,
                    self.effectiveCustomTitleSource != .user,
                    let verification = self.restoredAgentVerificationByPanelId[focusedPanelId],
-                   gate.isVerified(verification.facts) {
+                   Self.restoredPanelNameIsVerified(
+                       focusedPanelSnapshot,
+                       cachedVerification: verification
+                   ) {
                     let restoredName = Self.restoredName(
                         persistedTitle: workspaceAutoTitle.title,
                         source: workspaceAutoTitle.source,
@@ -415,7 +475,10 @@ extension Workspace: ResumableWorkspaceSurface {
                 for item in panelAutoTitles {
                     guard self.panelCustomTitleSources[item.panelId] != .user,
                           let verification = self.restoredAgentVerificationByPanelId[item.panelId],
-                          gate.isVerified(verification.facts) else {
+                          Self.restoredPanelNameIsVerified(
+                              item.snapshot,
+                              cachedVerification: verification
+                          ) else {
                         continue
                     }
                     self.applyRestoredPanelName(from: item.snapshot, toPanelId: item.panelId)

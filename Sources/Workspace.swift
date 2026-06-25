@@ -4870,12 +4870,14 @@ final class Workspace: Identifiable, ObservableObject {
               !startupInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
         }
+        restoredAgentVerificationByPanelId.removeValue(forKey: panelId)
         surfaceResumeBindingsByPanelId[panelId] = binding
         return true
     }
 
     @discardableResult
     func clearSurfaceResumeBinding(panelId: UUID) -> Bool {
+        restoredAgentVerificationByPanelId.removeValue(forKey: panelId)
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId) != nil
     }
 

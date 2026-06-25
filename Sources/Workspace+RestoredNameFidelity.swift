@@ -37,14 +37,21 @@ extension Workspace {
         cachedVerification: CrashRecoveryVerification?
     ) -> Bool {
         guard snapshot.customTitleSource == .auto else { return false }
-        if let cachedVerification {
-            return ResumeFidelityGate().isVerified(cachedVerification.facts)
-        }
         let snapshotRestorableAgent = snapshot.terminal?.agent
         let resumeBinding = resumeBindingForSessionRestore(
             snapshot.terminal?.resumeBinding,
             restorableAgent: snapshotRestorableAgent
         )
+        if let cachedVerification {
+            guard let expectedFingerprint = restoredPanelVerificationFingerprint(
+                restorableAgent: snapshotRestorableAgent,
+                resumeBinding: resumeBinding
+            ),
+                  cachedVerification.fingerprint == expectedFingerprint else {
+                return false
+            }
+            return ResumeFidelityGate().isVerified(cachedVerification.facts)
+        }
         if let restorableAgent = restorableAgentForSessionRestore(
             snapshotRestorableAgent,
             resumeBinding: resumeBinding
@@ -61,6 +68,22 @@ extension Workspace {
             return ResumeFidelityGate().isVerified(verification.facts)
         }
         return false
+    }
+
+    static func restoredPanelVerificationFingerprint(
+        restorableAgent: SessionRestorableAgentSnapshot?,
+        resumeBinding: SurfaceResumeBindingSnapshot?
+    ) -> CrashRecoveryVerificationFingerprint? {
+        if let restorableAgent = restorableAgentForSessionRestore(
+            restorableAgent,
+            resumeBinding: resumeBinding
+        ) {
+            return crashRecoveryVerificationFingerprint(agent: restorableAgent)
+        }
+        if let resumeBinding {
+            return crashRecoveryVerificationFingerprint(binding: resumeBinding)
+        }
+        return nil
     }
 
     static func restoredName(
@@ -121,6 +144,9 @@ extension Workspace {
                 cachedVerification: restoredAgentVerificationByPanelId[panelId]
             )
         )
+        if restoredPanelName == .neutral, snapshot.customTitleSource == .auto {
+            panelTitles.removeValue(forKey: panelId)
+        }
         applyRestoredPanelName(restoredPanelName, toPanelId: panelId)
     }
 
