@@ -36,6 +36,8 @@ on:
       # Screenshot fixtures: changing what the preview screens render should
       # re-capture.
       - "Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/*PreviewView.swift"
+      # The recorded agent terminal sessions replayed in the screenshots.
+      - "Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/TerminalPreviewTranscripts.swift"
 
 permissions:
   contents: read
