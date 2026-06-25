@@ -17903,11 +17903,14 @@ extension AppDelegate {
                     Self.codexMonitorDebugLog("skip pid=\(info.pid): no cmux scope (ws=\(info.cmuxWorkspaceID != nil) sf=\(info.cmuxSurfaceID != nil))")
                     continue
                 }
-                guard seenSurfaces.insert(surface).inserted else { continue }
+                guard !seenSurfaces.contains(surface) else { continue }
                 guard let rollout = Self.codexRolloutPath(forPID: pid_t(info.pid)) else {
+                    // Don't mark the surface seen yet — another Codex process for
+                    // the same surface may have the open rollout this one lacks.
                     Self.codexMonitorDebugLog("skip pid=\(info.pid): no open rollout")
                     continue
                 }
+                seenSurfaces.insert(surface)
                 let sessionId = Self.codexSessionId(fromRolloutPath: rollout)
                 Self.codexMonitorDebugLog("spawn pid=\(info.pid) ws=\(ws.uuidString) sf=\(surface.uuidString) session=\(sessionId.prefix(8))")
                 Self.spawnCodexAutoName(
@@ -17945,10 +17948,15 @@ extension AppDelegate {
     }
 
     private static func codexRolloutPath(forPID pid: pid_t) -> String? {
-        guard let out = runReadingStdout("/usr/sbin/lsof", ["-p", "\(pid)"]) else { return nil }
-        for line in out.split(separator: "\n") {
-            for token in line.split(separator: " ") where token.hasSuffix(".jsonl") && token.contains("/.codex/sessions/") {
-                return String(token)
+        // `-Fn` emits one field per line, each name field prefixed with `n`, so a
+        // rollout path under a home directory containing spaces (e.g.
+        // `/Users/Joe Smith/.codex/...`) survives intact — splitting plain `lsof`
+        // output on spaces would shred it.
+        guard let out = runReadingStdout("/usr/sbin/lsof", ["-Fn", "-p", "\(pid)"]) else { return nil }
+        for line in out.split(separator: "\n") where line.hasPrefix("n") {
+            let path = String(line.dropFirst())
+            if path.hasSuffix(".jsonl"), path.contains("/.codex/sessions/") {
+                return path
             }
         }
         return nil
@@ -17990,6 +17998,25 @@ extension AppDelegate {
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         guard (try? process.run()) != nil else { return }
-        process.waitUntilExit() // reap; runs on a utility queue
+        // Bounded reap. The subprocess carries its own 90s LLM timeout, so cap
+        // the blocking window a bit above that and terminate a genuinely hung
+        // process instead of holding the utility-queue thread forever.
+        Self.waitOrTerminate(process, timeout: 120)
+    }
+
+    /// Wait for `process` to exit, polling cheaply; if it overruns `timeout`,
+    /// terminate (then kill) it so a hung subprocess can't pin a thread.
+    private static func waitOrTerminate(_ process: Process, timeout: TimeInterval) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while process.isRunning {
+            if Date() >= deadline {
+                process.terminate()
+                Thread.sleep(forTimeInterval: 0.5)
+                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+                break
+            }
+            Thread.sleep(forTimeInterval: 0.25)
+        }
+        process.waitUntilExit() // reap the (now-exited) process
     }
 }

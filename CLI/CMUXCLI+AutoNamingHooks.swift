@@ -237,11 +237,14 @@ extension CMUXCLI {
             return
         }
         autoNameDebugLog("codex.enter", ["app": "\(appDriven)", "session": String(sessionId.prefix(8)), "ws": workspaceId, "sf": surfaceId])
-        guard let probe = try? client.sendV2(
+        let probe = try? client.sendV2(
             method: "workspace.set_auto_title",
             params: ["probe": true, "workspace_id": workspaceId]
-        ), probe["enabled"] as? Bool == true else {
-            autoNameDebugLog("codex.probe-disabled", ["enabled": "\((try? client.sendV2(method: "workspace.set_auto_title", params: ["probe": true, "workspace_id": workspaceId]))?["enabled"] ?? "nil")"])
+        )
+        guard let probe, probe["enabled"] as? Bool == true else {
+            // Reuse the single probe result above — never re-issue the socket
+            // round-trip just to log (the arg would evaluate in production).
+            autoNameDebugLog("codex.probe-disabled", ["enabled": "\(probe?["enabled"] ?? "nil")"])
             telemetry.breadcrumb("codex-hook.auto-name.disabled")
             return
         }
