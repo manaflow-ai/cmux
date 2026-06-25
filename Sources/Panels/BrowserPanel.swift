@@ -4226,13 +4226,8 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
 
-    private func cancelPendingInteractiveBrowserPrompts(
-        reason: String,
-        cancelHTTPBasicAuthPrompts: Bool = true
-    ) {
-        if cancelHTTPBasicAuthPrompts {
-            navigationDelegate?.cancelPendingHTTPBasicAuthPrompts(allowFuturePrompts: true)
-        }
+    private func cancelPendingInteractiveBrowserPrompts(reason: String, cancelHTTPBasicAuthPrompts: Bool = true) {
+        if cancelHTTPBasicAuthPrompts { navigationDelegate?.cancelPendingHTTPBasicAuthPrompts(allowFuturePrompts: true) }
         guard !pendingInteractiveBrowserPrompts.isEmpty else { return }
         let prompts = pendingInteractiveBrowserPrompts
         pendingInteractiveBrowserPrompts.removeAll()
@@ -5161,9 +5156,6 @@ final class BrowserPanel: Panel, ObservableObject {
         refreshWebViewLifecycleState()
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         closeDeveloperToolsForTeardown()
-
-        // Ensure we don't keep a hidden WKWebView (or its content view) as first responder while
-        // bonsplit/SwiftUI reshuffles views during close.
         unfocus()
         navigationDelegate?.cancelPendingHTTPBasicAuthPrompts()
         cancelPendingInteractiveBrowserPrompts(reason: "close", cancelHTTPBasicAuthPrompts: false)
@@ -5174,10 +5166,7 @@ final class BrowserPanel: Panel, ObservableObject {
         popupControllers.removeAll()
 
         // Close all owned popup windows before tearing down delegates
-        for popup in popupsToClose {
-            popup.closeAllChildPopups()
-            popup.closePopup()
-        }
+        for popup in popupsToClose { popup.closeAllChildPopups(); popup.closePopup() }
 
         webAuthnCoordinator.tearDown(from: webView); webView.stopLoading()
         isMainFrameProvisionalNavigationActive = false

@@ -4489,58 +4489,34 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func configTrackingDirectory(for panelId: UUID?) -> String? {
-        // A remote workspace's directories are paths on the REMOTE host.
-        // Feeding one into local cmux.json tracking makes CmuxConfigStore walk
-        // the ancestor chain with FileManager.fileExists on the main thread,
-        // and stat'ing e.g. /home/… locally blocks on the autofs automounter
-        // for hundreds of ms (measured via sample during tab-reveal stalls).
-        // No local per-directory config can apply to a remote path — track none.
+        // Remote workspace directories are remote-host paths; no local per-directory config can apply.
         if isRemoteWorkspace { return nil }
         if let panelId {
-            for candidate in [
-                panelDirectories[panelId],
-                terminalPanel(for: panelId)?.requestedWorkingDirectory
-            ] {
+            for candidate in [panelDirectories[panelId], terminalPanel(for: panelId)?.requestedWorkingDirectory] {
                 let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                if !trimmed.isEmpty {
-                    return trimmed
-                }
+                if !trimmed.isEmpty { return trimmed }
             }
         }
-
         let trimmedCurrentDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmedCurrentDirectory.isEmpty ? nil : trimmedCurrentDirectory
     }
 
     @discardableResult
-    func updatePanelDirectory(panelId: UUID, directory: String) -> Bool {
-        updatePanelDirectory(panelId: panelId, directory: directory, source: .liveReport)
-    }
+    func updatePanelDirectory(panelId: UUID, directory: String) -> Bool { updatePanelDirectory(panelId: panelId, directory: directory, source: .liveReport) }
 
     @discardableResult
-    private func updatePanelDirectory(
-        panelId: UUID,
-        directory: String,
-        source: PanelDirectoryUpdateSource
-    ) -> Bool {
+    private func updatePanelDirectory(panelId: UUID, directory: String, source: PanelDirectoryUpdateSource) -> Bool {
         let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         if source == .liveReport,
            shouldIgnoreRestoredGuardedDirectoryReport(panelId: panelId, reportedDirectory: trimmed) {
             return false
         }
-        if panelDirectories[panelId] != trimmed {
-            panelDirectories[panelId] = trimmed
-        }
-        // Update current directory if this is the focused panel
+        if panelDirectories[panelId] != trimmed { panelDirectories[panelId] = trimmed }
         if panelId == focusedPanelId {
             let nextSurfaceTabBarDirectory = configTrackingDirectory(for: panelId)
-            if surfaceTabBarDirectory != nextSurfaceTabBarDirectory {
-                surfaceTabBarDirectory = nextSurfaceTabBarDirectory
-            }
-            if currentDirectory != trimmed {
-                currentDirectory = trimmed
-            }
+            if surfaceTabBarDirectory != nextSurfaceTabBarDirectory { surfaceTabBarDirectory = nextSurfaceTabBarDirectory }
+            if currentDirectory != trimmed { currentDirectory = trimmed }
         }
         return true
     }
@@ -4549,22 +4525,16 @@ final class Workspace: Identifiable, ObservableObject {
         panelId: UUID,
         reportedDirectory: String
     ) -> Bool {
-        guard let restoredDirectory = restoredGuardedWorkingDirectoriesByPanelId[panelId] else {
-            return false
-        }
+        guard let restoredDirectory = restoredGuardedWorkingDirectoriesByPanelId[panelId] else { return false }
 
         if reportedDirectory == restoredDirectory {
-            // The resumed shell confirmed the restored directory; stop guarding so
-            // later navigation away from it is honored.
+            // The resumed shell confirmed the restored directory; stop guarding.
             restoredGuardedWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
             return false
         }
 
         if Self.unmountedVolumeRoot(for: restoredDirectory) != nil {
-            // The restored directory is on an unmounted volume: the resumed shell
-            // fell back to its default directory. Keep ignoring spurious reports
-            // until the volume remounts and the shell reports the restored
-            // directory (#5278). The guard stays registered (persistent).
+            // Keep guarding until the restored volume remounts and reports its cwd (#5278).
 #if DEBUG
             cmuxDebugLog(
                 "session.restore.cwdReport.ignored panel=\(panelId.uuidString.prefix(5)) " +
@@ -4574,20 +4544,10 @@ final class Workspace: Identifiable, ObservableObject {
             return true
         }
 
-        // The restored directory is on a mounted volume and differs from the first
-        // report. The resumed shell spawns before its startup command cds, so the
-        // initial report (typically home) is spurious — but ONLY when the restored
-        // directory still exists for that command to cd into. If it was deleted
-        // between sessions the cd fails and the shell's reported directory is the
-        // real fallback location, so honor it instead of stranding
-        // panelDirectories/currentDirectory on the deleted path (which would make
-        // Cmd+T inherit an invalid cwd). Either way this is a one-shot guard. (#6617)
+        // Ignore the first fallback cwd only if the restored directory still exists (#6617).
         restoredGuardedWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
         var restoredDirectoryIsDirectory: ObjCBool = false
-        let restoredDirectoryStillExists = FileManager.default.fileExists(
-            atPath: restoredDirectory,
-            isDirectory: &restoredDirectoryIsDirectory
-        ) && restoredDirectoryIsDirectory.boolValue
+        let restoredDirectoryStillExists = FileManager.default.fileExists(atPath: restoredDirectory, isDirectory: &restoredDirectoryIsDirectory) && restoredDirectoryIsDirectory.boolValue
 #if DEBUG
         cmuxDebugLog(
             "session.restore.cwdReport.\(restoredDirectoryStillExists ? "ignoredOnce" : "accepted") " +
