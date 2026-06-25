@@ -248,9 +248,13 @@ extension CMUXCLI {
         timeout: TimeInterval
     ) -> (rawStatus: Int32?, outputWithinLimit: Bool) {
         var stdoutEOF = false
+        var reapedStatus: Int32?
         let deadline = Date().addingTimeInterval(timeout)
         while true {
-            if let rawStatus = reapAutoNamingProcessIfExited(pid: pid) {
+            if reapedStatus == nil {
+                reapedStatus = reapAutoNamingProcessIfExited(pid: pid)
+            }
+            if let rawStatus = reapedStatus {
                 if !stdoutEOF {
                     let withinLimit = drainAvailableAutoNamingOutput(
                         from: stdoutFD,
@@ -259,7 +263,12 @@ extension CMUXCLI {
                         reachedEOF: &stdoutEOF
                     )
                     guard withinLimit else { return (nil, false) }
-                    return stdoutEOF ? (rawStatus, true) : (nil, true)
+                    if !stdoutEOF {
+                        let remaining = deadline.timeIntervalSinceNow
+                        guard remaining > 0 else { return (nil, true) }
+                        waitForAutoNamingOutputChange(from: stdoutFD, timeout: min(remaining, 0.25))
+                        continue
+                    }
                 }
                 return (rawStatus, true)
             }
@@ -272,8 +281,8 @@ extension CMUXCLI {
                 )
                 guard withinLimit else { return (nil, false) }
             }
-            if let rawStatus = reapAutoNamingProcessIfExited(pid: pid) {
-                return (rawStatus, true)
+            if reapedStatus == nil {
+                reapedStatus = reapAutoNamingProcessIfExited(pid: pid)
             }
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { return (nil, true) }

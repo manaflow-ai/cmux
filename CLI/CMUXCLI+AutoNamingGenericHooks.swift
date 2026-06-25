@@ -339,7 +339,7 @@ extension CMUXCLI {
             return (title, true)
         case .unchanged(let title):
             telemetry.breadcrumb("\(telemetryKey).unchanged")
-            return (title, true)
+            return (title, false)
         case .unusable:
             telemetry.breadcrumb("\(telemetryKey).unusable-response")
             return nil
