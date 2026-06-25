@@ -25,7 +25,7 @@ final class BrowserSSLTrustBypassMessageHandler: NSObject, WKScriptMessageHandle
             return
         }
 
-        MainActor.assumeIsolated {
+        Task { @MainActor [canHandleToken, handleToken] in
             guard canHandleToken(token) else { return }
             handleToken(token)
         }
