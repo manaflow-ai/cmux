@@ -837,6 +837,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "workspaceStatusStyle": "วิธีที่แถวเวิร์กสเปซในแถบด้านข้างส่วนขยายแสดงสถานะเอเจนต์: `sentence` คงข้อความคำบรรยายไว้ ส่วน `dot` ใช้ตัวบ่งชี้สีแบบกะทัดรัด",
+          "scrollEdgeFade": "ความเข้มของเฟดขอบการเลื่อนด้านบนและด้านล่างเหนือรายการแท็บในแถบด้านข้าง",
           "rightMaxWidth": "ความกว้างสูงสุดเป็นพอยต์สำหรับแถบด้านขวา หากเว้นไว้ จะใช้ขีดจำกัดแบบไดนามิกในตัว"
         },
         "fileExplorer": {

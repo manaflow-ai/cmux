@@ -837,6 +837,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "workspaceStatusStyle": "扩展侧边栏的工作区行显示代理状态的方式：`sentence` 保留副标题文本，`dot` 使用紧凑的彩色指示器。",
+          "scrollEdgeFade": "侧边栏标签列表顶部和底部滚动边缘淡化的强度。",
           "rightMaxWidth": "右侧边栏的最大宽度（点）。省略时使用内置动态上限。"
         },
         "fileExplorer": {

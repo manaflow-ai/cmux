@@ -837,6 +837,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "workspaceStatusStyle": "Hvordan arbejdsområderækker i udvidelsessidepanelet viser agentstatus: `sentence` beholder underteksten, mens `dot` bruger en kompakt farvet indikator.",
+          "scrollEdgeFade": "Styrken af den øverste og nederste rulningskantfade over sidepanelets faneliste.",
           "rightMaxWidth": "Maksimal bredde i punkter for højre sidepanel. Hvis den udelades, bruges den indbyggede dynamiske grænse."
         },
         "fileExplorer": {

@@ -10861,7 +10861,7 @@ struct VerticalTabsSidebar: View {
                 } else {
                     VStack(alignment: .leading, spacing: 2) {
                         ForEach(model.sections) { section in
-                            extensionSidebarSection(section, providerId: model.providerId, now: now)
+                            extensionSidebarSection(section, providerId: model.providerId, now: now, workspaceById: renderContext.workspaceById)
                         }
 
                         SidebarEmptyArea(
@@ -11773,16 +11773,13 @@ struct VerticalTabsSidebar: View {
     }
 
     @ViewBuilder
-    private func extensionSidebarSection(
-        _ section: CmuxSidebarProviderSection,
-        providerId: String,
-        now: Date
-    ) -> some View {
+    private func extensionSidebarSection(_ section: CmuxSidebarProviderSection, providerId: String, now: Date,
+                                         workspaceById: [UUID: Workspace]) -> some View {
         let isCollapsed = collapsedExtensionSidebarSectionIds.contains(section.id)
         let canCreateWorktree = section.treeSection.projectRootPath != nil
         let selectedWorkspaceId = tabManager.selectedTabId
         let workspaceSnapshotsById = extensionSidebarWorkspaceSnapshotsById(for: section.rows)
-        let workspaceAgentLifecycleStatesById = extensionSidebarWorkspaceAgentLifecycleStatesById(for: section.rows, workspaceById: renderContext.workspaceById)
+        let workspaceAgentLifecycleStatesById = extensionSidebarWorkspaceAgentLifecycleStatesById(for: section.rows, workspaceById: workspaceById)
 
         VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 7) {

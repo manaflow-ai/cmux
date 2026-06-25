@@ -837,6 +837,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "workspaceStatusStyle": "擴充功能側邊欄的工作區列顯示代理狀態的方式：`sentence` 保留副標題文字，`dot` 使用精簡的彩色指示器。",
+          "scrollEdgeFade": "側邊欄分頁列表頂部與底部捲動邊緣淡化的強度。",
           "rightMaxWidth": "右側邊欄的最大寬度（點）。省略時使用內建動態上限。"
         },
         "fileExplorer": {

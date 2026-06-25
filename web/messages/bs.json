@@ -837,6 +837,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "workspaceStatusStyle": "Kako redovi radnog prostora u bočnoj traci ekstenzije prikazuju status agenta: `sentence` zadržava tekst podnaslova, dok `dot` koristi kompaktni obojeni indikator.",
+          "scrollEdgeFade": "Jačina gornjeg i donjeg izbljeđivanja ivice skrolovanja preko liste tabova u bočnoj traci.",
           "rightMaxWidth": "Maksimalna širina desne bočne trake u tačkama. Ako se izostavi, primjenjuje se ugrađeno dinamičko ograničenje."
         },
         "fileExplorer": {
