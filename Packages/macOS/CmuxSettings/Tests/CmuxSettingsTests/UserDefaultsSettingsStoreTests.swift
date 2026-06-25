@@ -10,6 +10,33 @@ struct UserDefaultsSettingsStoreTests {
         return (store, SettingCatalog())
     }
 
+    private actor EventRecorder<Value: SettingCodable> {
+        private var events: [UserDefaultsSettingsValueEvent<Value>] = []
+
+        func append(_ event: UserDefaultsSettingsValueEvent<Value>) {
+            events.append(event)
+        }
+
+        func count() -> Int {
+            events.count
+        }
+
+        func snapshot() -> [UserDefaultsSettingsValueEvent<Value>] {
+            events
+        }
+    }
+
+    private func waitForEventCount<Value: SettingCodable>(
+        _ expectedCount: Int,
+        in recorder: EventRecorder<Value>
+    ) async {
+        var spins = 0
+        while await recorder.count() < expectedCount, spins < 100_000 {
+            await Task.yield()
+            spins += 1
+        }
+    }
+
     @Test func readsDefaultWhenUnset() async {
         let (store, catalog) = makeStore()
         let value = await store.value(for: catalog.app.appearance)
@@ -146,6 +173,52 @@ struct UserDefaultsSettingsStoreTests {
         #expect(firstTagged?.mutationSource == source)
         #expect(secondTagged?.value == .dark)
         #expect(secondTagged?.mutationSource == source)
+    }
+
+    @Test func valueEventsDeliverSameValueMutationSourceToEveryActiveObserver() async {
+        let (store, catalog) = makeStore()
+        let key = catalog.app.appearance
+        let firstRecorder = EventRecorder<AppearanceMode>()
+        let secondRecorder = EventRecorder<AppearanceMode>()
+
+        let firstTask = Task {
+            for await event in store.valueEvents(for: key) {
+                await firstRecorder.append(event)
+                if await firstRecorder.count() >= 2 {
+                    break
+                }
+            }
+        }
+        let secondTask = Task {
+            for await event in store.valueEvents(for: key) {
+                await secondRecorder.append(event)
+                if await secondRecorder.count() >= 2 {
+                    break
+                }
+            }
+        }
+        defer {
+            firstTask.cancel()
+            secondTask.cancel()
+        }
+
+        await waitForEventCount(1, in: firstRecorder)
+        await waitForEventCount(1, in: secondRecorder)
+
+        let source = UserDefaultsSettingsMutationSource()
+        await store.set(.system, for: key, source: source)
+
+        await waitForEventCount(2, in: firstRecorder)
+        await waitForEventCount(2, in: secondRecorder)
+
+        let firstEvents = await firstRecorder.snapshot()
+        let secondEvents = await secondRecorder.snapshot()
+        #expect(firstEvents.count == 2)
+        #expect(firstEvents.last?.value == .system)
+        #expect(firstEvents.last?.mutationSource == source)
+        #expect(secondEvents.count == 2)
+        #expect(secondEvents.last?.value == .system)
+        #expect(secondEvents.last?.mutationSource == source)
     }
 
     @Test func migratesLegacyKey() async {
