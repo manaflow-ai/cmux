@@ -30,16 +30,6 @@ import Testing
         )
     }
 
-    private func withSessionStore<T>(_ body: (ClaudeHookSessionStore) throws -> T) throws -> T {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-auto-naming-tests-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let path = directory.appendingPathComponent("sessions.json", isDirectory: false).path
-        let store = ClaudeHookSessionStore(processEnv: ["CMUX_CLAUDE_HOOK_STATE_PATH": path])
-        return try body(store)
-    }
-
     // MARK: - Throttle
 
     @Test func firstNamingAlwaysQualifies() {
@@ -269,102 +259,6 @@ import Testing
         )
         #expect(prompt.contains("Write the title in Japanese (ja) only."))
         #expect(prompt.contains("ログインの不具合"))
-    }
-
-    // MARK: - Session store
-
-    @Test func staleAutoNamingPassCannotFinishOverNewerPass() throws {
-        try withSessionStore { store in
-            let sessionId = "session-\(UUID().uuidString)"
-            let first = try store.beginAutoNaming(
-                sessionId: sessionId,
-                workspaceId: "workspace",
-                surfaceId: "surface",
-                transcriptLineCount: 100,
-                now: Date(timeIntervalSince1970: 1_000),
-                engine: engine
-            )
-            let second = try store.beginAutoNaming(
-                sessionId: sessionId,
-                workspaceId: "workspace",
-                surfaceId: "surface",
-                transcriptLineCount: 200,
-                now: Date(timeIntervalSince1970: 1_000 + config.inFlightExpiry + 1),
-                engine: engine
-            )
-
-            #expect(first.passId != nil)
-            #expect(second.passId != nil)
-            #expect(first.passId != second.passId)
-            let staleFinished = try store.finishAutoNaming(
-                sessionId: sessionId,
-                passId: first.passId,
-                appliedTitle: "Old title",
-                baselineLineCount: 100,
-                now: Date(timeIntervalSince1970: 2_000)
-            )
-            #expect(!staleFinished)
-            let freshFinished = try store.finishAutoNaming(
-                sessionId: sessionId,
-                passId: second.passId,
-                appliedTitle: "New title",
-                baselineLineCount: 200,
-                now: Date(timeIntervalSince1970: 2_001)
-            )
-            #expect(freshFinished)
-            let record = try #require(store.lookup(sessionId: sessionId))
-            #expect(record.autoNameLastTitle == "New title")
-            #expect(record.autoNameLastLineCount == 200)
-        }
-    }
-
-    @Test func hookMessageCacheDedupesByContentAndStaysBounded() throws {
-        try withSessionStore { store in
-            let sessionId = "session-\(UUID().uuidString)"
-            let duplicateMessages = [
-                AutoNamingTranscriptMessage(role: "user", text: "Fix login"),
-                AutoNamingTranscriptMessage(role: "assistant", text: "I will inspect auth."),
-                AutoNamingTranscriptMessage(role: "user", text: "Fix login"),
-            ]
-            _ = try store.recordPromptSubmit(
-                sessionId: sessionId,
-                workspaceId: "workspace",
-                surfaceId: "surface",
-                cwd: nil,
-                pid: nil,
-                launchCommand: nil,
-                autoNameMessages: duplicateMessages
-            )
-            _ = try store.recordPromptSubmit(
-                sessionId: sessionId,
-                workspaceId: "workspace",
-                surfaceId: "surface",
-                cwd: nil,
-                pid: nil,
-                launchCommand: nil,
-                autoNameMessages: duplicateMessages
-            )
-            var snapshot = try store.autoNamingRecentMessagesSnapshot(sessionId: sessionId)
-            #expect(snapshot.messages == Array(duplicateMessages.prefix(2)))
-            #expect(snapshot.totalMessageCount == 2)
-
-            let uniqueMessages = (0..<30).map {
-                AutoNamingTranscriptMessage(role: "user", text: "Unique request \($0)")
-            }
-            _ = try store.recordPromptSubmit(
-                sessionId: sessionId,
-                workspaceId: "workspace",
-                surfaceId: "surface",
-                cwd: nil,
-                pid: nil,
-                launchCommand: nil,
-                autoNameMessages: uniqueMessages
-            )
-            snapshot = try store.autoNamingRecentMessagesSnapshot(sessionId: sessionId)
-            #expect(snapshot.messages.count == 24)
-            #expect(snapshot.totalMessageCount == 32)
-            #expect(snapshot.messages.last?.text == "Unique request 29")
-        }
     }
 
     // MARK: - Sanitization

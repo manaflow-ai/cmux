@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 extension CMUXCLI {
@@ -110,8 +111,10 @@ extension CMUXCLI {
     }
 
     /// Runs the summarizer subprocess with the prompt on stdin and a hard
-    /// deadline, returning captured stdout (nil on failure, timeout, or
-    /// non-zero exit).
+    /// deadline, returning bounded stdout (nil on failure, timeout, oversized
+    /// output, or non-zero exit). stdout is redirected to a temp file instead
+    /// of an in-memory pipe so a helper child cannot keep a pipe fd open and
+    /// hang the hook after the main summarizer exits.
     func runAutoNamingSummarizer(
         executable: String,
         arguments: [String],
@@ -119,17 +122,56 @@ extension CMUXCLI {
         environment: [String: String],
         timeout: TimeInterval
     ) -> String? {
-        let result = CLIProcessRunner.runProcessData(
-            executablePath: executable,
-            arguments: arguments,
-            stdinText: prompt,
-            environment: environment,
-            timeout: timeout,
-            terminationGrace: 2
-        )
-        guard !result.timedOut, result.status == 0 else {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+        process.environment = environment
+
+        let stdinPipe = Pipe()
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-autoname-stdout-\(UUID().uuidString).txt")
+        guard FileManager.default.createFile(atPath: outputURL.path, contents: nil),
+              let stdoutHandle = try? FileHandle(forWritingTo: outputURL) else {
             return nil
         }
-        return String(data: result.stdout, encoding: .utf8)
+        defer {
+            try? stdoutHandle.close()
+            try? FileManager.default.removeItem(at: outputURL)
+        }
+        process.standardInput = stdinPipe
+        process.standardOutput = stdoutHandle
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try cliRunProcess(process)
+        } catch {
+            return nil
+        }
+        if let promptData = prompt.data(using: .utf8) {
+            _ = cliWrite(promptData, to: stdinPipe.fileHandleForWriting, onBrokenPipe: .ignore)
+        }
+        try? stdinPipe.fileHandleForWriting.close()
+
+        let exited = (try? waitForProcessExit(process, timeout: timeout)) ?? false
+        if !exited {
+            process.terminate()
+            if ((try? waitForProcessExit(process, timeout: 2)) ?? false) == false {
+                kill(process.processIdentifier, SIGKILL)
+                _ = try? waitForProcessExit(process, timeout: 1)
+            }
+            return nil
+        }
+        try? stdoutHandle.close()
+        guard process.terminationStatus == 0,
+              let readHandle = try? FileHandle(forReadingFrom: outputURL) else {
+            return nil
+        }
+        defer { try? readHandle.close() }
+        let maxOutputBytes = 64 * 1024
+        let output = (try? readHandle.read(upToCount: maxOutputBytes + 1)) ?? Data()
+        guard output.count <= maxOutputBytes else {
+            return nil
+        }
+        return String(data: output, encoding: .utf8)
     }
 }
