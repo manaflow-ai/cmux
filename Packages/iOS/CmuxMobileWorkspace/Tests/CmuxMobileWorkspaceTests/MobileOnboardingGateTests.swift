@@ -6,8 +6,7 @@ import Testing
     /// The genuine first run: never onboarded and no paired Mac. Onboarding shows.
     @Test func showsOnboardingForNeverOnboardedNeverPaired() {
         #expect(MobileOnboardingGate.shouldShowOnboarding(
-            hasSeenOnboarding: false,
-            hasKnownPairedMac: false
+            hasSeenOnboarding: false
         ))
     }
 
@@ -16,8 +15,7 @@ import Testing
     /// sent to onboarding later.
     @Test func showsOnboardingForNeverOnboardedButPaired() {
         #expect(MobileOnboardingGate.shouldShowOnboarding(
-            hasSeenOnboarding: false,
-            hasKnownPairedMac: true
+            hasSeenOnboarding: false
         ))
     }
 
@@ -25,16 +23,14 @@ import Testing
     /// the add-device / pairing flow without showing it again.
     @Test func skipsOnboardingForOnboardedNeverPaired() {
         #expect(!MobileOnboardingGate.shouldShowOnboarding(
-            hasSeenOnboarding: true,
-            hasKnownPairedMac: false
+            hasSeenOnboarding: true
         ))
     }
 
     /// Onboarded and paired: never show onboarding.
     @Test func skipsOnboardingForOnboardedAndPaired() {
         #expect(!MobileOnboardingGate.shouldShowOnboarding(
-            hasSeenOnboarding: true,
-            hasKnownPairedMac: true
+            hasSeenOnboarding: true
         ))
     }
 }
