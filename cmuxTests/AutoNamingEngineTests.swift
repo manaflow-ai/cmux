@@ -382,7 +382,7 @@ import Testing
         #expect(engine.sanitizeResponse("Fix auth bug", currentTitle: "Other title") == "Fix auth bug")
     }
 
-    @Test func unchangedTitleUsesSuccessConfirmationPath() throws {
+    @Test func unchangedTitleUsesIdempotentApplyPath() throws {
         let telemetry = CLISocketSentryTelemetry(
             command: "cmux",
             commandArgs: [],
@@ -397,7 +397,7 @@ import Testing
             telemetry: telemetry
         ))
         #expect(action.title == "Fix auth bug")
-        #expect(action.shouldApply == false)
+        #expect(action.shouldApply == true)
     }
 
     // MARK: - Environment policy
@@ -479,5 +479,17 @@ import Testing
         )
 
         #expect(output == nil)
+    }
+
+    @Test func summarizerReturnsAfterMainExitWithInheritedStdoutWriter() {
+        let output = CMUXCLI(args: []).runAutoNamingSummarizer(
+            executable: "/bin/sh",
+            arguments: ["-c", "printf 'Inherited Writer Title\\n'; sleep 1 & exit 0"],
+            prompt: "Summarize this conversation.",
+            environment: ["PATH": "/bin:/usr/bin"],
+            timeout: 0.2
+        )
+
+        #expect(output == "Inherited Writer Title\n")
     }
 }

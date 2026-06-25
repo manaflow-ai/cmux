@@ -302,7 +302,16 @@ extension CMUXCLI {
                     closeAutoNamingFD(&stdinFD)
                     return (nil, true, false)
                 }
-                if stdoutEOF { return (rawStatus, true, true) }
+                if !stdoutEOF {
+                    let withinLimit = drainAvailableAutoNamingOutput(
+                        from: stdoutFD,
+                        into: &output,
+                        maxBytes: maxBytes,
+                        reachedEOF: &stdoutEOF
+                    )
+                    guard withinLimit else { return (nil, false, true) }
+                }
+                return (rawStatus, true, true)
             }
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { return (nil, true, promptDelivered) }
