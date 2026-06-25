@@ -24,17 +24,21 @@ struct TerminalLayoutPreviewView: View {
         NavigationStack {
             TerminalLayoutPreviewSurface()
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                // Fill the whole window, INCLUDING under the status bar and nav
+                // bar, with the terminal color (#272822) — exactly like
+                // WorkspaceDetailView. Without `.top` the header region falls back
+                // to black, which does not match the running app.
                 .background {
                     TerminalPalette.background
-                        .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
+                        .ignoresSafeArea(.container, edges: [.horizontal, .top, .bottom])
                 }
                 .ignoresSafeArea(.container, edges: .bottom)
                 .ignoresSafeArea(.keyboard, edges: .bottom)
                 .navigationTitle(title)
-                .navigationBarTitleDisplayMode(.inline)
                 // Match WorkspaceDetailView's terminal nav bar: a real cmux
-                // titlebar sits below the status bar instead of the terminal
-                // bleeding under the Dynamic Island.
+                // titlebar (back chevron + centered name + chat/terminal icons)
+                // over the translucent glass/material chrome, with the terminal
+                // color showing through behind it.
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
                         Image(systemName: "chevron.left").fontWeight(.semibold)
@@ -45,7 +49,7 @@ struct TerminalLayoutPreviewView: View {
                     }
                 }
                 .tint(TerminalPalette.foreground)
-                .toolbarColorScheme(.dark, for: .navigationBar)
+                .mobileTerminalNavigationChrome()
         }
     }
 }
