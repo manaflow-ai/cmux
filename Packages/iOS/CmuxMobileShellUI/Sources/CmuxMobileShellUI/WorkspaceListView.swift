@@ -367,22 +367,40 @@ struct WorkspaceListView: View {
     }
 
     private var macTitlePicker: some View {
-        Picker(
-            selection: Binding(
-                get: { visibleMacSelection },
-                set: { macSelection = $0 }
-            )
-        ) {
-            Text(L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Macs"))
-                .tag(WorkspaceMacSelection.all)
+        Menu {
+            Button {
+                macSelection = .all
+            } label: {
+                macMenuItemLabel(
+                    title: L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Macs"),
+                    isSelected: visibleMacSelection == .all
+                )
+            }
             ForEach(macPickerMachines) { machine in
-                Text(machine.name).tag(WorkspaceMacSelection.machine(machine.id))
+                Button {
+                    macSelection = .machine(machine.id)
+                } label: {
+                    macMenuItemLabel(
+                        title: machine.name,
+                        isSelected: visibleMacSelection == .machine(machine.id)
+                    )
+                }
             }
         } label: {
             WorkspaceMacTitlePickerLabel(title: macTitlePickerTitle)
         }
-        .pickerStyle(.menu)
+        .buttonStyle(.plain)
+        .tint(.white)
         .accessibilityIdentifier("MobileWorkspaceMacPicker")
+    }
+
+    @ViewBuilder
+    private func macMenuItemLabel(title: String, isSelected: Bool) -> some View {
+        if isSelected {
+            Label(title, systemImage: "checkmark")
+        } else {
+            Text(title)
+        }
     }
 
     private var devicesButton: some View {
@@ -557,17 +575,19 @@ private struct WorkspaceMacTitlePickerLabel: View {
     let title: String
 
     var body: some View {
-        HStack(spacing: 5) {
+        ZStack(alignment: .trailing) {
             Text(title)
                 .lineLimit(1)
                 .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.horizontal, 18)
             Image(systemName: "chevron.down")
                 .font(.caption2.weight(.bold))
                 .accessibilityHidden(true)
         }
         .font(.headline.weight(.semibold))
         .foregroundStyle(.white)
-        .frame(minWidth: 120, maxWidth: 220, alignment: .center)
+        .frame(width: 180, alignment: .center)
         .contentShape(Rectangle())
     }
 }
