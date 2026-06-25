@@ -6,7 +6,7 @@ nonisolated struct CrashRecoveryVerification: Equatable, Sendable {
     var fingerprint: CrashRecoveryVerificationFingerprint
 
     var needsFullRecoveryVerification: Bool {
-        facts.agentKind == .claude
+        (facts.agentKind == .claude || facts.agentKind == .codex)
             && facts.hasBinding
             && !facts.transcriptExistsAtWindowCwd
             && !presence.searchedElsewhere

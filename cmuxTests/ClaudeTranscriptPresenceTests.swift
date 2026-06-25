@@ -237,6 +237,30 @@ import Testing
         #expect(presence.searchedElsewhere == false)
     }
 
+    @Test func codexRestoreTimePlaceholderRequiresFullRecoveryVerification() {
+        let facts = ResumeBindingFacts(
+            hasBinding: true,
+            agentKind: .codex,
+            sessionId: "codex-session-restore-time",
+            resumeCommandConstructable: true,
+            transcriptExistsAtWindowCwd: false,
+            transcriptExistsElsewhere: false
+        )
+        let verification = CrashRecoveryVerification(
+            facts: facts,
+            presence: .absent,
+            fingerprint: CrashRecoveryVerificationFingerprint(
+                kind: .codex,
+                sessionId: "codex-session-restore-time",
+                cwd: "/Users/me/repo",
+                claudeConfigDir: nil,
+                codexHome: nil
+            )
+        )
+
+        #expect(verification.needsFullRecoveryVerification)
+    }
+
     @Test func codexRolloutUnderDifferentCwdIsElsewhereNotAtCwd() throws {
         let home = try makeHome()
         defer { try? fm.removeItem(atPath: home) }
