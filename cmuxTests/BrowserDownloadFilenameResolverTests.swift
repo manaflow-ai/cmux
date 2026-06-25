@@ -108,6 +108,33 @@ import WebKit
         #expect(destination.lastPathComponent == "report (1).pdf")
     }
 
+    @Test func uniqueDownloadDestinationFallsBackAfterBoundedCollisionScan() throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-download-resolver-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
+        defer { try? fileManager.removeItem(at: directory) }
+
+        try Data("existing".utf8).write(to: directory.appendingPathComponent("report.pdf", isDirectory: false))
+        for index in 1...100 {
+            try Data("existing".utf8).write(
+                to: directory.appendingPathComponent("report (\(index)).pdf", isDirectory: false)
+            )
+        }
+
+        let destination = resolver.uniqueDownloadDestination(
+            suggestedFilename: "report.pdf",
+            in: directory,
+            fileManager: fileManager
+        )
+
+        #expect(destination.deletingLastPathComponent().path == directory.path)
+        #expect(destination.lastPathComponent.hasPrefix("report-"))
+        #expect(destination.pathExtension == "pdf")
+    }
+
     @MainActor
     @Test func scriptedDownloadInterceptionRunsInSubframes() throws {
         let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())

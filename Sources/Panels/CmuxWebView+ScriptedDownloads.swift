@@ -331,7 +331,7 @@ extension CmuxWebView {
         let traceID = Self.makeContextDownloadTraceID(prefix: "scriptdl")
         debugContextDownload("browser.scriptdl.start trace=\(traceID) scheme=\(url.scheme ?? "nil")")
         if url.scheme?.caseInsensitiveCompare("blob") == .orderedSame {
-            startScriptedWebKitDownload(url, traceID: traceID)
+            startScriptedWebKitDownload(url, suggestedFilename: suggestedFilename, traceID: traceID)
             return
         }
         downloadURLViaSession(
@@ -349,7 +349,11 @@ extension CmuxWebView {
         return scheme == "data" || scheme == "blob"
     }
 
-    private func startScriptedWebKitDownload(_ url: URL, traceID: String) {
+    private func startScriptedWebKitDownload(
+        _ url: URL,
+        suggestedFilename: String?,
+        traceID: String
+    ) {
         guard let downloadDelegate = cmuxDownloadDelegate else {
 #if DEBUG
             debugContextDownload("browser.scriptdl.webkit trace=\(traceID) stage=rejectMissingDelegate")
@@ -361,6 +365,9 @@ extension CmuxWebView {
 #if DEBUG
                 self.debugContextDownload("browser.scriptdl.webkit trace=\(traceID) stage=didStart")
 #endif
+                if let browserDownloadDelegate = downloadDelegate as? BrowserDownloadDelegate {
+                    browserDownloadDelegate.setSuggestedFilenameOverride(suggestedFilename, for: download)
+                }
                 download.delegate = downloadDelegate
             }
         } else {

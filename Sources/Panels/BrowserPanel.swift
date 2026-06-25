@@ -8299,6 +8299,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
 
     /// Tracks active downloads keyed by WKDownload identity.
     private var activeDownloads: [ObjectIdentifier: DownloadState] = [:]
+    private var suggestedFilenameOverrides: [ObjectIdentifier: String] = [:]
     private let activeDownloadsLock = NSLock()
     var onDownloadStarted: ((String) -> Void)?
     var onDownloadReadyToSave: ((String) -> Void)?
@@ -8317,6 +8318,21 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         activeDownloadsLock.lock()
         activeDownloads[ObjectIdentifier(download)] = state
         activeDownloadsLock.unlock()
+    }
+
+    func setSuggestedFilenameOverride(_ suggestedFilename: String?, for download: WKDownload) {
+        let trimmed = suggestedFilename?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmed, !trimmed.isEmpty else { return }
+        activeDownloadsLock.lock()
+        suggestedFilenameOverrides[ObjectIdentifier(download)] = trimmed
+        activeDownloadsLock.unlock()
+    }
+
+    private func takeSuggestedFilenameOverride(for download: WKDownload) -> String? {
+        activeDownloadsLock.lock()
+        let filename = suggestedFilenameOverrides.removeValue(forKey: ObjectIdentifier(download))
+        activeDownloadsLock.unlock()
+        return filename
     }
 
     private func removeState(for download: WKDownload) -> DownloadState? {
@@ -8411,8 +8427,9 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
             completionHandler(nil)
             return
         }
+        let preferredSuggestedFilename = takeSuggestedFilenameOverride(for: download) ?? suggestedFilename
         let sourceURL = response.url ?? URL(fileURLWithPath: suggestedFilename)
-        let safeFilename = filenameResolver.suggestedFilename(suggestedFilename: suggestedFilename, response: response, sourceURL: sourceURL, imageType: nil)
+        let safeFilename = filenameResolver.suggestedFilename(suggestedFilename: preferredSuggestedFilename, response: response, sourceURL: sourceURL, imageType: nil)
         let tempFilename = "\(UUID().uuidString)-\(safeFilename)"
         let destURL = Self.tempDir.appendingPathComponent(tempFilename, isDirectory: false)
         try? FileManager.default.removeItem(at: destURL)

@@ -9,6 +9,8 @@ nonisolated enum BrowserDownloadHTTPStatusDecision: Equatable, Sendable {
 }
 
 nonisolated struct BrowserDownloadFilenameResolver: Sendable {
+    private static let maxFilenameCollisionAttempts = 100
+
     func shouldForceDownload(
         mimeType: String?,
         contentDisposition: String?
@@ -152,7 +154,7 @@ nonisolated struct BrowserDownloadFilenameResolver: Sendable {
         let base = nsFilename.deletingPathExtension.isEmpty ? defaultFilename : nsFilename.deletingPathExtension
         let ext = nsFilename.pathExtension
         var index = 1
-        while true {
+        while index <= Self.maxFilenameCollisionAttempts {
             let dedupedName = ext.isEmpty ? "\(base) (\(index))" : "\(base) (\(index)).\(ext)"
             let url = directory.appendingPathComponent(dedupedName, isDirectory: false)
             if !fileManager.fileExists(atPath: url.path) {
@@ -160,6 +162,10 @@ nonisolated struct BrowserDownloadFilenameResolver: Sendable {
             }
             index += 1
         }
+
+        let uuid = UUID().uuidString
+        let fallbackName = ext.isEmpty ? "\(base)-\(uuid)" : "\(base)-\(uuid).\(ext)"
+        return directory.appendingPathComponent(fallbackName, isDirectory: false)
     }
 
     private func imageFilename(
