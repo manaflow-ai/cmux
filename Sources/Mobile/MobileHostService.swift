@@ -238,30 +238,10 @@ enum MobileHostRequestActivity {
     #endif
 }
 
-struct MobileHostServiceStatus {
-    let isRunning: Bool
-    let port: Int?
-    /// The preferred port from settings the listener tried to bind.
-    let configuredPort: Int
-    /// True when the listener is running on an OS-assigned ephemeral port
-    /// because the configured port could not be bound.
-    let usesEphemeralFallback: Bool
-    let routes: [CmxAttachRoute]
-    let activeConnectionCount: Int
-    let lastErrorDescription: String?
-
-    var payload: [String: Any] {
-        [
-            "is_running": isRunning,
-            "port": port ?? NSNull(),
-            "configured_port": configuredPort,
-            "uses_ephemeral_fallback": usesEphemeralFallback,
-            "routes": routes.map(\.mobileHostJSONObject),
-            "active_connection_count": activeConnectionCount,
-            "last_error": lastErrorDescription ?? NSNull()
-        ]
-    }
-}
+/// Moved to ``CMUXMobileCore.MobileHostServiceStatus`` (a pure `Sendable` value).
+/// Kept as an app-side typealias so this file and `HostSettingsActions` consumers
+/// stay byte-identical.
+typealias MobileHostServiceStatus = CMUXMobileCore.MobileHostServiceStatus
 
 @MainActor
 final class MobileHostService {

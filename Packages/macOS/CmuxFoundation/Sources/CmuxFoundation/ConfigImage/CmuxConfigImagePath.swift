@@ -45,7 +45,7 @@ extension Optional where Wrapped == CmuxConfigImagePath {
     /// anchor is present, anchors it to the directory containing the config.
     /// Absolute paths and the no-config case are returned expanded but
     /// otherwise unchanged.
-    func resolve(_ path: String) -> String {
+    public func resolve(_ path: String) -> String {
         if let self {
             return self.resolve(path)
         }

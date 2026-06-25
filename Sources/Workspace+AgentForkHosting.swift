@@ -105,8 +105,7 @@ extension Workspace: AgentForkHosting {
         panelId: UUID
     ) -> Bool {
         let isRemote = remoteSurfaceCoordinator.isRemoteTerminalSurface(panelId)
-        return ContentView.commandPaletteSnapshotForkAvailability(
-            snapshot,
+        return snapshot.commandPaletteForkAvailability(
             isRemoteTerminal: isRemote
         ) == .supportedWithoutProbe
     }

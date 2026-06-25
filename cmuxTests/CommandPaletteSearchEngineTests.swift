@@ -568,7 +568,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
 
         XCTAssertFalse(
-            ContentView.commandPalettePanelHasForkableAgent(
+            SessionRestorableAgentSnapshot.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [],
@@ -576,7 +576,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             )
         )
         XCTAssertTrue(
-            ContentView.commandPalettePanelHasForkableAgent(
+            SessionRestorableAgentSnapshot.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
@@ -584,7 +584,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            ContentView.commandPalettePanelHasForkableAgent(
+            SessionRestorableAgentSnapshot.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: UUID(),
                 supportedPanelKeys: [supportedKey],
@@ -592,7 +592,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            ContentView.commandPalettePanelHasForkableAgent(
+            SessionRestorableAgentSnapshot.commandPalettePanelHasForkableAgent(
                 workspaceId: UUID(),
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
@@ -610,7 +610,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
 
         XCTAssertTrue(
-            ContentView.commandPalettePanelHasForkableAgent(
+            SessionRestorableAgentSnapshot.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
@@ -620,7 +620,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            ContentView.commandPalettePanelHasForkableAgent(
+            SessionRestorableAgentSnapshot.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
@@ -630,7 +630,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             )
         )
         XCTAssertTrue(
-            ContentView.commandPalettePanelHasForkableAgent(
+            SessionRestorableAgentSnapshot.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
@@ -640,7 +640,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            ContentView.commandPalettePanelHasForkableAgent(
+            SessionRestorableAgentSnapshot.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
@@ -694,7 +694,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
 
         XCTAssertFalse(
-            ContentView.commandPalettePanelHasForkableAgent(
+            SessionRestorableAgentSnapshot.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [],
@@ -702,7 +702,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             )
         )
         XCTAssertTrue(
-            ContentView.commandPalettePanelHasForkableAgent(
+            SessionRestorableAgentSnapshot.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
@@ -711,7 +711,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            ContentView.commandPalettePanelHasForkableAgent(
+            SessionRestorableAgentSnapshot.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [],
@@ -719,7 +719,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            ContentView.commandPalettePanelHasForkableAgent(
+            SessionRestorableAgentSnapshot.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [],
@@ -728,7 +728,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             )
         )
         XCTAssertTrue(
-            ContentView.commandPalettePanelHasForkableAgent(
+            SessionRestorableAgentSnapshot.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
@@ -738,7 +738,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            ContentView.commandPalettePanelHasForkableAgent(
+            SessionRestorableAgentSnapshot.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [],
@@ -746,7 +746,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             )
         )
         XCTAssertTrue(
-            ContentView.commandPalettePanelHasForkableAgent(
+            SessionRestorableAgentSnapshot.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
@@ -788,7 +788,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertNotNil(snapshot.forkStartupInput(allowLauncherScript: true))
         XCTAssertNil(snapshot.forkStartupInput(allowLauncherScript: false))
         XCTAssertFalse(
-            ContentView.commandPalettePanelHasForkableAgent(
+            SessionRestorableAgentSnapshot.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [],
@@ -796,7 +796,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             )
         )
         XCTAssertTrue(
-            ContentView.commandPalettePanelHasForkableAgent(
+            SessionRestorableAgentSnapshot.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
@@ -805,7 +805,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            ContentView.commandPalettePanelHasForkableAgent(
+            SessionRestorableAgentSnapshot.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [],
@@ -814,7 +814,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            ContentView.commandPalettePanelHasForkableAgent(
+            SessionRestorableAgentSnapshot.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
@@ -839,7 +839,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
 
         XCTAssertFalse(
-            ContentView.commandPalettePanelHasForkableAgent(
+            SessionRestorableAgentSnapshot.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
@@ -899,7 +899,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 source: "process"
             )
         )
-        let fingerprint = ContentView.commandPaletteForkSnapshotFingerprint(fallback)
+        let fingerprint = fallback.commandPaletteForkFingerprint
 
         let selection = ContentView.commandPaletteImmediateForkExecutionSnapshotSelection(
             workspaceId: workspaceId,
@@ -949,7 +949,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 source: "environment"
             )
         )
-        let fingerprint = ContentView.commandPaletteForkSnapshotFingerprint(fallback)
+        let fingerprint = fallback.commandPaletteForkFingerprint
 
         let selection = ContentView.commandPaletteImmediateForkExecutionSnapshotSelection(
             workspaceId: workspaceId,
@@ -1001,7 +1001,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 source: "process"
             )
         )
-        let fingerprint = ContentView.commandPaletteForkSnapshotFingerprint(fallback)
+        let fingerprint = fallback.commandPaletteForkFingerprint
 
         let selection = ContentView.commandPaletteImmediateForkExecutionSnapshotSelection(
             workspaceId: workspaceId,
@@ -1094,7 +1094,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
 
         XCTAssertTrue(
-            ContentView.commandPalettePanelHasForkableAgent(
+            SessionRestorableAgentSnapshot.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [supportedKey],
@@ -1118,8 +1118,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
 
         XCTAssertNotEqual(
-            ContentView.commandPaletteForkSnapshotFingerprint(first),
-            ContentView.commandPaletteForkSnapshotFingerprint(second)
+            first.commandPaletteForkFingerprint,
+            second.commandPaletteForkFingerprint
         )
     }
 
@@ -1151,8 +1151,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
 
         XCTAssertNotEqual(first.forkCommand, second.forkCommand)
         XCTAssertNotEqual(
-            ContentView.commandPaletteForkSnapshotFingerprint(first),
-            ContentView.commandPaletteForkSnapshotFingerprint(second)
+            first.commandPaletteForkFingerprint,
+            second.commandPaletteForkFingerprint
         )
     }
 
@@ -1185,19 +1185,19 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 source: "process"
             )
         )
-        let fallbackFingerprint = ContentView.commandPaletteForkSnapshotFingerprint(fallback)
-        let processFingerprint = ContentView.commandPaletteForkSnapshotFingerprint(processDetected)
+        let fallbackFingerprint = fallback.commandPaletteForkFingerprint
+        let processFingerprint = processDetected.commandPaletteForkFingerprint
 
         XCTAssertNotEqual(fallbackFingerprint, processFingerprint)
         XCTAssertEqual(
-            ContentView.commandPaletteForkCacheFingerprint(
+            SessionRestorableAgentSnapshot.commandPaletteForkCacheFingerprint(
                 snapshot: processDetected,
                 fallbackFingerprint: fallbackFingerprint
             ),
             fallbackFingerprint
         )
         XCTAssertEqual(
-            ContentView.commandPaletteForkCacheFingerprint(
+            SessionRestorableAgentSnapshot.commandPaletteForkCacheFingerprint(
                 snapshot: processDetected,
                 fallbackFingerprint: nil
             ),

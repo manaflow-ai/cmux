@@ -303,7 +303,19 @@ class TabManager {
             if !shouldRecordFocusHistory {
                 focusHistoryNavigation.markSuppressedSelectionSideEffectGeneration(generation)
             }
-            DispatchQueue.main.async { [weak self] in
+            // Defer the selection side-effects one near-zero turn so the
+            // synchronous didChange turn finishes first (legacy
+            // `DispatchQueue.main.async`). Cancel any prior deferred task; the
+            // generation latch below still absorbs a stale fire that wins the
+            // cancellation race. `Clock.sleep` throws on cancel during the wait,
+            // so no `Task.isCancelled` check is needed.
+            deferredSelectionSideEffectsTask?.cancel()
+            deferredSelectionSideEffectsTask = Task { [weak self] in
+                do {
+                    try await self?.selectionSideEffectsClock.sleep(for: .zero)
+                } catch {
+                    return
+                }
                 guard let self else { return }
                 let suppressFocusHistory = self.focusHistoryNavigation.consumeSuppressedSelectionSideEffectGeneration(generation)
                 guard self.selectionSideEffectsGeneration == generation else { return }
@@ -490,6 +502,28 @@ class TabManager {
         focusHistoryNavigation.shouldRecordFocusHistory
     }
     private var selectionSideEffectsGeneration: UInt64 = 0
+    /// Injected clock behind the deferred selection side-effects (replaces the
+    /// banned `DispatchQueue.main.async` deferral in
+    /// `selectedWorkspaceIdDidChange`). Bookkeeping, not observable UI state.
+    @ObservationIgnored
+    private let selectionSideEffectsClock: any TabManagerSelectionSideEffectsClock
+    /// The in-flight deferred selection side-effects task. Cancelled when a new
+    /// selection bumps `selectionSideEffectsGeneration`; the generation latch in
+    /// the task body absorbs any stale fire that wins the cancellation race.
+    /// Bookkeeping, not observable UI state.
+    @ObservationIgnored
+    private var deferredSelectionSideEffectsTask: Task<Void, Never>?
+    /// The in-flight deferred browser-focus re-assertion task. Replaces the
+    /// banned nested double `DispatchQueue.main.async` two-turn re-assert in
+    /// `enforceReopenedBrowserFocus`. Cancelled when a new reopen schedules a
+    /// fresh re-assert; the idempotent guards in
+    /// `enforceReopenedBrowserFocusIfNeeded` (selection match, panel-present,
+    /// focus-drift) absorb any stale fire that wins the cancellation race, so no
+    /// `Task.isCancelled` check is needed (`Clock.sleep` throws on cancel during
+    /// the wait). Reuses the shared `selectionSideEffectsClock`. Bookkeeping, not
+    /// observable UI state.
+    @ObservationIgnored
+    private var reopenedBrowserFocusReassertTask: Task<Void, Never>?
     var sidebarSelectedWorkspaceIds: Set<UUID> { sidebarMultiSelection.selectedWorkspaceIds }
     private var currentWindowTabBarLeadingInset: CGFloat?
     /// Periodic agent-PID liveness sweep (extracted to CmuxWorkspaces).
@@ -552,8 +586,10 @@ class TabManager {
         workspaceGitMetadataReader: (any WorkspaceGitMetadataReading)? = nil,
         gitPollClock: any GitPollClock = SystemGitPollClock(),
         gitProbeLimiter: WorkspaceGitMetadataProbeLimiter? = nil,
+        selectionSideEffectsClock: any TabManagerSelectionSideEffectsClock = SystemTabManagerSelectionSideEffectsClock(),
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard)
     ) {
+        self.selectionSideEffectsClock = selectionSideEffectsClock
         self.settings = settings
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
         workspaceCommands = WorkspaceCommandCoordinator(model: workspaces, reordering: workspaceReordering)
@@ -3565,20 +3601,33 @@ class TabManager {
 
         // Some stale focus callbacks can land one runloop turn later. Re-assert focus in two
         // consecutive turns, but only when focus drifted back to the pre-reopen panel.
-        DispatchQueue.main.async { [weak self] in
+        // Fold the legacy nested two-turn `DispatchQueue.main.async` into one
+        // cancellable injected-Clock task: a near-zero sleep before each
+        // re-assert reproduces the per-turn deferral, and the idempotent guards
+        // in `enforceReopenedBrowserFocusIfNeeded` absorb every stale fire.
+        reopenedBrowserFocusReassertTask?.cancel()
+        reopenedBrowserFocusReassertTask = Task { [weak self] in
+            do {
+                try await self?.selectionSideEffectsClock.sleep(for: .zero)
+            } catch {
+                return
+            }
             guard let self else { return }
             self.enforceReopenedBrowserFocusIfNeeded(
                 tabId: tabId,
                 reopenedPanelId: reopenedPanelId,
                 preReopenFocusedPanelId: preReopenFocusedPanelId
             )
-            DispatchQueue.main.async { [weak self] in
-                self?.enforceReopenedBrowserFocusIfNeeded(
-                    tabId: tabId,
-                    reopenedPanelId: reopenedPanelId,
-                    preReopenFocusedPanelId: preReopenFocusedPanelId
-                )
+            do {
+                try await self.selectionSideEffectsClock.sleep(for: .zero)
+            } catch {
+                return
             }
+            self.enforceReopenedBrowserFocusIfNeeded(
+                tabId: tabId,
+                reopenedPanelId: reopenedPanelId,
+                preReopenFocusedPanelId: preReopenFocusedPanelId
+            )
         }
     }
 
@@ -4836,6 +4885,11 @@ extension TabManager {
         focusHistoryRevision &+= 1
         workspaceSelection.resetWorkspaceCycleHotWindow()
         selectionSideEffectsGeneration &+= 1
+        // Keep cancellation wired to the generation bump: this reset invalidates
+        // any in-flight deferred selection side-effects (the generation latch
+        // already no-ops a stale fire; cancelling avoids the wasted resumed
+        // turn).
+        deferredSelectionSideEffectsTask?.cancel()
         browserModel.clearRecentlyClosedBrowserPanels()
     }
 

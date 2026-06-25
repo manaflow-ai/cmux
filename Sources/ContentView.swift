@@ -3021,57 +3021,6 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
 
     typealias CommandPaletteForkSnapshotAvailability = CmuxCommandPalette.CommandPaletteForkSnapshotAvailability
 
-    static func commandPaletteSnapshotForkAvailability(
-        _ snapshot: SessionRestorableAgentSnapshot,
-        isRemoteTerminal: Bool = false
-    ) -> CommandPaletteForkSnapshotAvailability {
-        guard snapshot.forkCommand != nil else { return .unsupported }
-        if isRemoteTerminal,
-           snapshot.forkStartupInput(allowLauncherScript: false) == nil {
-            return .unsupported
-        }
-        switch snapshot.kind {
-        case .claude, .codex:
-            return .supportedWithoutProbe
-        case .opencode:
-            return snapshot.launchCommand?.launcher == "omo" || isRemoteTerminal ? .supportedWithoutProbe : .requiresProbe
-        case .custom:
-            // Reaching here means `forkCommand != nil` (top guard), i.e. the
-            // agent's registration declares a `forkCommand` template, so it is
-            // fork-able. There is no per-agent fork-capability probe for custom
-            // agents (unlike opencode's version probe), so trust the template.
-            return .supportedWithoutProbe
-        default:
-            return .unsupported
-        }
-    }
-
-    static func commandPaletteForkSnapshotFingerprint(
-        _ snapshot: SessionRestorableAgentSnapshot
-    ) -> String {
-        let launchCommand = snapshot.launchCommand
-        let launchArguments = launchCommand?.arguments.joined(separator: "\u{1f}") ?? ""
-        let parts: [String] = [
-            snapshot.kind.rawValue,
-            snapshot.sessionId,
-            snapshot.workingDirectory ?? "",
-            launchCommand?.launcher ?? "",
-            launchCommand?.executablePath ?? "",
-            launchArguments,
-            launchCommand?.workingDirectory ?? "",
-            launchCommand?.source ?? "",
-            snapshot.forkCommand ?? ""
-        ]
-        return parts.joined(separator: "\u{1e}")
-    }
-
-    static func commandPaletteForkCacheFingerprint(
-        snapshot: SessionRestorableAgentSnapshot,
-        fallbackFingerprint: String?
-    ) -> String {
-        fallbackFingerprint ?? commandPaletteForkSnapshotFingerprint(snapshot)
-    }
-
     static func commandPaletteForkableAgentProbeResultMatches(
         panelKey: String,
         supportedPanelKeys: Set<String>,
@@ -3142,34 +3091,6 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         )
     }
 
-    static func commandPalettePanelHasForkableAgent(
-        workspaceId: UUID,
-        panelId: UUID,
-        supportedPanelKeys: Set<String>,
-        supportedRemoteContextsByPanelKey: [String: Bool] = [:],
-        fallbackSnapshot: SessionRestorableAgentSnapshot?,
-        isRemoteTerminal: Bool = false
-    ) -> Bool {
-        let panelKey = commandPaletteForkableAgentPanelKey(
-            workspaceId: workspaceId,
-            panelId: panelId
-        )
-        if supportedPanelKeys.contains(panelKey) {
-            if let supportedRemoteContext = supportedRemoteContextsByPanelKey[panelKey],
-               supportedRemoteContext != isRemoteTerminal {
-                return false
-            }
-            if let fallbackSnapshot {
-                return commandPaletteSnapshotForkAvailability(
-                    fallbackSnapshot,
-                    isRemoteTerminal: isRemoteTerminal
-                ) != .unsupported
-            }
-            return true
-        }
-        return false
-    }
-
     private func refreshCommandPaletteForkableAgentAvailabilityIfNeeded(scope: CommandPaletteListScope) {
         let panelContext: CommandPaletteForkableAgentPanelContext<SessionRestorableAgentSnapshot>?
         if scope == .commands,
@@ -3206,17 +3127,14 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     func commandPaletteForkSnapshotFingerprint(
         _ snapshot: SessionRestorableAgentSnapshot
     ) -> String {
-        Self.commandPaletteForkSnapshotFingerprint(snapshot)
+        snapshot.commandPaletteForkFingerprint
     }
 
     func commandPaletteSnapshotForkAvailability(
         _ snapshot: SessionRestorableAgentSnapshot,
         isRemoteTerminal: Bool
     ) -> CommandPaletteForkSnapshotAvailability {
-        Self.commandPaletteSnapshotForkAvailability(
-            snapshot,
-            isRemoteTerminal: isRemoteTerminal
-        )
+        snapshot.commandPaletteForkAvailability(isRemoteTerminal: isRemoteTerminal)
     }
 
     func commandPaletteCurrentFallbackSnapshotFingerprint(
@@ -3229,7 +3147,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
               let currentFallbackSnapshot = currentContext.workspace.restoredAgentSnapshotsByPanelId[panelId] else {
             return nil
         }
-        return Self.commandPaletteForkSnapshotFingerprint(currentFallbackSnapshot)
+        return currentFallbackSnapshot.commandPaletteForkFingerprint
     }
 
     func commandPaletteProbeForkableAgentSupport(
@@ -3470,7 +3388,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             let fallbackForkableSnapshot = workspace.restoredAgentSnapshotsByPanelId[panelId]
             snapshot.setBool(
                 CommandPaletteContextKeys.panelHasForkableAgent,
-                Self.commandPalettePanelHasForkableAgent(
+                SessionRestorableAgentSnapshot.commandPalettePanelHasForkableAgent(
                     workspaceId: workspace.id,
                     panelId: panelId,
                     supportedPanelKeys: commandPaletteForkableAgentProbeCoordinator.supportedPanelKeys,

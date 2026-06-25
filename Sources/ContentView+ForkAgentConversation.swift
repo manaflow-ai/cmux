@@ -63,10 +63,10 @@ extension ContentView {
         }
         let snapshot = selection.snapshot
 
-        let fallbackFingerprint = fallbackSnapshot.map(Self.commandPaletteForkSnapshotFingerprint)
+        let fallbackFingerprint = fallbackSnapshot.map(\.commandPaletteForkFingerprint)
         commandPaletteForkableAgentProbeCoordinator.supportedPanelKeys.insert(panelKey)
         commandPaletteForkableAgentProbeCoordinator.snapshotsByPanelKey[panelKey] = snapshot
-        commandPaletteForkableAgentProbeCoordinator.snapshotFingerprintsByPanelKey[panelKey] = Self.commandPaletteForkCacheFingerprint(
+        commandPaletteForkableAgentProbeCoordinator.snapshotFingerprintsByPanelKey[panelKey] = SessionRestorableAgentSnapshot.commandPaletteForkCacheFingerprint(
             snapshot: snapshot,
             fallbackFingerprint: fallbackFingerprint
         )
@@ -197,8 +197,7 @@ extension ContentView {
                snapshotFingerprintsByPanelKey[panelKey] != expectedFingerprint {
                 return nil
             }
-            guard commandPaletteSnapshotForkAvailability(
-                cachedSnapshot,
+            guard cachedSnapshot.commandPaletteForkAvailability(
                 isRemoteTerminal: isRemoteTerminal
             ) != .unsupported else {
                 return nil
@@ -207,9 +206,8 @@ extension ContentView {
         }
 
         if let fallbackSnapshot {
-            let fallbackFingerprint = commandPaletteForkSnapshotFingerprint(fallbackSnapshot)
-            switch commandPaletteSnapshotForkAvailability(
-                fallbackSnapshot,
+            let fallbackFingerprint = fallbackSnapshot.commandPaletteForkFingerprint
+            switch fallbackSnapshot.commandPaletteForkAvailability(
                 isRemoteTerminal: isRemoteTerminal
             ) {
             case .supportedWithoutProbe:
@@ -262,8 +260,7 @@ extension ContentView {
         guard let cachedSnapshot = verifiedCachedSnapshot(expectedFingerprint: nil) else {
             return nil
         }
-        switch commandPaletteSnapshotForkAvailability(
-            cachedSnapshot,
+        switch cachedSnapshot.commandPaletteForkAvailability(
             isRemoteTerminal: isRemoteTerminal
         ) {
         case .supportedWithoutProbe, .requiresProbe:
