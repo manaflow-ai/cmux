@@ -91,6 +91,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     private let popupNavigationDelegate: PopupNavigationDelegate
     private let downloadDelegate: BrowserDownloadDelegate
     private let webAuthnCoordinator: BrowserWebAuthnCoordinator
+    private var sslTrustBypassMessageHandler: BrowserSSLTrustBypassMessageHandler?
     private var globalFontObserver: GlobalFontMagnificationChangeObserver?
 
     private static var associatedObjectKey: UInt8 = 0
@@ -222,6 +223,14 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         navDel.downloadDelegate = dlDel
         webView.uiDelegate = uiDel
         webView.navigationDelegate = navDel
+        let sslTrustBypassMessageHandler = BrowserSSLTrustBypassMessageHandler { [weak navDel, weak webView] actionURL in
+            guard let webView else { return }
+            navDel?.handleSSLTrustBypassAction(actionURL, in: webView)
+        }
+        self.sslTrustBypassMessageHandler = sslTrustBypassMessageHandler
+        let userContentController = webView.configuration.userContentController
+        userContentController.removeScriptMessageHandler(forName: BrowserSSLTrustBypassMessageHandler.name)
+        userContentController.add(sslTrustBypassMessageHandler, name: BrowserSSLTrustBypassMessageHandler.name)
         webAuthnCoordinator.install(on: webView)
 
         // Context menu "Open Link in New Tab" → open in opener's workspace,
@@ -321,6 +330,10 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
         // Tear down web view
         webAuthnCoordinator.uninstall(from: webView)
+        webView.configuration.userContentController.removeScriptMessageHandler(
+            forName: BrowserSSLTrustBypassMessageHandler.name
+        )
+        sslTrustBypassMessageHandler = nil
         webView.stopLoading()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
@@ -641,10 +654,7 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
            url.scheme == "cmux-browser-action",
            url.host == "bypass-ssl" {
             decisionHandler(.cancel)
-            if let request = sslBypassState.consumePendingBypassAction(url) {
-                recordAttemptedRequest(request)
-                browserLoadRequest(request, in: webView)
-            }
+            handleSSLTrustBypassAction(url, in: webView)
             return
         }
 
@@ -755,6 +765,14 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         }
 
         decisionHandler(.allow)
+    }
+
+    func handleSSLTrustBypassAction(_ actionURL: URL, in webView: WKWebView) {
+        guard let request = sslBypassState.consumePendingBypassAction(actionURL) else {
+            return
+        }
+        recordAttemptedRequest(request)
+        browserLoadRequest(request, in: webView)
     }
 
     func webView(

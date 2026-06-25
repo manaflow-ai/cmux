@@ -3060,6 +3060,7 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
     var reactGrabMessageHandler: ReactGrabMessageHandler?
+    var sslTrustBypassMessageHandler: BrowserSSLTrustBypassMessageHandler?
     /// Whether the live page currently has any actively-playing `<video>` or
     /// `<audio>` element, in the main frame or any iframe, reported by the
     /// injected media-playback hook. Keeps an actively-playing pane alive in the
@@ -3746,8 +3747,20 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.uiDelegate = uiDelegate
         setupObservers(for: webView)
         setupReactGrabMessageHandler(for: webView)
+        setupSSLTrustBypassMessageHandler(for: webView)
         setupMediaPlaybackMessageHandler(for: webView)
         applyMuteState(to: webView, reason: "bindWebView")
+    }
+
+    private func setupSSLTrustBypassMessageHandler(for webView: WKWebView) {
+        let handler = BrowserSSLTrustBypassMessageHandler { [weak self, weak webView] actionURL in
+            guard let self, let webView else { return }
+            self.navigationDelegate?.handleSSLTrustBypassAction(actionURL, in: webView)
+        }
+        sslTrustBypassMessageHandler = handler
+        let userContentController = webView.configuration.userContentController
+        userContentController.removeScriptMessageHandler(forName: BrowserSSLTrustBypassMessageHandler.name)
+        userContentController.add(handler, name: BrowserSSLTrustBypassMessageHandler.name)
     }
 
     private func configureNavigationDelegateCallbacks() {
@@ -8739,10 +8752,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
            url.scheme == "cmux-browser-action",
            url.host == "bypass-ssl" {
             decisionHandler(.cancel)
-            if let request = sslBypassState.consumePendingBypassAction(url) {
-                recordAttemptedRequest(request)
-                browserLoadRequest(request, in: webView)
-            }
+            handleSSLTrustBypassAction(url, in: webView)
             return
         }
 
@@ -8870,6 +8880,14 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             }
         }
         decisionHandler(.allow)
+    }
+
+    func handleSSLTrustBypassAction(_ actionURL: URL, in webView: WKWebView) {
+        guard let request = sslBypassState.consumePendingBypassAction(actionURL) else {
+            return
+        }
+        recordAttemptedRequest(request)
+        browserLoadRequest(request, in: webView)
     }
 
     func webView(

@@ -20,9 +20,15 @@ struct BrowserErrorPage {
         if content.permitsSSLBypass,
            let failedRequest,
            let bypassURL = sslBypassState.createPendingBypassAction(for: failedRequest) {
+            let token = URLComponents(url: bypassURL, resolvingAgainstBaseURL: false)?
+                .queryItems?
+                .first { $0.name == "token" }?
+                .value ?? ""
+            let escapedToken = escapeHTML(token)
             let escapedBypassURL = escapeHTML(bypassURL.absoluteString)
+            let escapedBypassOnClick = escapeHTML(Self.bypassOnClickScript)
             bypassButtonHTML = """
-                <a class="button bypass" href="\(escapedBypassURL)">\(escapedBypassLabel)</a>
+                <button class="button bypass" type="button" data-token="\(escapedToken)" data-action-url="\(escapedBypassURL)" onclick="\(escapedBypassOnClick)">\(escapedBypassLabel)</button>
             """
         } else {
             bypassButtonHTML = ""
@@ -87,4 +93,13 @@ struct BrowserErrorPage {
             .replacingOccurrences(of: ">", with: "&gt;")
             .replacingOccurrences(of: "\"", with: "&quot;")
     }
+
+    private static let bypassOnClickScript = """
+    var handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(BrowserSSLTrustBypassMessageHandler.name);
+    if (handler) {
+        handler.postMessage(this.dataset.token);
+    } else {
+        window.location.href = this.dataset.actionUrl;
+    }
+    """
 }
