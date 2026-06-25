@@ -129,22 +129,13 @@ extension CMUXCLI {
 
         let stdinPipe = Pipe()
         let stdoutPipe = Pipe()
-        let stdoutBuffer = AutoNamingOutputCapture()
         let maxOutputBytes = 64 * 1024
         defer {
-            stdoutPipe.fileHandleForReading.readabilityHandler = nil
             try? stdoutPipe.fileHandleForReading.close()
         }
         process.standardInput = stdinPipe
         process.standardOutput = stdoutPipe
         process.standardError = FileHandle.nullDevice
-        stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
-            let available = handle.availableData
-            guard !available.isEmpty else { return }
-            if !stdoutBuffer.append(available, maxBytes: maxOutputBytes), process.isRunning {
-                process.terminate()
-            }
-        }
 
         do {
             try cliRunProcess(process)
@@ -156,8 +147,43 @@ extension CMUXCLI {
         }
         try? stdinPipe.fileHandleForWriting.close()
 
-        let exited = (try? waitForProcessExit(process, timeout: timeout)) ?? false
-        if !exited {
+        let stdoutFD = stdoutPipe.fileHandleForReading.fileDescriptor
+        let stdoutFlags = fcntl(stdoutFD, F_GETFL, 0)
+        if stdoutFlags >= 0 {
+            _ = fcntl(stdoutFD, F_SETFL, stdoutFlags | O_NONBLOCK)
+        }
+        defer {
+            if stdoutFlags >= 0 {
+                _ = fcntl(stdoutFD, F_SETFL, stdoutFlags)
+            }
+        }
+
+        var output = Data()
+        var stdoutEOF = false
+        var outputWithinLimit = true
+        let deadline = Date().addingTimeInterval(timeout)
+        while process.isRunning {
+            if !stdoutEOF {
+                outputWithinLimit = drainAvailableAutoNamingOutput(
+                    from: stdoutFD,
+                    into: &output,
+                    maxBytes: maxOutputBytes,
+                    reachedEOF: &stdoutEOF
+                ) && outputWithinLimit
+            }
+            guard outputWithinLimit else {
+                process.terminate()
+                break
+            }
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else { break }
+            if stdoutEOF {
+                _ = try? waitForProcessExit(process, timeout: remaining)
+            } else {
+                waitForAutoNamingOutputChange(from: stdoutFD, timeout: min(remaining, 0.25))
+            }
+        }
+        if process.isRunning {
             process.terminate()
             if ((try? waitForProcessExit(process, timeout: 2)) ?? false) == false {
                 kill(process.processIdentifier, SIGKILL)
@@ -165,15 +191,16 @@ extension CMUXCLI {
             }
             return nil
         }
-        stdoutPipe.fileHandleForReading.readabilityHandler = nil
-        drainAvailableAutoNamingOutput(
-            from: stdoutPipe.fileHandleForReading.fileDescriptor,
-            into: stdoutBuffer,
-            maxBytes: maxOutputBytes,
-            process: process
-        )
-        guard process.terminationStatus == 0,
-              let output = stdoutBuffer.dataIfWithinLimit() else {
+        if !stdoutEOF {
+            outputWithinLimit = drainAvailableAutoNamingOutput(
+                from: stdoutFD,
+                into: &output,
+                maxBytes: maxOutputBytes,
+                reachedEOF: &stdoutEOF
+            ) && outputWithinLimit
+        }
+        guard outputWithinLimit,
+              process.terminationStatus == 0 else {
             return nil
         }
         return String(data: output, encoding: .utf8)
@@ -181,33 +208,38 @@ extension CMUXCLI {
 
     private func drainAvailableAutoNamingOutput(
         from fd: Int32,
-        into buffer: AutoNamingOutputCapture,
+        into output: inout Data,
         maxBytes: Int,
-        process: Process
-    ) {
-        let flags = fcntl(fd, F_GETFL, 0)
-        if flags >= 0 {
-            _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK)
-        }
-        defer {
-            if flags >= 0 {
-                _ = fcntl(fd, F_SETFL, flags)
-            }
-        }
-
+        reachedEOF: inout Bool
+    ) -> Bool {
         var chunk = [UInt8](repeating: 0, count: 8 * 1024)
         while true {
             let readCount = Darwin.read(fd, &chunk, chunk.count)
             if readCount > 0 {
-                let data = Data(chunk.prefix(readCount))
-                if !buffer.append(data, maxBytes: maxBytes), process.isRunning {
-                    process.terminate()
+                guard output.count + readCount <= maxBytes else {
+                    output.removeAll(keepingCapacity: false)
+                    return false
                 }
+                output.append(contentsOf: chunk.prefix(readCount))
                 continue
             }
-            if readCount == 0 { return }
+            if readCount == 0 {
+                reachedEOF = true
+                return true
+            }
             if errno == EINTR { continue }
-            if errno == EAGAIN || errno == EWOULDBLOCK { return }
+            if errno == EAGAIN || errno == EWOULDBLOCK { return true }
+            return false
+        }
+    }
+
+    private func waitForAutoNamingOutputChange(from fd: Int32, timeout: TimeInterval) {
+        var descriptor = pollfd(fd: fd, events: Int16(POLLIN | POLLHUP | POLLERR), revents: 0)
+        let timeoutMilliseconds = max(0, Int32((timeout * 1_000).rounded(.up)))
+        while true {
+            let result = poll(&descriptor, 1, timeoutMilliseconds)
+            if result >= 0 { return }
+            if errno == EINTR { continue }
             return
         }
     }
