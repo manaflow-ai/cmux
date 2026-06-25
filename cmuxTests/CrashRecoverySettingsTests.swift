@@ -72,7 +72,7 @@ import Testing
         )
         let updateLaunch = CrashRecoveryLaunchState()
         updateLaunch.captureAtLaunch(homeDirectory: updateHome, environment: [:])
-        #expect(CrashRecoverySettings.shouldGateRestoredAgentStartup(
+        #expect(!CrashRecoverySettings.shouldGateRestoredAgentStartup(
             launchState: updateLaunch,
             defaults: d
         ))

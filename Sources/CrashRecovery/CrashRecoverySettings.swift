@@ -63,7 +63,7 @@ enum CrashRecoverySettings {
                 shouldDeliverSilentReentry(launchState: launchState, defaults: defaults)
         }
         if launchState.restoreWasIntended {
-            return true
+            return resumeAgentsAfterUpdate(defaults: defaults)
         }
         return false
     }
