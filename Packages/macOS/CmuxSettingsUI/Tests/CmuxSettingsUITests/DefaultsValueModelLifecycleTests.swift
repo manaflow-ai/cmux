@@ -198,7 +198,7 @@ import Testing
         #expect(model.revision == 2)
     }
 
-    @Test func nonMatchingObservationClearsStaleLocalEcho() async {
+    @Test func externalObservationSuppressesLaterStaleLocalEcho() async {
         let store = UserDefaultsSettingsStore(
             defaults: UserDefaults(suiteName: "defaults-value-model-stale-echo")!
         )
@@ -224,13 +224,11 @@ import Testing
         #expect(model.revision == 2)
 
         continuation.yield(event(false, source: source))
-        spins = 0
-        while model.current != false, spins < 100_000 {
+        for _ in 0..<10 {
             await Task.yield()
-            spins += 1
         }
-        #expect(model.current == false)
-        #expect(model.revision == 3)
+        #expect(model.current == true)
+        #expect(model.revision == 2)
     }
 
     @Test func rapidLocalWriteEchoesDoNotRevertCurrentOrRevision() async {
@@ -303,7 +301,7 @@ import Testing
         #expect(model.revision == 5)
     }
 
-    @Test func coalescedLocalWriteEchoClearsOlderPendingValues() async {
+    @Test func coalescedLocalWriteEchoSuppressesOlderLocalEchoes() async {
         let store = UserDefaultsSettingsStore(
             defaults: UserDefaults(suiteName: "defaults-value-model-coalesced-local-echoes")!
         )
@@ -326,17 +324,15 @@ import Testing
         continuation.yield(event("#333333", source: thirdSource))
         continuation.yield(event("#111111", source: firstSource))
 
-        var spins = 0
-        while model.current != "#111111", spins < 100_000 {
+        for _ in 0..<10 {
             await Task.yield()
-            spins += 1
         }
 
-        #expect(model.current == "#111111")
-        #expect(model.revision == 4)
+        #expect(model.current == "#333333")
+        #expect(model.revision == 3)
     }
 
-    @Test func coalescedDuplicateLocalWriteEchoClearsOlderPendingValues() async {
+    @Test func coalescedDuplicateLocalWriteEchoSuppressesOlderLocalEchoes() async {
         let store = UserDefaultsSettingsStore(
             defaults: UserDefaults(suiteName: "defaults-value-model-coalesced-duplicate-local-echoes")!
         )
@@ -359,14 +355,54 @@ import Testing
         continuation.yield(event("#111111", source: thirdSource))
         continuation.yield(event("#222222", source: secondSource))
 
+        for _ in 0..<10 {
+            await Task.yield()
+        }
+
+        #expect(model.current == "#111111")
+        #expect(model.revision == 3)
+    }
+
+    @Test func overflowedLocalWriteEchoDoesNotClearNewerPendingValues() async {
+        let store = UserDefaultsSettingsStore(
+            defaults: UserDefaults(suiteName: "defaults-value-model-overflowed-local-echoes")!
+        )
+        let key = SettingCatalog().workspaceColors.selectionColorHex
+        let (stream, continuation) = AsyncStream<DefaultsEvent<String>>.makeStream()
+        let model = DefaultsValueModel(
+            store: store,
+            key: key,
+            initialValue: "#000000",
+            makeStream: { stream }
+        )
+        model.startObserving()
+
+        let writes = (1...20).map { "#LOCAL-\($0)" }
+        var sources: [UserDefaultsSettingsMutationSource] = []
+        for value in writes {
+            sources.append(model.set(value))
+        }
+
+        #expect(model.current == "#LOCAL-20")
+        #expect(model.revision == 20)
+
+        continuation.yield(event("#LOCAL-1", source: sources[0]))
+        for _ in 0..<10 {
+            await Task.yield()
+        }
+
+        #expect(model.current == "#LOCAL-20")
+        #expect(model.revision == 20)
+
+        continuation.yield(event("#EXTERNAL"))
         var spins = 0
-        while model.current != "#222222", spins < 100_000 {
+        while model.current != "#EXTERNAL", spins < 100_000 {
             await Task.yield()
             spins += 1
         }
 
-        #expect(model.current == "#222222")
-        #expect(model.revision == 4)
+        #expect(model.current == "#EXTERNAL")
+        #expect(model.revision == 21)
     }
 
     @Test func setAfterCommitRunsAfterStoreWrite() async {

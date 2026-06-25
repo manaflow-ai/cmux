@@ -41,6 +41,9 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     @ObservationIgnored private let makeStream: () -> AsyncStream<UserDefaultsSettingsValueEvent<Value>>
     @ObservationIgnored private var pendingStoreEchoes: [(source: UserDefaultsSettingsMutationSource, value: Value)] = []
     @ObservationIgnored private let maximumPendingStoreEchoes = 16
+    @ObservationIgnored private let mutationOwnerID = UUID()
+    @ObservationIgnored private var nextMutationSequence: UInt64 = 0
+    @ObservationIgnored private var minimumRetainedMutationSequence: UInt64 = 1
 
     /// Owns the change-stream subscription and cancels it when this model
     /// deallocates.
@@ -131,7 +134,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         updateCurrent(value)
         Task { [store, key, source, afterCommit] in
             await store.set(value, for: key, source: source)
-            afterCommit()
+            await MainActor.run { afterCommit() }
         }
         return source
     }
@@ -142,7 +145,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     /// and must stay in one host-owned mutation path. Unlike ``set(_:)``, this
     /// method does not write to ``store``.
     public func acceptCommittedValue(_ value: Value) {
-        pendingStoreEchoes.removeAll()
+        clearPendingStoreEchoes()
         updateCurrent(value)
     }
 
@@ -163,7 +166,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         if consumePendingStoreEcho(source: event.mutationSource, value: event.value) {
             return
         }
-        pendingStoreEchoes.removeAll()
+        clearPendingStoreEchoes()
         updateCurrent(event.value)
     }
 
@@ -173,22 +176,44 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     }
 
     private func recordPendingStoreEcho(_ value: Value) -> UserDefaultsSettingsMutationSource {
-        let source = UserDefaultsSettingsMutationSource()
+        nextMutationSequence &+= 1
+        let source = UserDefaultsSettingsMutationSource(
+            ownerID: mutationOwnerID,
+            sequence: nextMutationSequence
+        )
         pendingStoreEchoes.append((source, value))
         let overflow = pendingStoreEchoes.count - maximumPendingStoreEchoes
         if overflow > 0 {
+            if let lastRemoved = pendingStoreEchoes.prefix(overflow).last {
+                markLocalEchoesConsumed(through: lastRemoved.source.sequence)
+            }
             pendingStoreEchoes.removeFirst(overflow)
         }
         return source
     }
 
     private func consumePendingStoreEcho(source: UserDefaultsSettingsMutationSource?, value: Value) -> Bool {
-        guard let source,
-              let matchingIndex = pendingStoreEchoes.firstIndex(where: { $0.source == source && $0.value == value })
-        else {
+        guard let source, source.ownerID == mutationOwnerID else {
             return false
         }
+
+        guard let matchingIndex = pendingStoreEchoes.firstIndex(where: { $0.source == source && $0.value == value }) else {
+            return source.sequence < minimumRetainedMutationSequence
+        }
+
+        markLocalEchoesConsumed(through: source.sequence)
         pendingStoreEchoes.removeFirst(matchingIndex + 1)
         return true
+    }
+
+    private func clearPendingStoreEchoes() {
+        pendingStoreEchoes.removeAll()
+        markLocalEchoesConsumed(through: nextMutationSequence)
+    }
+
+    private func markLocalEchoesConsumed(through sequence: UInt64) {
+        if sequence >= minimumRetainedMutationSequence {
+            minimumRetainedMutationSequence = sequence == UInt64.max ? UInt64.max : sequence + 1
+        }
     }
 }
