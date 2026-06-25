@@ -2828,6 +2828,10 @@ final class BrowserPanel: Panel, ObservableObject {
     @Published private(set) var currentURL: URL? {
         didSet {
             guard oldValue != currentURL else { return }
+            if let pendingURL = restoredInlineVSCodeServeWebURLAwaitingPreparation,
+               currentURL?.absoluteString != pendingURL.absoluteString {
+                restoredInlineVSCodeServeWebURLAwaitingPreparation = nil
+            }
             applyConfiguredWebViewBackground()
         }
     }
@@ -2844,6 +2848,12 @@ final class BrowserPanel: Panel, ObservableObject {
     }
     @Published private(set) var backgroundAppearanceRevision: UInt64 = 0
     private let hiddenWebViewDiscardManager = BrowserHiddenWebViewDiscardManager()
+    private var restoredInlineVSCodeServeWebURLAwaitingPreparation: URL?
+    private var restoredInlineVSCodeServeWebStableSnapshotOriginURL: URL?
+
+    func setInlineVSCodeServeWebStableSnapshotOrigin(_ stableOriginURL: URL?) {
+        restoredInlineVSCodeServeWebStableSnapshotOriginURL = stableOriginURL
+    }
 
     @Published private(set) var webViewLifecycleState: BrowserWebViewLifecycleState = .newTab
     private(set) var webViewLastVisibleAt: Date?
@@ -3407,6 +3417,7 @@ final class BrowserPanel: Panel, ObservableObject {
         reason: String,
         cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy
     ) -> Bool {
+        guard restoredInlineVSCodeServeWebURLAwaitingPreparation == nil else { return false }
         return hiddenWebViewDiscardManager.restoreIfNeeded(reason: reason) {
             shouldRenderWebView = true
             guard let restoreURL = restoredHistoryCurrentURL ?? currentURL else {
@@ -4463,7 +4474,9 @@ final class BrowserPanel: Panel, ObservableObject {
         focusFlashToken &+= 1
     }
 
-    func sessionNavigationHistorySnapshot() -> (
+    func sessionNavigationHistorySnapshot(
+        rewriteInlineVSCodeServeWebFallbackForPersistence: Bool = false
+    ) -> (
         backHistoryURLStrings: [String],
         forwardHistoryURLStrings: [String]
     ) {
@@ -4474,7 +4487,30 @@ final class BrowserPanel: Panel, ObservableObject {
             nativeForwardURLs: webView.backForwardList.forwardList.map { $0.url },
             isLiveAligned: isLiveSessionHistoryAlignedWithRestoredCurrent
         )
-        return (snapshot.backHistoryURLStrings, snapshot.forwardHistoryURLStrings)
+        guard rewriteInlineVSCodeServeWebFallbackForPersistence else {
+            return (snapshot.backHistoryURLStrings, snapshot.forwardHistoryURLStrings)
+        }
+        return (
+            stableInlineVSCodeServeWebHistoryURLStrings(snapshot.backHistoryURLStrings),
+            stableInlineVSCodeServeWebHistoryURLStrings(snapshot.forwardHistoryURLStrings)
+        )
+    }
+
+    private func stableInlineVSCodeServeWebHistoryURLStrings(_ urlStrings: [String]) -> [String] {
+        guard let stableOriginURL = restoredInlineVSCodeServeWebStableSnapshotOriginURL else {
+            return urlStrings
+        }
+        return urlStrings.map { urlString in
+            guard let url = URL(string: urlString),
+                  let stableURL = VSCodeServeWebController.serveWebURLForPersistence(
+                    url,
+                    rewrittenToLoopbackOrigin: stableOriginURL
+                  ),
+                  let stableURLString = Self.serializableSessionHistoryURLString(stableURL) else {
+                return urlString
+            }
+            return stableURLString
+        }
     }
 
     private func resolvedLiveSessionHistoryURL() -> URL? {
@@ -4566,7 +4602,47 @@ final class BrowserPanel: Panel, ObservableObject {
             return
         }
 
+        _ = prepareRestoredInlineVSCodeServeWebURL(restoredURL)
         deferRestoredWebViewLoadUntilVisible(url: restoredURL, reason: "session_restore")
+    }
+
+    @discardableResult
+    private func prepareRestoredInlineVSCodeServeWebURL(_ restoredURL: URL) -> Bool {
+        guard VSCodeServeWebController.isPersistentServeWebURL(restoredURL) else { return false }
+        restoredInlineVSCodeServeWebURLAwaitingPreparation = restoredURL
+        let didStartPreparation = VSCodeServeWebController.shared.prepareRestoredServeWebURL(
+            restoredURL,
+            vscodeApplicationURL: TerminalDirectoryOpenTarget.vscodeInline.applicationURL()
+        ) { [weak self] preparedURL in
+            guard let self,
+                  self.restoredInlineVSCodeServeWebURLAwaitingPreparation?.absoluteString == restoredURL.absoluteString else {
+                return
+            }
+            self.restoredInlineVSCodeServeWebURLAwaitingPreparation = nil
+            guard let preparedURL else {
+                _ = self.reactivateDiscardedWebViewWithoutNavigation(reason: "serve_web_unavailable")
+                return
+            }
+            let usedFallbackPort = preparedURL.absoluteString != restoredURL.absoluteString
+            self.restoredInlineVSCodeServeWebStableSnapshotOriginURL = restoredURL
+            self.currentURL = preparedURL
+            if usedFallbackPort {
+                self.abandonRestoredSessionHistoryIfNeeded()
+            }
+            if self.shouldRenderWebView {
+                self.navigateWithoutInsecureHTTPPrompt(
+                    to: preparedURL,
+                    recordTypedNavigation: false,
+                    preserveRestoredSessionHistory: !usedFallbackPort
+                )
+            } else if self.isWebViewVisibleInUI {
+                _ = self.restoreDiscardedWebViewIfNeeded(reason: "serve_web_ready")
+            }
+        }
+        if !didStartPreparation {
+            restoredInlineVSCodeServeWebURLAwaitingPreparation = nil
+        }
+        return didStartPreparation
     }
 
     private func deferRestoredWebViewLoadUntilVisible(url: URL, reason: String) {
@@ -4620,6 +4696,24 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func preferredURLStringForSessionSnapshot() -> String? {
+        if let stableOriginURL = restoredInlineVSCodeServeWebStableSnapshotOriginURL {
+            if let webViewURL = Self.remoteProxyDisplayURL(for: webView.url),
+               let stableWebViewURL = VSCodeServeWebController.serveWebURLForPersistence(
+                webViewURL,
+                rewrittenToLoopbackOrigin: stableOriginURL
+               ),
+               let value = Self.serializableSessionHistoryURLString(stableWebViewURL) {
+                return value
+            }
+            if let currentURL,
+               let stableCurrentURL = VSCodeServeWebController.serveWebURLForPersistence(
+                currentURL,
+                rewrittenToLoopbackOrigin: stableOriginURL
+               ),
+               let value = Self.serializableSessionHistoryURLString(stableCurrentURL) {
+                return value
+            }
+        }
         if let webViewURL = Self.remoteProxyDisplayURL(for: webView.url),
            let value = Self.serializableSessionHistoryURLString(webViewURL) {
             return value

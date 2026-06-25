@@ -538,7 +538,9 @@ extension Workspace {
             guard let browserPanel = panel as? BrowserPanel else { return nil }
             guard browserPanel.shouldPersistSessionSnapshot() else { return nil }
             terminalSnapshot = nil
-            let historySnapshot = browserPanel.sessionNavigationHistorySnapshot()
+            let historySnapshot = browserPanel.sessionNavigationHistorySnapshot(
+                rewriteInlineVSCodeServeWebFallbackForPersistence: true
+            )
             let diffViewerComponents = browserPanel.diffViewerSessionComponents()
             browserSnapshot = SessionBrowserPanelSnapshot(
                 urlString: browserPanel.preferredURLStringForSessionSnapshot(),

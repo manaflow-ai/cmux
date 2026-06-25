@@ -7693,7 +7693,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         VSCodeServeWebController.shared.ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
             guard let serveWebURL,
-                  let openFolderURL = VSCodeServeWebURLBuilder.openFolderURL(
+                  let openFolderURL = VSCodeServeWebURLBuilder().openFolderURL(
                       baseWebUIURL: serveWebURL,
                       directoryPath: normalizedDirectoryURL.path
                   ) else {
@@ -7701,14 +7701,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
 
-            guard targetTabManager.openBrowser(
+            guard let browserPanelId = targetTabManager.openBrowser(
                 inWorkspace: targetWorkspaceId,
                 url: openFolderURL,
                 preferSplitRight: true
-            ) != nil else {
+            ) else {
                 NSSound.beep()
                 return
             }
+            targetTabManager
+                .browserPanel(tabId: targetWorkspaceId, panelId: browserPanelId)?
+                .setInlineVSCodeServeWebStableSnapshotOrigin(
+                    VSCodeServeWebController.persistentServeWebSnapshotOrigin(for: serveWebURL)
+                )
         }
 
         return true
