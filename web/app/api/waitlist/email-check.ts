@@ -135,23 +135,27 @@ async function withTimeout(
 }
 
 // Coalesce concurrent/sequential lookups for the same domain onto one in-flight
-// resolveDomain call. Without this, a slow domain that the timeout abandons
-// would be resolved again by the follow-up `notify` request (and by any other
-// caller), multiplying lingering c-ares work. Sharing one promise means a slow
-// domain has at most one outstanding lookup, which drains when c-ares settles.
+// resolveDomain call, and cap the total number of concurrent lookups. Together
+// these bound outstanding DNS work on this public, user-controlled endpoint:
 //
-// Bounded so a flood of unique slow/hung domains on this public endpoint can't
-// retain entries without limit: once the map is full, extra lookups run
-// un-tracked (still bounded by the caller timeout and c-ares' own limits)
-// rather than growing the map. An entry is removed as soon as its lookup
-// settles, so under normal load the map stays near-empty.
-const INFLIGHT_MAX = 256;
+//   - Same domain already resolving -> share that promise (no new work). This
+//     also stops the follow-up `notify` request from re-resolving a domain the
+//     timeout abandoned.
+//   - A new domain while at capacity -> fail open immediately ("unknown", which
+//     the caller treats as deliverable) WITHOUT starting another resolver call.
+//
+// So the number of live c-ares operations can never exceed MAX_CONCURRENT_DNS,
+// regardless of how many unique slow/hung domains are thrown at the route. The
+// caller timeout can't cancel c-ares, so shedding load here (not starting the
+// work) is what actually bounds it. Entries clear as each lookup settles, so
+// under normal load the map stays near-empty and nothing is shed.
+const MAX_CONCURRENT_DNS = 256;
 const inflight = new Map<string, Promise<EmailCheck>>();
 
 function resolveDomainShared(domain: string): Promise<EmailCheck> {
   const existing = inflight.get(domain);
   if (existing) return existing;
-  if (inflight.size >= INFLIGHT_MAX) return resolveDomain(domain);
+  if (inflight.size >= MAX_CONCURRENT_DNS) return Promise.resolve("unknown");
   const pending = resolveDomain(domain).finally(() => inflight.delete(domain));
   inflight.set(domain, pending);
   return pending;
