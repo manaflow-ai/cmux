@@ -2603,6 +2603,10 @@ final class Workspace: Identifiable, ObservableObject {
     private func scheduleExtensionSidebarProjectRootRefresh(for directory: String) {
         extensionSidebarProjectRootRefreshID &+= 1
         let refreshID = extensionSidebarProjectRootRefreshID
+        guard !isRemoteWorkspace else {
+            extensionSidebarProjectRootPath = nil
+            return
+        }
         let trimmedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedDirectory.isEmpty else {
             extensionSidebarProjectRootPath = nil
@@ -3489,6 +3493,8 @@ final class Workspace: Identifiable, ObservableObject {
     private var pendingRemoteSurfaceTTYSurfaceId: UUID?
     private var pendingRemoteSurfacePortKickReason: PortScanKickReason?
     private var pendingRemoteSurfacePortKickSurfaceId: UUID?
+    private var pendingRemoteSurfacePWD: String?
+    private var pendingRemoteSurfacePWDSurfaceId: UUID?
     // When the last live remote terminal is detached out, the source workspace may be
     // closed immediately after the move succeeds. That teardown must not shut down the
     // shared SSH control master that is still serving the moved terminal.
@@ -4515,13 +4521,13 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func configTrackingDirectory(for panelId: UUID?) -> String? {
-        // A remote tmux mirror's directories are paths on the REMOTE host.
+        // A remote workspace's directories are paths on the REMOTE host.
         // Feeding one into local cmux.json tracking makes CmuxConfigStore walk
         // the ancestor chain with FileManager.fileExists on the main thread,
         // and stat'ing e.g. /home/… locally blocks on the autofs automounter
         // for hundreds of ms (measured via sample during tab-reveal stalls).
         // No local per-directory config can apply to a remote path — track none.
-        if isRemoteTmuxMirror { return nil }
+        if isRemoteWorkspace { return nil }
         if let panelId {
             for candidate in [
                 panelDirectories[panelId],
@@ -4560,8 +4566,9 @@ final class Workspace: Identifiable, ObservableObject {
         }
         // Update current directory if this is the focused panel
         if panelId == focusedPanelId {
-            if surfaceTabBarDirectory != trimmed {
-                surfaceTabBarDirectory = trimmed
+            let nextSurfaceTabBarDirectory = configTrackingDirectory(for: panelId)
+            if surfaceTabBarDirectory != nextSurfaceTabBarDirectory {
+                surfaceTabBarDirectory = nextSurfaceTabBarDirectory
             }
             if currentDirectory != trimmed {
                 currentDirectory = trimmed
@@ -5799,6 +5806,8 @@ final class Workspace: Identifiable, ObservableObject {
         pendingRemoteSurfaceTTYSurfaceId = nil
         pendingRemoteSurfacePortKickReason = nil
         pendingRemoteSurfacePortKickSurfaceId = nil
+        pendingRemoteSurfacePWD = nil
+        pendingRemoteSurfacePWDSurfaceId = nil
         clearRemoteDetectedSurfacePorts()
         remoteDetectedPorts = []
         remoteForwardedPorts = []
@@ -5870,6 +5879,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         guard activeRemoteTerminalSurfaceIds.insert(panelId).inserted else { return }
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
+        _ = applyPendingRemoteSurfacePWDIfNeeded(to: panelId)
         applyPendingRemoteSurfaceTTYIfNeeded(to: panelId)
         _ = applyPendingRemoteSurfacePortKickIfNeeded(to: panelId)
     }
@@ -6337,6 +6347,29 @@ final class Workspace: Identifiable, ObservableObject {
     ) {
         pendingRemoteSurfacePortKickReason = reason
         pendingRemoteSurfacePortKickSurfaceId = requestedSurfaceId
+    }
+
+    @MainActor
+    func rememberPendingRemoteSurfacePWD(_ path: String, requestedSurfaceId: UUID?) {
+        guard path.rangeOfCharacter(from: .whitespacesAndNewlines.inverted) != nil else { return }
+        pendingRemoteSurfacePWD = path
+        pendingRemoteSurfacePWDSurfaceId = requestedSurfaceId
+    }
+
+    @MainActor
+    @discardableResult
+    private func applyPendingRemoteSurfacePWDIfNeeded(to panelId: UUID) -> Bool {
+        guard let path = pendingRemoteSurfacePWD,
+              path.rangeOfCharacter(from: .whitespacesAndNewlines.inverted) != nil else {
+            return false
+        }
+        if let requestedSurfaceId = pendingRemoteSurfacePWDSurfaceId,
+           requestedSurfaceId != panelId {
+            return false
+        }
+        pendingRemoteSurfacePWD = nil
+        pendingRemoteSurfacePWDSurfaceId = nil
+        return updatePanelDirectory(panelId: panelId, directory: path)
     }
 
     @MainActor
