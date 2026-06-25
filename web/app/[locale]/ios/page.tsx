@@ -199,7 +199,7 @@ export default function IosLanding() {
             <AppleMark size={19} />
             {t("ctaBeta")}
           </a>
-          <GitHubButton />
+          <GitHubButton location="ios-bottom" />
         </div>
 
         {/* Bottom links */}
