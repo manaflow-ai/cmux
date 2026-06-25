@@ -469,6 +469,7 @@ import Testing
 
         #expect(store.pairedMacs.map(\.macDeviceID) == ["mac-b"])
         #expect(store.displayPairedMacs.map(\.macDeviceID) == ["mac-b"])
+        #expect(await store.secondaryAggregationCandidateMacIDsForTesting() == ["mac-b"])
     }
 
     @Test func workspaceListReconnectPrefersSelectedUnavailableWorkspaceMac() async throws {

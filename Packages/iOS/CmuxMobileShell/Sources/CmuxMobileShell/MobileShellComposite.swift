@@ -1854,6 +1854,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         forgottenMacDeviceIDsByScope[pairedMacScopeKey(scope)] ?? []
     }
 
+    private func visibleStoredPairedMacs(
+        from loadedMacs: [MobilePairedMac],
+        scope: MobileShellScopeSnapshot
+    ) -> [MobilePairedMac] {
+        let forgottenIDs = forgottenMacDeviceIDs(scope: scope)
+        return loadedMacs.filter { !forgottenIDs.contains($0.macDeviceID) }
+    }
+
     private func isForgottenMacDeviceID(_ macDeviceID: String, scope: MobileShellScopeSnapshot) -> Bool {
         forgottenMacDeviceIDs(scope: scope).contains(macDeviceID)
     }
@@ -2306,8 +2314,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard await isScopeCurrent(scope) else {
             return
         }
-        let forgottenIDs = forgottenMacDeviceIDs(scope: scope)
-        let visibleLoaded = loaded.filter { !forgottenIDs.contains($0.macDeviceID) }
+        let visibleLoaded = visibleStoredPairedMacs(from: loaded, scope: scope)
         storedPairedMacs = visibleLoaded
         let coalesced = Self.coalescePairedMacsByDialEndpoint(visibleLoaded, supportedKinds: runtime?.supportedRouteKinds ?? [], preferNonLoopback: Self.prefersNonLoopbackRoutes)
         pairedMacAliasIDsByRepresentativeID = coalesced.reduce(into: [String: [String]]()) { result, mac in
@@ -3249,15 +3256,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard await isAggregationScopeValid(scope) else { return }
         let loadedMacs = (try? await pairedMacStore.loadAll(stackUserID: scope.userID, teamID: scope.teamID)) ?? []
         guard await isAggregationScopeValid(scope) else { return }
+        let visibleLoadedMacs = visibleStoredPairedMacs(from: loadedMacs, scope: scope)
         let macs = Self.coalescePairedMacsByDialEndpoint(
-            loadedMacs,
+            visibleLoadedMacs,
             supportedKinds: runtime?.supportedRouteKinds ?? [],
             preferNonLoopback: Self.prefersNonLoopbackRoutes
         )
         let foregroundMacDeviceIDs = foregroundMacDeviceID.map {
             Self.macDeviceIDsForLogicalPairedMac(
                 $0,
-                in: loadedMacs,
+                in: visibleLoadedMacs,
                 supportedKinds: runtime?.supportedRouteKinds ?? [],
                 preferNonLoopback: Self.prefersNonLoopbackRoutes
             )
@@ -3305,6 +3313,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
     }
+
+    #if DEBUG
+    func secondaryAggregationCandidateMacIDsForTesting() async -> [String] {
+        guard let pairedMacStore,
+              let scope = await currentScopeSnapshot() else { return [] }
+        let loadedMacs = (try? await pairedMacStore.loadAll(stackUserID: scope.userID, teamID: scope.teamID)) ?? []
+        let visibleLoadedMacs = visibleStoredPairedMacs(from: loadedMacs, scope: scope)
+        let macs = Self.coalescePairedMacsByDialEndpoint(
+            visibleLoadedMacs,
+            supportedKinds: runtime?.supportedRouteKinds ?? [],
+            preferNonLoopback: Self.prefersNonLoopbackRoutes
+        )
+        let foregroundMacDeviceIDs = foregroundMacDeviceID.map {
+            Self.macDeviceIDsForLogicalPairedMac(
+                $0,
+                in: visibleLoadedMacs,
+                supportedKinds: runtime?.supportedRouteKinds ?? [],
+                preferNonLoopback: Self.prefersNonLoopbackRoutes
+            )
+        } ?? []
+        let foregroundIDSet = Set(foregroundMacDeviceIDs)
+        return macs.map(\.macDeviceID).filter { !$0.isEmpty && !foregroundIDSet.contains($0) }
+    }
+    #endif
 
     /// Open a persistent read-only connection to `mac`, seed its workspace state,
     /// then run a live `workspace.updated` consumer that re-fetches its list on
