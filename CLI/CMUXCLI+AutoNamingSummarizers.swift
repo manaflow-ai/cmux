@@ -122,32 +122,68 @@ extension CMUXCLI {
         environment: [String: String],
         timeout: TimeInterval
     ) -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.environment = environment
-
-        let stdinPipe = Pipe()
-        let stdoutPipe = Pipe()
-        let maxOutputBytes = 64 * 1024
+        var stdinFDs = [Int32](repeating: -1, count: 2)
+        var stdoutFDs = [Int32](repeating: -1, count: 2)
         defer {
-            try? stdoutPipe.fileHandleForReading.close()
+            for fd in stdinFDs + stdoutFDs where fd >= 0 {
+                close(fd)
+            }
         }
-        process.standardInput = stdinPipe
-        process.standardOutput = stdoutPipe
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try cliRunProcess(process)
-        } catch {
+        guard pipe(&stdinFDs) == 0,
+              pipe(&stdoutFDs) == 0 else {
             return nil
         }
-        if let promptData = prompt.data(using: .utf8) {
-            _ = cliWrite(promptData, to: stdinPipe.fileHandleForWriting, onBrokenPipe: .ignore)
-        }
-        try? stdinPipe.fileHandleForWriting.close()
 
-        let stdoutFD = stdoutPipe.fileHandleForReading.fileDescriptor
+        var fileActions: posix_spawn_file_actions_t?
+        guard posix_spawn_file_actions_init(&fileActions) == 0 else { return nil }
+        defer { posix_spawn_file_actions_destroy(&fileActions) }
+        guard posix_spawn_file_actions_adddup2(&fileActions, stdinFDs[0], STDIN_FILENO) == 0,
+              posix_spawn_file_actions_adddup2(&fileActions, stdoutFDs[1], STDOUT_FILENO) == 0 else {
+            return nil
+        }
+        let stderrResult = "/dev/null".withCString { path in
+            posix_spawn_file_actions_addopen(&fileActions, STDERR_FILENO, path, O_WRONLY, 0)
+        }
+        guard stderrResult == 0 else { return nil }
+        for fd in stdinFDs + stdoutFDs {
+            guard posix_spawn_file_actions_addclose(&fileActions, fd) == 0 else { return nil }
+        }
+
+        var attributes: posix_spawnattr_t?
+        guard posix_spawnattr_init(&attributes) == 0 else { return nil }
+        defer { posix_spawnattr_destroy(&attributes) }
+        let spawnFlags = Int16(POSIX_SPAWN_SETPGROUP)
+        guard posix_spawnattr_setflags(&attributes, spawnFlags) == 0,
+              posix_spawnattr_setpgroup(&attributes, 0) == 0 else {
+            return nil
+        }
+
+        let argv = [executable] + arguments
+        let envp = environment.map { "\($0.key)=\($0.value)" }
+        var spawnedPID: pid_t = 0
+        let spawnResult = withAutoNamingCStringArray(argv) { cArgv in
+            withAutoNamingCStringArray(envp) { cEnvp in
+                executable.withCString { executablePath in
+                    posix_spawn(&spawnedPID, executablePath, &fileActions, &attributes, cArgv, cEnvp)
+                }
+            }
+        }
+        guard spawnResult == 0, spawnedPID > 0 else { return nil }
+
+        close(stdinFDs[0])
+        stdinFDs[0] = -1
+        close(stdoutFDs[1])
+        stdoutFDs[1] = -1
+
+        let maxOutputBytes = 64 * 1024
+        let stdinHandle = FileHandle(fileDescriptor: stdinFDs[1], closeOnDealloc: false)
+        if let promptData = prompt.data(using: .utf8) {
+            _ = cliWrite(promptData, to: stdinHandle, onBrokenPipe: .ignore)
+        }
+        try? stdinHandle.close()
+        stdinFDs[1] = -1
+
+        let stdoutFD = stdoutFDs[0]
         let stdoutFlags = fcntl(stdoutFD, F_GETFL, 0)
         if stdoutFlags >= 0 {
             _ = fcntl(stdoutFD, F_SETFL, stdoutFlags | O_NONBLOCK)
@@ -159,51 +195,94 @@ extension CMUXCLI {
         }
 
         var output = Data()
+        let firstWait = waitForAutoNamingProcess(
+            pid: spawnedPID,
+            stdoutFD: stdoutFD,
+            output: &output,
+            maxBytes: maxOutputBytes,
+            timeout: timeout
+        )
+        guard firstWait.outputWithinLimit else {
+            terminateAutoNamingProcessGroup(pid: spawnedPID, stdoutFD: stdoutFD, output: &output, maxBytes: maxOutputBytes)
+            return nil
+        }
+        guard let rawStatus = firstWait.rawStatus else {
+            terminateAutoNamingProcessGroup(pid: spawnedPID, stdoutFD: stdoutFD, output: &output, maxBytes: maxOutputBytes)
+            return nil
+        }
+        guard normalizedAutoNamingTerminationStatus(rawStatus) == 0 else { return nil }
+        return String(data: output, encoding: .utf8)
+    }
+
+    @discardableResult
+    private func terminateAutoNamingProcessGroup(
+        pid: pid_t,
+        stdoutFD: Int32,
+        output: inout Data,
+        maxBytes: Int
+    ) -> Int32? {
+        signalAutoNamingProcessGroup(pid: pid, signal: SIGTERM)
+        let terminated = waitForAutoNamingProcess(
+            pid: pid,
+            stdoutFD: stdoutFD,
+            output: &output,
+            maxBytes: maxBytes,
+            timeout: 2
+        )
+        if let rawStatus = terminated.rawStatus { return rawStatus }
+        signalAutoNamingProcessGroup(pid: pid, signal: SIGKILL)
+        return waitForAutoNamingProcess(
+            pid: pid,
+            stdoutFD: stdoutFD,
+            output: &output,
+            maxBytes: maxBytes,
+            timeout: 1
+        ).rawStatus
+    }
+
+    private func waitForAutoNamingProcess(
+        pid: pid_t,
+        stdoutFD: Int32,
+        output: inout Data,
+        maxBytes: Int,
+        timeout: TimeInterval
+    ) -> (rawStatus: Int32?, outputWithinLimit: Bool) {
         var stdoutEOF = false
-        var outputWithinLimit = true
         let deadline = Date().addingTimeInterval(timeout)
-        while process.isRunning {
+        while true {
+            if let rawStatus = reapAutoNamingProcessIfExited(pid: pid) {
+                if !stdoutEOF {
+                    let withinLimit = drainAvailableAutoNamingOutput(
+                        from: stdoutFD,
+                        into: &output,
+                        maxBytes: maxBytes,
+                        reachedEOF: &stdoutEOF
+                    )
+                    guard withinLimit else { return (nil, false) }
+                    return stdoutEOF ? (rawStatus, true) : (nil, true)
+                }
+                return (rawStatus, true)
+            }
             if !stdoutEOF {
-                outputWithinLimit = drainAvailableAutoNamingOutput(
+                let withinLimit = drainAvailableAutoNamingOutput(
                     from: stdoutFD,
                     into: &output,
-                    maxBytes: maxOutputBytes,
+                    maxBytes: maxBytes,
                     reachedEOF: &stdoutEOF
-                ) && outputWithinLimit
+                )
+                guard withinLimit else { return (nil, false) }
             }
-            guard outputWithinLimit else {
-                process.terminate()
-                break
+            if let rawStatus = reapAutoNamingProcessIfExited(pid: pid) {
+                return (rawStatus, true)
             }
             let remaining = deadline.timeIntervalSinceNow
-            guard remaining > 0 else { break }
+            guard remaining > 0 else { return (nil, true) }
             if stdoutEOF {
-                _ = try? waitForProcessExit(process, timeout: remaining)
+                waitForAutoNamingProcessExitEvent(pid: pid, timeout: min(remaining, 0.25))
             } else {
                 waitForAutoNamingOutputChange(from: stdoutFD, timeout: min(remaining, 0.25))
             }
         }
-        if process.isRunning {
-            process.terminate()
-            if ((try? waitForProcessExit(process, timeout: 2)) ?? false) == false {
-                kill(process.processIdentifier, SIGKILL)
-                _ = try? waitForProcessExit(process, timeout: 1)
-            }
-            return nil
-        }
-        if !stdoutEOF {
-            outputWithinLimit = drainAvailableAutoNamingOutput(
-                from: stdoutFD,
-                into: &output,
-                maxBytes: maxOutputBytes,
-                reachedEOF: &stdoutEOF
-            ) && outputWithinLimit
-        }
-        guard outputWithinLimit,
-              process.terminationStatus == 0 else {
-            return nil
-        }
-        return String(data: output, encoding: .utf8)
     }
 
     private func drainAvailableAutoNamingOutput(
@@ -233,6 +312,45 @@ extension CMUXCLI {
         }
     }
 
+    private func reapAutoNamingProcessIfExited(pid: pid_t) -> Int32? {
+        var status: Int32 = 0
+        while true {
+            let result = waitpid(pid, &status, WNOHANG)
+            if result == pid { return status }
+            if result == -1 && errno == EINTR { continue }
+            if result == -1 && errno == ECHILD { return 0 }
+            return nil
+        }
+    }
+
+    private func normalizedAutoNamingTerminationStatus(_ rawStatus: Int32) -> Int32 {
+        let signal = rawStatus & 0x7f
+        if signal != 0 { return 128 + signal }
+        return (rawStatus >> 8) & 0xff
+    }
+
+    private func signalAutoNamingProcessGroup(pid: pid_t, signal: Int32) {
+        if kill(-pid, signal) != 0 {
+            _ = kill(pid, signal)
+        }
+    }
+
+    private func waitForAutoNamingProcessExitEvent(pid: pid_t, timeout: TimeInterval) {
+        let queue = kqueue()
+        guard queue >= 0 else { return }
+        defer { close(queue) }
+        var event = kevent(
+            ident: UInt(pid),
+            filter: Int16(EVFILT_PROC),
+            flags: UInt16(EV_ADD) | UInt16(EV_ENABLE) | UInt16(EV_ONESHOT),
+            fflags: UInt32(NOTE_EXIT),
+            data: 0,
+            udata: nil
+        )
+        var timeoutSpec = autoNamingTimespec(timeout)
+        _ = kevent(queue, &event, 1, &event, 1, &timeoutSpec)
+    }
+
     private func waitForAutoNamingOutputChange(from fd: Int32, timeout: TimeInterval) {
         var descriptor = pollfd(fd: fd, events: Int16(POLLIN | POLLHUP | POLLERR), revents: 0)
         let timeoutMilliseconds = max(0, Int32((timeout * 1_000).rounded(.up)))
@@ -241,6 +359,29 @@ extension CMUXCLI {
             if result >= 0 { return }
             if errno == EINTR { continue }
             return
+        }
+    }
+
+    private func autoNamingTimespec(_ timeout: TimeInterval) -> timespec {
+        let clamped = max(0, timeout)
+        let seconds = Int(clamped)
+        let nanoseconds = Int((clamped - TimeInterval(seconds)) * 1_000_000_000)
+        return timespec(tv_sec: seconds, tv_nsec: nanoseconds)
+    }
+
+    private func withAutoNamingCStringArray<T>(
+        _ strings: [String],
+        _ body: (UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>) -> T
+    ) -> T {
+        var cStrings = strings.map { strdup($0) }
+        cStrings.append(nil)
+        defer {
+            for cString in cStrings {
+                free(cString)
+            }
+        }
+        return cStrings.withUnsafeMutableBufferPointer { buffer in
+            body(buffer.baseAddress!)
         }
     }
 }
