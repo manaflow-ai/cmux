@@ -459,6 +459,11 @@ describe("applyBackupOps", () => {
     const afterDelete = await listBackupSnapshotWithUnscopedFallback(storage, "user-1", "ios:dev");
     expect(afterDelete.records).toEqual([]);
     expect(afterDelete.deletedMacDeviceIDs).toEqual(["mac-seed"]);
+
+    await gcTombstones(storage, pairedMacsCollection("user-1", "ios:dev"), T0 + 1_000_000_000, 0);
+    const afterGc = await listBackupSnapshotWithUnscopedFallback(storage, "user-1", "ios:dev");
+    expect(afterGc.records).toEqual([]);
+    expect(afterGc.deletedMacDeviceIDs).toEqual([]);
   });
 
   it("listLiveBackup returns live records newest-first and excludes tombstones, scoped per user", async () => {

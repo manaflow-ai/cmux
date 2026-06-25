@@ -90,10 +90,11 @@ export default {
       const team = await resolveTeamOr403(request, env);
       if (!team.ok) return team.response;
       const rawClientScope = request.headers.get("x-cmux-client-scope");
-      const clientScope = normalizeClientScope(rawClientScope);
-      if ((rawClientScope?.trim() ?? "") && clientScope === null) {
+      const trimmedClientScope = rawClientScope?.trim() ?? "";
+      if (trimmedClientScope && normalizeClientScope(trimmedClientScope) === null) {
         return json({ error: "invalid_client_scope" }, 400);
       }
+      const clientScope = trimmedClientScope || null;
       if (request.method === "GET") {
         return json(await team.stub.listPairedMacs(team.teamId, team.user.id, clientScope));
       }

@@ -496,6 +496,8 @@ export async function listBackupSnapshotWithUnscopedFallback(
   if (scoped.records.length > 0 || scoped.deletedMacDeviceIDs.length > 0) {
     return scoped;
   }
+  const scopedHead = await storage.get<number>(`${SYNC_HEAD_PREFIX}${pairedMacsCollection(userId, clientScope)}`);
+  if (scopedHead !== undefined) return scoped;
   return await listBackupSnapshot(storage, userId);
 }
 
