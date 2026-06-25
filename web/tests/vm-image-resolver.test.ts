@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { resolveVmImage } from "../services/vms/images/resolver";
+import {
+  imageUsesBakedFreestyleSignedAdmin,
+  resolveVmImage,
+} from "../services/vms/images/resolver";
 import { VmImageConfigError } from "../services/vms/errors";
 
 describe("VM image resolver", () => {
@@ -11,9 +14,10 @@ describe("VM image resolver", () => {
     });
     expect(resolveVmImage("freestyle", undefined, {})).toMatchObject({
       provider: "freestyle",
-      image: "sh-meb8jxwzhj9602er88xg",
-      imageVersion: "freestyle-signedadmin-20260624a",
+      image: "sh-b3jqa6o88qe6l738dw9z",
+      imageVersion: "freestyle-signedadmin-20260625b",
     });
+    expect(imageUsesBakedFreestyleSignedAdmin("freestyle", "sh-b3jqa6o88qe6l738dw9z")).toBe(true);
   });
 
   test("requires deployed env selectors", () => {

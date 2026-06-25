@@ -113,6 +113,7 @@ export function createVm(input: {
   readonly image: string;
   readonly imageVersion?: string | null;
   readonly idempotencyKey?: string;
+  readonly bakedFreestyleSignedAdmin?: boolean;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
@@ -145,7 +146,11 @@ export function createVm(input: {
     const handle = yield* measureVmEffect(
       input.timing,
       "provider_create",
-      providers.create(input.provider, { image: input.image, providerMetadata: create.vm.providerMetadata }),
+      providers.create(input.provider, {
+        image: input.image,
+        providerMetadata: create.vm.providerMetadata,
+        bakedFreestyleSignedAdmin: input.bakedFreestyleSignedAdmin,
+      }),
     ).pipe(
       Effect.tapError((err) =>
         Effect.all([
@@ -269,6 +274,7 @@ export function restoreVm(input: {
       image: input.snapshotId,
       imageVersion: null,
       idempotencyKey: input.idempotencyKey,
+      bakedFreestyleSignedAdmin: false,
       timing: input.timing,
     });
   });

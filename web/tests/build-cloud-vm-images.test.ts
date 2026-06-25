@@ -141,7 +141,7 @@ describe("Cloud VM image build helpers", () => {
       expect(dockerfile).toContain(
         "CMUXD_WS_ADMIN_ED25519_PUBLIC_KEY=LFxQT06qOOAKo9Wr+kaq7npatVr4nYW2kPSb3RoebVQ=",
       );
-      expect(dockerfile).toContain("systemctl enable cmuxd-ws.service");
+      expect(dockerfile).toContain("multi-user.target.wants/cmuxd-ws.service");
       expect(dockerfile).not.toContain("private-seed-must-not-be-baked");
     } finally {
       if (previousPublic === undefined) {

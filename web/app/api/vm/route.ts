@@ -23,7 +23,10 @@ import {
   isVmBillingTeamResolutionError,
   resolveVmEntitlements,
 } from "../../../services/vms/entitlements";
-import { resolveVmImage } from "../../../services/vms/images/resolver";
+import {
+  imageUsesBakedFreestyleSignedAdmin,
+  resolveVmImage,
+} from "../../../services/vms/images/resolver";
 import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
@@ -271,6 +274,7 @@ export async function POST(request: Request): Promise<Response> {
             imageVersion: imageSelection.imageVersion,
             provider,
             idempotencyKey,
+            bakedFreestyleSignedAdmin: imageUsesBakedFreestyleSignedAdmin(provider, image),
             timing,
           }));
         } catch (err) {

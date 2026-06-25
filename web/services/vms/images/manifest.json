@@ -111,13 +111,16 @@
     },
     {
       "provider": "freestyle",
-      "version": "freestyle-signedadmin-20260624a",
-      "imageId": "sh-meb8jxwzhj9602er88xg",
+      "version": "freestyle-signedadmin-20260625b",
+      "imageId": "sh-b3jqa6o88qe6l738dw9z",
       "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
       "defaultForLocalDev": true,
-      "cmuxdRemoteCommit": "working-tree-signedadmin-20260624a",
-      "builtAt": "2026-06-24T00:00:00.000Z",
-      "builderScriptVersion": "working-tree-signedadmin-20260624a",
+      "features": {
+        "bakedFreestyleSignedAdmin": true
+      },
+      "cmuxdRemoteCommit": "working-tree-signedadmin-20260625b",
+      "builtAt": "2026-06-25T08:20:00.000Z",
+      "builderScriptVersion": "working-tree-signedadmin-20260625b",
       "agentToolResolvedVersions": {
         "claude": "2.1.137",
         "opencode": "1.14.41",
@@ -125,7 +128,7 @@
         "pi": "0.74.0"
       },
       "validationStatus": "passed",
-      "notes": "Validated fresh Freestyle VM boot from snapshot with baked signed-admin cmuxd-ws service, clean locked healthz before lease install, signed /admin/leases success, WebSocket PTY ready frame, zsh defaults, gh, htop, btop, cmux CLI, Node, Bun, Claude Code, OpenCode, Codex, and Pi. binarySha256=066979bd77cf3a507e7eec8191ce1deb64fbf760154d6bd255c35c93f42d302f"
+      "notes": "Validated fresh Cloud VM boot from the 20260624 signed-admin base, rotated baked signed-admin public key over SSH because provider exec/write_file was unavailable, clean locked healthz before lease install, and signed /admin/leases success. Includes zsh defaults, gh, htop, btop, cmux CLI, Node, Bun, Claude Code, OpenCode, Codex, and Pi. binarySha256=066979bd77cf3a507e7eec8191ce1deb64fbf760154d6bd255c35c93f42d302f"
     }
   ]
 }

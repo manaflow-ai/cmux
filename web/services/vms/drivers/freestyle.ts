@@ -89,6 +89,12 @@ export class FreestyleProvider implements VMProvider {
       throw new ProviderError("freestyle", "create requires a resolved image");
     }
     const signedAdmin = freestyleAdminSigningConfig();
+    if (options.bakedFreestyleSignedAdmin === true && !signedAdmin) {
+      throw new ProviderError(
+        "freestyle",
+        "create requires CMUX_FREESTYLE_ADMIN_SIGNING_PRIVATE_KEY_SEED and CMUX_FREESTYLE_ADMIN_SIGNING_PUBLIC_KEY for this Cloud VM image",
+      );
+    }
     const adminToken = signedAdmin
       ? null
       : freestyleDaemonAdminToken(options.providerMetadata)
@@ -116,7 +122,7 @@ export class FreestyleProvider implements VMProvider {
             ports: FREESTYLE_WS_PORTS,
             readySignalTimeoutSeconds: 600,
           };
-          if (adminToken) {
+          if (adminToken && options.bakedFreestyleSignedAdmin !== true) {
             createRequest.systemd = {
               services: [freestyleWebSocketService(adminToken)],
             };

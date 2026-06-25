@@ -17,6 +17,7 @@ export type VMHandle = {
 export type CreateOptions = {
   image: string; // provider-specific template/snapshot identifier
   providerMetadata?: Record<string, unknown>;
+  bakedFreestyleSignedAdmin?: boolean;
 };
 
 export type SSHEndpoint = {
