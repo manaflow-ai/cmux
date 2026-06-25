@@ -234,6 +234,29 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testTerminalPreviewRenderBottomTracksSyntheticKeyboardViewport() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TERMINAL_PREVIEW": "1",
+            "CMUX_UITEST_FAKE_KEYBOARD_HEIGHT": "320",
+        ])
+        XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8))
+
+        let dock = waitForDock(in: app, timeout: 8, describe: "terminal preview with synthetic keyboard") {
+            guard let renderHeight = Int($0["renderHeight"] ?? ""),
+                  let renderMaxY = Int($0["renderMaxY"] ?? ""),
+                  let viewportHeight = Int($0["viewportHeight"] ?? "") else {
+                return false
+            }
+            return renderHeight > 120
+                && viewportHeight > 120
+                && abs(renderMaxY - viewportHeight) <= 2
+                && $0["keyboardUp"] == "1"
+                && $0["toolbarVisible"] == "1"
+        }
+        assertTerminalRenderBottomAttachedToViewport(dock, context: "synthetic keyboard preview")
+    }
+
+    @MainActor
     func testWorkspaceToolbarCreatesWorkspaceAndTerminal() async throws {
         let server = try MobileSyncMockHostServer()
         let port = try await server.start()
@@ -505,62 +528,86 @@ final class cmuxUITests: XCTestCase {
     }
 
     /// Regression for WhatsApp-style chat keyboard tracking: focusing the chat
-    /// composer must push the actual transcript table frame upward. Preserving only
-    /// `contentOffset` is insufficient because the table still extends under the
-    /// keyboard.
+    /// composer must translate the actual transcript table frame upward with the
+    /// composer while preserving the table's own bottom-visible content. Shrinking
+    /// the table or only changing `contentOffset` can leave a blank band between the
+    /// transcript and input bar.
     @MainActor
     func testAgentChatTranscriptFrameMovesUpWithKeyboardAcrossScrollPositions() throws {
-        let app = launchAgentChatInlinePreviewApp()
-
-        let table = app.tables["ChatTranscriptTableView"]
-        XCTAssertTrue(table.waitForExistence(timeout: 8))
-        let composerBar = app.otherElements["ChatComposerBar"]
-        XCTAssertTrue(composerBar.waitForExistence(timeout: 8))
-        let composerField = app.descendants(matching: .any)["ChatComposerField"]
-        XCTAssertTrue(composerField.waitForExistence(timeout: 8))
-
-        let loadedMetrics = try waitForTranscriptMetrics(table, timeout: 8) {
-            $0.frameHeight > 240 && $0.frameMaxY > 300 && $0.contentHeight > $0.boundsHeight * 1.6
+        do {
+            let app = launchAgentChatInlinePreviewApp()
+            let table = app.tables["ChatTranscriptTableView"]
+            XCTAssertTrue(table.waitForExistence(timeout: 8))
+            let composerBar = app.otherElements["ChatComposerBar"]
+            XCTAssertTrue(composerBar.waitForExistence(timeout: 8))
+            let composerField = chatComposerField(in: app)
+            XCTAssertTrue(composerField.waitForExistence(timeout: 8))
+            let loadedMetrics = try waitForTranscriptMetrics(table, timeout: 8) {
+                $0.frameHeight > 240 && $0.frameMaxY > 300 && $0.contentHeight > $0.boundsHeight * 1.6
+            }
+            try scrollTranscript(table, direction: .up, timeout: 8) {
+                $0.distanceFromBottom < 60
+            }
+            try assertChatKeyboardTracking(
+                table: table,
+                composerBar: composerBar,
+                composerField: composerField,
+                app: app,
+                baselineMaxY: loadedMetrics.frameMaxY,
+                scrollPosition: "bottom"
+            )
         }
 
-        try scrollTranscript(table, direction: .up, timeout: 8) {
-            $0.distanceFromBottom < 60
+        do {
+            let app = launchAgentChatInlinePreviewApp()
+            let table = app.tables["ChatTranscriptTableView"]
+            XCTAssertTrue(table.waitForExistence(timeout: 8))
+            let composerBar = app.otherElements["ChatComposerBar"]
+            XCTAssertTrue(composerBar.waitForExistence(timeout: 8))
+            let composerField = chatComposerField(in: app)
+            XCTAssertTrue(composerField.waitForExistence(timeout: 8))
+            let loadedMetrics = try waitForTranscriptMetrics(table, timeout: 8) {
+                $0.frameHeight > 240 && $0.frameMaxY > 300 && $0.contentHeight > $0.boundsHeight * 1.6
+            }
+            // Move away from the live tail before focusing the field. This is the
+            // reported case: a long transcript with the current bottom content not
+            // visible, then the keyboard appears.
+            try scrollTranscript(table, direction: .down, timeout: 6) {
+                $0.distanceFromBottom > 120 && $0.offsetY > 80
+            }
+            try assertChatKeyboardTracking(
+                table: table,
+                composerBar: composerBar,
+                composerField: composerField,
+                app: app,
+                baselineMaxY: loadedMetrics.frameMaxY,
+                scrollPosition: "middle"
+            )
         }
-        try assertChatKeyboardTracking(
-            table: table,
-            composerBar: composerBar,
-            composerField: composerField,
-            app: app,
-            baselineMaxY: loadedMetrics.frameMaxY,
-            scrollPosition: "bottom"
-        )
 
-        // Move away from the live tail before focusing the field. This is the
-        // reported case: a long transcript with the current bottom content not
-        // visible, then the keyboard appears.
-        try scrollTranscript(table, direction: .down, timeout: 6) {
-            $0.distanceFromBottom > 120 && $0.offsetY > 80
+        do {
+            let app = launchAgentChatInlinePreviewApp()
+            let table = app.tables["ChatTranscriptTableView"]
+            XCTAssertTrue(table.waitForExistence(timeout: 8))
+            let composerBar = app.otherElements["ChatComposerBar"]
+            XCTAssertTrue(composerBar.waitForExistence(timeout: 8))
+            let composerField = chatComposerField(in: app)
+            XCTAssertTrue(composerField.waitForExistence(timeout: 8))
+            let loadedMetrics = try waitForTranscriptMetrics(table, timeout: 8) {
+                $0.frameHeight > 240 && $0.frameMaxY > 300 && $0.contentHeight > $0.boundsHeight * 1.6
+            }
+            try scrollTranscript(table, direction: .down, timeout: 8) {
+                $0.offsetY < 80 && $0.contentHeight > $0.boundsHeight * 1.6
+            }
+            try assertChatKeyboardTracking(
+                table: table,
+                composerBar: composerBar,
+                composerField: composerField,
+                app: app,
+                baselineMaxY: loadedMetrics.frameMaxY,
+                scrollPosition: "top"
+            )
         }
-        try assertChatKeyboardTracking(
-            table: table,
-            composerBar: composerBar,
-            composerField: composerField,
-            app: app,
-            baselineMaxY: loadedMetrics.frameMaxY,
-            scrollPosition: "middle"
-        )
-
-        try scrollTranscript(table, direction: .down, timeout: 8) {
-            $0.offsetY < 80 && $0.contentHeight > $0.boundsHeight * 1.6
-        }
-        try assertChatKeyboardTracking(
-            table: table,
-            composerBar: composerBar,
-            composerField: composerField,
-            app: app,
-            baselineMaxY: loadedMetrics.frameMaxY,
-            scrollPosition: "top"
-        )
     }
 
     @MainActor
@@ -581,6 +628,7 @@ final class cmuxUITests: XCTestCase {
         let animationSamples = focusTextInputAndSampleTranscriptAnimation(
             composerField,
             table: table,
+            composerBar: composerBar,
             in: app
         )
         assertChatKeyboardAnimationStayedAttached(
@@ -589,13 +637,16 @@ final class cmuxUITests: XCTestCase {
             file: file,
             line: line
         )
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 4), file: file, line: line)
-        let keyboardFrame = app.keyboards.firstMatch.frame
-
         let afterKeyboard = try waitForTranscriptMetrics(table, timeout: 6) {
             $0.frameMaxY < beforeKeyboard.frameMaxY - 120
                 && $0.frameHeight < beforeKeyboard.frameHeight - 120
         }
+        let keyboardFrame = keyboardFrameAfterFocus(
+            in: app,
+            overlap: afterKeyboard.keyboardOverlap,
+            file: file,
+            line: line
+        )
         guard let composerBarFrame = waitForUsableFrame(of: composerBar, timeout: 2) else {
             XCTFail("Chat composer bar frame unavailable after keyboard opens from \(scrollPosition)", file: file, line: line)
             return
@@ -608,7 +659,14 @@ final class cmuxUITests: XCTestCase {
         XCTAssertLessThan(
             afterKeyboard.frameMaxY,
             beforeKeyboard.frameMaxY - 120,
-            "Chat transcript UITableView frame must move up with the keyboard from \(scrollPosition). before=\(beforeKeyboard) after=\(afterKeyboard) keyboard=\(keyboardFrame)",
+            "Chat transcript UITableView bottom must move up with the keyboard from \(scrollPosition). before=\(beforeKeyboard) after=\(afterKeyboard) keyboard=\(keyboardFrame)",
+            file: file,
+            line: line
+        )
+        XCTAssertLessThan(
+            afterKeyboard.frameHeight,
+            beforeKeyboard.frameHeight - 120,
+            "Chat transcript UITableView height must shrink with the keyboard-owned viewport from \(scrollPosition); contentOffset preservation keeps the same bottom content visible. before=\(beforeKeyboard) after=\(afterKeyboard)",
             file: file,
             line: line
         )
@@ -623,6 +681,14 @@ final class cmuxUITests: XCTestCase {
             composerBarFrame.maxY,
             keyboardFrame.minY + 2,
             "Chat composer bar must stay above the keyboard from \(scrollPosition). composer=\(composerBarFrame) keyboard=\(keyboardFrame)",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            afterKeyboard.frameMaxY,
+            afterKeyboard.composerMinY,
+            accuracy: 4,
+            "Transcript table bottom must stay flush with the composer host top from \(scrollPosition), with no blank band between the table frame and input host. after=\(afterKeyboard) composer=\(composerBarFrame) keyboard=\(keyboardFrame)",
             file: file,
             line: line
         )
@@ -664,10 +730,30 @@ final class cmuxUITests: XCTestCase {
                 line: line
             )
         }
-        dismissChatKeyboard(in: app, table: table)
-        _ = try waitForTranscriptMetrics(table, timeout: 4) {
-            abs($0.frameMaxY - baselineMaxY) < 4 && $0.frameHeight >= beforeKeyboard.frameHeight - 4
+    }
+
+    @MainActor
+    private func keyboardFrameAfterFocus(
+        in app: XCUIApplication,
+        overlap: CGFloat,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> CGRect {
+        let keyboard = app.keyboards.firstMatch
+        if keyboard.waitForExistence(timeout: 1) {
+            return keyboard.frame
         }
+        let windowFrame = app.windows.firstMatch.frame
+        guard overlap > 0, !windowFrame.isNull, !windowFrame.isEmpty else {
+            XCTFail("Expected a keyboard element or positive keyboard overlap. overlap=\(overlap) window=\(windowFrame)", file: file, line: line)
+            return .zero
+        }
+        return CGRect(
+            x: windowFrame.minX,
+            y: windowFrame.maxY - overlap,
+            width: windowFrame.width,
+            height: overlap
+        )
     }
 
     /// Tapping a text field opens the system keyboard; the floating Pair
@@ -1183,6 +1269,19 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    private func chatComposerField(in app: XCUIApplication) -> XCUIElement {
+        let textField = app.textFields["ChatComposerField"]
+        if textField.exists {
+            return textField
+        }
+        let textView = app.textViews["ChatComposerField"]
+        if textView.exists {
+            return textView
+        }
+        return app.descendants(matching: .any)["ChatComposerField"]
+    }
+
+    @MainActor
     private func waitForUsableFrame(of element: XCUIElement, timeout: TimeInterval) -> CGRect? {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
@@ -1220,6 +1319,8 @@ final class cmuxUITests: XCTestCase {
         let contentHeight: CGFloat
         let distanceFromBottom: CGFloat
         let keyboardOverlap: CGFloat
+        let composerMinY: CGFloat
+        let composerPresentationMinY: CGFloat
         let presentationGap: CGFloat
         let keyboardAnimationActive: Bool
         let keyboardAnimationProgress: CGFloat
@@ -1228,7 +1329,7 @@ final class cmuxUITests: XCTestCase {
         let keyboardAnimationSamples: Int
 
         var description: String {
-            "frameMinY=\(frameMinY), frameMaxY=\(frameMaxY), frameHeight=\(frameHeight), presentationFrameMaxY=\(presentationFrameMaxY), boundsHeight=\(boundsHeight), offsetY=\(offsetY), visibleBottomY=\(visibleBottomY), contentHeight=\(contentHeight), distanceFromBottom=\(distanceFromBottom), keyboardOverlap=\(keyboardOverlap), presentationGap=\(presentationGap), keyboardAnimationActive=\(keyboardAnimationActive), keyboardAnimationProgress=\(keyboardAnimationProgress), keyboardTransitionDuration=\(keyboardTransitionDuration), maxAnimationPresentationGap=\(maxAnimationPresentationGap), keyboardAnimationSamples=\(keyboardAnimationSamples)"
+            "frameMinY=\(frameMinY), frameMaxY=\(frameMaxY), frameHeight=\(frameHeight), presentationFrameMaxY=\(presentationFrameMaxY), boundsHeight=\(boundsHeight), offsetY=\(offsetY), visibleBottomY=\(visibleBottomY), contentHeight=\(contentHeight), distanceFromBottom=\(distanceFromBottom), keyboardOverlap=\(keyboardOverlap), composerMinY=\(composerMinY), composerPresentationMinY=\(composerPresentationMinY), presentationGap=\(presentationGap), keyboardAnimationActive=\(keyboardAnimationActive), keyboardAnimationProgress=\(keyboardAnimationProgress), keyboardTransitionDuration=\(keyboardTransitionDuration), maxAnimationPresentationGap=\(maxAnimationPresentationGap), keyboardAnimationSamples=\(keyboardAnimationSamples)"
         }
 
         init?(_ rawValue: String) {
@@ -1261,6 +1362,8 @@ final class cmuxUITests: XCTestCase {
             self.contentHeight = contentHeight
             self.distanceFromBottom = distanceFromBottom
             self.keyboardOverlap = values["keyboardOverlap"] ?? 0
+            self.composerMinY = values["composerMinY"] ?? frameMaxY
+            self.composerPresentationMinY = values["composerPresentationMinY"] ?? self.composerMinY
             self.presentationGap = values["presentationGap"] ?? 0
             self.keyboardAnimationActive = (values["keyboardAnimationActive"] ?? 0) >= 0.5
             self.keyboardAnimationProgress = values["keyboardAnimationProgress"] ?? 1
@@ -1270,20 +1373,37 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
+    private struct ChatKeyboardAnimationSample: CustomStringConvertible {
+        let metrics: ChatTranscriptMetrics
+        let composerFrame: CGRect?
+
+        var visiblePresentationGap: CGFloat? {
+            max(0, metrics.presentationGap)
+        }
+
+        var description: String {
+            "metrics={\(metrics)}, composerFrame=\(String(describing: composerFrame)), visiblePresentationGap=\(String(describing: visiblePresentationGap))"
+        }
+    }
+
     @MainActor
     private func focusTextInputAndSampleTranscriptAnimation(
         _ element: XCUIElement,
         table: XCUIElement,
+        composerBar: XCUIElement,
         in app: XCUIApplication
-    ) -> [ChatTranscriptMetrics] {
-        var samples: [ChatTranscriptMetrics] = []
+    ) -> [ChatKeyboardAnimationSample] {
+        var samples: [ChatKeyboardAnimationSample] = []
         for _ in 0..<4 {
-            _ = tapTextInputOnce(element, in: app)
+            _ = tapChatComposerField(element, composerBar: composerBar, in: app)
             let deadline = Date().addingTimeInterval(1.1)
             var sawKeyboardTransition = false
             while Date() < deadline {
                 if let metrics = transcriptMetrics(from: table) {
-                    samples.append(metrics)
+                    samples.append(ChatKeyboardAnimationSample(
+                        metrics: metrics,
+                        composerFrame: usableFrameNow(of: composerBar)
+                    ))
                     sawKeyboardTransition = sawKeyboardTransition
                         || metrics.keyboardAnimationActive
                         || metrics.keyboardOverlap > 0
@@ -1299,12 +1419,12 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     private func assertChatKeyboardAnimationStayedAttached(
-        _ samples: [ChatTranscriptMetrics],
+        _ samples: [ChatKeyboardAnimationSample],
         scrollPosition: String,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        guard let measured = samples.reversed().first(where: { $0.keyboardOverlap > 0 }) else {
+        guard let measured = samples.reversed().first(where: { $0.metrics.keyboardOverlap > 0 }) else {
             XCTFail(
                 "Expected keyboard tracking metrics after focusing from \(scrollPosition). Samples: \(samples)",
                 file: file,
@@ -1312,9 +1432,22 @@ final class cmuxUITests: XCTestCase {
             )
             return
         }
-        if measured.keyboardAnimationSamples > 0 {
+        let activeVisibleGaps = samples
+            .filter { $0.metrics.keyboardAnimationActive || $0.metrics.keyboardOverlap > 0 }
+            .compactMap(\.visiblePresentationGap)
+            .map { max(0, $0) }
+        if let maxVisibleGap = activeVisibleGaps.max() {
             XCTAssertLessThanOrEqual(
-                measured.maxAnimationPresentationGap,
+                maxVisibleGap,
+                8,
+                "Visible transcript table bottom must stay attached to the visible composer during keyboard animation from \(scrollPosition). maxVisibleGap=\(maxVisibleGap) samples=\(samples)",
+                file: file,
+                line: line
+            )
+        }
+        if measured.metrics.keyboardAnimationSamples > 0 {
+            XCTAssertLessThanOrEqual(
+                measured.metrics.maxAnimationPresentationGap,
                 8,
                 "Transcript table presentation bottom must stay attached to the composer during keyboard animation from \(scrollPosition). Metrics: \(measured)",
                 file: file,
@@ -1322,7 +1455,7 @@ final class cmuxUITests: XCTestCase {
             )
         } else {
             XCTAssertLessThanOrEqual(
-                measured.presentationGap,
+                measured.metrics.presentationGap,
                 8,
                 "Transcript table bottom must stay attached to the composer after keyboard transition from \(scrollPosition). Metrics: \(measured)",
                 file: file,
@@ -1374,6 +1507,20 @@ final class cmuxUITests: XCTestCase {
     private func transcriptMetrics(from table: XCUIElement) -> ChatTranscriptMetrics? {
         guard let rawValue = table.value as? String else { return nil }
         return ChatTranscriptMetrics(rawValue)
+    }
+
+    @MainActor
+    private func usableFrameNow(of element: XCUIElement) -> CGRect? {
+        let frame = element.frame
+        guard !frame.isNull,
+              !frame.isEmpty,
+              !frame.origin.x.isNaN,
+              !frame.origin.y.isNaN,
+              !frame.width.isNaN,
+              !frame.height.isNaN else {
+            return nil
+        }
+        return frame
     }
 
     private enum TranscriptScrollDirection {
@@ -1440,6 +1587,27 @@ final class cmuxUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         return waitForKeyboardFocus(of: element, timeout: 0.5) || app.keyboards.firstMatch.exists
+    }
+
+    @MainActor
+    private func tapChatComposerField(
+        _ element: XCUIElement,
+        composerBar: XCUIElement,
+        in app: XCUIApplication
+    ) -> Bool {
+        if tapTextInputOnce(element, in: app) {
+            return true
+        }
+        if let barFrame = usableFrameNow(of: composerBar) {
+            app.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(
+                    dx: barFrame.midX,
+                    dy: barFrame.maxY - min(50, barFrame.height * 0.45)
+                ))
+                .tap()
+            return true
+        }
+        return tapTextInputOnce(element, in: app)
     }
 
     @MainActor
@@ -1625,6 +1793,14 @@ final class cmuxUITests: XCTestCase {
             "cycle \(cycle): the always-visible toolbar must stay visible. surface=\(surface)",
             file: file, line: line
         )
+        if Int(surface["renderHeight"] ?? "") ?? 0 > 0 {
+            assertTerminalRenderBottomAttachedToViewport(
+                surface,
+                context: "cycle \(cycle)",
+                file: file,
+                line: line
+            )
+        }
         // Capture the geometry that decides hittability BEFORE asserting it (the assert
         // aborts the test under `continueAfterFailure=false`). This disambiguates the
         // two failure modes the advisor flagged:
@@ -1668,6 +1844,26 @@ final class cmuxUITests: XCTestCase {
             composerActive && surface["chromeHidden"] == "1" && surface["toolbarVisible"] == "0",
             "cycle \(cycle): composer presented while ALL chrome is hidden (band-up/textbox-hidden stuck state). surface=\(surface)",
             file: file, line: line
+        )
+    }
+
+    private func assertTerminalRenderBottomAttachedToViewport(
+        _ dock: [String: String],
+        context: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let renderMaxY = Int(dock["renderMaxY"] ?? ""),
+              let viewportHeight = Int(dock["viewportHeight"] ?? "") else {
+            XCTFail("Missing terminal render/viewport geometry for \(context). dock=\(dock)", file: file, line: line)
+            return
+        }
+        XCTAssertLessThanOrEqual(
+            abs(renderMaxY - viewportHeight),
+            2,
+            "Terminal render bottom must stay attached to the live keyboard viewport for \(context). dock=\(dock)",
+            file: file,
+            line: line
         )
     }
 

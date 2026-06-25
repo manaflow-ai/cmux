@@ -85,7 +85,6 @@ final class ChatTranscriptUITableView: UITableView {
         let visibleBottomY = contentOffset.y + bounds.height - adjustedContentInset.bottom
         let distanceFromBottom = max(0, contentSize.height - visibleBottomY)
         let presentationGap = keyboardDebugComposerPresentationMinY - presentationFrameInWindow.maxY
-        recordKeyboardAnimationGap(presentationGap)
         accessibilityValue = String(
             format: "frameMinY=%.2f;frameMaxY=%.2f;frameHeight=%.2f;presentationFrameMaxY=%.2f;boundsHeight=%.2f;offsetY=%.2f;visibleBottomY=%.2f;contentHeight=%.2f;distanceFromBottom=%.2f;keyboardEvents=%d;keyboardOverlap=%.2f;keyboardGuideOverlap=%.2f;keyboardBottomConstraint=%.2f;composerMinY=%.2f;composerPresentationMinY=%.2f;presentationGap=%.2f;keyboardAnimationActive=%d;keyboardAnimationProgress=%.2f;keyboardTransitionDuration=%.3f;maxAnimationPresentationGap=%.2f;keyboardAnimationSamples=%d",
             locale: Locale(identifier: "en_US_POSIX"),
@@ -111,6 +110,13 @@ final class ChatTranscriptUITableView: UITableView {
             keyboardDebugMaxAnimationPresentationGap,
             keyboardDebugAnimationSampleCount
         )
+    }
+
+    func recordKeyboardAnimationPresentationGap() {
+        let frameInWindow = window.map { convert(bounds, to: $0) } ?? frame
+        let presentationFrameInWindow = presentationFrameInWindow() ?? frameInWindow
+        let presentationGap = keyboardDebugComposerPresentationMinY - presentationFrameInWindow.maxY
+        recordKeyboardAnimationGap(presentationGap)
     }
 
     private func recordKeyboardAnimationGap(_ presentationGap: CGFloat) {
