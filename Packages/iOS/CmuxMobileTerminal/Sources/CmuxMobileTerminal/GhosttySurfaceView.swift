@@ -761,7 +761,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     #endif
     private let snapshotFallbackView: UITextView = {
         let view = UITextView()
-        view.backgroundColor = UIColor(red: 0x27/255.0, green: 0x28/255.0, blue: 0x22/255.0, alpha: 1)
+        view.backgroundColor = .systemBackground
         view.textColor = UIColor(red: 0xfd/255.0, green: 0xff/255.0, blue: 0xf1/255.0, alpha: 1)
         view.font = .monospacedSystemFont(ofSize: 14, weight: .regular)
         view.textContainerInset = UIEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
@@ -884,6 +884,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         didSet {
             guard terminalTheme != oldValue else { return }
             inputProxy.terminalTheme = terminalTheme
+            applyTerminalThemeChromeColors()
         }
     }
 
@@ -996,7 +997,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         self.liveFontSize = fontSize
         super.init(frame: CGRect(x: 0, y: 0, width: 402, height: 700))
         bridge.attach(to: self)
-        backgroundColor = .black
+        applyTerminalThemeChromeColors()
         isOpaque = true
         #if DEBUG
         // The surface is a container, not a leaf, so the docked toolbar's
@@ -1608,19 +1609,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    /// Install the composer band container into the surface's view hierarchy, above
-    /// the docked toolbar. Hidden and zero-height until the host mounts a compose
-    /// field into it (``mountComposerView(_:)``); the surface positions it in
-    /// ``layoutBottomDock()`` and reserves its height in the grid. Frame-positioned
-    /// (`translatesAutoresizingMaskIntoConstraints = true`) like the docked toolbar so
-    /// the whole bottom dock shares one coordinate system.
+    /// Install the composer band container above the docked toolbar.
     private func installComposerContainer() {
-        composerContainer.backgroundColor = .clear
+        composerContainer.backgroundColor = terminalTheme.terminalBackgroundUIColor
         composerContainer.isHidden = true
-        // Do NOT clip: the composer's Liquid-Glass controls lift/shadow past the band
-        // edge, and the band must sit above the Ghostty render layer (item 6) so the
-        // glass is not clipped by the terminal bounds. Raised to the same chrome
-        // z-position as the toolbar.
         composerContainer.clipsToBounds = false
         composerContainer.layer.zPosition = Self.bottomChromeZPosition
         addSubview(composerContainer)
@@ -2754,9 +2746,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    /// Request a geometry recompute on the next display-link frame. Triggers
-    /// must call this instead of `syncSurfaceGeometry` directly so rapid
-    /// events coalesce into one apply per frame.
+    /// Request a geometry recompute on the next display-link frame.
     private func setNeedsGeometrySync(reassertNaturalSize: Bool = true) {
         needsGeometrySync = true
         if reassertNaturalSize { pendingGeometryReassert = true }
@@ -2764,8 +2754,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // A geometry sync (for any reason) satisfies a pending post-zoom resync.
         zoomSettleFrames = nil
         if displayLink == nil, window != nil {
-            // No frame pump while detached/backgrounded; apply directly so the
-            // surface still gets sized before the next render path resumes.
+            // No frame pump while detached/backgrounded; apply directly.
             needsGeometrySync = false
             let reassert = pendingGeometryReassert
             pendingGeometryReassert = false
@@ -2832,6 +2821,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private(set) var configBackgroundColor: UIColor?
     private(set) var configCursorColor: UIColor?
 
+    private func applyTerminalThemeChromeColors() {
+        let background = terminalTheme.terminalBackgroundUIColor
+        backgroundColor = background
+        snapshotFallbackView.backgroundColor = background
+        composerContainer.backgroundColor = background
+        configBackgroundColor = background
+        configCursorColor = terminalTheme.terminalCursorUIColor
+        updateCursorOverlay()
+    }
+
     private func applyBackgroundColorFromConfig(_ config: ghostty_config_t) {
         var bgColor = ghostty_config_color_s()
         let bgKey = "background"
@@ -2839,9 +2838,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             let bg = UIColor(red: CGFloat(bgColor.r) / 255.0, green: CGFloat(bgColor.g) / 255.0, blue: CGFloat(bgColor.b) / 255.0, alpha: 1.0)
             backgroundColor = bg
             snapshotFallbackView.backgroundColor = bg
+            composerContainer.backgroundColor = bg
             configBackgroundColor = bg
             #if DEBUG
-            log.debug("applyBg: config r=\(bgColor.r, privacy: .public) g=\(bgColor.g, privacy: .public) b=\(bgColor.b, privacy: .public) -> UIColor(\(bg.debugDescription, privacy: .public)), hardcoded Monokai=#272822 r=39 g=40 b=34")
+            log.debug("applyBg: config r=\(bgColor.r, privacy: .public) g=\(bgColor.g, privacy: .public) b=\(bgColor.b, privacy: .public) -> UIColor(\(bg.debugDescription, privacy: .public))")
             #endif
         } else {
             #if DEBUG
@@ -3385,7 +3385,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private func applySnapshotFallbackTheme(from attributedText: NSAttributedString) {
         guard attributedText.length > 0 else {
-            snapshotFallbackView.backgroundColor = .black
+            snapshotFallbackView.backgroundColor = terminalTheme.terminalBackgroundUIColor
             return
         }
 
@@ -3393,7 +3393,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if let background = attributedText.attribute(.backgroundColor, at: probeIndex, effectiveRange: nil) as? UIColor {
             snapshotFallbackView.backgroundColor = background
         } else {
-            snapshotFallbackView.backgroundColor = .black
+            snapshotFallbackView.backgroundColor = terminalTheme.terminalBackgroundUIColor
         }
     }
 

@@ -50,8 +50,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         } catch {
             let fallback = UILabel()
             fallback.numberOfLines = 0
-            fallback.textColor = .white
-            fallback.backgroundColor = UIColor(red: 0x27/255.0, green: 0x28/255.0, blue: 0x22/255.0, alpha: 1)
+            fallback.textColor = .label
+            fallback.backgroundColor = .systemBackground
             fallback.text = "Ghostty runtime failed to initialise:\n\(error.localizedDescription)"
             return fallback
         }
