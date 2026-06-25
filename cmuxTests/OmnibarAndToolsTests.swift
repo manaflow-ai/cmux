@@ -499,6 +499,7 @@ final class VSCodeServeWebLaunchOptionsTests: XCTestCase {
                 XCTAssertTrue(FileManager.default.fileExists(atPath: first.userDataDirectoryURL.path))
                 try assertDirectoryPermissions(first.serverDataDirectoryURL, 0o700)
                 try assertDirectoryPermissions(first.userDataDirectoryURL, 0o700)
+                try assertDirectoryPermissions(first.connectionTokenFileURL, 0o600)
                 XCTAssertEqual(first.connectionTokenFileURL, second.connectionTokenFileURL)
                 XCTAssertEqual(first.connectionTokenFileURL.lastPathComponent, "connection-token")
                 XCTAssertEqual(firstTokenData, secondTokenData)
@@ -745,6 +746,47 @@ final class ServeWebOutputCollectorTests: XCTestCase {
 
 
 final class VSCodeServeWebControllerTests: XCTestCase {
+    private func withTemporaryDirectory<T>(_ body: (URL) throws -> T) throws -> T {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-vscode-serve-web-controller-tests-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        return try body(root)
+    }
+
+    private func withDefaults<T>(_ body: (UserDefaults) throws -> T) throws -> T {
+        let suiteName = "cmux-vscode-serve-web-controller-tests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        return try body(defaults)
+    }
+
+    func testPersistentServeWebURLRequiresStablePortAndConnectionToken() throws {
+        try withTemporaryDirectory { rootURL in
+            try withDefaults { defaults in
+                let dataDirectoryURL = rootURL.appendingPathComponent("stable-data", isDirectory: true)
+                let options = try XCTUnwrap(VSCodeServeWebLaunchOptions.resolve(
+                    environment: [VSCodeServeWebLaunchOptions.dataDirectoryEnvironmentKey: dataDirectoryURL.path],
+                    defaults: defaults,
+                    applicationSupportDirectoryURL: rootURL
+                ))
+                let token = try XCTUnwrap(String(data: Data(contentsOf: options.connectionTokenFileURL), encoding: .utf8))
+                let wrongPort = options.port == 65535 ? options.port - 1 : options.port + 1
+                let matchingURL = try XCTUnwrap(URL(string: "http://localhost:\(options.port)/?tkn=\(token)&folder=/tmp/cmux"))
+                let wrongTokenURL = try XCTUnwrap(URL(string: "http://localhost:\(options.port)/?tkn=wrong-token"))
+                let wrongPortURL = try XCTUnwrap(URL(string: "http://localhost:\(wrongPort)/?tkn=\(token)"))
+                let secureURL = try XCTUnwrap(URL(string: "https://localhost:\(options.port)/?tkn=\(token)"))
+
+                XCTAssertTrue(VSCodeServeWebController.isPersistentServeWebURL(matchingURL, launchOptions: options))
+                XCTAssertFalse(VSCodeServeWebController.isPersistentServeWebURL(wrongTokenURL, launchOptions: options))
+                XCTAssertFalse(VSCodeServeWebController.isPersistentServeWebURL(wrongPortURL, launchOptions: options))
+                XCTAssertFalse(VSCodeServeWebController.isPersistentServeWebURL(secureURL, launchOptions: options))
+            }
+        }
+    }
+
     func testStopDuringInFlightLaunchDoesNotDropNextGenerationCompletion() {
         let firstLaunchStarted = expectation(description: "first launch started")
         let firstCompletionCalled = expectation(description: "first generation completion called")

@@ -188,13 +188,30 @@ nonisolated struct VSCodeServeWebLaunchOptions: Equatable {
                 ? tokenFileURL
                 : nil
         }
-        defer { _ = close(fileDescriptor) }
+        var shouldCloseFileDescriptor = true
+        defer {
+            if shouldCloseFileDescriptor {
+                _ = close(fileDescriptor)
+            }
+        }
+
+        guard fchmod(fileDescriptor, mode_t(S_IRUSR | S_IWUSR)) == 0 else {
+            try? fileManager.removeItem(at: tokenFileURL)
+            return nil
+        }
 
         let wroteAllBytes = tokenData.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress else { return false }
             return write(fileDescriptor, baseAddress, rawBuffer.count) == rawBuffer.count
         }
         guard wroteAllBytes else {
+            try? fileManager.removeItem(at: tokenFileURL)
+            return nil
+        }
+
+        shouldCloseFileDescriptor = false
+        guard close(fileDescriptor) == 0,
+              isUsableConnectionTokenFile(tokenFileURL, fileManager: fileManager) else {
             try? fileManager.removeItem(at: tokenFileURL)
             return nil
         }
@@ -206,20 +223,20 @@ nonisolated struct VSCodeServeWebLaunchOptions: Equatable {
         UUID().uuidString.replacingOccurrences(of: "-", with: "")
     }
 
-    private static func isUsableConnectionTokenFile(
+    static func usableConnectionToken(
         _ tokenFileURL: URL,
         fileManager: FileManager
-    ) -> Bool {
+    ) -> String? {
         guard let attributes = try? fileManager.attributesOfItem(atPath: tokenFileURL.path),
               let fileSize = attributes[.size] as? NSNumber,
               fileSize.uint64Value == 32,
               let permissions = attributes[.posixPermissions] as? NSNumber,
               permissions.intValue & 0o777 == 0o600 else {
-            return false
+            return nil
         }
 
         guard let fileHandle = try? FileHandle(forReadingFrom: tokenFileURL) else {
-            return false
+            return nil
         }
         defer {
             try? fileHandle.close()
@@ -228,10 +245,17 @@ nonisolated struct VSCodeServeWebLaunchOptions: Equatable {
         guard let data = try? fileHandle.read(upToCount: 33),
               data.count == 32,
               let token = String(data: data, encoding: .utf8) else {
-            return false
+            return nil
         }
 
-        return token.range(of: #"^[0-9A-Fa-f]{32}$"#, options: .regularExpression) != nil
+        return token.range(of: #"^[0-9A-Fa-f]{32}$"#, options: .regularExpression) != nil ? token : nil
+    }
+
+    private static func isUsableConnectionTokenFile(
+        _ tokenFileURL: URL,
+        fileManager: FileManager
+    ) -> Bool {
+        usableConnectionToken(tokenFileURL, fileManager: fileManager) != nil
     }
 
     private static func expandedHomePath(_ path: String) -> String {

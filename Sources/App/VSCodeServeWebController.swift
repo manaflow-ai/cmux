@@ -155,6 +155,24 @@ final class VSCodeServeWebController {
             self.serveWebURL
         })
         return Self.urlsShareLoopbackOrigin(candidateURL, serveWebURL)
+            || Self.isPersistentServeWebURL(candidateURL)
+    }
+
+    @discardableResult
+    func prepareRestoredServeWebURL(
+        _ candidateURL: URL?,
+        vscodeApplicationURL: URL?,
+        completion: ((Bool) -> Void)? = nil
+    ) -> Bool {
+        guard Self.isPersistentServeWebURL(candidateURL) else { return false }
+        guard let vscodeApplicationURL else {
+            completion?(false)
+            return true
+        }
+        ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { url in
+            completion?(url != nil)
+        }
+        return true
     }
 
     private func launchServeWebProcess(

@@ -42,6 +42,45 @@ extension VSCodeServeWebController {
             && RemoteLoopbackProxyAlias.isLoopbackHost(rhsHost)
     }
 
+    static func isPersistentServeWebURL(_ candidateURL: URL?) -> Bool {
+        guard isPossiblePersistentServeWebURL(candidateURL) else { return false }
+        return isPersistentServeWebURL(
+            candidateURL,
+            launchOptions: VSCodeServeWebLaunchOptions.resolve()
+        )
+    }
+
+    static func isPersistentServeWebURL(
+        _ candidateURL: URL?,
+        launchOptions: VSCodeServeWebLaunchOptions?
+    ) -> Bool {
+        guard isPossiblePersistentServeWebURL(candidateURL),
+              let candidateURL,
+              let launchOptions,
+              candidateURL.port == launchOptions.port,
+              let token = VSCodeServeWebLaunchOptions.usableConnectionToken(
+                launchOptions.connectionTokenFileURL,
+                fileManager: .default
+              ),
+              let queryItems = URLComponents(url: candidateURL, resolvingAgainstBaseURL: false)?.queryItems else {
+            return false
+        }
+        let tokenQueryItems = queryItems.filter { $0.name == "tkn" }
+        return tokenQueryItems.count == 1 && tokenQueryItems.first?.value == token
+    }
+
+    private static func isPossiblePersistentServeWebURL(_ candidateURL: URL?) -> Bool {
+        guard let candidateURL,
+              candidateURL.scheme?.lowercased() == "http",
+              candidateURL.port != nil,
+              let host = BrowserInsecureHTTPSettings.normalizeHost(candidateURL.host ?? ""),
+              RemoteLoopbackProxyAlias.isLoopbackHost(host),
+              let queryItems = URLComponents(url: candidateURL, resolvingAgainstBaseURL: false)?.queryItems else {
+            return false
+        }
+        return queryItems.contains { $0.name == "tkn" && $0.value?.isEmpty == false }
+    }
+
     static func terminateProcessesBeforeRestart(
         _ processes: [Process],
         on queue: DispatchQueue,

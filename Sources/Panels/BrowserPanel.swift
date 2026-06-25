@@ -4571,7 +4571,30 @@ final class BrowserPanel: Panel, ObservableObject {
             return
         }
 
+        prepareRestoredInlineVSCodeServeWebURL(restoredURL)
         deferRestoredWebViewLoadUntilVisible(url: restoredURL, reason: "session_restore")
+    }
+
+    private func prepareRestoredInlineVSCodeServeWebURL(_ restoredURL: URL) {
+        VSCodeServeWebController.shared.prepareRestoredServeWebURL(
+            restoredURL,
+            vscodeApplicationURL: TerminalDirectoryOpenTarget.vscodeInline.applicationURL()
+        ) { [weak self] didPrepare in
+            guard didPrepare,
+                  let self,
+                  self.currentURL?.absoluteString == restoredURL.absoluteString else {
+                return
+            }
+            if self.shouldRenderWebView {
+                self.navigateWithoutInsecureHTTPPrompt(
+                    to: restoredURL,
+                    recordTypedNavigation: false,
+                    preserveRestoredSessionHistory: true
+                )
+            } else if self.isWebViewVisibleInUI {
+                _ = self.restoreDiscardedWebViewIfNeeded(reason: "serve_web_ready")
+            }
+        }
     }
 
     private func deferRestoredWebViewLoadUntilVisible(url: URL, reason: String) {
