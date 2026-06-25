@@ -1137,11 +1137,15 @@ final class BrowserWebAuthnCoordinator: NSObject, WKScriptMessageHandlerWithRepl
                     replyHandler(reply, nil)
                 }
             } catch let error as BrowserWebAuthnBridgeError {
-                browserWebAuthnLogger.error("bridge error name=\(error.name.rawValue, privacy: .public) message=\(error.message, privacy: .public)")
+                let reply = error.replyObject()
+                let errorInfo = reply["error"] as? [String: Any]
+                let errorName = errorInfo?["name"] as? String ?? "UnknownError"
+                let errorMessage = errorInfo?["message"] as? String ?? ""
+                browserWebAuthnLogger.error("bridge error name=\(errorName, privacy: .public) message=\(errorMessage, privacy: .public)")
                 #if DEBUG
-                cmuxDebugLog("webauthn.error bridge: \(error.replyObject())")
+                cmuxDebugLog("webauthn.error bridge: \(reply)")
                 #endif
-                replyHandler(error.replyObject(), nil)
+                replyHandler(reply, nil)
             } catch {
                 browserWebAuthnLogger.error("bridge unknown error=\(error.localizedDescription, privacy: .public)")
                 #if DEBUG
