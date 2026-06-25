@@ -46,6 +46,7 @@ def run_wrapper(
     node_options: str | None = None,
     tmpdir: str | None = None,
     hooks_disabled: bool = False,
+    claude_job_dir: str | None = None,
 ) -> tuple[int, list[str], list[str], str, str, str, str, str, str, str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-test-") as td:
         tmp = Path(td)
@@ -183,6 +184,10 @@ exit 0
             env["CMUX_CLAUDE_HOOKS_DISABLED"] = "1"
         else:
             env.pop("CMUX_CLAUDE_HOOKS_DISABLED", None)
+        if claude_job_dir is not None:
+            env["CLAUDE_JOB_DIR"] = claude_job_dir
+        else:
+            env.pop("CLAUDE_JOB_DIR", None)
         env.pop("NODE_OPTIONS", None)
         if tmpdir is not None:
             env["TMPDIR"] = tmpdir
@@ -441,6 +446,7 @@ exit 0
                 "CLAUDE_CODE_USE_BEDROCK",
                 "CLAUDE_CODE_USE_VERTEX",
                 "CLAUDE_CONFIG_DIR",
+                "CLAUDE_JOB_DIR",
                 "CLOUD_ML_REGION",
             ):
                 env.pop(ambient_key, None)
@@ -1774,6 +1780,42 @@ def test_stale_socket_skips_hook_injection(failures: list[str]) -> None:
     expect(hook_cmux_bin == "__UNSET__", f"stale socket: expected hook cmux unset, got {hook_cmux_bin!r}", failures)
 
 
+def test_bg_session_skips_hook_injection(failures: list[str]) -> None:
+    # CLAUDE_JOB_DIR is set by Claude Code for all background (fleet) sessions.
+    # Bg sessions inherit CMUX_SURFACE_ID and can ping the socket, but they are
+    # headless — there is no terminal surface to route hook events to. The wrapper
+    # must skip hook injection when CLAUDE_JOB_DIR is set, regardless of socket
+    # availability, to prevent spurious "Failed to write to socket" errors on every
+    # hook event (UserPromptSubmit, Stop, etc.).
+    code, real_argv, cmux_log, stderr, claudecode, node_options, runtime_node_options, child_node_options, hook_cmux_bin, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        claude_job_dir="/tmp/claude-jobs/test-job-id",
+    )
+    expect(code == 0, f"bg session: wrapper exited {code}: {stderr}", failures)
+    expect(real_argv == ["hello"], f"bg session: expected passthrough args (no hook injection), got {real_argv}", failures)
+    expect("--settings" not in real_argv, f"bg session: expected no --settings injection, got {real_argv}", failures)
+    expect("--session-id" not in real_argv, f"bg session: expected no --session-id injection, got {real_argv}", failures)
+    expect(claudecode == "__UNSET__", f"bg session: expected CLAUDECODE unset, got {claudecode!r}", failures)
+    expect(node_options == "__UNSET__", f"bg session: expected no NODE_OPTIONS injection, got {node_options!r}", failures)
+    expect(hook_cmux_bin == "__UNSET__", f"bg session: expected hook cmux unset, got {hook_cmux_bin!r}", failures)
+
+    # bg sessions with --resume should also skip hook injection.
+    code2, real_argv2, _, stderr2, *_ = run_wrapper(
+        socket_state="live",
+        argv=["--resume", "some-session-id", "--model", "opus"],
+        claude_job_dir="/tmp/claude-jobs/test-job-id",
+    )
+    expect(code2 == 0, f"bg session resume: wrapper exited {code2}: {stderr2}", failures)
+    expect("--settings" not in real_argv2, f"bg session resume: expected no --settings injection, got {real_argv2}", failures)
+    expect("--session-id" not in real_argv2, f"bg session resume: expected no --session-id injection, got {real_argv2}", failures)
+    expect(
+        real_argv2 == ["--resume", "some-session-id", "--model", "opus"],
+        f"bg session resume: expected clean passthrough argv, got {real_argv2}",
+        failures,
+    )
+
+
 def main() -> int:
     failures: list[str] = []
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
@@ -1816,6 +1858,7 @@ def main() -> int:
     test_missing_socket_skips_hook_injection(failures)
     test_disabled_integration_skips_hook_injection(failures)
     test_stale_socket_skips_hook_injection(failures)
+    test_bg_session_skips_hook_injection(failures)
 
     if failures:
         print("FAIL: claude wrapper regression checks failed")

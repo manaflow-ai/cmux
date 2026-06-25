@@ -387,6 +387,18 @@ if [[ -n "$CMUX_SURFACE_ID" ]]; then
     IN_CMUX=1
 fi
 
+# Claude Code background jobs (fleet sessions) set CLAUDE_JOB_DIR. They
+# inherit CMUX_SURFACE_ID from the parent process, so IN_CMUX=1, but they
+# are headless — there is no terminal surface to route hook events to. The
+# cmux socket permits process-ancestry pings from bg subprocesses but rejects
+# the hook commands themselves, which produces "Failed to write to socket"
+# errors on every UserPromptSubmit, Stop, etc. Detect bg sessions early and
+# pass through without injecting hooks.
+IS_BG_SESSION=0
+if [[ -n "${CLAUDE_JOB_DIR:-}" ]]; then
+    IS_BG_SESSION=1
+fi
+
 exec_real_claude_passthrough() {
     if [[ "$IN_CMUX" == "1" ]]; then
         local cmux_key
@@ -411,7 +423,7 @@ if [[ "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]]; then
     exec "$REAL_CLAUDE" "$@"
 fi
 
-if [[ "$IN_CMUX" == "0" ]] || ! cmux_socket_available; then
+if [[ "$IN_CMUX" == "0" || "$IS_BG_SESSION" == "1" ]] || ! cmux_socket_available; then
     # In cmux-launched shells, preserve old behavior and always clear nested
     # Claude session markers, even when we must pass through due to stale socket.
     if [[ "$IN_CMUX" == "1" ]]; then
