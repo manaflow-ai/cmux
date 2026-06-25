@@ -3384,6 +3384,7 @@ struct CMUXCLI {
         if command == "setup-hooks" || command == "uninstall-hooks" { try runSetupHooks(uninstall: command == "uninstall-hooks"); return } // Backwards compatibility for old hook setup docs/scripts.
         if (command == "codex-hook" || command == "feed-hook"), processEnv["CMUX_SURFACE_ID"]?.isEmpty != false, processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
            !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) { print("{}"); return } // Backwards compatibility for old installed hooks outside cmux terminals.
+        let shouldGracefullyNoOpMissingClaudeHookSocket = command == "hooks" && commandArgs.first?.lowercased() == "claude" && processEnv["CMUX_SURFACE_ID"]?.isEmpty != false && processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false && !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) && (claudeAgentPID(from: processEnv) != nil || ["CMUX_CLI_TTY_NAME", "CMUX_TTY_NAME"].contains { processEnv[$0]?.isEmpty == false })
         if command == "hooks" {
             if try runHooksNoSocketCommand(commandArgs: commandArgs) {
                 return
@@ -3391,7 +3392,8 @@ struct CMUXCLI {
             if Self.hooksCommandNeedsCmuxTarget(commandArgs),
                processEnv["CMUX_SURFACE_ID"]?.isEmpty != false,
                processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
-               !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) {
+               !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }),
+               !shouldGracefullyNoOpMissingClaudeHookSocket {
                 print("{}")
                 return
             }
@@ -3414,7 +3416,6 @@ struct CMUXCLI {
             )
             return
         }
-
         // Feed helpers: clear the persistent workstream history.
         if command == "feed" {
             let sub = commandArgs.first?.lowercased() ?? "help"
@@ -3486,6 +3487,7 @@ struct CMUXCLI {
             try client.connect()
             cliTelemetry.breadcrumb("socket.connect.success", data: ["path": resolvedSocketPath])
         } catch {
+            if shouldGracefullyNoOpMissingClaudeHookSocket { print("{}"); return }
             cliTelemetry.breadcrumb("socket.connect.failure", data: ["path": resolvedSocketPath])
             cliTelemetry.captureError(stage: "socket_connect", error: error)
             throw error
@@ -22940,44 +22942,18 @@ struct CMUXCLI {
         telemetry: CLISocketSentryTelemetry,
         socketPassword: String? = nil
     ) throws {
+        let env = ProcessInfo.processInfo.environment
         let subcommand = commandArgs.first?.lowercased() ?? "help"
         let hookArgs = Array(commandArgs.dropFirst())
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
-        let workspaceArg = hookWsFlag ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
         let hookSurfaceFlag = optionValue(hookArgs, name: "--surface")
-        let surfaceArg = hookSurfaceFlag ?? (hookWsFlag == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
-        let preferCallerTTYRouting = hookWsFlag == nil && hookSurfaceFlag == nil
-        var callerTTYBindingCache: CallerTerminalBinding?
-        var didResolveCallerTTYBinding = false
-        func callerTTYBinding() -> CallerTerminalBinding? {
-            if !didResolveCallerTTYBinding {
-                didResolveCallerTTYBinding = true
-                let ttyBinding = resolveCallerTerminalBindingByTTY(
-                    client: client,
-                    includeAmbientTTY: workspaceArg == nil && surfaceArg == nil
-                )
-                if let ttyBinding,
-                   claudeHookSurfaceIsListed(ttyBinding.surfaceId, workspaceId: ttyBinding.workspaceId, client: client) {
-                    callerTTYBindingCache = ttyBinding
-                } else {
-                    let processBinding = resolveAgentProcessTerminalBinding(
-                        pid: claudeAgentPID(from: ProcessInfo.processInfo.environment),
-                        socketPath: client.socketPath,
-                        socketPassword: socketPassword
-                    )
-                    if let processBinding,
-                       claudeHookSurfaceIsListed(
-                           processBinding.surfaceId,
-                           workspaceId: processBinding.workspaceId,
-                           client: client
-                       ) {
-                        callerTTYBindingCache = processBinding
-                    }
-                }
-            }
-            return callerTTYBindingCache
-        }
-        let callerTTYBindingProvider: (() -> CallerTerminalBinding?)? = preferCallerTTYRouting ? callerTTYBinding : nil
+        let workspaceArg = hookWsFlag ?? env["CMUX_WORKSPACE_ID"]
+        let workspaceArgIsAmbient = hookWsFlag == nil
+        let surfaceArg = hookSurfaceFlag ?? (hookWsFlag == nil ? env["CMUX_SURFACE_ID"] : nil)
+        let surfaceArgIsAmbient = hookSurfaceFlag == nil && hookWsFlag == nil
+        let hookClaudePid = claudeAgentPID(from: env)
+        let needsRecoveredHookTarget = hookWsFlag == nil && hookSurfaceFlag == nil && nonEmptyClaudeHookIdentifier(env["CMUX_WORKSPACE_ID"]) == nil && nonEmptyClaudeHookIdentifier(env["CMUX_SURFACE_ID"]) == nil
+            && (hookClaudePid != nil || ["CMUX_CLI_TTY_NAME", "CMUX_TTY_NAME"].contains { env[$0]?.isEmpty == false })
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         let sessionStore = ClaudeHookSessionStore()
@@ -22987,7 +22963,7 @@ struct CMUXCLI {
                 "subcommand": subcommand,
                 "has_session_id": parsedInput.sessionId != nil,
                 "has_workspace_flag": hookWsFlag != nil,
-                "has_surface_flag": optionValue(hookArgs, name: "--surface") != nil
+                "has_surface_flag": hookSurfaceFlag != nil
             ]
         )
 
@@ -23008,47 +22984,77 @@ struct CMUXCLI {
                 sendClaudeFeedTelemetry()
             }
         }
+        func missingRecoveredHookTarget(agentPID: Int?, allowProcessSnapshotBinding: Bool? = nil, force: Bool = false, terminalBindingCache: inout ClaudeHookTerminalBindingCache) -> Bool {
+            guard force || needsRecoveredHookTarget else { return false }
+            guard let binding = resolveClaudeHookTerminalBinding(agentPID: agentPID, allowProcessSnapshotBinding: allowProcessSnapshotBinding, terminalBindingCache: &terminalBindingCache, client: client),
+                  let workspaceId = resolveClaudeHookWorkspaceId(binding.workspaceId, client: client),
+                  resolveClaudeHookBindingSurfaceId(binding, workspaceId: workspaceId, client: client) != nil else { return true }
+            return false
+        }
 
+        var mappedHookOverrideTarget: (workspaceId: String, surfaceId: String)?
+        func mappedHookTargetIsReachable(_ mappedSession: ClaudeHookSessionRecord?) -> Bool {
+            guard let mappedSession, let workspaceId = resolveClaudeHookWorkspaceId(mappedSession.workspaceId, client: client),
+                  claudeHookWorkspaceIsAccessible(workspaceId, client: client, allowUnknown: true),
+                  resolveAccessibleClaudeHookSurfaceId(mappedSession.surfaceId, workspaceId: workspaceId, client: client) != nil else { return false }
+            return true
+        }
+        func reachableFallbackHookTarget() -> (workspaceId: String, surfaceId: String)? {
+            guard let workspaceId = resolveClaudeHookWorkspaceId(workspaceArg, client: client),
+                  let surfaceId = resolveAccessibleClaudeHookSurfaceId(surfaceArg, workspaceId: workspaceId, client: client),
+                  claudeHookWorkspaceIsAccessible(workspaceId, client: client, allowUnknown: true) else { return nil }
+            return (workspaceId, surfaceId)
+        }
+        func missingMappedOrRecoveredHookTarget(_ mappedSession: ClaudeHookSessionRecord?, agentPID: Int?, allowProcessSnapshotBinding: Bool? = nil, terminalBindingCache: inout ClaudeHookTerminalBindingCache) -> Bool {
+            mappedHookOverrideTarget = nil
+            if mappedHookTargetIsReachable(mappedSession) { return false }
+            guard mappedSession != nil else { return missingRecoveredHookTarget(agentPID: agentPID, allowProcessSnapshotBinding: allowProcessSnapshotBinding, terminalBindingCache: &terminalBindingCache) }
+            if let target = reachableFallbackHookTarget() { mappedHookOverrideTarget = target; return false }
+            let missing = missingRecoveredHookTarget(agentPID: agentPID, allowProcessSnapshotBinding: allowProcessSnapshotBinding, force: true, terminalBindingCache: &terminalBindingCache)
+            if !missing, let binding = terminalBindingCache.binding { mappedHookOverrideTarget = (binding.workspaceId, binding.surfaceId) }
+            return missing
+        }
         switch subcommand {
         case "session-start", "active":
             telemetry.breadcrumb("claude-hook.session-start")
+            let claudePid = hookClaudePid
+            var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: hookClaudePid != nil, socketPassword: socketPassword, binding: nil)
+            guard !missingRecoveredHookTarget(agentPID: claudePid, terminalBindingCache: &terminalBindingCache) else { didSendFeedTelemetry = true; print("{}"); return }
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: nil,
                 fallback: workspaceArg,
-                preferCallerTTYOverFallback: preferCallerTTYRouting,
-                callerTerminalBinding: callerTTYBindingProvider,
+                fallbackIsAmbient: workspaceArgIsAmbient,
+                agentPID: claudePid,
+                terminalBindingCache: &terminalBindingCache,
                 client: client
             )
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
                 preferred: nil,
                 fallback: surfaceArg,
+                fallbackIsAmbient: surfaceArgIsAmbient,
                 fallbackIsExplicit: hookSurfaceFlag != nil,
                 workspaceId: workspaceId,
-                callerTerminalBinding: callerTTYBindingProvider,
+                agentPID: claudePid,
+                terminalBindingCache: &terminalBindingCache,
                 client: client
             )
             let surfaceId = resolvedSurface.surfaceId
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
-            let claudePid = claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
-                env: ProcessInfo.processInfo.environment
+                env: env
             )
             let launchCommand = agentLaunchCommandFromEnvironment(
-                ProcessInfo.processInfo.environment,
+                env,
                 fallbackPID: claudePid,
                 fallbackKind: "claude",
                 cwd: parsedInput.cwd
             )
-            // `claude --resume <parent> --fork-session` fires SessionStart with the
-            // PARENT session id — the forked session id is only minted at the first
-            // UserPromptSubmit. Upserting here would steal the parent record's
-            // surface/pid/launch command from the pane that still owns that
-            // conversation, so fork launches leave the store untouched; the forked
-            // session is recorded once its own id appears on prompt-submit.
+            // Fork SessionStart reports the parent session id; the forked id is
+            // minted on first UserPromptSubmit, so leave the parent record intact.
             // https://github.com/manaflow-ai/cmux/issues/5908
             let isForkSessionLaunch = isClaudeForkSessionLaunch(
-                env: ProcessInfo.processInfo.environment,
+                env: env,
                 fallbackPID: claudePid
             )
             let isClearSessionStart = isClaudeClearSessionStart(parsedInput)
@@ -23070,7 +23076,7 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
-                    pid: claudePid,
+                    pid: resolvedSurface.isAuthoritative ? claudePid : nil,
                     launchCommand: launchCommand,
                     isRestorable: false,
                     agentLifecycle: shouldPromoteActiveSession ? .running : .unknown,
@@ -23090,18 +23096,9 @@ struct CMUXCLI {
                     )
                 }
             }
-            // Register PID for stale-session detection and OSC suppression.
-            // Startup/resume SessionStart remains non-visible; /clear is a
-            // new active boundary and must keep the sidebar Running before
-            // any late pre-clear Stop can write Idle.
-            // Fork launches register their PID only with an authoritative
-            // surface: the hook reports the PARENT session id (which is often
-            // the workspace-active session), and the pre-prompt fork SessionEnd
-            // cleanup clears only authoritative targets, so a fallback-pane
-            // registration would leave a stale agent PID on a pane the fork
-            // never owned.
-            let shouldRegisterPID = isForkSessionLaunch
-                ? resolvedSurface.isAuthoritative
+            // Register PID for stale detection only on authoritative surfaces; forks also require non-snapshot surfaces.
+            let shouldRegisterPID = resolvedSurface.isAuthoritative && (isForkSessionLaunch
+                ? !resolvedSurface.isProcessSnapshotBound
                 : shouldPromoteActiveSession ||
                     shouldApplyClaudeHookVisibleMutation(
                         sessionStore: sessionStore,
@@ -23109,7 +23106,7 @@ struct CMUXCLI {
                         workspaceId: workspaceId,
                         surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
                         telemetry: telemetry
-                    )
+                    ))
             if shouldRegisterPID, let claudePid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
                     "set_agent_pid \(Self.claudeCodeStatusKey) \(claudePid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
@@ -23132,7 +23129,7 @@ struct CMUXCLI {
                     value: "Running",
                     icon: "bolt.fill",
                     color: "#4C8DFF",
-                    pid: claudePid
+                        pid: resolvedSurface.isAuthoritative ? claudePid : nil
                 )
             }
             print("OK")
@@ -23143,26 +23140,31 @@ struct CMUXCLI {
                 // Turn ended. Don't consume session or clear PID — Claude is still alive.
                 // Notification hook handles user-facing notifications; SessionEnd handles cleanup.
                 let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+                let claudePid = hookClaudePid ?? mappedSession?.pid
+                var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: hookClaudePid != nil && mappedSession?.pid != hookClaudePid, socketPassword: socketPassword, binding: nil)
+                guard !missingMappedOrRecoveredHookTarget(mappedSession, agentPID: claudePid, terminalBindingCache: &terminalBindingCache) else { didSendFeedTelemetry = true; print("{}"); return }
                 let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
-                    preferred: mappedSession?.workspaceId,
+                    preferred: mappedHookOverrideTarget?.workspaceId ?? mappedSession?.workspaceId,
                     fallback: workspaceArg,
-                    preferCallerTTYOverFallback: preferCallerTTYRouting,
-                    callerTerminalBinding: callerTTYBindingProvider,
+                    fallbackIsAmbient: workspaceArgIsAmbient,
+                    agentPID: claudePid,
+                    terminalBindingCache: &terminalBindingCache,
                     client: client
                 )
                 let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
-                    preferred: mappedSession?.surfaceId,
+                    preferred: mappedHookOverrideTarget?.surfaceId ?? mappedSession?.surfaceId,
                     fallback: surfaceArg,
+                    fallbackIsAmbient: surfaceArgIsAmbient,
                     fallbackIsExplicit: hookSurfaceFlag != nil,
                     workspaceId: workspaceId,
-                    callerTerminalBinding: callerTTYBindingProvider,
+                    agentPID: claudePid,
+                    terminalBindingCache: &terminalBindingCache,
                     client: client
                 )
                 let surfaceId = resolvedSurface.surfaceId
-                let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
                 let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                     currentAgentPID: claudePid,
-                    env: ProcessInfo.processInfo.environment
+                    env: env
                 )
                 sendClaudeFeedTelemetry(workspaceId: workspaceId)
 
@@ -23251,26 +23253,31 @@ struct CMUXCLI {
         case "prompt-submit":
             telemetry.breadcrumb("claude-hook.prompt-submit")
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+            let claudePid = hookClaudePid ?? mappedSession?.pid
+            var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: hookClaudePid != nil && mappedSession?.pid != hookClaudePid, socketPassword: socketPassword, binding: nil)
+            guard !missingMappedOrRecoveredHookTarget(mappedSession, agentPID: claudePid, terminalBindingCache: &terminalBindingCache) else { didSendFeedTelemetry = true; print("{}"); return }
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
-                preferred: mappedSession?.workspaceId,
+                preferred: mappedHookOverrideTarget?.workspaceId ?? mappedSession?.workspaceId,
                 fallback: workspaceArg,
-                preferCallerTTYOverFallback: preferCallerTTYRouting,
-                callerTerminalBinding: callerTTYBindingProvider,
+                fallbackIsAmbient: workspaceArgIsAmbient,
+                agentPID: claudePid,
+                terminalBindingCache: &terminalBindingCache,
                 client: client
             )
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
-                preferred: mappedSession?.surfaceId,
+                preferred: mappedHookOverrideTarget?.surfaceId ?? mappedSession?.surfaceId,
                 fallback: surfaceArg,
+                fallbackIsAmbient: surfaceArgIsAmbient,
                 fallbackIsExplicit: hookSurfaceFlag != nil,
                 workspaceId: workspaceId,
-                callerTerminalBinding: callerTTYBindingProvider,
+                agentPID: claudePid,
+                terminalBindingCache: &terminalBindingCache,
                 client: client
             )
             let surfaceId = resolvedSurface.surfaceId
-            let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
-                env: ProcessInfo.processInfo.environment
+                env: env
             )
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
             let shouldApplyPromptSubmit =
@@ -23307,7 +23314,7 @@ struct CMUXCLI {
                 // https://github.com/manaflow-ai/cmux/issues/5908
                 let firstSightingLaunchCommand = mappedSession == nil
                     ? agentLaunchCommandFromEnvironment(
-                        ProcessInfo.processInfo.environment,
+                        env,
                         fallbackPID: claudePid,
                         fallbackKind: "claude",
                         cwd: parsedInput.cwd
@@ -23319,7 +23326,7 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
-                    pid: mappedSession == nil ? claudePid : nil,
+                    pid: resolvedSurface.isAuthoritative ? (hookClaudePid ?? (mappedSession == nil ? claudePid : nil)) : nil,
                     launchCommand: firstSightingLaunchCommand,
                     isRestorable: true,
                     agentLifecycle: .running,
@@ -23337,6 +23344,12 @@ struct CMUXCLI {
                     launchCommand: mappedSession?.launchCommand ?? firstSightingLaunchCommand
                 )
             }
+            if let hookClaudePid, resolvedSurface.isAuthoritative {
+                _ = try? sendV1Command(
+                    "set_agent_pid \(Self.claudeCodeStatusKey) \(hookClaudePid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    client: client
+                )
+            }
             _ = try sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
             setAgentLifecycle(
                 client: client,
@@ -23351,7 +23364,8 @@ struct CMUXCLI {
                 surfaceId: surfaceId,
                 value: "Running",
                 icon: "bolt.fill",
-                color: "#4C8DFF"
+                color: "#4C8DFF",
+                pid: resolvedSurface.isAuthoritative ? hookClaudePid : nil
             )
             print("OK")
 
@@ -23362,19 +23376,29 @@ struct CMUXCLI {
             didSendFeedTelemetry = true
             do {
                 let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+                let claudePid = hookClaudePid ?? mappedSession?.pid
+                var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: hookClaudePid != nil && mappedSession?.pid != hookClaudePid, socketPassword: socketPassword, binding: nil)
+                guard !missingMappedOrRecoveredHookTarget(mappedSession, agentPID: claudePid, terminalBindingCache: &terminalBindingCache) else {
+                    telemetry.breadcrumb("claude-hook.auto-name.missing-target")
+                    print("OK")
+                    return
+                }
                 let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
-                    preferred: mappedSession?.workspaceId,
+                    preferred: mappedHookOverrideTarget?.workspaceId ?? mappedSession?.workspaceId,
                     fallback: workspaceArg,
-                    preferCallerTTYOverFallback: preferCallerTTYRouting,
-                    callerTerminalBinding: callerTTYBindingProvider,
+                    fallbackIsAmbient: workspaceArgIsAmbient,
+                    agentPID: claudePid,
+                    terminalBindingCache: &terminalBindingCache,
                     client: client
                 )
                 let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
-                    preferred: mappedSession?.surfaceId,
+                    preferred: mappedHookOverrideTarget?.surfaceId ?? mappedSession?.surfaceId,
                     fallback: surfaceArg,
+                    fallbackIsAmbient: surfaceArgIsAmbient,
                     fallbackIsExplicit: hookSurfaceFlag != nil,
                     workspaceId: workspaceId,
-                    callerTerminalBinding: callerTTYBindingProvider,
+                    agentPID: claudePid,
+                    terminalBindingCache: &terminalBindingCache,
                     client: client
                 )
                 runClaudeAutoNameHook(
@@ -23396,25 +23420,30 @@ struct CMUXCLI {
             var summary = summarizeClaudeHookNotification(parsedInput: parsedInput)
 
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+            let claudePid = hookClaudePid ?? mappedSession?.pid
+            var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: hookClaudePid != nil && mappedSession?.pid != hookClaudePid, socketPassword: socketPassword, binding: nil)
+            guard !missingMappedOrRecoveredHookTarget(mappedSession, agentPID: claudePid, terminalBindingCache: &terminalBindingCache) else { didSendFeedTelemetry = true; print("{}"); return }
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
-                preferred: mappedSession?.workspaceId,
+                preferred: mappedHookOverrideTarget?.workspaceId ?? mappedSession?.workspaceId,
                 fallback: workspaceArg,
-                preferCallerTTYOverFallback: preferCallerTTYRouting,
-                callerTerminalBinding: callerTTYBindingProvider,
+                fallbackIsAmbient: workspaceArgIsAmbient,
+                agentPID: claudePid,
+                terminalBindingCache: &terminalBindingCache,
                 client: client
             )
-            let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
-                env: ProcessInfo.processInfo.environment
+                env: env
             )
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
-                preferred: mappedSession?.surfaceId,
+                preferred: mappedHookOverrideTarget?.surfaceId ?? mappedSession?.surfaceId,
                 fallback: surfaceArg,
+                fallbackIsAmbient: surfaceArgIsAmbient,
                 fallbackIsExplicit: hookSurfaceFlag != nil,
                 workspaceId: workspaceId,
-                callerTerminalBinding: callerTTYBindingProvider,
+                agentPID: claudePid,
+                terminalBindingCache: &terminalBindingCache,
                 client: client
             )
             let surfaceId = resolvedSurface.surfaceId
@@ -23479,18 +23508,15 @@ struct CMUXCLI {
 
         case "session-end":
             telemetry.breadcrumb("claude-hook.session-end")
-            // A fork launch that exits before its first prompt fires SessionEnd
-            // with the PARENT session id (the forked id is only minted at the
-            // first UserPromptSubmit). Consuming it would delete the parent
-            // pane's restore record and clear its resume binding even though
-            // that pane still owns the conversation. Post-prompt fork exits
-            // report the forked id and consume normally.
+            // Pre-prompt fork SessionEnd reports the parent id; consuming it would
+            // delete the parent pane's restore record. Post-prompt exits report
+            // the forked id and consume normally.
             // https://github.com/manaflow-ai/cmux/issues/5908
             if let reportedSessionId = parsedInput.sessionId?.trimmingCharacters(in: .whitespacesAndNewlines),
                !reportedSessionId.isEmpty,
                let forkParentSessionId = claudeForkSessionParentId(
-                   env: ProcessInfo.processInfo.environment,
-                   fallbackPID: claudeAgentPID(from: ProcessInfo.processInfo.environment)
+                   env: env,
+                   fallbackPID: hookClaudePid
                ),
                reportedSessionId == forkParentSessionId {
                 telemetry.breadcrumb("claude-hook.session-end.fork-parent-skipped")
@@ -23498,32 +23524,40 @@ struct CMUXCLI {
                 // that the fork SessionStart registered for this pane, but leave
                 // the parent record, its resume binding, and the workspace's
                 // notifications alone.
-                let forkClaudePid = claudeAgentPID(from: ProcessInfo.processInfo.environment)
+                let forkClaudePid = hookClaudePid
                 let suppressForkVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                     currentAgentPID: forkClaudePid,
-                    env: ProcessInfo.processInfo.environment
+                    env: env
                 )
-                if !suppressForkVisibleMutations,
-                   let forkWorkspaceId = try? resolvePreferredWorkspaceIdForClaudeHook(
-                       preferred: nil,
-                       fallback: workspaceArg,
-                       preferCallerTTYOverFallback: preferCallerTTYRouting,
-                       callerTerminalBinding: callerTTYBindingProvider,
-                       client: client
-                   ),
-                   let forkSurface = try? resolvePreferredSurfaceForClaudeHookDetailed(
-                       preferred: nil,
-                       fallback: surfaceArg,
-                       fallbackIsExplicit: hookSurfaceFlag != nil,
-                       workspaceId: forkWorkspaceId,
-                       callerTerminalBinding: callerTTYBindingProvider,
-                       client: client
-                   ),
-                   forkSurface.isAuthoritative {
-                    _ = try? sendV1Command(
-                        "clear_agent_pid \(Self.claudeCodeStatusKey) --tab=\(forkWorkspaceId)\(socketPanelOption(forkSurface.surfaceId)) --clear-status",
+                if !suppressForkVisibleMutations {
+                    var forkTerminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, socketPassword: socketPassword, binding: nil)
+                    guard !missingRecoveredHookTarget(agentPID: forkClaudePid, allowProcessSnapshotBinding: false, terminalBindingCache: &forkTerminalBindingCache) else { didSendFeedTelemetry = true; print("{}"); return }
+                    if let forkWorkspaceId = try? resolvePreferredWorkspaceIdForClaudeHook(
+                        preferred: nil,
+                        fallback: workspaceArg,
+                        fallbackIsAmbient: workspaceArgIsAmbient,
+                        agentPID: forkClaudePid,
+                        allowProcessSnapshotBinding: false,
+                        terminalBindingCache: &forkTerminalBindingCache,
                         client: client
-                    )
+                    ),
+                       let forkSurface = try? resolvePreferredSurfaceForClaudeHookDetailed(
+                           preferred: nil,
+                           fallback: surfaceArg,
+                           fallbackIsAmbient: surfaceArgIsAmbient,
+                           fallbackIsExplicit: hookSurfaceFlag != nil,
+                           workspaceId: forkWorkspaceId,
+                           agentPID: forkClaudePid,
+                           allowProcessSnapshotBinding: false,
+                           terminalBindingCache: &forkTerminalBindingCache,
+                           client: client
+                       ),
+                       forkSurface.isAuthoritative {
+                        _ = try? sendV1Command(
+                            "clear_agent_pid \(Self.claudeCodeStatusKey) --tab=\(forkWorkspaceId)\(socketPanelOption(forkSurface.surfaceId)) --clear-status",
+                            client: client
+                        )
+                    }
                 }
                 print("OK")
                 return
@@ -23533,21 +23567,29 @@ struct CMUXCLI {
             // If Stop already consumed the session, consumedSession is nil and we skip
             // to avoid wiping the completion notification that Stop just delivered.
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+            let fallbackClaudePid = hookClaudePid ?? mappedSession?.pid
+            var fallbackTerminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: hookClaudePid != nil && mappedSession?.pid != hookClaudePid, socketPassword: socketPassword, binding: nil)
+            guard !missingMappedOrRecoveredHookTarget(mappedSession, agentPID: fallbackClaudePid, allowProcessSnapshotBinding: false, terminalBindingCache: &fallbackTerminalBindingCache) else { didSendFeedTelemetry = true; print("{}"); return }
             let fallbackWorkspaceId = try? resolvePreferredWorkspaceIdForClaudeHook(
-                preferred: mappedSession?.workspaceId,
+                preferred: mappedHookOverrideTarget?.workspaceId ?? mappedSession?.workspaceId,
                 fallback: workspaceArg,
-                preferCallerTTYOverFallback: preferCallerTTYRouting,
-                callerTerminalBinding: callerTTYBindingProvider,
+                fallbackIsAmbient: workspaceArgIsAmbient,
+                agentPID: fallbackClaudePid,
+                allowProcessSnapshotBinding: false,
+                terminalBindingCache: &fallbackTerminalBindingCache,
                 client: client
             )
             let fallbackSurfaceId: String? = {
                 guard let fallbackWorkspaceId else { return nil }
                 return try? resolvePreferredSurfaceIdForClaudeHook(
-                    preferred: mappedSession?.surfaceId,
+                    preferred: mappedHookOverrideTarget?.surfaceId ?? mappedSession?.surfaceId,
                     fallback: surfaceArg,
+                    fallbackIsAmbient: surfaceArgIsAmbient,
                     fallbackIsExplicit: hookSurfaceFlag != nil,
                     workspaceId: fallbackWorkspaceId,
-                    callerTerminalBinding: callerTTYBindingProvider,
+                    agentPID: fallbackClaudePid,
+                    allowProcessSnapshotBinding: false,
+                    terminalBindingCache: &fallbackTerminalBindingCache,
                     client: client
                 )
             }()
@@ -23577,10 +23619,10 @@ struct CMUXCLI {
                     surfaceId: consumedSession.surfaceId,
                     telemetry: telemetry
                 )
-                let claudePid = consumedSession.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+                let claudePid = hookClaudePid ?? consumedSession.pid
                 let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                     currentAgentPID: claudePid,
-                    env: ProcessInfo.processInfo.environment
+                    env: env
                 )
                 if shouldClearVisibleState, !suppressVisibleMutations {
                     _ = try? sendV1Command(
@@ -23611,27 +23653,32 @@ struct CMUXCLI {
             // Clears "Needs input" status and notification when Claude resumes work
             // (e.g. after permission grant). Runs async so it doesn't block tool execution.
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+            let claudePid = hookClaudePid ?? mappedSession?.pid
+            var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: hookClaudePid != nil && mappedSession?.pid != hookClaudePid, socketPassword: socketPassword, binding: nil)
+            guard !missingMappedOrRecoveredHookTarget(mappedSession, agentPID: claudePid, terminalBindingCache: &terminalBindingCache) else { didSendFeedTelemetry = true; print("{}"); return }
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
-                preferred: mappedSession?.workspaceId,
+                preferred: mappedHookOverrideTarget?.workspaceId ?? mappedSession?.workspaceId,
                 fallback: workspaceArg,
-                preferCallerTTYOverFallback: preferCallerTTYRouting,
-                callerTerminalBinding: callerTTYBindingProvider,
+                fallbackIsAmbient: workspaceArgIsAmbient,
+                agentPID: claudePid,
+                terminalBindingCache: &terminalBindingCache,
                 client: client
             )
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
-                preferred: mappedSession?.surfaceId,
+                preferred: mappedHookOverrideTarget?.surfaceId ?? mappedSession?.surfaceId,
                 fallback: surfaceArg,
+                fallbackIsAmbient: surfaceArgIsAmbient,
                 fallbackIsExplicit: hookSurfaceFlag != nil,
                 workspaceId: workspaceId,
-                callerTerminalBinding: callerTTYBindingProvider,
+                agentPID: claudePid,
+                terminalBindingCache: &terminalBindingCache,
                 client: client
             )
             let surfaceId = resolvedSurface.surfaceId
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
-            let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
-                env: ProcessInfo.processInfo.environment
+                env: env
             )
             guard shouldApplyClaudeHookVisibleMutation(
                 sessionStore: sessionStore,
@@ -23681,13 +23728,10 @@ struct CMUXCLI {
                 } else {
                     needsInputBody = describeExitPlanMode(parsedInput.object) ?? waitingBody
                 }
-                // Preserve a non-empty surfaceId from SessionStart; passing ""
-                // would overwrite it and cause notifications to target the wrong workspace.
-                let existingSurfaceId = nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId) ?? surfaceId
                 try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
-                    surfaceId: existingSurfaceId,
+                    surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
                     agentLifecycle: .needsInput,
@@ -23699,7 +23743,7 @@ struct CMUXCLI {
                     key: Self.claudeCodeStatusKey,
                     lifecycle: .needsInput,
                     workspaceId: workspaceId,
-                    surfaceId: existingSurfaceId
+                    surfaceId: surfaceId
                 )
                 // In bypassPermissions (--dangerously-skip-permissions) mode no
                 // PermissionRequest or Notification hook follows, so this handler must
@@ -23720,7 +23764,7 @@ struct CMUXCLI {
                     _ = try? setClaudeStatus(
                         client: client,
                         workspaceId: workspaceId,
-                        surfaceId: existingSurfaceId,
+                        surfaceId: surfaceId,
                         value: String(localized: "feed.status.needsInput", defaultValue: "Needs input"),
                         icon: "bell.fill",
                         color: "#4C8DFF",
@@ -23732,7 +23776,7 @@ struct CMUXCLI {
                     )
                     let payload = notificationPayload(title: title, subtitle: waitingSubtitle, body: needsInputBody)
                     _ = try? sendV1Command(
-                        "notify_target_async \(workspaceId) \(existingSurfaceId) \(payload)",
+                        "notify_target_async \(workspaceId) \(surfaceId) \(payload)",
                         client: client
                     )
                 }
@@ -23773,7 +23817,7 @@ struct CMUXCLI {
                 value: statusValue,
                 icon: "bolt.fill",
                 color: "#4C8DFF",
-                pid: claudePid
+                pid: resolvedSurface.isAuthoritative ? claudePid : nil
             )
             print("OK")
 
@@ -23983,22 +24027,57 @@ struct CMUXCLI {
     private func resolvePreferredWorkspaceIdForClaudeHook(
         preferred: String?,
         fallback: String?,
-        preferCallerTTYOverFallback: Bool = false,
-        callerTerminalBinding: (() -> CallerTerminalBinding?)? = nil,
+        fallbackIsAmbient: Bool = false,
+        agentPID: Int? = nil,
+        allowProcessSnapshotBinding: Bool? = nil,
+        terminalBindingCache: inout ClaudeHookTerminalBindingCache,
         client: SocketClient
     ) throws -> String {
-        if let preferred = nonEmptyClaudeHookIdentifier(preferred) {
-            return try resolveWorkspaceIdForClaudeHook(preferred, client: client)
-        }
-        if preferCallerTTYOverFallback,
-           let callerWorkspaceId = resolveCallerWorkspaceIdForClaudeHook(
-               callerTerminalBinding: callerTerminalBinding,
-               client: client
-           ) {
-            return callerWorkspaceId
+        if let preferred = nonEmptyClaudeHookIdentifier(preferred), let resolvedPreferred = try? resolveWorkspaceId(preferred, client: client), claudeHookWorkspaceIsAccessible(resolvedPreferred, client: client, allowUnknown: true) {
+            if let binding = resolveClaudeHookTerminalBinding(
+                agentPID: agentPID,
+                allowProcessSnapshotBinding: allowProcessSnapshotBinding,
+                terminalBindingCache: &terminalBindingCache,
+                client: client
+            ),
+               binding.isProcessSnapshotBound,
+               let boundWorkspaceId = resolveClaudeHookWorkspaceId(binding.workspaceId, client: client),
+               boundWorkspaceId != resolvedPreferred,
+               resolveClaudeHookBindingSurfaceId(binding, workspaceId: boundWorkspaceId, client: client) != nil {
+                return boundWorkspaceId
+            }
+            return resolvedPreferred
         }
         if let fallback = nonEmptyClaudeHookIdentifier(fallback) {
+            guard fallbackIsAmbient else {
+                return try resolveWorkspaceId(fallback, client: client)
+            }
+            let resolvedFallback = try? resolveWorkspaceId(fallback, client: client)
+            if let binding = resolveClaudeHookTerminalBinding(
+                agentPID: agentPID,
+                allowProcessSnapshotBinding: allowProcessSnapshotBinding,
+                terminalBindingCache: &terminalBindingCache,
+                client: client
+            ),
+               let boundWorkspaceId = resolveClaudeHookWorkspaceId(binding.workspaceId, client: client),
+               resolveClaudeHookBindingSurfaceId(binding, workspaceId: boundWorkspaceId, client: client) != nil {
+                return boundWorkspaceId
+            }
+            if let resolvedFallback,
+               claudeHookWorkspaceIsAccessible(resolvedFallback, client: client) {
+                return resolvedFallback
+            }
             return try resolveWorkspaceIdForClaudeHook(fallback, client: client)
+        }
+        if let binding = resolveClaudeHookTerminalBinding(
+            agentPID: agentPID,
+            allowProcessSnapshotBinding: allowProcessSnapshotBinding,
+            terminalBindingCache: &terminalBindingCache,
+            client: client
+        ),
+           let workspaceId = resolveClaudeHookWorkspaceId(binding.workspaceId, client: client),
+           resolveClaudeHookBindingSurfaceId(binding, workspaceId: workspaceId, client: client) != nil {
+            return workspaceId
         }
         return try resolveWorkspaceIdForClaudeHook(nil, client: client)
     }
@@ -24006,36 +24085,55 @@ struct CMUXCLI {
     private func resolvePreferredSurfaceIdForClaudeHook(
         preferred: String?,
         fallback: String?,
+        fallbackIsAmbient: Bool = false,
         fallbackIsExplicit: Bool = false,
         workspaceId: String,
-        callerTerminalBinding: (() -> CallerTerminalBinding?)? = nil,
+        agentPID: Int? = nil,
+        allowProcessSnapshotBinding: Bool? = nil,
+        terminalBindingCache: inout ClaudeHookTerminalBindingCache,
         client: SocketClient
     ) throws -> String {
         try resolvePreferredSurfaceForClaudeHookDetailed(
             preferred: preferred,
             fallback: fallback,
+            fallbackIsAmbient: fallbackIsAmbient,
             fallbackIsExplicit: fallbackIsExplicit,
             workspaceId: workspaceId,
-            callerTerminalBinding: callerTerminalBinding,
+            agentPID: agentPID,
+            allowProcessSnapshotBinding: allowProcessSnapshotBinding,
+            terminalBindingCache: &terminalBindingCache,
             client: client
         ).surfaceId
     }
 
-    /// Like `resolvePreferredSurfaceIdForClaudeHook`, but also reports whether the
-    /// surface came from the hook's own identity (the session record's surface,
-    /// the --surface/CMUX_SURFACE_ID value, or the calling process's tty binding)
-    /// or from the focused/first-surface fallback. Only an identity-derived
-    /// surface may participate in cross-surface staleness decisions — a borrowed
-    /// fallback surface must not let a stale hook masquerade as another pane's.
-    /// https://github.com/manaflow-ai/cmux/issues/5908
+    /// Resolves a Claude hook surface and marks identity-derived targets for stale-session checks.
     private func resolvePreferredSurfaceForClaudeHookDetailed(
         preferred: String?,
         fallback: String?,
+        fallbackIsAmbient: Bool = false,
         fallbackIsExplicit: Bool = false,
         workspaceId: String,
-        callerTerminalBinding: (() -> CallerTerminalBinding?)? = nil,
+        agentPID: Int? = nil,
+        allowProcessSnapshotBinding: Bool? = nil,
+        terminalBindingCache: inout ClaudeHookTerminalBindingCache,
         client: SocketClient
     ) throws -> ClaudeHookResolvedSurface {
+        func terminalBindingSurface() -> ClaudeHookResolvedSurface? {
+            guard let binding = resolveClaudeHookTerminalBinding(
+                agentPID: agentPID,
+                allowProcessSnapshotBinding: allowProcessSnapshotBinding,
+                terminalBindingCache: &terminalBindingCache,
+                client: client
+            ),
+                  let boundSurface = resolveClaudeHookBindingSurfaceId(binding, workspaceId: workspaceId, client: client) else {
+                return nil
+            }
+            return ClaudeHookResolvedSurface(
+                surfaceId: boundSurface,
+                isAuthoritative: true,
+                isProcessSnapshotBound: binding.isProcessSnapshotBound
+            )
+        }
         if fallbackIsExplicit, let fallback = nonEmptyClaudeHookIdentifier(fallback) {
             do {
                 return try resolveStrictSurfaceForClaudeHookDetailed(
@@ -24054,30 +24152,28 @@ struct CMUXCLI {
                 )
             }
         }
-        if let preferred = nonEmptyClaudeHookIdentifier(preferred) {
-            return try resolveSurfaceAllowingFallbackDetailed(
-                preferred,
-                workspaceId: workspaceId,
-                client: client,
-                preferCallerTTYOverRaw: false,
-                callerTerminalBinding: callerTerminalBinding
-            )
+        if let preferred = nonEmptyClaudeHookIdentifier(preferred),
+           let surfaceId = resolveAccessibleClaudeHookSurfaceId(preferred, workspaceId: workspaceId, client: client) {
+            if let boundSurface = terminalBindingSurface(), boundSurface.isProcessSnapshotBound, boundSurface.surfaceId != surfaceId { return boundSurface }
+            return ClaudeHookResolvedSurface(surfaceId: surfaceId, isAuthoritative: true)
         }
         if let fallback = nonEmptyClaudeHookIdentifier(fallback) {
-            return try resolveSurfaceAllowingFallbackDetailed(
-                fallback,
-                workspaceId: workspaceId,
-                client: client,
-                preferCallerTTYOverRaw: !fallbackIsExplicit,
-                callerTerminalBinding: callerTerminalBinding
-            )
+            if fallbackIsAmbient, let boundSurface = terminalBindingSurface(),
+               (try? resolveSurfaceAllowingFallbackDetailed(fallback, workspaceId: workspaceId, client: client)).map({ !$0.isAuthoritative || $0.surfaceId != boundSurface.surfaceId }) ?? true {
+                return boundSurface
+            }
+            let resolved = try resolveSurfaceAllowingFallbackDetailed(fallback, workspaceId: workspaceId, client: client)
+            if fallbackIsAmbient,
+               let boundSurface = terminalBindingSurface(),
+               !resolved.isAuthoritative || boundSurface.surfaceId != resolved.surfaceId {
+                return boundSurface
+            }
+            return resolved
         }
-        return try resolveSurfaceAllowingFallbackDetailed(
-            nil,
-            workspaceId: workspaceId,
-            client: client,
-            callerTerminalBinding: callerTerminalBinding
-        )
+        if let boundSurface = terminalBindingSurface() {
+            return boundSurface
+        }
+        return try resolveSurfaceAllowingFallbackDetailed(nil, workspaceId: workspaceId, client: client)
     }
 
     private func resolveStrictSurfaceForClaudeHookDetailed(
@@ -24103,6 +24199,95 @@ struct CMUXCLI {
             ))
         }
         return ClaudeHookResolvedSurface(surfaceId: candidate, isAuthoritative: true)
+    }
+
+    private func resolveClaudeHookWorkspaceId(_ raw: String?, client: SocketClient) -> String? {
+        guard let raw = nonEmptyClaudeHookIdentifier(raw), let candidate = try? resolveWorkspaceId(raw, client: client) else { return nil }
+        return candidate
+    }
+
+    private func resolveAccessibleClaudeHookSurfaceId(
+        _ raw: String?,
+        workspaceId: String,
+        client: SocketClient
+    ) -> String? {
+        guard let raw = nonEmptyClaudeHookIdentifier(raw),
+              let candidate = try? resolveSurfaceId(raw, workspaceId: workspaceId, client: client),
+              claudeHookSurfaceIsListed(candidate, workspaceId: workspaceId, client: client, allowUnknown: true) else {
+            return nil
+        }
+        return candidate
+    }
+
+    private func claudeHookWorkspaceIsAccessible(_ workspaceId: String, client: SocketClient, allowUnknown: Bool = false) -> Bool {
+        do {
+            _ = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])
+            return true
+        } catch {
+            let message = String(describing: error).lowercased()
+            return allowUnknown && !message.contains("workspace_not_found") && !message.contains("workspace not found")
+        }
+    }
+
+    private typealias CallerTerminalBinding = (
+        workspaceId: String,
+        surfaceId: String,
+        isProcessSnapshotBound: Bool
+    )
+    private typealias ClaudeHookTerminalBindingCache = (didResolve: Bool, agentPID: Int?, allowProcessSnapshotBinding: Bool, socketPassword: String?, binding: CallerTerminalBinding?)
+
+    private func resolveClaudeHookTerminalBinding(
+        agentPID: Int?,
+        allowProcessSnapshotBinding: Bool? = nil,
+        terminalBindingCache: inout ClaudeHookTerminalBindingCache,
+        client: SocketClient
+    ) -> CallerTerminalBinding? {
+        if terminalBindingCache.didResolve, terminalBindingCache.agentPID == agentPID,
+           terminalBindingCache.allowProcessSnapshotBinding == (allowProcessSnapshotBinding ?? terminalBindingCache.allowProcessSnapshotBinding) {
+            return terminalBindingCache.binding
+        }
+        terminalBindingCache.didResolve = true
+        terminalBindingCache.agentPID = agentPID
+        terminalBindingCache.allowProcessSnapshotBinding = allowProcessSnapshotBinding ?? terminalBindingCache.allowProcessSnapshotBinding
+        terminalBindingCache.binding = resolveClaudeHookTerminalBinding(
+            agentPID: agentPID,
+            allowProcessSnapshotBinding: terminalBindingCache.allowProcessSnapshotBinding,
+            socketPassword: terminalBindingCache.socketPassword,
+            client: client
+        )
+        return terminalBindingCache.binding
+    }
+
+    private func resolveClaudeHookTerminalBinding(
+        agentPID: Int?,
+        allowProcessSnapshotBinding: Bool = true,
+        socketPassword: String?, client: SocketClient
+    ) -> CallerTerminalBinding? {
+        func listed(_ binding: CallerTerminalBinding?) -> CallerTerminalBinding? {
+            guard let binding, claudeHookSurfaceIsListed(binding.surfaceId, workspaceId: binding.workspaceId, client: client) else { return nil }
+            return binding
+        }
+        if let ttyName = normalizedTTYName(ProcessInfo.processInfo.environment["CMUX_CLI_TTY_NAME"]),
+           let binding = listed(resolveTerminalBinding(ttyName: ttyName, client: client)) {
+            return binding
+        }
+        if allowProcessSnapshotBinding,
+           let binding = listed(resolveAgentProcessTerminalBinding(pid: agentPID, client: client, socketPassword: socketPassword)) {
+            return binding
+        }
+        return listed(resolveCallerTerminalBindingByTTY(client: client, includeAmbientTTY: false))
+    }
+
+    private func resolveClaudeHookBindingSurfaceId(
+        _ binding: CallerTerminalBinding?,
+        workspaceId: String,
+        client: SocketClient
+    ) -> String? {
+        guard let binding,
+              resolveClaudeHookWorkspaceId(binding.workspaceId, client: client) == workspaceId else {
+            return nil
+        }
+        return resolveAccessibleClaudeHookSurfaceId(binding.surfaceId, workspaceId: workspaceId, client: client)
     }
 
     private func nonEmptyClaudeHookIdentifier(_ value: String?) -> String? {
@@ -24266,13 +24451,11 @@ struct CMUXCLI {
         }
         return try resolveWorkspaceId(nil, client: client)
     }
-
     private struct ClaudeHookResolvedSurface {
         let surfaceId: String
-        /// Resolved from the hook's own identity (the supplied surface value or
-        /// the calling process's tty binding) rather than the focused/first-
-        /// surface fallback.
         let isAuthoritative: Bool
+        let isProcessSnapshotBound: Bool
+        init(surfaceId: String, isAuthoritative: Bool, isProcessSnapshotBound: Bool = false) { self.surfaceId = surfaceId; self.isAuthoritative = isAuthoritative; self.isProcessSnapshotBound = isProcessSnapshotBound }
     }
 
     private func resolveSurfaceIdAllowingFallback(
@@ -24327,20 +24510,19 @@ struct CMUXCLI {
     private func claudeHookSurfaceIsListed(
         _ candidate: String,
         workspaceId: String,
-        client: SocketClient
+        client: SocketClient,
+        allowUnknown: Bool = false
     ) -> Bool {
-        guard let listed = try? client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId]) else {
-            return false
+        do {
+            let listed = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])
+            let items = listed["surfaces"] as? [[String: Any]] ?? []
+            return items.contains(where: {
+                ($0["id"] as? String) == candidate || ($0["ref"] as? String) == candidate
+            })
+        } catch {
+            let message = String(describing: error).lowercased()
+            return allowUnknown && !message.contains("workspace_not_found") && !message.contains("workspace not found") && !message.contains("surface_not_found") && !message.contains("surface not found")
         }
-        let items = listed["surfaces"] as? [[String: Any]] ?? []
-        return items.contains(where: {
-            ($0["id"] as? String) == candidate || ($0["ref"] as? String) == candidate
-        })
-    }
-
-    private struct CallerTerminalBinding {
-        let workspaceId: String
-        let surfaceId: String
     }
 
     private func resolveCallerWorkspaceIdForClaudeHook(
@@ -24384,13 +24566,12 @@ struct CMUXCLI {
         return resolveTerminalBinding(ttyName: ttyName, client: client)
     }
 
-    private func resolveAgentProcessTerminalBinding(pid: Int?, client: SocketClient) -> CallerTerminalBinding? {
+    private func resolveAgentProcessTerminalBinding(pid: Int?, client: SocketClient, socketPassword: String? = nil) -> CallerTerminalBinding? {
         guard let pid else { return nil }
-        guard let payload = try? client.sendV2(
-            method: "system.top",
-            params: ["all_windows": true, "include_processes": true],
-            responseTimeout: 2.0
-        ) else {
+        let snapshotClient = SocketClient(path: client.socketPath); defer { snapshotClient.close() }
+        guard (try? snapshotClient.connectWithoutRetry(responseTimeout: 2.0)) != nil,
+              (try? Self.authenticateSocketClientIfNeeded(snapshotClient, explicitPassword: socketPassword, socketPath: client.socketPath, responseTimeout: 2.0)) != nil,
+              let payload = try? snapshotClient.sendV2(method: "system.top", params: ["all_windows": true, "include_processes": true], responseTimeout: 2.0) else {
             return nil
         }
         let windows = payload["windows"] as? [[String: Any]] ?? []
@@ -24412,11 +24593,19 @@ struct CMUXCLI {
                         let topLevelPIDs = (surface["top_level_pids"] as? [Any] ?? [])
                             .compactMap { Self.intValue($0) }
                         if topLevelPIDs.contains(pid) {
-                            return CallerTerminalBinding(workspaceId: workspaceId, surfaceId: surfaceId)
+                            return (
+                                workspaceId: workspaceId,
+                                surfaceId: surfaceId,
+                                isProcessSnapshotBound: true
+                            )
                         }
                         let processes = surface["processes"] as? [[String: Any]] ?? []
                         if topProcessTreeContainsPID(processes, pid: pid) {
-                            return CallerTerminalBinding(workspaceId: workspaceId, surfaceId: surfaceId)
+                            return (
+                                workspaceId: workspaceId,
+                                surfaceId: surfaceId,
+                                isProcessSnapshotBound: true
+                            )
                         }
                     }
                 }
@@ -24471,7 +24660,7 @@ struct CMUXCLI {
                   let surfaceId = normalizedHandleValue(terminal["surface_id"] as? String) else {
                 continue
             }
-            return CallerTerminalBinding(workspaceId: workspaceId, surfaceId: surfaceId)
+            return (workspaceId: workspaceId, surfaceId: surfaceId, isProcessSnapshotBound: false)
         }
         return nil
     }
@@ -24483,6 +24672,7 @@ struct CMUXCLI {
                 return ttyName
             }
         }
+        if !includeAmbientTTY { return nil }
         for fileDescriptor in [STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO] {
             if let rawTTYName = ttyname(fileDescriptor),
                let ttyName = normalizedTTYName(String(cString: rawTTYName)) {
@@ -29467,7 +29657,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         // Workspace/surface resolution: prefer --workspace/--surface flags,
         // then env, then the caller process. Grok strips CMUX_* from hook
         // subprocesses, so PID attribution is the only reliable live binding.
-        let inferredPID = agentPIDFromHookEnvironment(agentName: def.name, env: env) ?? inferredAgentPID()
+        var inferredPID: Int?
+        func agentPID() -> Int? {
+            inferredPID = inferredPID ?? agentPIDFromHookEnvironment(agentName: def.name, env: env) ?? inferredAgentPID()
+            return inferredPID
+        }
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let directWorkspaceArg = hookWsFlag ?? normalizedHookValue(env["CMUX_WORKSPACE_ID"])
         let explicitSurfaceFlag = optionValue(hookArgs, name: "--surface")
@@ -29507,15 +29701,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         func processBinding() -> CallerTerminalBinding? {
             if !didResolveProcessBinding {
                 didResolveProcessBinding = true
-                // Always resolve the agent process's own terminal binding (TTY first, then PID), even
-                // when env supplies both ids. Historically this was suppressed whenever both env ids
-                // were present, which made a leaked/stale CMUX_SURFACE_ID impossible to correct — the
-                // codex jumble class, where a session routes to the wrong surface and the no-pid-gate
-                // resume binding persists it across reload. resolveAgentHookTarget now uses this
-                // binding to OVERRIDE a disagreeing ambient-env surface; the binding stays nil (env
-                // trusted) under remote/SSH where no local TTY maps to a surface.
+                let agentPID = agentPID()
                 processBindingCache = resolveCallerTerminalBindingByTTY(client: client)
-                    ?? resolveAgentProcessTerminalBinding(pid: inferredPID, client: client)
+                    ?? resolveAgentProcessTerminalBinding(pid: agentPID, client: client, socketPassword: socketPassword)
             }
             return processBindingCache
         }
@@ -29817,7 +30005,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
-            let pid = inferredPID
+            let pid = agentPID()
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
@@ -29946,7 +30134,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
-            let pid = mapped?.pid ?? inferredPID
+            let pid = mapped?.pid ?? agentPID()
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
                 fallbackPID: pid,
@@ -30287,7 +30475,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             sendAgentFeedTelemetry(workspaceId: workspaceId)
-            let pid = mapped?.pid ?? inferredPID
+            let pid = mapped?.pid ?? agentPID()
             let codexFailure: CodexHookFailureSummary?
             let codexSubagentSignals: CodexTranscriptSubagentSignals
             if def.name == "codex" {
@@ -30607,7 +30795,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId)
-            let pid = mapped?.pid ?? inferredPID
+            let pid = mapped?.pid ?? agentPID()
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
                 fallbackPID: pid,
@@ -30768,7 +30956,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
 
             if !sessionId.isEmpty {
-                let pid = mapped?.pid ?? inferredPID
+                let pid = mapped?.pid ?? agentPID()
                 let launchCommand = agentLaunchCommandFromEnvironment(
                     env,
                     fallbackPID: pid,
