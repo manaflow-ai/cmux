@@ -4,7 +4,13 @@ import Bonsplit
 import CoreBluetooth
 import Foundation
 import ObjectiveC.runtime
+import os
 import WebKit
+
+nonisolated private let browserWebAuthnLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+    category: "BrowserWebAuthn"
+)
 
 /// Native WebAuthn bridge for `WKWebView`.
 ///
@@ -1071,6 +1077,7 @@ final class BrowserWebAuthnCoordinator: NSObject, WKScriptMessageHandlerWithRepl
                 #if DEBUG
                 cmuxDebugLog("webauthn.dispatch kind=\(envelope.kind.rawValue) frame=\(message.frameInfo.isMainFrame ? "main" : "sub") url=\(message.frameInfo.securityOrigin.host)")
                 #endif
+                browserWebAuthnLogger.info("dispatch kind=\(envelope.kind.rawValue, privacy: .public) frame=\(message.frameInfo.isMainFrame ? "main" : "sub", privacy: .public) host=\(message.frameInfo.securityOrigin.host, privacy: .public)")
                 switch envelope.kind {
                 case .capabilities:
                     _ = try BrowserWebAuthnClientDataContext.resolvePermitted(for: message)
@@ -1163,10 +1170,11 @@ extension BrowserWebAuthnCoordinator: ASAuthorizationControllerDelegate, ASAutho
         controller: ASAuthorizationController,
         didCompleteWithError error: Error
     ) {
-        #if DEBUG
         let nsError = error as NSError
+        #if DEBUG
         cmuxDebugLog("webauthn.asAuth.didFail domain=\(nsError.domain) code=\(nsError.code)")
         #endif
+        browserWebAuthnLogger.error("asAuth.didFail domain=\(nsError.domain, privacy: .public) code=\(nsError.code) description=\(nsError.localizedDescription, privacy: .public)")
         finishAuthorization(with: .failure(bridgeError(from: error)))
     }
 
@@ -1447,12 +1455,12 @@ private extension BrowserWebAuthnCoordinator {
             if !excludedCredentials.isEmpty {
                 platformRequest.excludedCredentials = excludedCredentials
             }
-            platformRequest.shouldShowHybridTransport = attachment != "platform"
+            platformRequest.shouldShowHybridTransport = false
             platformRequests.append(platformRequest)
         }
 
         var securityKeyRequests: [ASAuthorizationRequest] = []
-        if attachment != "platform",
+        if attachment == "cross-platform",
            #available(macOS 14.4, *) {
             let provider = ASAuthorizationSecurityKeyPublicKeyCredentialProvider(
                 relyingPartyIdentifier: relyingPartyIdentifier
@@ -1497,12 +1505,13 @@ private extension BrowserWebAuthnCoordinator {
         #if DEBUG
         cmuxDebugLog("webauthn.buildCreationPlan rp=\(relyingPartyIdentifier) platform=\(platformRequests.count) securityKey=\(securityKeyRequests.count) attachment=\(attachment ?? "(nil)")")
         #endif
+        browserWebAuthnLogger.info("buildCreationPlan rp=\(relyingPartyIdentifier, privacy: .public) platform=\(platformRequests.count) securityKey=\(securityKeyRequests.count) attachment=\(attachment ?? "(nil)", privacy: .public)")
         return .init(
             platformRequests: platformRequests,
             securityKeyRequests: securityKeyRequests,
             order: attachment == "cross-platform" ? .securityKeyFirst : .platformFirst,
-            needsBluetoothForPlatformRequests: attachment != "platform",
-            needsBluetoothForSecurityKeyRequests: false,
+            needsBluetoothForPlatformRequests: false,
+            needsBluetoothForSecurityKeyRequests: attachment == "cross-platform",
             prefersImmediatelyAvailableCredentials: false
         )
     }
@@ -1528,7 +1537,7 @@ private extension BrowserWebAuthnCoordinator {
         let includePlatformRequests =
             allowCredentials.isEmpty || transportSummary.allowsPlatformCredentials
         let includeSecurityKeyRequests =
-            allowCredentials.isEmpty || transportSummary.allowsSecurityKeyCredentials
+            !allowCredentials.isEmpty && transportSummary.allowsSecurityKeyCredentials
 
         var platformRequests: [ASAuthorizationRequest] = []
         if includePlatformRequests,
@@ -1553,8 +1562,7 @@ private extension BrowserWebAuthnCoordinator {
             if !allowedCredentials.isEmpty {
                 platformRequest.allowedCredentials = allowedCredentials
             }
-            platformRequest.shouldShowHybridTransport =
-                allowCredentials.isEmpty ? true : transportSummary.shouldShowHybridTransport
+            platformRequest.shouldShowHybridTransport = false
             platformRequests.append(platformRequest)
         }
 
@@ -1587,12 +1595,12 @@ private extension BrowserWebAuthnCoordinator {
 
         let order: BrowserWebAuthnRequestOrder =
             transportSummary.prefersSecurityKeysFirst ? .securityKeyFirst : .platformFirst
-        let needsBluetoothForPlatformRequests =
-            allowCredentials.isEmpty ? true : transportSummary.shouldShowHybridTransport
+        let needsBluetoothForPlatformRequests = false
 
         #if DEBUG
         cmuxDebugLog("webauthn.buildAssertionPlan rp=\(relyingPartyIdentifier) platform=\(platformRequests.count) securityKey=\(securityKeyRequests.count) allowCredentials=\(allowCredentials.count) mediation=\(request.mediation ?? "(nil)") hybridTransport=\(transportSummary.shouldShowHybridTransport)")
         #endif
+        browserWebAuthnLogger.info("buildAssertionPlan rp=\(relyingPartyIdentifier, privacy: .public) platform=\(platformRequests.count) securityKey=\(securityKeyRequests.count) allowCredentials=\(allowCredentials.count) mediation=\(request.mediation ?? "(nil)", privacy: .public) hybrid=\(transportSummary.shouldShowHybridTransport)")
         return .init(
             platformRequests: platformRequests,
             securityKeyRequests: securityKeyRequests,
