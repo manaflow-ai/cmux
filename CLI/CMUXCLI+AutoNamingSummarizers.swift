@@ -339,7 +339,7 @@ extension CMUXCLI {
         let queue = kqueue()
         guard queue >= 0 else { return }
         defer { close(queue) }
-        var event = kevent(
+        var registrationEvent = kevent(
             ident: UInt(pid),
             filter: Int16(EVFILT_PROC),
             flags: UInt16(EV_ADD) | UInt16(EV_ENABLE) | UInt16(EV_ONESHOT),
@@ -347,8 +347,9 @@ extension CMUXCLI {
             data: 0,
             udata: nil
         )
+        var exitEvent = kevent()
         var timeoutSpec = autoNamingTimespec(timeout)
-        _ = kevent(queue, &event, 1, &event, 1, &timeoutSpec)
+        _ = kevent(queue, &registrationEvent, 1, &exitEvent, 1, &timeoutSpec)
     }
 
     private func waitForAutoNamingOutputChange(from fd: Int32, timeout: TimeInterval) {
