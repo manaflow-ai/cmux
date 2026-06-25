@@ -294,6 +294,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "workspaceId": workspaceId,
                     "surfaceId": surfaceId,
                     "cwd": cwd,
+                    "startedAt": Date().timeIntervalSince1970,
                     "updatedAt": Date().timeIntervalSince1970,
                     "launchCommand": launchCommand,
                 ],

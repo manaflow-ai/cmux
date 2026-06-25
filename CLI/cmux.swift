@@ -29842,7 +29842,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         cwd: hookCwd ?? mapped?.cwd,
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         pid: pid,
-                        launchCommand: launchCommand,
+                        launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped?.launchCommand),
                         agentLifecycle: .unknown,
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
                         updateRuntimeStatus: !suppressVisibleMutations
@@ -29855,7 +29855,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         cwd: hookCwd ?? mapped?.cwd,
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         pid: pid,
-                        launchCommand: launchCommand,
+                        launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped?.launchCommand),
                         agentLifecycle: .unknown,
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
                         updateRuntimeStatus: !suppressVisibleMutations
@@ -30150,7 +30150,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         turnId: input.turnId,
                         pid: pid,
-                        launchCommand: launchCommand
+                        launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped?.launchCommand)
                     )) ?? false
                 } else {
                     try? store.upsert(
@@ -30160,7 +30160,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         cwd: hookCwd ?? mapped?.cwd,
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         pid: pid,
-                        launchCommand: launchCommand,
+                        launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped?.launchCommand),
                         agentLifecycle: .running,
                         runtimeStatus: .running,
                         updateRuntimeStatus: true
@@ -30411,7 +30411,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     turnId: input.turnId,
                     terminalActivePromptTurnIds: terminalActivePromptTurnIdsForStop,
                     pid: pid,
-                    launchCommand: launchCommand,
+                    launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped?.launchCommand),
                     agentLifecycle: lifecycleAfterStop,
                     lastSubtitle: nil,
                     lastBody: nil,
@@ -30438,7 +30438,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd,
                                   transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                                   pid: pid,
-                                  launchCommand: launchCommand,
+                                  launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped?.launchCommand),
                                   agentLifecycle: lifecycleAfterStop,
                                   lastSubtitle: subtitle,
                                   lastBody: body,
@@ -30623,7 +30623,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     cwd: hookCwd ?? mapped?.cwd,
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                     pid: pid,
-                    launchCommand: launchCommand ?? mapped?.launchCommand,
+                    launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped?.launchCommand),
                     agentLifecycle: .running,
                     runtimeStatus: .running
                 )
