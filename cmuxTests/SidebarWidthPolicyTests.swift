@@ -14,8 +14,8 @@ import XCTest
 final class SidebarWidthPolicyTests: XCTestCase {
     private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
     private let importedManagedDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
-    private let sidebarWorkspaceStatusStyleKey = SidebarCatalogSection().workspaceStatusStyle.userDefaultsKey
-    private let sidebarScrollEdgeFadeKey = SidebarCatalogSection().scrollEdgeFade.userDefaultsKey
+    private let sidebarWorkspaceStatusStyleKey = "sidebarWorkspaceStatusStyle"
+    private let sidebarScrollEdgeFadeKey = "sidebarScrollEdgeFade"
 
     func testDefaultMinimumSidebarWidthIsPersistedProductDefault() {
         let suiteName = "SidebarWidthPolicyTests.defaultMinimum.\(UUID().uuidString)"

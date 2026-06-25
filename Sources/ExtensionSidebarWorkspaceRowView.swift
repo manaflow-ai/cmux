@@ -49,7 +49,7 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
 
                     if workspaceStatusStyle == .dot, let workspaceAgentLifecycleState {
                         let accessibilityLabel = agentStatusAccessibilityLabel(
-                            subtitle: replacesSubtitleWithStatusDot ? subtitle : nil,
+                            subtitle: nil,
                             state: workspaceAgentLifecycleState
                         )
                         Circle()
@@ -60,7 +60,7 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
                     }
                 }
 
-                if !replacesSubtitleWithStatusDot, !isSuperCompact, let subtitle {
+                if !isSuperCompact, let subtitle {
                     Text(subtitle)
                         .cmuxFont(size: secondarySize, weight: .regular)
                         .foregroundColor(.secondary)
@@ -131,12 +131,8 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
         workspaceStatusStyle == .dot && workspaceAgentLifecycleState != nil
     }
 
-    private var replacesSubtitleWithStatusDot: Bool {
-        showsStatusDot
-    }
-
     private var usesOneLineStatusDotLayout: Bool {
-        showsStatusDot && (row.subtitle == nil || replacesSubtitleWithStatusDot)
+        showsStatusDot && row.subtitle == nil
     }
 
     private var rowVerticalPadding: CGFloat {
