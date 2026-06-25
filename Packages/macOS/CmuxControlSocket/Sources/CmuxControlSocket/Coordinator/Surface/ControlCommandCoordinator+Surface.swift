@@ -49,8 +49,8 @@ extension ControlCommandCoordinator {
             return surfaceSendText(request.params)
         case "surface.send_key":
             return surfaceSendKey(request.params)
-        case "surface.report_tty":
-            return surfaceReportTTY(request.params)
+        case "surface.report_tty": return surfaceReportTTY(request.params)
+        case "surface.report_pwd": return surfaceReportPWD(request.params)
         case "surface.report_shell_state":
             return surfaceReportShellState(request.params)
         case "surface.ports_kick":
