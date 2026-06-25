@@ -7,6 +7,7 @@ import CmuxCommandPaletteUI
 import CmuxCore
 import CmuxFeedback
 import CmuxFoundation
+import CmuxNotifications
 import CmuxPanes
 import CmuxSettings
 import CmuxWorkspaces
@@ -351,7 +352,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
                     return nil
                 }
 
-                let shouldShowUnread = Workspace.shouldShowUnreadIndicator(
+                let shouldShowUnread = WorkspaceUnreadModel.shouldShowUnreadIndicator(
                     hasUnreadNotification: sidebarUnread.hasVisibleNotificationIndicator(
                         forWorkspaceId: workspace.id,
                         surfaceId: panelId

@@ -1,3 +1,4 @@
+import CmuxNotifications
 import CmuxPanes
 import SwiftUI
 import Foundation
@@ -191,7 +192,7 @@ struct WorkspaceContentView: View {
                     isSelectedInPane: isSelectedInPane,
                     isFocused: isFocused
                 )
-                let showsNotificationRing = Workspace.shouldShowUnreadIndicator(
+                let showsNotificationRing = WorkspaceUnreadModel.shouldShowUnreadIndicator(
                     hasUnreadNotification: notificationStore.hasVisibleNotificationIndicator(
                         forTabId: workspace.id,
                         surfaceId: panel.id
@@ -371,7 +372,7 @@ struct WorkspaceContentView: View {
                 let expectedKind = panelId.flatMap { workspace.panelKind(panelId: $0) }
                 let expectedPinned = panelId.map { workspace.isPanelPinned($0) } ?? false
                 let shouldShow = panelId.map {
-                    Workspace.shouldShowUnreadIndicator(
+                    WorkspaceUnreadModel.shouldShowUnreadIndicator(
                         hasUnreadNotification: notificationStore.hasVisibleNotificationIndicator(
                             forTabId: workspace.id,
                             surfaceId: $0
@@ -423,7 +424,7 @@ struct WorkspaceContentView: View {
                 return nil
             }
 
-            let shouldShowUnread = Workspace.shouldShowUnreadIndicator(
+            let shouldShowUnread = WorkspaceUnreadModel.shouldShowUnreadIndicator(
                 hasUnreadNotification: notificationStore.hasVisibleNotificationIndicator(
                     forTabId: workspace.id,
                     surfaceId: panelId

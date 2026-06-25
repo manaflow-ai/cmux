@@ -5176,7 +5176,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
         // layout/config spelling elsewhere and is not silently reinterpreted here.
         // Unlike `initial_env`, this is NOT gated on the presence of a layout — the
         // workspace set must apply to layout-defined surfaces too.
-        let workspaceEnv = Workspace.sanitizedWorkspaceEnvironment(
+        let workspaceEnv = SurfaceCreationCoordinator.sanitizedWorkspaceEnvironment(
             v2StringMap(params, "workspace_env") ?? [:]
         )
         let cwd: String?

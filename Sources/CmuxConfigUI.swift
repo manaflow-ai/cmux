@@ -83,32 +83,14 @@ struct CmuxConfigButtonPlacement: Codable, Sendable, Hashable {
 typealias CmuxConfigContextMenuActionItem = CmuxWorkspaces.CmuxConfigContextMenuActionItem
 typealias CmuxConfigContextMenuItem = CmuxWorkspaces.CmuxConfigContextMenuItem
 
-// TODO(refactor): `CmuxResolvedConfigMenuAction`/`CmuxResolvedConfigContextMenuItem`
-// stay app-side (they reach app trust/exec via `CmuxResolvedConfigAction`). They
-// do not reference the moved wire-schema types, so the typealiases above do not
-// affect them.
-struct CmuxResolvedConfigMenuAction: Identifiable, Sendable, Hashable {
-    var id: String
-    var title: String
-    var icon: CmuxButtonIcon?
-    var iconSourcePath: String?
-    var tooltip: String?
-    var action: CmuxResolvedConfigAction
-}
-
-enum CmuxResolvedConfigContextMenuItem: Identifiable, Sendable, Hashable {
-    case action(CmuxResolvedConfigMenuAction)
-    case separator(id: String)
-
-    var id: String {
-        switch self {
-        case .action(let action):
-            return action.id
-        case .separator(let id):
-            return id
-        }
-    }
-}
+// `CmuxResolvedConfigMenuAction` + `CmuxResolvedConfigContextMenuItem` (the
+// fully-resolved button context-menu value types) now live in
+// CmuxWorkspaces/CustomLayout/ alongside `CmuxResolvedConfigAction`/`CmuxButtonIcon`,
+// which they hold; the app reaches them through these module-wide typealiases
+// (`import CmuxWorkspaces`, already imported above). The AppKit
+// `CmuxButtonIcon.contextMenuImage(...)` renderer below stays app-side.
+typealias CmuxResolvedConfigMenuAction = CmuxWorkspaces.CmuxResolvedConfigMenuAction
+typealias CmuxResolvedConfigContextMenuItem = CmuxWorkspaces.CmuxResolvedConfigContextMenuItem
 
 // `CmuxRestartBehavior` now lives in CmuxWorkspaces/CustomLayout/ alongside
 // `CmuxCommandDefinition`; the app reaches it through the module-wide

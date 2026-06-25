@@ -1,4 +1,5 @@
 import CmuxCommandPalette
+import CmuxNotifications
 import XCTest
 import AppKit
 
@@ -2105,7 +2106,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
 
     func testShouldShowUnreadIndicatorWhenNotificationIsUnread() {
         XCTAssertTrue(
-            Workspace.shouldShowUnreadIndicator(
+            WorkspaceUnreadModel.shouldShowUnreadIndicator(
                 hasUnreadNotification: true,
                 hasPanelUnreadIndicator: false
             )
@@ -2114,7 +2115,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
 
     func testShouldShowUnreadIndicatorWhenManualUnreadIsSet() {
         XCTAssertTrue(
-            Workspace.shouldShowUnreadIndicator(
+            WorkspaceUnreadModel.shouldShowUnreadIndicator(
                 hasUnreadNotification: false,
                 hasPanelUnreadIndicator: true
             )
@@ -2123,7 +2124,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
 
     func testShouldShowUnreadIndicatorWhenWorkspaceManualUnreadTargetsRepresentativePanel() {
         XCTAssertTrue(
-            Workspace.shouldShowUnreadIndicator(
+            WorkspaceUnreadModel.shouldShowUnreadIndicator(
                 hasUnreadNotification: false,
                 hasPanelUnreadIndicator: false,
                 isWorkspaceManuallyUnread: true,
@@ -2134,7 +2135,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
 
     func testShouldHideWorkspaceManualUnreadIndicatorOnNonRepresentativePanel() {
         XCTAssertFalse(
-            Workspace.shouldShowUnreadIndicator(
+            WorkspaceUnreadModel.shouldShowUnreadIndicator(
                 hasUnreadNotification: false,
                 hasPanelUnreadIndicator: false,
                 isWorkspaceManuallyUnread: true,
@@ -2145,7 +2146,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
 
     func testShouldHideUnreadIndicatorWhenNeitherNotificationNorManualUnreadExists() {
         XCTAssertFalse(
-            Workspace.shouldShowUnreadIndicator(
+            WorkspaceUnreadModel.shouldShowUnreadIndicator(
                 hasUnreadNotification: false,
                 hasPanelUnreadIndicator: false
             )

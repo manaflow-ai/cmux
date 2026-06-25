@@ -170,7 +170,7 @@ extension Workspace {
         // Restore the per-workspace environment before any surface is rebuilt so
         // every restored terminal (all of which spawn fresh shells — PTYs do not
         // survive an app restart) inherits it through `newTerminalSurface`.
-        workspaceEnvironment = Self.sanitizedWorkspaceEnvironment(snapshot.environment ?? [:])
+        workspaceEnvironment = SurfaceCreationCoordinator.sanitizedWorkspaceEnvironment(snapshot.environment ?? [:])
 
         let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })
         let leafEntries: [SessionPaneRestoreEntry] = {
@@ -2392,7 +2392,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         self.id = UUID()
         self.hostEnvironment = hostEnvironment
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
-        let sanitizedWorkspaceEnvironment = Self.sanitizedWorkspaceEnvironment(workspaceEnvironment)
+        let sanitizedWorkspaceEnvironment = SurfaceCreationCoordinator.sanitizedWorkspaceEnvironment(workspaceEnvironment)
         self.workspaceEnvironment = sanitizedWorkspaceEnvironment
         self.portOrdinal = portOrdinal
         self.processTitle = title
@@ -2529,7 +2529,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
                 portOrdinal: portOrdinal,
                 initialCommand: initialTerminalCommand,
                 initialInput: initialTerminalInput,
-                initialEnvironmentOverrides: Self.startupEnvironment(
+                initialEnvironmentOverrides: SurfaceCreationCoordinator.startupEnvironment(
                     workspaceEnvironment: sanitizedWorkspaceEnvironment,
                     overlaying: initialTerminalEnvironment
                 )
@@ -3405,20 +3405,6 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
 
     func restoredUnreadIndicatorContributesToWorkspace(panelId: UUID) -> Bool? {
         unreadModel.restoredUnreadIndicatorContributesToWorkspace(panelId: panelId)
-    }
-
-    static func shouldShowUnreadIndicator(
-        hasUnreadNotification: Bool,
-        hasPanelUnreadIndicator: Bool,
-        isWorkspaceManuallyUnread: Bool = false,
-        isWorkspaceManualUnreadRepresentative: Bool = false
-    ) -> Bool {
-        WorkspaceUnreadModel.shouldShowUnreadIndicator(
-            hasUnreadNotification: hasUnreadNotification,
-            hasPanelUnreadIndicator: hasPanelUnreadIndicator,
-            isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
-            isWorkspaceManualUnreadRepresentative: isWorkspaceManualUnreadRepresentative
-        )
     }
 
     // MARK: - SurfaceRegistryHosting (live seam for SurfaceRegistryModel)
@@ -4442,34 +4428,15 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         remoteConnectionCoordinator.maybeDemoteRemoteWorkspaceAfterSSHSessionEnded()
     }
 
-    /// Thin forwarder to ``CmuxWorkspaces/SurfaceCreationCoordinator/sanitizedWorkspaceEnvironment(_:)``.
-    /// Retained as a `Workspace`-namespaced entry point so external callers
-    /// (`Workspace.init`/restore, `TerminalController`, `WorkspaceEnvironmentTests`)
-    /// stay byte-identical. `nonisolated` so the nonisolated socket
-    /// workspace-create parsing path (`v2WorkspaceCreate`) can call it without
-    /// hopping to the main actor.
-    nonisolated static func sanitizedWorkspaceEnvironment(_ environment: [String: String]) -> [String: String] {
-        SurfaceCreationCoordinator.sanitizedWorkspaceEnvironment(environment)
-    }
-
-    /// Thin forwarder to ``CmuxWorkspaces/SurfaceCreationCoordinator/startupEnvironment(workspaceEnvironment:overlaying:)``.
-    /// Retained as a `Workspace`-namespaced entry point so the `init` path (which
-    /// calls it before `self` is fully initialized) and the instance convenience
-    /// ``startupEnvironmentMergingWorkspaceEnvironment(_:)`` stay byte-identical.
-    static func startupEnvironment(
-        workspaceEnvironment: [String: String],
-        overlaying explicit: [String: String]
-    ) -> [String: String] {
+    /// Instance convenience over
+    /// ``CmuxWorkspaces/SurfaceCreationCoordinator/startupEnvironment(workspaceEnvironment:overlaying:)``
+    /// for the post-init surface-creation paths: overlays `explicit` on top of
+    /// this workspace's sanitized environment set.
+    func startupEnvironmentMergingWorkspaceEnvironment(_ explicit: [String: String]) -> [String: String] {
         SurfaceCreationCoordinator.startupEnvironment(
             workspaceEnvironment: workspaceEnvironment,
             overlaying: explicit
         )
-    }
-
-    /// Instance convenience over ``startupEnvironment(workspaceEnvironment:overlaying:)``
-    /// for the post-init surface-creation paths.
-    func startupEnvironmentMergingWorkspaceEnvironment(_ explicit: [String: String]) -> [String: String] {
-        Self.startupEnvironment(workspaceEnvironment: workspaceEnvironment, overlaying: explicit)
     }
 
     private func terminalStartupEnvironment(
