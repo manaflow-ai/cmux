@@ -8,7 +8,6 @@ import WebKit
 struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
     let row: CmuxSidebarProviderRow
     let workspace: CmuxSidebarProviderWorkspace?
-    let providerId: String
     let relativeNow: Date
     let isSelected: Bool
     let workspaceStatusStyle: SidebarWorkspaceStatusStyle
@@ -21,7 +20,6 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.row == rhs.row &&
             lhs.workspace == rhs.workspace &&
-            lhs.providerId == rhs.providerId &&
             lhs.relativeNow == rhs.relativeNow &&
             lhs.isSelected == rhs.isSelected &&
             lhs.workspaceStatusStyle == rhs.workspaceStatusStyle &&
@@ -134,7 +132,7 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
     }
 
     private var replacesSubtitleWithStatusDot: Bool {
-        showsStatusDot && providerId == CmuxSidebarProviderDescriptor.defaultWorkspacesID
+        showsStatusDot
     }
 
     private var usesOneLineStatusDotLayout: Bool {
