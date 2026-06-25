@@ -434,14 +434,13 @@ export class FreestyleProvider implements VMProvider {
           const fs = client();
           const vm = fs.vms.ref({ vmId });
           const domain = `${vmId}.vm.freestyle.sh`;
-          await ensureFreestyleWebSocketHealthy(domain);
-
           const pty = makeWebSocketLease("freestyle", "pty", true, CMUXD_WS_PTY_LEASE_TTL_SECONDS, options?.sessionId);
           const attachmentId = options?.attachmentId?.trim() || makeWebSocketAttachmentId("freestyle");
           let daemon: ReusableRpcLease | null = null;
           let daemonReused = false;
           const adminToken = freestyleDaemonAdminToken(options?.providerMetadata);
           const signedAdmin = freestyleAdminSigningConfig();
+          await ensureFreestyleWebSocketHealthyOrRepair(domain, vm, adminToken, signedAdmin);
           if (adminToken || signedAdmin) {
             const daemonLease = makeWebSocketLease("freestyle", "rpc", false, CMUXD_WS_RPC_LEASE_TTL_SECONDS);
             daemon = daemonLease;
@@ -665,7 +664,9 @@ type FreestyleAdminAuth =
   | { kind: "bearer"; token: string }
   | { kind: "ed25519"; privateKeySeed: Buffer; publicKey: Buffer };
 
-function freestyleAdminSigningConfig(): { privateKeySeed: Buffer; publicKey: Buffer } | null {
+type FreestyleAdminSigningConfig = { privateKeySeed: Buffer; publicKey: Buffer };
+
+function freestyleAdminSigningConfig(): FreestyleAdminSigningConfig | null {
   const seedRaw = process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PRIVATE_KEY_SEED?.trim();
   const publicRaw = process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PUBLIC_KEY?.trim();
   if (!seedRaw && !publicRaw) return null;
@@ -750,6 +751,93 @@ function freestyleWebSocketService(adminToken: string) {
       ].map(shellQuote).join(" "),
     ],
   };
+}
+
+function repairedFreestyleWebSocketService(
+  auth: { readonly adminToken?: string | null; readonly publicKey?: string | null },
+): string {
+  const env = auth.publicKey
+    ? `Environment=CMUXD_WS_ADMIN_ED25519_PUBLIC_KEY=${auth.publicKey}`
+    : `Environment=CMUXD_WS_ADMIN_TOKEN_SHA256=${sha256Hex(auth.adminToken ?? "")}`;
+  return `[Unit]
+Description=cmux remote WebSocket daemon
+After=network.target
+
+[Service]
+Type=simple
+User=root
+${env}
+ExecStart=/usr/local/bin/cmuxd-remote serve --ws --listen 0.0.0.0:7777 --auth-lease-file ${CMUXD_WS_PTY_LEASE_PATH} --rpc-auth-lease-file ${CMUXD_WS_RPC_LEASE_PATH} --shell /usr/local/bin/cmux-cloud-shell
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+`;
+}
+
+async function ensureFreestyleWebSocketHealthyOrRepair(
+  domain: string,
+  vm: FreestyleVmRef,
+  adminToken: string | null,
+  signedAdmin: FreestyleAdminSigningConfig | null,
+): Promise<void> {
+  try {
+    await ensureFreestyleWebSocketHealthy(domain);
+    return;
+  } catch (initialErr) {
+    if (!adminToken && !signedAdmin) {
+      throw initialErr;
+    }
+    await repairFreestyleWebSocketService(vm, adminToken, signedAdmin).catch((repairErr: unknown) => {
+      throw new Error(
+        `Cloud VM terminal service repair failed after health check failed (${errorMessage(initialErr)}): ${errorMessage(repairErr)}`,
+      );
+    });
+    await waitForFreestyleWebSocketHealthy(domain).catch((healthErr: unknown) => {
+      throw new Error(
+        `Cloud VM terminal service stayed unavailable after repair (${errorMessage(initialErr)}): ${errorMessage(healthErr)}`,
+      );
+    });
+  }
+}
+
+async function repairFreestyleWebSocketService(
+  vm: FreestyleVmRef,
+  adminToken: string | null,
+  signedAdmin: FreestyleAdminSigningConfig | null,
+): Promise<void> {
+  const service = repairedFreestyleWebSocketService({
+    adminToken,
+    publicKey: signedAdmin?.publicKey.toString("base64") ?? null,
+  });
+  const encodedService = Buffer.from(service).toString("base64");
+  const commands = [
+    "mkdir -p /tmp/cmux /usr/local/bin /etc/systemd/system /etc/systemd/system/multi-user.target.wants",
+    "chmod 700 /tmp/cmux",
+    "cat > /usr/local/bin/cmux-cloud-shell <<'CMUX_CLOUD_SHELL'\n#!/bin/sh\ncd /home/cmux 2>/dev/null || true\nexport HOME=/home/cmux\nexport USER=cmux\nexport LOGNAME=cmux\nif command -v zsh >/dev/null 2>&1; then\n  export SHELL=\"$(command -v zsh)\"\n  exec runuser -u cmux -- \"$SHELL\" -l\nfi\nexport SHELL=/bin/bash\nexec runuser -u cmux -- /bin/bash -l\nCMUX_CLOUD_SHELL",
+    "chmod 0755 /usr/local/bin/cmux-cloud-shell",
+    `printf '%s' '${encodedService}' | base64 -d > /etc/systemd/system/cmuxd-ws.service`,
+    "ln -sf /etc/systemd/system/cmuxd-ws.service /etc/systemd/system/multi-user.target.wants/cmuxd-ws.service",
+    "(systemctl daemon-reload >/dev/null 2>&1 || true)",
+    "(systemctl enable cmuxd-ws >/dev/null 2>&1 || true)",
+    "(systemctl restart cmuxd-ws >/dev/null 2>&1 || systemctl start cmuxd-ws >/dev/null 2>&1 || true)",
+  ];
+  await execFreestyleOrThrow(vm, commands.join(" && "));
+}
+
+async function waitForFreestyleWebSocketHealthy(domain: string): Promise<void> {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    try {
+      await ensureFreestyleWebSocketHealthy(domain);
+      return;
+    } catch (err) {
+      lastError = err;
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
+  }
+  throw lastError ?? new Error("Cloud VM terminal service did not become healthy");
 }
 
 async function installFreestyleLeasesViaDaemon(
