@@ -215,10 +215,16 @@ extension CMUXCLI {
                     }
                 }
                 payload["transcript_backed"] = transcriptBacked
+                let launchBacked = agentHookSessionHasDurableResumeEvidence(
+                    kind: spec.name,
+                    launchCommand: record.launchCommand
+                )
+                payload["launch_backed"] = launchBacked
 
                 let defaultVisible = activeForWorkspace
                     || activeForSurface
                     || record.isRestorable == true
+                    || launchBacked
                     || transcriptBacked
                 payload["default_visible"] = defaultVisible
                 guard includeAll || hasRecordFilter || defaultVisible else {

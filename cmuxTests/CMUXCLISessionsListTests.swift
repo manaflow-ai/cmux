@@ -14,6 +14,7 @@ extension CMUXCLIErrorOutputRegressionTests {
 
         let activeSessionId = "019ef6ac-e358-7dd2-902d-8492fa0ba2bb"
         let staleSessionId = "019ef5c3-e0a1-7473-a6bf-48bbcf234de0"
+        let launchBackedSessionId = "019ef7b0-9c49-700b-9a8c-e831d7d1af3a"
         let store: [String: Any] = [
             "version": 1,
             "activeSessionsByWorkspace": [
@@ -44,6 +45,22 @@ extension CMUXCLIErrorOutputRegressionTests {
                     "cwd": "/tmp/cmux/stale",
                     "startedAt": 1_782_254_950.0,
                     "updatedAt": 1_782_255_010.0
+                ],
+                launchBackedSessionId: [
+                    "sessionId": launchBackedSessionId,
+                    "workspaceId": "workspace-launch-backed",
+                    "surfaceId": "surface-launch-backed",
+                    "cwd": "/tmp/cmux/launch-backed",
+                    "startedAt": 1_782_254_960.0,
+                    "updatedAt": 1_782_255_020.0,
+                    "launchCommand": [
+                        "launcher": "codex",
+                        "executablePath": "/usr/local/bin/codex",
+                        "arguments": ["/usr/local/bin/codex", "--yolo"],
+                        "workingDirectory": "/tmp/cmux/launch-backed",
+                        "capturedAt": 1_782_254_960.0,
+                        "source": "process",
+                    ],
                 ]
             ]
         ]
@@ -69,10 +86,10 @@ extension CMUXCLIErrorOutputRegressionTests {
         XCTAssertEqual(defaultResult.status, 0, defaultResult.stdout)
         let defaultOutputData = try XCTUnwrap(defaultResult.stdout.data(using: .utf8))
         let defaultObject = try XCTUnwrap(JSONSerialization.jsonObject(with: defaultOutputData) as? [String: Any])
-        XCTAssertEqual(defaultObject["total_matches"] as? Int, 1)
+        XCTAssertEqual(defaultObject["total_matches"] as? Int, 2)
         let defaultSessions = try XCTUnwrap(defaultObject["sessions"] as? [[String: Any]])
-        XCTAssertEqual(defaultSessions.count, 1)
-        XCTAssertEqual(defaultSessions.first?["session_id"] as? String, activeSessionId)
+        XCTAssertEqual(Set(defaultSessions.compactMap { $0["session_id"] as? String }), [activeSessionId, launchBackedSessionId])
+        XCTAssertEqual(defaultSessions.first { $0["session_id"] as? String == launchBackedSessionId }?["launch_backed"] as? Bool, true)
 
         let cwdResult = runProcess(
             executablePath: cliPath,
@@ -85,9 +102,9 @@ extension CMUXCLIErrorOutputRegressionTests {
         XCTAssertEqual(cwdResult.status, 0, cwdResult.stdout)
         let cwdOutputData = try XCTUnwrap(cwdResult.stdout.data(using: .utf8))
         let cwdObject = try XCTUnwrap(JSONSerialization.jsonObject(with: cwdOutputData) as? [String: Any])
-        XCTAssertEqual(cwdObject["total_matches"] as? Int, 2)
+        XCTAssertEqual(cwdObject["total_matches"] as? Int, 3)
         let cwdSessions = try XCTUnwrap(cwdObject["sessions"] as? [[String: Any]])
-        XCTAssertEqual(Set(cwdSessions.compactMap { $0["session_id"] as? String }), [activeSessionId, staleSessionId])
+        XCTAssertEqual(Set(cwdSessions.compactMap { $0["session_id"] as? String }), [activeSessionId, staleSessionId, launchBackedSessionId])
 
         let allResult = runProcess(
             executablePath: cliPath,
@@ -100,9 +117,9 @@ extension CMUXCLIErrorOutputRegressionTests {
         XCTAssertEqual(allResult.status, 0, allResult.stdout)
         let allOutputData = try XCTUnwrap(allResult.stdout.data(using: .utf8))
         let allObject = try XCTUnwrap(JSONSerialization.jsonObject(with: allOutputData) as? [String: Any])
-        XCTAssertEqual(allObject["total_matches"] as? Int, 2)
+        XCTAssertEqual(allObject["total_matches"] as? Int, 3)
         let allSessions = try XCTUnwrap(allObject["sessions"] as? [[String: Any]])
-        XCTAssertEqual(Set(allSessions.compactMap { $0["session_id"] as? String }), [activeSessionId, staleSessionId])
+        XCTAssertEqual(Set(allSessions.compactMap { $0["session_id"] as? String }), [activeSessionId, staleSessionId, launchBackedSessionId])
     }
 
     @Test func testSessionsListReportsCodexIdsMissingFromCodexStore() throws {
