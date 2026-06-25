@@ -30093,7 +30093,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         previousActivePromptTurnIsTerminal: previousActivePromptTurnIsTerminal,
                         terminalActivePromptTurnIds: terminalActivePromptTurnIds,
                         pid: pid,
-                        launchCommand: launchCommand,
+                        launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped),
                         agentLifecycle: .running,
                         autoNameMessages: autoNamingMessages(
                             for: def,

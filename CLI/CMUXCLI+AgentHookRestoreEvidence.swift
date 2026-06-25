@@ -81,7 +81,10 @@ extension CMUXCLI {
         guard normalizedHookValue(mapped.launchCommand?.source)?.lowercased() != "rejected" else { return false }
         guard kind == "codex" else { return true }
         if mapped.isRestorable == true { return true }
-        if normalizedHookValue(mapped.transcriptPath) != nil { return true }
+        if let transcriptPath = normalizedHookValue(mapped.transcriptPath),
+           FileManager.default.fileExists(atPath: (transcriptPath as NSString).expandingTildeInPath) {
+            return true
+        }
         guard let launchCommand = mapped.launchCommand else { return false }
         if normalizedHookValue(launchCommand.environment?["CODEX_HOME"]) != nil { return true }
         if normalizedHookValue(launchCommand.source)?.lowercased() == "default" { return true }
