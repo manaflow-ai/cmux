@@ -282,11 +282,28 @@ extension WorkspaceRemoteConfiguration {
     }
 
     /// The durable snapshot persisted into session state, or `nil` for
-    /// non-SSH transports or an empty destination.
+    /// non-restorable remotes.
     public func sessionSnapshot(sshOptionsOverride: [String]? = nil) -> SessionRemoteWorkspaceSnapshot? {
-        guard transport == .ssh else { return nil }
         let normalizedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedDestination.isEmpty else { return nil }
+
+        if transport == .websocket {
+            guard let managedCloudVMID else { return nil }
+            return SessionRemoteWorkspaceSnapshot(
+                transport: transport,
+                destination: normalizedDestination,
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                preserveAfterTerminalExit: true,
+                skipDaemonBootstrap: true,
+                relayPort: nil,
+                persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
+                managedCloudVMID: managedCloudVMID
+            )
+        }
+
+        guard transport == .ssh else { return nil }
 
         return SessionRemoteWorkspaceSnapshot(
             transport: transport,

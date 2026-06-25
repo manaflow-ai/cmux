@@ -2762,8 +2762,12 @@ struct CMUXCLI {
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
     private static let vmCreateResponseTimeoutSeconds: TimeInterval = 16 * 60
     private static let vmAttachResponseTimeoutSeconds: TimeInterval = 16 * 60
-    private static let persistentFreestyleCloudIdempotencyKey = "cmux-default-freestyle-sshd-v1"
-    private static let persistentFreestyleCloudWorkspaceName = "sshd"
+    // Stable per-user slot for the pinned Cloud VM. This value is intentionally reused as
+    // both the backend create idempotency key and the local daemon slot so every open,
+    // reconnect, session restore, and mobile attach targets the same provider VM once
+    // creation succeeds. Do not rotate it without a migration.
+    private static let persistentCloudVMSlotID = "cmux-default-freestyle-sshd-v1"
+    private static let persistentCloudVMWorkspaceName = "sshd"
     private static let claudeCodeStatusKey = "claude_code"
 
     private static var allowedAgentLifecycleStatusKeys: Set<String> {
@@ -2896,8 +2900,8 @@ struct CMUXCLI {
     private static func activeVMCreateIdempotency(image: String?, provider: String?) throws -> ActiveVMCreateIdempotency {
         if usesPersistentDefaultFreestyleCloud(image: image, provider: provider) {
             return ActiveVMCreateIdempotency(
-                signature: "persistent-freestyle-sshd",
-                key: persistentFreestyleCloudIdempotencyKey
+                signature: "persistent-cloud-vm-slot",
+                key: persistentCloudVMSlotID
             )
         }
 
@@ -3755,7 +3759,7 @@ struct CMUXCLI {
                 print(createdMessage)
                 try vmOpenShell(
                     id: id,
-                    workspaceName: usesPersistentDefaultCloud ? Self.persistentFreestyleCloudWorkspaceName : "vm:\(shortId)",
+                    workspaceName: usesPersistentDefaultCloud ? Self.persistentCloudVMWorkspaceName : "vm:\(shortId)",
                     windowRaw: targetWindow,
                     targetWorkspaceId: targetWorkspaceOpt,
                     forceSSH: false,
@@ -8955,7 +8959,7 @@ struct CMUXCLI {
             deferredRemoteReconnectCommandScript != nil
         let persistentDaemonSlot = usesPersistentSSHPTY
             ? "ssh-\(UUID().uuidString.lowercased())"
-            : (usesPersistentFreestyleCloud ? Self.persistentFreestyleCloudIdempotencyKey : nil)
+            : (usesPersistentFreestyleCloud ? Self.persistentCloudVMSlotID : nil)
         let startupInitialSSHCommand = buildSSHCommandText(
             sshOptions,
             localCommandScript: combinedLocalCommandScript
@@ -10599,7 +10603,10 @@ struct CMUXCLI {
     }
 
     private static func defaultFreestyleAttachRetryLimit() -> Int {
-        let raw = ProcessInfo.processInfo.environment["CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT"] ?? ""
+        let environment = ProcessInfo.processInfo.environment
+        let raw = environment["CMUX_CLOUD_ATTACH_RETRY_LIMIT"]
+            ?? environment["CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT"]
+            ?? ""
         guard let parsed = Int(raw), parsed >= 0 else {
             return 120
         }
@@ -10607,7 +10614,10 @@ struct CMUXCLI {
     }
 
     private static func defaultFreestyleAttachRetryDelaySeconds() -> Double {
-        let raw = ProcessInfo.processInfo.environment["CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS"] ?? ""
+        let environment = ProcessInfo.processInfo.environment
+        let raw = environment["CMUX_CLOUD_ATTACH_RETRY_DELAY_SECONDS"]
+            ?? environment["CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS"]
+            ?? ""
         guard let parsed = Double(raw), parsed >= 0 else {
             return 2
         }

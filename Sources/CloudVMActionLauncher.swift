@@ -43,6 +43,7 @@ final class CloudVMActionLauncher {
         presentOutputOnSuccess: Bool = false,
         showsProgress: Bool = true,
         presentsFailureAlert: Bool = true,
+        environmentOverrides: [String: String] = [:],
         onCompletion: ((Completion) -> Void)? = nil
     ) -> Bool {
         let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux")
@@ -71,6 +72,9 @@ final class CloudVMActionLauncher {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_BUNDLED_CLI_PATH"] = cliURL.path
+        for (key, value) in environmentOverrides {
+            environment[key] = value
+        }
         environment.removeValue(forKey: "CMUX_SOCKET")
         process.environment = environment
 

@@ -187,7 +187,7 @@ struct WorkspaceRemoteConfigurationValueTests {
         #expect(!a.hasSamePersistentPTYIdentity(as: differentRelay))
     }
 
-    @Test("sessionSnapshot persists only SSH transports with a non-empty destination")
+    @Test("sessionSnapshot persists restorable transports with a non-empty destination")
     func sessionSnapshotGating() {
         #expect(makeConfiguration(transport: .websocket).sessionSnapshot() == nil)
         #expect(makeConfiguration(destination: "   ").sessionSnapshot() == nil)
@@ -200,6 +200,17 @@ struct WorkspaceRemoteConfigurationValueTests {
         #expect(snapshot?.sshOptions == ["ForwardAgent=yes"])
         #expect(snapshot?.preserveAfterTerminalExit == nil)
         #expect(snapshot?.relayPort == nil)
+
+        let managedWebSocketSnapshot = makeConfiguration(
+            transport: .websocket,
+            destination: "cloud-vm",
+            managedCloudVMID: "vm-managed-websocket"
+        ).sessionSnapshot()
+        #expect(managedWebSocketSnapshot?.transport == .websocket)
+        #expect(managedWebSocketSnapshot?.destination == "cloud-vm")
+        #expect(managedWebSocketSnapshot?.managedCloudVMID == "vm-managed-websocket")
+        #expect(managedWebSocketSnapshot?.preserveAfterTerminalExit == true)
+        #expect(managedWebSocketSnapshot?.persistentDaemonSlot == "cmux-default-freestyle-sshd-v1")
     }
 
     @Test("sessionSnapshot keeps relay port and slot only for preserved sessions")

@@ -4960,11 +4960,13 @@ final class WorkspaceSidebarExtensionBrowserSurfaceTests: XCTestCase {
         \u{001B}[2K[cmux] Waiting for the Cloud VM service. Retrying in 2s (attempt 3/120).
         """)
 
-        guard case .failed(let message) = panel.phase else {
+        guard case .failed(let message, let elapsedSeconds) = panel.phase else {
             XCTFail("Expected failed loading panel")
             return
         }
-        XCTAssertTrue(message.contains("Cloud VM service did not become ready"))
+        XCTAssertTrue(message.contains("could not create a VM yet"), message)
+        XCTAssertTrue(message.contains("same VM"), message)
+        XCTAssertGreaterThanOrEqual(elapsedSeconds, 0)
         XCTAssertFalse(message.contains("[cmux]"))
         XCTAssertFalse(message.contains("[2K"))
         XCTAssertFalse(message.contains("in066h50"))

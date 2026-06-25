@@ -11,9 +11,32 @@ extension SessionRemoteWorkspaceSnapshot {
         preserveSSHOptions: Bool = false,
         agentSocketPath overrideAgentSocketPath: String? = nil
     ) -> WorkspaceRemoteConfiguration? {
-        guard transport == .ssh else { return nil }
         let normalizedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedDestination.isEmpty else { return nil }
+        let normalizedManagedCloudVMID = WorkspaceRemoteConfiguration.normalizedOptionalValue(managedCloudVMID)
+        if transport == .websocket {
+            guard let normalizedManagedCloudVMID else { return nil }
+            return WorkspaceRemoteConfiguration(
+                transport: .websocket,
+                destination: normalizedDestination,
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: nil,
+                relayID: nil,
+                relayToken: nil,
+                localSocketPath: WorkspaceRemoteConfiguration.normalizedOptionalValue(localSocketPath),
+                managedCloudVMID: normalizedManagedCloudVMID,
+                terminalStartupCommand: Self.defaultFreestyleSSHAttachCommand(vmID: normalizedManagedCloudVMID),
+                agentSocketPath: nil,
+                daemonWebSocketEndpoint: nil,
+                preserveAfterTerminalExit: true,
+                persistentDaemonSlot: Self.defaultFreestylePersistentDaemonSlot,
+                skipDaemonBootstrap: true
+            )
+        }
+        guard transport == .ssh else { return nil }
         let normalizedPort = port.flatMap { port in
             (1...65535).contains(port) ? port : nil
         }
@@ -33,7 +56,7 @@ extension SessionRemoteWorkspaceSnapshot {
         let fallbackSSHOptions = preserveSSHOptions
             ? Self.normalizedSSHOptions(preservedOptions)
             : preservedOptions
-        let managedCloudVMID = WorkspaceRemoteConfiguration.normalizedOptionalValue(managedCloudVMID)
+        let managedCloudVMID = normalizedManagedCloudVMID
             ?? Self.legacyDefaultFreestyleVMID(destination: normalizedDestination, skipDaemonBootstrap: skipDaemonBootstrap)
         let defaultFreestyleVMID = skipDaemonBootstrap == true ? managedCloudVMID : nil
         let effectivePersistentDaemonSlot = normalizedPersistentDaemonSlot

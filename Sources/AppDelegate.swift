@@ -7383,20 +7383,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             preferredPath: SocketControlSettings.socketPath()
         )
         let workspaceTitle = String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM")
-        let workspace = context.tabManager.addWorkspace(
-            title: workspaceTitle,
-            initialSurface: .cloudVMLoading,
-            inheritWorkingDirectory: false,
-            select: true,
-            autoWelcomeIfNeeded: false
-        )
-        context.tabManager.setPinned(workspace, pinned: true)
+        let existingWorkspace = existingCloudVMWorkspace(in: context.tabManager)
+        let workspace: Workspace
+        if let existingWorkspace {
+            workspace = existingWorkspace
+            context.tabManager.selectedTabId = workspace.id
+            context.tabManager.setPinned(workspace, pinned: true)
+            if let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel {
+                if !loadingPanel.hasFailed {
+                    onCompletion?(CloudVMActionLauncher.Completion(terminationStatus: 0, output: "", workspaceId: workspace.id))
+                    return true
+                }
+            } else {
+                onCompletion?(CloudVMActionLauncher.Completion(terminationStatus: 0, output: "", workspaceId: workspace.id))
+                return true
+            }
+        } else {
+            workspace = context.tabManager.addWorkspace(
+                title: workspaceTitle,
+                initialSurface: .cloudVMLoading,
+                inheritWorkingDirectory: false,
+                select: true,
+                autoWelcomeIfNeeded: false
+            )
+            context.tabManager.setPinned(workspace, pinned: true)
+        }
+        if let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel {
+            loadingPanel.resetLoading()
+        }
         let didStart = CloudVMActionLauncher.shared.start(
             socketPath: socketPath,
             preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
             arguments: ["vm", "new", "--workspace", workspace.id.uuidString],
             showsProgress: false,
             presentsFailureAlert: false,
+            environmentOverrides: [
+                "CMUX_CLOUD_ATTACH_RETRY_LIMIT": "12",
+                "CMUX_CLOUD_ATTACH_RETRY_DELAY_SECONDS": "2",
+            ],
             onCompletion: { completion in
                 if !completion.succeeded,
                    let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel {
@@ -7412,7 +7436,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 defaultValue: "Cloud VM command could not be launched."
             ))
         }
+        if didStart {
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                guard let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel,
+                      loadingPanel.isLoading else {
+                    return
+                }
+                loadingPanel.showFailure(String(
+                    localized: "panel.cloudVM.loading.failed.timeout",
+                    defaultValue: "Cloud VM is still not ready. Check your connection and try again."
+                ))
+            }
+        }
         return didStart
+    }
+
+    private func existingCloudVMWorkspace(in tabManager: TabManager) -> Workspace? {
+        tabManager.tabs.first { workspace in
+            if workspace.panels.values.contains(where: { $0.panelType == .cloudVMLoading }) {
+                return true
+            }
+            return workspace.remoteConfiguration?.managedCloudVMID != nil
+        }
     }
 
     @discardableResult

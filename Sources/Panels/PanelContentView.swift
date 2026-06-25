@@ -185,7 +185,7 @@ private struct CloudVMLoadingPanelView: View {
                         .cmuxFont(size: 14, weight: .semibold)
                         .foregroundStyle(.primary)
                     CloudVMLoadingStatusView(elapsedSeconds: elapsedSeconds)
-                case .failed(let message):
+                case .failed(let message, let failedElapsedSeconds):
                     Image(systemName: "exclamationmark.triangle.fill")
                         .cmuxSymbolRasterSize(18)
                         .foregroundStyle(.orange)
@@ -197,10 +197,21 @@ private struct CloudVMLoadingPanelView: View {
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 460)
+                    Button {
+                        _ = AppDelegate.shared?.performCloudVMAction(debugSource: "panel.cloudVM.retry")
+                    } label: {
+                        Label(
+                            String(localized: "panel.cloudVM.loading.failed.retry", defaultValue: "Retry"),
+                            systemImage: "arrow.clockwise"
+                        )
+                        .cmuxFont(size: 12, weight: .semibold)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
                     Text(String(format: String(
                         localized: "panel.cloudVM.loading.failed.elapsed",
                         defaultValue: "Waited %ds before stopping."
-                    ), elapsedSeconds))
+                    ), failedElapsedSeconds))
                     .cmuxFont(size: 11)
                     .foregroundStyle(.tertiary)
                 }

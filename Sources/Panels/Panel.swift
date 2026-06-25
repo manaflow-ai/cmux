@@ -375,13 +375,13 @@ extension Panel {
 final class CloudVMLoadingPanel: Panel {
     enum Phase {
         case loading
-        case failed(String)
+        case failed(String, elapsedSeconds: Int)
     }
 
     let id: UUID
     let workspaceId: UUID
     let panelType: PanelType = .cloudVMLoading
-    let startedAt: Date
+    @Published var startedAt: Date
     @Published var phase: Phase = .loading
 
     var displayTitle: String {
@@ -403,9 +403,27 @@ final class CloudVMLoadingPanel: Panel {
 
     func showFailure(_ message: String) {
         let trimmed = Self.presentableFailureMessage(from: message)
+        let elapsedSeconds = max(0, Int(Date().timeIntervalSince(startedAt).rounded(.down)))
         phase = .failed(trimmed.isEmpty
             ? String(localized: "panel.cloudVM.loading.failed.generic", defaultValue: "Cloud VM could not be opened.")
-            : trimmed)
+            : trimmed,
+            elapsedSeconds: elapsedSeconds
+        )
+    }
+
+    var hasFailed: Bool {
+        if case .failed = phase { return true }
+        return false
+    }
+
+    var isLoading: Bool {
+        if case .loading = phase { return true }
+        return false
+    }
+
+    func resetLoading() {
+        startedAt = Date()
+        phase = .loading
     }
 
     private static func presentableFailureMessage(from rawMessage: String) -> String {
@@ -435,7 +453,7 @@ final class CloudVMLoadingPanel: Panel {
             || lowercased.contains("service unavailable") {
             return String(
                 localized: "panel.cloudVM.loading.failed.serviceUnavailable",
-                defaultValue: "The Cloud VM service did not become ready after repeated retries. The workspace is still here; try again in a moment."
+                defaultValue: "The Cloud VM service could not create a VM yet. Retry keeps using this pinned Cloud VM slot, and once a VM exists cmux will always reattach to that same VM."
             )
         }
         if lowercased.contains("password") || lowercased.contains("permission denied") {
