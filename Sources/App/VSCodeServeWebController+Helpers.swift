@@ -2,59 +2,49 @@ import Darwin
 import Foundation
 
 extension VSCodeServeWebController {
-    func restartAfterOwnedProcessExit(
-        vscodeApplicationURL: URL,
-        completion: @escaping (URL?) -> Void
-    ) {
-        let (restartGeneration, processes, cancelledCompletions): (UInt64, [Process], [(URL?) -> Void]) = queue.sync(execute: {
-            self.lifecycleGeneration &+= 1
-            let restartGeneration = self.lifecycleGeneration
-            self.isLaunching = true
-            self.activeLaunchGeneration = restartGeneration
-            var processes: [Process] = []
-            if let process = self.serveWebProcess {
-                processes.append(process)
-            }
-            if let process = self.launchingProcess,
-               !processes.contains(where: { $0 === process }) {
-                processes.append(process)
-            }
-            self.serveWebProcess = nil
-            self.launchingProcess = nil
-            self.serveWebURL = nil
-            let cancelledCompletions = self.pendingCompletions.map(\.completion)
-            self.pendingCompletions.removeAll()
-            self.pendingCompletions.append((generation: restartGeneration, completion: completion))
-            return (restartGeneration, processes, cancelledCompletions)
-        })
-
-        if !cancelledCompletions.isEmpty {
-            Self.completeOnMain(cancelledCompletions, with: nil)
+    static func completeOnMain(_ completion: @escaping (URL?) -> Void, with url: URL?) {
+        Task { @MainActor in
+            completion(url)
         }
+    }
 
-        terminateProcessesBeforeRestart(processes) { [weak self] didTerminate in
-            guard let self else { return }
-            guard didTerminate else {
-                self.completeServeWebLaunch(nil, expectedGeneration: restartGeneration)
+    static func completeOnMain(_ completions: [(URL?) -> Void], with url: URL?) {
+        Task { @MainActor in
+            completions.forEach { $0(url) }
+        }
+    }
+
+    static func drainAvailableOutput(from fileHandle: FileHandle, collector: ServeWebOutputCollector) {
+        while true {
+            switch fileHandle.readAvailableDataOrEndOfFile() {
+            case .data(let data):
+                collector.append(data)
+            case .wouldBlock, .endOfFile:
                 return
-            }
-
-            self.launchQueue.async {
-                let shouldLaunch = self.queue.sync(execute: {
-                    self.lifecycleGeneration == restartGeneration
-                        && self.activeLaunchGeneration == restartGeneration
-                })
-                guard shouldLaunch else { return }
-                self.launchServeWebProcess(
-                    vscodeApplicationURL: vscodeApplicationURL,
-                    expectedGeneration: restartGeneration
-                )
             }
         }
     }
 
-    private func terminateProcessesBeforeRestart(
+    static func urlsShareLoopbackOrigin(_ lhs: URL, _ rhs: URL?) -> Bool {
+        guard let rhs else { return false }
+        guard lhs.scheme?.lowercased() == "http",
+              rhs.scheme?.lowercased() == "http" else {
+            return false
+        }
+        guard lhs.port == rhs.port, lhs.port != nil else { return false }
+        guard let lhsHost = BrowserInsecureHTTPSettings.normalizeHost(lhs.host ?? ""),
+              let rhsHost = BrowserInsecureHTTPSettings.normalizeHost(rhs.host ?? "") else {
+            return false
+        }
+        return RemoteLoopbackProxyAlias.isLoopbackHost(lhsHost)
+            && RemoteLoopbackProxyAlias.isLoopbackHost(rhsHost)
+    }
+
+    static func terminateProcessesBeforeRestart(
         _ processes: [Process],
+        on queue: DispatchQueue,
+        terminationTimeout: TimeInterval,
+        killTimeout: TimeInterval,
         completion: @escaping (Bool) -> Void
     ) {
         let runningProcesses = processes.filter(\.isRunning)
@@ -74,8 +64,6 @@ extension VSCodeServeWebController {
                 didComplete = true
                 terminationTimer?.cancel()
                 killTimer?.cancel()
-                terminationTimer = nil
-                killTimer = nil
                 completion(didTerminate)
             }
 
@@ -88,9 +76,9 @@ extension VSCodeServeWebController {
 
             for process in runningProcesses {
                 let previousTerminationHandler = process.terminationHandler
-                process.terminationHandler = { [weak self] terminatedProcess in
+                process.terminationHandler = { terminatedProcess in
                     previousTerminationHandler?(terminatedProcess)
-                    self?.queue.async {
+                    queue.async {
                         markTerminated(terminatedProcess)
                     }
                 }
@@ -103,21 +91,20 @@ extension VSCodeServeWebController {
                     markTerminated(process)
                 }
             }
-
             guard !remainingProcessIDs.isEmpty else { return }
 
             // Restart must be ordered after process exit so our stable-port retry
             // does not fall back to port 0 while the old server is still exiting.
-            terminationTimer = DispatchSource.makeTimerSource(queue: self.queue)
-            terminationTimer?.schedule(deadline: .now() + Self.serveWebTerminationTimeoutSeconds)
+            terminationTimer = DispatchSource.makeTimerSource(queue: queue)
+            terminationTimer?.schedule(deadline: .now() + terminationTimeout)
             terminationTimer?.setEventHandler {
                 for process in runningProcesses
                 where remainingProcessIDs.contains(ObjectIdentifier(process)) && process.isRunning {
                     _ = Darwin.kill(process.processIdentifier, SIGKILL)
                 }
 
-                killTimer = DispatchSource.makeTimerSource(queue: self.queue)
-                killTimer?.schedule(deadline: .now() + Self.serveWebKillTimeoutSeconds)
+                killTimer = DispatchSource.makeTimerSource(queue: queue)
+                killTimer?.schedule(deadline: .now() + killTimeout)
                 killTimer?.setEventHandler {
                     for process in runningProcesses
                     where remainingProcessIDs.contains(ObjectIdentifier(process)) && !process.isRunning {

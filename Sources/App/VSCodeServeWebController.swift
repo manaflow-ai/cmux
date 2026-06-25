@@ -6,20 +6,20 @@ import Foundation
 final class VSCodeServeWebController {
     static let shared = VSCodeServeWebController()
     private static let serveWebStartupTimeoutSeconds: TimeInterval = 60
-    static let serveWebTerminationTimeoutSeconds: TimeInterval = 5
-    static let serveWebKillTimeoutSeconds: TimeInterval = 2
+    private static let serveWebTerminationTimeoutSeconds: TimeInterval = 5
+    private static let serveWebKillTimeoutSeconds: TimeInterval = 2
 
-    let queue = DispatchQueue(label: "cmux.vscode.serveWeb")
-    let launchQueue = DispatchQueue(label: "cmux.vscode.serveWeb.launch")
+    private let queue = DispatchQueue(label: "cmux.vscode.serveWeb")
+    private let launchQueue = DispatchQueue(label: "cmux.vscode.serveWeb.launch")
     private let launchProcessOverride: ((URL, UInt64) -> (process: Process, url: URL)?)?
     private let launchConfigurationBuilder: VSCodeCLILaunchConfigurationBuilder
-    var serveWebProcess: Process?
-    var launchingProcess: Process?
-    var serveWebURL: URL?
-    var pendingCompletions: [(generation: UInt64, completion: (URL?) -> Void)] = []
-    var isLaunching = false
-    var activeLaunchGeneration: UInt64?
-    var lifecycleGeneration: UInt64 = 0
+    private var serveWebProcess: Process?
+    private var launchingProcess: Process?
+    private var serveWebURL: URL?
+    private var pendingCompletions: [(generation: UInt64, completion: (URL?) -> Void)] = []
+    private var isLaunching = false
+    private var activeLaunchGeneration: UInt64?
+    private var lifecycleGeneration: UInt64 = 0
 
     init(
         launchProcessOverride: ((URL, UInt64) -> (process: Process, url: URL)?)? = nil,
@@ -97,7 +97,56 @@ final class VSCodeServeWebController {
     }
 
     func restart(vscodeApplicationURL: URL, completion: @escaping (URL?) -> Void) {
-        restartAfterOwnedProcessExit(vscodeApplicationURL: vscodeApplicationURL, completion: completion)
+        let (restartGeneration, processes, cancelledCompletions): (UInt64, [Process], [(URL?) -> Void]) = queue.sync(execute: {
+            self.lifecycleGeneration &+= 1
+            let restartGeneration = self.lifecycleGeneration
+            self.isLaunching = true
+            self.activeLaunchGeneration = restartGeneration
+            var processes: [Process] = []
+            if let process = self.serveWebProcess {
+                processes.append(process)
+            }
+            if let process = self.launchingProcess,
+               !processes.contains(where: { $0 === process }) {
+                processes.append(process)
+            }
+            self.serveWebProcess = nil
+            self.launchingProcess = nil
+            self.serveWebURL = nil
+            let cancelledCompletions = self.pendingCompletions.map(\.completion)
+            self.pendingCompletions.removeAll()
+            self.pendingCompletions.append((generation: restartGeneration, completion: completion))
+            return (restartGeneration, processes, cancelledCompletions)
+        })
+
+        if !cancelledCompletions.isEmpty {
+            Self.completeOnMain(cancelledCompletions, with: nil)
+        }
+
+        Self.terminateProcessesBeforeRestart(
+            processes,
+            on: queue,
+            terminationTimeout: Self.serveWebTerminationTimeoutSeconds,
+            killTimeout: Self.serveWebKillTimeoutSeconds
+        ) { [weak self] didTerminate in
+            guard let self else { return }
+            guard didTerminate else {
+                self.completeServeWebLaunch(nil, expectedGeneration: restartGeneration)
+                return
+            }
+
+            self.launchQueue.async {
+                let shouldLaunch = self.queue.sync(execute: {
+                    self.lifecycleGeneration == restartGeneration
+                        && self.activeLaunchGeneration == restartGeneration
+                })
+                guard shouldLaunch else { return }
+                self.launchServeWebProcess(
+                    vscodeApplicationURL: vscodeApplicationURL,
+                    expectedGeneration: restartGeneration
+                )
+            }
+        }
     }
 
     func isServeWebURL(_ candidateURL: URL?) -> Bool {
@@ -108,7 +157,7 @@ final class VSCodeServeWebController {
         return Self.urlsShareLoopbackOrigin(candidateURL, serveWebURL)
     }
 
-    func launchServeWebProcess(
+    private func launchServeWebProcess(
         vscodeApplicationURL: URL,
         expectedGeneration: UInt64
     ) {
@@ -349,7 +398,7 @@ final class VSCodeServeWebController {
         startupTimer?.resume()
     }
 
-    func completeServeWebLaunch(
+    private func completeServeWebLaunch(
         _ launchResult: (process: Process, url: URL)?,
         expectedGeneration: UInt64
     ) {
@@ -411,43 +460,5 @@ final class VSCodeServeWebController {
         timer.schedule(deadline: .now() + seconds)
         timer.setEventHandler(handler: handler)
         return timer
-    }
-
-    static func completeOnMain(_ completion: @escaping (URL?) -> Void, with url: URL?) {
-        Task { @MainActor in
-            completion(url)
-        }
-    }
-
-    static func completeOnMain(_ completions: [(URL?) -> Void], with url: URL?) {
-        Task { @MainActor in
-            completions.forEach { $0(url) }
-        }
-    }
-
-    private static func drainAvailableOutput(from fileHandle: FileHandle, collector: ServeWebOutputCollector) {
-        while true {
-            switch fileHandle.readAvailableDataOrEndOfFile() {
-            case .data(let data):
-                collector.append(data)
-            case .wouldBlock, .endOfFile:
-                return
-            }
-        }
-    }
-
-    private static func urlsShareLoopbackOrigin(_ lhs: URL, _ rhs: URL?) -> Bool {
-        guard let rhs else { return false }
-        guard lhs.scheme?.lowercased() == "http",
-              rhs.scheme?.lowercased() == "http" else {
-            return false
-        }
-        guard lhs.port == rhs.port, lhs.port != nil else { return false }
-        guard let lhsHost = BrowserInsecureHTTPSettings.normalizeHost(lhs.host ?? ""),
-              let rhsHost = BrowserInsecureHTTPSettings.normalizeHost(rhs.host ?? "") else {
-            return false
-        }
-        return RemoteLoopbackProxyAlias.isLoopbackHost(lhsHost)
-            && RemoteLoopbackProxyAlias.isLoopbackHost(rhsHost)
     }
 }
