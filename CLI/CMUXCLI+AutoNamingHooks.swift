@@ -90,7 +90,15 @@ extension CMUXCLI {
             return
         }
 
-        guard let sanitized = engine.sanitizeResponse(rawResponse, currentTitle: nil) else { return }
+        guard let sanitized = engine.sanitizeResponse(rawResponse, currentTitle: nil) else {
+            // The summarizer ran and returned output, but it sanitized to
+            // nothing usable (empty, whitespace, or only the current title).
+            // Distinct from `llm-failed` above so a "ran but produced no
+            // usable name" outcome is not silently indistinguishable from a
+            // healthy pass.
+            telemetry.breadcrumb("claude-hook.auto-name.unusable-response")
+            return
+        }
         confirmedTitle = applyAutoNamingTitle(
             sanitized,
             workspaceId: workspaceId,

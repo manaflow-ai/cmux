@@ -112,13 +112,19 @@ extension CMUXCLI {
 
     /// Runs the summarizer subprocess with the prompt on stdin and a hard
     /// deadline, returning captured stdout (nil on failure, timeout, or
-    /// non-zero exit).
+    /// non-zero exit). On any failure path `onFailure` receives a category, the
+    /// process exit status (when known), and a bounded tail of the subprocess
+    /// stderr. The summarizer runs detached with its fds pointed at /dev/null,
+    /// so this callback is the only way a failure reason (e.g. an invalid
+    /// `--mcp-config` payload) escapes — without it, a broken summarizer leaves
+    /// workspaces silently unnamed.
     func runAutoNamingSummarizer(
         executable: String,
         arguments: [String],
         prompt: String,
         environment: [String: String],
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        onFailure: ((_ reason: String, _ exitStatus: Int32?, _ stderrTail: String) -> Void)? = nil
     ) -> String? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
@@ -128,21 +134,36 @@ extension CMUXCLI {
         let stdinPipe = Pipe()
         let outputURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-autoname-stdout-\(UUID().uuidString).txt")
+        let stderrURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-autoname-stderr-\(UUID().uuidString).txt")
         guard FileManager.default.createFile(atPath: outputURL.path, contents: nil),
-              let stdoutHandle = try? FileHandle(forWritingTo: outputURL) else {
+              let stdoutHandle = try? FileHandle(forWritingTo: outputURL),
+              FileManager.default.createFile(atPath: stderrURL.path, contents: nil),
+              let stderrHandle = try? FileHandle(forWritingTo: stderrURL) else {
+            onFailure?("spawn-setup", nil, "")
             return nil
         }
         defer {
             try? stdoutHandle.close()
+            try? stderrHandle.close()
             try? FileManager.default.removeItem(at: outputURL)
+            try? FileManager.default.removeItem(at: stderrURL)
         }
         process.standardInput = stdinPipe
         process.standardOutput = stdoutHandle
-        process.standardError = FileHandle.nullDevice
+        process.standardError = stderrHandle
+
+        func stderrTail() -> String {
+            try? stderrHandle.close()
+            guard let data = try? Data(contentsOf: stderrURL),
+                  let text = String(data: data, encoding: .utf8) else { return "" }
+            return String(text.trimmingCharacters(in: .whitespacesAndNewlines).suffix(200))
+        }
 
         do {
             try cliRunProcess(process)
         } catch {
+            onFailure?("spawn-failed", nil, "\(error)")
             return nil
         }
         if let promptData = prompt.data(using: .utf8) {
@@ -157,11 +178,16 @@ extension CMUXCLI {
                 kill(process.processIdentifier, SIGKILL)
                 _ = try? waitForProcessExit(process, timeout: 1)
             }
+            onFailure?("timeout", nil, stderrTail())
             return nil
         }
         try? stdoutHandle.close()
-        guard process.terminationStatus == 0,
-              let output = try? Data(contentsOf: outputURL) else {
+        guard process.terminationStatus == 0 else {
+            onFailure?("nonzero-exit", process.terminationStatus, stderrTail())
+            return nil
+        }
+        guard let output = try? Data(contentsOf: outputURL) else {
+            onFailure?("no-output", 0, stderrTail())
             return nil
         }
         return String(data: output, encoding: .utf8)

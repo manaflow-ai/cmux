@@ -15,6 +15,13 @@ struct AutoNamingConfig: Sendable {
     var minLineGrowth: Int = 6
     /// Minimum seconds between summarization calls for one session.
     var minInterval: TimeInterval = 180
+    /// Minimum seconds before retrying after a pass that attempted but never
+    /// produced a name (records `lastAttemptAt`, not `lastNamedAt`). Far
+    /// shorter than ``minInterval`` so a transient or fixable summarizer
+    /// failure does not lock a never-named workspace out of naming for a full
+    /// success-interval; the small floor still avoids hammering a persistently
+    /// failing summarizer across a burst of turns.
+    var failureRetryInterval: TimeInterval = 10
     /// Transcripts shorter than this are skipped entirely (subagent or
     /// trivial sessions).
     var minTranscriptLines: Int = 12
@@ -146,6 +153,28 @@ struct AutoNamingEnvironmentPolicy: Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return override.isEmpty ? "haiku" : override
     }
+
+    /// JSON payload for `--mcp-config` that configures zero MCP servers.
+    /// Must be an object carrying an `mcpServers` record: current Claude Code
+    /// rejects a bare `{}` with `Invalid MCP configuration: mcpServers:
+    /// expected record, received undefined`, which made every Claude
+    /// auto-naming pass exit non-zero and silently produce no title.
+    static let emptyMCPConfigJSON = #"{"mcpServers":{}}"#
+
+    /// Argument vector for a tool-disabled, MCP-free, session-less
+    /// `claude -p` summarization pass. Pure so the MCP-config contract is
+    /// pinned by a unit test (a regression to `{}` fails CI instead of users).
+    static func claudeSummarizerArguments(model: String) -> [String] {
+        [
+            "-p",
+            "--model", model,
+            "--tools", "",
+            "--disable-slash-commands",
+            "--no-session-persistence",
+            "--strict-mcp-config",
+            "--mcp-config", emptyMCPConfigJSON
+        ]
+    }
 }
 
 /// Pure auto-naming logic: throttle decisions, transcript extraction,
@@ -175,9 +204,12 @@ struct AutoNamingEngine: Sendable {
             // First naming for this session always qualifies; this also seeds
             // the baseline for resumed sessions arriving with a large
             // pre-existing transcript. A failed pass records only lastAttemptAt
-            // (not lastNamedAt), so honor the cooldown here too — otherwise a
-            // persistently failing summarizer respawns on every turn end.
-            if let lastAttemptAt = snapshot.lastAttemptAt, nowInterval - lastAttemptAt < config.minInterval {
+            // (not lastNamedAt), so honor a cooldown here too — otherwise a
+            // persistently failing summarizer respawns on every turn end. Use
+            // the short failure-retry interval (not the full success interval)
+            // so a never-named session recovers on its next turn once the
+            // failure clears, instead of staying "Claude Code" for minutes.
+            if let lastAttemptAt = snapshot.lastAttemptAt, nowInterval - lastAttemptAt < config.failureRetryInterval {
                 return .skipTooSoon
             }
             return .proceed(baseline: transcriptLineCount)
