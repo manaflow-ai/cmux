@@ -127,7 +127,9 @@ extension CMUXCLI {
         }
         guard let sourceResult else {
             telemetry.breadcrumb("\(telemetryKey).extraction-empty")
-            reportAutoNamingProblem("extraction_failed", agent: def.name, workspaceId: workspaceId, client: client)
+            if source != .hookMessageCache {
+                reportAutoNamingProblem("extraction_failed", agent: def.name, workspaceId: workspaceId, client: client)
+            }
             return
         }
 
@@ -150,7 +152,9 @@ extension CMUXCLI {
         ) { engine, _ in
             guard let context = engine.buildContext(from: sourceResult.messages) else {
                 telemetry.breadcrumb("\(telemetryKey).extraction-empty")
-                reportAutoNamingProblem("extraction_failed", agent: def.name, workspaceId: workspaceId, client: client)
+                if source != .hookMessageCache {
+                    reportAutoNamingProblem("extraction_failed", agent: def.name, workspaceId: workspaceId, client: client)
+                }
                 return (nil, false)
             }
             let prompt = engine.buildPrompt(
