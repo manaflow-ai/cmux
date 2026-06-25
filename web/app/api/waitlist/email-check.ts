@@ -139,11 +139,19 @@ async function withTimeout(
 // would be resolved again by the follow-up `notify` request (and by any other
 // caller), multiplying lingering c-ares work. Sharing one promise means a slow
 // domain has at most one outstanding lookup, which drains when c-ares settles.
+//
+// Bounded so a flood of unique slow/hung domains on this public endpoint can't
+// retain entries without limit: once the map is full, extra lookups run
+// un-tracked (still bounded by the caller timeout and c-ares' own limits)
+// rather than growing the map. An entry is removed as soon as its lookup
+// settles, so under normal load the map stays near-empty.
+const INFLIGHT_MAX = 256;
 const inflight = new Map<string, Promise<EmailCheck>>();
 
 function resolveDomainShared(domain: string): Promise<EmailCheck> {
   const existing = inflight.get(domain);
   if (existing) return existing;
+  if (inflight.size >= INFLIGHT_MAX) return resolveDomain(domain);
   const pending = resolveDomain(domain).finally(() => inflight.delete(domain));
   inflight.set(domain, pending);
   return pending;
