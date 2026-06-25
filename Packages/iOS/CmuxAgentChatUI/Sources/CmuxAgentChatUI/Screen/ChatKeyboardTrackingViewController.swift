@@ -29,6 +29,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
     private var activeKeyboardScrollSnapshots: [ScrollSnapshot] = []
     private var isRestoringKeyboardViewport = false
     private var keyboardOverlap: CGFloat = 0
+    private var keyboardTransitionID = 0
     #if DEBUG
     private var keyboardDebugEventCount = 0
     #endif
@@ -167,9 +168,12 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
             ? trackedScrollSnapshots()
             : activeKeyboardScrollSnapshots
         activeKeyboardScrollSnapshots = scrollSnapshots
+        keyboardTransitionID &+= 1
+        let transitionID = keyboardTransitionID
         transition.animate {
             self.applyKeyboardOverlap(overlap, preserving: scrollSnapshots)
         } completion: { _ in
+            guard self.keyboardTransitionID == transitionID else { return }
             self.applyKeyboardOverlap(overlap, preserving: scrollSnapshots)
             self.activeKeyboardScrollSnapshots = []
         }
