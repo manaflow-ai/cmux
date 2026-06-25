@@ -260,13 +260,14 @@ final class VSCodeServeWebController {
             terminationTimer?.resume()
         }
 
-        let collector = ServeWebOutputCollector { [weak self] url in
-            guard let self, let url else { return }
+        let collector = ServeWebOutputCollector { [weak self, weak process] url in
+            guard let self, let process, let url else { return }
             self.launchQueue.async {
                 guard process.isRunning else {
                     finish(.failed(retryable: true))
                     return
                 }
+                clearOutputHandlers()
                 finish(.launched(process: process, url: url))
             }
         }
@@ -286,6 +287,7 @@ final class VSCodeServeWebController {
 
         process.terminationHandler = { [weak self] terminatedProcess in
             self?.launchQueue.async {
+                terminatedProcess.terminationHandler = nil
                 finishFromProcessExit(collector: collector)
             }
             self?.queue.async {
@@ -319,6 +321,7 @@ final class VSCodeServeWebController {
         guard didStart else {
             stdoutPipe.fileHandleForReading.readabilityHandler = nil
             stderrPipe.fileHandleForReading.readabilityHandler = nil
+            process.terminationHandler = nil
             completion(.failed(retryable: true))
             return
         }
@@ -340,6 +343,7 @@ final class VSCodeServeWebController {
                 process.terminate()
                 scheduleTerminationDeadline()
             } else {
+                process.terminationHandler = nil
                 finish(.failed(retryable: true))
             }
         }

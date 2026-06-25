@@ -209,13 +209,25 @@ nonisolated struct VSCodeServeWebLaunchOptions: Equatable {
     ) -> Bool {
         guard let attributes = try? fileManager.attributesOfItem(atPath: tokenFileURL.path),
               let fileSize = attributes[.size] as? NSNumber,
-              fileSize.intValue == 32,
+              fileSize.uint64Value == 32,
               let permissions = attributes[.posixPermissions] as? NSNumber,
-              permissions.intValue & 0o777 == 0o600,
-              let data = try? Data(contentsOf: tokenFileURL),
+              permissions.intValue & 0o777 == 0o600 else {
+            return false
+        }
+
+        guard let fileHandle = try? FileHandle(forReadingFrom: tokenFileURL) else {
+            return false
+        }
+        defer {
+            try? fileHandle.close()
+        }
+
+        guard let data = try? fileHandle.read(upToCount: 33),
+              data.count == 32,
               let token = String(data: data, encoding: .utf8) else {
             return false
         }
+
         return token.range(of: #"^[0-9A-Fa-f]{32}$"#, options: .regularExpression) != nil
     }
 
