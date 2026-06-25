@@ -667,21 +667,20 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         lastAttemptedURL = nil
     }
 
-    private func requestForFailedNavigation(failedURL: String) -> URLRequest? {
+    private func retryForFailedNavigation(failedURL: String) -> BrowserErrorPageRetry {
         if let lastAttemptedRequest {
             guard lastAttemptedRequest.url != nil,
                   lastAttemptedRequest.browserMatchesFailedNavigationURLString(failedURL) else {
-                return nil
+                return .urlOnly
             }
-            return lastAttemptedRequest
+            return .request(lastAttemptedRequest)
         }
         if lastAttemptedRequestWasDiscardedForReplay,
            let lastAttemptedURL,
            URLRequest(url: lastAttemptedURL).browserMatchesFailedNavigationURLString(failedURL) {
-            return nil
+            return .disabled
         }
-        guard let url = URL(string: failedURL) else { return nil }
-        return URLRequest(url: url)
+        return .urlOnly
     }
 
     func webView(
@@ -786,7 +785,7 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         activeErrorPageDisplayURL = URL(string: failedURL)
         let canBypass = BrowserErrorPage(
             failedURL: failedURL,
-            failedRequest: requestForFailedNavigation(failedURL: failedURL),
+            retry: retryForFailedNavigation(failedURL: failedURL),
             error: nsError,
             sslBypassState: sslBypassState
         ).load(in: webView)

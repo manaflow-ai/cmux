@@ -125,7 +125,7 @@ import WebKit
         loadErrorPage(
             in: webView,
             failedURL: failedURL,
-            failedRequest: requestForFailedNavigation(failedURL: failedURL),
+            retry: retryForFailedNavigation(failedURL: failedURL),
             error: nsError
         )
     }
@@ -181,30 +181,29 @@ import WebKit
         didTerminateWebContentProcess?(webView)
     }
 
-    private func requestForFailedNavigation(failedURL: String) -> URLRequest? {
+    private func retryForFailedNavigation(failedURL: String) -> BrowserErrorPageRetry {
         if let lastAttemptedRequest {
             guard lastAttemptedRequest.url != nil,
                   lastAttemptedRequest.browserMatchesFailedNavigationURLString(failedURL) else {
-                return nil
+                return .urlOnly
             }
-            return lastAttemptedRequest
+            return .request(lastAttemptedRequest)
         }
         if lastAttemptedRequestWasDiscardedForReplay,
            let lastAttemptedURL,
            URLRequest(url: lastAttemptedURL).browserMatchesFailedNavigationURLString(failedURL) {
-            return nil
+            return .disabled
         }
-        guard let url = URL(string: failedURL) else { return nil }
-        return URLRequest(url: url)
+        return .urlOnly
     }
 
-    private func loadErrorPage(in webView: WKWebView, failedURL: String, failedRequest: URLRequest?, error: NSError) {
+    private func loadErrorPage(in webView: WKWebView, failedURL: String, retry: BrowserErrorPageRetry, error: NSError) {
         activeSSLTrustBypassReplayRequest = nil
         activeSSLTrustBypassErrorPageRetryRequest = nil
         activeErrorPageDisplayURL = URL(string: failedURL)
         let canBypass = BrowserErrorPage(
             failedURL: failedURL,
-            failedRequest: failedRequest,
+            retry: retry,
             error: error,
             sslBypassState: sslBypassState
         ).load(in: webView)

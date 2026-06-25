@@ -97,18 +97,19 @@ struct BrowserSSLTrustBypassStateTests {
         var postRequest = URLRequest(url: url)
         postRequest.httpMethod = "POST"
         postRequest.httpBody = Data("confirm=true".utf8)
-        #expect(BrowserErrorPage.retryURL(from: url.absoluteString, failedRequest: postRequest) == nil)
+        #expect(BrowserErrorPage.retryURL(from: url.absoluteString, retry: .request(postRequest)) == nil)
 
         var headerRequest = URLRequest(url: url)
         headerRequest.setValue("Bearer token", forHTTPHeaderField: "Authorization")
-        #expect(BrowserErrorPage.retryURL(from: url.absoluteString, failedRequest: headerRequest) == nil)
+        #expect(BrowserErrorPage.retryURL(from: url.absoluteString, retry: .request(headerRequest)) == nil)
 
         var headRequest = URLRequest(url: url)
         headRequest.httpMethod = "HEAD"
-        #expect(BrowserErrorPage.retryURL(from: url.absoluteString, failedRequest: headRequest) == nil)
+        #expect(BrowserErrorPage.retryURL(from: url.absoluteString, retry: .request(headRequest)) == nil)
 
         let getRequest = URLRequest(url: url)
-        #expect(BrowserErrorPage.retryURL(from: url.absoluteString, failedRequest: getRequest) == url)
+        #expect(BrowserErrorPage.retryURL(from: url.absoluteString, retry: .request(getRequest)) == url)
+        #expect(BrowserErrorPage.retryURL(from: url.absoluteString, retry: .disabled) == nil)
     }
 
     @Test

@@ -2,9 +2,16 @@ import Foundation
 import WebKit
 
 @MainActor
+enum BrowserErrorPageRetry {
+    case urlOnly
+    case request(URLRequest)
+    case disabled
+}
+
+@MainActor
 struct BrowserErrorPage {
     let failedURL: String
-    let failedRequest: URLRequest?
+    let retry: BrowserErrorPageRetry
     let error: NSError
     let sslBypassState: BrowserSSLTrustBypassState
 
@@ -18,19 +25,17 @@ struct BrowserErrorPage {
         let escapedReloadLabel = escapeHTML(String(localized: "browser.error.reload", defaultValue: "Reload"))
         let escapedBypassLabel = escapeHTML(String(localized: "browser.error.bypass", defaultValue: "Proceed Anyway (Unsafe)"))
         let reloadControlHTML: String
-        if let retryURL = Self.retryURL(from: failedURL, failedRequest: failedRequest) {
+        if let retryURL = Self.retryURL(from: failedURL, retry: retry) {
             reloadControlHTML = """
                 <a class="button reload" href="\(escapeHTML(retryURL.absoluteString))">\(escapedReloadLabel)</a>
             """
         } else {
-            reloadControlHTML = """
-                <button class="button reload" type="button" onclick="location.reload()">\(escapedReloadLabel)</button>
-            """
+            reloadControlHTML = ""
         }
 
         let bypassButtonHTML: String
         if content.permitsSSLBypass,
-           let failedRequest,
+           case let .request(failedRequest) = retry,
            let bypassURL = sslBypassState.createPendingBypassAction(for: failedRequest) {
             let token = URLComponents(url: bypassURL, resolvingAgainstBaseURL: false)?
                 .queryItems?
@@ -227,9 +232,16 @@ struct BrowserErrorPage {
             .replacingOccurrences(of: "\"", with: "&quot;")
     }
 
-    static func retryURL(from failedURL: String, failedRequest: URLRequest? = nil) -> URL? {
-        if let failedRequest, !failedRequest.browserCanReloadWithURLOnly {
+    static func retryURL(from failedURL: String, retry: BrowserErrorPageRetry = .urlOnly) -> URL? {
+        switch retry {
+        case .disabled:
             return nil
+        case .request(let failedRequest):
+            guard failedRequest.browserCanReloadWithURLOnly else {
+                return nil
+            }
+        case .urlOnly:
+            break
         }
         guard let url = URL(string: failedURL),
               let scheme = url.scheme?.lowercased(),
