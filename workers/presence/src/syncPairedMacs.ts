@@ -48,6 +48,10 @@ export const MAX_PAIRED_MACS_PER_USER = 200;
  * ids → delete → repeat unbounded. 5× the live cap leaves generous headroom for
  * legitimate forget/re-pair while capping the abuse vector. */
 export const MAX_PAIRED_MAC_RECORDS_PER_USER = MAX_PAIRED_MACS_PER_USER * 5;
+/** Max tagged-build backup scopes one user may create. Scopes are client-provided
+ * dev-build labels, so the server bounds their count before using them in a
+ * physical collection name. */
+export const MAX_PAIRED_MAC_CLIENT_SCOPES_PER_USER = 32;
 
 /** Max ops accepted in one backup request. A full reconcile pushes at most the
  * whole list, so the per-user cap is the natural bound. */
@@ -58,6 +62,7 @@ export const MAX_BACKUP_OPS = MAX_PAIRED_MACS_PER_USER;
 export const MAX_MAC_ID_LENGTH = 256;
 export const MAX_DISPLAY_NAME_LENGTH = 128;
 export const MAX_CLIENT_SCOPE_LENGTH = 128;
+const SYNC_HEAD_PREFIX = "synchead:";
 /** Route bounds mirror validate.ts so the backup payload can't exceed what a
  * heartbeat could push. */
 export const MAX_ROUTES = 16;
@@ -143,6 +148,20 @@ export function normalizeClientScope(value: unknown): string | null {
 export function pairedMacsCollection(userId: string, clientScope?: string | null): string {
   const scope = normalizeClientScope(clientScope);
   return scope ? `${SCOPED_PAIRED_MACS_COLLECTION}:${userId}:${scope}` : `${PAIRED_MACS_COLLECTION}:${userId}`;
+}
+
+function scopedPairedMacCollectionHeadPrefix(userId: string): string {
+  return `${SYNC_HEAD_PREFIX}${SCOPED_PAIRED_MACS_COLLECTION}:${userId}:`;
+}
+
+async function hasScopedCollectionCapacity(
+  storage: SyncStorage,
+  userId: string,
+  collection: string,
+): Promise<boolean> {
+  const heads = await storage.list<number>({ prefix: scopedPairedMacCollectionHeadPrefix(userId) });
+  if (heads.has(`${SYNC_HEAD_PREFIX}${collection}`)) return true;
+  return heads.size < MAX_PAIRED_MAC_CLIENT_SCOPES_PER_USER;
 }
 
 function finiteNumber(value: unknown): number | null {
@@ -295,6 +314,9 @@ export async function applyBackupOps(
   clientScope?: string | null,
 ): Promise<SyncDeltaFrame<unknown>[]> {
   const collection = pairedMacsCollection(userId, clientScope);
+  if (normalizeClientScope(clientScope) && !(await hasScopedCollectionCapacity(storage, userId, collection))) {
+    return [];
+  }
   // One listing gives both the live count (cap on visible Macs) AND the total
   // record count (live + RETAINED tombstones). Capping the total bounds storage
   // against create/delete churn: a delete keeps a tombstone for the GC retention

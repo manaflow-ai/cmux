@@ -115,12 +115,19 @@ struct WorkspaceListView: View {
     /// members can be found across groups; floating pinned members out of their
     /// group is acceptable while filtering. An active row filter (Unread)
     /// flattens the same way, for the same reason. A single-Mac picker scope
-    /// still renders groups; "All Macs" flattens because group ids are Mac-local.
+    /// still renders groups only for the foreground Mac whose group metadata is
+    /// available here; "All Macs" and secondary Mac selections flatten because
+    /// group ids are Mac-local.
     private var rendersGroupedSections: Bool {
         !groups.isEmpty
             && trimmedQuery.isEmpty
             && filter.readState == .all
-            && visibleMacSelection != .all
+            && selectedMacCanUseForegroundGroups
+    }
+
+    private var selectedMacCanUseForegroundGroups: Bool {
+        guard case .machine(let id) = visibleMacSelection else { return false }
+        return store?.connectedMacDeviceID == id
     }
 
     private func matchesQuery(_ workspace: MobileWorkspacePreview, query: String) -> Bool {

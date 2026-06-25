@@ -11,6 +11,7 @@ import {
   listBackupSnapshotWithUnscopedFallback,
   listLiveBackup,
   MAX_BACKUP_OPS,
+  MAX_PAIRED_MAC_CLIENT_SCOPES_PER_USER,
   MAX_PAIRED_MAC_RECORDS_PER_USER,
   MAX_PAIRED_MACS_PER_USER,
   normalizeClientScope,
@@ -135,6 +136,42 @@ describe("applyBackupOps", () => {
     expect((await listBackupSnapshot(storage, "user-1", "ios:Feature Tag")).records.map((r) => r.macDeviceID)).toEqual(["mac-a"]);
     expect((await listBackupSnapshot(storage, "user-1", "ios:other")).records.map((r) => r.macDeviceID)).toEqual(["mac-b"]);
     expect((await listBackupSnapshot(storage, "user-1")).records).toEqual([]);
+  });
+
+  it("bounds client-created scoped collections per user", async () => {
+    const storage = new FakeStorage();
+    for (let i = 0; i < MAX_PAIRED_MAC_CLIENT_SCOPES_PER_USER; i += 1) {
+      const deltas = await applyBackupOps(
+        storage,
+        "user-1",
+        [{ kind: "upsert", id: `mac-${i}`, record: record(`mac-${i}`, "10.0.0.1", 22) }],
+        T0 + i,
+        `ios:tag-${i}`,
+      );
+      expect(deltas).toHaveLength(1);
+    }
+
+    const over = await applyBackupOps(
+      storage,
+      "user-1",
+      [{ kind: "upsert", id: "blocked", record: record("blocked", "10.0.0.2", 22) }],
+      T0 + 1000,
+      "ios:blocked",
+    );
+    expect(over).toEqual([]);
+    expect((await listBackupSnapshot(storage, "user-1", "ios:blocked")).records).toEqual([]);
+
+    const existingScopeUpdate = await applyBackupOps(
+      storage,
+      "user-1",
+      [{ kind: "upsert", id: "mac-0", record: record("mac-0", "10.0.0.9", 22) }],
+      T0 + 2000,
+      "ios:tag-0",
+    );
+    expect(existingScopeUpdate.length).toBeGreaterThan(0);
+    expect((await listBackupSnapshot(storage, "user-1", "ios:tag-0")).records.map((r) => r.macDeviceID)).toEqual([
+      "mac-0",
+    ]);
   });
 
   it("writes the per-user physical collection and relabels frames to the logical name", async () => {
