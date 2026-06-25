@@ -83,7 +83,7 @@ extension GhosttySurfaceView {
     public static func copyableTerminalTextCapture(surfaceID: String) -> Task<String?, Never> {
         registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
         // Scoped pick: only views stamped with the requested id qualify, and
-        // they must still own a live surface. A dismantling view can linger in
+        // they must still own a live, non-dismantled surface. A dismantling view can linger in
         // the registry until its queued dispose runs, and its content stops at
         // whenever its byte stream detached — prefer the sheet's honest empty
         // state over silently copying that stale text.
@@ -106,6 +106,7 @@ extension GhosttySurfaceView {
             CopyableTerminalTextCandidate(
                 hostSurfaceID: view.hostSurfaceID,
                 hasSurface: view.surface != nil,
+                isDismantled: view.isDismantledForCopyableTextCapture,
                 hasWindow: view.window != nil,
                 isHidden: view.isHidden,
                 alpha: Double(view.alpha)
@@ -116,7 +117,7 @@ extension GhosttySurfaceView {
 
         #if DEBUG
         let candidateSummary = candidates
-            .map { "[id=\($0.hostSurfaceID ?? "nil") surf=\($0.hasSurface) win=\($0.hasWindow) hidden=\($0.isHidden) a=\(String(format: "%.2f", $0.alpha))]" }
+            .map { "[id=\($0.hostSurfaceID ?? "nil") surf=\($0.hasSurface) dismantled=\($0.isDismantled) win=\($0.hasWindow) hidden=\($0.isHidden) a=\(String(format: "%.2f", $0.alpha))]" }
             .joined(separator: " ")
         MobileDebugLog.anchormux(
             "viewAsText.pick want=\(surfaceID) count=\(candidates.count) chosen=\(chosen == nil ? "none" : "yes") \(candidateSummary)"

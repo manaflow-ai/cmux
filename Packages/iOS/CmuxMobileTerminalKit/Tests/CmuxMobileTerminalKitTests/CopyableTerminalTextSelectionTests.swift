@@ -34,6 +34,20 @@ struct CopyableTerminalTextSelectionTests {
         #expect(!selection.isEligible(dismantling, for: "surface:1"))
     }
 
+    @Test("a dismantled view with a retained surface is excluded")
+    func excludedWhenDismantledWithSurface() {
+        let dismantled = Candidate(
+            hostSurfaceID: "surface:1",
+            hasSurface: true,
+            isDismantled: true,
+            hasWindow: false,
+            isHidden: true,
+            alpha: 0
+        )
+        #expect(!selection.isEligible(dismantled, for: "surface:1"))
+        #expect(selection.chosenIndex(from: [dismantled], for: "surface:1") == nil)
+    }
+
     @Test("transitioning window/hidden/alpha state does not exclude the live requested surface")
     func transitioningSurfaceStillEligible() {
         let detached = Candidate(

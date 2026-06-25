@@ -1183,11 +1183,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// software keyboard does not pop up unprompted.
     public var autoFocusOnWindowAttach = true
     /// The shell-level surface/terminal id this view renders (the id the
-    /// workspace store streams bytes for), stamped by the mounting
-    /// representable. Scopes registry lookups — e.g. the "View as Text"
-    /// capture — to the terminal the caller actually asked about, instead of
-    /// whichever registered surface happens to sort first.
+    /// workspace store streams bytes for), stamped by the mounting representable.
+    /// Scopes registry lookups — e.g. the "View as Text"
+    /// capture — to the terminal the caller actually asked about.
     public var hostSurfaceID: String?
+    var isDismantledForCopyableTextCapture: Bool { isDismantled }
 
     @objc private func handleKeyboardWillShow(_ notification: Notification) {
         guard let frameEnd = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
