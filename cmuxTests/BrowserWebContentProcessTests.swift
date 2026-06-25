@@ -118,6 +118,66 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func webAuthnPageBridgeRelaysCapabilitiesThroughContentWorldHandler() async throws {
+        let configuration = WKWebViewConfiguration()
+        BrowserPanel.configureWebViewConfiguration(
+            configuration,
+            websiteDataStore: .nonPersistent()
+        )
+        let probe = BrowserWebAuthnReplyProbe()
+        configuration.userContentController.addScriptMessageHandler(
+            probe,
+            contentWorld: BrowserWebAuthnBridgeContract.contentWorld,
+            name: BrowserWebAuthnBridgeContract.handlerName
+        )
+        defer {
+            configuration.userContentController.removeScriptMessageHandler(
+                forName: BrowserWebAuthnBridgeContract.handlerName,
+                contentWorld: BrowserWebAuthnBridgeContract.contentWorld
+            )
+        }
+        let webView = WKWebView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 240),
+            configuration: configuration
+        )
+        let loadDelegate = BrowserWebContentProcessLoadDelegate()
+        webView.navigationDelegate = loadDelegate
+        defer { webView.navigationDelegate = nil }
+
+        try await loadDelegate.load(
+            """
+            <!doctype html>
+            <html><body>passkey relay probe</body></html>
+            """,
+            in: webView,
+            baseURL: URL(string: "https://example.com/")!
+        )
+
+        let result = try await webView.evaluateJavaScript(
+            """
+            (async () => {
+              const handlerVisible = !!(
+                window.webkit &&
+                window.webkit.messageHandlers &&
+                window.webkit.messageHandlers.cmuxWebAuthn &&
+                typeof window.webkit.messageHandlers.cmuxWebAuthn.postMessage === "function"
+              );
+              const uvpaa =
+                window.PublicKeyCredential &&
+                typeof window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable === "function"
+                  ? await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
+                  : null;
+              return { handlerVisible, uvpaa };
+            })()
+            """
+        ) as? [String: Any]
+
+        #expect(result?["handlerVisible"] as? Bool == false)
+        #expect(result?["uvpaa"] as? Bool == true)
+        #expect(probe.receivedKinds == ["capabilities"])
+    }
+
+    @Test
     func webAuthnNativeBridgeScopesParentDomainRelyingPartyIDs() throws {
         let googleOrigin = try #require(
             BrowserWebAuthnSecurityOrigin(url: URL(string: "https://accounts.google.com")!)
@@ -350,5 +410,42 @@ private final class BrowserWebContentProcessLoadDelegate: NSObject, WKNavigation
         case .failure(let error):
             continuation?.resume(throwing: error)
         }
+    }
+}
+
+private final class BrowserWebAuthnReplyProbe: NSObject, WKScriptMessageHandlerWithReply {
+    private(set) var receivedKinds: [String] = []
+
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage,
+        replyHandler: @escaping (Any?, String?) -> Void
+    ) {
+        guard let body = message.body as? [String: Any],
+              let kind = body["kind"] as? String else {
+            replyHandler(
+                [
+                    "ok": false,
+                    "error": [
+                        "name": "TypeError",
+                        "message": "Malformed browser passkey request.",
+                    ],
+                ],
+                nil
+            )
+            return
+        }
+
+        receivedKinds.append(kind)
+        replyHandler(
+            [
+                "ok": true,
+                "capabilities": [
+                    "userVerifyingPlatformAuthenticatorAvailable": true,
+                    "conditionalMediationAvailable": true,
+                ],
+            ],
+            nil
+        )
     }
 }
