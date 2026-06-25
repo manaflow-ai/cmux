@@ -193,7 +193,13 @@ struct WorkspaceListView: View {
         }
         return ids
             .map { WorkspaceFilterMachine(id: $0, name: names[$0] ?? fallbackMacPickerName) }
-            .sorted { lhs, rhs in lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending }
+            .sorted { lhs, rhs in
+                let nameOrder = lhs.name.localizedStandardCompare(rhs.name)
+                if nameOrder != .orderedSame {
+                    return nameOrder == .orderedAscending
+                }
+                return lhs.id < rhs.id
+            }
     }
 
     private var fallbackMacPickerName: String {
