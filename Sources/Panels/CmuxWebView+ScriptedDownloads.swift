@@ -6,8 +6,19 @@ extension CmuxWebView {
     private static let scriptedDownloadMessageHandlerName = "cmuxScriptedDownload"
     private static var scriptedDownloadHandlerInstalledKey: UInt8 = 0
     private static var scriptedDownloadTokenKey: UInt8 = 0
+    private static var subframeDownloadIntentHandlerKey: UInt8 = 0
     private static let maxScriptedDownloadPayloadBytes = 100 * 1024 * 1024
     private static let maxScriptedDownloadDataURLCharacters = 140 * 1024 * 1024
+
+    var onSubframeDownloadIntent: ((URL) -> Void)? {
+        get { objc_getAssociatedObject(self, &Self.subframeDownloadIntentHandlerKey) as? ((URL) -> Void) }
+        set { objc_setAssociatedObject(self, &Self.subframeDownloadIntentHandlerKey, newValue, .OBJC_ASSOCIATION_COPY_NONATOMIC) }
+    }
+
+    func clearBrowserDownloadCallbacks() {
+        onContextMenuDownloadStateChanged = nil
+        onSubframeDownloadIntent = nil
+    }
 
     private static func scriptedDownloadInterceptionBootstrapScriptSource(token: String) -> String {
         """
@@ -89,6 +100,16 @@ extension CmuxWebView {
               dataURL: String(dataURL || ""),
               suggestedFilename: String(suggestedFilename || "")
             });
+          } catch (_) {}
+        };
+        const postSubframeDownloadIntent = (anchor, event) => {
+          try {
+            if (!hasUserActivation(event) || !anchor) return;
+            const href = String(anchor.href || anchor.getAttribute("href") || "");
+            const scheme = href.split(":", 1)[0].toLowerCase();
+            if (scheme === "http" || scheme === "https") {
+              postMessage({ kind: "subframeDownloadIntent", token: bridgeToken, url: href });
+            }
           } catch (_) {}
         };
 
@@ -223,6 +244,7 @@ extension CmuxWebView {
 
         document.addEventListener("click", (event) => {
           const anchor = anchorForEvent(event);
+          postSubframeDownloadIntent(anchor, event);
           if (anchor && handledAnchors?.has(anchor)) {
             event.preventDefault();
             event.stopPropagation();
@@ -309,30 +331,6 @@ extension CmuxWebView {
         )
     }
 
-    @discardableResult
-    func startSubframeResponseSessionDownload(
-        navigationResponse: WKNavigationResponse,
-        reason: String
-    ) -> Bool {
-        guard let url = navigationResponse.response.url,
-              ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
-            return false
-        }
-        let traceID = Self.makeContextDownloadTraceID(prefix: "subframe")
-#if DEBUG
-        debugContextDownload("download.subframeSession trace=\(traceID) reason=\(reason) host=\(url.host ?? "nil")")
-#endif
-        downloadURLViaSession(
-            url,
-            suggestedFilename: navigationResponse.response.suggestedFilename,
-            sender: nil,
-            fallbackAction: nil,
-            fallbackTarget: nil,
-            traceID: traceID
-        )
-        return true
-    }
-
     fileprivate func handleScriptedDownloadMessage(_ body: [String: Any]) {
         let expectedToken = objc_getAssociatedObject(
             configuration.userContentController,
@@ -350,6 +348,11 @@ extension CmuxWebView {
         let suggestedFilename = body["suggestedFilename"] as? String
         let urlString: String?
         switch kind {
+        case "subframeDownloadIntent":
+            guard let rawURL = body["url"] as? String,
+                  let url = URL(string: rawURL.trimmingCharacters(in: .whitespacesAndNewlines)) else { return }
+            onSubframeDownloadIntent?(url)
+            return
         case "url":
             urlString = body["url"] as? String
         case "dataURL":

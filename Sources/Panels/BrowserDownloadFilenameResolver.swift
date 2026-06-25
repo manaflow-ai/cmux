@@ -2,10 +2,37 @@ import Foundation
 import ImageIO
 import CmuxSettings
 import UniformTypeIdentifiers
+import WebKit
 
 nonisolated enum BrowserDownloadHTTPStatusDecision: Equatable, Sendable {
     case allow
     case reject(statusCode: Int)
+}
+
+extension CmuxWebView {
+    @discardableResult
+    func startSubframeResponseSessionDownload(
+        navigationResponse: WKNavigationResponse,
+        reason: String
+    ) -> Bool {
+        guard let url = navigationResponse.response.url,
+              ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
+            return false
+        }
+        let traceID = Self.makeContextDownloadTraceID(prefix: "subframe")
+#if DEBUG
+        debugContextDownload("download.subframeSession trace=\(traceID) reason=\(reason) host=\(url.host ?? "nil")")
+#endif
+        downloadURLViaSession(
+            url,
+            suggestedFilename: navigationResponse.response.suggestedFilename,
+            sender: nil,
+            fallbackAction: nil,
+            fallbackTarget: nil,
+            traceID: traceID
+        )
+        return true
+    }
 }
 
 nonisolated struct BrowserDownloadFilenameResolver: Sendable {

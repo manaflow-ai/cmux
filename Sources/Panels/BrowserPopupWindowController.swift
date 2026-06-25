@@ -221,6 +221,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
             panel
         }
         webView.cmuxDownloadDelegate = dlDel
+        webView.onSubframeDownloadIntent = { [weak navDel] in navDel?.recordSubframeDownloadIntent($0) }
         webView.uiDelegate = uiDel
         webView.navigationDelegate = navDel
         webAuthnCoordinator.install(on: webView)
@@ -707,17 +708,17 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         guard navigationAction.targetFrame?.isMainFrame == false,
               let url = navigationAction.request.url,
               Self.isHTTPDownloadIntentURL(url) else { return }
-        let now = ProcessInfo.processInfo.systemUptime
-        pruneSubframeDownloadIntents(now: now)
-        guard navigationAction.navigationType == .linkActivated
-            || browserNavigationHasSimpleUserActivation() else { return }
-        let key = Self.downloadIntentKey(for: url)
-        recentSubframeDownloadIntentKeys.removeAll { $0.key == key }
+        let now = ProcessInfo.processInfo.systemUptime; pruneSubframeDownloadIntents(now: now)
+        guard navigationAction.navigationType == .linkActivated else { return }
+        recordSubframeDownloadIntent(url)
+    }
+    func recordSubframeDownloadIntent(_ url: URL) {
+        guard Self.isHTTPDownloadIntentURL(url) else { return }
+        let now = ProcessInfo.processInfo.systemUptime; pruneSubframeDownloadIntents(now: now)
+        let key = Self.downloadIntentKey(for: url); recentSubframeDownloadIntentKeys.removeAll { $0.key == key }
         recentSubframeDownloadIntentKeys.append((key, now))
         if recentSubframeDownloadIntentKeys.count > Self.maxSubframeDownloadIntentCount {
-            recentSubframeDownloadIntentKeys.removeFirst(
-                recentSubframeDownloadIntentKeys.count - Self.maxSubframeDownloadIntentCount
-            )
+            recentSubframeDownloadIntentKeys.removeFirst(recentSubframeDownloadIntentKeys.count - Self.maxSubframeDownloadIntentCount)
         }
     }
 

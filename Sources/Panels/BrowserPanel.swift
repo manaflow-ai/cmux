@@ -3362,9 +3362,7 @@ final class BrowserPanel: Panel, ObservableObject {
         isMainFrameProvisionalNavigationActive = false
         oldWebView.navigationDelegate = nil
         oldWebView.uiDelegate = nil
-        if let oldCmuxWebView = oldWebView as? CmuxWebView {
-            oldCmuxWebView.onContextMenuDownloadStateChanged = nil
-        }
+        if let oldCmuxWebView = oldWebView as? CmuxWebView { oldCmuxWebView.clearBrowserDownloadCallbacks() }
 
         let replacement = Self.makeWebView(
             profileID: profileID,
@@ -3741,8 +3739,8 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.onContextMenuOpenLinkInNewTab = { [weak self] url in
             self?.openLinkInNewTab(url: url)
         }
-        webView.cmuxDownloadDelegate = downloadDelegate
         configureMoveTabToNewWorkspaceContextMenu(for: webView); configureNavigationDelegateCallbacks()
+        webView.cmuxDownloadDelegate = downloadDelegate
         webView.navigationDelegate = navigationDelegate
         webView.uiDelegate = uiDelegate
         setupObservers(for: webView)
@@ -3755,6 +3753,7 @@ final class BrowserPanel: Panel, ObservableObject {
         guard let navigationDelegate else { return }
         let boundWebViewInstanceID = webViewInstanceID
         let boundHistoryStore = historyStore
+        webView.onSubframeDownloadIntent = { [weak navigationDelegate] in navigationDelegate?.recordSubframeDownloadIntent($0) }
 
         navigationDelegate.didStartProvisionalNavigation = { [weak self] webView in
             MainActor.assumeIsolated {
@@ -4431,9 +4430,7 @@ final class BrowserPanel: Panel, ObservableObject {
         isMainFrameProvisionalNavigationActive = false
         previousWebView.navigationDelegate = nil
         previousWebView.uiDelegate = nil
-        if let previousCmuxWebView = previousWebView as? CmuxWebView {
-            previousCmuxWebView.onContextMenuDownloadStateChanged = nil
-        }
+        if let previousCmuxWebView = previousWebView as? CmuxWebView { previousCmuxWebView.clearBrowserDownloadCallbacks() }
 
         profileID = resolvedProfileID
         historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
@@ -5012,9 +5009,7 @@ final class BrowserPanel: Panel, ObservableObject {
         isMainFrameProvisionalNavigationActive = false
         oldWebView.navigationDelegate = nil
         oldWebView.uiDelegate = nil
-        if let oldCmuxWebView = oldWebView as? CmuxWebView {
-            oldCmuxWebView.onContextMenuDownloadStateChanged = nil
-        }
+        if let oldCmuxWebView = oldWebView as? CmuxWebView { oldCmuxWebView.clearBrowserDownloadCallbacks() }
 
         let replacement = Self.makeWebView(
             profileID: profileID,
@@ -6023,9 +6018,7 @@ extension BrowserPanel {
         isMainFrameProvisionalNavigationActive = false
         oldWebView.navigationDelegate = nil
         oldWebView.uiDelegate = nil
-        if let oldCmuxWebView = oldWebView as? CmuxWebView {
-            oldCmuxWebView.onContextMenuDownloadStateChanged = nil
-        }
+        if let oldCmuxWebView = oldWebView as? CmuxWebView { oldCmuxWebView.clearBrowserDownloadCallbacks() }
 
         let replacement = Self.makeWebView(
             profileID: profileID,
@@ -8338,6 +8331,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
     private func removeState(for download: WKDownload) -> DownloadState? {
         activeDownloadsLock.lock()
         let state = activeDownloads.removeValue(forKey: ObjectIdentifier(download))
+        suggestedFilenameOverrides.removeValue(forKey: ObjectIdentifier(download))
         activeDownloadsLock.unlock()
         return state
     }
@@ -8424,6 +8418,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         // Save to a temp file — return synchronously so WebKit is never blocked.
         let filenameResolver = BrowserDownloadFilenameResolver()
         if case .reject = filenameResolver.httpStatusDecision(for: response) {
+            _ = removeState(for: download)
             completionHandler(nil)
             return
         }
@@ -8438,7 +8433,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
             self?.onDownloadStarted?(safeFilename)
         }
         #if DEBUG
-        cmuxDebugLog("download.decideDestination file=\(safeFilename)")
+        cmuxDebugLog("download.decideDestination file=<redacted>")
         #endif
         completionHandler(destURL)
     }
@@ -8451,7 +8446,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
             return
         }
         #if DEBUG
-        cmuxDebugLog("download.finished file=\(info.suggestedFilename)")
+        cmuxDebugLog("download.finished file=<redacted>")
         #endif
         let filenameResolver = BrowserDownloadFilenameResolver()
         Task { @MainActor in
@@ -8482,7 +8477,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
             case .success(let destinationURL):
                 self.onDownloadSaved?(suggestedFilename, destinationURL)
                 #if DEBUG
-                cmuxDebugLog("download.saved path=\(destinationURL.path)")
+                cmuxDebugLog("download.saved path=<redacted>")
                 #endif
             case .failure(let error):
                 try? FileManager.default.removeItem(at: info.tempURL)
@@ -9068,17 +9063,18 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         guard navigationAction.targetFrame?.isMainFrame == false,
               let url = navigationAction.request.url,
               Self.isHTTPDownloadIntentURL(url) else { return }
-        let now = ProcessInfo.processInfo.systemUptime
-        pruneSubframeDownloadIntents(now: now)
-        guard navigationAction.navigationType == .linkActivated
-            || browserNavigationHasSimpleUserActivation() else { return }
-        let key = Self.downloadIntentKey(for: url)
-        recentSubframeDownloadIntentKeys.removeAll { $0.key == key }
+        let now = ProcessInfo.processInfo.systemUptime; pruneSubframeDownloadIntents(now: now)
+        guard navigationAction.navigationType == .linkActivated else { return }
+        recordSubframeDownloadIntent(url)
+    }
+
+    func recordSubframeDownloadIntent(_ url: URL) {
+        guard Self.isHTTPDownloadIntentURL(url) else { return }
+        let now = ProcessInfo.processInfo.systemUptime; pruneSubframeDownloadIntents(now: now)
+        let key = Self.downloadIntentKey(for: url); recentSubframeDownloadIntentKeys.removeAll { $0.key == key }
         recentSubframeDownloadIntentKeys.append((key, now))
         if recentSubframeDownloadIntentKeys.count > Self.maxSubframeDownloadIntentCount {
-            recentSubframeDownloadIntentKeys.removeFirst(
-                recentSubframeDownloadIntentKeys.count - Self.maxSubframeDownloadIntentCount
-            )
+            recentSubframeDownloadIntentKeys.removeFirst(recentSubframeDownloadIntentKeys.count - Self.maxSubframeDownloadIntentCount)
         }
     }
 

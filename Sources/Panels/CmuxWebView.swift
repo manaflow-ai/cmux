@@ -1634,9 +1634,9 @@ final class CmuxWebView: WKWebView {
             guard let self else { return }
             self.notifyContextMenuDownloadState(false)
             switch result {
-            case .success(let destinationURL):
+            case .success:
                 self.debugContextDownload(
-                    "browser.ctxdl.\(logCategory) trace=\(traceID) stage=saveSuccess path=\(destinationURL.path)"
+                    "browser.ctxdl.\(logCategory) trace=\(traceID) stage=saveSuccess path=<redacted>"
                 )
             case .failure(let error):
                 self.debugContextDownload(
@@ -1660,7 +1660,7 @@ final class CmuxWebView: WKWebView {
             savePanel.canCreateDirectories = true
             savePanel.directoryURL = filenameResolver.downloadsDirectory()
             debugContextDownload(
-                "browser.ctxdl.\(logCategory) trace=\(traceID) stage=savePrompt shown=1 defaultName=\(saveName)"
+                "browser.ctxdl.\(logCategory) trace=\(traceID) stage=savePrompt shown=1 defaultName=<redacted>"
             )
             let completion: (NSApplication.ModalResponse) -> Void = { result in
                 guard result == .OK, let destURL = savePanel.url else {
@@ -1725,9 +1725,9 @@ final class CmuxWebView: WKWebView {
                     filenameResolver: filenameResolver
                 )
             }.value
-            if case .success(let destinationURL) = result {
+            if case .success = result {
                 self.debugContextDownload(
-                    "browser.ctxdl.\(logCategory) trace=\(traceID) stage=autoSave path=\(destinationURL.path)"
+                    "browser.ctxdl.\(logCategory) trace=\(traceID) stage=autoSave path=<redacted>"
                 )
             }
             completion(result)
@@ -1868,7 +1868,7 @@ final class CmuxWebView: WKWebView {
                 do {
                     let data = try Data(contentsOf: url)
                     self.debugContextDownload(
-                        "browser.ctxdl.file trace=\(traceID) stage=readSuccess bytes=\(data.count) path=\(url.path)"
+                        "browser.ctxdl.file trace=\(traceID) stage=readSuccess bytes=\(data.count) path=<redacted>"
                     )
                     let filename = suggestedFilename?.trimmingCharacters(in: .whitespacesAndNewlines)
                     let saveName = (filename?.isEmpty == false ? filename! : url.lastPathComponent.isEmpty ? "download" : url.lastPathComponent)
