@@ -29913,7 +29913,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         displayName: def.displayName,
                         sessionId: sessionId,
                         cwd: hookCwd ?? mapped?.cwd,
-                        launchCommand: launchCommand
+                        launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped?.launchCommand)
                     )
                 }
             }
@@ -30180,7 +30180,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: hookCwd ?? mapped?.cwd,
-                    launchCommand: launchCommand ?? mapped?.launchCommand
+                    launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped?.launchCommand)
                 )
                 if codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit(restoreVisibleState: true)
@@ -30454,7 +30454,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: cwd,
-                    launchCommand: launchCommand ?? mapped?.launchCommand
+                    launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped?.launchCommand)
                 )
             }
             if let pid, !suppressVisibleMutations {
@@ -30635,7 +30635,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: hookCwd ?? mapped?.cwd,
-                    launchCommand: launchCommand ?? mapped?.launchCommand
+                    launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped?.launchCommand)
                 )
             }
             if let pid, !suppressVisibleMutations {
