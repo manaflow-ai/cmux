@@ -188,6 +188,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
             switch method {
             case "vm.create":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["provider"] as? String, "freestyle")
+                XCTAssertEqual(params["idempotency_key"] as? String, "cmux-default-freestyle-sshd-v1")
+                XCTAssertNil(params["image"])
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -371,6 +375,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
             switch method {
             case "vm.create":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["provider"] as? String, "freestyle")
+                XCTAssertEqual(params["idempotency_key"] as? String, "cmux-default-freestyle-sshd-v1")
+                XCTAssertNil(params["image"])
                 return self.v2Response(
                     id: id,
                     ok: true,

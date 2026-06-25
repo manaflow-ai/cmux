@@ -4,6 +4,7 @@ import Foundation
 import Bonsplit
 import AppKit
 import CmuxAppKitSupportUI
+import CmuxFeedback
 
 /// View that renders the appropriate panel view based on panel type
 struct PanelContentView: View {
@@ -197,17 +198,31 @@ private struct CloudVMLoadingPanelView: View {
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 460)
-                    Button {
-                        _ = AppDelegate.shared?.performCloudVMAction(debugSource: "panel.cloudVM.retry")
-                    } label: {
-                        Label(
-                            String(localized: "panel.cloudVM.loading.failed.retry", defaultValue: "Retry"),
-                            systemImage: "arrow.clockwise"
-                        )
-                        .cmuxFont(size: 12, weight: .semibold)
+                    HStack(spacing: 8) {
+                        Button {
+                            _ = AppDelegate.shared?.performCloudVMAction(debugSource: "panel.cloudVM.retry")
+                        } label: {
+                            Label(
+                                String(localized: "panel.cloudVM.loading.failed.retry", defaultValue: "Retry"),
+                                systemImage: "arrow.clockwise"
+                            )
+                            .cmuxFont(size: 12, weight: .semibold)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+
+                        Button {
+                            FeedbackComposerBridge().openComposer()
+                        } label: {
+                            Label(
+                                String(localized: "panel.cloudVM.loading.failed.feedback", defaultValue: "Send Feedback"),
+                                systemImage: "bubble.left.and.text.bubble.right"
+                            )
+                            .cmuxFont(size: 12, weight: .semibold)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
                     Text(String(format: String(
                         localized: "panel.cloudVM.loading.failed.elapsed",
                         defaultValue: "Waited %ds before stopping."
