@@ -17,15 +17,18 @@ final class BrowserSSLTrustBypassState {
     private var pendingTokenOrder: [String] = []
     private let tokenLifetime: TimeInterval
     private let maximumPendingBypassCount: Int
+    private let maximumRetainedRequestBodyBytes: Int
     private let now: () -> Date
 
     init(
         tokenLifetime: TimeInterval = 24 * 60 * 60,
         maximumPendingBypassCount: Int = 32,
+        maximumRetainedRequestBodyBytes: Int = 1_048_576,
         now: @escaping () -> Date = { Date.now }
     ) {
         self.tokenLifetime = tokenLifetime
         self.maximumPendingBypassCount = max(1, maximumPendingBypassCount)
+        self.maximumRetainedRequestBodyBytes = max(0, maximumRetainedRequestBodyBytes)
         self.now = now
     }
 
@@ -62,7 +65,8 @@ final class BrowserSSLTrustBypassState {
     func createPendingBypassAction(for request: URLRequest) -> URL? {
         guard let url = request.url,
               let scope = BrowserSSLTrustScope(url: url),
-              let fingerprint = observedFingerprints[scope] else {
+              let fingerprint = observedFingerprints[scope],
+              canRetainRequestForReplay(request) else {
             return nil
         }
 
@@ -157,5 +161,15 @@ final class BrowserSSLTrustBypassState {
             let grant = bypassedTrustOrder.removeFirst()
             bypassedTrusts.remove(grant)
         }
+    }
+
+    private func canRetainRequestForReplay(_ request: URLRequest) -> Bool {
+        guard request.httpBodyStream == nil else {
+            return false
+        }
+        guard let body = request.httpBody else {
+            return true
+        }
+        return body.count <= maximumRetainedRequestBodyBytes
     }
 }

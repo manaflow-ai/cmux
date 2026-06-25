@@ -42,6 +42,30 @@ struct BrowserSSLTrustBypassStateTests {
     }
 
     @Test
+    func pendingBypassRejectsOversizedAndStreamedRequestBodies() throws {
+        let url = try #require(URL(string: "https://upload.internal/submit"))
+        let scope = try #require(BrowserSSLTrustScope(url: url))
+        let fingerprint = BrowserServerTrustFingerprint(sha256: Data("leaf-a".utf8))
+        let state = BrowserSSLTrustBypassState(maximumRetainedRequestBodyBytes: 4)
+        state.recordObservedServerTrustFingerprint(fingerprint, for: scope)
+
+        var oversizedRequest = URLRequest(url: url)
+        oversizedRequest.httpMethod = "POST"
+        oversizedRequest.httpBody = Data("12345".utf8)
+        #expect(state.createPendingBypassAction(for: oversizedRequest) == nil)
+
+        var streamedRequest = URLRequest(url: url)
+        streamedRequest.httpMethod = "POST"
+        streamedRequest.httpBodyStream = InputStream(data: Data("1234".utf8))
+        #expect(state.createPendingBypassAction(for: streamedRequest) == nil)
+
+        var retainedRequest = URLRequest(url: url)
+        retainedRequest.httpMethod = "POST"
+        retainedRequest.httpBody = Data("1234".utf8)
+        #expect(state.createPendingBypassAction(for: retainedRequest) != nil)
+    }
+
+    @Test
     func pendingBypassReplaysOriginalRequestOnceAndMarksHostBypassed() throws {
         let state = BrowserSSLTrustBypassState()
         let url = try #require(URL(string: "https://example.internal:8443/submit"))
