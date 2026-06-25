@@ -231,9 +231,9 @@ import Testing
         #expect(model.revision == 1)
     }
 
-    @Test func externalObservationSuppressesLaterStaleLocalEcho() async {
+    @Test func lateLocalCommitAfterExternalObservationReconcilesCurrent() async {
         let store = UserDefaultsSettingsStore(
-            defaults: UserDefaults(suiteName: "defaults-value-model-stale-echo")!
+            defaults: UserDefaults(suiteName: "defaults-value-model-late-local-commit")!
         )
         let key = SettingCatalog().betaFeatures.extensions
         let (stream, continuation) = AsyncStream<DefaultsEvent<Bool>>.makeStream()
@@ -266,11 +266,13 @@ import Testing
         #expect(model.revision == 3)
 
         continuation.yield(event(false, source: source))
-        for _ in 0..<10 {
+        spins = 0
+        while model.current != false, spins < 100_000 {
             await Task.yield()
+            spins += 1
         }
-        #expect(model.current == true)
-        #expect(model.revision == 3)
+        #expect(model.current == false)
+        #expect(model.revision == 4)
     }
 
     @Test func rapidLocalWriteEchoesDoNotRevertCurrentOrRevision() async {
