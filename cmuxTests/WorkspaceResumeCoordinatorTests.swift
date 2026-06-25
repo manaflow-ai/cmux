@@ -219,4 +219,52 @@ import Testing
         #expect(surface.nativeResumeCount == 0)
         #expect(surface.deliveredBreadcrumbs.count == 1)
     }
+
+    @Test func realWorkspaceResumeMarksRestoredAgentCommandExpected() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-resume-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let sessionId = "sess-expected-resume"
+        let projectDir = configDir
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent(RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd.path), isDirectory: true)
+        try FileManager.default.createDirectory(at: cwd, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+        try "{}\n".write(
+            to: projectDir.appendingPathComponent("\(sessionId).jsonl", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: sessionId,
+            workingDirectory: cwd.path,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/usr/bin/claude",
+                arguments: ["/usr/bin/claude"],
+                workingDirectory: cwd.path,
+                environment: ["CLAUDE_CONFIG_DIR": configDir.path],
+                capturedAt: 123,
+                source: "test"
+            )
+        )
+        workspace.restoredAgentSnapshotsByPanelId[panelId] = agent
+        workspace.restoredAgentVerificationByPanelId[panelId] = Workspace.crashRecoveryVerification(agent: agent)
+        workspace.restoredAgentResumeStatesByPanelId[panelId] = .manualResumeAvailable
+
+        let suiteName = "workspace-resume-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        CrashRecoverySettings.setInjectResumeBreadcrumb(false, defaults: defaults)
+        let outcome = workspace.resumeWhereWeLeftOff(defaults: defaults)
+
+        #expect(outcome == .resumed(deliveredBreadcrumb: false))
+        #expect(workspace.restoredAgentResumeStatesByPanelId[panelId] == .awaitingAutoResumeCommand)
+    }
 }

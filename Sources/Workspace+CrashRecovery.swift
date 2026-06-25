@@ -150,6 +150,10 @@ extension Workspace: ResumableWorkspaceSurface {
             ?? crashRecoveryResumeBinding?.inlineStartupInput(repairPortableAgentExecutable: false)
         guard let input = startupInput,
               !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        if restoredAgentSnapshotsByPanelId[panel.id] != nil {
+            restoredAgentResumeStatesByPanelId[panel.id] = .awaitingAutoResumeCommand
+            invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panel.id)
+        }
         sendInputWhenReady(input, to: panel, reason: .recoveryInput)
     }
 

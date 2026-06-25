@@ -165,9 +165,9 @@
 620	cmuxTests/TerminalNotificationQueueTests.swift
 612	cmuxUITests/FeedSidebarUITests.swift
 608	Packages/macOS/CmuxWorkspaces/Sources/CmuxWorkspaces/Coordinators/WorkspaceGroupCoordinator.swift
+608	Sources/Workspace+CrashRecovery.swift
 606	Sources/SettingsNavigation.swift
 604	Packages/macOS/CmuxCommandPalette/Tests/CmuxCommandPaletteTests/CommandPaletteNucleoFFITests.swift
-604	Sources/Workspace+CrashRecovery.swift
 601	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerPrimaryPolicies.swift
 599	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizer.swift
 596	cmuxTests/CmuxEventBusTests.swift
