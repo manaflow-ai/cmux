@@ -815,6 +815,7 @@ private extension BrowserWebAuthnCredentialDescriptor {
 
         let descriptorTransports: [ASAuthorizationSecurityKeyPublicKeyCredentialDescriptor.Transport]
         if transports.isEmpty {
+            guard normalizedTransports.isEmpty else { return nil }
             descriptorTransports = [
                 .init(rawValue: "usb"),
                 .init(rawValue: "nfc"),
@@ -1544,7 +1545,7 @@ private extension BrowserWebAuthnCoordinator {
                 }
 
                 let transports = Set(descriptor.normalizedTransports)
-                guard transports.contains(.internal) || transports.contains(.hybrid) else {
+                guard transports.contains(.internal) else {
                     return nil
                 }
                 return descriptor.platformDescriptor()
