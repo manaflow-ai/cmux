@@ -4402,6 +4402,7 @@ final class BrowserPanel: Panel, ObservableObject {
         faviconRefreshGeneration &+= 1
         cancelPendingInteractiveBrowserPrompts(reason: "profileSwitch")
         closeBackgroundPreloadHost(reason: "profileSwitch")
+        navigationDelegate?.clearSSLTrustState()
         BrowserWindowPortalRegistry.detach(webView: previousWebView)
         previousWebView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
@@ -4960,6 +4961,10 @@ final class BrowserPanel: Panel, ObservableObject {
         let historyCurrentURL = preferredURLStringForOmnibar()
         let desiredZoom = max(minPageZoom, min(maxPageZoom, oldWebView.pageZoom))
         let restoreDevTools = preferredDeveloperToolsVisible
+
+        if oldWebView.configuration.websiteDataStore !== websiteDataStore {
+            navigationDelegate?.clearSSLTrustState()
+        }
 
 #if DEBUG
         cmuxDebugLog(
