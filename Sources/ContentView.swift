@@ -11702,12 +11702,12 @@ struct VerticalTabsSidebar: View {
         return snapshotsById
     }
 
-    private func extensionSidebarWorkspaceAgentLifecycleStatesById(
-        for rows: [CmuxSidebarProviderRow]
-    ) -> [UUID: AgentHibernationLifecycleState] {
+    private func extensionSidebarWorkspaceAgentLifecycleStatesById(for rows: [CmuxSidebarProviderRow])
+        -> [UUID: AgentHibernationLifecycleState] {
+        let workspaceById = Dictionary(uniqueKeysWithValues: tabManager.tabs.map { ($0.id, $0) })
         var statesById: [UUID: AgentHibernationLifecycleState] = [:]
         for row in rows where statesById[row.workspaceId] == nil {
-            guard let workspace = tabManager.tabs.first(where: { $0.id == row.workspaceId }),
+            guard let workspace = workspaceById[row.workspaceId],
                   let state = extensionSidebarAgentLifecycleState(for: workspace) else {
                 continue
             }
