@@ -130,7 +130,8 @@ extension CMUXCLI {
         let stdinPipe = Pipe()
         let outputURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-autoname-stdout-\(UUID().uuidString).txt")
-        guard FileManager.default.createFile(atPath: outputURL.path, contents: nil),
+        let outputAttributes: [FileAttributeKey: Any] = [.posixPermissions: NSNumber(value: Int16(0o600))]
+        guard FileManager.default.createFile(atPath: outputURL.path, contents: nil, attributes: outputAttributes),
               let stdoutHandle = try? FileHandle(forWritingTo: outputURL) else {
             return nil
         }
