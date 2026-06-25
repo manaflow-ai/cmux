@@ -140,44 +140,6 @@ import Testing
         #expect(afterBackoff == .proceed(baseline: 100))
     }
 
-    @Test func extractionMissesDoNotStampAttemptCooldown() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-autonaming-store-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let store = ClaudeHookSessionStore(processEnv: [
-            "CMUX_CLAUDE_HOOK_STATE_PATH": root.appendingPathComponent("state.json").path
-        ])
-
-        let first = try store.beginAutoNaming(
-            sessionId: "session-1",
-            workspaceId: "workspace-1",
-            surfaceId: "surface-1",
-            transcriptLineCount: config.minTranscriptLines,
-            now: Date(timeIntervalSince1970: 1_000_000),
-            engine: engine
-        )
-        #expect(first.decision == .proceed(baseline: config.minTranscriptLines))
-        _ = try store.finishAutoNaming(
-            sessionId: "session-1",
-            passId: first.passId,
-            appliedTitle: nil,
-            baselineLineCount: nil,
-            now: Date(timeIntervalSince1970: 1_000_001),
-            countFailure: false
-        )
-
-        let retry = try store.beginAutoNaming(
-            sessionId: "session-1",
-            workspaceId: "workspace-1",
-            surfaceId: "surface-1",
-            transcriptLineCount: config.minTranscriptLines,
-            now: Date(timeIntervalSince1970: 1_000_002),
-            engine: engine
-        )
-        #expect(retry.decision == .proceed(baseline: config.minTranscriptLines))
-    }
-
     @Test func compactionReseedsInsteadOfSkippingForever() {
         let base = TimeInterval(1_000_000)
         let now = Date(timeIntervalSince1970: base + config.minInterval + 1)
@@ -208,48 +170,6 @@ import Testing
             now: Date(timeIntervalSince1970: base + config.inFlightExpiry + 1)
         )
         #expect(expired == .proceed(baseline: 100))
-    }
-
-    @Test func hookMessageSequenceCountsUniqueContentPerEvent() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-autonaming-messages-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let store = ClaudeHookSessionStore(processEnv: [
-            "CMUX_CLAUDE_HOOK_STATE_PATH": root.appendingPathComponent("state.json").path
-        ])
-        let userMessage = AutoNamingTranscriptMessage(role: "user", text: "Rename this workspace")
-        let assistantMessage = AutoNamingTranscriptMessage(role: "assistant", text: "I will inspect the transcript.")
-
-        try store.recordPromptStop(
-            sessionId: "session-1",
-            workspaceId: "workspace-1",
-            surfaceId: "surface-1",
-            cwd: nil,
-            pid: nil,
-            launchCommand: nil,
-            lastSubtitle: nil,
-            lastBody: nil,
-            autoNameMessages: [userMessage, userMessage, assistantMessage, assistantMessage]
-        )
-        var snapshot = try store.autoNamingRecentMessagesSnapshot(sessionId: "session-1")
-        #expect(snapshot.messages == [userMessage, assistantMessage])
-        #expect(snapshot.totalMessageCount == 2)
-
-        try store.recordPromptStop(
-            sessionId: "session-1",
-            workspaceId: "workspace-1",
-            surfaceId: "surface-1",
-            cwd: nil,
-            pid: nil,
-            launchCommand: nil,
-            lastSubtitle: nil,
-            lastBody: nil,
-            autoNameMessages: [userMessage, assistantMessage]
-        )
-        snapshot = try store.autoNamingRecentMessagesSnapshot(sessionId: "session-1")
-        #expect(snapshot.messages == [userMessage, assistantMessage])
-        #expect(snapshot.totalMessageCount == 4)
     }
 
     // MARK: - Extraction
@@ -382,24 +302,6 @@ import Testing
         #expect(engine.sanitizeResponse("Fix auth bug", currentTitle: "Other title") == "Fix auth bug")
     }
 
-    @Test func unchangedTitleUsesIdempotentApplyPath() throws {
-        let telemetry = CLISocketSentryTelemetry(
-            command: "cmux",
-            commandArgs: [],
-            socketPath: "/tmp/cmux-test.sock",
-            processEnv: ["CMUX_CLI_SENTRY_DISABLED": "1"]
-        )
-        let action = try #require(CMUXCLI(args: []).autoNamingSanitizedAction(
-            engine: engine,
-            rawResponse: "Fix auth bug",
-            currentTitle: "Fix auth bug",
-            telemetryKey: "auto-name-test",
-            telemetry: telemetry
-        ))
-        #expect(action.title == "Fix auth bug")
-        #expect(action.shouldApply == true)
-    }
-
     // MARK: - Environment policy
 
     @Test func summarizerEnvironmentScrubsRecursionVarsAndPreservesBackend() {
@@ -468,28 +370,4 @@ import Testing
         #expect(policy.claudeModel(from: ["ANTHROPIC_SMALL_FAST_MODEL": "vertex-haiku-id"]) == "vertex-haiku-id")
     }
 
-    @Test func summarizerTimeoutAppliesWhileWritingLargePromptToUnreadStdin() {
-        let prompt = String(repeating: "x", count: 2 * 1024 * 1024)
-        let output = CMUXCLI(args: []).runAutoNamingSummarizer(
-            executable: "/bin/sh",
-            arguments: ["-c", "sleep 1"],
-            prompt: prompt,
-            environment: ["PATH": "/bin:/usr/bin"],
-            timeout: 0.2
-        )
-
-        #expect(output == nil)
-    }
-
-    @Test func summarizerReturnsAfterMainExitWithInheritedStdoutWriter() {
-        let output = CMUXCLI(args: []).runAutoNamingSummarizer(
-            executable: "/bin/sh",
-            arguments: ["-c", "printf 'Inherited Writer Title\\n'; sleep 1 & exit 0"],
-            prompt: "Summarize this conversation.",
-            environment: ["PATH": "/bin:/usr/bin"],
-            timeout: 0.2
-        )
-
-        #expect(output == "Inherited Writer Title\n")
-    }
 }

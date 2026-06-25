@@ -270,7 +270,7 @@ extension CMUXCLI {
         var confirmedTitle: String?
         var countFailure = true
         defer {
-            try? sessionStore.finishAutoNaming(
+            _ = try? sessionStore.finishAutoNaming(
                 sessionId: sessionId,
                 passId: outcome.passId,
                 appliedTitle: confirmedTitle,

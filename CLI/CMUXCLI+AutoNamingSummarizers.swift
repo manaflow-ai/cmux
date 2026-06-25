@@ -283,13 +283,11 @@ extension CMUXCLI {
                 guard withinLimit else { return (nil, false, promptDelivered) }
             }
             if !promptDelivered {
-                switch writeAvailableAutoNamingInput(promptData, offset: &promptOffset, to: stdinFD) {
-                case .complete:
+                let writeResult = writeAvailableAutoNamingInput(promptData, offset: &promptOffset, to: stdinFD)
+                if writeResult.completed {
                     promptDelivered = true
                     closeAutoNamingFD(&stdinFD)
-                case .wouldBlock:
-                    break
-                case .failed:
+                } else if writeResult.failed {
                     closeAutoNamingFD(&stdinFD)
                     return (nil, true, false)
                 }
@@ -327,12 +325,6 @@ extension CMUXCLI {
         }
     }
 
-    private enum AutoNamingInputWriteResult {
-        case complete
-        case wouldBlock
-        case failed
-    }
-
     private func closeAutoNamingFD(_ fd: inout Int32) {
         if fd >= 0 {
             close(fd)
@@ -344,12 +336,12 @@ extension CMUXCLI {
         _ data: Data,
         offset: inout Int,
         to fd: Int32
-    ) -> AutoNamingInputWriteResult {
-        guard fd >= 0 else { return .failed }
-        guard !data.isEmpty else { return .complete }
+    ) -> (completed: Bool, failed: Bool) {
+        guard fd >= 0 else { return (false, true) }
+        guard !data.isEmpty else { return (true, false) }
         return data.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.bindMemory(to: UInt8.self).baseAddress else {
-                return .complete
+                return (true, false)
             }
             while offset < rawBuffer.count {
                 let written = Darwin.write(fd, baseAddress.advanced(by: offset), rawBuffer.count - offset)
@@ -357,17 +349,17 @@ extension CMUXCLI {
                     offset += written
                     continue
                 }
-                if written == 0 { return .failed }
+                if written == 0 { return (false, true) }
                 switch errno {
                 case EINTR:
                     continue
                 case EAGAIN, EWOULDBLOCK:
-                    return .wouldBlock
+                    return (false, false)
                 default:
-                    return .failed
+                    return (false, true)
                 }
             }
-            return .complete
+            return (true, false)
         }
     }
 
