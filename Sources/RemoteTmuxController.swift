@@ -180,8 +180,8 @@ final class RemoteTmuxController {
         }
     }
 
-    /// Ensures the requested session is attachable via a non-interactive tmux
-    /// command. Returns an auth-required outcome when BatchMode SSH cannot prompt;
+    /// Ensures the requested session is attachable via non-interactive tmux
+    /// commands. Returns an auth-required outcome when BatchMode SSH cannot prompt;
     /// returns `nil` when the control stream may be launched.
     private func preflightControlAttach(
         host: RemoteTmuxHost,
@@ -191,6 +191,7 @@ final class RemoteTmuxController {
         let transport = transport(for: host)
 
         do {
+            try await transport.assertMinimumTmuxVersion()
             let existing = try await transport.runTmux(["has-session", "-t", sessionName])
             if existing.succeeded {
                 return nil
