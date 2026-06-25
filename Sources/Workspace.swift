@@ -4878,7 +4878,7 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     func clearSurfaceResumeBinding(panelId: UUID) -> Bool {
         restoredAgentVerificationByPanelId.removeValue(forKey: panelId)
-        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId) != nil
+        return surfaceResumeBindingsByPanelId.removeValue(forKey: panelId) != nil
     }
 
     func surfaceResumeBinding(panelId: UUID) -> SurfaceResumeBindingSnapshot? {
