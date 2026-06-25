@@ -24,15 +24,15 @@ import Testing
         #expect(V.parse("tmux 3.6a\n") == V(major: 3, minor: 6, letterRank: 1))
     }
 
-    @Test func gateRejectsBelow32AndAcceptsFrom32() {
+    @Test func gateRejectsBelow32AndAcceptsFrom32() throws {
         // Below the minimum — these should be rejected.
         for s in ["tmux 1.8", "tmux 2.1", "tmux 2.6", "tmux 3.0", "tmux 3.1", "tmux 3.1c"] {
-            let v = try! #require(V.parse(s), "\(s)")
+            let v = try #require(V.parse(s), "\(s)")
             #expect(!v.meetsMinimum, "\(s) should be unsupported")
         }
         // At/above the minimum — accepted.
         for s in ["tmux 3.2", "tmux 3.2a", "tmux 3.3a", "tmux 3.4", "tmux 3.6a", "tmux 4.0"] {
-            let v = try! #require(V.parse(s), "\(s)")
+            let v = try #require(V.parse(s), "\(s)")
             #expect(v.meetsMinimum, "\(s) should be supported")
         }
     }
