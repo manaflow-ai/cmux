@@ -76,4 +76,31 @@ public struct BrowserPortalOmnibarSuggestionsConfiguration {
         self.onCommit = onCommit
         self.onHighlight = onHighlight
     }
+
+    /// Returns whether this configuration is equivalent to `other` for mount
+    /// reuse, comparing only the value fields that affect what the suggestion
+    /// popup renders. The closures are ignored: a difference in callbacks does
+    /// not require remounting the popup. ``popupFrame`` is compared with a 0.5pt
+    /// tolerance so sub-pixel layout jitter does not force a remount.
+    /// - Parameter other: The configuration to compare against.
+    /// - Returns: `true` when both configurations target the same panel, render
+    ///   the same rows in the same state, and place the popup at approximately
+    ///   the same frame.
+    public func isEquivalent(to other: BrowserPortalOmnibarSuggestionsConfiguration) -> Bool {
+        let frame = popupFrame
+        let otherFrame = other.popupFrame
+        let epsilon: CGFloat = 0.5
+        let frameApproximatelyEqual = abs(frame.origin.x - otherFrame.origin.x) <= epsilon &&
+            abs(frame.origin.y - otherFrame.origin.y) <= epsilon &&
+            abs(frame.size.width - otherFrame.size.width) <= epsilon &&
+            abs(frame.size.height - otherFrame.size.height) <= epsilon
+        return panelId == other.panelId &&
+            frameApproximatelyEqual &&
+            colorScheme == other.colorScheme &&
+            engineName == other.engineName &&
+            items == other.items &&
+            selectedIndex == other.selectedIndex &&
+            isLoadingRemoteSuggestions == other.isLoadingRemoteSuggestions &&
+            searchSuggestionsEnabled == other.searchSuggestionsEnabled
+    }
 }

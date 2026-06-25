@@ -65,4 +65,20 @@ public struct BrowserPortalSearchOverlayConfiguration {
         self.onClose = onClose
         self.onFieldDidFocus = onFieldDidFocus
     }
+
+    /// Returns whether this configuration is equivalent to `other` for mount
+    /// reuse, comparing only the value and identity fields that affect what the
+    /// overlay renders. The closures are ignored: a difference in callbacks does
+    /// not require remounting the overlay. ``searchState`` is compared by
+    /// reference identity (`===`) because it is the same observable object that
+    /// the overlay binds to; only swapping in a different state object matters.
+    /// - Parameter other: The configuration to compare against.
+    /// - Returns: `true` when both configurations target the same panel, the same
+    ///   ``searchState`` instance, and the same focus-request generation.
+    @MainActor
+    public func isEquivalent(to other: BrowserPortalSearchOverlayConfiguration) -> Bool {
+        panelId == other.panelId &&
+            searchState === other.searchState &&
+            focusRequestGeneration == other.focusRequestGeneration
+    }
 }

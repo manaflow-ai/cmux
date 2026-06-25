@@ -23,13 +23,6 @@ struct SessionIndexView: View {
     /// Rows shown per section before "Show more" is tapped.
     private static let collapsedRowLimit = 5
 
-    static let absoluteFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateStyle = .medium
-        f.timeStyle = .short
-        return f
-    }()
-
     var body: some View {
         VStack(spacing: 0) {
             controlBar
@@ -303,7 +296,7 @@ private struct IndexSectionView: View, Equatable {
                         displayTitle: entry.displayTitle,
                         agentAssetName: entry.agent.assetName,
                         agentSystemImageName: entry.agent.systemImageName,
-                        helpText: entry.sessionRowHelpText,
+                        helpText: entry.sessionRowHelpText(displayTitle: entry.displayTitle),
                         isPreviewPresented: isPreviewPresented,
                         onPreviewPresentationChange: { isPresented in
                             if isPresented {
@@ -686,24 +679,10 @@ private final class PopoverAnchorView: NSView {
 // `NSViewRepresentable`) stay app-side and are injected into the package rows as the
 // `dragItemProvider` / `menuContent` / `previewHost` closures at the call sites in
 // `IndexSectionView` and `SectionPopoverView`. Both rows resolve relative time
-// themselves via the package's `RelativeTimestampSchedule`; the app keeps only the
-// absolute-time `SessionIndexView.absoluteFormatter`, used to compose the row's
-// hover tooltip in `SessionEntry.sessionRowHelpText`.
-
-extension SessionEntry {
-    /// The multi-line hover tooltip for a full session row: the display title, the
-    /// optional working-directory label, and the absolute modified time. Composed
-    /// app-side because the absolute time uses the app's `DateFormatter`, then
-    /// passed into the package `SessionRow` as a resolved string.
-    var sessionRowHelpText: String {
-        var lines: [String] = [displayTitle]
-        if let cwd = cwdLabel {
-            lines.append(cwd)
-        }
-        lines.append(SessionIndexView.absoluteFormatter.string(from: modified))
-        return lines.joined(separator: "\n")
-    }
-}
+// themselves via the package's `RelativeTimestampSchedule`; the row's hover tooltip
+// is composed by the package's `SessionEntry.sessionRowHelpText(displayTitle:)`
+// (Rows/SessionEntry+SessionRowPresentation.swift), with the app passing the
+// app-resolved `displayTitle`.
 
 // MARK: - Drag payload
 

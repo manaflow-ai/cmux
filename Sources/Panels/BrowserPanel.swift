@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import CmuxCore
+import CmuxFoundation
 import CmuxPanes
 import CmuxBrowser
 import CmuxSettings
@@ -40,167 +41,20 @@ import CmuxTerminal
 // `CmuxBrowser` package (imported above); the call sites reference them
 // unqualified through that import.
 
-// Adapts `CmuxBrowser`'s `BrowserHistoryStore` to the package's profile-history
-// seam so the profile repository can manage per-profile history stores through
-// the `BrowserProfileHistoryStore` protocol. The conformance is declared
-// app-side because the protocol's `@MainActor` lifecycle requirements are
-// satisfied by the store's existing public surface.
-extension BrowserHistoryStore: BrowserProfileHistoryStore {}
-
-@MainActor
-private final class BrowserProfileHistoryAdapter: BrowserProfileHistoryProviding {
-    var sharedHistoryStore: any BrowserProfileHistoryStore { BrowserHistoryStore.shared }
-
-    func makeHistoryStore(fileURL: URL?) -> any BrowserProfileHistoryStore {
-        BrowserHistoryStore(fileURL: fileURL)
-    }
-
-    func defaultHistoryFileURLForCurrentBundle() -> URL? {
-        BrowserHistoryStore.defaultHistoryFileURLForCurrentBundle()
-    }
-
-    func normalizedBrowserHistoryNamespace(forBundleIdentifier bundleIdentifier: String) -> String {
-        BrowserHistoryStore.normalizedBrowserHistoryNamespaceForBundleIdentifier(bundleIdentifier)
-    }
-
-    func flushSharedHistoryPendingSaves() {
-        BrowserHistoryStore.shared.flushPendingSaves()
-    }
-}
-
-// Adapts WebKit's `WKWebsiteDataStore` to the `CmuxBrowser` data-store
-// seam, mapping the built-in default profile to the default store and bridging
-// the legacy completion-handler wipe to `async`/`await` at this one boundary.
-@MainActor
-private final class BrowserProfileWebsiteDataStoreAdapter: BrowserProfileWebsiteDataStoreProviding {
-    var defaultWebsiteDataStore: AnyObject { WKWebsiteDataStore.default() }
-
-    func makeWebsiteDataStore(forProfileID profileID: UUID) -> AnyObject {
-        WKWebsiteDataStore(forIdentifier: profileID)
-    }
-
-    var allWebsiteDataTypes: [String] { Array(WKWebsiteDataStore.allWebsiteDataTypes()) }
-
-    func removeAllData(ofTypes dataTypes: [String], from store: AnyObject) async {
-        guard let store = store as? WKWebsiteDataStore else { return }
-        let types = Set(dataTypes)
-        await withCheckedContinuation { continuation in
-            store.removeData(ofTypes: types, modifiedSince: .distantPast) {
-                continuation.resume()
-            }
-        }
-    }
-}
-
-// Removes profile-owned files via a detached utility task, matching the original
-// best-effort, ignore-errors deletion behavior.
-private struct BrowserProfileFileRemover: BrowserProfileFileRemoving {
-    func removeItemIfExists(at url: URL) async {
-        await Task.detached(priority: .utility) {
-            try? FileManager.default.removeItem(at: url)
-        }.value
-    }
-}
-
-@MainActor
-@Observable
-final class BrowserProfileStore {
-    static let shared = BrowserProfileStore()
-
-    private(set) var profiles: [BrowserProfileDefinition] = []
-    private(set) var lastUsedProfileID: UUID = BrowserProfileRepository.builtInDefaultProfileID
-
-    private let repository: BrowserProfileRepository
-
-    init(defaults: UserDefaults = .standard) {
-        repository = BrowserProfileRepository(
-            defaults: defaults,
-            historyProvider: BrowserProfileHistoryAdapter(),
-            websiteDataStoreProvider: BrowserProfileWebsiteDataStoreAdapter(),
-            fileRemover: BrowserProfileFileRemover(),
-            bundleIdentifier: Bundle.main.bundleIdentifier ?? "cmux",
-            defaultProfileDisplayName: String(localized: "browser.profile.default", defaultValue: "Default")
-        )
-        mirrorPublishedState()
-    }
-
-    private func mirrorPublishedState() {
-        profiles = repository.profiles
-        lastUsedProfileID = repository.lastUsedProfileID
-    }
-
-    var builtInDefaultProfileID: UUID {
-        repository.builtInDefaultProfileID
-    }
-
-    var effectiveLastUsedProfileID: UUID {
-        repository.effectiveLastUsedProfileID
-    }
-
-    func profileDefinition(id: UUID) -> BrowserProfileDefinition? {
-        repository.profileDefinition(id: id)
-    }
-
-    func displayName(for id: UUID) -> String {
-        repository.displayName(for: id)
-    }
-
-    func createProfile(named rawName: String) -> BrowserProfileDefinition? {
-        let result = repository.createProfile(named: rawName)
-        mirrorPublishedState()
-        return result
-    }
-
-    func renameProfile(id: UUID, to rawName: String) -> Bool {
-        let result = repository.renameProfile(id: id, to: rawName)
-        mirrorPublishedState()
-        return result
-    }
-
-    func canRenameProfile(id: UUID) -> Bool {
-        repository.canRenameProfile(id: id)
-    }
-
-    func deleteProfile(id: UUID) -> BrowserProfileDefinition? {
-        let result = repository.deleteProfile(id: id)
-        mirrorPublishedState()
-        return result
-    }
-
-    func clearProfileData(id: UUID) async -> BrowserProfileClearOutcome? {
-        let result = await repository.clearProfileData(id: id)
-        mirrorPublishedState()
-        return result
-    }
-
-    func noteUsed(_ id: UUID) {
-        repository.noteUsed(id)
-        mirrorPublishedState()
-    }
-
-    func websiteDataStore(for profileID: UUID) -> WKWebsiteDataStore {
-        // Safe force-cast: the adapter only ever vends `WKWebsiteDataStore` handles.
-        repository.websiteDataStore(for: profileID) as! WKWebsiteDataStore
-    }
-
-    func historyStore(for profileID: UUID) -> BrowserHistoryStore {
-        // Safe force-cast: the adapter only ever vends `BrowserHistoryStore` handles.
-        repository.historyStore(for: profileID) as! BrowserHistoryStore
-    }
-
-    func historyFileURL(for profileID: UUID) -> URL? {
-        repository.historyFileURL(for: profileID)
-    }
-
-    func flushPendingSaves() {
-        repository.flushPendingSaves()
-    }
-}
-
-// `BrowserProfileStore` already vends the profile list, id lookup, and create
-// operations that plan realization needs, so it supplies the destination-profile
-// seam to `RealizedBrowserImportExecutionPlan.realized(from:profileResolver:)`.
-extension BrowserProfileStore: BrowserImportProfileResolving {}
+// `BrowserProfileStore` (the `@MainActor @Observable` facade over
+// `BrowserProfileRepository`, vending profiles/lastUsedProfileID plus
+// create/rename/delete/clear/noteUsed and the websiteDataStore/historyStore
+// lookups), its three private adapters (`BrowserProfileHistoryAdapter`,
+// `BrowserProfileWebsiteDataStoreAdapter`, `BrowserProfileFileRemover`), the
+// `BrowserHistoryStore: BrowserProfileHistoryStore` conformance, and the
+// `BrowserProfileStore: BrowserImportProfileResolving` conformance now live in
+// the `CmuxBrowser` package's `Profiles/` folder (imported above). `static let
+// shared` is kept (pure relocation, not de-singletonization). The built-in
+// default profile's localized display name must stay app-side: it is resolved
+// at the composition point and pushed into the package via
+// `BrowserProfileStore.defaultProfileDisplayNameProvider` (see
+// `bootstrapBrowserDefaultsIfNeeded()`), because in-package `String(localized:)`
+// would bind to the package bundle and drop Japanese.
 
 // `BrowserHistoryStore` (`@MainActor @Observable`, the history entries
 // source-of-truth + didSet cache invalidation, load/record/suggest/merge/
@@ -663,26 +517,20 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func webViewLifecycleTopPayload(now: Date = Date()) -> [String: Any] {
-        let discardBlockers = hiddenWebViewDiscardBlockers()
-        return [
-            "state": webViewLifecycleState.rawValue,
-            "visible_in_ui": isWebViewVisibleInUI,
-            "should_render": shouldRenderWebView,
-            "discard_eligible": discardBlockers.isEmpty,
-            "discard_blockers": discardBlockers,
-            "discarded_at": Self.webViewLifecycleTimestamp(hiddenWebViewDiscardManager.discardedAt),
-            "last_discard_reason": hiddenWebViewDiscardManager.lastDiscardReason.map { $0 as Any } ?? NSNull(),
-            "last_restore_reason": hiddenWebViewDiscardManager.lastRestoreReason.map { $0 as Any } ?? NSNull(),
-            "last_visible_at": Self.webViewLifecycleTimestamp(webViewLastVisibleAt),
-            "last_hidden_at": Self.webViewLifecycleTimestamp(webViewLastHiddenAt),
-            "last_visibility_change_at": Self.webViewLifecycleTimestamp(webViewLastVisibilityChangeAt),
-            "last_visibility_change_reason": webViewLastVisibilityChangeReason.map { $0 as Any } ?? NSNull(),
-            "hidden_duration_ms": Self.webViewHiddenDurationMilliseconds(
-                hiddenAt: webViewLastHiddenAt,
-                visible: isWebViewVisibleInUI,
-                now: now
-            )
-        ]
+        BrowserWebViewLifecycleTelemetry(
+            state: webViewLifecycleState.rawValue,
+            isVisibleInUI: isWebViewVisibleInUI,
+            shouldRenderWebView: shouldRenderWebView,
+            discardBlockers: hiddenWebViewDiscardBlockers(),
+            discardedAt: hiddenWebViewDiscardManager.discardedAt,
+            lastDiscardReason: hiddenWebViewDiscardManager.lastDiscardReason,
+            lastRestoreReason: hiddenWebViewDiscardManager.lastRestoreReason,
+            lastVisibleAt: webViewLastVisibleAt,
+            lastHiddenAt: webViewLastHiddenAt,
+            lastVisibilityChangeAt: webViewLastVisibilityChangeAt,
+            lastVisibilityChangeReason: webViewLastVisibilityChangeReason,
+            now: now
+        ).payload()
     }
 
     private func refreshWebViewLifecycleState() {
@@ -700,26 +548,6 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         guard webViewLifecycleState != nextState else { return }
         webViewLifecycleState = nextState
-    }
-
-    private static let webViewLifecycleTimestampFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
-
-    private static func webViewLifecycleTimestamp(_ date: Date?) -> Any {
-        guard let date else { return NSNull() }
-        return webViewLifecycleTimestampFormatter.string(from: date)
-    }
-
-    private static func webViewHiddenDurationMilliseconds(
-        hiddenAt: Date?,
-        visible: Bool,
-        now: Date
-    ) -> Any {
-        guard !visible, let hiddenAt else { return NSNull() }
-        return max(0, Int((now.timeIntervalSince(hiddenAt) * 1000.0).rounded()))
     }
 
     private func resetWebViewLifecycleMetadata(resetVisibility: Bool = true) {
@@ -1277,7 +1105,23 @@ final class BrowserPanel: Panel, ObservableObject {
     static func bootstrapBrowserDefaultsIfNeeded() {
         guard !hasBootstrappedBrowserDefaults else { return }
         hasBootstrappedBrowserDefaults = true
+        installLocalizedDefaultProfileName()
         BrowserDefaultsNormalizer().normalize(defaults: .standard)
+    }
+
+    /// Pushes the app-bundle-resolved default profile name into `CmuxBrowser`'s
+    /// `BrowserProfileStore` before its `shared` singleton seeds. Resolving
+    /// `String(localized:)` here (app target) keeps the Japanese translation,
+    /// which an in-package resolution would drop by binding to the package bundle.
+    ///
+    /// TODO(refactor): the composition root (`AppDelegate.applicationDidFinishLaunching`)
+    /// should call this before any `BrowserProfileStore.shared` access so the
+    /// localized name is in place even when a Workspace/TerminalController/
+    /// BrowserAutomation path touches `shared` before the first `BrowserPanel`.
+    static func installLocalizedDefaultProfileName() {
+        BrowserProfileStore.defaultProfileDisplayNameProvider = {
+            String(localized: "browser.profile.default", defaultValue: "Default")
+        }
     }
 
     init(
@@ -2459,7 +2303,7 @@ final class BrowserPanel: Panel, ObservableObject {
             }
         }
 
-        if Self.responderChainContains(window.firstResponder, target: webView) {
+        if window.firstResponder?.responderChain(contains: webView) ?? false {
             noteWebViewFocused()
             return
         }
@@ -2478,7 +2322,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         guard let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return false }
 
-        if Self.responderChainContains(window.firstResponder, target: webView) {
+        if window.firstResponder?.responderChain(contains: webView) ?? false {
             // Prevent omnibar auto-focus from immediately stealing first responder back.
             suppressOmnibarAutofocus(for: 1.5)
             noteWebViewFocused()
@@ -2493,7 +2337,7 @@ final class BrowserPanel: Panel, ObservableObject {
         DispatchQueue.main.async { [weak self, weak window, weak webView] in
             guard let self, let window, let webView else { return }
             guard webView.window === window else { return }
-            if !Self.responderChainContains(window.firstResponder, target: webView),
+            if !(window.firstResponder?.responderChain(contains: webView) ?? false),
                window.makeFirstResponder(webView) {
                 self.suppressOmnibarAutofocus(for: 1.5)
                 self.noteWebViewFocused()
@@ -2507,7 +2351,7 @@ final class BrowserPanel: Panel, ObservableObject {
         clearBrowserFocusMode(reason: "panelUnfocus")
         invalidateSearchFocusRequests(reason: "panelUnfocus")
         guard let window = webView.window else { return }
-        if Self.responderChainContains(window.firstResponder, target: webView) {
+        if window.firstResponder?.responderChain(contains: webView) ?? false {
             window.makeFirstResponder(nil)
         }
     }
@@ -4751,7 +4595,7 @@ extension BrowserPanel {
         }
 
         if let window,
-           Self.responderChainContains(window.firstResponder, target: webView) {
+           window.firstResponder?.responderChain(contains: webView) ?? false {
             return .browser(.webView)
         }
 
@@ -4828,7 +4672,7 @@ extension BrowserPanel {
             return .browser(.findField)
         }
 
-        if Self.responderChainContains(responder, target: webView) {
+        if responder.responderChain(contains: webView) {
             return .browser(.webView)
         }
 
@@ -4862,7 +4706,7 @@ extension BrowserPanel {
 #endif
             return true
         case .webView:
-            guard Self.responderChainContains(window.firstResponder, target: webView) else { return false }
+            guard window.firstResponder?.responderChain(contains: webView) ?? false else { return false }
             return window.makeFirstResponder(nil)
         }
     }
@@ -5115,17 +4959,6 @@ private extension BrowserPanel {
         }
         webView.pageZoom = clamped
         return true
-    }
-
-    static func responderChainContains(_ start: NSResponder?, target: NSResponder) -> Bool {
-        var r = start
-        var hops = 0
-        while let cur = r, hops < 64 {
-            if cur === target { return true }
-            r = cur.nextResponder
-            hops += 1
-        }
-        return false
     }
 
 }

@@ -1,4 +1,5 @@
 import XCTest
+import CMUXAgentLaunch
 import CmuxBrowserUI
 import CmuxCommandPaletteUI
 import CmuxTerminal

@@ -6696,7 +6696,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .environmentObject(sidebarState)
             .environmentObject(sidebarSelectionState)
             .environmentObject(fileExplorerState)
-            .environmentObject(cmuxConfigStore)
+            .environment(cmuxConfigStore)
             // AppKit hosts this ContentView in its own NSHostingView, which does
             // not inherit the App scene's SwiftUI environment. Inject the
             // settings runtime so `@LiveSetting` can resolve the stores it
@@ -8386,7 +8386,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // Special-case: Cmd+D should confirm destructive close on alerts.
             // XCUITest key events often hit the app-level local monitor first, so forward the key
             // equivalent to the alert panel explicitly.
-            if matchShortcut(
+            if shortcutCoordinator.matchesStroke(
                 event: event,
                 shortcut: StoredShortcut(key: "d", command: true, shift: false, option: false, control: false)
             ),
@@ -8559,7 +8559,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if shouldRouteConfiguredPaletteSelection, let paletteWindow = commandPaletteShortcutWindow {
             for (action, delta) in [(KeyboardShortcutSettings.Action.commandPaletteNext, 1), (.commandPalettePrevious, -1)] {
-                guard KeyboardShortcutSettings.shortcut(for: action).hasChord, matchConfiguredShortcut(event: event, action: action) else { continue }
+                guard KeyboardShortcutSettings.shortcut(for: action).hasChord, shortcutCoordinator.matchConfiguredShortcut(event: event, action: action, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) else { continue }
                 NotificationCenter.default.post(name: .commandPaletteMoveSelection, object: paletteWindow, userInfo: ["delta": delta])
                 return true
             }
@@ -8627,32 +8627,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let focusedAddressBarPanelIdInShortcutContext = focusedBrowserAddressBarPanelIdForShortcutEvent(event)
         let hasFocusedAddressBarInShortcutContext = focusedAddressBarPanelIdInShortcutContext != nil
 
-        if shouldRouteConfiguredPaletteSelection, activeConfiguredShortcutChordPrefixForCurrentEvent == nil, armConfiguredShortcutChordIfNeeded(event: event, actions: [.commandPaletteNext, .commandPalettePrevious]) {
+        if shouldRouteConfiguredPaletteSelection, activeConfiguredShortcutChordPrefixForCurrentEvent == nil, shortcutCoordinator.armConfiguredShortcutChordIfNeeded(event: event, actions: [.commandPaletteNext, .commandPalettePrevious], chord: shortcutChordCoordinator, chordWindowNumber: configuredShortcutChordWindowNumber(for:)) {
             return true
         }
 
         if commandPaletteEffectiveInTargetWindow {
-            if matchConfiguredShortcut(event: event, action: .commandPalette) {
+            if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .commandPalette, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
                 let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
                 requestCommandPaletteCommands(preferredWindow: targetWindow, source: "shortcut.commandPalette")
                 return true
             }
 
             if !hasFocusedAddressBarInShortcutContext,
-               matchConfiguredShortcut(event: event, action: .goToWorkspace) {
+               shortcutCoordinator.matchConfiguredShortcut(event: event, action: .goToWorkspace, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
                 let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
                 requestCommandPaletteSwitcher(preferredWindow: targetWindow, source: "shortcut.goToWorkspace")
                 return true
             }
 
             if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
-               armConfiguredShortcutChordIfNeeded(event: event, actions: [.commandPalette]) {
+               shortcutCoordinator.armConfiguredShortcutChordIfNeeded(event: event, actions: [.commandPalette], chord: shortcutChordCoordinator, chordWindowNumber: configuredShortcutChordWindowNumber(for:)) {
                 return true
             }
 
             if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
                !hasFocusedAddressBarInShortcutContext,
-               armConfiguredShortcutChordIfNeeded(event: event, actions: [.goToWorkspace]) {
+               shortcutCoordinator.armConfiguredShortcutChordIfNeeded(event: event, actions: [.goToWorkspace], chord: shortcutChordCoordinator, chordWindowNumber: configuredShortcutChordWindowNumber(for:)) {
                 return true
             }
         }
@@ -8737,7 +8737,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
         if cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: self) { return true }
-        if matchConfiguredShortcut(event: event, action: .find) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .find, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             let shortcutWindow = resolvedShortcutEventWindow(event)
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutWindow ?? shortcutRoutingKeyWindow); return performFindShortcutInActiveMainWindow(preferredWindow: shortcutWindow)
         }
@@ -8802,7 +8802,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // one does not swallow its first stroke elsewhere (issue #5189).
                 KeyboardShortcutSettings.effectiveWhenClause(for: action).evaluate(shortcutContext)
             }
-            if armConfiguredShortcutChordIfNeeded(event: event, actions: availableChordActions) {
+            if shortcutCoordinator.armConfiguredShortcutChordIfNeeded(event: event, actions: availableChordActions, chord: shortcutChordCoordinator, chordWindowNumber: configuredShortcutChordWindowNumber(for:)) {
                 return true
             }
         }
@@ -8811,10 +8811,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let configuredCmuxShortcutActions = configuredCmuxShortcutActions(for: configuredCmuxShortcutContext)
 
         if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
-           armConfiguredShortcutChordIfNeeded(
+           shortcutCoordinator.armConfiguredShortcutChordIfNeeded(
                event: event,
                actions: [],
-               shortcuts: configuredCmuxShortcutActions.compactMap(\.shortcut)
+               shortcuts: configuredCmuxShortcutActions.compactMap(\.shortcut),
+               chord: shortcutChordCoordinator,
+               chordWindowNumber: configuredShortcutChordWindowNumber(for:)
            ) {
             return true
         }
@@ -8827,32 +8829,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        if matchConfiguredShortcut(event: event, action: .commandPalette) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .commandPalette, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
             requestCommandPaletteCommands(preferredWindow: targetWindow, source: "shortcut.commandPalette")
             return true
         }
 
         if !hasFocusedAddressBarInShortcutContext,
-           matchConfiguredShortcut(event: event, action: .goToWorkspace) {
+           shortcutCoordinator.matchConfiguredShortcut(event: event, action: .goToWorkspace, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
             requestCommandPaletteSwitcher(preferredWindow: targetWindow, source: "shortcut.goToWorkspace")
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .quit) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .quit, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             return handleQuitShortcutWarning()
         }
-        if matchConfiguredShortcut(event: event, action: .openSettings) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .openSettings, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             openPreferencesWindow(debugSource: "shortcut.openSettings")
             return true
         }
-        if matchConfiguredShortcut(event: event, action: .reloadConfiguration) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .reloadConfiguration, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             reloadConfiguration(source: "shortcut.reloadConfiguration")
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .toggleFullScreen) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .toggleFullScreen, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             guard let targetWindow = mainWindowForShortcutEvent(event) else {
                 return false
             }
@@ -8869,12 +8871,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // Primary UI shortcuts
-        if matchConfiguredShortcut(event: event, action: .toggleSidebar) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .toggleSidebar, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             _ = toggleSidebarInActiveMainWindow(preferredWindow: mainWindowForShortcutEvent(event))
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .newTab) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .newTab, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
 #if DEBUG
             cmuxDebugLog("shortcut.action name=newWorkspace \(debugShortcutRouteSnapshot(event: event))")
 #endif
@@ -8882,7 +8884,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .newBrowserWorkspace) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .newBrowserWorkspace, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
 #if DEBUG
             cmuxDebugLog("shortcut.action name=newBrowserWorkspace \(debugShortcutRouteSnapshot(event: event))")
 #endif
@@ -8894,7 +8896,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Handled here instead of relying on SwiftUI's CommandGroup menu item because
         // after a browser panel has been shown, SwiftUI's menu dispatch can silently
         // consume the key equivalent without firing the action closure.
-        if matchConfiguredShortcut(event: event, action: .newWindow) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .newWindow, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             openNewMainWindow(preferredWindow: mainWindowForShortcutEvent(event))
             return true
         }
@@ -8902,18 +8904,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Open Folder: Cmd+O
         // Handled here to prevent AppKit's default NSDocumentController from opening
         // the Documents folder when SwiftUI menu dispatch fails due to focus bugs.
-        if matchConfiguredShortcut(event: event, action: .openFolder) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .openFolder, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             showOpenFolderPanel()
             return true
         }
 
         // Check Show Notifications shortcut
-        if matchConfiguredShortcut(event: event, action: .showNotifications) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .showNotifications, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             toggleNotificationsPopover(animated: false, anchorView: fullscreenControlsViewModel?.notificationsAnchorView)
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .openDiffViewer) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .openDiffViewer, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             // Shares the command palette's diff-open path; targets the event window's
             // focused workspace and beeps if it can't be opened (matching the palette).
             let manager = activeTabManagerForCommands(preferredWindow: mainWindowForShortcutEvent(event))
@@ -8923,7 +8925,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .toggleRightSidebar) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .toggleRightSidebar, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             // Escape AppKit's performKeyEquivalent animation context. Without
             // deferring the toggle, NSAnimationContext implicitly animates the
             // layout change.
@@ -8934,7 +8936,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .focusRightSidebar) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .focusRightSidebar, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             let preferredWindow = mainWindowForShortcutEvent(event)
 #if DEBUG
             let beforeResponder = shortcutRoutingFirstResponder(preferredWindow: preferredWindow)
@@ -8956,7 +8958,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .sendFeedback) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .sendFeedback, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             guard let targetContext = preferredMainWindowContextForShortcuts(event: event),
                   let targetWindow = targetContext.window ?? windowForMainWindowId(targetContext.windowId) else {
                 return false
@@ -8968,7 +8970,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // Check Jump to Unread shortcut
-        if matchConfiguredShortcut(event: event, action: .jumpToUnread) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .jumpToUnread, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
 #if DEBUG
             if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
                 writeJumpUnreadTestData(["jumpUnreadShortcutHandled": "1"])
@@ -8978,14 +8980,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .toggleUnread) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .toggleUnread, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             toggleFocusedNotificationUnread(
                 preferredWindow: mainWindowForShortcutEvent(event)
             )
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .markOldestUnreadAndJumpNext) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .markOldestUnreadAndJumpNext, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             markFocusedNotificationAsOldestUnreadAndJumpToNextLatestUnread(
                 preferredWindow: mainWindowForShortcutEvent(event)
             )
@@ -8993,23 +8995,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // Flash the currently focused panel so the user can visually confirm focus.
-        if matchConfiguredShortcut(event: event, action: .triggerFlash) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .triggerFlash, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             let targetManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             targetManager?.triggerFocusFlash()
             return true
         }
 
         // Surface navigation: Cmd+Shift+] / Cmd+Shift+[
-        if matchConfiguredShortcut(event: event, action: .nextSurface) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .nextSurface, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             tabManager?.selectNextSurface()
             return true
         }
-        if matchConfiguredShortcut(event: event, action: .prevSurface) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .prevSurface, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             tabManager?.selectPreviousSurface()
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .toggleTerminalCopyMode) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .toggleTerminalCopyMode, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             let handled = tabManager?.toggleFocusedTerminalCopyMode() ?? false
 #if DEBUG
             cmuxDebugLog(
@@ -9022,19 +9024,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return handled
         }
 
-        if matchConfiguredShortcut(event: event, action: .focusTextBoxInput) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .focusTextBoxInput, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             let handled = routedManager?.focusFocusedTerminalTextBoxInputOrTerminal() ?? false
             return handled
         }
 
-        if matchConfiguredShortcut(event: event, action: .attachTextBoxFile) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .attachTextBoxFile, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             let handled = routedManager?.attachFileToFocusedTerminalTextBoxInput() ?? false
             return handled
         }
 
-        if matchConfiguredShortcut(event: event, action: .sendCtrlFToTerminal) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .sendCtrlFToTerminal, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             let handled = routedManager?.sendCtrlFToFocusedTerminal() ?? false
 #if DEBUG
@@ -9047,7 +9049,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return handled
         }
 
-        if matchConfiguredShortcut(event: event, action: .clearScreenKeepScrollback) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .clearScreenKeepScrollback, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             let handled = routedManager?.clearFocusedTerminalKeepingScrollback() ?? false
 #if DEBUG
@@ -9061,7 +9063,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // Workspace navigation: Cmd+Ctrl+] / Cmd+Ctrl+[
-        if matchConfiguredShortcut(event: event, action: .nextSidebarTab) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .nextSidebarTab, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
 #if DEBUG
             let selected = tabManager?.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
             cmuxDebugLog(
@@ -9072,7 +9074,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .prevSidebarTab) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .prevSidebarTab, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
 #if DEBUG
             let selected = tabManager?.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
             cmuxDebugLog(
@@ -9083,13 +9085,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .renameWorkspace) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .renameWorkspace, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             return requestRenameWorkspaceViaCommandPalette(
                 preferredWindow: commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
             )
         }
 
-        if matchConfiguredShortcut(event: event, action: .groupSelectedWorkspaces) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .groupSelectedWorkspaces, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             // Only consume the event when grouping actually happened; otherwise
             // fall through so the dispatcher reaches the later
             // `.toggleReactGrab` check (default ⌘⇧G collides with React Grab
@@ -9101,7 +9103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        if matchConfiguredShortcut(event: event, action: .toggleFocusedWorkspaceGroupCollapsed) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .toggleFocusedWorkspaceGroupCollapsed, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             // Only consume the event when the toggle actually fired (focused
             // workspace was in a group). Otherwise fall through so a rebinding
             // that shares this chord with another action still works.
@@ -9112,7 +9114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        if matchConfiguredShortcut(event: event, action: .editWorkspaceDescription) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .editWorkspaceDescription, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
 #if DEBUG
             cmuxDebugLog(
                 "shortcut.editWorkspaceDescription matched target={\(debugWindowToken(commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow))} " +
@@ -9124,7 +9126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
 
-        if matchConfiguredShortcut(event: event, action: .closeOtherTabsInPane) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .closeOtherTabsInPane, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             if let targetWindow = event.window ?? shortcutRoutingActiveWindow,
                targetWindow.identifier?.rawValue == "cmux.settings" {
                 targetWindow.performClose(nil)
@@ -9141,7 +9143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // The Close Tab shortcut must close the focused panel even if first-responder
         // momentarily lags on a browser NSTextView during split focus transitions.
-        if matchConfiguredShortcut(event: event, action: .closeTab) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .closeTab, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             let routedManager = tabManagerForFocusedCloseShortcut(event: event)
             // Browser popup windows primarily intercept the configured Close Tab shortcut
             // in BrowserPopupPanel. This AppDelegate path is a fallback for cases where
@@ -9174,12 +9176,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .closeWorkspace) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .closeWorkspace, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             tabManagerForFocusedCloseShortcut(event: event)?.closeCurrentWorkspaceWithConfirmation()
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .closeWindow) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .closeWindow, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             guard let targetWindow = mainWindowForFocusedCloseShortcut(event: event) else {
                 NSSound.beep()
                 return true
@@ -9189,7 +9191,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .renameTab) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .renameTab, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
             requestCommandPaletteRenameTab(preferredWindow: targetWindow, source: "shortcut.renameTab")
             return true
@@ -9199,7 +9201,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Always consume the event when the digit matches to prevent Ghostty's
         // goto_tab fallback from creating a new window when the index is out of bounds.
         if shortcutWhenClauseAllows(action: .selectWorkspaceByNumber, event: event),
-           let digit = numberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) {
+           let digit = shortcutCoordinator.numberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber, chord: shortcutChordCoordinator) {
             if let manager = tabManager,
                let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: digit, workspaceCount: manager.tabs.count) {
 #if DEBUG
@@ -9214,7 +9216,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Numeric shortcuts for surfaces within the focused pane (9 = last)
         if shortcutWhenClauseAllows(action: .selectSurfaceByNumber, event: event),
-           let digit = numberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) {
+           let digit = shortcutCoordinator.numberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber, chord: shortcutChordCoordinator) {
             if digit == 9 {
                 tabManager?.selectLastSurface()
             } else {
@@ -9224,48 +9226,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // Pane focus navigation (defaults to Cmd+Option+Arrow, but can be customized to letter/number keys).
-        if matchConfiguredDirectionalShortcut(
+        if shortcutCoordinator.matchConfiguredDirectionalShortcut(
             event: event,
             action: .focusLeft,
             arrowGlyph: "←",
-            arrowKeyCode: 123
-        ) || (storedShortcut(from: ghosttyGotoSplitShortcuts.left).map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "←", arrowKeyCode: 123) } ?? false) {
+            arrowKeyCode: 123,
+            chord: shortcutChordCoordinator,
+            whenClauseAllows: shortcutWhenClauseAllows(action:event:)
+        ) || (storedShortcut(from: ghosttyGotoSplitShortcuts.left).map { shortcutCoordinator.matchesDirectionalStroke(event: event, shortcut: $0, arrowGlyph: "←", arrowKeyCode: 123) } ?? false) {
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutRoutingKeyWindow); tabManager?.movePaneFocus(direction: .left)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .left)
 #endif
             return true
         }
-        if matchConfiguredDirectionalShortcut(
+        if shortcutCoordinator.matchConfiguredDirectionalShortcut(
             event: event,
             action: .focusRight,
             arrowGlyph: "→",
-            arrowKeyCode: 124
-        ) || (storedShortcut(from: ghosttyGotoSplitShortcuts.right).map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "→", arrowKeyCode: 124) } ?? false) {
+            arrowKeyCode: 124,
+            chord: shortcutChordCoordinator,
+            whenClauseAllows: shortcutWhenClauseAllows(action:event:)
+        ) || (storedShortcut(from: ghosttyGotoSplitShortcuts.right).map { shortcutCoordinator.matchesDirectionalStroke(event: event, shortcut: $0, arrowGlyph: "→", arrowKeyCode: 124) } ?? false) {
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutRoutingKeyWindow); tabManager?.movePaneFocus(direction: .right)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .right)
 #endif
             return true
         }
-        if matchConfiguredDirectionalShortcut(
+        if shortcutCoordinator.matchConfiguredDirectionalShortcut(
             event: event,
             action: .focusUp,
             arrowGlyph: "↑",
-            arrowKeyCode: 126
-        ) || (storedShortcut(from: ghosttyGotoSplitShortcuts.up).map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "↑", arrowKeyCode: 126) } ?? false) {
+            arrowKeyCode: 126,
+            chord: shortcutChordCoordinator,
+            whenClauseAllows: shortcutWhenClauseAllows(action:event:)
+        ) || (storedShortcut(from: ghosttyGotoSplitShortcuts.up).map { shortcutCoordinator.matchesDirectionalStroke(event: event, shortcut: $0, arrowGlyph: "↑", arrowKeyCode: 126) } ?? false) {
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutRoutingKeyWindow); tabManager?.movePaneFocus(direction: .up)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .up)
 #endif
             return true
         }
-        if matchConfiguredDirectionalShortcut(
+        if shortcutCoordinator.matchConfiguredDirectionalShortcut(
             event: event,
             action: .focusDown,
             arrowGlyph: "↓",
-            arrowKeyCode: 125
-        ) || (storedShortcut(from: ghosttyGotoSplitShortcuts.down).map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "↓", arrowKeyCode: 125) } ?? false) {
+            arrowKeyCode: 125,
+            chord: shortcutChordCoordinator,
+            whenClauseAllows: shortcutWhenClauseAllows(action:event:)
+        ) || (storedShortcut(from: ghosttyGotoSplitShortcuts.down).map { shortcutCoordinator.matchesDirectionalStroke(event: event, shortcut: $0, arrowGlyph: "↓", arrowKeyCode: 125) } ?? false) {
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutRoutingKeyWindow); tabManager?.movePaneFocus(direction: .down)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .down)
@@ -9273,7 +9283,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .toggleSplitZoom) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .toggleSplitZoom, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             _ = routedManager?.toggleFocusedSplitZoom()
 #if DEBUG
@@ -9281,11 +9291,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return true
         }
-        if matchConfiguredShortcut(event: event, action: .equalizeSplits) { performEqualizeSplitsShortcut(); return true }
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .equalizeSplits, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) { performEqualizeSplitsShortcut(); return true }
         // Canvas layout actions share one executor with the palette, View
         // menu, and the canvas.* socket verbs.
         for action in KeyboardShortcutSettings.Action.canvasActions {
-            if matchConfiguredShortcut(event: event, action: action),
+            if shortcutCoordinator.matchConfiguredShortcut(event: event, action: action, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)),
                let canvasAction = action.canvasAction {
                 if let workspace = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager.selectedWorkspace
                     ?? tabManager?.selectedWorkspace {
@@ -9295,7 +9305,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         // Configured split actions.
-        if matchConfiguredShortcut(event: event, action: .splitRight) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .splitRight, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
 #if DEBUG
             cmuxDebugLog("shortcut.action name=splitRight \(debugShortcutRouteSnapshot(event: event))")
 #endif
@@ -9309,7 +9319,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .splitDown) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .splitDown, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
 #if DEBUG
             cmuxDebugLog("shortcut.action name=splitDown \(debugShortcutRouteSnapshot(event: event))")
 #endif
@@ -9323,7 +9333,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .splitBrowserRight) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .splitBrowserRight, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
 #if DEBUG
             cmuxDebugLog("shortcut.action name=splitBrowserRight \(debugShortcutRouteSnapshot(event: event))")
 #endif
@@ -9331,7 +9341,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .splitBrowserDown) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .splitBrowserDown, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
 #if DEBUG
             cmuxDebugLog("shortcut.action name=splitBrowserDown \(debugShortcutRouteSnapshot(event: event))")
 #endif
@@ -9340,28 +9350,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // Surface navigation (legacy Ctrl+Tab support)
-        if matchTabShortcut(event: event, shortcut: StoredShortcut(key: "\t", command: false, shift: false, option: false, control: true)) {
+        if shortcutCoordinator.matchesTabStroke(event: event, shortcut: StoredShortcut(key: "\t", command: false, shift: false, option: false, control: true)) {
             tabManager?.selectNextSurface()
             return true
         }
-        if matchTabShortcut(event: event, shortcut: StoredShortcut(key: "\t", command: false, shift: true, option: false, control: true)) {
+        if shortcutCoordinator.matchesTabStroke(event: event, shortcut: StoredShortcut(key: "\t", command: false, shift: true, option: false, control: true)) {
             tabManager?.selectPreviousSurface()
             return true
         }
 
         // New surface: Cmd+T
-        if matchConfiguredShortcut(event: event, action: .newSurface) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .newSurface, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             tabManager?.newSurface()
             return true
         }
 
         // Open browser: Cmd+Shift+L
-        if matchConfiguredShortcut(event: event, action: .openBrowser) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .openBrowser, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             _ = openBrowserAndFocusAddressBar(insertAtEnd: true)
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .focusBrowserAddressBar) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .focusBrowserAddressBar, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             if let focusedPanel = tabManager?.focusedBrowserPanel {
                 focusBrowserAddressBar(in: focusedPanel)
                 return true
@@ -9377,7 +9387,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        if matchConfiguredShortcut(event: event, action: .focusHistoryBack) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .focusHistoryBack, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             if routedManager?.navigateBack() != true {
                 NSSound.beep()
@@ -9385,7 +9395,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .focusHistoryForward) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .focusHistoryForward, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             if routedManager?.navigateForward() != true {
                 NSSound.beep()
@@ -9393,7 +9403,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .toggleBrowserFocusMode) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .toggleBrowserFocusMode, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             // Reached only when focus mode is off (the active-focus-mode bypass
             // returns earlier), so this enters focus mode for the focused browser.
             // Exit stays double-Escape, which is forwarded to the page first.
@@ -9405,7 +9415,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .browserBack) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .browserBack, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             guard let focusedBrowserPanel = shortcutEventBrowserPanel(event) else {
                 return false
             }
@@ -9413,7 +9423,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .browserForward) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .browserForward, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             guard let focusedBrowserPanel = shortcutEventBrowserPanel(event) else {
                 return false
             }
@@ -9421,7 +9431,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .browserReload) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .browserReload, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             guard let focusedBrowserPanel = shortcutEventBrowserPanel(event) else {
                 return false
             }
@@ -9429,7 +9439,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .browserHardReload) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .browserHardReload, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             guard let focusedBrowserPanel = shortcutEventBrowserPanel(event) else {
                 return false
             }
@@ -9440,7 +9450,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Safari defaults:
         // - Option+Command+I => Show/Toggle Web Inspector
         // - Option+Command+C => Show JavaScript Console
-        if matchConfiguredShortcut(event: event, action: .toggleBrowserDeveloperTools) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .toggleBrowserDeveloperTools, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
 #if DEBUG
             logDeveloperToolsShortcutSnapshot(phase: "toggle.pre", event: event)
 #endif
@@ -9455,7 +9465,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .showBrowserJavaScriptConsole) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .showBrowserJavaScriptConsole, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
 #if DEBUG
             logDeveloperToolsShortcutSnapshot(phase: "console.pre", event: event)
 #endif
@@ -9470,41 +9480,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .toggleReactGrab) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .toggleReactGrab, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             let didHandle = tabManager?.toggleReactGrabFromCurrentFocus() ?? false
             if !didHandle { NSSound.beep() }
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .browserZoomIn) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .browserZoomIn, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             return shortcutEventBrowserPanel(event)?.zoomIn() ?? false
         }
 
-        if matchConfiguredShortcut(event: event, action: .browserZoomOut) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .browserZoomOut, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             return shortcutEventBrowserPanel(event)?.zoomOut() ?? false
         }
 
-        if matchConfiguredShortcut(event: event, action: .browserZoomReset) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .browserZoomReset, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             return shortcutEventBrowserPanel(event)?.resetZoom() ?? false
         }
 
-        if matchConfiguredShortcut(event: event, action: .markdownZoomIn) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .markdownZoomIn, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             return shortcutEventMarkdownPanel(event)?.zoomIn() ?? false
         }
 
-        if matchConfiguredShortcut(event: event, action: .markdownZoomOut) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .markdownZoomOut, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             return shortcutEventMarkdownPanel(event)?.zoomOut() ?? false
         }
 
-        if matchConfiguredShortcut(event: event, action: .markdownZoomReset) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .markdownZoomReset, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             return shortcutEventMarkdownPanel(event)?.resetZoom() ?? false
         }
 
-        if matchConfiguredShortcut(event: event, action: .findInDirectory) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .findInDirectory, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             return focusFileSearchInActiveMainWindow(preferredWindow: resolvedShortcutEventWindow(event))
         }
 
-        if matchConfiguredShortcut(event: event, action: .findNext) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .findNext, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             guard !shouldLetFocusedBrowserOwnFindShortcut(event) else {
                 return false
             }
@@ -9513,7 +9523,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .findPrevious) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .findPrevious, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             guard !shouldLetFocusedBrowserOwnFindShortcut(event) else {
                 return false
             }
@@ -9522,7 +9532,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .hideFind) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .hideFind, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             guard !shouldLetFocusedBrowserOwnFindShortcut(event) else {
                 return false
             }
@@ -9531,20 +9541,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .useSelectionForFind) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .useSelectionForFind, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             restoreFocusedMainPanelFocusForShortcut(event: event)
             tabManager?.searchSelection()
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .reopenPreviousSession) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .reopenPreviousSession, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             if !reopenPreviousSession() {
                 NSSound.beep()
             }
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .reopenClosedBrowserPanel) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .reopenClosedBrowserPanel, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             _ = reopenMostRecentlyClosedItem(preferredTabManager: routedManager)
             return true
@@ -10069,10 +10079,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
     private func developerToolsShortcutProbeKind(event: NSEvent) -> String? {
         guard event.type == .keyDown else { return nil }
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleBrowserDeveloperTools)) {
+        if shortcutCoordinator.matchesStroke(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleBrowserDeveloperTools)) {
             return "toggle.configured"
         }
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .showBrowserJavaScriptConsole)) {
+        if shortcutCoordinator.matchesStroke(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .showBrowserJavaScriptConsole)) {
             return "console.configured"
         }
 
@@ -10288,11 +10298,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// browser shortcuts such as New Workspace, Close Tab, and Reload Page still use AppKit.
     @discardableResult
     func handleBrowserSurfaceKeyEquivalentBeforeMainMenu(_ event: NSEvent) -> Bool {
-        if matchConfiguredShortcut(event: event, action: .find) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .find, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             let shortcutWindow = resolvedShortcutEventWindow(event)
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutWindow ?? shortcutRoutingKeyWindow); return performFindShortcutInActiveMainWindow(preferredWindow: shortcutWindow)
         }
-        if matchConfiguredShortcut(event: event, action: .findInDirectory) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .findInDirectory, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
             return focusFileSearchInActiveMainWindow(preferredWindow: resolvedShortcutEventWindow(event))
         }
         return false
@@ -10414,7 +10424,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         event: NSEvent,
         action: KeyboardShortcutSettings.Action
     ) -> Bool {
-        matchConfiguredShortcut(event: event, action: action)
+        shortcutCoordinator.matchConfiguredShortcut(event: event, action: action, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:))
     }
 
     func debugMarkCommandPaletteOpenPending(window: NSWindow) {
@@ -10486,7 +10496,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// chord prepare, chord-prefix + focus-cache teardown), so this body only
     /// evaluates the close-tab match and chord arming against `popupWindow`.
     func dispatchPopupCloseShortcutBody(event: NSEvent, popupWindow: NSWindow) -> Bool {
-        if matchConfiguredShortcut(event: event, action: .closeTab) {
+        if shortcutCoordinator.matchConfiguredShortcut(event: event, action: .closeTab, chord: shortcutChordCoordinator, whenClauseAllows: shortcutWhenClauseAllows(action:event:)) {
 #if DEBUG
             cmuxDebugLog("popup.panel.closeShortcut close")
 #endif
@@ -10494,31 +10504,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
-           armConfiguredShortcutChordIfNeeded(event: event, actions: [.closeTab]) {
+           shortcutCoordinator.armConfiguredShortcutChordIfNeeded(event: event, actions: [.closeTab], chord: shortcutChordCoordinator, chordWindowNumber: configuredShortcutChordWindowNumber(for:)) {
 #if DEBUG
             cmuxDebugLog("popup.panel.closeShortcut armChord")
 #endif
             return true
         }
         return false
-    }
-
-    private func matchConfiguredShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
-        guard !shortcut.isUnbound else { return false }
-        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
-            guard let secondStroke = shortcut.secondStroke,
-                  shortcut.firstStroke == prefix else {
-                return false
-            }
-            return matchShortcutStroke(event: event, stroke: secondStroke)
-        }
-        guard !shortcut.hasChord else { return false }
-        return matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
-    }
-
-    private func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
-        if !shortcutWhenClauseAllows(action: action, event: event) { return false }
-        return matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action))
     }
 
     /// Whether `action`'s effective `when` clause (its `shortcuts.when` override,
@@ -10542,57 +10534,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return KeyboardShortcutSettings.Action.allCases.contains {
             $0.shortcutContext == .browserPanel &&
                 !$0.isBrowserContentShortcut &&
-                matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: $0))
+                shortcutCoordinator.matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: $0), chord: shortcutChordCoordinator)
         }
-    }
-
-    private func numberedConfiguredShortcutDigit(
-        event: NSEvent,
-        action: KeyboardShortcutSettings.Action
-    ) -> Int? {
-        let shortcut = KeyboardShortcutSettings.shortcut(for: action)
-        guard !shortcut.isUnbound else { return nil }
-        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
-            guard let secondStroke = shortcut.secondStroke,
-                  shortcut.firstStroke == prefix else {
-                return nil
-            }
-            return numberedShortcutDigit(event: event, stroke: secondStroke)
-        }
-        guard !shortcut.isUnbound, !shortcut.hasChord else { return nil }
-        return numberedShortcutDigit(event: event, stroke: shortcut.firstStroke)
-    }
-
-    private func matchConfiguredDirectionalShortcut(
-        event: NSEvent,
-        action: KeyboardShortcutSettings.Action,
-        arrowGlyph: String,
-        arrowKeyCode: UInt16
-    ) -> Bool {
-        guard shortcutWhenClauseAllows(action: action, event: event) else {
-            return false
-        }
-        let shortcut = KeyboardShortcutSettings.shortcut(for: action)
-        guard !shortcut.isUnbound else { return false }
-        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
-            guard let secondStroke = shortcut.secondStroke,
-                  shortcut.firstStroke == prefix else {
-                return false
-            }
-            return matchDirectionalShortcut(
-                event: event,
-                stroke: secondStroke,
-                arrowGlyph: arrowGlyph,
-                arrowKeyCode: arrowKeyCode
-            )
-        }
-        guard !shortcut.hasChord else { return false }
-        return matchDirectionalShortcut(
-            event: event,
-            stroke: shortcut.firstStroke,
-            arrowGlyph: arrowGlyph,
-            arrowKeyCode: arrowKeyCode
-        )
     }
 
     func configuredShortcutChordWindowNumber(for event: NSEvent) -> Int? {
@@ -10603,23 +10546,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return window.windowNumber
         }
         return event.windowNumber > 0 ? event.windowNumber : nil
-    }
-
-    private func armConfiguredShortcutChordIfNeeded(
-        event: NSEvent,
-        actions: [KeyboardShortcutSettings.Action],
-        shortcuts: [StoredShortcut] = []
-    ) -> Bool {
-        let configuredShortcuts = actions.map {
-            KeyboardShortcutSettings.shortcut(for: $0)
-        } + shortcuts
-        return shortcutChordCoordinator.armIfNeeded(
-            candidates: configuredShortcuts,
-            windowNumber: configuredShortcutChordWindowNumber(for: event),
-            isChord: { $0.hasChord },
-            firstStroke: { $0.firstStroke },
-            firstStrokeMatches: { matchShortcutStroke(event: event, stroke: $0) }
-        )
     }
 
     func configuredCmuxShortcutActions(
@@ -10636,7 +10562,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> Bool {
         for action in actions {
             guard let shortcut = action.shortcut,
-                  matchConfiguredShortcut(event: event, shortcut: shortcut) else {
+                  shortcutCoordinator.matchConfiguredShortcut(event: event, shortcut: shortcut, chord: shortcutChordCoordinator) else {
                 continue
             }
             return executeConfiguredCmuxActionShortcut(
@@ -10873,15 +10799,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    /// Match a shortcut stroke against an event, handling normal keys.
-    private func matchShortcutStroke(event: NSEvent, stroke: ShortcutStroke) -> Bool {
-        stroke.matches(event: event, layoutCharacterProvider: shortcutCoordinator.layoutCharacter(forKeyCode:modifierFlags:))
-    }
-
-    private func matchShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
-        shortcut.matches(event: event, layoutCharacterProvider: shortcutCoordinator.layoutCharacter(forKeyCode:modifierFlags:))
-    }
-
     private func matchesKeyboardShortcutEvent(
         _ event: NSEvent,
         action: KeyboardShortcutSettings.Action,
@@ -10889,10 +10806,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> Bool {
         guard !shortcut.isUnbound else { return false }
         if action.usesNumberedDigitMatching {
-            return numberedShortcutDigit(event: event, shortcut: shortcut) != nil
+            return shortcutCoordinator.numberedShortcutDigit(event: event, shortcut: shortcut) != nil
         }
         guard !shortcut.hasChord else { return false }
-        return matchShortcut(event: event, shortcut: shortcut)
+        return shortcutCoordinator.matchesStroke(event: event, shortcut: shortcut)
     }
 
     func shouldSuppressStaleCmuxMenuShortcut(event: NSEvent) -> Bool {
@@ -10944,72 +10861,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> Bool {
         let currentShortcut = KeyboardShortcutSettings.shortcut(for: action)
         if action.usesNumberedDigitMatching {
-            return numberedShortcutDigit(event: event, shortcut: currentShortcut) != nil
+            return shortcutCoordinator.numberedShortcutDigit(event: event, shortcut: currentShortcut) != nil
         }
         return matchesKeyboardShortcutEvent(event, action: action, shortcut: currentShortcut)
-    }
-
-    private func numberedShortcutDigit(event: NSEvent, stroke: ShortcutStroke) -> Int? {
-        shortcutCoordinator.numberedShortcutDigit(
-            eventKeyCode: event.keyCode,
-            eventCharactersIgnoringModifiers: event.charactersIgnoringModifiers,
-            eventModifierFlags: event.modifierFlags,
-            requireModifierFlags: stroke.modifierFlags
-        )
-    }
-
-    private func numberedShortcutDigit(event: NSEvent, shortcut: StoredShortcut) -> Int? {
-        guard !shortcut.isUnbound, !shortcut.hasChord else { return nil }
-        return numberedShortcutDigit(event: event, stroke: shortcut.firstStroke)
-    }
-
-
-    /// Match arrow key shortcuts using keyCode
-    /// Arrow keys include .numericPad and .function in their modifierFlags, so strip those before comparing.
-    private func matchArrowShortcut(event: NSEvent, stroke: ShortcutStroke, keyCode: UInt16) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function])
-        return event.keyCode == keyCode && flags == stroke.modifierFlags
-    }
-
-    /// Match tab key shortcuts using keyCode 48
-    private func matchTabShortcut(event: NSEvent, stroke: ShortcutStroke) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        return event.keyCode == 48 && flags == stroke.modifierFlags
-    }
-
-    private func matchTabShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
-        guard !shortcut.hasChord else { return false }
-        return matchTabShortcut(event: event, stroke: shortcut.firstStroke)
-    }
-
-    /// Directional shortcuts default to arrow keys, but the shortcut recorder only supports letter/number keys.
-    /// Support both so users can customize pane navigation (e.g. Cmd+Ctrl+H/J/K/L).
-    private func matchDirectionalShortcut(
-        event: NSEvent,
-        stroke: ShortcutStroke,
-        arrowGlyph: String,
-        arrowKeyCode: UInt16
-    ) -> Bool {
-        if stroke.key == arrowGlyph {
-            return matchArrowShortcut(event: event, stroke: stroke, keyCode: arrowKeyCode)
-        }
-        return matchShortcutStroke(event: event, stroke: stroke)
-    }
-
-    private func matchDirectionalShortcut(
-        event: NSEvent,
-        shortcut: StoredShortcut,
-        arrowGlyph: String,
-        arrowKeyCode: UInt16
-    ) -> Bool {
-        guard !shortcut.hasChord else { return false }
-        return matchDirectionalShortcut(
-            event: event,
-            stroke: shortcut.firstStroke,
-            arrowGlyph: arrowGlyph,
-            arrowKeyCode: arrowKeyCode
-        )
     }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {

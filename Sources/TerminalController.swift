@@ -71,6 +71,12 @@ nonisolated func remotePTYSessionListErrorIsUnsupportedDaemon(_ error: Error) ->
 /// `TerminalControlComposition` and drops ``shared`` entirely.
 @MainActor
 class TerminalController: MobileViewportSurfaceLimiting {
+    /// Held metadata-detection matcher (built over the built-in agent catalog
+    /// once, reused per call) for the mobile-submit Claude upgrade path. Replaces
+    /// the former `TextBoxAgentDetection.isClaudeCode(context:)` static call after
+    /// the detector moved into ``CMUXAgentLaunch``.
+    private let agentMetadataDetector = AgentMetadataDetector()
+
     /// Records that the composition root (``AppDelegate``) has claimed ownership
     /// of the single instance, so the tail call sites reaching ``shared`` and the
     /// root's own ``AppDelegate/terminalControl`` reference resolve to the same
@@ -5889,7 +5895,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
         // the client are honored as-is.
         if submitKeyWasReturnIntent,
            text.contains("\n") || text.contains("\r"),
-           TextBoxAgentDetection.isClaudeCode(
+           agentMetadataDetector.isClaudeCode(
                context: WorkspaceContentView.terminalAgentContext(panel: terminalPanel, workspace: resolved.workspace)
            ) {
             submitKeyName = "ctrl+enter"

@@ -1,4 +1,5 @@
 import Combine
+import CmuxWorkspaces
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -673,6 +674,43 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertNotNil(store.resolvedAction(id: "bad"))
     }
 
+    /// Main-actor cancellation flag box for ``observeLoadedActions``. A reference
+    /// type so the re-arming `onChange` closure and the returned `AnyCancellable`
+    /// share one mutable flag.
+    @MainActor
+    private final class LoadedActionsObservationToken {
+        var isCancelled = false
+    }
+
+    /// Observation-based replacement for the retired Combine
+    /// `store.$loadedActions.dropFirst().sink { … }`: `CmuxConfigStore` is now
+    /// `@Observable`, so there is no `$`-projection. This re-arming
+    /// `withObservationTracking` observer invokes `onChange` with the new value
+    /// on every mutation of `loadedActions` (the `dropFirst()` equivalent: the
+    /// initial value is not delivered, only subsequent changes), re-arming after
+    /// each fire until the returned token is cancelled.
+    @MainActor
+    private func observeLoadedActions(
+        _ store: CmuxConfigStore,
+        onChange: @escaping @MainActor ([CmuxResolvedConfigAction]) -> Void
+    ) -> AnyCancellable {
+        let cancelled = LoadedActionsObservationToken()
+        @MainActor
+        func arm() {
+            withObservationTracking {
+                _ = store.loadedActions
+            } onChange: {
+                Task { @MainActor in
+                    guard !cancelled.isCancelled else { return }
+                    onChange(store.loadedActions)
+                    arm()
+                }
+            }
+        }
+        arm()
+        return AnyCancellable { cancelled.isCancelled = true }
+    }
+
     @MainActor
     func testConfigChangesRequireExplicitLoadByDefault() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
@@ -699,7 +737,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         let didAutoReload = expectation(description: "cmux.json should not hot reload")
         didAutoReload.isInverted = true
         var cancellable: AnyCancellable?
-        cancellable = store.$loadedActions.dropFirst().sink { actions in
+        cancellable = observeLoadedActions(store) { actions in
             if actions.contains(where: { $0.id == "second" }) {
                 didAutoReload.fulfill()
             }
@@ -803,7 +841,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         let loaded = expectation(description: "created local cmux config is loaded")
         loaded.assertForOverFulfill = false
         var cancellable: AnyCancellable?
-        cancellable = store.$loadedActions.dropFirst().sink { actions in
+        cancellable = observeLoadedActions(store) { actions in
             if actions.contains(where: { $0.id == "created" }) {
                 loaded.fulfill()
             }
@@ -851,7 +889,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         let loaded = expectation(description: "created legacy cmux config is loaded")
         loaded.assertForOverFulfill = false
         var cancellable: AnyCancellable?
-        cancellable = store.$loadedActions.dropFirst().sink { actions in
+        cancellable = observeLoadedActions(store) { actions in
             if actions.contains(where: { $0.id == "legacy-created" }) {
                 loaded.fulfill()
             }

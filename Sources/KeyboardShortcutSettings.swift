@@ -4,6 +4,7 @@ import Carbon
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxShortcuts
+import CmuxWindowing
 import CmuxWorkspaces
 import SwiftUI
 
@@ -1690,110 +1691,47 @@ struct ShortcutStroke: Equatable, Hashable {
             .subtracting([.numericPad, .function, .capsLock])
     }
 
+    /// Whether this stroke matches the live key `event`.
+    ///
+    /// Forwards the pure `NSEvent`-vs-stroke predicate to
+    /// ``CmuxShortcuts/ShortcutCoordinator/matchesStroke(event:strokeKey:strokeModifierFlags:strokeKeyCode:optionTextBypass:layoutCharacterProvider:)``,
+    /// which now owns the matching ladder. The Option-printable-text bypass stays
+    /// here because its layout translation is text-input mode (distinct from the
+    /// coordinator's shortcut-mode provider). The seam is the coordinator's
+    /// `nonisolated static` matcher, so this `nonisolated` predicate reaches the
+    /// relocated ladder directly, with no coordinator instance and no actor hop.
     func matches(
         event: NSEvent,
         layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
     ) -> Bool {
-        let shortcutKey = key.lowercased()
-        if shortcutKey.hasPrefix("media.") {
-            guard let eventMediaKey = Self.mediaKey(from: event)?.key.lowercased() else {
-                return false
-            }
-            return eventMediaKey == shortcutKey &&
-                Self.normalizedModifierFlags(from: event.modifierFlags) == modifierFlags
-        }
-
-        guard event.type == .keyDown else { return false }
-        if shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
-            return false
-        }
-
-        return matches(
-            keyCode: Self.recordableKey(from: event)?.keyCode ?? event.keyCode,
-            modifierFlags: event.modifierFlags,
-            eventCharacter: event.charactersIgnoringModifiers,
+        ShortcutCoordinator.matchesStroke(
+            event: event,
+            strokeKey: key,
+            strokeModifierFlags: modifierFlags,
+            strokeKeyCode: keyCode,
+            optionTextBypass: shortcutRoutingShouldBypassForPrintableOptionText(event: event),
             layoutCharacterProvider: layoutCharacterProvider
         )
     }
 
+    /// Whether this stroke matches an already-extracted key code, modifier flags,
+    /// and produced character. Forwards the predicate ladder to
+    /// ``CmuxShortcuts/ShortcutCoordinator/matchesStroke(strokeKey:strokeModifierFlags:strokeKeyCode:keyCode:modifierFlags:eventCharacter:layoutCharacterProvider:)``.
     func matches(
         keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags,
         eventCharacter: String?,
         layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
     ) -> Bool {
-        let flags = Self.normalizedModifierFlags(from: modifierFlags)
-        guard flags == self.modifierFlags else { return false }
-
-        let shortcutKey = key.lowercased()
-        if Self.keyTable.usesDirectKeyCodeMatching(shortcutKey) {
-            guard let expectedKeyCode = self.keyCode ?? Self.keyTable.keyCodeForShortcutKey(shortcutKey) else {
-                return false
-            }
-            return keyCode == expectedKeyCode
-        }
-
-        if shortcutKey == "\r" {
-            return keyCode == 36 || keyCode == 76
-        }
-
-        if Self.keyTable.shortcutCharacterMatches(
+        ShortcutCoordinator.matchesStroke(
+            strokeKey: key,
+            strokeModifierFlags: modifierFlags,
+            strokeKeyCode: self.keyCode,
+            keyCode: keyCode,
+            modifierFlags: modifierFlags,
             eventCharacter: eventCharacter,
-            shortcutKey: shortcutKey,
-            applyShiftSymbolNormalization: flags.contains(.shift),
-            eventKeyCode: keyCode
-        ) {
-            return true
-        }
-
-        let hasEventChars = !(eventCharacter?.isEmpty ?? true)
-        let eventCharsAreASCII = eventCharacter?.allSatisfy(\.isASCII) ?? true
-        let eventCharsArePrintableASCII = eventCharacter?.unicodeScalars.allSatisfy { scalar in
-            scalar.isASCII && !CharacterSet.controlCharacters.contains(scalar)
-        } ?? true
-        let shortcutKeyIsDigit = shortcutKey.count == 1 && shortcutKey.first?.isNumber == true
-        let shortcutKeyIsLetter = shortcutKey.count == 1 && shortcutKey.first?.isLetter == true
-        let eventCharacterIsLetterOrNumber = eventCharacter?.count == 1 &&
-            (eventCharacter?.first?.isLetter == true || eventCharacter?.first?.isNumber == true)
-        let commandPrintableCharacterShouldBlockFallback = flags.contains(.command) &&
-            hasEventChars &&
-            eventCharsArePrintableASCII &&
-            (!flags.contains(.control) || !shortcutKeyIsLetter) &&
-            (shortcutKeyIsLetter || eventCharacterIsLetterOrNumber)
-        if shortcutKeyIsDigit,
-           hasEventChars,
-           eventCharsAreASCII,
-           Self.keyTable.digitForNumberKeyCode(keyCode) == nil {
-            return false
-        }
-        if commandPrintableCharacterShouldBlockFallback {
-            return false
-        }
-
-        let layoutCharacter = layoutCharacterProvider(keyCode, modifierFlags)
-        if Self.keyTable.shortcutCharacterMatches(
-            eventCharacter: layoutCharacter,
-            shortcutKey: shortcutKey,
-            applyShiftSymbolNormalization: false,
-            eventKeyCode: keyCode
-        ) {
-            return true
-        }
-
-        let allowANSIKeyCodeFallback = flags.contains(.control)
-            || (flags.contains(.command)
-                && !flags.contains(.control)
-                && (
-                    !Self.keyTable.shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey)
-                        || (hasEventChars && !eventCharsAreASCII)
-                        || (!hasEventChars && (layoutCharacter?.isEmpty ?? true))
-                ))
-        if allowANSIKeyCodeFallback,
-           let expectedKeyCode = Self.keyTable.keyCodeForShortcutKey(shortcutKey) {
-            return keyCode == expectedKeyCode
-        }
-
-        return false
+            layoutCharacterProvider: layoutCharacterProvider
+        )
     }
 
     private var isBareShortcutAllowedWithoutModifier: Bool {
@@ -2137,6 +2075,100 @@ struct StoredShortcut: Codable, Equatable, Hashable {
     }
 }
 
+/// The app↔package adapter that lets ``CmuxShortcuts/ShortcutCoordinator`` match
+/// against the app-target ``ShortcutStroke``/``StoredShortcut`` value types it
+/// cannot reference across the module boundary.
+///
+/// The matching ladder itself lives entirely in `CmuxShortcuts`
+/// (``CmuxShortcuts/ShortcutCoordinator`` `+Matching`). These overloads decompose
+/// the app-only stroke/shortcut into the value components the package matchers
+/// take, supply the coordinator's injected layout-character provider, and compute
+/// the Option-printable-text bypass at this app seam (its layout translation is
+/// text-input mode, distinct from the coordinator's shortcut-mode provider).
+extension ShortcutCoordinator {
+    /// Whether `event` matches `stroke` as a normal-key shortcut.
+    func matchesStroke(event: NSEvent, stroke: ShortcutStroke) -> Bool {
+        matchesStroke(
+            event: event,
+            strokeKey: stroke.key,
+            strokeModifierFlags: stroke.modifierFlags,
+            strokeKeyCode: stroke.keyCode,
+            optionTextBypass: shortcutRoutingShouldBypassForPrintableOptionText(event: event),
+            layoutCharacterProvider: layoutCharacter(forKeyCode:modifierFlags:)
+        )
+    }
+
+    /// Whether `event` matches `shortcut`'s single stroke, skipping unbound or
+    /// chorded shortcuts (which this single-stroke predicate does not handle).
+    func matchesStroke(event: NSEvent, shortcut: StoredShortcut) -> Bool {
+        guard !shortcut.isUnbound, !shortcut.hasChord else { return false }
+        return matchesStroke(event: event, stroke: shortcut.firstStroke)
+    }
+
+    /// The numbered digit (1–9) `stroke` matches for `event`, gated on the stroke's
+    /// modifier flags.
+    func numberedShortcutDigit(event: NSEvent, stroke: ShortcutStroke) -> Int? {
+        numberedShortcutDigit(event: event, strokeModifierFlags: stroke.modifierFlags)
+    }
+
+    /// The numbered digit (1–9) `shortcut`'s single stroke matches, skipping
+    /// unbound or chorded shortcuts.
+    func numberedShortcutDigit(event: NSEvent, shortcut: StoredShortcut) -> Int? {
+        guard !shortcut.isUnbound, !shortcut.hasChord else { return nil }
+        return numberedShortcutDigit(event: event, stroke: shortcut.firstStroke)
+    }
+
+    /// Whether `event` matches a Tab-key (key code 48) `stroke`.
+    func matchesTabStroke(event: NSEvent, stroke: ShortcutStroke) -> Bool {
+        matchesTabStroke(event: event, strokeModifierFlags: stroke.modifierFlags)
+    }
+
+    /// Whether `event` matches a Tab-key `shortcut`'s single stroke, skipping
+    /// chorded shortcuts.
+    func matchesTabStroke(event: NSEvent, shortcut: StoredShortcut) -> Bool {
+        guard !shortcut.hasChord else { return false }
+        return matchesTabStroke(event: event, stroke: shortcut.firstStroke)
+    }
+
+    /// Whether `event` matches `stroke` as a directional shortcut: arrow-key code
+    /// match when the stroke is the arrow glyph, otherwise the normal-key predicate
+    /// (so users can rebind directional navigation to letter keys).
+    func matchesDirectionalStroke(
+        event: NSEvent,
+        stroke: ShortcutStroke,
+        arrowGlyph: String,
+        arrowKeyCode: UInt16
+    ) -> Bool {
+        matchesDirectionalStroke(
+            event: event,
+            strokeKey: stroke.key,
+            strokeModifierFlags: stroke.modifierFlags,
+            strokeKeyCode: stroke.keyCode,
+            arrowGlyph: arrowGlyph,
+            arrowKeyCode: arrowKeyCode,
+            optionTextBypass: shortcutRoutingShouldBypassForPrintableOptionText(event: event),
+            layoutCharacterProvider: layoutCharacter(forKeyCode:modifierFlags:)
+        )
+    }
+
+    /// Whether `event` matches a directional `shortcut`'s single stroke, skipping
+    /// chorded shortcuts.
+    func matchesDirectionalStroke(
+        event: NSEvent,
+        shortcut: StoredShortcut,
+        arrowGlyph: String,
+        arrowKeyCode: UInt16
+    ) -> Bool {
+        guard !shortcut.hasChord else { return false }
+        return matchesDirectionalStroke(
+            event: event,
+            stroke: shortcut.firstStroke,
+            arrowGlyph: arrowGlyph,
+            arrowKeyCode: arrowKeyCode
+        )
+    }
+}
+
 extension ShortcutStroke {
     /// This stroke as its persisted ``CmuxSettings/ShortcutStroke`` value.
     ///
@@ -2266,4 +2298,165 @@ enum KeyboardShortcutRecorderActivity {
 struct ShortcutRecorderRejectedAttempt: Equatable {
     let reason: KeyboardShortcutSettings.ShortcutRecordingRejection
     let proposedShortcut: StoredShortcut?
+}
+
+/// The configured-chord-aware shortcut matchers that resolve a bound
+/// ``KeyboardShortcutSettings/Action`` (or an explicit ``StoredShortcut``) against
+/// a live key `NSEvent`, branching on the active chord prefix.
+///
+/// ## Why these live on ``CmuxShortcuts/ShortcutCoordinator``
+///
+/// These were `private` matchers on the app-target ``AppDelegate``, the keyboard-
+/// shortcut god object. Deciding whether an event satisfies a *configured* binding
+/// is shortcut-routing orchestration, not app-shell lifecycle, so it belongs on
+/// the coordinator that already owns the decode (``CmuxShortcuts/ShortcutCoordinator``
+/// `+Matching`) and the single-stroke `matchesStroke`/`numberedShortcutDigit`/
+/// `matchesDirectionalStroke` primitives these methods delegate to. Moving them off
+/// ``AppDelegate`` continues the de-singletonization of that god object: the
+/// per-keystroke dispatch (`handleCustomShortcut` et al.) now calls the coordinator,
+/// not a private self-method, passing the held chord coordinator and the app-side
+/// `when`-clause / window-number lookups as collaborators.
+///
+/// ## Why this extension is app-side, not in the package
+///
+/// The matchers intrinsically read the app-target shortcut catalog
+/// (``KeyboardShortcutSettings/shortcut(for:)``), the app-target value types
+/// (``StoredShortcut``, ``ShortcutStroke``), and the app-target `when`-clause focus
+/// gate, none of which can cross into ``CmuxShortcuts`` (a lower package cannot
+/// depend on an app-target type). So they land as instance methods on the
+/// coordinator through an app-target `extension`, alongside the single-stroke
+/// `matchesStroke(event:shortcut:)` adapters earlier in this file: the package owns
+/// the pure matching ladder, this seam decomposes the app catalog into it.
+///
+/// ## Collaborators
+///
+/// - `chord`: the held ``CmuxWindowing/ShortcutChordCoordinator`` `<ShortcutStroke>`
+///   whose `activePrefixForCurrentEvent` selects first-stroke vs second-stroke
+///   matching and whose `armIfNeeded(...)` records a chord prefix.
+/// - `whenClauseAllows`: the app-side `when`-clause focus gate
+///   (`AppDelegate.shortcutWhenClauseAllows(action:event:)`), injected because it
+///   reads the live focus snapshot.
+/// - `chordWindowNumber`: the window-number lookup used to scope a chord to the
+///   window that armed it, injected because it reaches `mainWindowForShortcutEvent`
+///   / `event.window` window-domain state that stays app-side.
+extension ShortcutCoordinator {
+    /// Whether `event` matches `shortcut`, honoring the active chord prefix: when a
+    /// prefix is live, only a chorded shortcut whose first stroke equals that prefix
+    /// can match (on its second stroke); otherwise only a non-chorded shortcut can
+    /// match (on its single stroke). Faithful relocation of the former
+    /// `AppDelegate.matchConfiguredShortcut(event:shortcut:)`.
+    func matchConfiguredShortcut(
+        event: NSEvent,
+        shortcut: StoredShortcut,
+        chord: ShortcutChordCoordinator<ShortcutStroke>
+    ) -> Bool {
+        guard !shortcut.isUnbound else { return false }
+        if let prefix = chord.activePrefixForCurrentEvent {
+            guard let secondStroke = shortcut.secondStroke,
+                  shortcut.firstStroke == prefix else {
+                return false
+            }
+            return matchesStroke(event: event, stroke: secondStroke)
+        }
+        guard !shortcut.hasChord else { return false }
+        return matchesStroke(event: event, stroke: shortcut.firstStroke)
+    }
+
+    /// Whether `event` matches `action`'s configured binding, after the action's
+    /// effective `when` clause is satisfied by the event's focus state. Faithful
+    /// relocation of the former `AppDelegate.matchConfiguredShortcut(event:action:)`.
+    func matchConfiguredShortcut(
+        event: NSEvent,
+        action: KeyboardShortcutSettings.Action,
+        chord: ShortcutChordCoordinator<ShortcutStroke>,
+        whenClauseAllows: (KeyboardShortcutSettings.Action, NSEvent) -> Bool
+    ) -> Bool {
+        if !whenClauseAllows(action, event) { return false }
+        return matchConfiguredShortcut(
+            event: event,
+            shortcut: KeyboardShortcutSettings.shortcut(for: action),
+            chord: chord
+        )
+    }
+
+    /// The numbered digit (1–9) `action`'s configured binding matches for `event`,
+    /// honoring the active chord prefix, or `nil`. Faithful relocation of the former
+    /// `AppDelegate.numberedConfiguredShortcutDigit(event:action:)`.
+    func numberedConfiguredShortcutDigit(
+        event: NSEvent,
+        action: KeyboardShortcutSettings.Action,
+        chord: ShortcutChordCoordinator<ShortcutStroke>
+    ) -> Int? {
+        let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+        guard !shortcut.isUnbound else { return nil }
+        if let prefix = chord.activePrefixForCurrentEvent {
+            guard let secondStroke = shortcut.secondStroke,
+                  shortcut.firstStroke == prefix else {
+                return nil
+            }
+            return numberedShortcutDigit(event: event, stroke: secondStroke)
+        }
+        guard !shortcut.isUnbound, !shortcut.hasChord else { return nil }
+        return numberedShortcutDigit(event: event, stroke: shortcut.firstStroke)
+    }
+
+    /// Whether `event` matches `action`'s configured directional binding, honoring
+    /// the action's `when` clause and the active chord prefix. Faithful relocation of
+    /// the former `AppDelegate.matchConfiguredDirectionalShortcut(event:action:arrowGlyph:arrowKeyCode:)`.
+    func matchConfiguredDirectionalShortcut(
+        event: NSEvent,
+        action: KeyboardShortcutSettings.Action,
+        arrowGlyph: String,
+        arrowKeyCode: UInt16,
+        chord: ShortcutChordCoordinator<ShortcutStroke>,
+        whenClauseAllows: (KeyboardShortcutSettings.Action, NSEvent) -> Bool
+    ) -> Bool {
+        guard whenClauseAllows(action, event) else {
+            return false
+        }
+        let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+        guard !shortcut.isUnbound else { return false }
+        if let prefix = chord.activePrefixForCurrentEvent {
+            guard let secondStroke = shortcut.secondStroke,
+                  shortcut.firstStroke == prefix else {
+                return false
+            }
+            return matchesDirectionalStroke(
+                event: event,
+                stroke: secondStroke,
+                arrowGlyph: arrowGlyph,
+                arrowKeyCode: arrowKeyCode
+            )
+        }
+        guard !shortcut.hasChord else { return false }
+        return matchesDirectionalStroke(
+            event: event,
+            stroke: shortcut.firstStroke,
+            arrowGlyph: arrowGlyph,
+            arrowKeyCode: arrowKeyCode
+        )
+    }
+
+    /// Arms a chord prefix if any of `actions`' bindings (plus any explicit
+    /// `shortcuts`) is a chorded shortcut whose first stroke matches `event`,
+    /// scoping the chord to the event's window via `chordWindowNumber`. Faithful
+    /// relocation of the former `AppDelegate.armConfiguredShortcutChordIfNeeded(event:actions:shortcuts:)`.
+    func armConfiguredShortcutChordIfNeeded(
+        event: NSEvent,
+        actions: [KeyboardShortcutSettings.Action],
+        shortcuts: [StoredShortcut] = [],
+        chord: ShortcutChordCoordinator<ShortcutStroke>,
+        chordWindowNumber: (NSEvent) -> Int?
+    ) -> Bool {
+        let configuredShortcuts = actions.map {
+            KeyboardShortcutSettings.shortcut(for: $0)
+        } + shortcuts
+        return chord.armIfNeeded(
+            candidates: configuredShortcuts,
+            windowNumber: chordWindowNumber(event),
+            isChord: { $0.hasChord },
+            firstStroke: { $0.firstStroke },
+            firstStrokeMatches: { matchesStroke(event: event, stroke: $0) }
+        )
+    }
 }

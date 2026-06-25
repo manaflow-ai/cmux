@@ -1962,43 +1962,6 @@ final class WindowBrowserPortal: NSObject {
         )
     }
 
-    private static func searchOverlayConfigurationsEquivalent(
-        _ lhs: BrowserPortalSearchOverlayConfiguration?,
-        _ rhs: BrowserPortalSearchOverlayConfiguration?
-    ) -> Bool {
-        switch (lhs, rhs) {
-        case (nil, nil):
-            return true
-        case let (lhs?, rhs?):
-            return lhs.panelId == rhs.panelId &&
-                lhs.searchState === rhs.searchState &&
-                lhs.focusRequestGeneration == rhs.focusRequestGeneration
-        default:
-            return false
-        }
-    }
-
-    private static func omnibarSuggestionsConfigurationsEquivalent(
-        _ lhs: BrowserPortalOmnibarSuggestionsConfiguration?,
-        _ rhs: BrowserPortalOmnibarSuggestionsConfiguration?
-    ) -> Bool {
-        switch (lhs, rhs) {
-        case (nil, nil):
-            return true
-        case let (lhs?, rhs?):
-            return lhs.panelId == rhs.panelId &&
-                rectApproximatelyEqual(lhs.popupFrame, rhs.popupFrame, epsilon: 0.5) &&
-                lhs.colorScheme == rhs.colorScheme &&
-                lhs.engineName == rhs.engineName &&
-                lhs.items == rhs.items &&
-                lhs.selectedIndex == rhs.selectedIndex &&
-                lhs.isLoadingRemoteSuggestions == rhs.isLoadingRemoteSuggestions &&
-                lhs.searchSuggestionsEnabled == rhs.searchSuggestionsEnabled
-        default:
-            return false
-        }
-    }
-
     /// Convert an anchor view's bounds to window coordinates while honoring ancestor clipping.
     /// SwiftUI/AppKit hosting layers can briefly report an anchor bounds rect larger than the
     /// visible split pane during rearrangement; intersecting through ancestor bounds keeps the
@@ -2521,7 +2484,16 @@ final class WindowBrowserPortal: NSObject {
         configuration: BrowserPortalSearchOverlayConfiguration?
     ) {
         guard var entry = entriesByWebViewId[webViewId] else { return }
-        guard !Self.searchOverlayConfigurationsEquivalent(entry.searchOverlay, configuration) else { return }
+        let isEquivalent: Bool
+        switch (entry.searchOverlay, configuration) {
+        case (nil, nil):
+            isEquivalent = true
+        case let (existing?, incoming?):
+            isEquivalent = existing.isEquivalent(to: incoming)
+        default:
+            isEquivalent = false
+        }
+        guard !isEquivalent else { return }
         entry.searchOverlay = configuration
         entriesByWebViewId[webViewId] = entry
         entry.containerView?.setSearchOverlay(configuration)
@@ -2532,7 +2504,16 @@ final class WindowBrowserPortal: NSObject {
         configuration: BrowserPortalOmnibarSuggestionsConfiguration?
     ) {
         guard var entry = entriesByWebViewId[webViewId] else { return }
-        guard !Self.omnibarSuggestionsConfigurationsEquivalent(entry.omnibarSuggestions, configuration) else { return }
+        let isEquivalent: Bool
+        switch (entry.omnibarSuggestions, configuration) {
+        case (nil, nil):
+            isEquivalent = true
+        case let (existing?, incoming?):
+            isEquivalent = existing.isEquivalent(to: incoming)
+        default:
+            isEquivalent = false
+        }
+        guard !isEquivalent else { return }
         entry.omnibarSuggestions = configuration
         entriesByWebViewId[webViewId] = entry
         entry.containerView?.setOmnibarSuggestions(configuration)

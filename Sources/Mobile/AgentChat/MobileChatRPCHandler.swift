@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxAgentChat
 import CmuxPanes
 import CmuxTerminal
@@ -16,6 +17,12 @@ import Foundation
 @MainActor
 final class MobileChatRPCHandler {
     private let host: any MobileChatRPCHost
+
+    /// Held metadata-detection matcher (built over the built-in agent catalog
+    /// once, reused per call) for the chat agent-adoption / agent-binding paths.
+    /// Replaces the former `TextBoxAgentDetection` static calls after the detector
+    /// moved into ``CMUXAgentLaunch``.
+    private let agentMetadataDetector = AgentMetadataDetector()
 
     /// - Parameter host: the terminal data-plane seam the chat handlers drive
     ///   (transcript service, workspace/surface resolution, terminal paste, and
@@ -127,7 +134,7 @@ final class MobileChatRPCHandler {
             // Claude is the case the wrapper-launched workflow hits; detect by
             // launch metadata (hook PID key / initial command) or the live
             // terminal title claude sets ("✳ Claude Code", then "✳ <ai-title>").
-            let isClaude = TextBoxAgentDetection.isClaudeCode(context: context)
+            let isClaude = agentMetadataDetector.isClaudeCode(context: context)
                 || normalizedTitle.contains("claude")
                 || title.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("✳")
             guard isClaude else { continue }
@@ -382,11 +389,11 @@ final class MobileChatRPCHandler {
         let context = WorkspaceContentView.terminalAgentContext(panel: terminalPanel, workspace: resolved.workspace)
         switch record.agentKind {
         case .claude:
-            return TextBoxAgentDetection.isClaudeCode(context: context)
+            return agentMetadataDetector.isClaudeCode(context: context)
                 || normalizedTitle.contains("claude")
                 || title.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("✳")
         case .codex:
-            return TextBoxAgentDetection.codex.matches(context: context)
+            return agentMetadataDetector.matches(agent: .codex, context: context)
                 || normalizedTitle.contains("codex")
         case .other(let source):
             return !source.isEmpty && (

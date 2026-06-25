@@ -4,11 +4,12 @@ import CmuxFoundation
 import CmuxWorkspaces
 import Combine
 import Foundation
+import Observation
 import CmuxSettings
 
-extension CodingUserInfoKey {
-    static let cmuxWorkspaceColorDefaults = CodingUserInfoKey(rawValue: "cmuxWorkspaceColorDefaults")!
-}
+// `CodingUserInfoKey.cmuxWorkspaceColorDefaults` (and the new
+// `.cmuxWorkspaceColorResolver` color-decode seam) are owned by CmuxWorkspaces
+// alongside `CmuxWorkspaceDefinition`, reached through `import CmuxWorkspaces`.
 
 struct CmuxConfigFile: Codable, Sendable {
     var actions: [String: CmuxConfigActionDefinition]
@@ -1401,138 +1402,12 @@ struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
     }
 }
 
-indirect enum CmuxLayoutNode: Codable, Sendable {
-    case pane(CmuxPaneDefinition)
-    case split(CmuxSplitDefinition)
-
-    private enum CodingKeys: String, CodingKey {
-        case pane
-        case direction
-        case split
-        case children
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let hasPane = container.contains(.pane)
-        let hasDirection = container.contains(.direction)
-
-        if hasPane && hasDirection {
-            throw DecodingError.dataCorrupted(
-                DecodingError.Context(
-                    codingPath: decoder.codingPath,
-                    debugDescription: "CmuxLayoutNode must not contain both 'pane' and 'direction' keys"
-                )
-            )
-        }
-
-        if hasPane {
-            let pane = try container.decode(CmuxPaneDefinition.self, forKey: .pane)
-            self = .pane(pane)
-        } else if hasDirection {
-            let splitDef = try CmuxSplitDefinition(from: decoder)
-            self = .split(splitDef)
-        } else {
-            throw DecodingError.dataCorrupted(
-                DecodingError.Context(
-                    codingPath: decoder.codingPath,
-                    debugDescription: "CmuxLayoutNode must contain either a 'pane' key or a 'direction' key"
-                )
-            )
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        switch self {
-        case .pane(let pane):
-            var container = encoder.container(keyedBy: CodingKeys.self)
-            try container.encode(pane, forKey: .pane)
-        case .split(let split):
-            try split.encode(to: encoder)
-        }
-    }
-}
-
-struct CmuxSplitDefinition: Codable, Sendable {
-    var direction: CmuxSplitDirection
-    var split: Double?
-    var children: [CmuxLayoutNode]
-
-    init(direction: CmuxSplitDirection, split: Double? = nil, children: [CmuxLayoutNode]) {
-        self.direction = direction
-        self.split = split
-        self.children = children
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        direction = try container.decode(CmuxSplitDirection.self, forKey: .direction)
-        split = try container.decodeIfPresent(Double.self, forKey: .split)
-        children = try container.decode([CmuxLayoutNode].self, forKey: .children)
-        if children.count != 2 {
-            throw DecodingError.dataCorrupted(
-                DecodingError.Context(
-                    codingPath: decoder.codingPath,
-                    debugDescription: "Split node requires exactly 2 children, got \(children.count)"
-                )
-            )
-        }
-    }
-
-    var clampedSplitPosition: Double {
-        let value = split ?? 0.5
-        return min(0.9, max(0.1, value))
-    }
-
-    var splitOrientation: SplitOrientation {
-        switch direction {
-        case .horizontal: return .horizontal
-        case .vertical: return .vertical
-        }
-    }
-}
-
-enum CmuxSplitDirection: String, Codable, Sendable {
-    case horizontal
-    case vertical
-}
-
-struct CmuxPaneDefinition: Codable, Sendable {
-    var surfaces: [CmuxSurfaceDefinition]
-
-    init(surfaces: [CmuxSurfaceDefinition]) {
-        self.surfaces = surfaces
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        surfaces = try container.decode([CmuxSurfaceDefinition].self, forKey: .surfaces)
-        if surfaces.isEmpty {
-            throw DecodingError.dataCorrupted(
-                DecodingError.Context(
-                    codingPath: decoder.codingPath,
-                    debugDescription: "Pane node must contain at least one surface"
-                )
-            )
-        }
-    }
-}
-
-struct CmuxSurfaceDefinition: Codable, Sendable {
-    var type: CmuxSurfaceType
-    var name: String?
-    var command: String?
-    var cwd: String?
-    var env: [String: String]?
-    var url: String?
-    var focus: Bool?
-}
-
-enum CmuxSurfaceType: String, Codable, Sendable {
-    case terminal
-    case browser
-    case project
-}
+// The `cmux.json` layout wire-schema cluster (CmuxLayoutNode / CmuxSplitDefinition
+// / CmuxSplitDirection / CmuxPaneDefinition / CmuxSurfaceDefinition /
+// CmuxSurfaceType), the CmuxLayoutNode -> WorkspaceCustomLayoutNode bridge, and
+// CmuxWorkspaceDefinition now live in CmuxWorkspaces/CustomLayout/, co-located
+// with the canonical WorkspaceCustomLayoutNode/WorkspaceCustomSurface value image
+// they map onto. They are reached through `import CmuxWorkspaces`.
 
 struct CmuxResolvedCommand: Sendable {
     let command: CmuxCommandDefinition
@@ -1591,38 +1466,77 @@ struct CmuxConfigIssue: Identifiable, Equatable, Sendable {
     }
 }
 
+/// Per-window resolved-configuration model: parses the global + local
+/// `cmux.json` hierarchy, exposes the resolved commands/actions/menus/hooks to
+/// SwiftUI, and re-resolves on config-file changes and `CmuxActionTrust`
+/// updates.
+///
+/// **Isolation design.** `@MainActor` because every writer of the observed
+/// state runs on the main actor: the `loadAll()` resolution path, the
+/// `wireDirectoryTracking`/`repointDirectoryTracking` selection glue, and all
+/// file-watch handlers hop to main before mutating. State lives where its
+/// callers (SwiftUI views in the same window, the reload coordinator) live, so
+/// no cross-actor bridge is needed for the model itself.
+///
+/// **Observation surface.** `@Observable` (not `ObservableObject`) so SwiftUI
+/// tracks the resolved outputs through Observation; the migration direction is
+/// `ObservableObject`/`@Published` → `@Observable`. The previously `@Published`
+/// properties (`loadedCommands` … `configRevision`) stay observed stored
+/// properties; every other stored property is internal machinery and is marked
+/// `@ObservationIgnored` so the observable surface is exactly the formerly
+/// `@Published` set (under `ObservableObject` only those fired
+/// `objectWillChange`; under `@Observable` an un-ignored stored var would
+/// become observable, which would widen the surface and change view-tracking
+/// behavior).
+///
+/// **Preserved machinery.** The file-watch / NotificationCenter plumbing is
+/// unchanged by this cutover: the weak `tabManager` reference, the
+/// `WorkspacesObservation` selection/tabs watches, the per-source local /
+/// global / hook `DispatchSource` + `CmuxFileWatch.FileWatcher` watchers, the
+/// `CmuxActionTrust.didChangeNotification` Combine sink, and
+/// `lifetimeCancellables`/`trackingCancellables`. Only the property-observation
+/// mechanism changed.
 @MainActor
-final class CmuxConfigStore: ObservableObject {
+@Observable
+final class CmuxConfigStore {
     private static let defaultNewWorkspaceContextMenu: [CmuxConfigContextMenuItem] = [
         .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID)),
         .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.cloudVM.configID)),
     ]
 
-    @Published private(set) var loadedCommands: [CmuxCommandDefinition] = []
-    @Published private(set) var loadedActions: [CmuxResolvedConfigAction] = []
-    @Published private(set) var newWorkspaceCommandName: String?
-    @Published private(set) var newWorkspaceActionID: String?
-    @Published private(set) var newWorkspaceContextMenuItems: [CmuxResolvedConfigContextMenuItem] = []
+    private(set) var loadedCommands: [CmuxCommandDefinition] = []
+    private(set) var loadedActions: [CmuxResolvedConfigAction] = []
+    private(set) var newWorkspaceCommandName: String?
+    private(set) var newWorkspaceActionID: String?
+    private(set) var newWorkspaceContextMenuItems: [CmuxResolvedConfigContextMenuItem] = []
     /// Resolved per-cwd workspace group customization, keyed by the JSON cwd key.
     /// Use `resolveWorkspaceGroupConfig(forCwd:)` to find the best match for an
     /// anchor workspace's cwd. Empty when no `workspaceGroups.byCwd` block is
     /// configured.
-    @Published private(set) var workspaceGroupConfigs: [CmuxResolvedWorkspaceGroupConfig] = []
-    @Published private(set) var surfaceTabBarButtons: [CmuxSurfaceTabBarButton] = CmuxSurfaceTabBarButton.defaults
-    @Published private(set) var notificationHooks: [CmuxResolvedNotificationHook] = []
-    @Published private(set) var configurationIssues: [CmuxConfigIssue] = []
-    @Published private(set) var configRevision: UInt64 = 0
+    private(set) var workspaceGroupConfigs: [CmuxResolvedWorkspaceGroupConfig] = []
+    private(set) var surfaceTabBarButtons: [CmuxSurfaceTabBarButton] = CmuxSurfaceTabBarButton.defaults
+    private(set) var notificationHooks: [CmuxResolvedNotificationHook] = []
+    private(set) var configurationIssues: [CmuxConfigIssue] = []
+    private(set) var configRevision: UInt64 = 0
 
     /// Which config file each command came from, keyed by command id.
+    @ObservationIgnored
     private(set) var commandSourcePaths: [String: String] = [:]
+    @ObservationIgnored
     private(set) var actionLookup: [String: CmuxResolvedConfigAction] = [:]
+    @ObservationIgnored
     private(set) var surfaceTabBarButtonSourcePath: String?
+    @ObservationIgnored
     private(set) var surfaceTabBarCommandSourcePaths: [String: String] = [:]
+    @ObservationIgnored
     private(set) var newWorkspaceActionSourcePath: String?
 
+    @ObservationIgnored
     private(set) var localConfigPath: String?
+    @ObservationIgnored
     private weak var tabManager: TabManager?
     let globalConfigPath: String
+    @ObservationIgnored
     private let fileWatchingEnabled: Bool
 
     nonisolated private static func defaultGlobalConfigPath() -> String {
@@ -1674,11 +1588,17 @@ final class CmuxConfigStore: ObservableObject {
         let issue: CmuxConfigIssue?
     }
 
+    @ObservationIgnored
     private var surfaceTabBarWorkspaceCommands: [String: CmuxResolvedCommand] = [:]
+    @ObservationIgnored
     private var resolvedNewWorkspaceCommandCache: CmuxResolvedCommand?
+    @ObservationIgnored
     private var resolvedNewWorkspaceActionCache: CmuxResolvedConfigAction?
+    @ObservationIgnored
     private var parsedConfigCache: [String: ParsedConfigCacheEntry] = [:]
+    @ObservationIgnored
     private var lifetimeCancellables = Set<AnyCancellable>()
+    @ObservationIgnored
     private var trackingCancellables = Set<AnyCancellable>()
     /// `@Observable` watches on the `WorkspacesModel` (selection + tabs),
     /// replacing the retired `selectedTabIdPublisher` / `tabsPublisher` Combine
@@ -1686,23 +1606,38 @@ final class CmuxConfigStore: ObservableObject {
     /// `$surfaceTabBarDirectory` (a `Workspace` `@Published`, out of this slice's
     /// scope) stays Combine and is re-pointed whenever the selected workspace id
     /// changes, hand-rolling the former `switchToLatest`.
+    @ObservationIgnored
     private var selectionObservation: WorkspacesObservation?
+    @ObservationIgnored
     private var tabsObservation: WorkspacesObservation?
+    @ObservationIgnored
     private var trackedSelectedWorkspaceId: UUID?
+    @ObservationIgnored
     private var trackedDirectoryCancellable: AnyCancellable?
+    @ObservationIgnored
     private var lastTrackedDirectory: String??
     // The local config still uses a bespoke DispatchSource watcher because it
     // performs search-directory *path re-resolution* (not just reload-on-change).
     // The global config and hook files use CmuxFileWatch.FileWatcher.
+    @ObservationIgnored
     private var localFileWatchSource: DispatchSourceFileSystemObject?
+    @ObservationIgnored
     private var localFileDescriptor: Int32 = -1
+    @ObservationIgnored
     private var localConfigSearchDirectory: String?
+    @ObservationIgnored
     private var hookWatchers: [String: FileWatcher] = [:]
+    @ObservationIgnored
     private var hookWatchTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored
     private var localFallbackDirectoryWatchSource: DispatchSourceFileSystemObject?
+    @ObservationIgnored
     private var localFallbackDirectoryDescriptor: Int32 = -1
+    @ObservationIgnored
     private var globalWatcher: FileWatcher?
+    @ObservationIgnored
     private var globalWatchTask: Task<Void, Never>?
+    @ObservationIgnored
     private let watchQueue = DispatchQueue(label: "com.cmux.config-file-watch")
 
     private static let maxReattachAttempts = 5
@@ -2866,7 +2801,16 @@ final class CmuxConfigStore: ObservableObject {
         }
 
         do {
-            let config = try JSONDecoder().decode(CmuxConfigFile.self, from: sanitized)
+            let decoder = JSONDecoder()
+            // Inject the app's AppKit-coupled color resolver so the moved
+            // `CmuxWorkspaceDefinition` value type (in CmuxWorkspaces) normalizes a
+            // `workspace.color` string identically to the legacy in-line decode,
+            // without the package reaching up into the app target.
+            decoder.userInfo[.cmuxWorkspaceColorResolver]
+                = { @Sendable (raw: String, defaults: UserDefaults) -> String? in
+                    WorkspaceTabColorSettings.resolvedColorHex(raw, defaults: defaults)
+                } as @Sendable (String, UserDefaults) -> String?
+            let config = try decoder.decode(CmuxConfigFile.self, from: sanitized)
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,

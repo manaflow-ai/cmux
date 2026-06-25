@@ -154,7 +154,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     var notificationStore: TerminalNotificationStore { .shared }
     @EnvironmentObject var sidebarState: SidebarState
     @EnvironmentObject var sidebarSelectionState: SidebarSelectionState
-    @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
+    @Environment(CmuxConfigStore.self) var cmuxConfigStore
     @EnvironmentObject var fileExplorerState: FileExplorerState
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyleRawValue = TitlebarControlsStyle.classic.rawValue
@@ -5760,7 +5760,7 @@ struct VerticalTabsSidebar: View {
     // for context-menu actions and pass-down. See SidebarUnreadModel / #2586.
     @EnvironmentObject var sidebarUnread: SidebarUnreadModel
     var notificationStore: TerminalNotificationStore { .shared }
-    @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
+    @Environment(CmuxConfigStore.self) var cmuxConfigStore
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
