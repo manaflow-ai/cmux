@@ -20,6 +20,10 @@ enum RemoteTmuxError: Error, Sendable, Equatable {
 }
 
 extension RemoteTmuxError {
+    static var unknownVersionDisplayName: String {
+        String(localized: "remoteTmux.version.unknown", defaultValue: "unknown")
+    }
+
     /// A short, user-presentable description.
     ///
     /// Raw remote ssh/tmux stderr (and launch/unreachable detail) is sanitized before

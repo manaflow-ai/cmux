@@ -98,7 +98,8 @@ actor RemoteTmuxSSHTransport {
     /// Asserts that the remote server supports live mirroring.
     ///
     /// Call this before any `tmux -CC` control stream can launch. An unparseable
-    /// version is treated as "unknown, allow" to avoid rejecting dev/distro builds.
+    /// running-server version fails closed: old tmux servers may not expose
+    /// `#{version}`, and attaching anyway would enter the broken mirror state.
     /// When no server is running, pass `true` only for paths that will create one;
     /// those paths gate on the tmux client binary that will become the new server.
     func assertMinimumTmuxVersion(checkClientWhenNoServer: Bool) async throws {
@@ -107,7 +108,7 @@ actor RemoteTmuxSSHTransport {
             try Self.assertSupportedTmuxVersion(version)
             return
         case .unknown:
-            return
+            throw RemoteTmuxError.unsupportedTmux(detected: RemoteTmuxError.unknownVersionDisplayName)
         case .noServer:
             break
         }
