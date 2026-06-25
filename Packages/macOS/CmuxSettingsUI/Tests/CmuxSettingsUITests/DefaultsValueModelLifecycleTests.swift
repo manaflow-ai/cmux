@@ -221,7 +221,6 @@ import Testing
 
         #expect(model.current == "#111111")
         #expect(model.revision == 1)
-
         continuation.yield(event("#111111", source: source))
         for _ in 0..<10 {
             await Task.yield()
@@ -229,6 +228,32 @@ import Testing
 
         #expect(model.current == "#111111")
         #expect(model.revision == 1)
+    }
+
+    @Test func initialExternalObservationWhilePendingLocalWriteUpdatesCurrent() async {
+        let store = UserDefaultsSettingsStore(
+            defaults: UserDefaults(suiteName: "defaults-value-model-initial-external-update")!
+        )
+        let key = SettingCatalog().workspaceColors.selectionColorHex
+        let (stream, continuation) = AsyncStream<DefaultsEvent<String>>.makeStream()
+        let model = DefaultsValueModel(
+            store: store,
+            key: key,
+            initialValue: "#000000",
+            makeStream: { stream }
+        )
+
+        _ = model.set("#111111")
+        model.startObserving()
+        continuation.yield(event("#222222"))
+        var spins = 0
+        while model.current != "#222222", spins < 100_000 {
+            await Task.yield()
+            spins += 1
+        }
+
+        #expect(model.current == "#222222")
+        #expect(model.revision == 2)
     }
 
     @Test func lateLocalCommitAfterExternalObservationReconcilesCurrent() async {

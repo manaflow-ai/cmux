@@ -38,6 +38,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
 
     private let store: UserDefaultsSettingsStore
     private let key: DefaultsKey<Value>
+    private let initialStoreValue: Value
     @ObservationIgnored private let makeStream: @MainActor () async -> AsyncStream<UserDefaultsSettingsValueEvent<Value>>
     @ObservationIgnored private var pendingStoreEchoes: [(source: UserDefaultsSettingsMutationSource, value: Value)] = []
     @ObservationIgnored private let maximumPendingStoreEchoes = 16
@@ -88,7 +89,9 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         // Keep init side-effect-light. SwiftUI may evaluate
         // `State(initialValue:)` for throwaway view values during layout, so
         // observing starts only after the retained view appears.
-        self.current = initialValue ?? key.defaultValue
+        let resolvedInitialValue = initialValue ?? key.defaultValue
+        self.initialStoreValue = resolvedInitialValue
+        self.current = resolvedInitialValue
     }
 
     /// Starts the settings change stream for the retained model.
@@ -173,7 +176,8 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         }
         if isInitialStoreEvent,
            event.mutationSource == nil,
-           !pendingStoreEchoes.isEmpty {
+           !pendingStoreEchoes.isEmpty,
+           event.value == initialStoreValue {
             return
         }
         clearPendingStoreEchoes()
