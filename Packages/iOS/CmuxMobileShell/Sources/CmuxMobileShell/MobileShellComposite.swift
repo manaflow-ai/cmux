@@ -2467,13 +2467,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return switched
     }
 
-    /// Forget one stored Mac id. Display coalescing is heuristic, so destructive
-    /// removal stays scoped to the exact stored identity.
-    /// - Parameter macDeviceID: The stored Mac to forget.
+    /// Forget the logical computer represented by a stored Mac id.
+    ///
+    /// The Computers screen displays coalesced rows when multiple stored ids dial
+    /// the same physical Mac. Deleting that row must remove every represented
+    /// stored id, otherwise hidden aliases keep their workspace snapshots and the
+    /// workspace list still looks too full after the user deletes a computer.
+    /// - Parameter macDeviceID: A visible representative or hidden stored Mac id.
     public func forgetMac(macDeviceID: String) async {
         guard let scope = await currentScopeSnapshot() else { return }
-        rememberForgottenMacDeviceID(macDeviceID, scope: scope)
-        let isActiveMac = pairedMacsForIdentityMatching.first { $0.macDeviceID == macDeviceID }?.isActive == true
+        let macDeviceIDs = Array(Set(pairedMacAliasIDs(for: macDeviceID))).sorted()
+        guard !macDeviceIDs.isEmpty else { return }
+        for id in macDeviceIDs {
+            rememberForgottenMacDeviceID(id, scope: scope)
+        }
+        let targetIDSet = Set(macDeviceIDs)
+        let isActiveMac = pairedMacsForIdentityMatching.contains {
+            targetIDSet.contains($0.macDeviceID) && $0.isActive
+        }
         if isActiveMac, connectionState == .connected {
             disconnectLiveConnection(preservingOtherMacWorkspaceState: true)
         }
@@ -2482,20 +2493,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // the list immediately instead of leaving a dead, still-updating entry that
         // taps route into until the next aggregation pass. (The active/foreground
         // Mac's teardown is handled by disconnectLiveConnection above.)
-        if let subscription = secondaryMacSubscriptions[macDeviceID] {
-            subscription.cancel()
-            secondaryMacSubscriptions[macDeviceID] = nil
+        for id in macDeviceIDs {
+            if let subscription = secondaryMacSubscriptions[id] {
+                subscription.cancel()
+                secondaryMacSubscriptions[id] = nil
+            }
+            pruneWorkspaceStateForForgottenMac(id)
         }
-        pruneWorkspaceStateForForgottenMac(macDeviceID)
         guard await isScopeCurrent(scope) else { return }
-        do {
-            try await pairedMacStore?.remove(
-                macDeviceID: macDeviceID,
-                stackUserID: scope.userID,
-                teamID: scope.teamID
-            )
-        } catch {
-            mobileShellLog.error("paired mac store remove failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
+        for id in macDeviceIDs {
+            do {
+                try await pairedMacStore?.remove(
+                    macDeviceID: id,
+                    stackUserID: scope.userID,
+                    teamID: scope.teamID
+                )
+            } catch {
+                mobileShellLog.error("paired mac store remove failed mac=\(id, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            }
         }
         await loadPairedMacs()
     }

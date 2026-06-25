@@ -199,19 +199,10 @@ struct DeviceTreeView: View {
         )
     }
 
-    private func removeMessage(_ computer: MacComputerSnapshot?) -> String {
-        guard let computer, computer.aliasIDs.count > 1 else {
-            return L10n.string(
-                "mobile.computers.removeMessage",
-                defaultValue: "This computer and its workspaces stop appearing here. Pair it again to add it back."
-            )
-        }
-        return String(
-            format: L10n.string(
-                "mobile.computers.removeMessageRepresentativeFormat",
-                defaultValue: "This removes paired record %@. Other matching records may still appear."
-            ),
-            computer.deviceId
+    private func removeMessage(_: MacComputerSnapshot?) -> String {
+        L10n.string(
+            "mobile.computers.removeMessage",
+            defaultValue: "This computer and its workspaces stop appearing here. Pair it again to add it back."
         )
     }
 

@@ -105,6 +105,7 @@ import Testing
 
         #expect(store.pairedMacs.map(\.macDeviceID) == ["mac-other"])
         #expect(store.displayPairedMacs.map(\.macDeviceID) == ["mac-other"])
+        #expect(store.workspaces.map(\.rpcWorkspaceID.rawValue).isEmpty)
         #expect(try await pairedStore.loadAll(stackUserID: "user-1", teamID: "team-a").map(\.macDeviceID) == ["mac-other"])
     }
 
