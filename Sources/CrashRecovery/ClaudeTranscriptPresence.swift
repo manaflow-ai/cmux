@@ -200,9 +200,10 @@ enum ClaudeTranscriptPresenceResolver {
 /// Resolves Codex rollout transcript presence by exact session id and cwd.
 ///
 /// Codex rollouts live under `CODEX_HOME` (or `~/.codex`) as
-/// `sessions/YYYY/MM/DD/rollout-...<session-id>....jsonl`. The first line is
-/// `session_meta`, which carries both the canonical session id and the cwd. This
-/// resolver only verifies a binding when both values match the restored window.
+/// `sessions/YYYY/MM/DD/rollout-...<session-id>....jsonl`, with older rollouts
+/// also valid under `archived_sessions`. The first line is `session_meta`, which
+/// carries both the canonical session id and the cwd. This resolver only verifies
+/// a binding when both values match the restored window.
 enum CodexTranscriptPresenceResolver {
     private static let headByteCap = 64 * 1024
     private static let recentDayLimit = 370
@@ -232,29 +233,31 @@ enum CodexTranscriptPresenceResolver {
             codexHomeOverride: codexHomeOverride,
             homeDirectory: homeDirectory
         ) {
-            let sessionsRoot = URL(fileURLWithPath: root, isDirectory: true)
-                .appendingPathComponent("sessions", isDirectory: true)
-            for directory in recentSessionDirectories(sessionsRoot: sessionsRoot) {
-                guard !Task.isCancelled else { return .absent }
-                guard resolvedAtCwd == nil else { break }
-                guard let entries = try? fileManager.contentsOfDirectory(
-                    at: directory,
-                    includingPropertiesForKeys: nil,
-                    options: [.skipsHiddenFiles]
-                ) else { continue }
-                for url in entries {
+            for sessionsDirectoryName in ["sessions", "archived_sessions"] {
+                let sessionsRoot = URL(fileURLWithPath: root, isDirectory: true)
+                    .appendingPathComponent(sessionsDirectoryName, isDirectory: true)
+                for directory in recentSessionDirectories(sessionsRoot: sessionsRoot) {
                     guard !Task.isCancelled else { return .absent }
-                    guard url.pathExtension == "jsonl",
-                          url.lastPathComponent.lowercased().contains(needle),
-                          let meta = sessionMeta(in: url),
-                          meta.sessionId == sessionId else {
-                        continue
-                    }
-                    if cwdMatches(meta.cwd, cwd) {
-                        resolvedAtCwd = url.path
-                        break
-                    } else if nonEmpty(meta.cwd) != nil {
-                        existsElsewhere = true
+                    guard resolvedAtCwd == nil else { break }
+                    guard let entries = try? fileManager.contentsOfDirectory(
+                        at: directory,
+                        includingPropertiesForKeys: nil,
+                        options: [.skipsHiddenFiles]
+                    ) else { continue }
+                    for url in entries {
+                        guard !Task.isCancelled else { return .absent }
+                        guard url.pathExtension == "jsonl",
+                              url.lastPathComponent.lowercased().contains(needle),
+                              let meta = sessionMeta(in: url),
+                              meta.sessionId == sessionId else {
+                            continue
+                        }
+                        if cwdMatches(meta.cwd, cwd) {
+                            resolvedAtCwd = url.path
+                            break
+                        } else if nonEmpty(meta.cwd) != nil {
+                            existsElsewhere = true
+                        }
                     }
                 }
             }

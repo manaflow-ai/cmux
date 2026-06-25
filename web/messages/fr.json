@@ -817,6 +817,9 @@
         "terminal": {
           "copyOnSelect": "Lorsque la valeur est true, le texte sélectionné dans le terminal est copié dans le presse-papiers système quand la sélection est validée. Lorsque la valeur est false, cmux n’émet pas de remplacement Ghostty copy-on-select; la configuration et les valeurs par défaut de Ghostty contrôlent le comportement du presse-papiers de sélection.",
           "scrollSpeed": "Multiplicateur appliqué aux déplacements de la molette de défilement et du pavé tactile dans le terminal. Les valeurs plus élevées font défiler plus vite, les plus basses plus lentement.",
+          "offerResumeAfterCrash": "Affiche une proposition de récupération après un arrêt non propre lorsque cmux peut vérifier une session d’agent enregistrée. Valeur par défaut : false.",
+          "injectResumeBreadcrumb": "Lors de la reprise d’une session d’agent enregistrée et vérifiée, envoie une courte note limitée à l’espace de travail pour aider l’agent à reprendre où il s’était arrêté. Valeur par défaut : false.",
+          "resumeAgentsAfterUpdate": "Après un redémarrage intentionnel de l’app dû à une mise à jour, reprend automatiquement les sessions d’agent enregistrées et vérifiées au lieu de les laisser inactives. Valeur par défaut : false.",
           "showTextBoxOnNewTerminals": "Affiche l'entrée TextBox bêta par défaut pour les espaces de travail, onglets et divisions de terminal nouvellement créés.",
           "focusTextBoxOnNewTerminals": "Place le focus sur l'entrée TextBox bêta par défaut pour les espaces de travail, onglets et divisions de terminal nouvellement créés. Le focus affiche aussi TextBox."
         },

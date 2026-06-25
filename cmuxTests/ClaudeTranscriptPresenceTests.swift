@@ -44,7 +44,8 @@ import Testing
         home: String,
         cwd: String,
         sessionId: String,
-        payloadSessionId: String? = nil
+        payloadSessionId: String? = nil,
+        rootDirectoryName: String = "sessions"
     ) throws -> String {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
@@ -53,7 +54,7 @@ import Testing
         let month = try #require(components.month)
         let day = try #require(components.day)
         let dir = (home as NSString).appendingPathComponent(
-            String(format: ".codex/sessions/%04d/%02d/%02d", year, month, day)
+            String(format: ".codex/%@/%04d/%02d/%02d", rootDirectoryName, year, month, day)
         )
         try fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
         let path = (dir as NSString).appendingPathComponent("rollout-2026-06-25T000000-\(sessionId).jsonl")
@@ -207,6 +208,29 @@ import Testing
         let cwd = "/Users/me/repo"
         let id = "codex-session-abc"
         let path = try seedCodexRollout(home: home, cwd: cwd, sessionId: id)
+
+        let presence = CodexTranscriptPresenceResolver.resolve(
+            sessionId: id,
+            cwd: cwd,
+            homeDirectory: home
+        )
+
+        #expect(presence.existsAtWindowCwd == true)
+        #expect(presence.existsElsewhere == false)
+        #expect(presence.resolvedPathAtWindowCwd == path)
+    }
+
+    @Test func archivedCodexRolloutAtWindowCwdIsFoundAndResolved() throws {
+        let home = try makeHome()
+        defer { try? fm.removeItem(atPath: home) }
+        let cwd = "/Users/me/repo"
+        let id = "codex-session-archived"
+        let path = try seedCodexRollout(
+            home: home,
+            cwd: cwd,
+            sessionId: id,
+            rootDirectoryName: "archived_sessions"
+        )
 
         let presence = CodexTranscriptPresenceResolver.resolve(
             sessionId: id,

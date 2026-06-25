@@ -817,6 +817,9 @@
         "terminal": {
           "copyOnSelect": "Quando è true, il testo selezionato nel terminale viene copiato negli appunti di sistema quando la selezione viene confermata. Quando è false, cmux non emette un override Ghostty copy-on-select; configurazione e valori predefiniti di Ghostty controllano il comportamento degli appunti di selezione.",
           "scrollSpeed": "Moltiplicatore applicato agli spostamenti della rotellina di scorrimento e del trackpad nel terminale. Valori più alti scorrono più velocemente, valori più bassi più lentamente.",
+          "offerResumeAfterCrash": "Mostra un’offerta di recupero dopo un arresto non pulito quando cmux può verificare una sessione agente salvata. Predefinito: false.",
+          "injectResumeBreadcrumb": "Quando riprendi una sessione agente salvata e verificata, invia una breve nota limitata al workspace che aiuta l’agente a continuare da dove era rimasto. Predefinito: false.",
+          "resumeAgentsAfterUpdate": "Dopo un riavvio intenzionale dell’app dovuto a un aggiornamento, riprende automaticamente le sessioni agente salvate e verificate invece di lasciarle inattive. Predefinito: false.",
           "showTextBoxOnNewTerminals": "Mostra l'input TextBox beta per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati.",
           "focusTextBoxOnNewTerminals": "Mette a fuoco l'input TextBox beta per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati. Il focus mostra anche TextBox."
         },

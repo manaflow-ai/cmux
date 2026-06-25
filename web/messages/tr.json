@@ -817,6 +817,9 @@
         "terminal": {
           "copyOnSelect": "true olduğunda, seçim kesinleştiğinde seçilen terminal metni sistem panosuna kopyalanır. false olduğunda cmux bir Ghostty copy-on-select geçersiz kılması yaymaz; seçim panosu davranışını Ghostty yapılandırması ve varsayılanları kontrol eder.",
           "scrollSpeed": "Terminalde fare tekerleği ve dokunmatik yüzey kaydırma değerlerine uygulanan çarpan. Yüksek değerler daha hızlı, düşük değerler daha yavaş kaydırır.",
+          "offerResumeAfterCrash": "cmux kayıtlı bir aracı oturumunu doğrulayabildiğinde temiz olmayan bir kapanıştan sonra kurtarma teklifi gösterir. Varsayılan: false.",
+          "injectResumeBreadcrumb": "Doğrulanmış kayıtlı bir aracı oturumu sürdürülürken, aracının kaldığı yerden devam etmesine yardımcı olan kısa ve workspace kapsamlı bir not gönderir. Varsayılan: false.",
+          "resumeAgentsAfterUpdate": "Kasıtlı bir uygulama güncellemesi yeniden başlatmasından sonra doğrulanmış kayıtlı aracı oturumlarını boşta bırakmak yerine otomatik olarak sürdürür. Varsayılan: false.",
           "showTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak gösterir.",
           "focusTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak odaklar. Odaklamak TextBox'ı da gösterir."
         },

@@ -817,6 +817,9 @@
         "terminal": {
           "copyOnSelect": "Cuando es true, copia el texto seleccionado del terminal al portapapeles del sistema cuando se confirma la selección. Cuando es false, cmux no emite una anulación de copy-on-select de Ghostty; la configuración y los valores predeterminados de Ghostty controlan el comportamiento del portapapeles de selección.",
           "scrollSpeed": "Multiplicador aplicado a los desplazamientos de la rueda de desplazamiento y del panel táctil en el terminal. Los valores más altos desplazan más rápido y los más bajos, más lento.",
+          "offerResumeAfterCrash": "Muestra una oferta de recuperación después de un cierre incorrecto cuando cmux puede verificar una sesión de agente guardada. Valor predeterminado: false.",
+          "injectResumeBreadcrumb": "Al reanudar una sesión de agente guardada y verificada, envía una nota breve limitada al espacio de trabajo para ayudar al agente a continuar donde se quedó. Valor predeterminado: false.",
+          "resumeAgentsAfterUpdate": "Después de un reinicio intencional de la app por actualización, reanuda automáticamente las sesiones de agente guardadas y verificadas en lugar de dejarlas inactivas. Valor predeterminado: false.",
           "showTextBoxOnNewTerminals": "Muestra la entrada TextBox beta de forma predeterminada en espacios de trabajo, pestañas y divisiones de terminal recién creados.",
           "focusTextBoxOnNewTerminals": "Enfoca la entrada TextBox beta de forma predeterminada en espacios de trabajo, pestañas y divisiones de terminal recién creados. Enfocar también muestra TextBox."
         },

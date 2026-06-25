@@ -817,6 +817,9 @@
         "terminal": {
           "copyOnSelect": "Gdy wartość to true, zaznaczony tekst terminala jest kopiowany do schowka systemowego po zatwierdzeniu zaznaczenia. Gdy wartość to false, cmux nie emituje nadpisania Ghostty copy-on-select; konfiguracja i wartości domyślne Ghostty sterują zachowaniem schowka zaznaczenia.",
           "scrollSpeed": "Mnożnik stosowany do przewijania kółkiem myszy i gładzikiem w terminalu. Wyższe wartości przewijają szybciej, niższe wolniej.",
+          "offerResumeAfterCrash": "Pokaż propozycję odzyskania po nieczystym zamknięciu, gdy cmux może zweryfikować zapisaną sesję agenta. Domyślnie: false.",
+          "injectResumeBreadcrumb": "Podczas wznawiania zweryfikowanej zapisanej sesji agenta wyślij krótką notatkę ograniczoną do workspace, która pomaga agentowi wrócić do przerwanej pracy. Domyślnie: false.",
+          "resumeAgentsAfterUpdate": "Po celowym ponownym uruchomieniu aplikacji po aktualizacji automatycznie wznów zweryfikowane zapisane sesje agentów zamiast pozostawiać je bezczynne. Domyślnie: false.",
           "showTextBoxOnNewTerminals": "Domyślnie pokazuje wejście TextBox beta dla nowo utworzonych obszarów roboczych, kart terminala i podziałów.",
           "focusTextBoxOnNewTerminals": "Domyślnie ustawia fokus na wejściu TextBox beta dla nowo utworzonych obszarów roboczych, kart terminala i podziałów. Fokus pokazuje też TextBox."
         },
