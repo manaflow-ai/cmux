@@ -115,4 +115,25 @@ public nonisolated struct BrowserContextMenuItemClassifier: Sendable {
 
         return false
     }
+
+    /// Whether the item is WebKit's native "Open Link" command, matched on the
+    /// `WKMenuItemIdentifierOpenLink` identifier or the verbatim English title
+    /// `"Open Link"`. `CmuxWebView` uses this as the insertion anchor for its own
+    /// "Open Link in Default Browser" item (inserted just after this item), so the
+    /// English-title fallback intentionally mirrors WebKit's own untranslated
+    /// string rather than a localized cmux key.
+    public func isOpenLinkMenuItem(_ item: NSMenuItem) -> Bool {
+        item.identifier?.rawValue == "WKMenuItemIdentifierOpenLink"
+            || item.title == "Open Link"
+    }
+
+    /// Whether the item is WebKit's native "Open Link in New Window" command,
+    /// matched on the `WKMenuItemIdentifierOpenLinkInNewWindow` identifier or a
+    /// title containing the verbatim English phrase `"Open Link in New Window"`.
+    /// `CmuxWebView` retargets this item to open a tab instead of a popup window;
+    /// the English-title fallback mirrors WebKit's own untranslated string.
+    public func isOpenLinkInNewWindowMenuItem(_ item: NSMenuItem) -> Bool {
+        item.identifier?.rawValue == "WKMenuItemIdentifierOpenLinkInNewWindow"
+            || item.title.contains("Open Link in New Window")
+    }
 }

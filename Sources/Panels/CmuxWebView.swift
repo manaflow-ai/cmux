@@ -95,6 +95,82 @@ final class CmuxWebView: WKWebView {
             }
         )
     )
+    /// The context-menu "Copy Image" / "Download Image" / "Download Linked File"
+    /// multi-stage decision-tree sequencing, owned in `CmuxBrowser`. The `@objc`
+    /// action methods generate the trace id, read the click point + pasteboard
+    /// change count, resolve the native-WebKit fallback (`fallbackFromSender`),
+    /// emit the two app-side click trace lines, then call this flow. The flow runs
+    /// the nested async WebKit point-resolution hops, consults the candidate
+    /// resolver for each stage's decision, emits the interleaved stage trace lines,
+    /// and dispatches download / copy / native-fallback. App-side WebKit/AppKit
+    /// state rides in through the injected `BrowserContextMenuDownloadFlowSeam`.
+    private lazy var contextMenuDownloadFlow = BrowserContextMenuDownloadFlow(
+        candidateResolver: contextDownloadCandidateResolver,
+        seam: BrowserContextMenuDownloadFlowSeam(
+            resolveLinkURL: { [weak self] point, completion in
+                guard let self else { return completion(nil) }
+                self.resolveContextMenuLinkURL(at: point, completion: completion)
+            },
+            findImageURLAtPoint: { [weak self] point, completion in
+                guard let self else { return completion(nil) }
+                self.findImageURLAtPoint(point, completion: completion)
+            },
+            findLinkURLAtPoint: { [weak self] point, completion in
+                guard let self else { return completion(nil) }
+                self.findLinkURLAtPoint(point, completion: completion)
+            },
+            findLinkAtPoint: { [weak self] point, completion in
+                guard let self else { return completion(nil) }
+                self.findLinkAtPoint(point, completion: completion)
+            },
+            normalizedURL: { [weak self] url in
+                self?.normalizedLinkedDownloadURL(url) ?? url
+            },
+            startDownload: { [weak self] url, sender, action, target, traceID in
+                self?.startContextMenuDownload(
+                    url,
+                    sender: sender,
+                    fallbackAction: action,
+                    fallbackTarget: target,
+                    traceID: traceID
+                )
+            },
+            resolveCopyImageSourceURL: { [weak self] point, completion in
+                guard let self else { return completion(nil) }
+                self.resolveContextMenuCopyImageSourceURL(at: point, completion: completion)
+            },
+            fetchCopyPayload: { [weak self] sourceURL, traceID, completion in
+                guard let self else { return completion(nil) }
+                self.fetchContextMenuImageCopyPayload(
+                    from: sourceURL,
+                    traceID: traceID,
+                    completion: completion
+                )
+            },
+            writeCopyPayload: { [weak self] payload, expected, traceID in
+                self?.writeContextMenuImageCopyPayload(
+                    payload,
+                    expectedPasteboardChangeCount: expected,
+                    traceID: traceID
+                ) ?? (false, false)
+            },
+            inspectElements: { [weak self] point, traceID, kind in
+                self?.debugInspectElementsAtPoint(point, traceID: traceID, kind: kind)
+            },
+            runFallback: { [weak self] action, target, sender, traceID, reason in
+                self?.runContextMenuFallback(
+                    action: action,
+                    target: target,
+                    sender: sender,
+                    traceID: traceID,
+                    reason: reason
+                )
+            },
+            log: { [weak self] message in
+                self?.debugContextDownload(message)
+            }
+        )
+    )
     private static let browserFocusModeContextMenuItemIdentifier =
         NSUserInterfaceItemIdentifier("cmux.browserFocusMode.toggle")
     private static var pasteAsPlainTextFocusHandlerInstalledKey: UInt8 = 0
@@ -1013,8 +1089,7 @@ final class CmuxWebView: WKWebView {
             }
 
             if openLinkInsertionIndex == nil,
-               (item.identifier?.rawValue == "WKMenuItemIdentifierOpenLink"
-                || item.title == "Open Link") {
+               contextMenuItemClassifier.isOpenLinkMenuItem(item) {
                 openLinkInsertionIndex = index + 1
             }
 
@@ -1022,8 +1097,7 @@ final class CmuxWebView: WKWebView {
             // Without this, WebKit's default action calls createWebViewWith with
             // navigationType .other, which our classifier would treat as a scripted
             // popup request.
-            if item.identifier?.rawValue == "WKMenuItemIdentifierOpenLinkInNewWindow"
-                || item.title.contains("Open Link in New Window") {
+            if contextMenuItemClassifier.isOpenLinkInNewWindowMenuItem(item) {
                 item.title = String(localized: "browser.contextMenu.openLinkInNewTab", defaultValue: "Open Link in New Tab")
                 item.target = self
                 item.action = #selector(contextMenuOpenLinkInNewTab(_:))
@@ -1135,62 +1209,14 @@ final class CmuxWebView: WKWebView {
             "browser.ctxcopy.click trace=\(traceID) fallback action=\(contextMenuItemClassifier.selectorName(fallback.action)) target=\(String(describing: fallback.target))"
         )
 
-        resolveContextMenuCopyImageSourceURL(at: point) { [weak self] sourceURL in
-            guard let self else { return }
-            guard let sourceURL else {
-                self.debugContextDownload(
-                    "browser.ctxcopy.resolve trace=\(traceID) stage=noSourceURL"
-                )
-                self.debugInspectElementsAtPoint(point, traceID: traceID, kind: "copy")
-                self.runContextMenuFallback(
-                    action: fallback.action,
-                    target: fallback.target,
-                    sender: sender,
-                    traceID: traceID,
-                    reason: "no_copy_image_url"
-                )
-                return
-            }
-
-            self.debugContextDownload(
-                "browser.ctxcopy.resolve trace=\(traceID) stage=resolved url=\(sourceURL.absoluteString)"
-            )
-            self.fetchContextMenuImageCopyPayload(from: sourceURL, traceID: traceID) { payload in
-                guard let payload else {
-                    self.debugContextDownload(
-                        "browser.ctxcopy.resolve trace=\(traceID) stage=noPayload"
-                    )
-                    self.runContextMenuFallback(
-                        action: fallback.action,
-                        target: fallback.target,
-                        sender: sender,
-                        traceID: traceID,
-                        reason: "copy_image_fetch_failed"
-                    )
-                    return
-                }
-
-                let writeResult = self.writeContextMenuImageCopyPayload(
-                    payload,
-                    expectedPasteboardChangeCount: pasteboardChangeCount,
-                    traceID: traceID
-                )
-                if writeResult.wrote {
-                    return
-                }
-                if !writeResult.shouldFallback {
-                    return
-                }
-
-                self.runContextMenuFallback(
-                    action: fallback.action,
-                    target: fallback.target,
-                    sender: sender,
-                    traceID: traceID,
-                    reason: "copy_image_write_failed"
-                )
-            }
-        }
+        contextMenuDownloadFlow.copyImage(
+            at: point,
+            traceID: traceID,
+            expectedPasteboardChangeCount: pasteboardChangeCount,
+            fallbackAction: fallback.action,
+            fallbackTarget: fallback.target,
+            sender: sender
+        )
     }
 
     @objc private func contextMenuDownloadImage(_ sender: Any?) {
@@ -1207,114 +1233,13 @@ final class CmuxWebView: WKWebView {
         debugContextDownload(
             "browser.ctxdl.click trace=\(traceID) fallback action=\(contextMenuItemClassifier.selectorName(fallback.action)) target=\(String(describing: fallback.target))"
         )
-        findImageURLAtPoint(point) { [weak self] url in
-            guard let self else { return }
-            self.debugContextDownload(
-                "browser.ctxdl.resolve trace=\(traceID) kind=image imageURL=\(url?.absoluteString ?? "nil")"
-            )
-            var dataImageURL: URL?
-            var weakImageURL: URL?
-            switch self.contextDownloadCandidateResolver.classifyPrimaryImageCandidate(url) {
-            case .download(let normalized):
-                self.debugContextDownload(
-                    "browser.ctxdl.resolve trace=\(traceID) kind=image normalizedImageURL=\(normalized.absoluteString)"
-                )
-                self.startContextMenuDownload(
-                    normalized,
-                    sender: sender,
-                    fallbackAction: fallback.action,
-                    fallbackTarget: fallback.target,
-                    traceID: traceID
-                )
-                return
-            case .holdDataImage(let dataURL):
-                dataImageURL = dataURL
-                self.debugContextDownload(
-                    "browser.ctxdl.resolve trace=\(traceID) kind=image dataURLDetected length=\(dataURL.absoluteString.count)"
-                )
-            case .holdWeakImage(let normalized, let reason):
-                weakImageURL = normalized
-                self.debugContextDownload(
-                    "browser.ctxdl.resolve trace=\(traceID) kind=image normalizedImageURL=\(normalized.absoluteString)"
-                )
-                self.debugContextDownload(
-                    "browser.ctxdl.resolve trace=\(traceID) kind=image weakCandidateURL=\(normalized.absoluteString) reason=\(reason.rawValue)"
-                )
-                self.debugContextDownload(
-                    "browser.ctxdl.resolve trace=\(traceID) kind=image rejectedPrimaryImageURL=\(normalized.absoluteString)"
-                )
-            case .rejectDownloadableNonImage(let normalized):
-                self.debugContextDownload(
-                    "browser.ctxdl.resolve trace=\(traceID) kind=image normalizedImageURL=\(normalized.absoluteString)"
-                )
-                self.debugContextDownload(
-                    "browser.ctxdl.resolve trace=\(traceID) kind=image rejectedPrimaryImageURL=\(normalized.absoluteString)"
-                )
-            case .none:
-                break
-            }
-
-            // Google Images and similar sites often expose blob:/data: image URLs.
-            // If image URL is not directly downloadable, fall back to the nearby link URL.
-            self.findLinkURLAtPoint(point) { linkURL in
-                self.debugContextDownload(
-                    "browser.ctxdl.resolve trace=\(traceID) kind=image fallbackLinkURL=\(linkURL?.absoluteString ?? "nil")"
-                )
-                if let linkURL {
-                    let normalizedLink = self.normalizedLinkedDownloadURL(linkURL)
-                    self.debugContextDownload(
-                        "browser.ctxdl.resolve trace=\(traceID) kind=image normalizedFallbackLinkURL=\(normalizedLink.absoluteString)"
-                    )
-                }
-
-                let selection = self.contextDownloadCandidateResolver.resolveImageLinkFallback(
-                    linkURL: linkURL,
-                    heldDataImageURL: dataImageURL,
-                    heldWeakImageURL: weakImageURL
-                )
-                switch selection {
-                case .link(let url):
-                    self.startContextMenuDownload(
-                        url,
-                        sender: sender,
-                        fallbackAction: fallback.action,
-                        fallbackTarget: fallback.target,
-                        traceID: traceID
-                    )
-                case .dataImage(let url):
-                    self.debugContextDownload(
-                        "browser.ctxdl.resolve trace=\(traceID) kind=image fallbackToDataURL=1"
-                    )
-                    self.startContextMenuDownload(
-                        url,
-                        sender: sender,
-                        fallbackAction: fallback.action,
-                        fallbackTarget: fallback.target,
-                        traceID: traceID
-                    )
-                case .weakImage(let url):
-                    self.debugContextDownload(
-                        "browser.ctxdl.resolve trace=\(traceID) kind=image fallbackToWeakCandidate=1"
-                    )
-                    self.startContextMenuDownload(
-                        url,
-                        sender: sender,
-                        fallbackAction: fallback.action,
-                        fallbackTarget: fallback.target,
-                        traceID: traceID
-                    )
-                case .nativeFallback(let reason):
-                    self.debugInspectElementsAtPoint(point, traceID: traceID, kind: "image")
-                    self.runContextMenuFallback(
-                        action: fallback.action,
-                        target: fallback.target,
-                        sender: sender,
-                        traceID: traceID,
-                        reason: reason
-                    )
-                }
-            }
-        }
+        contextMenuDownloadFlow.downloadImage(
+            at: point,
+            traceID: traceID,
+            fallbackAction: fallback.action,
+            fallbackTarget: fallback.target,
+            sender: sender
+        )
     }
 
     @objc private func contextMenuDownloadLinkedFile(_ sender: Any?) {
@@ -1331,104 +1256,12 @@ final class CmuxWebView: WKWebView {
         debugContextDownload(
             "browser.ctxdl.click trace=\(traceID) fallback action=\(contextMenuItemClassifier.selectorName(fallback.action)) target=\(String(describing: fallback.target))"
         )
-        // Shared link resolution with the Open Link actions: prefer the link
-        // captured at contextmenu time (correct under page zoom and inside
-        // iframes), coordinate hit test only as fallback.
-        resolveContextMenuLinkURL(at: point) { [weak self] url in
-            guard let self else { return }
-            self.debugContextDownload(
-                "browser.ctxdl.resolve trace=\(traceID) kind=linked linkURL=\(url?.absoluteString ?? "nil")"
-            )
-            if let url {
-                self.debugContextDownload(
-                    "browser.ctxdl.resolve trace=\(traceID) kind=linked normalizedLinkURL=\(self.normalizedLinkedDownloadURL(url).absoluteString)"
-                )
-            }
-            switch self.contextDownloadCandidateResolver.classifyLinkedFileCandidate(url) {
-            case .download(let normalized):
-                self.startContextMenuDownload(
-                    normalized,
-                    sender: sender,
-                    fallbackAction: fallback.action,
-                    fallbackTarget: fallback.target,
-                    traceID: traceID
-                )
-                return
-            case .tryNextCandidate, .nativeFallback:
-                break
-            }
-
-            // Fallback 1: image URL under cursor (useful on image-heavy result pages).
-            self.findImageURLAtPoint(point) { imageURL in
-                self.debugContextDownload(
-                    "browser.ctxdl.resolve trace=\(traceID) kind=linked fallbackImageURL=\(imageURL?.absoluteString ?? "nil")"
-                )
-                var dataImageURL: URL?
-                switch self.contextDownloadCandidateResolver.classifyLinkedFileImageFallback(imageURL) {
-                case .download(let url):
-                    self.startContextMenuDownload(
-                        url,
-                        sender: sender,
-                        fallbackAction: fallback.action,
-                        fallbackTarget: fallback.target,
-                        traceID: traceID
-                    )
-                    return
-                case .holdDataImage(let dataURL):
-                    dataImageURL = dataURL
-                    self.debugContextDownload(
-                        "browser.ctxdl.resolve trace=\(traceID) kind=linked fallbackDataURLDetected length=\(dataURL.absoluteString.count)"
-                    )
-                case .holdWeakImage, .rejectDownloadableNonImage, .none:
-                    break
-                }
-
-                // Fallback 2: simpler nearest-anchor lookup.
-                self.findLinkAtPoint(point) { fallbackURL in
-                    self.debugContextDownload(
-                        "browser.ctxdl.resolve trace=\(traceID) kind=linked nearestAnchorURL=\(fallbackURL?.absoluteString ?? "nil")"
-                    )
-                    if let fallbackURL {
-                        self.debugContextDownload(
-                            "browser.ctxdl.resolve trace=\(traceID) kind=linked normalizedNearestAnchorURL=\(self.normalizedLinkedDownloadURL(fallbackURL).absoluteString)"
-                        )
-                    }
-                    let selection = self.contextDownloadCandidateResolver.resolveLinkedFileNearestAnchorFallback(
-                        nearestAnchorURL: fallbackURL,
-                        heldDataImageURL: dataImageURL
-                    )
-                    switch selection {
-                    case .anchor(let url):
-                        self.startContextMenuDownload(
-                            url,
-                            sender: sender,
-                            fallbackAction: fallback.action,
-                            fallbackTarget: fallback.target,
-                            traceID: traceID
-                        )
-                    case .dataImage(let url):
-                        self.debugContextDownload(
-                            "browser.ctxdl.resolve trace=\(traceID) kind=linked fallbackToDataURL=1"
-                        )
-                        self.startContextMenuDownload(
-                            url,
-                            sender: sender,
-                            fallbackAction: fallback.action,
-                            fallbackTarget: fallback.target,
-                            traceID: traceID
-                        )
-                    case .nativeFallback(let reason):
-                        self.debugInspectElementsAtPoint(point, traceID: traceID, kind: "linked")
-                        self.runContextMenuFallback(
-                            action: fallback.action,
-                            target: fallback.target,
-                            sender: sender,
-                            traceID: traceID,
-                            reason: reason
-                        )
-                    }
-                }
-            }
-        }
+        contextMenuDownloadFlow.downloadLinkedFile(
+            at: point,
+            traceID: traceID,
+            fallbackAction: fallback.action,
+            fallbackTarget: fallback.target,
+            sender: sender
+        )
     }
 }
