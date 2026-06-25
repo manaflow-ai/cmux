@@ -217,7 +217,6 @@ public final class DefaultsValueModel<Value: SettingCodable> {
 
     private func clearPendingStoreEchoes() {
         pendingStoreEchoes.removeAll()
-        markLocalEchoesConsumed(through: nextMutationSequence)
     }
 
     private func markLocalEchoesConsumed(through sequence: UInt64) {
