@@ -5,7 +5,7 @@
 17888	Sources/AppDelegate.swift
 16128	Sources/ContentView.swift
 13832	Sources/TerminalController.swift
-12948	Sources/Workspace.swift
+12951	Sources/Workspace.swift
 12237	Sources/GhosttyTerminalView.swift
 12144	cmuxTests/AppDelegateShortcutRoutingTests.swift
 11578	Sources/Panels/BrowserPanel.swift
@@ -157,6 +157,7 @@
 642	cmuxTests/RemoteTmuxControlParserTests.swift
 641	cmuxTests/CommandPaletteNucleoFFITests.swift
 636	Sources/TerminalController+ControlPaneContext.swift
+632	Sources/Workspace+CrashRecovery.swift
 632	cmuxTests/AgentSessionAutoResumeSwiftTests.swift
 630	Packages/macOS/CmuxSettings/Sources/CmuxSettings/Values/ShortcutWhenClause.swift
 627	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/KeyboardShortcutsSection.swift
@@ -165,7 +166,6 @@
 620	cmuxTests/TerminalNotificationQueueTests.swift
 612	cmuxUITests/FeedSidebarUITests.swift
 608	Packages/macOS/CmuxWorkspaces/Sources/CmuxWorkspaces/Coordinators/WorkspaceGroupCoordinator.swift
-608	Sources/Workspace+CrashRecovery.swift
 606	Sources/SettingsNavigation.swift
 604	Packages/macOS/CmuxCommandPalette/Tests/CmuxCommandPaletteTests/CommandPaletteNucleoFFITests.swift
 601	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerPrimaryPolicies.swift

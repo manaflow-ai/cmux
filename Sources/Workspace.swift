@@ -2587,6 +2587,7 @@ final class Workspace: Identifiable, ObservableObject {
         case observedAgentCommandRunning
     }
     var restoredAgentResumeStatesByPanelId: [UUID: RestoredAgentResumeState] = [:]
+    var pendingResumeBreadcrumbsByPanelId: [UUID: String] = [:]
     var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] = [:]
     private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
     private let sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>
@@ -4803,6 +4804,7 @@ final class Workspace: Identifiable, ObservableObject {
             switch restoredAgentResumeStatesByPanelId[panelId] {
             case .some(.awaitingAutoResumeCommand):
                 restoredAgentResumeStatesByPanelId[panelId] = .autoResumeCommandRunning
+                deliverPendingResumeBreadcrumbIfReady(panelId: panelId)
             case .some(.autoResumeCommandRunning), .some(.observedAgentCommandRunning):
                 break
             case .some(.manualResumeAvailable), nil:
@@ -4840,6 +4842,7 @@ final class Workspace: Identifiable, ObservableObject {
         restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
         restoredAgentVerificationByPanelId.removeValue(forKey: panelId)
         restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
+        pendingResumeBreadcrumbsByPanelId.removeValue(forKey: panelId)
         cancelCrashRecoveryReentryTask(panelId: panelId)
     }
 

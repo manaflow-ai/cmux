@@ -21,8 +21,9 @@ protocol ResumableWorkspaceSurface: AnyObject {
 
     /// Re-run the agent's stored resume command to bring the agent back.
     func runNativeResume()
-    /// Deliver the breadcrumb to the agent — immediately if live, else when the
-    /// surface becomes ready.
+    /// Deliver the breadcrumb to the agent. Cold-restored surfaces must queue this
+    /// behind an observed native resume command rather than plain terminal
+    /// readiness.
     func deliverResumeBreadcrumb(_ text: String)
 
     // MARK: Verification facts (U10/U11) — additive over the v1 surface.

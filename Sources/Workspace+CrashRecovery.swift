@@ -159,11 +159,24 @@ extension Workspace: ResumableWorkspaceSurface {
 
     func deliverResumeBreadcrumb(_ text: String) {
         guard let panel = focusedTerminalPanel else { return }
-        sendInputWhenReady(text + "\n", to: panel, reason: .recoveryInput)
+        if canDeliverResumeBreadcrumbNow(panelId: panel.id) {
+            sendInputWhenReady(text + "\n", to: panel, reason: .recoveryInput)
+        } else if restoredAgentResumeStatesByPanelId[panel.id] == .awaitingAutoResumeCommand {
+            pendingResumeBreadcrumbsByPanelId[panel.id] = text
+        }
     }
 
     func deliverHonestRecoveryPrompt(_ text: String) {
         guard let panel = focusedTerminalPanel else { return }
+        sendInputWhenReady(text + "\n", to: panel, reason: .recoveryInput)
+    }
+
+    func deliverPendingResumeBreadcrumbIfReady(panelId: UUID) {
+        guard canDeliverResumeBreadcrumbNow(panelId: panelId),
+              let text = pendingResumeBreadcrumbsByPanelId.removeValue(forKey: panelId),
+              let panel = panels[panelId] as? TerminalPanel else {
+            return
+        }
         sendInputWhenReady(text + "\n", to: panel, reason: .recoveryInput)
     }
 
@@ -603,6 +616,17 @@ extension Workspace: ResumableWorkspaceSurface {
             return true
         case .some(.manualResumeAvailable), nil:
             return false
+        }
+    }
+
+    private func canDeliverResumeBreadcrumbNow(panelId: UUID) -> Bool {
+        switch restoredAgentResumeStatesByPanelId[panelId] {
+        case .some(.autoResumeCommandRunning), .some(.observedAgentCommandRunning):
+            return true
+        case .some(.awaitingAutoResumeCommand), .some(.manualResumeAvailable):
+            return false
+        case nil:
+            return isAgentLive
         }
     }
 }

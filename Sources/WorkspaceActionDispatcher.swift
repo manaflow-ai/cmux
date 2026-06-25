@@ -170,9 +170,8 @@ enum WorkspacePinCommands {
     }
 }
 
-/// Shared "resume where we left off" command, exposed through the sidebar context
-/// menu and the command palette (one path per cmux-shared-behavior). Resumes the
-/// selected workspace's agent and, when enabled, injects the breadcrumb.
+/// Shared "resume where we left off" command used by menu entrypoints. Resumes
+/// the selected workspace's agent and, when enabled, injects the breadcrumb.
 enum WorkspaceResumeCommands {
     @MainActor
     static func canResumeSelectedWorkspace(
