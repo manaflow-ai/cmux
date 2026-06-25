@@ -417,6 +417,7 @@ import Testing
         #expect(store.connectionState == .disconnected)
         #expect(store.macConnectionStatus == .unavailable)
         #expect(store.workspaceListConnectionStatus == .connected)
+        #expect(store.workspaceListConnectedRefreshTargetMacDeviceIDForTesting() == "mac-b")
     }
 
     @Test func forgettingMacSuppressesStaleStoreWriteFromSameSession() async throws {

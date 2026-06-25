@@ -6730,13 +6730,54 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func reconnectOrRefresh() async {
         if connectionState == .connected {
             await refreshWorkspaces()
-        } else {
-            if let macDeviceID = workspaceListReconnectTargetMacDeviceID(),
+            return
+        }
+        if workspaceListConnectionStatus == .connected {
+            if let macDeviceID = workspaceListConnectedRefreshTargetMacDeviceID(),
                await switchToMac(macDeviceID: macDeviceID) {
+                await refreshWorkspaces()
                 return
             }
-            _ = await reconnectActiveMacIfAvailable(stackUserID: identityProvider?.currentUserID)
+            await refreshSecondaryMacWorkspaces()
+            return
         }
+        if let macDeviceID = workspaceListReconnectTargetMacDeviceID(),
+           await switchToMac(macDeviceID: macDeviceID) {
+            return
+        }
+        _ = await reconnectActiveMacIfAvailable(stackUserID: identityProvider?.currentUserID)
+    }
+
+    /// Pick a connected visible Mac for pull-to-refresh when the list is healthy
+    /// but the foreground RPC slot is disconnected, e.g. after deleting the old
+    /// foreground computer while secondary Mac rows remain visible. Pulling should
+    /// refresh/promote one of those visible owners, not bounce through the stale
+    /// foreground slot and finish immediately.
+    private func workspaceListConnectedRefreshTargetMacDeviceID() -> String? {
+        func connectedMacDeviceID(from workspace: MobileWorkspacePreview?) -> String? {
+            guard let workspace,
+                  let macDeviceID = workspace.macDeviceID,
+                  (workspace.macConnectionStatus ?? macConnectionStatuses[macDeviceID]) == .connected,
+                  isReconnectableWorkspaceMacID(macDeviceID),
+                  pairedMacsForIdentityMatching.contains(where: { $0.macDeviceID == macDeviceID })
+            else {
+                return nil
+            }
+            return macDeviceID
+        }
+
+        if let selected = connectedMacDeviceID(from: selectedWorkspace) {
+            return selected
+        }
+        var candidates: [String] = []
+        var seen: Set<String> = []
+        for workspace in workspaces {
+            guard let macDeviceID = connectedMacDeviceID(from: workspace),
+                  !seen.contains(macDeviceID) else { continue }
+            seen.insert(macDeviceID)
+            candidates.append(macDeviceID)
+        }
+        return candidates.count == 1 ? candidates[0] : nil
     }
 
     /// Pick the Mac a workspace-list recover gesture should reconnect.
@@ -6782,6 +6823,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     #if DEBUG
     func workspaceListReconnectTargetMacDeviceIDForTesting() -> String? {
         workspaceListReconnectTargetMacDeviceID()
+    }
+
+    func workspaceListConnectedRefreshTargetMacDeviceIDForTesting() -> String? {
+        workspaceListConnectedRefreshTargetMacDeviceID()
     }
     #endif
 
