@@ -2,13 +2,6 @@ import Foundation
 import WebKit
 
 @MainActor
-enum BrowserErrorPageRetry {
-    case urlOnly
-    case request(URLRequest)
-    case disabled
-}
-
-@MainActor
 struct BrowserErrorPage {
     let failedURL: String
     let retry: BrowserErrorPageRetry
