@@ -1054,7 +1054,7 @@ final class TerminalNotificationStore: ObservableObject {
                 isAppFocused: isAppFocused,
                 isFocusedPanel: isFocusedPanel
             ),
-            hooks: cmuxConfigStore?.notificationHooks(startingFrom: cwd) ?? [],
+            hooks: cmuxConfigStore?.notificationHooks(startingFrom: workspace?.isRemoteWorkspace == true ? nil : cwd) ?? [],
             globalConfigPath: cmuxConfigStore?.globalConfigPath
         )
     }
