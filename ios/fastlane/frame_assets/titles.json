@@ -5,7 +5,7 @@
     "03-Claude": "شغّل Claude Code من هاتفك",
     "04-Codex": "Codex، أينما كنت",
     "05-Opencode": "OpenCode وpi وأي وكيل",
-    "06-Pi": "اشحن من أي مكان"
+    "06-Pi": "شغّل pi من هاتفك"
   },
   "ca": {
     "01-Workspaces": "Tots els teus agents, a un toc",
@@ -13,7 +13,7 @@
     "03-Claude": "Executa Claude Code des del mòbil",
     "04-Codex": "Codex, on siguis",
     "05-Opencode": "OpenCode, pi, qualsevol agent",
-    "06-Pi": "Desplega des de qualsevol lloc"
+    "06-Pi": "Executa pi des del mòbil"
   },
   "cs": {
     "01-Workspaces": "Všichni agenti, jedním klepnutím",
@@ -21,7 +21,7 @@
     "03-Claude": "Spusť Claude Code z telefonu",
     "04-Codex": "Codex, kdekoliv jsi",
     "05-Opencode": "OpenCode, pi, jakýkoli agent",
-    "06-Pi": "Odesílej odkudkoli"
+    "06-Pi": "Spusť pi z telefonu"
   },
   "da": {
     "01-Workspaces": "Alle dine agenter, ét tryk væk",
@@ -29,7 +29,7 @@
     "03-Claude": "Kør Claude Code fra din telefon",
     "04-Codex": "Codex, uanset hvor du er",
     "05-Opencode": "OpenCode, pi, enhver agent",
-    "06-Pi": "Deploy fra hvor som helst"
+    "06-Pi": "Kør pi fra din telefon"
   },
   "de-DE": {
     "01-Workspaces": "Alle Agenten, ein Tipp entfernt",
@@ -37,7 +37,7 @@
     "03-Claude": "Claude Code vom Handy ausführen",
     "04-Codex": "Codex, wo immer du bist",
     "05-Opencode": "OpenCode, pi, jeder Agent",
-    "06-Pi": "Überall deployen"
+    "06-Pi": "pi vom Handy ausführen"
   },
   "el": {
     "01-Workspaces": "Όλοι οι agents σου, ένα tap μακριά",
@@ -45,7 +45,7 @@
     "03-Claude": "Τρέξε το Claude Code από το κινητό σου",
     "04-Codex": "Codex, όπου κι αν είσαι",
     "05-Opencode": "OpenCode, pi, οποιοσδήποτε agent",
-    "06-Pi": "Στείλε από οπουδήποτε"
+    "06-Pi": "Τρέξε το pi από το κινητό σου"
   },
   "en-AU": {
     "01-Workspaces": "All your agents, one tap away",
@@ -53,7 +53,7 @@
     "03-Claude": "Run Claude Code from your phone",
     "04-Codex": "Codex, wherever you are",
     "05-Opencode": "OpenCode, pi, any agent",
-    "06-Pi": "Ship from anywhere"
+    "06-Pi": "Run pi from your phone"
   },
   "en-CA": {
     "01-Workspaces": "All your agents, one tap away",
@@ -61,7 +61,7 @@
     "03-Claude": "Run Claude Code from your phone",
     "04-Codex": "Codex, wherever you are",
     "05-Opencode": "OpenCode, pi, any agent",
-    "06-Pi": "Ship from anywhere"
+    "06-Pi": "Run pi from your phone"
   },
   "en-GB": {
     "01-Workspaces": "All your agents, one tap away",
@@ -69,7 +69,7 @@
     "03-Claude": "Run Claude Code from your phone",
     "04-Codex": "Codex, wherever you are",
     "05-Opencode": "OpenCode, pi, any agent",
-    "06-Pi": "Ship from anywhere"
+    "06-Pi": "Run pi from your phone"
   },
   "en-US": {
     "01-Workspaces": "All your agents, one tap away",
@@ -77,7 +77,7 @@
     "03-Claude": "Run Claude Code from your phone",
     "04-Codex": "Codex, wherever you are",
     "05-Opencode": "OpenCode, pi, any agent",
-    "06-Pi": "Ship from anywhere"
+    "06-Pi": "Run pi from your phone"
   },
   "es-ES": {
     "01-Workspaces": "Todos tus agentes, a un toque",
@@ -85,7 +85,7 @@
     "03-Claude": "Ejecuta Claude Code desde tu móvil",
     "04-Codex": "Codex, donde estés",
     "05-Opencode": "OpenCode, pi, cualquier agente",
-    "06-Pi": "Despliega desde cualquier lugar"
+    "06-Pi": "Ejecuta pi desde tu móvil"
   },
   "es-MX": {
     "01-Workspaces": "Todos tus agentes, a un toque",
@@ -93,7 +93,7 @@
     "03-Claude": "Corre Claude Code desde tu celular",
     "04-Codex": "Codex, donde quiera que estés",
     "05-Opencode": "OpenCode, pi, cualquier agente",
-    "06-Pi": "Lanza desde cualquier lugar"
+    "06-Pi": "Corre pi desde tu celular"
   },
   "fi": {
     "01-Workspaces": "Kaikki agentit, yksi napautus poissa",
@@ -101,7 +101,7 @@
     "03-Claude": "Käynnistä Claude Code puhelimeltasi",
     "04-Codex": "Codex, missä ikinä oletkin",
     "05-Opencode": "OpenCode, pi, mikä tahansa agentti",
-    "06-Pi": "Toimita mistä tahansa"
+    "06-Pi": "Käynnistä pi puhelimeltasi"
   },
   "fr-CA": {
     "01-Workspaces": "Tous tes agents, à portée de doigt",
@@ -109,7 +109,7 @@
     "03-Claude": "Lance Claude Code depuis ton téléphone",
     "04-Codex": "Codex, où que tu sois",
     "05-Opencode": "OpenCode, pi, n'importe quel agent",
-    "06-Pi": "Déploie de n'importe où"
+    "06-Pi": "Lance pi depuis ton téléphone"
   },
   "fr-FR": {
     "01-Workspaces": "Tous vos agents, à portée de doigt",
@@ -117,7 +117,7 @@
     "03-Claude": "Lancez Claude Code depuis votre téléphone",
     "04-Codex": "Codex, où que vous soyez",
     "05-Opencode": "OpenCode, pi, n'importe quel agent",
-    "06-Pi": "Déployez de n'importe où"
+    "06-Pi": "Lancez pi depuis votre téléphone"
   },
   "he": {
     "01-Workspaces": "כל הסוכנים שלך, בהקשה אחת",
@@ -125,7 +125,7 @@
     "03-Claude": "הפעל את Claude Code מהטלפון שלך",
     "04-Codex": "Codex, בכל מקום שאתה נמצא",
     "05-Opencode": "OpenCode ,pi, כל סוכן",
-    "06-Pi": "שלח מכל מקום"
+    "06-Pi": "הפעל את pi מהטלפון שלך"
   },
   "hi": {
     "01-Workspaces": "सभी एजेंट, एक टैप में",
@@ -133,7 +133,7 @@
     "03-Claude": "अपने फोन से Claude Code चलाएं",
     "04-Codex": "Codex, जहां भी हों",
     "05-Opencode": "OpenCode, pi, कोई भी एजेंट",
-    "06-Pi": "कहीं से भी शिप करें"
+    "06-Pi": "अपने फोन से pi चलाएं"
   },
   "hr": {
     "01-Workspaces": "Svi agenti, jedan dodir dalje",
@@ -141,7 +141,7 @@
     "03-Claude": "Pokreni Claude Code s mobitela",
     "04-Codex": "Codex, gdje god bio",
     "05-Opencode": "OpenCode, pi, bilo koji agent",
-    "06-Pi": "Isporuči s bilo kojeg mjesta"
+    "06-Pi": "Pokreni pi s mobitela"
   },
   "hu": {
     "01-Workspaces": "Minden ügynököd, egy érintés távolságra",
@@ -149,7 +149,7 @@
     "03-Claude": "Futtasd a Claude Code-ot a telefonodról",
     "04-Codex": "Codex, bárhol is vagy",
     "05-Opencode": "OpenCode, pi, bármely ügynök",
-    "06-Pi": "Szállíts bárhonnan"
+    "06-Pi": "Futtasd a pi-ot a telefonodról"
   },
   "id": {
     "01-Workspaces": "Semua agen, satu ketukan",
@@ -157,7 +157,7 @@
     "03-Claude": "Jalankan Claude Code dari ponselmu",
     "04-Codex": "Codex, di mana pun kamu berada",
     "05-Opencode": "OpenCode, pi, agen apa pun",
-    "06-Pi": "Kirim dari mana saja"
+    "06-Pi": "Jalankan pi dari ponselmu"
   },
   "it": {
     "01-Workspaces": "Tutti i tuoi agenti, a un tap",
@@ -165,7 +165,7 @@
     "03-Claude": "Esegui Claude Code dal tuo telefono",
     "04-Codex": "Codex, ovunque tu sia",
     "05-Opencode": "OpenCode, pi, qualsiasi agente",
-    "06-Pi": "Distribuisci da qualsiasi posto"
+    "06-Pi": "Esegui pi dal tuo telefono"
   },
   "ja": {
     "01-Workspaces": "全エージェントをひとタップで",
@@ -173,7 +173,7 @@
     "03-Claude": "Claude Codeをスマホから実行",
     "04-Codex": "Codex、どこにいても",
     "05-Opencode": "OpenCode、pi、どのエージェントも",
-    "06-Pi": "どこからでもデプロイ"
+    "06-Pi": "piをスマホから実行"
   },
   "ko": {
     "01-Workspaces": "모든 에이전트, 탭 하나로",
@@ -181,7 +181,7 @@
     "03-Claude": "폰에서 Claude Code 실행",
     "04-Codex": "Codex, 어디서든",
     "05-Opencode": "OpenCode, pi, 모든 에이전트",
-    "06-Pi": "어디서든 배포"
+    "06-Pi": "폰에서 pi 실행"
   },
   "ms": {
     "01-Workspaces": "Semua ejen, satu ketukan sahaja",
@@ -189,7 +189,7 @@
     "03-Claude": "Jalankan Claude Code dari telefon kamu",
     "04-Codex": "Codex, di mana sahaja kamu berada",
     "05-Opencode": "OpenCode, pi, mana-mana ejen",
-    "06-Pi": "Hantar dari mana-mana"
+    "06-Pi": "Jalankan pi dari telefon kamu"
   },
   "nl-NL": {
     "01-Workspaces": "Al je agents, één tik verwijderd",
@@ -197,7 +197,7 @@
     "03-Claude": "Voer Claude Code uit vanaf je telefoon",
     "04-Codex": "Codex, waar je ook bent",
     "05-Opencode": "OpenCode, pi, elke agent",
-    "06-Pi": "Deploy vanuit overal"
+    "06-Pi": "Voer pi uit vanaf je telefoon"
   },
   "no": {
     "01-Workspaces": "Alle agentene dine, ett trykk unna",
@@ -205,7 +205,7 @@
     "03-Claude": "Kjør Claude Code fra telefonen",
     "04-Codex": "Codex, uansett hvor du er",
     "05-Opencode": "OpenCode, pi, hvilken som helst agent",
-    "06-Pi": "Send fra hvor som helst"
+    "06-Pi": "Kjør pi fra telefonen"
   },
   "pl": {
     "01-Workspaces": "Wszyscy agenci, jedno dotknięcie",
@@ -213,7 +213,7 @@
     "03-Claude": "Uruchom Claude Code z telefonu",
     "04-Codex": "Codex, gdziekolwiek jesteś",
     "05-Opencode": "OpenCode, pi, każdy agent",
-    "06-Pi": "Wdrażaj skądkolwiek"
+    "06-Pi": "Uruchom pi z telefonu"
   },
   "pt-BR": {
     "01-Workspaces": "Todos os seus agentes, a um toque",
@@ -221,7 +221,7 @@
     "03-Claude": "Rode o Claude Code pelo celular",
     "04-Codex": "Codex, onde você estiver",
     "05-Opencode": "OpenCode, pi, qualquer agente",
-    "06-Pi": "Publique de qualquer lugar"
+    "06-Pi": "Rode o pi pelo celular"
   },
   "pt-PT": {
     "01-Workspaces": "Todos os seus agentes, a um toque",
@@ -229,7 +229,7 @@
     "03-Claude": "Execute o Claude Code a partir do seu telemóvel",
     "04-Codex": "Codex, onde quer que esteja",
     "05-Opencode": "OpenCode, pi, qualquer agente",
-    "06-Pi": "Publique a partir de qualquer lugar"
+    "06-Pi": "Execute o pi a partir do seu telemóvel"
   },
   "ro": {
     "01-Workspaces": "Toți agenții tăi, la o atingere distanță",
@@ -237,7 +237,7 @@
     "03-Claude": "Rulează Claude Code de pe telefon",
     "04-Codex": "Codex, oriunde ai fi",
     "05-Opencode": "OpenCode, pi, orice agent",
-    "06-Pi": "Lansează de oriunde"
+    "06-Pi": "Rulează pi de pe telefon"
   },
   "ru": {
     "01-Workspaces": "Все агенты, одно касание",
@@ -245,7 +245,7 @@
     "03-Claude": "Запускай Claude Code с телефона",
     "04-Codex": "Codex, где бы ты ни был",
     "05-Opencode": "OpenCode, pi, любой агент",
-    "06-Pi": "Деплой откуда угодно"
+    "06-Pi": "Запускай pi с телефона"
   },
   "sk": {
     "01-Workspaces": "Všetci agenti, jedno klepnutie",
@@ -253,7 +253,7 @@
     "03-Claude": "Spusti Claude Code z telefónu",
     "04-Codex": "Codex, kdekoľvek si",
     "05-Opencode": "OpenCode, pi, akýkoľvek agent",
-    "06-Pi": "Nasaď odkiaľkoľvek"
+    "06-Pi": "Spusti pi z telefónu"
   },
   "sv": {
     "01-Workspaces": "Alla dina agenter, ett tryck bort",
@@ -261,7 +261,7 @@
     "03-Claude": "Kör Claude Code från din telefon",
     "04-Codex": "Codex, var du än är",
     "05-Opencode": "OpenCode, pi, vilken agent som helst",
-    "06-Pi": "Driftsätt varifrån som helst"
+    "06-Pi": "Kör pi från din telefon"
   },
   "th": {
     "01-Workspaces": "ทุก agent ของคุณ เพียงแตะเดียว",
@@ -269,7 +269,7 @@
     "03-Claude": "รัน Claude Code จากโทรศัพท์ของคุณ",
     "04-Codex": "Codex ที่ไหนก็ได้",
     "05-Opencode": "OpenCode, pi, ทุก agent",
-    "06-Pi": "ส่งงานจากที่ไหนก็ได้"
+    "06-Pi": "รัน pi จากโทรศัพท์ของคุณ"
   },
   "tr": {
     "01-Workspaces": "Tüm agentların, tek dokunuşta",
@@ -277,7 +277,7 @@
     "03-Claude": "Claude Code'u telefonundan çalıştır",
     "04-Codex": "Codex, nerede olursan ol",
     "05-Opencode": "OpenCode, pi, herhangi bir agent",
-    "06-Pi": "Her yerden gönder"
+    "06-Pi": "pi'u telefonundan çalıştır"
   },
   "uk": {
     "01-Workspaces": "Всі агенти, одне торкання",
@@ -285,7 +285,7 @@
     "03-Claude": "Запускай Claude Code з телефону",
     "04-Codex": "Codex, де б ти не був",
     "05-Opencode": "OpenCode, pi, будь-який агент",
-    "06-Pi": "Деплой звідусіль"
+    "06-Pi": "Запускай pi з телефону"
   },
   "vi": {
     "01-Workspaces": "Tất cả agent của bạn, chỉ một chạm",
@@ -293,7 +293,7 @@
     "03-Claude": "Chạy Claude Code từ điện thoại",
     "04-Codex": "Codex, ở bất cứ đâu",
     "05-Opencode": "OpenCode, pi, bất kỳ agent nào",
-    "06-Pi": "Triển khai từ bất cứ đâu"
+    "06-Pi": "Chạy pi từ điện thoại"
   },
   "zh-Hans": {
     "01-Workspaces": "所有 agent，一触即达",
@@ -301,7 +301,7 @@
     "03-Claude": "在手机上运行 Claude Code",
     "04-Codex": "Codex，随时随地",
     "05-Opencode": "OpenCode、pi，任意 agent",
-    "06-Pi": "随时随地发布"
+    "06-Pi": "在手机上运行 pi"
   },
   "zh-Hant": {
     "01-Workspaces": "所有 agent，一觸即達",
@@ -309,6 +309,6 @@
     "03-Claude": "在手機上執行 Claude Code",
     "04-Codex": "Codex，無論身在何處",
     "05-Opencode": "OpenCode、pi，任何 agent",
-    "06-Pi": "隨時隨地發佈"
+    "06-Pi": "在手機上執行 pi"
   }
 }

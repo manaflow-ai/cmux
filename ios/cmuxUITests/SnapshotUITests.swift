@@ -35,12 +35,17 @@ final class SnapshotUITests: XCTestCase {
         // 3-6) Each agent, full terminal showing its real recorded session.
         // TARGET_COLS auto-fits the font so the 76-col fixtures fill the width
         // edge-to-edge on both iPhone and iPad.
+        // Believable workspace/session name per agent, shown in the nav bar
+        // titlebar (mirrors the real terminal screen).
+        let titles = ["claude": "App entry point", "codex": "Readability pass",
+                      "opencode": "String catalogs", "pi": "Ship improvements"]
         for (idx, agent) in ["claude", "codex", "opencode", "pi"].enumerated() {
             shoot(String(format: "%02d-%@", idx + 3, agent.capitalized), [
                 "CMUX_UITEST_TERMINAL_PREVIEW": "1",
                 "CMUX_UITEST_TERMINAL_PREVIEW_CONTENT": "1",
                 "CMUX_UITEST_TERMINAL_TRANSCRIPT": agent,
                 "CMUX_UITEST_TERMINAL_TARGET_COLS": "76",
+                "CMUX_UITEST_TERMINAL_TITLE": titles[agent] ?? "cmux",
             ])
         }
     }

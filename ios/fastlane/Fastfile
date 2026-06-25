@@ -35,6 +35,10 @@ platform :ios do
   desc "localized titles (fastlane frameit). Requires imagemagick."
   lane :frame do
     ss = File.expand_path("screenshots", __dir__)
+    # Capture only shoots en-US + ja (the only localized app UI). Fan those raws
+    # out to every App Store locale before framing so all ~39 locales get a
+    # localized-title screenshot. No-op when the locale dirs are already present.
+    sh("python3", File.expand_path("frame_assets/propagate_locales.py", __dir__), ss)
     # Premium composition: stitch the screenshot into the real iPhone device
     # frame (frameit's frame PNG) and place it large under a bold header; iPad is
     # a large bezel-less landscape screen with a bold header. (Plain frameit

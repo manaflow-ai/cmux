@@ -90,12 +90,12 @@ def header_image(tmp, title, font, pt, box_w, logo):
     if not logo or not os.path.exists(logo):
         return cap
     out = os.path.join(tmp, "header.png")
-    lh = int(pt * 1.25)
+    # Small inline logo: roughly the title's cap height, sitting just before the
+    # text (not a big badge). +smush joins them horizontally, vertically centered.
+    lh = int(pt * 0.82)
     lg = os.path.join(tmp, "lg.png")
     subprocess.run([MAGICK, logo, "-resize", f"{lh}x{lh}", lg], check=True)
-    # [logo] <gap> [caption], vertically centered (+smush joins horizontally,
-    # centered, with a gap).
-    subprocess.run([MAGICK, lg, cap, "-background", "none", "+smush", str(int(pt * 0.32)), out], check=True)
+    subprocess.run([MAGICK, lg, cap, "-background", "none", "+smush", str(int(pt * 0.2)), out], check=True)
     return out
 
 

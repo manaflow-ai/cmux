@@ -16,15 +16,37 @@ import UIKit
 ///   exactly n columns wide on any device, so a single recorded fixture fills
 ///   the width edge-to-edge on both iPhone and iPad.
 struct TerminalLayoutPreviewView: View {
+    /// Workspace/session name shown in the nav bar, mirroring the real terminal
+    /// screen (`WorkspaceDetailView.navigationTitle(workspace.name)`).
+    private let title = ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_TITLE"] ?? "cmux"
+
     var body: some View {
-        TerminalLayoutPreviewSurface()
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background {
-                TerminalPalette.background
-                    .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
-            }
-            .ignoresSafeArea(.container, edges: .bottom)
-            .ignoresSafeArea(.keyboard, edges: .bottom)
+        NavigationStack {
+            TerminalLayoutPreviewSurface()
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .background {
+                    TerminalPalette.background
+                        .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
+                }
+                .ignoresSafeArea(.container, edges: .bottom)
+                .ignoresSafeArea(.keyboard, edges: .bottom)
+                .navigationTitle(title)
+                .navigationBarTitleDisplayMode(.inline)
+                // Match WorkspaceDetailView's terminal nav bar: a real cmux
+                // titlebar sits below the status bar instead of the terminal
+                // bleeding under the Dynamic Island.
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Image(systemName: "chevron.left").fontWeight(.semibold)
+                    }
+                    ToolbarItemGroup(placement: .topBarTrailing) {
+                        Image(systemName: "bubble.left.and.bubble.right")
+                        Image(systemName: "terminal")
+                    }
+                }
+                .tint(TerminalPalette.foreground)
+                .toolbarColorScheme(.dark, for: .navigationBar)
+        }
     }
 }
 
