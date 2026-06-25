@@ -86,6 +86,31 @@ import WebKit
         ) == "cannotShowMIME")
     }
 
+    @Test func subframeDownloadIntentTrackerTransfersRedirectIntent() throws {
+        let tracker = BrowserSubframeDownloadIntentTracker()
+        let source = try #require(URL(string: "https://mail.example.test/attachment?id=1#frag"))
+        let redirected = try #require(URL(string: "https://cdn.example.test/attachment?id=1"))
+
+        tracker.record(source)
+        tracker.recordRedirectIfNeeded(from: source, to: redirected)
+
+        #expect(tracker.consume(for: redirected))
+        #expect(!tracker.consume(for: source))
+    }
+
+    @Test func subframeDownloadIntentTrackerFailsClosedForUnrelatedRedirect() throws {
+        let tracker = BrowserSubframeDownloadIntentTracker()
+        let source = try #require(URL(string: "https://mail.example.test/attachment?id=1"))
+        let unrelated = try #require(URL(string: "https://mail.example.test/attachment?id=2"))
+        let redirected = try #require(URL(string: "https://cdn.example.test/attachment?id=2"))
+
+        tracker.record(source)
+        tracker.recordRedirectIfNeeded(from: unrelated, to: redirected)
+
+        #expect(!tracker.consume(for: redirected))
+        #expect(tracker.consume(for: source))
+    }
+
     @Test func uniqueDownloadDestinationDedupesExistingFiles() throws {
         let fileManager = FileManager.default
         let directory = fileManager.temporaryDirectory.appendingPathComponent(

@@ -23,10 +23,7 @@ final class BrowserSubframeDownloadIntentTracker {
         let now = ProcessInfo.processInfo.systemUptime; prune(now: now)
         if navigationAction.navigationType == .linkActivated { record(url); return }
         guard let sourceURL = navigationAction.targetFrame?.request.url else { return }
-        let sourceKey = Self.downloadIntentKey(for: sourceURL)
-        guard sourceKey != Self.downloadIntentKey(for: url),
-              recentIntentKeys.contains(where: { $0.key == sourceKey }) else { return }
-        record(url)
+        recordRedirectIfNeeded(from: sourceURL, to: url)
     }
 
     func record(_ url: URL) {
@@ -37,6 +34,17 @@ final class BrowserSubframeDownloadIntentTracker {
         if recentIntentKeys.count > Self.maxIntentCount {
             recentIntentKeys.removeFirst(recentIntentKeys.count - Self.maxIntentCount)
         }
+    }
+
+    func recordRedirectIfNeeded(from sourceURL: URL, to url: URL) {
+        guard Self.isHTTPDownloadIntentURL(sourceURL),
+              Self.isHTTPDownloadIntentURL(url) else { return }
+        let now = ProcessInfo.processInfo.systemUptime; prune(now: now)
+        let sourceKey = Self.downloadIntentKey(for: sourceURL)
+        guard sourceKey != Self.downloadIntentKey(for: url),
+              let sourceIndex = recentIntentKeys.firstIndex(where: { $0.key == sourceKey }) else { return }
+        recentIntentKeys.remove(at: sourceIndex)
+        record(url)
     }
 
     func consume(for responseURL: URL?) -> Bool {
