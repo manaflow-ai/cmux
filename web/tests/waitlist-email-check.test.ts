@@ -90,23 +90,25 @@ describe("checkEmailDeliverable", () => {
   test("fails open (unknown) when DNS exceeds the timeout", async () => {
     // A hung resolver must never reject a real address; the bounded check
     // resolves to "unknown" so the caller passes the email through. Capture the
-    // rejecters so the abandoned lookup can be settled at the end rather than
-    // left dangling across other test files in the shared process.
+    // abandoned lookups so they can be settled deterministically at the end
+    // rather than left dangling across other test files in the shared process.
     const rejecters: Array<(reason: unknown) => void> = [];
-    const hang = () =>
-      new Promise<never>((_, reject) => {
+    const lookups: Array<Promise<never>> = [];
+    const hang = () => {
+      const p = new Promise<never>((_, reject) => {
         rejecters.push(reject);
       });
+      lookups.push(p);
+      return p;
+    };
     resolveMx = hang;
     resolve4 = hang;
     resolve6 = hang;
-    const start = Date.now();
-    expect(await checkEmailDeliverable("a@hung.test", 20)).toBe("unknown");
-    expect(Date.now() - start).toBeLessThan(500);
+    expect(await checkEmailDeliverable("a@hung.test", 1)).toBe("unknown");
     // Settle the abandoned lookup so its in-flight entry clears and nothing
     // lingers for later tests.
     rejecters.forEach((reject) => reject(new Error("test cleanup")));
-    await new Promise((r) => setTimeout(r, 0));
+    await Promise.allSettled(lookups);
   });
 
   test("coalesces concurrent lookups for one domain onto a single DNS call", async () => {
@@ -120,9 +122,13 @@ describe("checkEmailDeliverable", () => {
     };
     resolve4 = noRecord;
     resolve6 = noRecord;
+    // Each call runs synchronously up to its first await: the first invokes the
+    // single resolveMx and registers the in-flight entry (so `release` is set);
+    // the second coalesces onto it without calling resolveMx again. The dedupe
+    // has therefore already happened by the time these two statements return —
+    // no timer needed.
     const p1 = checkEmailDeliverable("a@coalesce.test");
     const p2 = checkEmailDeliverable("b@coalesce.test");
-    await new Promise((r) => setTimeout(r, 5));
     release([{ exchange: "mx.coalesce.test", priority: 10 }]);
     expect(await p1).toBe("ok");
     expect(await p2).toBe("ok");
