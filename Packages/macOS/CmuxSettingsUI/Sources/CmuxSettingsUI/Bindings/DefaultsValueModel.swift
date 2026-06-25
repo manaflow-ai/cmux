@@ -168,10 +168,10 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     }
 
     private func consumePendingStoreEcho(_ value: Value) -> Bool {
-        guard let index = pendingStoreEchoValues.lastIndex(of: value) else {
+        guard let index = pendingStoreEchoValues.firstIndex(of: value) else {
             return false
         }
-        pendingStoreEchoValues.removeFirst(index + 1)
+        pendingStoreEchoValues.remove(at: index)
         return true
     }
 }
