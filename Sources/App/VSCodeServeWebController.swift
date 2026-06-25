@@ -399,23 +399,19 @@ final class VSCodeServeWebController {
         startupTimer = makeDeadlineTimer(after: Self.serveWebStartupTimeoutSeconds) {
             guard !didFinish else { return }
             clearOutputHandlers()
-            Self.drainAvailableOutput(from: stdoutPipe.fileHandleForReading, collector: collector)
-            Self.drainAvailableOutput(from: stderrPipe.fileHandleForReading, collector: collector)
-            if let serveWebURL = collector.webUIURL {
-                if process.isRunning {
-                    finish(.launched(process: process, url: serveWebURL))
-                } else {
-                    finish(.failed(retryable: true))
-                }
+            if let serveWebURL = collector.webUIURL, process.isRunning {
+                finish(.launched(process: process, url: serveWebURL))
                 return
             }
-            if process.isRunning {
-                process.terminate()
-                scheduleTerminationDeadline()
-            } else {
+            guard process.isRunning else {
+                Self.drainAvailableOutput(from: stdoutPipe.fileHandleForReading, collector: collector)
+                Self.drainAvailableOutput(from: stderrPipe.fileHandleForReading, collector: collector)
                 process.terminationHandler = nil
                 finish(.failed(retryable: true))
+                return
             }
+            process.terminate()
+            scheduleTerminationDeadline()
         }
         startupTimer?.resume()
     }
