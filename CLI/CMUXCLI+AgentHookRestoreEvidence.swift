@@ -13,7 +13,7 @@ extension CMUXCLI {
         }
         guard !launchCommand.arguments.isEmpty else { return false }
         switch normalizedHookValue(launchCommand.source)?.lowercased() {
-        case "environment", "process":
+        case nil, "environment", "process":
             return true
         default:
             return false
@@ -72,7 +72,7 @@ extension CMUXCLI {
         if normalizedHookValue(launchCommand.environment?["CODEX_HOME"]) != nil { return true }
         guard !launchCommand.arguments.isEmpty else { return false }
         switch normalizedHookValue(launchCommand.source)?.lowercased() {
-        case "environment", "process":
+        case nil, "environment", "process":
             return true
         default:
             return false
