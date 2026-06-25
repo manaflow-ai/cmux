@@ -11702,6 +11702,29 @@ struct VerticalTabsSidebar: View {
         return snapshotsById
     }
 
+    private func extensionSidebarWorkspaceAgentLifecycleStatesById(
+        for rows: [CmuxSidebarProviderRow]
+    ) -> [UUID: AgentHibernationLifecycleState] {
+        var statesById: [UUID: AgentHibernationLifecycleState] = [:]
+        for row in rows where statesById[row.workspaceId] == nil {
+            guard let workspace = tabManager.tabs.first(where: { $0.id == row.workspaceId }),
+                  let state = extensionSidebarAgentLifecycleState(for: workspace) else {
+                continue
+            }
+            statesById[row.workspaceId] = state
+        }
+        return statesById
+    }
+
+    private func extensionSidebarAgentLifecycleState(for workspace: Workspace) -> AgentHibernationLifecycleState? {
+        let states = workspace.agentLifecycleStatesByPanelId.values.flatMap { Array($0.values) }
+        guard !states.isEmpty else { return nil }
+        if states.contains(.needsInput) { return .needsInput }
+        if states.contains(.running) { return .running }
+        if states.contains(.idle) { return .idle }
+        return .unknown
+    }
+
     private func extensionBrowserStackIcon(
         _ icon: CmuxSidebarProviderIcon?,
         size: CGFloat
@@ -11763,6 +11786,7 @@ struct VerticalTabsSidebar: View {
         let canCreateWorktree = section.treeSection.projectRootPath != nil
         let selectedWorkspaceId = tabManager.selectedTabId
         let workspaceSnapshotsById = extensionSidebarWorkspaceSnapshotsById(for: section.rows)
+        let workspaceAgentLifecycleStatesById = extensionSidebarWorkspaceAgentLifecycleStatesById(for: section.rows)
 
         VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 7) {
@@ -11818,6 +11842,7 @@ struct VerticalTabsSidebar: View {
                             relativeNow: now,
                             isSelected: row.workspaceId == selectedWorkspaceId,
                             workspaceStatusStyle: sidebarWorkspaceStatusStyle,
+                            workspaceAgentLifecycleState: workspaceAgentLifecycleStatesById[row.workspaceId],
                             onSelect: selectExtensionSidebarWorkspace,
                             onOpenWindow: CmuxExtensionSidebarInspectorWindowController.show
                         )

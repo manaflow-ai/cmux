@@ -4637,6 +4637,7 @@ final class Workspace: Identifiable, ObservableObject {
             workspaceId: id,
             panelId: panelId
         )
+        sidebarMetadata.invalidateWorkspaceObservation()
     }
 
     func agentHibernationLifecycleState(

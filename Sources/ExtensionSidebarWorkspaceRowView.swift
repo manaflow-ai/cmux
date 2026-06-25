@@ -12,6 +12,7 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
     let relativeNow: Date
     let isSelected: Bool
     let workspaceStatusStyle: SidebarWorkspaceStatusStyle
+    let workspaceAgentLifecycleState: AgentHibernationLifecycleState?
     let onSelect: (UUID) -> Void
     let onOpenWindow: (CmuxSidebarProviderWorkspace) -> Void
     @State private var showsInspector = false
@@ -23,7 +24,8 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
             lhs.providerId == rhs.providerId &&
             lhs.relativeNow == rhs.relativeNow &&
             lhs.isSelected == rhs.isSelected &&
-            lhs.workspaceStatusStyle == rhs.workspaceStatusStyle
+            lhs.workspaceStatusStyle == rhs.workspaceStatusStyle &&
+            lhs.workspaceAgentLifecycleState == rhs.workspaceAgentLifecycleState
     }
 
     private var isSuperCompact: Bool {
@@ -38,6 +40,7 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
         let primarySize: CGFloat = isSuperCompact ? 10.5 : 12.5
         let secondarySize: CGFloat = isSuperCompact ? 9 : 10
         let subtitle = rendered(row.subtitle)
+        let showsStatusDot = workspaceStatusStyle == .dot && workspaceAgentLifecycleState != nil
         HStack(spacing: isSuperCompact ? 5 : 7) {
             VStack(alignment: .leading, spacing: isSuperCompact ? 0 : 2) {
                 HStack(spacing: 5) {
@@ -47,15 +50,20 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
                         .lineLimit(1)
                         .truncationMode(.tail)
 
-                    if workspaceStatusStyle == .dot, let subtitle {
+                    if workspaceStatusStyle == .dot, let workspaceAgentLifecycleState {
+                        let accessibilityLabel = agentStatusAccessibilityLabel(
+                            subtitle: subtitle,
+                            state: workspaceAgentLifecycleState
+                        )
                         Circle()
-                            .fill(agentStatusColor(for: subtitle))
+                            .fill(agentStatusColor(for: workspaceAgentLifecycleState))
                             .frame(width: 6, height: 6)
-                            .accessibilityLabel(Text(subtitle))
+                            .accessibilityLabel(Text(accessibilityLabel ?? ""))
+                            .accessibilityHidden(accessibilityLabel == nil)
                     }
                 }
 
-                if workspaceStatusStyle == .sentence, !isSuperCompact, let subtitle {
+                if !showsStatusDot, !isSuperCompact, let subtitle {
                     Text(subtitle)
                         .cmuxFont(size: secondarySize, weight: .regular)
                         .foregroundColor(.secondary)
@@ -134,24 +142,32 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
         return 32
     }
 
-    private func agentStatusColor(for subtitle: String) -> Color {
-        let normalized = subtitle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if normalized.contains("needs input")
-            || normalized.contains("need input")
-            || normalized.contains("waiting for input")
-            || normalized.contains("waiting for your input")
-            || normalized.contains("your input") {
+    private func agentStatusColor(for state: AgentHibernationLifecycleState) -> Color {
+        switch state {
+        case .needsInput:
             return .orange
-        }
-        if normalized.contains("running")
-            || normalized.contains("working")
-            || normalized.contains("processing")
-            || normalized.contains("thinking")
-            || normalized.contains("in progress")
-            || normalized.contains("executing") {
+        case .running:
             return .green
+        case .idle, .unknown:
+            return .secondary
         }
-        return .secondary
+    }
+
+    private func agentStatusAccessibilityLabel(
+        subtitle: String?,
+        state: AgentHibernationLifecycleState
+    ) -> String? {
+        if let subtitle { return subtitle }
+        switch state {
+        case .needsInput:
+            return String(localized: "feed.status.needsInput", defaultValue: "Needs input")
+        case .running:
+            return String(localized: "agentSession.web.status.running", defaultValue: "Running")
+        case .idle:
+            return String(localized: "agentSession.web.status.idle", defaultValue: "Idle")
+        case .unknown:
+            return nil
+        }
     }
 
     private func rendered(_ text: CmuxSidebarProviderText?) -> String? {
