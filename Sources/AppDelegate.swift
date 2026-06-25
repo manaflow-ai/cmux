@@ -2162,34 +2162,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let stats = TerminalWindowPortalRegistry.debugPortalStats()
         var portal: [String: String] = [:]
-        portal["portal_count"] = Self.uiTestStringValue(stats["portal_count"])
-        portal["portal_hosted_mapping_count"] = Self.uiTestStringValue(stats["hosted_mapping_count"])
-        portal["portal_guarded_bind_blocked_count"] = Self.uiTestStringValue(stats["guarded_bind_blocked_count"])
+        portal["portal_count"] = UITestDiagnosticsSnapshot.stringValue(stats["portal_count"])
+        portal["portal_hosted_mapping_count"] = UITestDiagnosticsSnapshot.stringValue(stats["hosted_mapping_count"])
+        portal["portal_guarded_bind_blocked_count"] = UITestDiagnosticsSnapshot.stringValue(stats["guarded_bind_blocked_count"])
         if let totals = stats["totals"] as? [String: Any] {
             for (key, value) in totals {
-                portal["portal_\(key)"] = Self.uiTestStringValue(value)
+                portal["portal_\(key)"] = UITestDiagnosticsSnapshot.stringValue(value)
             }
         }
         return portal
-    }
-
-    private static func uiTestStringValue(_ value: Any?) -> String {
-        switch value {
-        case let value as String:
-            return value
-        case let value as Bool:
-            return value ? "1" : "0"
-        case let value as Int:
-            return String(value)
-        case let value as NSNumber:
-            return value.stringValue
-        case let value as UUID:
-            return value.uuidString
-        case .some(let value):
-            return String(describing: value)
-        case .none:
-            return ""
-        }
     }
 
     private func moveUITestWindowToTargetDisplayIfNeeded(attempt: Int = 0) {

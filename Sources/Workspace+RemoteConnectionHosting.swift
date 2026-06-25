@@ -37,10 +37,6 @@ extension Workspace: RemoteConnectionHosting {
 
     var hostHasProxyOnlyRemoteSidebarError: Bool { hasProxyOnlyRemoteSidebarError }
 
-    func hostRemoteNotificationCooldownKey(target: String) -> String? {
-        remoteNotificationCooldownKey(target: target)
-    }
-
     var hostRemoteNotificationCooldown: TimeInterval { Self.remoteNotificationCooldown }
 
     var hostHasNoPanels: Bool { panels.isEmpty }

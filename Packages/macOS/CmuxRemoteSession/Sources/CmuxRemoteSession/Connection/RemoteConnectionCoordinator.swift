@@ -479,6 +479,28 @@ enum SSHControlMasterCleanup {
 }
 
 extension RemoteConnectionCoordinator {
+    // MARK: - Notification cooldown key
+
+    /// The remote-error notification cooldown key for `target`, normalized to a
+    /// `remote-host:<host>` token so every notification for the same host shares
+    /// one cooldown bucket. Prefers the live configuration's destination (the
+    /// state this coordinator owns) and falls back to the supplied `target`;
+    /// strips any `user@` prefix, trims, and lowercases the host. Returns `nil`
+    /// when neither yields a non-empty host (no cooldown bucketing then).
+    func remoteNotificationCooldownKey(target: String) -> String? {
+        let rawTarget = (state.remoteConfiguration?.destination ?? target)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rawTarget.isEmpty else { return nil }
+        let normalizedHost = rawTarget
+            .split(separator: "@", maxSplits: 1, omittingEmptySubsequences: false)
+            .last
+            .map(String.init)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard let normalizedHost, !normalizedHost.isEmpty else { return nil }
+        return "remote-host:\(normalizedHost)"
+    }
+
     // MARK: - Publish receivers (RemoteSessionHosting → state)
 
     /// Applies a connection-state transition from the session coordinator,
@@ -535,7 +557,7 @@ extension RemoteConnectionCoordinator {
                     title: strings.suspendedNotificationTitle,
                     subtitle: target,
                     body: entryDetail,
-                    cooldownKey: host.hostRemoteNotificationCooldownKey(target: target),
+                    cooldownKey: remoteNotificationCooldownKey(target: target),
                     cooldownInterval: host.hostRemoteNotificationCooldown
                 )
             }
@@ -570,7 +592,7 @@ extension RemoteConnectionCoordinator {
                     title: notificationTitle,
                     subtitle: target,
                     body: trimmedDetail,
-                    cooldownKey: host.hostRemoteNotificationCooldownKey(target: target),
+                    cooldownKey: remoteNotificationCooldownKey(target: target),
                     cooldownInterval: host.hostRemoteNotificationCooldown
                 )
             }

@@ -32,8 +32,6 @@ public protocol RemoteConnectionHosting: AnyObject {
     var hostHasPendingDetachedSurfaces: Bool { get }
     /// Whether the live sidebar carries a proxy-only remote error entry.
     var hostHasProxyOnlyRemoteSidebarError: Bool { get }
-    /// The notification cooldown key for the given target, or `nil`.
-    func hostRemoteNotificationCooldownKey(target: String) -> String?
     /// The remote-notification cooldown interval.
     var hostRemoteNotificationCooldown: TimeInterval { get }
     /// Whether the workspace currently has no panels (a workspace that became

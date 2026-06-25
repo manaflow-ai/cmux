@@ -1,74 +1,41 @@
+import CmuxControlSocket
 import CmuxPanes
 import Foundation
 import Bonsplit
 
 extension TerminalController {
+    /// The lifted `[String: Any]`-lane param decoders, owned by
+    /// `CmuxControlSocket`. Stateless value type, so a fresh instance per read
+    /// is equivalent to a stored one; the v2* helpers below forward to it so
+    /// every call site stays byte-identical.
+    nonisolated var v2AnyParamReader: ControlAnyParamReader { ControlAnyParamReader() }
+
     nonisolated func v2String(_ params: [String: Any], _ key: String) -> String? {
-        guard let raw = params[key] as? String else { return nil }
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        v2AnyParamReader.string(params, key)
     }
 
     nonisolated func v2StringArray(_ params: [String: Any], _ key: String) -> [String]? {
-        if let raw = params[key] as? [String] {
-            let normalized = raw
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-            return normalized
-        }
-        if let raw = params[key] as? [Any] {
-            let normalized = raw
-                .compactMap { $0 as? String }
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-            return normalized
-        }
-        if let single = v2String(params, key) {
-            return [single]
-        }
-        return nil
+        v2AnyParamReader.stringArray(params, key)
     }
 
     nonisolated func v2StringMap(_ params: [String: Any], _ key: String) -> [String: String]? {
-        guard let raw = params[key] else { return nil }
-        if let dict = raw as? [String: String] {
-            return dict
-        }
-        if let anyDict = raw as? [String: Any] {
-            var out: [String: String] = [:]
-            for (k, value) in anyDict {
-                guard let stringValue = value as? String else { continue }
-                out[k] = stringValue
-            }
-            return out
-        }
-        return nil
+        v2AnyParamReader.stringMap(params, key)
     }
 
     nonisolated func v2TrimmedStringMap(_ params: [String: Any], keys: [String]) -> [String: String] {
-        for key in keys {
-            guard let raw = v2StringMap(params, key) else { continue }
-            return raw.reduce(into: [String: String]()) { result, pair in
-                let normalizedKey = pair.key.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !normalizedKey.isEmpty else { return }
-                result[normalizedKey] = pair.value
-            }
-        }
-        return [:]
+        v2AnyParamReader.trimmedStringMap(params, keys: keys)
     }
 
     nonisolated func v2ActionKey(_ params: [String: Any], _ key: String = "action") -> String? {
-        guard let action = v2String(params, key) else { return nil }
-        return action.lowercased().replacingOccurrences(of: "-", with: "_")
+        v2AnyParamReader.actionKey(params, key)
     }
 
     nonisolated func v2RawString(_ params: [String: Any], _ key: String) -> String? {
-        params[key] as? String
+        v2AnyParamReader.rawString(params, key)
     }
 
     nonisolated func v2OptionalTrimmedRawString(_ params: [String: Any], _ key: String) -> String? {
-        let trimmed = v2RawString(params, key)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return (trimmed?.isEmpty == false) ? trimmed : nil
+        v2AnyParamReader.optionalTrimmedRawString(params, key)
     }
 
     nonisolated func v2InitialDividerPosition(_ params: [String: Any]) -> (value: Double?, error: V2CallResult?) {
@@ -104,19 +71,7 @@ extension TerminalController {
     }
 
     nonisolated func v2Bool(_ params: [String: Any], _ key: String) -> Bool? {
-        if let b = params[key] as? Bool { return b }
-        if let n = params[key] as? NSNumber { return n.boolValue }
-        if let s = params[key] as? String {
-            switch s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-            case "1", "true", "yes", "on":
-                return true
-            case "0", "false", "no", "off":
-                return false
-            default:
-                return nil
-            }
-        }
-        return nil
+        v2AnyParamReader.bool(params, key)
     }
 
     func v2LocatePane(_ paneUUID: UUID) -> (windowId: UUID, tabManager: TabManager, workspace: Workspace, paneId: PaneID)? {
@@ -134,52 +89,23 @@ extension TerminalController {
     }
 
     nonisolated func v2Int(_ params: [String: Any], _ key: String) -> Int? {
-        if let i = params[key] as? Int { return i }
-        if let n = params[key] as? NSNumber { return n.intValue }
-        if let s = params[key] as? String { return Int(s) }
-        return nil
+        v2AnyParamReader.int(params, key)
     }
 
     nonisolated func v2Double(_ params: [String: Any], _ key: String) -> Double? {
-        if let d = params[key] as? Double { return d }
-        if let f = params[key] as? Float { return Double(f) }
-        if let n = params[key] as? NSNumber { return n.doubleValue }
-        if let s = params[key] as? String { return Double(s) }
-        return nil
+        v2AnyParamReader.double(params, key)
     }
 
     nonisolated func v2HasNonNullParam(_ params: [String: Any], _ key: String) -> Bool {
-        guard let raw = params[key] else { return false }
-        return !(raw is NSNull)
+        v2AnyParamReader.hasNonNullParam(params, key)
     }
 
     nonisolated func v2StrictInt(_ params: [String: Any], _ key: String) -> Int? {
-        v2StrictIntAny(params[key])
+        v2AnyParamReader.strictInt(params, key)
     }
 
     nonisolated func v2StrictIntAny(_ raw: Any?) -> Int? {
-        guard let raw else { return nil }
-
-        if let numberValue = raw as? NSNumber {
-            if CFGetTypeID(numberValue) == CFBooleanGetTypeID() {
-                return nil
-            }
-            let doubleValue = numberValue.doubleValue
-            guard doubleValue.isFinite, floor(doubleValue) == doubleValue else {
-                return nil
-            }
-            return Int(exactly: doubleValue)
-        }
-
-        if let intValue = raw as? Int {
-            return intValue
-        }
-
-        if let stringValue = raw as? String {
-            return Int(stringValue.trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-
-        return nil
+        v2AnyParamReader.strictIntAny(raw)
     }
 
     nonisolated func v2PanelType(_ params: [String: Any], _ key: String) -> PanelType? {
@@ -203,9 +129,6 @@ extension TerminalController {
     }
 
     nonisolated func v2NormalizedToken(_ raw: String) -> String {
-        raw.replacingOccurrences(of: "-", with: "")
-            .replacingOccurrences(of: "_", with: "")
-            .replacingOccurrences(of: " ", with: "")
-            .lowercased()
+        v2AnyParamReader.normalizedToken(raw)
     }
 }

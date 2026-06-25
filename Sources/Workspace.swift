@@ -2273,26 +2273,15 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
 
     // The proxy-only-error classification and the proxy-failure-preservation
     // policy moved into `RemoteConnectionCoordinator` with the connection
-    // cluster. `hasProxyOnlyRemoteSidebarError` and `remoteNotificationCooldownKey`
-    // stay here (live sidebar / configuration reads) and back the
-    // `RemoteConnectionHosting` witness, so they are non-private.
+    // cluster. `hasProxyOnlyRemoteSidebarError` stays here (live sidebar read)
+    // and backs the `RemoteConnectionHosting` witness, so it is non-private. The
+    // `remoteNotificationCooldownKey(target:)` derivation moved INTO the
+    // coordinator (it reads `state.remoteConfiguration.destination`, the
+    // configuration state the coordinator already owns), so the host seam for it
+    // is gone.
     var hasProxyOnlyRemoteSidebarError: Bool {
         guard let entry = statusEntries[Self.remoteErrorStatusKey]?.value else { return false }
         return entry.lowercased().contains("remote proxy unavailable")
-    }
-
-    func remoteNotificationCooldownKey(target: String) -> String? {
-        let rawTarget = (remoteConnectionCoordinator.state.remoteConfiguration?.destination ?? target)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !rawTarget.isEmpty else { return nil }
-        let normalizedHost = rawTarget
-            .split(separator: "@", maxSplits: 1, omittingEmptySubsequences: false)
-            .last
-            .map(String.init)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        guard let normalizedHost, !normalizedHost.isEmpty else { return nil }
-        return "remote-host:\(normalizedHost)"
     }
 
     var focusedSurfaceId: UUID? { focusedPanelId }

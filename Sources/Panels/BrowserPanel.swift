@@ -231,6 +231,12 @@ final class BrowserPanel: Panel, ObservableObject {
         sanitizer: SessionHistoryURLSanitizer { CmuxDiffViewerURLSchemeHandler.isTemporaryHistoryURL($0) }
     )
 
+    /// Sanitizer mirroring the restored-session-history URL rules, used by the
+    /// surface's WebKit-touching resolution helpers.
+    private let sessionHistoryURLSanitizer = SessionHistoryURLSanitizer {
+        CmuxDiffViewerURLSchemeHandler.isTemporaryHistoryURL($0)
+    }
+
     private var usesRestoredSessionHistory: Bool {
         restoredSessionHistory.usesRestoredSessionHistory
     }
@@ -1627,11 +1633,11 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private func resolvedLiveSessionHistoryURL() -> URL? {
         if let webViewURL = Self.remoteProxyDisplayURL(for: webView.url),
-           Self.serializableSessionHistoryURLString(webViewURL) != nil {
+           sessionHistoryURLSanitizer.serializableSessionHistoryURLString(webViewURL) != nil {
             return webViewURL
         }
         if let currentURL,
-           Self.serializableSessionHistoryURLString(currentURL) != nil {
+           sessionHistoryURLSanitizer.serializableSessionHistoryURLString(currentURL) != nil {
             return currentURL
         }
         return nil
@@ -1698,7 +1704,7 @@ final class BrowserPanel: Panel, ObservableObject {
             return
         }
 
-        let restoredURL = Self.sanitizedSessionHistoryURL(snapshot.urlString)
+        let restoredURL = sessionHistoryURLSanitizer.sanitizedSessionHistoryURL(snapshot.urlString)
         let shouldRenderRestoredWebView = snapshot.shouldRenderWebView && BrowserAvailabilitySettings.isEnabled()
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(snapshot.shouldRenderWebView)
         setMuted(snapshot.isMuted)
@@ -1746,9 +1752,9 @@ final class BrowserPanel: Panel, ObservableObject {
                 requestPath: components.requestPath
             )
         }
-        guard !Self.isTemporarySessionHistoryURL(webView.url),
-              !Self.isTemporarySessionHistoryURL(currentURL),
-              !Self.isTemporarySessionHistoryURL(restoredHistoryCurrentURL) else {
+        guard !sessionHistoryURLSanitizer.isTemporarySessionHistoryURL(webView.url),
+              !sessionHistoryURLSanitizer.isTemporarySessionHistoryURL(currentURL),
+              !sessionHistoryURLSanitizer.isTemporarySessionHistoryURL(restoredHistoryCurrentURL) else {
             return false
         }
         return true
@@ -1769,11 +1775,11 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func preferredURLStringForSessionSnapshot() -> String? {
         if let webViewURL = Self.remoteProxyDisplayURL(for: webView.url),
-           let value = Self.serializableSessionHistoryURLString(webViewURL) {
+           let value = sessionHistoryURLSanitizer.serializableSessionHistoryURLString(webViewURL) {
             return value
         }
         if let currentURL,
-           let value = Self.serializableSessionHistoryURLString(currentURL) {
+           let value = sessionHistoryURLSanitizer.serializableSessionHistoryURLString(currentURL) {
             return value
         }
         return nil
@@ -2968,12 +2974,12 @@ extension BrowserPanel {
             return true
         }
         webView.customUserAgent = BrowserUserAgent.safari
-        if Self.serializableSessionHistoryURLString(Self.remoteProxyDisplayURL(for: webView.url)) == nil {
+        if sessionHistoryURLSanitizer.serializableSessionHistoryURLString(Self.remoteProxyDisplayURL(for: webView.url)) == nil {
             let fallbackURL = resolvedCurrentSessionHistoryURL()
                 ?? Self.remoteProxyDisplayURL(for: navigationDelegate?.lastAttemptedURL)
 
             if let fallbackURL,
-               Self.serializableSessionHistoryURLString(fallbackURL) != nil {
+               sessionHistoryURLSanitizer.serializableSessionHistoryURLString(fallbackURL) != nil {
                 navigateWithoutInsecureHTTPPrompt(
                     to: fallbackURL,
                     recordTypedNavigation: false,
@@ -3903,11 +3909,11 @@ extension BrowserPanel {
 
     private func resolvedCurrentSessionHistoryURL() -> URL? {
         if let webViewURL = Self.remoteProxyDisplayURL(for: webView.url),
-           Self.serializableSessionHistoryURLString(webViewURL) != nil {
+           sessionHistoryURLSanitizer.serializableSessionHistoryURLString(webViewURL) != nil {
             return webViewURL
         }
         if let currentURL,
-           Self.serializableSessionHistoryURLString(currentURL) != nil {
+           sessionHistoryURLSanitizer.serializableSessionHistoryURLString(currentURL) != nil {
             return currentURL
         }
         return restoredHistoryCurrentURL
@@ -3930,28 +3936,6 @@ extension BrowserPanel {
     private func abandonRestoredSessionHistoryIfNeeded() {
         guard restoredSessionHistory.abandon() else { return }
         refreshNavigationAvailability()
-    }
-
-    /// Shared sanitizer mirroring the restored-session-history URL rules, used by
-    /// the surface's WebKit-touching resolution helpers.
-    private static let sessionHistoryURLSanitizer = SessionHistoryURLSanitizer {
-        CmuxDiffViewerURLSchemeHandler.isTemporaryHistoryURL($0)
-    }
-
-    private static func serializableSessionHistoryURLString(_ url: URL?) -> String? {
-        sessionHistoryURLSanitizer.serializableSessionHistoryURLString(url)
-    }
-
-    private static func sanitizedSessionHistoryURL(_ raw: String?) -> URL? {
-        sessionHistoryURLSanitizer.sanitizedSessionHistoryURL(raw)
-    }
-
-    private static func sanitizedSessionHistoryURLs(_ values: [String]) -> [URL] {
-        sessionHistoryURLSanitizer.sanitizedSessionHistoryURLs(values)
-    }
-
-    private static func isTemporarySessionHistoryURL(_ url: URL?) -> Bool {
-        sessionHistoryURLSanitizer.isTemporarySessionHistoryURL(url)
     }
 
 }

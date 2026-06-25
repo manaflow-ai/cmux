@@ -5685,7 +5685,7 @@ struct VerticalTabsSidebar: View {
     @Binding var lastSidebarSelectionIndex: Int?
     @Binding var sidebarRenderWorkerClient: RenderWorkerClient?
     @State var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
-    @StateObject var dragAutoScrollController = SidebarDragAutoScrollController()
+    @State var dragAutoScrollController = SidebarDragAutoScrollController()
     @State private var dragFailsafeMonitor = SidebarDragFailsafeMonitor(
         debugLog: VerticalTabsSidebar.sidebarDragFailsafeDebugLog
     )

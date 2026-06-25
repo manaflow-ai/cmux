@@ -201,4 +201,33 @@ public struct UITestDiagnosticsSnapshot: Sendable {
         self.portal = portal
         self.systemUptime = systemUptime
     }
+
+    /// Coerces one untyped portal-registry value into the byte-identical
+    /// `String` the `portal_*` diagnostics keys carry.
+    ///
+    /// The portal registry returns an untyped `[String: Any]`, so each value
+    /// must be flattened to the exact `String` shape the legacy `AppDelegate`
+    /// emitted. The case order is load-bearing: a JSON boolean and integer both
+    /// bridge to `NSNumber`, but the `Bool`/`Int` casts match first (so `true`
+    /// becomes `"1"`, not `NSNumber.stringValue`'s `"1"` via a different path),
+    /// and a `UUID` uses its `uuidString`. Any other non-`nil` value falls back
+    /// to `String(describing:)`, and `nil` becomes `""`.
+    public static func stringValue(_ value: Any?) -> String {
+        switch value {
+        case let value as String:
+            return value
+        case let value as Bool:
+            return value ? "1" : "0"
+        case let value as Int:
+            return String(value)
+        case let value as NSNumber:
+            return value.stringValue
+        case let value as UUID:
+            return value.uuidString
+        case .some(let value):
+            return String(describing: value)
+        case .none:
+            return ""
+        }
+    }
 }
