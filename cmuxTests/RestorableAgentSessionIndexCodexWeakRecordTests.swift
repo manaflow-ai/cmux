@@ -25,6 +25,7 @@ final class RestorableAgentSessionIndexCodexWeakRecordTests: XCTestCase {
         let goodId = "019ef2bd-e6a3-7272-978e-bb375a60ad81"
         let weakId = "019ef6d3-572d-76e3-b5f0-adc4144085fc"
         let missingSourceId = "019ef7f5-c049-7728-82f6-15995b83c40f"
+        let nilLaunchId = "019ef91a-6d3d-70e9-bc8b-9a944db28384"
         try writeHookStore(
             root: root,
             sessions: [
@@ -65,6 +66,11 @@ final class RestorableAgentSessionIndexCodexWeakRecordTests: XCTestCase {
                         "workingDirectory": worktree.path,
                         "capturedAt": 40,
                     ]
+                ),
+                nilLaunchId: codexHookRecord(
+                    sessionId: nilLaunchId, workspaceId: ws, panelId: panel, cwd: worktree.path,
+                    transcriptPath: nil, updatedAt: 50,
+                    launchCommand: nil
                 ),
             ]
         )
