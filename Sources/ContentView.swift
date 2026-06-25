@@ -59,29 +59,15 @@ let tmuxWorkspacePaneOverlayContainerIdentifier = NSUserInterfaceItemIdentifier(
 typealias WorkspaceMountPlan = CmuxFoundation.WorkspaceMountPlan
 typealias MountedWorkspacePresentation = CmuxFoundation.MountedWorkspacePresentation
 
-/// Installs the window-level Finder file-drop overlay. The installer body and
-/// AppKit positioning algorithm live in `CmuxWorkspaces.FileDropOverlayInstaller`;
-/// `AppFileDropTarget` provides the app-target overlay/chrome/`TabManager` steps.
-@discardableResult
-@MainActor
-func installFileDropOverlay(on window: NSWindow, tabManager: TabManager) -> Bool {
-    FileDropOverlayInstaller(target: AppFileDropTarget())
-        .installFileDropOverlay(on: window, tabManager: tabManager)
-}
-
-@MainActor
-private func installFileDropOverlayWhenReady(
-    on window: NSWindow,
-    tabManager: TabManager,
-    remainingAttempts: Int = 16
-) {
-    FileDropOverlayInstaller(target: AppFileDropTarget())
-        .installFileDropOverlayWhenReady(
-            on: window,
-            tabManager: tabManager,
-            remainingAttempts: remainingAttempts
-        )
-}
+// installFileDropOverlay(on:tabManager:) and installFileDropOverlayWhenReady(...)
+// were top-level free functions here; folded onto AppFileDropTarget as static
+// methods (no-free-functions convention, CONVENTIONS s3). Call them as
+// AppFileDropTarget.installFileDropOverlay(...) /
+// AppFileDropTarget.installFileDropOverlayWhenReady(...). ContentView's call site
+// uses AppFileDropTarget.installFileDropOverlayWhenReady(...). AppDelegate is a
+// forbidden god for this slice and still calls the bare free function, so a thin
+// shim forwarding to the static method lives next to the witness in
+// AppFileDropTarget.swift (delete it when AppDelegate is next edited).
 
 /// App-side ``CommandPaletteFocusGuard`` adapter for ``ContentView``.
 ///
@@ -2136,7 +2122,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             fileExplorerState: fileExplorerState,
             cmuxConfigStore: cmuxConfigStore
         )
-        installFileDropOverlayWhenReady(on: window, tabManager: tabManager)
+        AppFileDropTarget.installFileDropOverlayWhenReady(on: window, tabManager: tabManager)
     }
 
     private func addTab() {

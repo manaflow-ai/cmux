@@ -8202,7 +8202,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .first { panel in
                 guard panel.isVisible, let root = panel.contentView else { return false }
                 return closeConfirmationTitles.contains { title in
-                    findStaticText(in: root, equals: title)
+                    root.containsStaticText(title)
                 }
             }
         if let closeConfirmationPanel {
@@ -8214,8 +8214,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 shortcut: StoredShortcut(key: "d", command: true, shift: false, option: false, control: false)
             ),
                let root = closeConfirmationPanel.contentView,
-               let closeButton = findButton(
-                   in: root,
+               let closeButton = root.firstDescendantButton(
                    titled: String(localized: "common.close", defaultValue: "Close")
                ) {
                 closeButton.performClick(nil)
@@ -10278,30 +10277,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
-    private func findButton(in view: NSView, titled title: String) -> NSButton? {
-        if let button = view as? NSButton, button.title == title {
-            return button
-        }
-        for subview in view.subviews {
-            if let found = findButton(in: subview, titled: title) {
-                return found
-            }
-        }
-        return nil
-    }
-
-    private func findStaticText(in view: NSView, equals text: String) -> Bool {
-        if let field = view as? NSTextField, field.stringValue == text {
-            return true
-        }
-        for subview in view.subviews {
-            if findStaticText(in: subview, equals: text) {
-                return true
-            }
-        }
-        return false
-    }
-
     /// The app-coupled browser-popup close-shortcut dispatch body, reached only
     /// through ``ShortcutRouter`` via the ``ShortcutRoutingHost`` conformance. The
     /// router owns the per-event lifecycle (keyDown guard, recorder standdown,
@@ -10691,20 +10666,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func disableNativeTabbingShortcut() {
         guard let menu = NSApp.mainMenu else { return }
-        disableMenuItemShortcut(in: menu, action: #selector(NSWindow.toggleTabBar(_:)))
-    }
-
-    private func disableMenuItemShortcut(in menu: NSMenu, action: Selector) {
-        for item in menu.items {
-            if item.action == action {
-                item.keyEquivalent = ""
-                item.keyEquivalentModifierMask = []
-                item.isEnabled = false
-            }
-            if let submenu = item.submenu {
-                disableMenuItemShortcut(in: submenu, action: action)
-            }
-        }
+        menu.disableItems(matching: #selector(NSWindow.toggleTabBar(_:)))
     }
 
     private func ensureApplicationIcon() {

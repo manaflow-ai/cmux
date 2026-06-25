@@ -136,6 +136,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
     @MainActor var mobileChatHandlerStorage: MobileChatRPCHandler? // owned mobile.chat.* dispatch handler (built lazily; see TerminalController+MobileChat.swift)
     @MainActor var mobileWorkspaceListHandlerStorage: MobileWorkspaceListRPCHandler? // owned mobile.workspace.list/close/group dispatch handler (built lazily; see TerminalController+MobileWorkspaceList.swift)
+    @MainActor var mobileTerminalHandlerStorage: MobileTerminalRPCHandler? // owned mobile.terminal.* + workspace.create dispatch handler (built lazily; see TerminalController+MobileTerminal.swift)
     // Sendable value type; injected at construction so socket auth never reaches a global.
     private nonisolated let passwordStore: SocketControlPasswordStore
     /// Process-wide proxy-tunnel broker (one shared tunnel per remote transport across all
@@ -4848,24 +4849,20 @@ class TerminalController: MobileViewportSurfaceLimiting {
             result = await v2MobileAttachTicketCreate(params: request.params)
         case "mobile.workspace.list", "workspace.list":
             result = v2MobileWorkspaceList(params: request.params)
-        case "workspace.create":
-            result = v2MobileWorkspaceCreate(params: request.params)
-        case "mobile.terminal.create", "terminal.create":
-            result = v2MobileTerminalCreate(params: request.params)
-        case "mobile.terminal.input", "terminal.input":
-            result = v2MobileTerminalInput(params: request.params)
-        case "mobile.terminal.paste", "terminal.paste":
-            result = v2MobileTerminalPaste(params: request.params)
-        case "mobile.terminal.paste_image", "terminal.paste_image":
-            result = v2MobileTerminalPasteImage(params: request.params)
-        case "mobile.terminal.replay", "terminal.replay":
-            result = v2MobileTerminalReplay(params: request.params)
-        case "mobile.terminal.viewport", "terminal.viewport":
-            result = v2MobileTerminalViewport(params: request.params)
-        case "mobile.terminal.scroll", "terminal.scroll":
-            result = v2MobileTerminalScroll(params: request.params)
-        case "mobile.terminal.mouse", "terminal.mouse":
-            result = v2MobileTerminalMouse(params: request.params)
+        case "workspace.create",
+            "mobile.terminal.create", "terminal.create",
+            "mobile.terminal.input", "terminal.input",
+            "mobile.terminal.paste", "terminal.paste",
+            "mobile.terminal.paste_image", "terminal.paste_image",
+            "mobile.terminal.replay", "terminal.replay",
+            "mobile.terminal.viewport", "terminal.viewport",
+            "mobile.terminal.scroll", "terminal.scroll",
+            "mobile.terminal.mouse", "terminal.mouse":
+            // The mobile terminal-IO data plane (terminal create/replay/viewport/
+            // scroll/mouse/input/paste/paste_image) and the mobile workspace.create
+            // echo are owned by MobileTerminalRPCHandler; this single arm delegates
+            // the whole cluster to it (see TerminalController+MobileTerminal.swift).
+            result = mobileTerminalHandler.dispatch(method: request.method, params: request.params)
         case "workspace.action":
             result = v2MobileWorkspaceAction(params: request.params)
         case let method where method.hasPrefix("mobile.chat."):
@@ -5100,33 +5097,18 @@ class TerminalController: MobileViewportSurfaceLimiting {
 
     typealias MobileTerminalAliasUUID = CMUXMobileCore.MobileTerminalAliasUUID
 
-    func mobileTerminalAliasUUID(params: [String: Any]) -> MobileTerminalAliasUUID {
-        var selected: UUID?
-        var sawAlias = false
-        for key in ["surface_id", "terminal_id", "tab_id"] {
-            guard v2HasNonNullParam(params, key) else {
-                continue
-            }
-            sawAlias = true
-            guard let candidate = v2UUID(params, key) else {
-                return .invalid
-            }
-            if let selected, selected != candidate {
-                return .conflict
-            }
-            selected = selected ?? candidate
-        }
-        if let selected {
-            return .value(selected)
-        }
-        return sawAlias ? .invalid : .missing
-    }
+    // `mobileTerminalAliasUUID(params:)` moved to MobileTerminalRPCHandler; the
+    // attach-ticket and workspace-list callers reach it through the forwarder in
+    // TerminalController+MobileTerminal.swift.
 
     // Pure classification of the optional `workspace_id` param: acceptable when
     // absent or a well-formed UUID/ref, otherwise present-but-invalid. The typed
     // result lives in CMUXMobileCore; the wire-error mapping (and its localized
     // string) stays app-side via `mobileValidationError(_:)`.
-    private func mobileWorkspaceIDValidation(params: [String: Any]) -> MobileWorkspaceIDValidation {
+    // `internal` (not `private`): the mobile terminal-IO host conformance in
+    // TerminalController+MobileTerminal.swift maps this typed result to the wire
+    // `invalid_params` response for the relocated handler.
+    func mobileWorkspaceIDValidation(params: [String: Any]) -> MobileWorkspaceIDValidation {
         guard v2HasNonNullParam(params, "workspace_id"),
               v2UUID(params, "workspace_id") == nil else {
             return .ok
@@ -5139,7 +5121,9 @@ class TerminalController: MobileViewportSurfaceLimiting {
     // entire v2 surface uses bare literals, matching the legacy bodies byte for
     // byte); the message text stays app-side here, the package only names the
     // failure via the message key.
-    private func mobileValidationError(_ error: MobileParamValidationError) -> V2CallResult {
+    // `internal` (not `private`): used by the mobile terminal-IO host conformance
+    // in TerminalController+MobileTerminal.swift.
+    func mobileValidationError(_ error: MobileParamValidationError) -> V2CallResult {
         let message: String
         switch error.messageKey {
         case .missingOrInvalidTerminalID:
@@ -5262,501 +5246,6 @@ class TerminalController: MobileViewportSurfaceLimiting {
             "surface_id": v2OrNull(initialSurfaceId?.uuidString),
             "surface_ref": v2Ref(kind: .surface, uuid: initialSurfaceId)
         ])
-    }
-
-    func v2MobileWorkspaceCreate(params: [String: Any]) -> V2CallResult {
-        guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
-        }
-        var createParams = params
-        createParams["focus"] = false
-        createParams["eager_load_terminal"] = false
-        createParams["auto_refresh_metadata"] = false
-        let createResult = v2WorkspaceCreate(params: createParams, tabManager: tabManager)
-        switch createResult {
-        case let .ok(payload):
-            let createdWorkspaceID = (payload as? [String: Any])?["workspace_id"] as? String
-            if let createdWorkspaceID {
-                createParams["workspace_id"] = createdWorkspaceID
-            }
-            // workspace.updated emit is handled by MobileWorkspaceListObserver
-            // which observes the workspace list (`workspaces.tabs`) directly.
-            // Don't fire here.
-            return v2MobileWorkspaceList(
-                params: createParams,
-                tabManager: tabManager,
-                createdWorkspaceID: createdWorkspaceID
-            )
-        case .err:
-            return createResult
-        }
-    }
-
-    func v2MobileTerminalCreate(params: [String: Any]) -> V2CallResult {
-        guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
-        }
-        if let error = mobileWorkspaceIDValidation(params: params).validationError {
-            return mobileValidationError(error)
-        }
-        guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
-            return .err(code: "not_found", message: "Workspace not found", data: nil)
-        }
-        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
-            return .err(code: "not_found", message: "Pane not found", data: nil)
-        }
-        guard let terminal = workspace.newTerminalSurface(
-            inPane: paneId,
-            focus: false,
-            autoRefreshMetadata: false,
-            preserveFocusWhenUnfocused: false, inheritWorkingDirectoryFallback: true
-        ) else {
-            return .err(code: "internal_error", message: "Failed to create terminal", data: nil)
-        }
-        // workspace.updated emit is handled by MobileWorkspaceListObserver.
-        return v2MobileWorkspaceList(
-            params: params,
-            tabManager: tabManager,
-            createdTerminalID: terminal.id.uuidString
-        )
-    }
-
-    func v2MobileTerminalReplay(params: [String: Any]) -> V2CallResult {
-        if let error = mobileWorkspaceIDValidation(params: params).validationError {
-            return mobileValidationError(error)
-        }
-        if let error = mobileTerminalAliasUUID(params: params).validationError {
-            return mobileValidationError(error)
-        }
-        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
-              let surfaceId = resolved.surfaceId,
-              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
-            #if DEBUG
-            cmuxDebugLog("mobile.terminal.replay NOT_FOUND surface=\(v2RawString(params, "surface_id") ?? "nil")")
-            #endif
-            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
-        }
-        let state = MobileTerminalByteTee.shared.replayState(surfaceID: surfaceId)
-        let seq = state?.seq ?? 0
-        let renderGrid = mobileTerminalRenderGridFrame(
-            terminalPanel: terminalPanel,
-            surfaceID: surfaceId,
-            seq: seq
-        )
-        #if DEBUG
-        cmuxDebugLog("mobile.terminal.replay surface=\(surfaceId.uuidString.prefix(8)) renderGrid=\(renderGrid != nil) seq=\(seq) hasState=\(state != nil)")
-        #endif
-        var payload: [String: Any] = [
-            "workspace_id": resolved.workspace.id.uuidString,
-            "surface_id": surfaceId.uuidString,
-            "seq": seq,
-        ]
-        if let renderGrid,
-           let renderGridObject = try? renderGrid.jsonObject() {
-            payload["columns"] = renderGrid.columns
-            payload["rows"] = renderGrid.rows
-            payload["render_grid"] = renderGridObject
-        } else {
-            let snapshotData = readTerminalTextFromVTExportForSnapshot(
-                terminalPanel: terminalPanel,
-                bindingAction: "write_active_file:copy,vt",
-                lineLimit: nil,
-                normalizeLineEndings: false
-            )?.data(using: .utf8) ?? Data()
-            let data = state?.data ?? Data()
-            if let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "mobileTerminalReplay") {
-                let size = ghostty_surface_size(surface)
-                payload["columns"] = max(Int(size.columns), 1)
-                payload["rows"] = max(Int(size.rows), 1)
-            }
-            if !snapshotData.isEmpty {
-                payload["snapshot_format"] = "ghostty.active.vt"
-                payload["snapshot_data_b64"] = snapshotData.base64EncodedString()
-            } else if !data.isEmpty {
-                payload["data_b64"] = data.base64EncodedString()
-            }
-        }
-        return .ok(payload)
-    }
-
-    /// Record (or clear) a paired device's reported terminal grid, recompute
-    /// the smallest grid across all attached devices, cap this surface to it
-    /// (drawing the macOS viewport border when the pane is larger), and return
-    /// the resulting effective grid so the device can pin + letterbox its own
-    /// render to match. This is the iOS/macOS half of the tmux-style shared
-    /// resize: the smallest attached viewport wins and every device shows the
-    /// same cols×rows with a clear border around the live area.
-    func v2MobileTerminalViewport(params: [String: Any]) -> V2CallResult {
-        if let error = mobileWorkspaceIDValidation(params: params).validationError {
-            return mobileValidationError(error)
-        }
-        if let error = mobileTerminalAliasUUID(params: params).validationError {
-            return mobileValidationError(error)
-        }
-        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
-              let surfaceId = resolved.surfaceId,
-              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
-            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
-        }
-
-        if v2Bool(params, "clear") == true {
-            if let clientID = v2String(params, "client_id") {
-                clearMobileViewportReport(
-                    surfaceID: terminalPanel.id,
-                    clientID: clientID,
-                    reason: "mobile.terminal.viewport.clear"
-                )
-            }
-        } else {
-            applyMobileViewportReport(params: params, terminalPanel: terminalPanel, sticky: true)
-        }
-
-        var payload: [String: Any] = [
-            "workspace_id": resolved.workspace.id.uuidString,
-            "surface_id": surfaceId.uuidString,
-        ]
-        if let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "mobileTerminalViewport") {
-            let size = ghostty_surface_size(surface)
-            payload["columns"] = max(Int(size.columns), 1)
-            payload["rows"] = max(Int(size.rows), 1)
-        }
-        return .ok(payload)
-    }
-
-    /// Forward a phone scroll gesture to the real surface so libghostty handles
-    /// it per-mode (scrollback in the normal screen, mouse-wheel to the program
-    /// in the alt screen). The producer already exports the live `vp_top`, so
-    /// the resulting viewport mirrors back to the phone; nudge an emit since a
-    /// pure scroll with no PTY output may not fire a render/tick on its own.
-    func v2MobileTerminalScroll(params: [String: Any]) -> V2CallResult {
-        if let error = mobileWorkspaceIDValidation(params: params).validationError {
-            return mobileValidationError(error)
-        }
-        if let error = mobileTerminalAliasUUID(params: params).validationError {
-            return mobileValidationError(error)
-        }
-        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
-              let surfaceId = resolved.surfaceId,
-              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
-            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
-        }
-        let deltaLines = (params["delta_lines"] as? NSNumber)?.doubleValue ?? 0
-        let col = (params["col"] as? NSNumber)?.intValue ?? 0
-        let row = (params["row"] as? NSNumber)?.intValue ?? 0
-        if deltaLines != 0 {
-            terminalPanel.surface.mobileScroll(deltaLines: deltaLines, col: max(0, col), row: max(0, row))
-            MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: terminalPanel.id)
-        }
-        return .ok(mobileTerminalScrollResponsePayload(
-            workspaceID: resolved.workspace.id,
-            terminalPanel: terminalPanel,
-            surfaceID: surfaceId,
-            params: params
-        ))
-    }
-
-    func v2MobileTerminalMouse(params: [String: Any]) -> V2CallResult {
-        if let error = mobileWorkspaceIDValidation(params: params).validationError {
-            return mobileValidationError(error)
-        }
-        if let error = mobileTerminalAliasUUID(params: params).validationError {
-            return mobileValidationError(error)
-        }
-        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
-              let surfaceId = resolved.surfaceId,
-              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
-            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
-        }
-        let col = (params["col"] as? NSNumber)?.intValue ?? 0
-        let row = (params["row"] as? NSNumber)?.intValue ?? 0
-        terminalPanel.surface.mobileClick(col: max(0, col), row: max(0, row))
-        MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: terminalPanel.id)
-        return .ok([
-            "workspace_id": resolved.workspace.id.uuidString,
-            "surface_id": surfaceId.uuidString,
-        ])
-    }
-
-    func v2MobileTerminalInput(params: [String: Any]) -> V2CallResult {
-        guard let text = v2RawString(params, "text"), !text.isEmpty else {
-            return .err(code: "invalid_params", message: "Missing text", data: nil)
-        }
-        if let error = mobileWorkspaceIDValidation(params: params).validationError {
-            return mobileValidationError(error)
-        }
-        if let error = mobileTerminalAliasUUID(params: params).validationError {
-            return mobileValidationError(error)
-        }
-        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
-              let surfaceId = resolved.surfaceId,
-              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
-            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
-        }
-
-        applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
-
-        #if DEBUG
-        let sendStart = ProcessInfo.processInfo.systemUptime
-        #endif
-        let sendResult = terminalPanel.surface.sendInputResult(text)
-        switch sendResult {
-        case .sent:
-            terminalPanel.surface.forceRefresh(reason: "mobileHost.terminalInput")
-        case .queued:
-            break
-        case .inputQueueFull:
-            return .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: ["surface_id": surfaceId.uuidString])
-        case .surfaceUnavailable:
-            return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: ["surface_id": surfaceId.uuidString])
-        case .processExited:
-            return .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: ["surface_id": surfaceId.uuidString])
-        }
-        #if DEBUG
-        let sendMs = (ProcessInfo.processInfo.systemUptime - sendStart) * 1000.0
-        cmuxDebugLog(
-            "mobile.terminal.input workspace=\(resolved.workspace.id.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) queued=\(sendResult == .queued ? 1 : 0) chars=\(text.count) ms=\(String(format: "%.2f", sendMs))"
-        )
-        #endif
-        var payload: [String: Any] = [
-            "workspace_id": resolved.workspace.id.uuidString,
-            "surface_id": terminalPanel.id.uuidString,
-            "queued": sendResult == .queued,
-        ]
-        if let seq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceId) {
-            payload["terminal_seq"] = seq
-        }
-        return .ok(payload)
-    }
-
-    /// Handle `terminal.paste_image`: a paired client (the iOS app) forwards an
-    /// image it pasted as base64 bytes. We materialize it to a temp file on the
-    /// Mac and inject the shell-escaped path as terminal input, exactly the way a
-    /// local clipboard-image paste does, so the running TUI (e.g. Claude Code)
-    /// attaches the image from the path.
-    func v2MobileTerminalPasteImage(params: [String: Any]) -> V2CallResult {
-        guard let base64 = v2RawString(params, "image_base64"),
-              let imageData = Data(base64Encoded: base64), !imageData.isEmpty else {
-            return .err(code: "invalid_params", message: "Missing or invalid image_base64", data: nil)
-        }
-        let format = v2RawString(params, "image_format") ?? "png"
-        if let error = mobileWorkspaceIDValidation(params: params).validationError {
-            return mobileValidationError(error)
-        }
-        if let error = mobileTerminalAliasUUID(params: params).validationError {
-            return mobileValidationError(error)
-        }
-        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
-              let surfaceId = resolved.surfaceId,
-              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
-            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
-        }
-
-        applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
-
-        guard let escapedPath = GhosttyApp.terminalPasteboard.saveImageData(imageData, fileExtension: format) else {
-            return .err(code: "invalid_params", message: "Image payload was empty or exceeded the size limit", data: nil)
-        }
-
-        let sendResult = terminalPanel.surface.sendInputResult(escapedPath)
-        switch sendResult {
-        case .sent:
-            terminalPanel.surface.forceRefresh(reason: "mobileHost.terminalPasteImage")
-        case .queued:
-            break
-        case .inputQueueFull:
-            return .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: ["surface_id": surfaceId.uuidString])
-        case .surfaceUnavailable:
-            return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: ["surface_id": surfaceId.uuidString])
-        case .processExited:
-            return .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: ["surface_id": surfaceId.uuidString])
-        }
-        #if DEBUG
-        cmuxDebugLog(
-            "mobile.terminal.paste_image workspace=\(resolved.workspace.id.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) bytes=\(imageData.count) format=\(format)"
-        )
-        #endif
-        return .ok([
-            "workspace_id": resolved.workspace.id.uuidString,
-            "surface_id": terminalPanel.id.uuidString,
-            "queued": sendResult == .queued,
-        ])
-    }
-
-    /// Deliver a composed block from the mobile composer as a bracketed paste
-    /// followed by an optional single submit key.
-    ///
-    /// This mirrors the macOS TextBox composer dispatch
-    /// (`[.pasteText(payload), .namedKey(submitKey)]`): the text goes through
-    /// `sendText` (libghostty `ghostty_surface_text`), which bracketed-pastes it
-    /// (`ESC[200~ … ESC[201~` when DECSET 2004 is active) so the agent's line
-    /// editor inserts the whole, possibly multi-line, block as literal text
-    /// instead of treating every interior newline as a submit. A single named
-    /// submit key then commits it once. The `terminal.input` path is wrong for a
-    /// composed block: `parsedSocketInputEvents` rewrites every `\n`/`\r` to a
-    /// raw CR, so an N-line message fragments into N submissions.
-    ///
-    /// `submit_key` is optional: `return`/`enter` (default) or `ctrl+enter`
-    /// submit; `none` pastes without submitting so the composer can keep editing.
-    func v2MobileTerminalPaste(params: [String: Any]) -> V2CallResult {
-        guard let text = v2RawString(params, "text"), !text.isEmpty else {
-            return .err(code: "invalid_params", message: "Missing text", data: nil)
-        }
-        // Resolve the optional submit key up front so an unsupported value fails
-        // before any text is pasted (no partial application). The phone sends
-        // `return` as the default submit *intent*; the agent-aware upgrade to
-        // `ctrl+enter` happens below once the surface (and its agent context) is
-        // resolved, because only the Mac knows which agent is running.
-        let submitKeyRaw = (v2String(params, "submit_key") ?? "return").lowercased()
-        var submitKeyName: String?
-        var submitKeyWasReturnIntent = false
-        switch submitKeyRaw {
-        case "", "return", "enter":
-            submitKeyName = "return"
-            submitKeyWasReturnIntent = true
-        case "ctrl+enter":
-            submitKeyName = "ctrl+enter"
-        case "none":
-            submitKeyName = nil
-        default:
-            return .err(code: "invalid_params", message: "Unsupported submit_key", data: ["submit_key": submitKeyRaw])
-        }
-        if let error = mobileWorkspaceIDValidation(params: params).validationError {
-            return mobileValidationError(error)
-        }
-        if let error = mobileTerminalAliasUUID(params: params).validationError {
-            return mobileValidationError(error)
-        }
-        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
-              let surfaceId = resolved.surfaceId,
-              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
-            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
-        }
-
-        // Mirror the macOS TextBox composer's submit-key selection
-        // (`TextBoxInput.dispatchEvents`): Claude Code needs `ctrl+enter` to
-        // submit a multi-line block, while plain `return` submits a newline mid
-        // prompt. The phone cannot know the running agent, so it always asks for
-        // `return`; upgrade that intent here when the surface is Claude and the
-        // composed text spans multiple lines. Explicit `ctrl+enter`/`none` from
-        // the client are honored as-is.
-        if submitKeyWasReturnIntent,
-           text.contains("\n") || text.contains("\r"),
-           agentMetadataDetector.isClaudeCode(
-               context: WorkspaceContentView.terminalAgentContext(panel: terminalPanel, workspace: resolved.workspace)
-           ) {
-            submitKeyName = "ctrl+enter"
-        }
-
-        applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
-
-        // Send through the TerminalPanel explicit-input wrappers (not the raw
-        // surface): they run `resumeForExplicitInputIfNeeded()` first, waking a
-        // hibernated agent terminal the same way local typing does, so a mobile
-        // composer submit cannot write into a cold surface.
-        guard terminalPanel.sendText(text) else {
-            return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: ["surface_id": surfaceId.uuidString])
-        }
-
-        // The paste text is already accepted by the surface above. From here on a
-        // submit-key failure must NOT surface as an RPC error: the client treats
-        // any error as "nothing was sent" and keeps the composer draft, so a
-        // retry would paste the whole block a second time. Report partial
-        // success instead — `submitted: false` plus `submit_error` — so the
-        // client clears the draft (the text is sitting at the prompt) and can
-        // tell the user the submit keypress is still needed.
-        var submitted = false
-        var submitError: String?
-        if let submitKeyName {
-            let keyResult = terminalPanel.sendNamedKeyResult(submitKeyName)
-            if keyResult.accepted {
-                submitted = true
-            } else {
-                switch keyResult {
-                case .inputQueueFull:
-                    submitError = "input_queue_full"
-                case .surfaceUnavailable:
-                    submitError = "surface_unavailable"
-                case .processExited:
-                    submitError = "process_exited"
-                case .unknownKey, .sent, .queued:
-                    // .sent / .queued are accepted results and unreachable in this
-                    // else-branch; grouped here only to keep the switch exhaustive.
-                    submitError = "unknown_key"
-                }
-            }
-        }
-
-        terminalPanel.surface.forceRefresh(reason: "mobileHost.terminalPaste")
-
-        #if DEBUG
-        cmuxDebugLog(
-            "mobile.terminal.paste workspace=\(resolved.workspace.id.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) chars=\(text.count) submitted=\(submitted ? 1 : 0)"
-        )
-        #endif
-
-        var payload: [String: Any] = [
-            "workspace_id": resolved.workspace.id.uuidString,
-            "surface_id": terminalPanel.id.uuidString,
-            "submitted": submitted,
-        ]
-        if let submitError {
-            payload["submit_error"] = submitError
-        }
-        if let seq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceId) {
-            payload["terminal_seq"] = seq
-        }
-        return .ok(payload)
-    }
-
-    func mobileResolveWorkspaceAndSurface(
-        params: [String: Any],
-        requireTerminal: Bool
-    ) -> (tabManager: TabManager, workspace: Workspace, surfaceId: UUID?)? {
-        guard let tabManager = v2ResolveTabManager(params: params),
-              let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
-            return nil
-        }
-
-        let requestedSurfaceId = v2UUID(params, "surface_id")
-            ?? v2UUID(params, "terminal_id")
-            ?? v2UUID(params, "tab_id")
-
-        let surfaceId: UUID?
-        if let requestedSurfaceId {
-            guard workspace.panels[requestedSurfaceId] != nil else {
-                return nil
-            }
-            surfaceId = requestedSurfaceId
-        } else if requireTerminal {
-            surfaceId = workspace.focusedTerminalPanel?.id
-                ?? mobileTerminalPanels(in: workspace).first?.id
-        } else {
-            surfaceId = nil
-        }
-
-        // A session-restored / never-foregrounded terminal has its libghostty
-        // surface created lazily — today only on the first keystroke (via the
-        // input path's `requestBackgroundSurfaceStartIfNeeded`). The mobile
-        // render-grid producer only reads a *live* surface, so such a terminal
-        // shows blank on the phone until the user types. When a mobile client
-        // resolves a terminal to read or drive, materialize the surface
-        // headlessly so attaching alone loads it. Idempotent and a no-op once
-        // the surface exists.
-        if requireTerminal,
-           let surfaceId,
-           let panel = workspace.terminalPanel(for: surfaceId) {
-            panel.surface.requestBackgroundSurfaceStartIfNeeded()
-        }
-
-        return (tabManager, workspace, surfaceId)
-    }
-
-    func mobileTerminalPanels(in workspace: Workspace) -> [TerminalPanel] {
-        // Use the workspace's spatial (left-to-right, top-to-bottom) panel order
-        // so the phone's terminal dropdown matches the on-screen bonsplit layout,
-        // rather than focused-first/UUID order. `is_focused` in the payload still
-        // tells the phone which terminal is active.
-        orderedPanels(in: workspace).compactMap { $0 as? TerminalPanel }
     }
 
     deinit {

@@ -227,12 +227,10 @@ enum CmuxResolvedConfigContextMenuItem: Identifiable, Sendable, Hashable {
     }
 }
 
-enum CmuxRestartBehavior: String, Codable, Sendable {
-    case new
-    case recreate
-    case ignore
-    case confirm
-}
+// `CmuxRestartBehavior` now lives in CmuxWorkspaces/CustomLayout/ alongside
+// `CmuxCommandDefinition`; the app reaches it through the module-wide
+// `typealias CmuxRestartBehavior = CmuxWorkspaces.CmuxRestartBehavior` declared
+// in CmuxConfig.swift (`import CmuxWorkspaces`, already imported above).
 
 extension CmuxButtonIcon {
     func contextMenuImage(configSourcePath: String?, globalConfigPath: String) -> NSImage? {

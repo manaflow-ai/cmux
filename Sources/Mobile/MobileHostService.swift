@@ -95,11 +95,23 @@ private enum MobileHostPublicStatusCache {
         lock.lock()
         let cachedRoutes = routes
         lock.unlock()
-        let routesPayload = cachedRoutes.map(\.mobileHostJSONObject)
+        let projector = MobileHostStatusPayloadProjector(
+            routesPayload: cachedRoutes.map(\.mobileHostJSONObject)
+        )
+        guard includeIdentity else {
+            return .ok(projector.publicPayload)
+        }
+        // Identity strings are resolved app-side (`MobileHostIdentity` is
+        // UserDefaults-backed, `MobileHostBuildIdentity` reads `Bundle.main`)
+        // and handed to the pure projector, which stays in CMUXMobileCore.
+        let build = MobileHostBuildIdentity.current()
         return .ok(
-            includeIdentity
-                ? MobileHostService.identityStatusPayload(routesPayload: routesPayload)
-                : MobileHostService.publicStatusPayload(routesPayload: routesPayload)
+            projector.identityPayload(
+                deviceID: MobileHostIdentity.deviceID(),
+                displayName: MobileHostIdentity.displayName(),
+                appVersion: build.appVersion,
+                appBuild: build.appBuild
+            )
         )
     }
 }
@@ -109,47 +121,23 @@ private enum MobileHostPublicStatusCache {
 /// stay byte-identical.
 typealias MobileHostServiceStatus = CMUXMobileCore.MobileHostServiceStatus
 
+// TODO(refactor/status-payload-projector): The status-payload projection moved to
+// `CMUXMobileCore.MobileHostStatusPayloadProjector` (publicPayload / identityPayload)
+// and `MobileHostStatusPayloadProjector.capabilities`. The only remaining references to
+// the now-deleted `MobileHostService.publicStatusPayload(routesPayload:)` and
+// `MobileHostService.mobileHostCapabilities` live in the concurrently-edited
+// `TerminalController.swift` (`v2MobileHostStatus`, ~line 4990-4992); do NOT edit
+// TerminalController in this slice. Once that batch settles, dedup
+// `v2MobileHostStatus` onto the projector:
+//   let projector = MobileHostStatusPayloadProjector(
+//       routesPayload: status.routes.map(\.mobileHostJSONObject))
+//   // public branch: .ok(projector.publicPayload)
+//   // capabilities: MobileHostStatusPayloadProjector.capabilities
+
 @MainActor
 final class MobileHostService {
     static let shared = MobileHostService()
     nonisolated private static let maximumActiveConnectionCount = 10
-
-    /// The single shape every public `mobile.host.status` reply uses (the
-    /// public-status cache, the network status gate, and
-    /// `TerminalController`'s no-private-metadata branch), so the fields
-    /// cannot drift. Identity-free: routes, fidelity, and capabilities are a
-    /// reachability probe any peer may ask for, but the Mac's stable identity
-    /// (`mac_device_id`, `mac_display_name`) is never on this unauthenticated
-    /// surface — see ``networkStatusResult(for:)`` for the verified-caller
-    /// reply that carries it.
-    nonisolated static func publicStatusPayload(routesPayload: [[String: Any]]) -> [String: Any] {
-        [
-            "routes": routesPayload,
-            "terminal_fidelity": "render_grid",
-            "capabilities": mobileHostCapabilities,
-        ]
-    }
-
-    /// `publicStatusPayload` plus the Mac's identity, for a caller that has
-    /// proven same-account Stack ownership. The pairing QR no longer carries
-    /// the display name or the device id, so this reply is where a freshly
-    /// paired phone learns what to call this Mac and which paired-Mac record
-    /// the connection belongs to.
-    nonisolated static func identityStatusPayload(routesPayload: [[String: Any]]) -> [String: Any] {
-        var payload = publicStatusPayload(routesPayload: routesPayload)
-        payload["mac_device_id"] = MobileHostIdentity.deviceID()
-        if let displayName = MobileHostIdentity.displayName() {
-            payload["mac_display_name"] = displayName
-        }
-        let build = MobileHostBuildIdentity.current()
-        if let appVersion = build.appVersion {
-            payload["mac_app_version"] = appVersion
-        }
-        if let appBuild = build.appBuild {
-            payload["mac_app_build"] = appBuild
-        }
-        return payload
-    }
 
     /// The `mobile.host.status` reply for a network caller.
     ///

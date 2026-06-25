@@ -494,73 +494,6 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
     }
 }
 
-enum CmuxSurfaceTabBarButtonAction: Sendable, Hashable {
-    case builtIn(CmuxSurfaceTabBarBuiltInAction)
-    case command(String)
-    case agent(CmuxConfigAgentKind, args: String?)
-    case workspaceCommand(String)
-    case actionReference(String)
-
-    var defaultId: String {
-        switch self {
-        case .builtIn(let action):
-            return action.configID
-        case .command(let command):
-            return "command." + Self.generatedCommandId(for: command)
-        case .agent(let agent, _):
-            return agent.commandName
-        case .workspaceCommand(let commandName):
-            return "workspaceCommand." + Self.generatedCommandId(for: commandName)
-        case .actionReference(let identifier):
-            return identifier
-        }
-    }
-
-    var defaultIcon: String {
-        defaultButtonIcon.symbolName
-    }
-
-    var defaultButtonIcon: CmuxButtonIcon {
-        switch self {
-        case .builtIn(let action):
-            return .symbol(action.defaultIcon)
-        case .command:
-            return .symbol("terminal")
-        case .agent(let agent, _):
-            return agent.defaultIcon
-        case .workspaceCommand:
-            return .symbol("rectangle.stack.badge.plus")
-        case .actionReference:
-            return .symbol("questionmark.circle")
-        }
-    }
-
-    var terminalCommand: String? {
-        switch self {
-        case .command(let command):
-            return command
-        case .agent(let agent, let args):
-            let trimmedArgs = args?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return trimmedArgs.isEmpty ? agent.commandName : "\(agent.commandName) \(trimmedArgs)"
-        case .builtIn, .workspaceCommand, .actionReference:
-            return nil
-        }
-    }
-
-    var workspaceCommandName: String? {
-        if case .workspaceCommand(let name) = self {
-            return name
-        }
-        return nil
-    }
-
-    private static func generatedCommandId(for command: String) -> String {
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
-        let encoded = command.addingPercentEncoding(withAllowedCharacters: allowed) ?? command
-        return encoded.isEmpty ? "command" : encoded
-    }
-}
-
 struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
     var id: String
     var title: String?
@@ -1027,83 +960,12 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
     }
 }
 
-struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
-    var name: String
-    var description: String?
-    var keywords: [String]?
-    var restart: CmuxRestartBehavior?
-    var workspace: CmuxWorkspaceDefinition?
-    var command: String?
-    var confirm: Bool?
-
-    var id: String {
-        "cmux.config.command." + (name.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? name)
-    }
-
-    init(
-        name: String,
-        description: String? = nil,
-        keywords: [String]? = nil,
-        restart: CmuxRestartBehavior? = nil,
-        workspace: CmuxWorkspaceDefinition? = nil,
-        command: String? = nil,
-        confirm: Bool? = nil
-    ) {
-        self.name = name
-        self.description = description
-        self.keywords = keywords
-        self.restart = restart
-        self.workspace = workspace
-        self.command = command
-        self.confirm = confirm
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        name = try container.decode(String.self, forKey: .name)
-        description = try container.decodeIfPresent(String.self, forKey: .description)
-        keywords = try container.decodeIfPresent([String].self, forKey: .keywords)
-        restart = try container.decodeIfPresent(CmuxRestartBehavior.self, forKey: .restart)
-        workspace = try container.decodeIfPresent(CmuxWorkspaceDefinition.self, forKey: .workspace)
-        command = try container.decodeIfPresent(String.self, forKey: .command)
-        confirm = try container.decodeIfPresent(Bool.self, forKey: .confirm)
-
-        if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            throw DecodingError.dataCorrupted(
-                DecodingError.Context(
-                    codingPath: decoder.codingPath,
-                    debugDescription: "Command name must not be blank"
-                )
-            )
-        }
-        if let cmd = command,
-           cmd.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            throw DecodingError.dataCorrupted(
-                DecodingError.Context(
-                    codingPath: decoder.codingPath,
-                    debugDescription: "Command '\(name)' must not define a blank 'command'"
-                )
-            )
-        }
-
-        if workspace != nil && command != nil {
-            throw DecodingError.dataCorrupted(
-                DecodingError.Context(
-                    codingPath: decoder.codingPath,
-                    debugDescription: "Command '\(name)' must not define both 'workspace' and 'command'"
-                )
-            )
-        }
-        if workspace == nil && command == nil {
-            throw DecodingError.dataCorrupted(
-                DecodingError.Context(
-                    codingPath: decoder.codingPath,
-                    debugDescription: "Command '\(name)' must define either 'workspace' or 'command'"
-                )
-            )
-        }
-    }
-}
+// `CmuxCommandDefinition` (a `command` block in `cmux.json`) and its restart
+// behavior `CmuxRestartBehavior` now live in CmuxWorkspaces/CustomLayout/,
+// co-located with the layout/workspace wire schema they reference. They are
+// reached through `import CmuxWorkspaces`.
+typealias CmuxCommandDefinition = CmuxWorkspaces.CmuxCommandDefinition
+typealias CmuxRestartBehavior = CmuxWorkspaces.CmuxRestartBehavior
 
 // The `cmux.json` layout wire-schema cluster (CmuxLayoutNode / CmuxSplitDefinition
 // / CmuxSplitDirection / CmuxPaneDefinition / CmuxSurfaceDefinition /
@@ -1112,10 +974,10 @@ struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
 // with the canonical WorkspaceCustomLayoutNode/WorkspaceCustomSurface value image
 // they map onto. They are reached through `import CmuxWorkspaces`.
 
-struct CmuxResolvedCommand: Sendable {
-    let command: CmuxCommandDefinition
-    let sourcePath: String?
-}
+// `CmuxResolvedCommand` (a `CmuxCommandDefinition` paired with its `cmux.json`
+// source path) now lives in CmuxWorkspaces/CustomLayout/, reached through
+// `import CmuxWorkspaces`.
+typealias CmuxResolvedCommand = CmuxWorkspaces.CmuxResolvedCommand
 
 // CmuxConfigIssue (+ its nested Kind) now lives in
 // CmuxFoundation/ConfigValues/CmuxConfigIssue.swift, reached through

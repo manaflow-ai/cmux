@@ -65,4 +65,41 @@ final class AppFileDropTarget: FileDropTarget {
             }
         }
     }
+
+    /// Installs the window-level Finder file-drop overlay. The installer body and
+    /// AppKit positioning algorithm live in `CmuxWorkspaces.FileDropOverlayInstaller`;
+    /// this witness provides the app-target overlay/chrome/`TabManager` steps.
+    @discardableResult
+    static func installFileDropOverlay(on window: NSWindow, tabManager: TabManager) -> Bool {
+        FileDropOverlayInstaller(target: AppFileDropTarget())
+            .installFileDropOverlay(on: window, tabManager: tabManager)
+    }
+
+    /// Retries `installFileDropOverlay(on:tabManager:)` until the window's content
+    /// overlay target is ready, bounded by `remainingAttempts`.
+    static func installFileDropOverlayWhenReady(
+        on window: NSWindow,
+        tabManager: TabManager,
+        remainingAttempts: Int = 16
+    ) {
+        FileDropOverlayInstaller(target: AppFileDropTarget())
+            .installFileDropOverlayWhenReady(
+                on: window,
+                tabManager: tabManager,
+                remainingAttempts: remainingAttempts
+            )
+    }
+}
+
+// Thin app-side shim so `AppDelegate.createMainWindow(...)` keeps resolving its
+// bare `installFileDropOverlay(on:tabManager:)` call after the free function was
+// folded onto `AppFileDropTarget` (no-free-functions convention, CONVENTIONS s3).
+// AppDelegate is a forbidden god file for this slice, so its call site cannot be
+// rewritten here; this forwarder is the sanctioned thin shim it can call.
+// TODO(refactor): when AppDelegate is next edited, replace its call with
+// `AppFileDropTarget.installFileDropOverlay(on:tabManager:)` and delete this shim.
+@discardableResult
+@MainActor
+func installFileDropOverlay(on window: NSWindow, tabManager: TabManager) -> Bool {
+    AppFileDropTarget.installFileDropOverlay(on: window, tabManager: tabManager)
 }
