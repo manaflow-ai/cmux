@@ -227,6 +227,32 @@ extension CmuxWebView {
           event.stopPropagation();
         }, true);
 
+        if (!isMainFrame && typeof MutationObserver === "function") {
+          const inspectAddedNode = (node) => {
+            try {
+              if (!node || node.nodeType !== 1) return;
+              const candidates = [];
+              const tag = String(node.tagName || "").toUpperCase();
+              if ((tag === "A" || tag === "AREA") && node.href) candidates.push(node);
+              const nested = node.querySelectorAll?.("a[href][download],area[href][download]") ?? [];
+              for (const anchor of nested) candidates.push(anchor);
+              for (const anchor of candidates) {
+                if (interceptAnchorDownload(anchor, null)) return;
+              }
+            } catch (_) {}
+          };
+          const observer = new MutationObserver((mutations) => {
+            try {
+              for (const mutation of mutations) {
+                for (const node of mutation.addedNodes || []) {
+                  inspectAddedNode(node);
+                }
+              }
+            } catch (_) {}
+          });
+          observer.observe(document.documentElement || document, { childList: true, subtree: true });
+        }
+
         const anchorPrototype = window.HTMLAnchorElement?.prototype ?? null;
         const originalAnchorClick = anchorPrototype?.click ?? null;
         if (isMainFrame && typeof originalAnchorClick === "function") {

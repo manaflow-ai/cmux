@@ -9084,10 +9084,12 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         let now = ProcessInfo.processInfo.systemUptime
         pruneSubframeDownloadIntents(now: now)
         let key = Self.downloadIntentKey(for: responseURL)
-        guard let index = recentSubframeDownloadIntentKeys.firstIndex(where: { $0.key == key }) else {
-            return false
+        if let index = recentSubframeDownloadIntentKeys.firstIndex(where: { $0.key == key }) {
+            recentSubframeDownloadIntentKeys.remove(at: index)
+            return true
         }
-        recentSubframeDownloadIntentKeys.remove(at: index)
+        guard !recentSubframeDownloadIntentKeys.isEmpty else { return false }
+        recentSubframeDownloadIntentKeys.removeFirst()
         return true
     }
 
