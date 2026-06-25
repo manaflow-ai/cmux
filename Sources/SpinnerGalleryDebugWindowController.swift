@@ -11,6 +11,12 @@ import SwiftUI
 /// transform animation, main-thread vs off-thread), not live measurements. To
 /// confirm empirically, open Activity Monitor's Energy tab or Instruments'
 /// Energy Log while this window is frontmost.
+///
+/// Localization exception: this whole file is `#if DEBUG` and never ships in a
+/// release build, so its strings are intentionally English-only verbatim
+/// diagnostics, matching the other Debug → Debug Windows panels (Feed Preview,
+/// Background Debug, …). It is not part of the user-facing localization
+/// contract.
 final class SpinnerGalleryDebugWindowController: ReleasingWindowController {
     static let shared = SpinnerGalleryDebugWindowController()
 
