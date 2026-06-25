@@ -14,7 +14,7 @@ extension CMUXCLI {
         if normalizedHookValue(launchCommand.source)?.lowercased() == "default" { return true }
         guard !launchCommand.arguments.isEmpty else { return false }
         let source = normalizedHookValue(launchCommand.source)?.lowercased()
-        if (source == "environment" || source == "process"), codexLaunchEnvironmentIsWeak(launchCommand.environment) {
+        if source == "environment", codexLaunchEnvironmentIsWeak(launchCommand.environment) {
             return false
         }
         switch source {
@@ -90,7 +90,7 @@ extension CMUXCLI {
         if normalizedHookValue(launchCommand.source)?.lowercased() == "default" { return true }
         guard !launchCommand.arguments.isEmpty else { return false }
         let source = normalizedHookValue(launchCommand.source)?.lowercased()
-        if (source == "environment" || source == "process"), codexLaunchEnvironmentIsWeak(launchCommand.environment) {
+        if source == "environment", codexLaunchEnvironmentIsWeak(launchCommand.environment) {
             return false
         }
         switch source {

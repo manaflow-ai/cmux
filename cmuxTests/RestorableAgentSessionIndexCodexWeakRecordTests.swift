@@ -26,7 +26,7 @@ final class RestorableAgentSessionIndexCodexWeakRecordTests: XCTestCase {
         let weakId = "019ef6d3-572d-76e3-b5f0-adc4144085fc"
         let missingSourceId = "019ef7f5-c049-7728-82f6-15995b83c40f"
         let nilLaunchId = "019ef91a-6d3d-70e9-bc8b-9a944db28384"
-        let weakProcessId = "019ef9f2-5b17-7240-8799-860d1673f7ac"
+        let weakEnvironmentArgvId = "019ef9f2-5b17-7240-8799-860d1673f7ac"
         try writeHookStore(
             root: root,
             sessions: [
@@ -73,8 +73,8 @@ final class RestorableAgentSessionIndexCodexWeakRecordTests: XCTestCase {
                     transcriptPath: nil, updatedAt: 50,
                     launchCommand: nil
                 ),
-                weakProcessId: codexHookRecord(
-                    sessionId: weakProcessId, workspaceId: ws, panelId: panel, cwd: worktree.path,
+                weakEnvironmentArgvId: codexHookRecord(
+                    sessionId: weakEnvironmentArgvId, workspaceId: ws, panelId: panel, cwd: worktree.path,
                     transcriptPath: nil, updatedAt: 60,
                     launchCommand: [
                         "launcher": "codex",
@@ -86,7 +86,7 @@ final class RestorableAgentSessionIndexCodexWeakRecordTests: XCTestCase {
                             "CLAUDE_CONFIG_DIR": root.appendingPathComponent(".codex-accounts/claude/work").path,
                         ],
                         "capturedAt": 60,
-                        "source": "process",
+                        "source": "environment",
                     ]
                 ),
             ]

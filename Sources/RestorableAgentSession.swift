@@ -1245,7 +1245,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 || launchSource == "default"
                 || (record.launchCommand?.arguments.isEmpty == false
                     && (launchSource == nil || ["environment", "process"].contains(launchSource))
-                    && !(normalizedNonEmptyValue(record.launchCommand?.environment?["CODEX_HOME"]) == nil && (normalizedNonEmptyValue(record.launchCommand?.environment?["ANTHROPIC_BASE_URL"]) != nil || normalizedNonEmptyValue(record.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]) != nil)))
+                    && !(launchSource == "environment" && normalizedNonEmptyValue(record.launchCommand?.environment?["CODEX_HOME"]) == nil && (normalizedNonEmptyValue(record.launchCommand?.environment?["ANTHROPIC_BASE_URL"]) != nil || normalizedNonEmptyValue(record.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]) != nil)))
                 || normalizedNonEmptyValue(record.launchCommand?.environment?["CODEX_HOME"]) != nil {
                 return true
             }
