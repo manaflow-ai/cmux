@@ -233,12 +233,16 @@ final class VSCodeServeWebController {
             completion(result)
         }
 
-        func finishFromProcessExit(collector: ServeWebOutputCollector) {
+        func finishFromProcessExit(process: Process, collector: ServeWebOutputCollector) {
             clearOutputHandlers()
             Self.drainAvailableOutput(from: stdoutPipe.fileHandleForReading, collector: collector)
             Self.drainAvailableOutput(from: stderrPipe.fileHandleForReading, collector: collector)
             collector.markProcessExited()
-            finish(.failed(retryable: true))
+            if let serveWebURL = collector.webUIURL {
+                finish(.launched(process: process, url: serveWebURL))
+            } else {
+                finish(.failed(retryable: true))
+            }
         }
 
         func scheduleKillDeadline() {
@@ -287,7 +291,7 @@ final class VSCodeServeWebController {
         process.terminationHandler = { [weak self] terminatedProcess in
             self?.launchQueue.async {
                 terminatedProcess.terminationHandler = nil
-                finishFromProcessExit(collector: collector)
+                finishFromProcessExit(process: terminatedProcess, collector: collector)
             }
             self?.queue.async {
                 guard let self else { return }
@@ -331,11 +335,7 @@ final class VSCodeServeWebController {
             Self.drainAvailableOutput(from: stdoutPipe.fileHandleForReading, collector: collector)
             Self.drainAvailableOutput(from: stderrPipe.fileHandleForReading, collector: collector)
             if let serveWebURL = collector.webUIURL {
-                if process.isRunning {
-                    finish(.launched(process: process, url: serveWebURL))
-                } else {
-                    finish(.failed(retryable: true))
-                }
+                finish(.launched(process: process, url: serveWebURL))
                 return
             }
             if process.isRunning {
@@ -354,15 +354,18 @@ final class VSCodeServeWebController {
         expectedGeneration: UInt64
     ) {
         queue.async {
-            let activeLaunchResult: (process: Process, url: URL)?
+            let runningProcess: Process?
+            let completionURL: URL?
             if let launchResult, launchResult.process.isRunning {
-                activeLaunchResult = launchResult
+                runningProcess = launchResult.process
+                completionURL = launchResult.url
             } else {
-                activeLaunchResult = nil
+                runningProcess = nil
+                completionURL = launchResult?.url
             }
 
             guard self.activeLaunchGeneration == expectedGeneration else {
-                if let process = activeLaunchResult?.process, process.isRunning {
+                if let process = runningProcess, process.isRunning {
                     process.terminate()
                 }
                 return
@@ -371,20 +374,20 @@ final class VSCodeServeWebController {
             self.activeLaunchGeneration = nil
 
             guard self.lifecycleGeneration == expectedGeneration else {
-                if let launchedProcess = activeLaunchResult?.process,
+                if let launchedProcess = runningProcess,
                    self.launchingProcess === launchedProcess {
                     self.launchingProcess = nil
                 }
-                if let process = activeLaunchResult?.process, process.isRunning {
+                if let process = runningProcess, process.isRunning {
                     process.terminate()
                 }
                 return
             }
 
-            if let activeLaunchResult {
+            if let runningProcess, let completionURL {
                 self.launchingProcess = nil
-                self.serveWebProcess = activeLaunchResult.process
-                self.serveWebURL = activeLaunchResult.url
+                self.serveWebProcess = runningProcess
+                self.serveWebURL = completionURL
             } else {
                 self.launchingProcess = nil
                 self.serveWebProcess = nil
@@ -401,7 +404,7 @@ final class VSCodeServeWebController {
                 }
             }
             self.pendingCompletions = remaining
-            Self.completeOnMain(completions, with: self.serveWebURL)
+            Self.completeOnMain(completions, with: completionURL)
         }
     }
 
