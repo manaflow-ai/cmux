@@ -529,9 +529,9 @@ final class cmuxUITests: XCTestCase {
 
     /// Regression for WhatsApp-style chat keyboard tracking: focusing the chat
     /// composer must translate the actual transcript table frame upward with the
-    /// composer while preserving the table's own bottom-visible content. Shrinking
-    /// the table or only changing `contentOffset` can leave a blank band between the
-    /// transcript and input bar.
+    /// composer while preserving the table's own bottom-visible content. The table
+    /// stays full height behind a keyboard-owned clip view, so the bottom content
+    /// remains visible and keyboard motion clips only from the top.
     @MainActor
     func testAgentChatTranscriptFrameMovesUpWithKeyboardAcrossScrollPositions() throws {
         do {
@@ -612,13 +612,14 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     func testAgentChatMiddleKeyboardVideoEvidence() throws {
-        let app = launchAgentChatInlinePreviewApp()
+        let app = launchAgentChatInlinePreviewApp(environment: [
+            "CMUX_UITEST_CHAT_AUTOFOCUS_DELAY": "14.0",
+            "CMUX_UITEST_CHAT_AUTO_DISMISS_DELAY": "1.25",
+        ])
         let table = app.tables["ChatTranscriptTableView"]
         XCTAssertTrue(table.waitForExistence(timeout: 8))
         let composerBar = app.otherElements["ChatComposerBar"]
         XCTAssertTrue(composerBar.waitForExistence(timeout: 8))
-        let composerField = chatComposerField(in: app)
-        XCTAssertTrue(composerField.waitForExistence(timeout: 8))
 
         let loadedMetrics = try waitForTranscriptMetrics(table, timeout: 8) {
             $0.frameHeight > 240 && $0.frameMaxY > 300 && $0.contentHeight > $0.boundsHeight * 1.6
@@ -630,19 +631,32 @@ final class cmuxUITests: XCTestCase {
             abs($0.frameMaxY - loadedMetrics.frameMaxY) < 4 && $0.keyboardOverlap == 0
         }
 
-        let showSamples = focusTextInputAndSampleTranscriptAnimation(
-            composerField,
+        let animationSamples = sampleKeyboardEvidenceFrames(
             table: table,
             composerBar: composerBar,
-            in: app
+            duration: 8.0,
+            frameCapturePrefix: "middle"
         )
-        let keyboardUp = try waitForTranscriptMetrics(table, timeout: 8) { metrics in
-            return metrics.keyboardOverlap > 120
-                && metrics.frameMaxY < beforeKeyboard.frameMaxY - 120
+        guard let maxOverlapIndex = animationSamples.indices.max(by: {
+            animationSamples[$0].metrics.keyboardOverlap < animationSamples[$1].metrics.keyboardOverlap
+        }) else {
+            XCTFail("Video evidence setup did not collect keyboard animation samples")
+            return
         }
+        let keyboardUp = animationSamples[maxOverlapIndex].metrics
+        let keyboardDown = animationSamples.suffix(from: maxOverlapIndex).reversed().first {
+            $0.metrics.keyboardOverlap == 0
+                && abs($0.metrics.frameMaxY - beforeKeyboard.frameMaxY) < 6
+        }?.metrics
+
         assertChatKeyboardAnimationStayedAttached(
-            showSamples,
+            animationSamples,
             scrollPosition: "middle video evidence"
+        )
+        XCTAssertGreaterThan(
+            keyboardUp.keyboardOverlap,
+            120,
+            "Video evidence setup must capture the keyboard-up state. samples=\(animationSamples)"
         )
         XCTAssertEqual(
             keyboardUp.frameMaxY,
@@ -656,11 +670,9 @@ final class cmuxUITests: XCTestCase {
             accuracy: 36,
             "Video evidence setup must preserve the same visible bottom content while the keyboard opens. before=\(beforeKeyboard) after=\(keyboardUp)"
         )
-
-        RunLoop.current.run(until: Date().addingTimeInterval(0.8))
-        dismissChatKeyboard(in: app, table: table)
-        let keyboardDown = try waitForTranscriptMetrics(table, timeout: 6) {
-            $0.keyboardOverlap == 0 && abs($0.frameMaxY - beforeKeyboard.frameMaxY) < 6
+        guard let keyboardDown else {
+            XCTFail("Video evidence setup must capture the keyboard returning down. samples=\(animationSamples)")
+            return
         }
         XCTAssertEqual(
             keyboardDown.visibleBottomY,
@@ -699,7 +711,6 @@ final class cmuxUITests: XCTestCase {
         )
         let afterKeyboard = try waitForTranscriptMetrics(table, timeout: 6) {
             $0.frameMaxY < beforeKeyboard.frameMaxY - 120
-                && $0.frameHeight < beforeKeyboard.frameHeight - 120
         }
         let keyboardFrame = keyboardFrameAfterFocus(
             in: app,
@@ -723,10 +734,11 @@ final class cmuxUITests: XCTestCase {
             file: file,
             line: line
         )
-        XCTAssertLessThan(
+        XCTAssertEqual(
             afterKeyboard.frameHeight,
-            beforeKeyboard.frameHeight - 120,
-            "Chat transcript UITableView height must shrink with the keyboard-owned viewport from \(scrollPosition); contentOffset preservation keeps the same bottom content visible. before=\(beforeKeyboard) after=\(afterKeyboard)",
+            beforeKeyboard.frameHeight,
+            accuracy: 8,
+            "Chat transcript UITableView keeps its full viewport height while the keyboard-owned clip view hides content from the top. before=\(beforeKeyboard) after=\(afterKeyboard)",
             file: file,
             line: line
         )
@@ -906,10 +918,14 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchAgentChatInlinePreviewApp() -> XCUIApplication {
-        let app = launchApp(mockData: false, environment: [
+    private func launchAgentChatInlinePreviewApp(environment: [String: String] = [:]) -> XCUIApplication {
+        var launchEnvironment = [
             "CMUX_UITEST_AGENT_CHAT_INLINE_PREVIEW": "1",
-        ])
+        ]
+        for (key, value) in environment {
+            launchEnvironment[key] = value
+        }
+        let app = launchApp(mockData: false, environment: launchEnvironment)
         XCTAssertTrue(app.tables["ChatTranscriptTableView"].waitForExistence(timeout: 8))
         return app
     }
@@ -1451,7 +1467,8 @@ final class cmuxUITests: XCTestCase {
         _ element: XCUIElement,
         table: XCUIElement,
         composerBar: XCUIElement,
-        in app: XCUIApplication
+        in app: XCUIApplication,
+        frameCapturePrefix: String? = nil
     ) -> [ChatKeyboardAnimationSample] {
         var samples: [ChatKeyboardAnimationSample] = []
         for _ in 0..<4 {
@@ -1459,9 +1476,22 @@ final class cmuxUITests: XCTestCase {
                 _ = tapChatComposerField(element, composerBar: composerBar, in: app)
             }
             let deadline = Date().addingTimeInterval(1.1)
+            let captureStart = Date()
+            var nextCaptureTime = captureStart
+            var frameIndex = 0
             var sawKeyboardTransition = false
             while Date() < deadline {
                 if let metrics = transcriptMetrics(from: table) {
+                    if let frameCapturePrefix, Date() >= nextCaptureTime {
+                        captureKeyboardEvidenceFrame(
+                            prefix: frameCapturePrefix,
+                            index: frameIndex,
+                            startedAt: captureStart,
+                            metrics: metrics
+                        )
+                        frameIndex += 1
+                        nextCaptureTime = Date().addingTimeInterval(0.06)
+                    }
                     samples.append(ChatKeyboardAnimationSample(
                         metrics: metrics,
                         composerFrame: usableFrameNow(of: composerBar)
@@ -1477,6 +1507,124 @@ final class cmuxUITests: XCTestCase {
             }
         }
         return samples
+    }
+
+    @MainActor
+    private func sampleKeyboardEvidenceFrames(
+        table: XCUIElement,
+        composerBar: XCUIElement,
+        duration: TimeInterval,
+        frameCapturePrefix: String
+    ) -> [ChatKeyboardAnimationSample] {
+        var samples: [ChatKeyboardAnimationSample] = []
+        let captureStart = Date()
+        let deadline = captureStart.addingTimeInterval(duration)
+        var nextCaptureTime = captureStart
+        var frameIndex = 0
+        while Date() < deadline {
+            if let metrics = transcriptMetrics(from: table) {
+                if Date() >= nextCaptureTime {
+                    captureKeyboardEvidenceFrame(
+                        prefix: frameCapturePrefix,
+                        index: frameIndex,
+                        startedAt: captureStart,
+                        metrics: metrics
+                    )
+                    frameIndex += 1
+                    nextCaptureTime = Date().addingTimeInterval(0.08)
+                }
+                samples.append(ChatKeyboardAnimationSample(
+                    metrics: metrics,
+                    composerFrame: usableFrameNow(of: composerBar)
+                ))
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+        return samples
+    }
+
+    @MainActor
+    private func dismissChatKeyboardAndSampleTranscriptAnimation(
+        in app: XCUIApplication,
+        table: XCUIElement,
+        composerBar: XCUIElement,
+        frameCapturePrefix: String? = nil
+    ) -> [ChatKeyboardAnimationSample] {
+        var samples: [ChatKeyboardAnimationSample] = []
+        guard app.keyboards.firstMatch.exists else { return samples }
+        if let frame = waitForUsableFrame(of: table, timeout: 1) {
+            let visibleTranscriptY = min(
+                frame.maxY - 36,
+                max(frame.minY + 24, frame.maxY - min(140, frame.height * 0.35))
+            )
+            app.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: frame.midX, dy: visibleTranscriptY))
+                .tap()
+        } else {
+            dismissKeyboard(in: app)
+            return samples
+        }
+
+        let deadline = Date().addingTimeInterval(1.1)
+        let captureStart = Date()
+        var nextCaptureTime = captureStart
+        var frameIndex = 0
+        while Date() < deadline {
+            if let metrics = transcriptMetrics(from: table) {
+                if let frameCapturePrefix, Date() >= nextCaptureTime {
+                    captureKeyboardEvidenceFrame(
+                        prefix: frameCapturePrefix,
+                        index: frameIndex,
+                        startedAt: captureStart,
+                        metrics: metrics
+                    )
+                    frameIndex += 1
+                    nextCaptureTime = Date().addingTimeInterval(0.06)
+                }
+                samples.append(ChatKeyboardAnimationSample(
+                    metrics: metrics,
+                    composerFrame: usableFrameNow(of: composerBar)
+                ))
+            }
+            if !app.keyboards.firstMatch.exists,
+               let metrics = transcriptMetrics(from: table),
+               metrics.keyboardOverlap == 0 {
+                break
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+        if app.keyboards.firstMatch.exists {
+            dismissKeyboard(in: app)
+        }
+        return samples
+    }
+
+    @MainActor
+    private func captureKeyboardEvidenceFrame(
+        prefix: String,
+        index: Int,
+        startedAt: Date,
+        metrics: ChatTranscriptMetrics
+    ) {
+        let elapsedMS = Int(Date().timeIntervalSince(startedAt) * 1000)
+        let basename = String(
+            format: "%@-%03d-%04dms-overlap%03.0f-gap%03.0f",
+            prefix,
+            index,
+            elapsedMS,
+            metrics.keyboardOverlap,
+            max(0, metrics.presentationGap)
+        )
+        let screenshot = XCUIScreen.main.screenshot()
+        let screenshotAttachment = XCTAttachment(screenshot: screenshot)
+        screenshotAttachment.name = basename
+        screenshotAttachment.lifetime = .keepAlways
+        add(screenshotAttachment)
+
+        let metricsAttachment = XCTAttachment(string: metrics.description)
+        metricsAttachment.name = "\(basename).metrics"
+        metricsAttachment.lifetime = .keepAlways
+        add(metricsAttachment)
     }
 
     @MainActor
@@ -1693,8 +1841,12 @@ final class cmuxUITests: XCTestCase {
     private func dismissChatKeyboard(in app: XCUIApplication, table: XCUIElement) {
         guard app.keyboards.firstMatch.exists else { return }
         if let frame = waitForUsableFrame(of: table, timeout: 1) {
+            let visibleTranscriptY = min(
+                frame.maxY - 36,
+                max(frame.minY + 24, frame.maxY - min(140, frame.height * 0.35))
+            )
             app.coordinate(withNormalizedOffset: .zero)
-                .withOffset(CGVector(dx: frame.midX, dy: max(frame.minY + 24, frame.midY - 80)))
+                .withOffset(CGVector(dx: frame.midX, dy: visibleTranscriptY))
                 .tap()
             if waitForKeyboardDismissal(in: app) {
                 return

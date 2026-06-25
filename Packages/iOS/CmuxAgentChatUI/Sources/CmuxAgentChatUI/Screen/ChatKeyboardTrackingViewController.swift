@@ -21,18 +21,20 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
 
     var excludedKeyboardDismissFrame: CGRect = .zero
 
+    private let transcriptClipView = UIView(frame: .zero)
+    private let composerBackgroundView = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
     private let transcriptHostingController: UIHostingController<Transcript>
     private let composerHostingController: UIHostingController<Composer>
-    private typealias ScrollSnapshot = (scrollView: ChatTranscriptUITableView, snapshot: MobileScrollViewportSnapshot)
+    private var composerHeightConstraint: NSLayoutConstraint?
+    private var composerBottomConstraint: NSLayoutConstraint?
+    private var transcriptHeightConstraint: NSLayoutConstraint?
 
-    private let keyboardProgressView = UIView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
-    private var activeKeyboardScrollSnapshots: [ScrollSnapshot] = []
-    private var isRestoringKeyboardViewport = false
     private var keyboardOverlap: CGFloat = 0
     private var keyboardTransitionID = 0
     private var lastKeyboardTransitionDuration: TimeInterval = 0.3833
-    private var keyboardFrameAnimation: ChatKeyboardFrameAnimation?
-    private var keyboardViewportDisplayLink: CADisplayLink?
+    private var isKeyboardAnimationActive = false
+    private var keyboardAnimationStartOverlap: CGFloat = 0
+    private var keyboardAnimationTargetOverlap: CGFloat = 0
     #if DEBUG
     private var keyboardDebugEventCount = 0
     private var keyboardDebugTransitionDuration: TimeInterval = 0
@@ -69,57 +71,91 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         view.backgroundColor = .clear
         view.clipsToBounds = true
 
-        keyboardProgressView.alpha = 0
-        keyboardProgressView.isUserInteractionEnabled = false
-        keyboardProgressView.accessibilityElementsHidden = true
-        keyboardProgressView.isAccessibilityElement = false
-        keyboardProgressView.center = .zero
-        view.addSubview(keyboardProgressView)
+        transcriptClipView.backgroundColor = .clear
+        transcriptClipView.clipsToBounds = true
+        transcriptClipView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(transcriptClipView)
 
         addChild(transcriptHostingController)
         transcriptHostingController.view.backgroundColor = .clear
         transcriptHostingController.safeAreaRegions = .container
-        transcriptHostingController.view.translatesAutoresizingMaskIntoConstraints = true
-        view.addSubview(transcriptHostingController.view)
+        transcriptHostingController.view.translatesAutoresizingMaskIntoConstraints = false
+        transcriptClipView.addSubview(transcriptHostingController.view)
+
+        composerBackgroundView.translatesAutoresizingMaskIntoConstraints = false
+        composerBackgroundView.isUserInteractionEnabled = false
+        composerBackgroundView.clipsToBounds = true
+        view.addSubview(composerBackgroundView)
 
         addChild(composerHostingController)
         composerHostingController.view.backgroundColor = .clear
         composerHostingController.safeAreaRegions = .container
         composerHostingController.sizingOptions = [.intrinsicContentSize]
-        composerHostingController.view.translatesAutoresizingMaskIntoConstraints = true
+        composerHostingController.view.translatesAutoresizingMaskIntoConstraints = false
         composerHostingController.view.setContentHuggingPriority(.required, for: .vertical)
         composerHostingController.view.setContentCompressionResistancePriority(.required, for: .vertical)
         view.addSubview(composerHostingController.view)
+        installLayoutConstraints()
 
         transcriptHostingController.didMove(toParent: self)
         composerHostingController.didMove(toParent: self)
         updateComposerVisibility()
 
-        for name in [
-            UIResponder.keyboardWillChangeFrameNotification,
-            UIResponder.keyboardWillShowNotification,
-            UIResponder.keyboardWillHideNotification,
-        ] {
-            let observer = NotificationCenter.default.addObserver(
-                forName: name,
-                object: nil,
-                queue: .main
-            ) { [weak self] notification in
-                guard let transition = MobileKeyboardTransition(notification: notification) else {
-                    return
-                }
-                Task { @MainActor [weak self, transition] in
-                    self?.keyboardWillChangeFrame(transition)
-                }
+        let observer = NotificationCenter.default.addObserver(
+            forName: UIResponder.keyboardWillChangeFrameNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let transition = MobileKeyboardTransition(notification: notification) else {
+                return
             }
-            keyboardObservers.append(ChatKeyboardNotificationToken(observer))
+            MainActor.assumeIsolated {
+                self?.keyboardWillChangeFrame(transition)
+            }
         }
+        keyboardObservers.append(ChatKeyboardNotificationToken(observer))
+    }
+
+    private func installLayoutConstraints() {
+        let composerHeightConstraint = composerHostingController.view.heightAnchor.constraint(equalToConstant: 0)
+        let composerBottomConstraint = composerHostingController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        let transcriptHeightConstraint = transcriptHostingController.view.heightAnchor.constraint(equalToConstant: 0)
+        self.composerHeightConstraint = composerHeightConstraint
+        self.composerBottomConstraint = composerBottomConstraint
+        self.transcriptHeightConstraint = transcriptHeightConstraint
+
+        NSLayoutConstraint.activate([
+            transcriptClipView.topAnchor.constraint(equalTo: view.topAnchor),
+            transcriptClipView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            transcriptClipView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            transcriptClipView.bottomAnchor.constraint(equalTo: composerHostingController.view.topAnchor),
+
+            transcriptHostingController.view.leadingAnchor.constraint(equalTo: transcriptClipView.leadingAnchor),
+            transcriptHostingController.view.trailingAnchor.constraint(equalTo: transcriptClipView.trailingAnchor),
+            transcriptHostingController.view.bottomAnchor.constraint(equalTo: transcriptClipView.bottomAnchor),
+            transcriptHeightConstraint,
+
+            composerBackgroundView.topAnchor.constraint(equalTo: composerHostingController.view.topAnchor),
+            composerBackgroundView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            composerBackgroundView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            composerBackgroundView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            composerHostingController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            composerHostingController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            composerBottomConstraint,
+            composerHeightConstraint,
+        ])
+    }
+
+    override func viewWillLayoutSubviews() {
+        super.viewWillLayoutSubviews()
+        updateMeasuredGeometryConstants()
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         installDismissTapIfNeeded()
-        layoutChatGeometry(overlap: keyboardOverlap, preserving: activeKeyboardScrollSnapshots)
+        updateMeasuredGeometryConstants()
         #if DEBUG
         updateKeyboardDebugValues(overlap: keyboardOverlap)
         #endif
@@ -127,8 +163,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        stopKeyboardFrameAnimation()
-        activeKeyboardScrollSnapshots = []
+        stopKeyboardAnimation(removeAnimations: true)
         installedWindow?.removeGestureRecognizer(dismissTapRecognizer)
         installedWindow = nil
     }
@@ -145,8 +180,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
 
     private func keyboardWillChangeFrame(_ transition: MobileKeyboardTransition) {
         let overlap = transition.overlap(in: view)
-        if let keyboardFrameAnimation,
-           abs(keyboardFrameAnimation.targetOverlap - overlap) <= 0.5 {
+        if abs(keyboardOverlap - overlap) <= 0.5, !isKeyboardAnimationActive {
             return
         }
         let effectiveDuration = effectiveKeyboardTransitionDuration(for: transition, targetOverlap: overlap)
@@ -155,17 +189,13 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         keyboardDebugEventCount += 1
         updateKeyboardDebugValues(overlap: overlap)
         #endif
-        let scrollSnapshots = activeKeyboardScrollSnapshots.isEmpty
-            ? trackedScrollSnapshots()
-            : activeKeyboardScrollSnapshots
-        activeKeyboardScrollSnapshots = scrollSnapshots
         keyboardTransitionID &+= 1
         let transitionID = keyboardTransitionID
-        startKeyboardFrameAnimation(
+        startKeyboardTracking(
+            from: keyboardOverlap,
             to: overlap,
             transition: transition,
             duration: effectiveDuration,
-            preserving: scrollSnapshots,
             transitionID: transitionID
         )
     }
@@ -184,140 +214,67 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         return 0
     }
 
-    private func startKeyboardFrameAnimation(
+    private func startKeyboardTracking(
+        from startOverlap: CGFloat,
         to targetOverlap: CGFloat,
         transition: MobileKeyboardTransition,
         duration: TimeInterval,
-        preserving scrollSnapshots: [ScrollSnapshot],
         transitionID: Int
     ) {
-        let startOverlap = keyboardOverlap
-        stopKeyboardFrameAnimation()
         guard duration > 0, abs(targetOverlap - startOverlap) > 0.5 else {
-            layoutChatGeometry(overlap: targetOverlap, preserving: scrollSnapshots)
-            activeKeyboardScrollSnapshots = []
+            stopKeyboardAnimation(removeAnimations: true)
+            applyKeyboardOverlap(targetOverlap)
             return
         }
 
-        setKeyboardViewportExternallyDriven(true, for: scrollSnapshots)
-        keyboardFrameAnimation = ChatKeyboardFrameAnimation(
-            id: transitionID,
-            startOverlap: startOverlap,
-            targetOverlap: targetOverlap,
-            scrollSnapshots: scrollSnapshots
-        )
-        keyboardProgressView.layer.removeAllAnimations()
-        keyboardProgressView.center = CGPoint(x: 0, y: 0)
-        layoutChatGeometry(overlap: startOverlap, preserving: scrollSnapshots, disablesAnimations: true)
-        startKeyboardViewportDisplayLink()
+        isKeyboardAnimationActive = true
+        keyboardAnimationStartOverlap = startOverlap
+        keyboardAnimationTargetOverlap = targetOverlap
+        view.layoutIfNeeded()
 
         transition.animate(durationOverride: duration) {
-            self.keyboardProgressView.center = CGPoint(x: 1, y: 0)
+            self.applyKeyboardOverlap(targetOverlap)
+            self.updateMeasuredGeometryConstants()
+            self.view.layoutIfNeeded()
         } completion: { _ in
             guard self.keyboardTransitionID == transitionID else { return }
-            self.finishKeyboardFrameAnimation(targetOverlap: targetOverlap, preserving: scrollSnapshots)
+            self.finishKeyboardAnimation()
         }
     }
 
-    private func finishKeyboardFrameAnimation(
-        targetOverlap: CGFloat,
-        preserving scrollSnapshots: [ScrollSnapshot]
-    ) {
-        stopKeyboardFrameAnimation(clearDrivenTables: false)
-        layoutChatGeometry(overlap: targetOverlap, preserving: scrollSnapshots)
-        setKeyboardViewportExternallyDriven(false, for: scrollSnapshots)
-        activeKeyboardScrollSnapshots = []
+    private func finishKeyboardAnimation() {
+        isKeyboardAnimationActive = false
+        applyKeyboardOverlap(keyboardAnimationTargetOverlap)
+        updateMeasuredGeometryConstants()
     }
 
-    private func stopKeyboardFrameAnimation(clearDrivenTables: Bool = true) {
-        if clearDrivenTables, let keyboardFrameAnimation {
-            setKeyboardViewportExternallyDriven(false, for: keyboardFrameAnimation.scrollSnapshots)
+    private func stopKeyboardAnimation(removeAnimations: Bool) {
+        isKeyboardAnimationActive = false
+        if removeAnimations {
+            transcriptClipView.layer.removeAllAnimations()
+            transcriptHostingController.view.layer.removeAllAnimations()
+            composerBackgroundView.layer.removeAllAnimations()
+            composerHostingController.view.layer.removeAllAnimations()
         }
-        keyboardViewportDisplayLink?.invalidate()
-        keyboardViewportDisplayLink = nil
-        keyboardFrameAnimation = nil
-        keyboardProgressView.layer.removeAllAnimations()
     }
 
-    private func startKeyboardViewportDisplayLink() {
-        guard keyboardViewportDisplayLink == nil else { return }
-        let displayLink = CADisplayLink(target: self, selector: #selector(keyboardViewportDisplayLinkDidTick))
-        displayLink.add(to: .main, forMode: .common)
-        keyboardViewportDisplayLink = displayLink
-    }
-
-    @objc private func keyboardViewportDisplayLinkDidTick() {
-        guard let animation = keyboardFrameAnimation else {
-            keyboardViewportDisplayLink?.invalidate()
-            keyboardViewportDisplayLink = nil
-            return
-        }
-        let progress = currentKeyboardFrameAnimationProgress()
-        let overlap = animation.startOverlap
-            + ((animation.targetOverlap - animation.startOverlap) * progress)
-        layoutChatGeometry(
-            overlap: overlap,
-            preserving: animation.scrollSnapshots,
-            disablesAnimations: true
-        )
-        #if DEBUG
-        updateKeyboardDebugValues(overlap: keyboardOverlap)
-        #endif
-    }
-
-    private func currentKeyboardFrameAnimationProgress() -> CGFloat {
-        let rawProgress = keyboardProgressView.layer.presentation()?.position.x
-            ?? keyboardProgressView.layer.position.x
-        return min(max(rawProgress, 0), 1)
-    }
-
-    private func layoutChatGeometry(
-        overlap: CGFloat,
-        preserving scrollSnapshots: [ScrollSnapshot] = [],
-        disablesAnimations: Bool = false
-    ) {
-        let update = {
-            self.updateChatGeometry(overlap: overlap, preserving: scrollSnapshots)
-        }
-        guard disablesAnimations else {
-            update()
-            return
-        }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        UIView.performWithoutAnimation(update)
-        CATransaction.commit()
-    }
-
-    private func updateChatGeometry(
-        overlap: CGFloat,
-        preserving scrollSnapshots: [ScrollSnapshot]
-    ) {
-        let clampedOverlap = min(max(0, overlap), max(0, view.bounds.height))
-        keyboardOverlap = clampedOverlap
+    private func updateMeasuredGeometryConstants() {
         let bounds = view.bounds
         let composerHeight = measuredComposerHeight(width: bounds.width)
-        let composerBottom = bounds.maxY - clampedOverlap
-        let composerTop = max(bounds.minY, composerBottom - composerHeight)
+        let fullTranscriptHeight = max(0, bounds.height - composerHeight)
+        updateConstraint(composerHeightConstraint, to: composerHeight)
+        updateConstraint(transcriptHeightConstraint, to: fullTranscriptHeight)
+    }
 
-        transcriptHostingController.view.frame = CGRect(
-            x: bounds.minX,
-            y: bounds.minY,
-            width: bounds.width,
-            height: max(0, composerTop - bounds.minY)
-        )
-        composerHostingController.view.frame = CGRect(
-            x: bounds.minX,
-            y: composerTop,
-            width: bounds.width,
-            height: composerHeight
-        )
-        transcriptHostingController.view.layoutIfNeeded()
-        composerHostingController.view.layoutIfNeeded()
-        restoreKeyboardViewports(scrollSnapshots)
-        #if DEBUG
-        updateKeyboardDebugValues(overlap: overlap)
-        #endif
+    private func applyKeyboardOverlap(_ overlap: CGFloat) {
+        let clampedOverlap = min(max(0, overlap), max(0, view.bounds.height))
+        keyboardOverlap = clampedOverlap
+        updateConstraint(composerBottomConstraint, to: -clampedOverlap)
+    }
+
+    private func updateConstraint(_ constraint: NSLayoutConstraint?, to constant: CGFloat) {
+        guard let constraint, abs(constraint.constant - constant) > 0.5 else { return }
+        constraint.constant = constant
     }
 
     private func measuredComposerHeight(width: CGFloat) -> CGFloat {
@@ -330,27 +287,6 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         return max(0, ceil(measured.height))
     }
 
-    private func restoreKeyboardViewports(_ scrollSnapshots: [ScrollSnapshot]) {
-        guard !scrollSnapshots.isEmpty, !isRestoringKeyboardViewport else { return }
-        isRestoringKeyboardViewport = true
-        defer { isRestoringKeyboardViewport = false }
-        for (scrollView, snapshot) in scrollSnapshots {
-            scrollView.restoreKeyboardViewport(snapshot)
-        }
-    }
-
-    private func trackedScrollSnapshots() -> [ScrollSnapshot] {
-        trackedTranscriptTables(in: transcriptHostingController.view).map { tableView in
-            (scrollView: tableView, snapshot: tableView.keyboardViewportSnapshot())
-        }
-    }
-
-    private func setKeyboardViewportExternallyDriven(_ isDriven: Bool, for scrollSnapshots: [ScrollSnapshot]) {
-        for (scrollView, _) in scrollSnapshots {
-            scrollView.isKeyboardViewportExternallyDriven = isDriven
-        }
-    }
-
     private func keyboardLayoutGuideOverlap() -> CGFloat {
         let guideFrame = view.keyboardLayoutGuide.layoutFrame
         guard !guideFrame.isNull, !guideFrame.isEmpty else { return 0 }
@@ -361,10 +297,10 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
     private func updateKeyboardDebugValues(overlap: CGFloat) {
         let guideOverlap = keyboardLayoutGuideOverlap()
         let composerFrame = frameInWindow(for: composerHostingController.view)
-        let composerPresentationFrame = keyboardFrameAnimation == nil
+        let composerPresentationFrame = !isKeyboardAnimationActive
             ? composerFrame
             : presentationFrameInWindow(for: composerHostingController.view) ?? composerFrame
-        let animationProgress = currentKeyboardFrameAnimationProgress()
+        let animationProgress = clampedKeyboardAnimationProgress(overlap: overlap)
         for tableView in trackedTranscriptTables(in: transcriptHostingController.view) {
             tableView.keyboardDebugEventCount = keyboardDebugEventCount
             tableView.keyboardDebugOverlap = overlap
@@ -373,12 +309,21 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
             tableView.keyboardDebugComposerMinY = composerFrame?.minY ?? 0
             tableView.keyboardDebugComposerPresentationMinY = composerPresentationFrame?.minY ?? 0
             tableView.keyboardDebugAnimationID = keyboardTransitionID
-            tableView.keyboardDebugAnimationActive = keyboardFrameAnimation != nil
+            tableView.keyboardDebugAnimationActive = isKeyboardAnimationActive
             tableView.keyboardDebugAnimationProgress = animationProgress
             tableView.keyboardDebugTransitionDuration = keyboardDebugTransitionDuration
             tableView.recordKeyboardAnimationPresentationGap()
             tableView.updateDebugAccessibilityValue()
         }
+    }
+
+    private func clampedKeyboardAnimationProgress(overlap: CGFloat) -> CGFloat {
+        guard keyboardDebugTransitionDuration > 0, isKeyboardAnimationActive else {
+            return keyboardOverlap > 0 ? 1 : 0
+        }
+        let delta = keyboardAnimationTargetOverlap - keyboardAnimationStartOverlap
+        guard abs(delta) > 0.5 else { return 1 }
+        return min(max((overlap - keyboardAnimationStartOverlap) / delta, 0), 1)
     }
 
     private func frameInWindow(for targetView: UIView) -> CGRect? {
@@ -387,18 +332,20 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
     }
 
     private func presentationFrameInWindow(for targetView: UIView) -> CGRect? {
-        guard let window = targetView.window,
-              let superview = targetView.superview,
-              let presentationLayer = targetView.layer.presentation()
+        guard let window = targetView.window
         else { return nil }
-        return superview.layer.convert(presentationLayer.frame, to: window.layer)
+        let sourceLayer = targetView.layer.presentation() ?? targetView.layer
+        let targetLayer = window.layer.presentation() ?? window.layer
+        return sourceLayer.convert(targetView.bounds, to: targetLayer)
     }
     #endif
 
     private func updateComposerVisibility() {
         guard isViewLoaded else { return }
         composerHostingController.view.isHidden = !showsComposer
-        layoutChatGeometry(overlap: keyboardOverlap, preserving: activeKeyboardScrollSnapshots)
+        composerBackgroundView.isHidden = !showsComposer
+        updateMeasuredGeometryConstants()
+        view.setNeedsLayout()
     }
 
     @objc private func handleDismissTap() {
