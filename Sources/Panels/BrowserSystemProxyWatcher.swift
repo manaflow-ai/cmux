@@ -19,8 +19,6 @@ extension Notification.Name {
 /// (https://github.com/manaflow-ai/cmux/issues/5888).
 @MainActor
 final class BrowserSystemProxyWatcher {
-    static let shared = BrowserSystemProxyWatcher()
-
     private var dynamicStore: SCDynamicStore?
 
     /// Starts posting `.browserSystemProxySettingsDidChange`; safe to call

@@ -1510,7 +1510,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
         host.addSubview(inspectorSplit)
 
         XCTAssertTrue(
-            WindowBrowserPortal.shouldTreatSplitResizeAsExternalGeometry(
+            SplitDividerDragDetector().shouldTreatSplitResizeAsExternalGeometry(
                 appSplit,
                 window: window,
                 hostView: host
@@ -1518,7 +1518,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
             "App layout splits should still trigger browser portal geometry sync"
         )
         XCTAssertFalse(
-            WindowBrowserPortal.shouldTreatSplitResizeAsExternalGeometry(
+            SplitDividerDragDetector().shouldTreatSplitResizeAsExternalGeometry(
                 inspectorSplit,
                 window: window,
                 hostView: host

@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxAppKitSupportUI
 
 /// Shared helpers for portal hosts that must defer to the minimal-mode
 /// Bonsplit tab strip rendered underneath them.

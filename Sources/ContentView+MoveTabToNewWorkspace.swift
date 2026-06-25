@@ -1,6 +1,7 @@
 import CmuxCommandPalette
 import CmuxWorkspaces
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import SwiftUI
 

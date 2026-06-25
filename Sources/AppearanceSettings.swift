@@ -271,8 +271,6 @@ final class AppearanceSettingsUserDefaultsObserver {
         }
     }
 
-    static let shared = AppearanceSettingsUserDefaultsObserver()
-
     private let environment: Environment
     private var defaultsObserver: NSObjectProtocol?
     private var lastObservedRawValue: String?

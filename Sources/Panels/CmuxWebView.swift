@@ -47,186 +47,12 @@ final class CmuxWebView: WKWebView {
     /// predicates to it.
     private let downloadURLClassifier = BrowserDownloadURLClassifier()
     private let contextMenuItemClassifier = BrowserContextMenuItemClassifier()
-    private static let pasteAsPlainTextFocusMessageHandlerName = "cmuxPasteAsPlainTextFocus"
     private static let browserFocusModeContextMenuItemIdentifier =
         NSUserInterfaceItemIdentifier("cmux.browserFocusMode.toggle")
     private static var pasteAsPlainTextFocusHandlerInstalledKey: UInt8 = 0
-    private static let pasteAsPlainTextSharedHelpersScriptSource = """
-    const __cmuxPasteAsPlainTextHelpers = (() => {
-      const existing = window.__cmuxPasteAsPlainTextHelpers;
-      if (existing) return existing;
-
-      const supportedTextInputTypes = new Set([
-        "",
-        "text",
-        "search",
-        "tel",
-        "url",
-        "email",
-        "password",
-        "number",
-        "date",
-        "datetime-local",
-        "month",
-        "time",
-        "week"
-      ]);
-
-      const deepestActiveElement = (root) => {
-        let active = root?.activeElement ?? null;
-        while (active) {
-          const shadowActive = active.shadowRoot?.activeElement ?? null;
-          if (shadowActive && shadowActive !== active) {
-            active = shadowActive;
-            continue;
-          }
-
-          const tagName = typeof active.tagName === "string" ? active.tagName.toUpperCase() : "";
-          if (tagName === "IFRAME") {
-            try {
-              const frameActive = active.contentDocument?.activeElement ?? null;
-              if (frameActive && frameActive !== active) {
-                active = frameActive;
-                continue;
-              }
-            } catch (_) {}
-          }
-
-          break;
-        }
-        return active;
-      };
-
-      const isPlainTextTextControl = (el) => {
-        if (!el || el.disabled || el.readOnly) return false;
-
-        const tagName = typeof el.tagName === "string" ? el.tagName.toUpperCase() : "";
-        if (tagName === "TEXTAREA") return true;
-        if (tagName !== "INPUT") return false;
-
-        const type = typeof el.type === "string" ? el.type.toLowerCase() : "text";
-        return supportedTextInputTypes.has(type);
-      };
-
-      const isFocusedCrossOriginFrameElement = (el) => {
-        const tagName = typeof el?.tagName === "string" ? el.tagName.toUpperCase() : "";
-        if (tagName !== "IFRAME") return false;
-        try {
-          void el.contentDocument;
-          return false;
-        } catch (_) {
-          return true;
-        }
-      };
-
-      const resolvedCandidateElement = (el) => {
-        if (!el) return deepestActiveElement(document);
-
-        const shadowActive = el.shadowRoot?.activeElement ?? null;
-        if (shadowActive && shadowActive !== el) {
-          return deepestActiveElement(el.shadowRoot) ?? shadowActive;
-        }
-
-        const tagName = typeof el.tagName === "string" ? el.tagName.toUpperCase() : "";
-        if (tagName === "IFRAME") {
-          try {
-            return deepestActiveElement(el.contentDocument) ?? el;
-          } catch (_) {}
-        }
-
-        return el;
-      };
-
-      const editableTarget = (el) => {
-        const candidate = resolvedCandidateElement(el);
-        if (!candidate) return null;
-        if (isPlainTextTextControl(candidate)) return candidate;
-        if (isFocusedCrossOriginFrameElement(candidate)) return candidate;
-        if (candidate.isContentEditable) return candidate;
-        return candidate.closest?.('[contenteditable]:not([contenteditable="false"])') ?? null;
-      };
-
-      const helpers = {
-        deepestActiveElement,
-        isPlainTextTextControl,
-        isFocusedCrossOriginFrameElement,
-        resolvedCandidateElement,
-        editableTarget,
-        canPasteAsPlainTextInto(el) {
-          return !!editableTarget(el);
-        }
-      };
-      window.__cmuxPasteAsPlainTextHelpers = helpers;
-      return helpers;
-    })();
-    """
-    static let pasteAsPlainTextFocusTrackingBootstrapScriptSource = """
-    (() => {
-      try {
-        if (window.__cmuxPasteAsPlainTextFocusTrackerInstalled) return true;
-        window.__cmuxPasteAsPlainTextFocusTrackerInstalled = true;
-
-        const handler = (() => {
-          try {
-            return window.webkit?.messageHandlers?.\(pasteAsPlainTextFocusMessageHandlerName) ?? null;
-          } catch (_) {
-            return null;
-          }
-        })();
-
-        \(pasteAsPlainTextSharedHelpersScriptSource)
-
-        const publishState = { lastCanPaste: null };
-
-        const publish = (canPaste) => {
-          if (publishState.lastCanPaste === canPaste) return;
-          publishState.lastCanPaste = canPaste;
-          window.__cmuxPasteAsPlainTextTargetAvailable = canPaste;
-          try {
-            handler?.postMessage({ canPaste });
-          } catch (_) {}
-        };
-
-        window.__cmuxCanPasteAsPlainTextIntoCurrentFocus = () => {
-          return __cmuxPasteAsPlainTextHelpers.canPasteAsPlainTextInto(document.activeElement);
-        };
-
-        const publishForElement = (el) => {
-          publish(__cmuxPasteAsPlainTextHelpers.canPasteAsPlainTextInto(el));
-        };
-
-        document.addEventListener("focusin", (ev) => {
-          publishForElement(ev && ev.target ? ev.target : document.activeElement);
-        }, true);
-        document.addEventListener("focusout", () => {
-          requestAnimationFrame(() => publishForElement(document.activeElement));
-        }, true);
-        document.addEventListener("selectionchange", () => {
-          publishForElement(document.activeElement);
-        }, true);
-        document.addEventListener("input", () => {
-          publishForElement(document.activeElement);
-        }, true);
-        document.addEventListener("change", () => {
-          publishForElement(document.activeElement);
-        }, true);
-        document.addEventListener("mousedown", (ev) => {
-          const target = ev && ev.target ? ev.target : null;
-          if (!__cmuxPasteAsPlainTextHelpers.canPasteAsPlainTextInto(target)) {
-            publish(false);
-          }
-        }, true);
-        window.addEventListener("beforeunload", () => {
-          publish(false);
-        }, true);
-
-        publishForElement(document.activeElement);
-        return true;
-      } catch (_) {
-        return false;
-      }
-    })();
-    """
+    // Paste-as-plain-text JS sources + the focus message-handler name moved to
+    // `CmuxBrowser/Pasteboard/BrowserPasteAsPlainTextScript.swift`; the app keeps
+    // the message-handler subclass, the install, and the @MainActor bridge below.
     private final class PasteAsPlainTextFocusMessageHandler: NSObject, WKScriptMessageHandler {
         func userContentController(
             _ userContentController: WKUserContentController,
@@ -325,7 +151,7 @@ final class CmuxWebView: WKWebView {
 
         userContentController.add(
             Self.sharedPasteAsPlainTextFocusMessageHandler,
-            name: Self.pasteAsPlainTextFocusMessageHandlerName
+            name: BrowserPasteAsPlainTextScript.focusMessageHandlerName
         )
         objc_setAssociatedObject(
             userContentController,
@@ -454,18 +280,9 @@ final class CmuxWebView: WKWebView {
     }
 
     private func pageCanAcceptPlainTextPaste() -> Bool {
-        let script = """
-        (() => {
-            try {
-                const fn = window.__cmuxCanPasteAsPlainTextIntoCurrentFocus;
-                return typeof fn === 'function' ? !!fn() : false;
-            } catch (_) {
-                return false;
-            }
-        })();
-        """
-
-        let evaluation = evaluateJavaScriptSynchronously(script)
+        let evaluation = evaluateJavaScriptSynchronously(
+            BrowserPasteAsPlainTextScript.pageCanAcceptPlainTextPreflightSource
+        )
         let canPaste = evaluation.completed && ((evaluation.result as? Bool) ?? false)
 #if DEBUG
         let errorDescription = evaluation.completed
@@ -960,125 +777,7 @@ final class CmuxWebView: WKWebView {
     /// Resolve the topmost image URL near a point, accounting for overlay layers.
     private func findImageURLAtPoint(_ point: NSPoint, completion: @escaping (URL?) -> Void) {
         let cssPoint = cssViewportPoint(for: point)
-        let js = """
-        (() => {
-            const x = \(cssPoint.x);
-            const y = \(cssPoint.y);
-            const normalize = (raw) => {
-                if (!raw || typeof raw !== 'string') return '';
-                const trimmed = raw.trim();
-                if (!trimmed) return '';
-                if (trimmed.startsWith('//')) return window.location.protocol + trimmed;
-                return trimmed;
-            };
-            const firstSrcsetURL = (srcset) => {
-                if (!srcset || typeof srcset !== 'string') return '';
-                const first = srcset.split(',').map((part) => part.trim()).find(Boolean);
-                if (!first) return '';
-                const urlPart = first.split(/\\s+/)[0];
-                return normalize(urlPart);
-            };
-            const firstBackgroundURL = (value) => {
-                if (!value || value === 'none') return '';
-                const match = /url\\((['"]?)(.*?)\\1\\)/.exec(value);
-                if (!match || !match[2]) return '';
-                return normalize(match[2]);
-            };
-            const collectChain = (start) => {
-                const out = [];
-                const seen = new Set();
-                const pushParents = (node) => {
-                    while (node && !seen.has(node)) {
-                        seen.add(node);
-                        out.push(node);
-                        node = node.parentElement;
-                    }
-                };
-                pushParents(start);
-                if (start && start.tagName === 'PICTURE' && start.querySelector) {
-                    const img = start.querySelector('img');
-                    if (img) pushParents(img);
-                }
-                return out;
-            };
-            const candidateFromElement = (el) => {
-                if (!el) return '';
-                const attr = (name) => normalize(el.getAttribute ? el.getAttribute(name) : '');
-                if (el.tagName === 'IMG') {
-                    const imageCandidates = [
-                        normalize(el.currentSrc || ''),
-                        attr('src'),
-                        firstSrcsetURL(attr('srcset')),
-                        attr('data-src'),
-                        attr('data-iurl'),
-                        attr('data-lazy-src'),
-                        attr('data-original'),
-                    ];
-                    const foundImage = imageCandidates.find(Boolean);
-                    if (foundImage) return foundImage;
-                }
-                const genericAttrs = [
-                    'src', 'data-src', 'data-iurl', 'data-lazy-src',
-                    'data-original', 'data-image', 'data-image-url',
-                    'data-thumb', 'data-thumbnail-url', 'content'
-                ];
-                for (const name of genericAttrs) {
-                    const v = attr(name);
-                    if (v) return v;
-                }
-                const inlineBg = firstBackgroundURL(el.style && el.style.backgroundImage ? el.style.backgroundImage : '');
-                if (inlineBg) return inlineBg;
-                try {
-                    const computed = window.getComputedStyle(el);
-                    const computedBg = firstBackgroundURL(computed ? computed.backgroundImage : '');
-                    if (computedBg) return computedBg;
-                } catch (_) {}
-                if (el.querySelector) {
-                    const nestedImg = el.querySelector('img[src],img[srcset],img[data-src],img[data-iurl],source[srcset]');
-                    if (nestedImg) {
-                        const nestedCandidates = [
-                            normalize(nestedImg.currentSrc || ''),
-                            normalize(nestedImg.getAttribute ? nestedImg.getAttribute('src') : ''),
-                            firstSrcsetURL(nestedImg.getAttribute ? nestedImg.getAttribute('srcset') : ''),
-                            normalize(nestedImg.getAttribute ? (nestedImg.getAttribute('data-src') || nestedImg.getAttribute('data-iurl') || '') : '')
-                        ];
-                        const foundNested = nestedCandidates.find(Boolean);
-                        if (foundNested) return foundNested;
-                    }
-                    const nestedBg = el.querySelector('[style*="background-image"]');
-                    if (nestedBg) {
-                        const styleValue = nestedBg.getAttribute ? nestedBg.getAttribute('style') : '';
-                        const bgURL = firstBackgroundURL(styleValue || '');
-                        if (bgURL) return bgURL;
-                    }
-                }
-                return '';
-            };
-            const tryNodes = (nodes) => {
-                for (const start of nodes) {
-                    for (const el of collectChain(start)) {
-                        const found = candidateFromElement(el);
-                        if (found) return found;
-                    }
-                    if (start && start.shadowRoot && start.shadowRoot.elementFromPoint) {
-                        const inner = start.shadowRoot.elementFromPoint(x, y);
-                        if (inner) {
-                            for (const el of collectChain(inner)) {
-                                const found = candidateFromElement(el);
-                                if (found) return found;
-                            }
-                        }
-                    }
-                }
-                return '';
-            };
-            const all = document.elementsFromPoint ? document.elementsFromPoint(x, y) : [];
-            const foundFromAll = tryNodes(all);
-            if (foundFromAll) return foundFromAll;
-            const single = document.elementFromPoint ? document.elementFromPoint(x, y) : null;
-            return candidateFromElement(single) || '';
-        })();
-        """
+        let js = BrowserContextMenuImageScript.resolveImageURL(at: cssPoint).source
         evaluateJavaScript(js) { result, _ in
             guard let src = result as? String, !src.isEmpty,
                   let url = URL(string: src) else {
@@ -1092,35 +791,7 @@ final class CmuxWebView: WKWebView {
     private func debugInspectElementsAtPoint(_ point: NSPoint, traceID: String, kind: String) {
 #if DEBUG
         let cssPoint = cssViewportPoint(for: point)
-        let js = """
-        (() => {
-            const clip = (value, max = 180) => {
-                if (value == null) return '';
-                const s = String(value);
-                return s.length > max ? s.slice(0, max) + '…' : s;
-            };
-            const x = \(cssPoint.x);
-            const y = \(cssPoint.y);
-            const nodes = document.elementsFromPoint ? document.elementsFromPoint(x, y) : [];
-            const entries = [];
-            const limit = Math.min(nodes.length, 8);
-            for (let i = 0; i < limit; i++) {
-                const el = nodes[i];
-                if (!el) continue;
-                entries.push({
-                    tag: clip((el.tagName || '').toLowerCase()),
-                    id: clip(el.id || ''),
-                    cls: clip(typeof el.className === 'string' ? el.className : ''),
-                    href: clip(el.href || ''),
-                    src: clip(el.src || ''),
-                    currentSrc: clip(el.currentSrc || ''),
-                    dataHref: clip(el.getAttribute ? el.getAttribute('data-href') : ''),
-                    dataSrc: clip(el.getAttribute ? el.getAttribute('data-src') : '')
-                });
-            }
-            return JSON.stringify({count: nodes.length, entries});
-        })();
-        """
+        let js = BrowserContextMenuImageScript.debugInspectElements(at: cssPoint).source
         evaluateJavaScript(js) { [weak self] result, _ in
             guard let self,
                   let payload = result as? String,

@@ -1192,7 +1192,6 @@ struct CarbonHotKeyRegistration: Equatable {
 }
 
 final class SystemWideHotkeyController {
-    static let shared = SystemWideHotkeyController()
     private static let hotKeySignature: OSType = 0x434D484B // "CMHK"
     private static let hotKeyIDs: [KeyboardShortcutSettings.Action: UInt32] = [
         .showHideAllWindows: 1,
@@ -1214,7 +1213,7 @@ final class SystemWideHotkeyController {
     private var registeredShortcuts: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     private var registeredHotKeyRegistrations: [KeyboardShortcutSettings.Action: CarbonHotKeyRegistration] = [:]
 
-    private init() {}
+    init() {}
 
     func start() {
         guard defaultsObserver == nil else { return }

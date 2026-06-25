@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxAppKitSupportUI
 import CmuxPanes
 import Foundation
 import WebKit

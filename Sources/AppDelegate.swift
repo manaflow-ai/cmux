@@ -89,6 +89,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func ensureClosedItemHistoryInstalled() {
         _ = closedItemHistory
     }
+    /// Composition-root owner of the appearance-mode UserDefaults observer.
+    /// Constructed once at startup and `startObserving()` is called on this held
+    /// instance from `applicationDidFinishLaunching`, so the type no longer
+    /// self-vivifies a `static let shared`. Single call site, single owner.
+    let appearanceSettingsObserver = AppearanceSettingsUserDefaultsObserver()
+    /// Composition-root owner of the system-proxy watcher feeding
+    /// local-workspace browser panes. Constructed once at startup and
+    /// `startObserving()` is called on this held instance from
+    /// `applicationDidFinishLaunching`, so the type no longer self-vivifies a
+    /// `static let shared`. Single call site, single owner.
+    let browserSystemProxyWatcher = BrowserSystemProxyWatcher()
+    /// Composition-root owner of the system-wide (Carbon) hotkey controller.
+    /// Constructed once at startup and `start()` is called on this held instance
+    /// from `applicationDidFinishLaunching`, so the type no longer self-vivifies
+    /// a `static let shared`. Single call site, single owner.
+    let systemWideHotkeyController = SystemWideHotkeyController()
     #if DEBUG
     /// DEBUG main-run-loop stall probe (CmuxTestSupport); composition-root owned,
     /// injected behind ``RunLoopStallMonitoring`` to retire the former
@@ -1755,8 +1771,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // composition root (de-singletonization stage b73): the type no longer
         // self-vivifies a `static let shared`.
         ensureClosedItemHistoryInstalled()
-        AppearanceSettingsUserDefaultsObserver.shared.startObserving()
-        BrowserSystemProxyWatcher.shared.startObserving()
+        appearanceSettingsObserver.startObserving()
+        browserSystemProxyWatcher.startObserving()
         if isRunningUnderXCTest {
             NSApp.setActivationPolicy(.regular)
         } else {
@@ -1952,7 +1968,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             GlobalSearchCoordinator.shared.start()
             sentryStartMemoryContextRefresh()
         }
-        SystemWideHotkeyController.shared.start()
+        systemWideHotkeyController.start()
         AgentHibernationController.shared.start()
         RendererRealizationController.shared.start()
         NSApp.servicesProvider = self

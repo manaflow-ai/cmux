@@ -367,9 +367,9 @@ extension Workspace {
         restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
-        terminalInheritanceFontPointsByPanelId.removeValue(forKey: panelId)
-        if lastTerminalConfigInheritancePanelId == panelId {
-            lastTerminalConfigInheritancePanelId = nil
+        terminalConfigInheritanceModel.removeFontPoints(forPanelId: panelId)
+        if terminalConfigInheritanceModel.lastSourcePanelId == panelId {
+            terminalConfigInheritanceModel.lastSourcePanelId = nil
         }
         if clearSurfaceNotifications {
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)

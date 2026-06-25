@@ -1624,6 +1624,16 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     /// below forward here byte-identically.
     let appearanceModel = WorkspaceAppearanceModel()
 
+    /// The per-workspace terminal config-inheritance font-points sub-model
+    /// (CmuxWorkspaces): owns the per-panel inherited zoom lineage and the
+    /// last-inheritance-source memory (`terminalInheritanceFontPointsByPanelId`,
+    /// `lastTerminalConfigInheritancePanelId`,
+    /// `lastTerminalConfigInheritanceFontPoints`). It is pure value storage; the
+    /// app-coupled live-surface reads (`TerminalPanel.surface.surface`,
+    /// `cmuxCurrentSurfaceFontSizePoints`) stay app-side and the resolved font
+    /// points are passed in. The methods below forward here byte-identically.
+    let terminalConfigInheritanceModel = TerminalConfigInheritanceModel()
+
     /// The surface-lifecycle coordinator (CmuxWorkspaces): owns the pane/index
     /// target resolvers over the live split tree (`paneId(forPanelId:)`,
     /// `indexInPane(forPanelId:)`, `preferredRightSideTargetPane`,
@@ -1863,15 +1873,6 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         set { splitLayout.isProgrammaticSplit = newValue }
     }
     private var debugStressPreloadSelectionDepth = 0
-
-    /// Last terminal panel used as an inheritance source (typically last focused terminal).
-    var lastTerminalConfigInheritancePanelId: UUID?
-    /// Last known terminal font points from inheritance sources. Used as fallback when
-    /// no live terminal surface is currently available.
-    private var lastTerminalConfigInheritanceFontPoints: Float?
-    /// Per-panel inherited zoom lineage. Descendants reuse this root value unless
-    /// a panel is explicitly re-zoomed by the user.
-    var terminalInheritanceFontPointsByPanelId: [UUID: Float] = [:]
 
     /// Callback used by TabManager to capture recently closed browser panels for Cmd+Shift+T restore.
     var onClosedBrowserPanel: ((ClosedBrowserPanelRestoreSnapshot) -> Void)?
@@ -2473,46 +2474,46 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
             usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
         )
-        let nextChromeColors = chromeColorResolver.chromeColors(
-            backgroundColor: config.backgroundColor,
-            backgroundOpacity: config.backgroundOpacity,
-            sharesWindowBackdrop: sharesWindowBackdrop,
-            renderingMode: renderingMode
-        )
-        let nextTabTitleFontSize = config.surfaceTabBarFontSize
         let currentAppearance = bonsplitController.configuration.appearance
-        let currentTabTitleFontSize = currentAppearance.tabTitleFontSize
-        let colorsChanged = !chromeColorResolver.chromeColorsEqual(
-            currentAppearance.chromeColors,
-            nextChromeColors
+        let plan = ChromeApplyPlan(
+            current: ChromeApplyPlan.Current(
+                chromeColors: currentAppearance.chromeColors,
+                usesSharedBackdrop: currentAppearance.usesSharedBackdrop,
+                tabTitleFontSize: currentAppearance.tabTitleFontSize
+            ),
+            next: ChromeApplyPlan.NextInputs(
+                backgroundColor: config.backgroundColor,
+                backgroundOpacity: config.backgroundOpacity,
+                sharesWindowBackdrop: sharesWindowBackdrop,
+                renderingMode: renderingMode,
+                tabTitleFontSize: config.surfaceTabBarFontSize
+            ),
+            resolver: chromeColorResolver
         )
-        let sharedBackdropChanged = currentAppearance.usesSharedBackdrop != sharesWindowBackdrop
-        let fontSizeChanged = abs(currentTabTitleFontSize - nextTabTitleFontSize) > 0.0001
-        let isNoOp = !colorsChanged && !sharedBackdropChanged && !fontSizeChanged
 
         if GhosttyApp.shared.backgroundLogEnabled {
             GhosttyApp.shared.logBackground(
                 "theme apply workspace=\(id.uuidString) reason=\(reason) " +
                 "current=[\(chromeColorResolver.chromeColorsLogDescription(currentAppearance.chromeColors))] " +
-                "next=[\(chromeColorResolver.chromeColorsLogDescription(nextChromeColors))] " +
-                "currentTabFont=\(String(format: "%.3f", currentTabTitleFontSize)) " +
-                "nextTabFont=\(String(format: "%.3f", nextTabTitleFontSize)) " +
+                "next=[\(chromeColorResolver.chromeColorsLogDescription(plan.nextChromeColors))] " +
+                "currentTabFont=\(String(format: "%.3f", currentAppearance.tabTitleFontSize)) " +
+                "nextTabFont=\(String(format: "%.3f", config.surfaceTabBarFontSize)) " +
                 "sharesWindowBackdrop=\(sharesWindowBackdrop ? 1 : 0) " +
                 "currentUsesSharedBackdrop=\(currentAppearance.usesSharedBackdrop ? 1 : 0) " +
                 "paneBackdrop=\(chromeColorResolver.usesPaneTerminalBackdrop(renderingMode: renderingMode, sharesWindowBackdrop: sharesWindowBackdrop) ? 1 : 0) " +
-                "noop=\(isNoOp)"
+                "noop=\(plan.isNoOp)"
             )
         }
 
-        guard !isNoOp else { return }
+        guard !plan.isNoOp else { return }
 
-        if colorsChanged {
-            bonsplitController.configuration.appearance.chromeColors = nextChromeColors
+        if plan.changedFields.colors {
+            bonsplitController.configuration.appearance.chromeColors = plan.nextChromeColors
         }
-        if sharedBackdropChanged {
-            bonsplitController.configuration.appearance.usesSharedBackdrop = sharesWindowBackdrop
+        if plan.changedFields.sharedBackdrop {
+            bonsplitController.configuration.appearance.usesSharedBackdrop = plan.nextUsesSharedBackdrop
         }
-        if fontSizeChanged {
+        if plan.changedFields.fontSize, let nextTabTitleFontSize = plan.nextTabTitleFontSize {
             bonsplitController.configuration.appearance.tabTitleFontSize = nextTabTitleFontSize
         }
 
@@ -2532,38 +2533,44 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
             usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
         )
-        let nextChromeColors = chromeColorResolver.chromeColors(
-            backgroundColor: backgroundColor,
-            backgroundOpacity: backgroundOpacity,
-            sharesWindowBackdrop: sharesWindowBackdrop,
-            renderingMode: renderingMode
-        )
         let currentChromeColors = bonsplitController.configuration.appearance.chromeColors
         let currentUsesSharedBackdrop = bonsplitController.configuration.appearance.usesSharedBackdrop
-        let colorsChanged = !chromeColorResolver.chromeColorsEqual(currentChromeColors, nextChromeColors)
-        let sharedBackdropChanged = currentUsesSharedBackdrop != sharesWindowBackdrop
-        let isNoOp = !colorsChanged && !sharedBackdropChanged
+        let plan = ChromeApplyPlan(
+            current: ChromeApplyPlan.Current(
+                chromeColors: currentChromeColors,
+                usesSharedBackdrop: currentUsesSharedBackdrop,
+                tabTitleFontSize: bonsplitController.configuration.appearance.tabTitleFontSize
+            ),
+            next: ChromeApplyPlan.NextInputs(
+                backgroundColor: backgroundColor,
+                backgroundOpacity: backgroundOpacity,
+                sharesWindowBackdrop: sharesWindowBackdrop,
+                renderingMode: renderingMode,
+                tabTitleFontSize: nil
+            ),
+            resolver: chromeColorResolver
+        )
 
         if GhosttyApp.shared.backgroundLogEnabled {
             GhosttyApp.shared.logBackground(
                 "theme apply workspace=\(id.uuidString) reason=\(reason) " +
                 "current=[\(chromeColorResolver.chromeColorsLogDescription(currentChromeColors))] " +
-                "next=[\(chromeColorResolver.chromeColorsLogDescription(nextChromeColors))] " +
+                "next=[\(chromeColorResolver.chromeColorsLogDescription(plan.nextChromeColors))] " +
                 "sharesWindowBackdrop=\(sharesWindowBackdrop ? 1 : 0) " +
                 "currentUsesSharedBackdrop=\(currentUsesSharedBackdrop ? 1 : 0) " +
                 "paneBackdrop=\(chromeColorResolver.usesPaneTerminalBackdrop(renderingMode: renderingMode, sharesWindowBackdrop: sharesWindowBackdrop) ? 1 : 0) " +
-                "noop=\(isNoOp)"
+                "noop=\(plan.isNoOp)"
             )
         }
 
-        if isNoOp {
+        if plan.isNoOp {
             return
         }
-        if colorsChanged {
-            bonsplitController.configuration.appearance.chromeColors = nextChromeColors
+        if plan.changedFields.colors {
+            bonsplitController.configuration.appearance.chromeColors = plan.nextChromeColors
         }
-        if sharedBackdropChanged {
-            bonsplitController.configuration.appearance.usesSharedBackdrop = sharesWindowBackdrop
+        if plan.changedFields.sharedBackdrop {
+            bonsplitController.configuration.appearance.usesSharedBackdrop = plan.nextUsesSharedBackdrop
         }
         if GhosttyApp.shared.backgroundLogEnabled {
             GhosttyApp.shared.logBackground(
@@ -4888,31 +4895,27 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         panelId: UUID,
         configTemplate: CmuxSurfaceConfigTemplate?
     ) {
-        guard let fontPoints = configTemplate?.fontSize, fontPoints > 0 else { return }
-        terminalInheritanceFontPointsByPanelId[panelId] = fontPoints
-        lastTerminalConfigInheritanceFontPoints = fontPoints
+        // The `configTemplate?.fontSize` read is app-side; the model owns the
+        // seed transition on the resolved value.
+        terminalConfigInheritanceModel.seed(panelId: panelId, fontPoints: configTemplate?.fontSize)
     }
 
     private func rememberTerminalConfigInheritanceSource(_ terminalPanel: TerminalPanel) {
-        lastTerminalConfigInheritancePanelId = terminalPanel.id
-        if let sourceSurface = terminalPanel.surface.surface,
-           let runtimePoints = cmuxCurrentSurfaceFontSizePoints(sourceSurface) {
-            let existing = terminalInheritanceFontPointsByPanelId[terminalPanel.id]
-            if existing == nil || abs((existing ?? runtimePoints) - runtimePoints) > 0.05 {
-                terminalInheritanceFontPointsByPanelId[terminalPanel.id] = runtimePoints
-            }
-            lastTerminalConfigInheritanceFontPoints =
-                terminalInheritanceFontPointsByPanelId[terminalPanel.id] ?? runtimePoints
-        }
+        // The live-surface reads (`TerminalPanel.surface.surface`,
+        // `cmuxCurrentSurfaceFontSizePoints`) stay app-side; the resolved runtime
+        // points (`nil` when the source surface is unavailable) are passed into
+        // the model, which owns the last-source + per-panel map transition.
+        let runtimePoints = terminalPanel.surface.surface.flatMap(cmuxCurrentSurfaceFontSizePoints)
+        terminalConfigInheritanceModel.remember(panelId: terminalPanel.id, runtimePoints: runtimePoints)
     }
 
     func lastRememberedTerminalPanelForConfigInheritance() -> TerminalPanel? {
-        guard let panelId = lastTerminalConfigInheritancePanelId else { return nil }
+        guard let panelId = terminalConfigInheritanceModel.lastSourcePanelId else { return nil }
         return terminalPanel(for: panelId)
     }
 
     func lastRememberedTerminalFontPointsForConfigInheritance() -> Float? {
-        lastTerminalConfigInheritanceFontPoints
+        terminalConfigInheritanceModel.lastRememberedFontPoints()
     }
 
     private func resolvedTerminalStartupWorkingDirectory(
@@ -5208,7 +5211,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
             if tracksRemoteTerminalSurface {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
-            terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
+            terminalConfigInheritanceModel.removeFontPoints(forPanelId: newPanel.id)
             return nil
         }
         applyInitialSplitDividerPosition(initialDividerPosition, sourcePaneId: paneId, newPaneId: newPaneId)
@@ -5446,7 +5449,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
             if tracksRemoteTerminalSurface {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
-            terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
+            terminalConfigInheritanceModel.removeFontPoints(forPanelId: newPanel.id)
             return nil
         }
 
@@ -6623,9 +6626,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeAll(keepingCapacity: false)
 #endif
         pendingTerminalInputObserversByPanelId.removeAll(keepingCapacity: false)
-        terminalInheritanceFontPointsByPanelId.removeAll(keepingCapacity: false)
-        lastTerminalConfigInheritancePanelId = nil
-        lastTerminalConfigInheritanceFontPoints = nil
+        terminalConfigInheritanceModel.reset()
     }
 
     /// Close a panel.
@@ -8113,7 +8114,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
             if startupCommand != nil {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
-            terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
+            terminalConfigInheritanceModel.removeFontPoints(forPanelId: newPanel.id)
             return nil
         }
         publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: newPanel.id, kind: "terminal", origin: "terminal_split", focused: true)
@@ -8253,18 +8254,18 @@ extension Workspace: SurfaceCreationHosting {
         defer { withExtendedLifetime((terminalPanel, surface)) {} }
         return SurfaceInheritanceCandidateProbe(
             inheritedConfig: cmuxInheritedSurfaceConfig(sourceSurface: sourceSurface, context: GHOSTTY_SURFACE_CONTEXT_SPLIT),
-            rootedFontPoints: terminalInheritanceFontPointsByPanelId[panelId],
+            rootedFontPoints: terminalConfigInheritanceModel.rootedFontPoints(forPanelId: panelId),
             runtimeFontPoints: cmuxCurrentSurfaceFontSizePoints(sourceSurface)
         )
     }
 
     func commitInheritanceSelection(panelId: UUID, rootedFontPoints: Float?, finalConfigFontPoints: Float) {
-        if let rootedFontPoints { terminalInheritanceFontPointsByPanelId[panelId] = rootedFontPoints }
+        if let rootedFontPoints { terminalConfigInheritanceModel.setRootedFontPoints(rootedFontPoints, forPanelId: panelId) }
         if let terminalPanel = terminalPanel(for: panelId) { rememberTerminalConfigInheritanceSource(terminalPanel) }
-        if finalConfigFontPoints > 0 { lastTerminalConfigInheritanceFontPoints = finalConfigFontPoints }
+        if finalConfigFontPoints > 0 { terminalConfigInheritanceModel.lastSourceFontPoints = finalConfigFontPoints }
     }
 
-    var lastKnownInheritanceFontPoints: Float? { lastTerminalConfigInheritanceFontPoints }
+    var lastKnownInheritanceFontPoints: Float? { terminalConfigInheritanceModel.lastSourceFontPoints }
 
     func logInheritanceFallback(fontPoints: Float) {
 #if DEBUG
@@ -9466,7 +9467,7 @@ extension Workspace: BonsplitDelegate {
         ) else {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
-            terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
+            terminalConfigInheritanceModel.removeFontPoints(forPanelId: newPanel.id)
             return
         }
 
