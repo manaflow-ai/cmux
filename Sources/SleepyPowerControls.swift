@@ -51,13 +51,32 @@ enum SleepyPowerControls {
         return .automatic
     }
 
-    /// Advances to the next energy mode and applies it (prompts for admin the
-    /// first time, then uses the cached credential). Returns the requested mode.
+    private static let previousModeKey = "sleepyMode.preLowPowerMode"
+
+    static func isLowPowerOn() -> Bool {
+        currentEnergyMode() == .low
+    }
+
+    /// Enables/disables Low Power Mode. Enabling remembers the mode you were on;
+    /// disabling restores it. Returns the resulting low-power state (so the UI
+    /// reflects reality if the admin prompt was cancelled). Prompts for admin the
+    /// first time, then uses the cached credential.
     @discardableResult
-    static func cycleEnergyMode() -> SleepyEnergyMode {
-        let target = currentEnergyMode().next
-        _ = runPrivileged("/usr/bin/pmset", ["-a", "powermode", String(target.rawValue)])
-        return target
+    static func setLowPowerMode(_ enabled: Bool) -> Bool {
+        let current = currentEnergyMode()
+        if enabled {
+            if current != .low {
+                UserDefaults.standard.set(current.rawValue, forKey: previousModeKey)
+            }
+            let ok = runPrivileged("/usr/bin/pmset", ["-a", "powermode", String(SleepyEnergyMode.low.rawValue)])
+            return ok ? true : (current == .low)
+        } else {
+            let storedRaw = UserDefaults.standard.object(forKey: previousModeKey) as? Int ?? SleepyEnergyMode.automatic.rawValue
+            var restore = SleepyEnergyMode(rawValue: storedRaw) ?? .automatic
+            if restore == .low { restore = .automatic }
+            let ok = runPrivileged("/usr/bin/pmset", ["-a", "powermode", String(restore.rawValue)])
+            return ok ? false : (current == .low)
+        }
     }
 
     // MARK: - Process helpers

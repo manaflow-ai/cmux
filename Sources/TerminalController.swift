@@ -11526,7 +11526,8 @@ class TerminalController {
                     SleepyAgentCensus.shared.debugOverride = SleepyAgentCounts(
                         claude: n.count > 0 ? n[0] : 0,
                         codex: n.count > 1 ? n[1] : 0,
-                        opencode: n.count > 2 ? n[2] : 0
+                        opencode: n.count > 2 ? n[2] : 0,
+                        pi: n.count > 3 ? n[3] : 0
                     )
                 }
             default:

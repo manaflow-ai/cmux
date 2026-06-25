@@ -7,9 +7,10 @@ struct SleepyAgentCounts: Equatable, Sendable {
     var claude = 0
     var codex = 0
     var opencode = 0
+    var pi = 0
     var other = 0
 
-    var total: Int { claude + codex + opencode + other }
+    var total: Int { claude + codex + opencode + pi + other }
 }
 
 /// Samples cmux's live agent registry (the self-reported agent PIDs on every
@@ -47,6 +48,8 @@ final class SleepyAgentCensus {
                     counts.codex += 1
                 } else if normalized.contains("opencode") || normalized.contains("open-code") {
                     counts.opencode += 1
+                } else if normalized == "pi" || normalized.hasPrefix("pi-") || normalized.hasPrefix("pi_") || normalized.contains("pi-swarm") || normalized.contains("piswarm") {
+                    counts.pi += 1
                 } else {
                     counts.other += 1
                 }
