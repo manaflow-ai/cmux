@@ -12636,6 +12636,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
+        // Zoom intent (Cmd +/-/0) must win over the configured-shortcut matches
+        // below — both the browser/markdown zoom shortcuts AND any ANSI-keycode
+        // collision. On layouts where "+" is a dedicated key (Italian "Pro":
+        // keyCode 30 = US "]"), the bare "+" normalizes to the "=" zoom key but
+        // its keyCode also matches Cmd+"]" navigation shortcuts
+        // (browserForward / focusHistoryForward), which are matched first and
+        // swallowed the event, so increase never zoomed anything
+        // (manaflow-ai/cmux#5981). Route +/-/0 to whichever surface owns focus
+        // (browser → markdown → terminal) through the same zoom entry points the
+        // View menu and configured shortcuts use, so every surface behaves the
+        // same regardless of keyboard layout.
+        if let fontZoomAction = browserZoomShortcutAction(
+            flags: event.modifierFlags,
+            chars: event.charactersIgnoringModifiers ?? "",
+            keyCode: event.keyCode,
+            literalChars: event.characters
+        ) {
+            let zoomShortcutResponder = (event.window ?? NSApp.keyWindow ?? NSApp.mainWindow)?.firstResponder
+            var zoomHandled: Bool?
+            if let browserPanel = shortcutEventBrowserPanel(event) {
+                switch fontZoomAction {
+                case .zoomIn: zoomHandled = browserPanel.zoomIn()
+                case .zoomOut: zoomHandled = browserPanel.zoomOut()
+                case .reset: zoomHandled = browserPanel.resetZoom()
+                }
+            } else if let markdownPanel = shortcutEventMarkdownPanel(event) {
+                switch fontZoomAction {
+                case .zoomIn: zoomHandled = markdownPanel.zoomIn()
+                case .zoomOut: zoomHandled = markdownPanel.zoomOut()
+                case .reset: zoomHandled = markdownPanel.resetZoom()
+                }
+            } else if let firstResponderGhosttyView = cmuxOwningGhosttyView(for: zoomShortcutResponder) {
+                zoomHandled = firstResponderGhosttyView.performBindingAction(fontZoomAction.ghosttyFontSizeBindingAction)
+            }
+            if let zoomHandled {
+#if DEBUG
+                cmuxDebugLog("zoom.shortcut stage=monitor.surfaceZoom event=\(NSWindow.keyDescription(event)) action=\(fontZoomAction.ghosttyFontSizeBindingAction) handled=\(zoomHandled ? 1 : 0)")
+#endif
+                // Consuming the event here means the hold-hint monitors' own
+                // key-down monitors never see it, so dismiss their pills the way
+                // a pass-through key-down would (matches release behavior where
+                // zoom shortcuts never leave the hint pills lingering).
+                NotificationCenter.default.post(name: .cmuxDismissShortcutHintPills, object: nil)
+                clearConfiguredShortcutChordState()
+                clearShortcutEventFocusContextCache(for: event)
+                return zoomHandled
+            }
+        }
+
         // `charactersIgnoringModifiers` can be nil for some synthetic NSEvents and certain special keys.
         // Treat nil as "" and rely on keyCode/layout-aware fallback logic where needed.
         // When a non-Latin input source is active (Korean, Chinese, Japanese, etc.),
@@ -17112,24 +17161,11 @@ private extension NSWindow {
                 return result
             }
 
-            // Preserve Ghostty's terminal font-size shortcuts (Cmd +/−/0) when
-            // the terminal is focused. Otherwise our browser menu shortcuts can
-            // consume the event even when no browser panel is focused.
-            if shouldRouteTerminalFontZoomShortcutToGhostty(
-                firstResponderIsGhostty: true,
-                flags: event.modifierFlags,
-                chars: event.charactersIgnoringModifiers ?? "",
-                keyCode: event.keyCode,
-                literalChars: event.characters
-            ) {
-                if cmuxForceDispatchKeyDownOnce(event, to: ghosttyView, reason: "terminal font zoom") {
-#if DEBUG
-                    cmuxDebugLog("zoom.shortcut stage=window.ghosttyKeyDownDirect event=\(Self.keyDescription(event)) handled=1")
-#endif
-                    return true
-                }
-                return false
-            }
+            // Terminal font-size shortcuts (Cmd +/−/0) are handled once, for
+            // every focused surface, by the unified zoom router at the top of
+            // `handleCustomShortcut` (the app-level shortcut monitor runs before
+            // this window-level fallback). Routing them here too would duplicate
+            // that logic — manaflow-ai/cmux#5981.
         }
 
         if browserOmnibarShouldBypassShortcutRoutingForMarkedText(

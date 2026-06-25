@@ -426,6 +426,21 @@ enum BrowserZoomShortcutAction: Equatable {
     case zoomIn
     case zoomOut
     case reset
+
+    /// Used to drive Ghostty directly via `ghostty_surface_binding_action`
+    /// instead of re-dispatching the raw key event. Re-dispatch relied on
+    /// Ghostty re-matching the chord against its own keybinds, whose increase
+    /// binding is keyed to the US `equal`/`plus` chord. On layouts where `+` is
+    /// a dedicated key (Italian, Spanish, German QWERTZ, …) the re-match for
+    /// increase failed while decrease (`minus`) and reset (`zero`) still
+    /// matched, so only increase appeared broken (manaflow-ai/cmux#5981).
+    var ghosttyFontSizeBindingAction: String {
+        switch self {
+        case .zoomIn: return "increase_font_size:1"
+        case .zoomOut: return "decrease_font_size:1"
+        case .reset: return "reset_font_size"
+        }
+    }
 }
 
 func browserZoomShortcutAction(

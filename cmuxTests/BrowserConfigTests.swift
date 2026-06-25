@@ -4916,6 +4916,93 @@ final class BrowserZoomShortcutRoutingPolicyTests: XCTestCase {
 }
 
 
+/// Regression coverage for manaflow-ai/cmux#5981: terminal font *increase* was
+/// broken on layouts where `+` is a dedicated key (Italian "Pro", Spanish,
+/// German QWERTZ). The fix resolves the chord to a layout-independent intent and
+/// drives Ghostty's binding action directly, instead of re-dispatching the raw
+/// event for Ghostty to re-match against its US `equal`/`plus` keybind.
+final class TerminalFontZoomBindingActionTests: XCTestCase {
+    func testBindingActionMapping() {
+        XCTAssertEqual(BrowserZoomShortcutAction.zoomIn.ghosttyFontSizeBindingAction, "increase_font_size:1")
+        XCTAssertEqual(BrowserZoomShortcutAction.zoomOut.ghosttyFontSizeBindingAction, "decrease_font_size:1")
+        XCTAssertEqual(BrowserZoomShortcutAction.reset.ghosttyFontSizeBindingAction, "reset_font_size")
+    }
+
+    /// On the Italian "Pro" layout `+` is a bare dedicated key (keyCode 30), so
+    /// `Cmd +` must still resolve to increase and drive `increase_font_size:1`.
+    func testItalianDedicatedPlusKeyDrivesIncrease() {
+        let action = browserZoomShortcutAction(
+            flags: [.command],
+            chars: "+",
+            keyCode: 30
+        )
+        XCTAssertEqual(action, .zoomIn)
+        XCTAssertEqual(action?.ghosttyFontSizeBindingAction, "increase_font_size:1")
+    }
+
+    /// Decrease (`minus`) and reset (`zero`) always worked; pin their mappings so
+    /// a future refactor cannot silently regress them.
+    func testDecreaseAndResetDriveExpectedActions() {
+        XCTAssertEqual(
+            browserZoomShortcutAction(flags: [.command], chars: "-", keyCode: 27)?.ghosttyFontSizeBindingAction,
+            "decrease_font_size:1"
+        )
+        XCTAssertEqual(
+            browserZoomShortcutAction(flags: [.command], chars: "0", keyCode: 29)?.ghosttyFontSizeBindingAction,
+            "reset_font_size"
+        )
+    }
+
+    /// Root cause of #5981: on the Italian "Pro" layout the bare `+` key is
+    /// keyCode 30 — the same physical key US layouts map to `]`. So `Cmd +`
+    /// simultaneously (a) reads as a zoom-in intent and (b) collides with the
+    /// `Cmd ]` forward-navigation shortcut through the ANSI-keycode fallback in
+    /// `StoredShortcut.matches`. That collision is why the fix must route zoom
+    /// intent *before* the navigation shortcuts in `handleCustomShortcut`:
+    /// otherwise `browserForward` claims the event first and increase never
+    /// zooms. Pinning the collision means dropping the `+`→`=` normalization or
+    /// reordering zoom after navigation will fail this test rather than silently
+    /// regressing the layout.
+    func testItalianPlusCollidesWithForwardNavigationKeyCode() {
+        // The current input source is irrelevant to the collision; force the
+        // Italian bare-`+` layout so the assertion is deterministic on CI.
+        let italianPlusLayout: (UInt16, NSEvent.ModifierFlags) -> String? = { keyCode, _ in
+            keyCode == 30 ? "+" : nil
+        }
+
+        // (a) `Cmd +` on keyCode 30 is unambiguously a zoom-in intent.
+        XCTAssertEqual(
+            browserZoomShortcutAction(flags: [.command], chars: "+", keyCode: 30),
+            .zoomIn
+        )
+
+        // (b) The `Cmd ]` forward-navigation shortcut matches the very same
+        //     event (keyCode 30 == US `]`), so it would consume `Cmd +` if it
+        //     were checked first.
+        let forwardShortcut = StoredShortcut(key: "]", command: true, shift: false, option: false, control: false)
+        XCTAssertTrue(
+            forwardShortcut.matches(
+                keyCode: 30,
+                modifierFlags: [.command],
+                eventCharacter: "+",
+                layoutCharacterProvider: italianPlusLayout
+            )
+        )
+
+        // Sanity: decrease (`-`) carries no such navigation collision, which is
+        // why it kept working before the fix.
+        XCTAssertFalse(
+            forwardShortcut.matches(
+                keyCode: 27,
+                modifierFlags: [.command],
+                eventCharacter: "-",
+                layoutCharacterProvider: { _, _ in "-" }
+            )
+        )
+    }
+}
+
+
 final class BrowserSearchEngineTests: XCTestCase {
     func testGoogleSearchURL() throws {
         let url = try XCTUnwrap(BrowserSearchEngine.google.searchURL(query: "hello world"))

@@ -2,6 +2,17 @@ import AppKit
 import CmuxFoundation
 import Observation
 
+extension Notification.Name {
+    /// Posted when an app-level handler consumes a key-down that would otherwise
+    /// have reached this monitor's own key-down monitor to dismiss the hold
+    /// hints. Consumed events (e.g. zoom shortcuts handled and swallowed by the
+    /// app shortcut monitor) never reach a later local monitor, so the hint
+    /// pills would otherwise linger while Command stays held. Posting this lets
+    /// the consuming handler dismiss the pills exactly as a pass-through key-down
+    /// would (manaflow-ai/cmux#5981).
+    static let cmuxDismissShortcutHintPills = Notification.Name("cmuxDismissShortcutHintPills")
+}
+
 @MainActor
 @Observable
 final class WindowScopedShortcutHintModifierMonitor {
@@ -15,6 +26,7 @@ final class WindowScopedShortcutHintModifierMonitor {
     @ObservationIgnored private var flagsMonitor: Any?
     @ObservationIgnored private var keyDownMonitor: Any?
     @ObservationIgnored private var appResignObserver: NSObjectProtocol?
+    @ObservationIgnored private var dismissPillsObserver: NSObjectProtocol?
     // One-shot timer implements the intentional hold delay from synchronous NSEvent callbacks.
     @ObservationIgnored private var pendingShowTimer: DispatchSourceTimer?
     @ObservationIgnored private var pendingShowGeneration = 0
@@ -72,6 +84,22 @@ final class WindowScopedShortcutHintModifierMonitor {
             }
         }
 
+        dismissPillsObserver = NotificationCenter.default.addObserver(
+            forName: .cmuxDismissShortcutHintPills,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            // Delivered on queue: .main (the MainActor's executor), so
+            // assumeIsolated is safe. Unlike the appResignObserver's async
+            // Task hop, this cancels synchronously: the dismiss notification is
+            // posted from inside the consuming key-down handler, so the pending
+            // show timer must be cancelled within the same turn before it can
+            // fire.
+            MainActor.assumeIsolated {
+                self?.cancelPendingHintShow(resetVisible: true)
+            }
+        }
+
         update(from: NSEvent.modifierFlags, eventWindow: nil)
     }
 
@@ -87,6 +115,10 @@ final class WindowScopedShortcutHintModifierMonitor {
         if let appResignObserver {
             NotificationCenter.default.removeObserver(appResignObserver)
             self.appResignObserver = nil
+        }
+        if let dismissPillsObserver {
+            NotificationCenter.default.removeObserver(dismissPillsObserver)
+            self.dismissPillsObserver = nil
         }
         removeHostWindowObservers()
         cancelPendingHintShow(resetVisible: true)
