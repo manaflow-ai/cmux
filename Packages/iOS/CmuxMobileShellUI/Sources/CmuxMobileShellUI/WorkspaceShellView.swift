@@ -94,8 +94,10 @@ struct WorkspaceShellView: View {
                 unreadIndicatorLeftShift: displaySettings.unreadIndicatorLeftShift,
                 profilePictureLeftShift: displaySettings.profilePictureLeftShift,
                 profilePictureSize: displaySettings.profilePictureSize,
+                computerSnapshots: store.stableComputerSnapshots,
                 selectWorkspace: selectWorkspace,
                 createWorkspace: createWorkspaceInCompactStack,
+                createWorkspaceOnComputerID: createWorkspaceOnComputerInCompactStack,
                 refresh: refreshWorkspacesClosure,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
                 signOut: signOut,
@@ -181,8 +183,10 @@ struct WorkspaceShellView: View {
                 unreadIndicatorLeftShift: displaySettings.unreadIndicatorLeftShift,
                 profilePictureLeftShift: displaySettings.profilePictureLeftShift,
                 profilePictureSize: displaySettings.profilePictureSize,
+                computerSnapshots: store.stableComputerSnapshots,
                 selectWorkspace: selectWorkspace,
                 createWorkspace: createWorkspaceIfConnected,
+                createWorkspaceOnComputerID: createWorkspaceOnComputer,
                 refresh: refreshWorkspacesClosure,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
                 signOut: signOut,
@@ -306,6 +310,29 @@ struct WorkspaceShellView: View {
             pendingCompactCreateNavigationWorkspaceIDs = nil
             compactNavigationPath = createdPath
         }
+    }
+
+    private func createWorkspaceOnComputerInCompactStack(macDeviceID: String) async -> Bool {
+        let existingWorkspaceIDs = Set(store.workspaces.map(\.id))
+        pendingCompactCreateNavigationWorkspaceIDs = existingWorkspaceIDs
+        let created = await store.createWorkspace(onMacDeviceID: macDeviceID)
+        guard created else {
+            pendingCompactCreateNavigationWorkspaceIDs = nil
+            return false
+        }
+        if let createdPath = WorkspaceShellCompactNavigationPolicy.pathForCreatedWorkspaceSelection(
+            currentPath: compactNavigationPath,
+            selectedWorkspaceID: store.selectedWorkspaceID,
+            existingWorkspaceIDs: existingWorkspaceIDs
+        ) {
+            pendingCompactCreateNavigationWorkspaceIDs = nil
+            compactNavigationPath = createdPath
+        }
+        return true
+    }
+
+    private func createWorkspaceOnComputer(macDeviceID: String) async -> Bool {
+        await store.createWorkspace(onMacDeviceID: macDeviceID)
     }
 
     private func createWorkspaceIfConnected() {

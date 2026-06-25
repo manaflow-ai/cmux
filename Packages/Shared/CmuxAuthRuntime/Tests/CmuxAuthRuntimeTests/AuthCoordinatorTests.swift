@@ -316,6 +316,41 @@ import Testing
         #expect(recorded?.email == "l@l.com")
     }
 
+    @Test func launchAutoLoginRecoversDeadCachedSession() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "dogfood@example.com", displayName: "Dogfood")
+        let client = FakeAuthClient(access: "stale-access", refresh: nil, user: user)
+        await client.setThrowOnCurrentUser(AuthError.unauthorized)
+        let store = FakeKeyValueStore()
+        store.set(true, forKey: "has_tokens")
+        let launch = AuthLaunchOptions(
+            clearAuthRequested: false,
+            mockDataEnabled: false,
+            environment: [
+                "CMUX_UITEST_STACK_EMAIL": "dogfood@example.com",
+                "CMUX_UITEST_STACK_PASSWORD": "pw",
+            ],
+            includesDevAuth: true
+        )
+        let coordinator = AuthCoordinator(
+            client: client,
+            sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
+            anchor: FakeAnchor(),
+            config: .test,
+            launch: launch
+        )
+
+        coordinator.start()
+        await coordinator.awaitBootstrapped()
+
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.currentUser == user)
+        let recorded = await client.signedInWithCredential
+        #expect(recorded?.email == "dogfood@example.com")
+        #expect(store.bool(forKey: "has_tokens"))
+    }
+
     @Test func accessTokenThrowsWhenSignedOut() async {
         let (coordinator, _) = makeCoordinator(client: FakeAuthClient())
         await #expect(throws: AuthError.unauthorized) {

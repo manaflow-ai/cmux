@@ -306,6 +306,48 @@ import Testing
         #expect(store.displayPairedMacs.map(\.macDeviceID) == ["mac-a", "mac-b"])
     }
 
+    @Test func displayPairedMacsUseStableActiveNameOrderingInsteadOfLastSeen() async throws {
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "mac-z",
+                        displayName: "Zoo Mac",
+                        host: "100.82.214.114",
+                        lastSeenAt: Date(timeIntervalSince1970: 30),
+                        isActive: false
+                    ),
+                    try Self.pairedMac(
+                        id: "mac-b",
+                        displayName: "Beta Mac",
+                        host: "100.82.214.113",
+                        lastSeenAt: Date(timeIntervalSince1970: 5),
+                        isActive: true
+                    ),
+                    try Self.pairedMac(
+                        id: "mac-a",
+                        displayName: "Alpha Mac",
+                        host: "100.82.214.112",
+                        lastSeenAt: Date(timeIntervalSince1970: 20),
+                        isActive: false
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" }
+        )
+
+        await store.loadPairedMacs()
+
+        #expect(store.pairedMacs.map(\.macDeviceID) == ["mac-z", "mac-b", "mac-a"])
+        #expect(store.displayPairedMacs.map(\.macDeviceID) == ["mac-b", "mac-a", "mac-z"])
+    }
+
     @Test func destructiveActionsDoNothingWithoutSignedInScope() async throws {
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [

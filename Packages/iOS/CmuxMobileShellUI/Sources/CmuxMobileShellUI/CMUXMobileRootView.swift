@@ -5,41 +5,36 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileWorkspace
 import SwiftUI
+import os
 #if os(iOS)
 @preconcurrency import UIKit
 #elseif os(macOS)
 import AppKit
 #endif
 
+private let mobileRootViewLog = Logger(subsystem: "dev.cmux.ios", category: "mobile-root-view")
+
 struct CMUXMobileRootView: View {
+    private static let authenticatedUserScopeWaitTimeout: Duration = .seconds(8)
+
     @Bindable var store: CMUXMobileShellStore
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AuthCoordinator.self) private var authManager
     #if os(iOS)
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
-    /// The persisted first-run onboarding "seen" flag store. The one-time
-    /// onboarding screen gates ahead of the never-paired add-device state.
     private let onboardingStore: MobileOnboardingStore
-    /// Mirrors ``MobileOnboardingStore/hasSeenOnboarding`` so completing
-    /// onboarding (which calls `markSeen()` in the button action) re-renders the
-    /// root and falls through to the pairing flow. Seeded synchronously from the
-    /// store so the very first frame already reflects a prior install's state and
-    /// never flashes onboarding for a returning user.
     @State private var hasSeenOnboarding: Bool
     #endif
     @State private var pendingAttachURL: String?
     @State private var didConsumeUITestAttachURL = false
     @State private var didAuthenticateWithAttachTicket = false
+    @State private var isConnectingLaunchAttachURL = false
     @State private var isShowingAddDeviceSheet = false
+    @State private var didTimeoutAuthenticatedUserScopeWait = false
+    @State private var authenticatedUserScopeRetryGeneration = 0
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
     #endif
-    /// The app's one tailnet detector, built at the composition root and
-    /// injected through the environment so pairing, the disconnected shell,
-    /// and future setup-help surfaces share the same signal. Re-evaluates on
-    /// connectivity changes by itself; the scene-phase handler below covers
-    /// foreground returns. `nil` when unwired (previews), which shows no
-    /// Tailscale guidance.
     @Environment(\.tailscaleStatusMonitor) private var tailscaleStatusMonitor
 
     #if os(iOS)
@@ -78,12 +73,6 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
-    /// DEBUG-only wrapper so Release/iOS archives never reference the
-    /// `#if DEBUG`-gated `WorkspaceListLayoutPreviewView` type directly (a
-    /// simulator screenshot fixture). Swift type-checks every `rootContent`
-    /// branch even when `shouldShowWorkspaceListLayoutPreview` is statically
-    /// false in Release, so gate the reference here, the same way
-    /// `terminalLayoutPreview` does, and Release compiles to `EmptyView`.
     @ViewBuilder private var workspaceListLayoutPreview: some View {
         #if os(iOS) && DEBUG
         WorkspaceListLayoutPreviewView()
@@ -105,39 +94,24 @@ struct CMUXMobileRootView: View {
             #if os(iOS)
             pushCoordinator.bind(store: store)
             #endif
-            // If the view mounts already authenticated (cached session, or a
-            // mock/fixture launch), `onChange(of: isAuthenticated)` never fires,
-            // so kick off the stored-Mac reconnect here too. Without this the
-            // workspace list's initial-connection status could never resolve
-            // because nothing updates `didFinishStoredMacReconnectAttempt`.
             reconnectStoredMacIfNeeded()
         }
         #if os(iOS)
-        // A notification tap can arrive before the workspace (or terminal) it
-        // targets is loaded (cold launch, or attach still in flight); re-apply
-        // the parked deep link as the lists fill in. The version counter is a
-        // cheap change signal: it bumps on any workspace or terminal list
-        // mutation without allocating ID arrays on every body evaluation.
         .onChange(of: store.workspaceTopologyVersion) { _, _ in
             pushCoordinator.workspacesDidChange()
         }
         #endif
         .onChange(of: authManager.selectedTeamID) { _, _ in
-            // The user switched Stack teams (from the nav drawer). Lazily re-scope
-            // the team-bound state (presence, registry, paired-Mac backup,
-            // aggregation) to the new team without dropping the live terminal. The
-            // drawer only writes `selectedTeamID`; this is the single observation
-            // point, so every entrypoint that changes the team flows through here.
             store.currentTeamDidChange()
+            reconnectStoredMacIfNeeded()
+        }
+        .onChange(of: authManager.currentUser?.id) { _, _ in
+            reconnectStoredMacIfNeeded()
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             store.resumeForegroundRefresh()
-            // The user may have toggled Tailscale while we were backgrounded.
             tailscaleStatusMonitor?.refresh()
-            // Re-check the Stack session on resume so one that died while
-            // backgrounded routes to the sign-in page instead of waiting for a
-            // failed connect to surface a confusing host-side message.
             Task { await authManager.revalidateSession() }
         }
         .onOpenURL { url in
@@ -170,6 +144,9 @@ struct CMUXMobileRootView: View {
             guard !isRestoringSession else { return }
             _ = consumePendingURLIfReady()
         }
+        .task(id: authenticatedUserScopeDeadlineTaskID) {
+            await updateAuthenticatedUserScopeDeadline()
+        }
         .onChange(of: store.connectionState) { _, connectionState in
             if connectionState == .connected {
                 isShowingAddDeviceSheet = false
@@ -192,6 +169,13 @@ struct CMUXMobileRootView: View {
             workspaceListLayoutPreview
         } else if !isAuthenticated {
             SignInView()
+        } else if didTimeoutAuthenticatedUserScopeWait {
+            AuthenticatedUserScopeUnavailableView(
+                retry: retryAuthenticatedUserScope,
+                signOut: signOut
+            )
+        } else if shouldWaitForAuthenticatedUserScope {
+            MobilePairedMacDeterminingView()
         } else if store.connectionState != .connected && shouldShowRestoringStoredMac {
             RestoringStoredMacWorkspaceShell(
                 store: store,
@@ -200,15 +184,8 @@ struct CMUXMobileRootView: View {
                 reconnectStoredMac: reconnectStoredMacIfNeeded
             )
         } else if shouldShowOnboarding {
-            // Placed after the reconnect-determining branch so `hasKnownPairedMac`
-            // has resolved: a genuine first run (never onboarded, never paired)
-            // sees the one-time explainer before the add-device flow; a returning
-            // paired-but-offline user (who can reach here after a failed
-            // reconnect) is excluded by the gate and falls through to pairing.
             onboardingFlow
         } else if store.connectionState != .connected && !store.hasKnownPairedMac {
-            // ONLY when there are no saved Macs at all: the add-device flow (it
-            // auto-presents the pairing sheet since there is nothing to list).
             DisconnectedWorkspaceShellView(
                 hasKnownPairedMac: store.hasKnownPairedMac,
                 showAddDevice: showAddDevice,
@@ -217,12 +194,6 @@ struct CMUXMobileRootView: View {
                 store: store
             )
         } else {
-            // Connected, OR we have saved Macs and are auto-connecting in the
-            // background: always show the integrated cross-Mac workspace list, so
-            // the user never sees a "Your Macs" picker screen. The list renders
-            // whatever workspaces have aggregated (foreground + live secondary
-            // subscriptions); the foreground connection is established without any
-            // tap. Opening a workspace attaches its Mac on demand.
             WorkspaceShellView(store: store, signOut: signOut, showAddDevice: showAddDevice)
         }
     }
@@ -335,6 +306,38 @@ struct CMUXMobileRootView: View {
         )
     }
 
+    private var shouldWaitForAuthenticatedUserScope: Bool {
+        shouldWaitForAuthenticatedUserScopeBase && !didTimeoutAuthenticatedUserScopeWait
+    }
+
+    private var shouldWaitForAuthenticatedUserScopeBase: Bool {
+        MobileRootAuthGate.shouldWaitForAuthenticatedUserScope(
+            stackAuthenticated: authManager.isAuthenticated,
+            attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
+            connectionState: store.connectionState,
+            currentUserID: authManager.currentUser?.id
+        )
+    }
+
+    private var authenticatedUserScopeDeadlineTaskID: Int {
+        (authenticatedUserScopeRetryGeneration &* 2) + (shouldWaitForAuthenticatedUserScopeBase ? 1 : 0)
+    }
+
+    @MainActor
+    private func updateAuthenticatedUserScopeDeadline() async {
+        guard shouldWaitForAuthenticatedUserScopeBase else {
+            didTimeoutAuthenticatedUserScopeWait = false
+            return
+        }
+        do {
+            try await ContinuousClock().sleep(for: Self.authenticatedUserScopeWaitTimeout)
+        } catch {
+            return
+        }
+        guard shouldWaitForAuthenticatedUserScopeBase else { return }
+        didTimeoutAuthenticatedUserScopeWait = true
+    }
+
     private var hasActiveAttachTicketAuthentication: Bool {
         didAuthenticateWithAttachTicket && store.hasActiveUnexpiredAttachTicket
     }
@@ -350,11 +353,6 @@ struct CMUXMobileRootView: View {
         )
     }
 
-    /// Starts the stored-Mac reconnect when authenticated, unless a UITest attach
-    /// URL took over. Called from both initial `onAppear` (covers a mount that is
-    /// already authenticated) and `onChange(of: isAuthenticated)` (covers a
-    /// sign-in that completes after mount) so the restoring gate always resolves
-    /// even when the auth state never transitions while this view is mounted.
     private func reconnectStoredMacIfNeeded() {
         guard isAuthenticated else { return }
         let startedUITestAttachURL = connectUITestAttachURLIfNeeded()
@@ -362,11 +360,23 @@ struct CMUXMobileRootView: View {
               MobileRootAuthGate.shouldReconnectStoredMac(
                 stackAuthenticated: authManager.isAuthenticated,
                 attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
+                attachURLConnectionInProgress: isConnectingLaunchAttachURL,
                 connectionState: store.connectionState
               ) else { return }
-        let stackUserID = authManager.currentUser?.id
+        guard !shouldWaitForAuthenticatedUserScope,
+              let stackUserID = authManager.currentUser?.id else { return }
         Task {
             await store.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
+        }
+    }
+
+    private func retryAuthenticatedUserScope() {
+        didTimeoutAuthenticatedUserScopeWait = false
+        authenticatedUserScopeRetryGeneration &+= 1
+        store.resumeForegroundRefresh()
+        Task {
+            await authManager.revalidateSession()
+            reconnectStoredMacIfNeeded()
         }
     }
 
@@ -476,16 +486,10 @@ struct CMUXMobileRootView: View {
     @discardableResult
     private func connectUITestAttachURLIfNeeded() -> Bool {
         #if DEBUG
-        // Auto-pair when an attach URL is supplied at launch. Two sources:
-        //   - CMUX_DOGFOOD_ATTACH_URL (UITestConfig.dogfoodAttachURL): NOT gated on
-        //     mock data, so it fires against the real backend. The dev-launch
-        //     tooling (scripts/mobile-dev-launch.sh, scripts/dev-setup.sh) signs in
-        //     for real (CMUX_UITEST_STACK_* with CMUX_UITEST_MOCK_DATA=0) and wants
-        //     the phone to auto-pair to the freshly built Mac dev app. With mock
-        //     off, UITestConfig.attachURL is always nil, so this dedicated accessor
-        //     is what un-breaks real-backend auto-pair.
-        //   - CMUX_UITEST_ATTACH_URL (UITestConfig.attachURL): gated on mock data,
-        //     kept intact for the XCUITest harness.
+        // Auto-pair when an attach URL is supplied at launch.
+        // CMUX_DOGFOOD_ATTACH_URL is not mock-gated, so dev-launch can sign in
+        // against the real backend and pair to the freshly built Mac dev app.
+        // CMUX_UITEST_ATTACH_URL stays mock-gated for the XCUITest harness.
         // No-op unless one of those env vars is set, so normal launches are
         // unaffected.
         guard !didConsumeUITestAttachURL,
@@ -494,8 +498,15 @@ struct CMUXMobileRootView: View {
             return false
         }
         didConsumeUITestAttachURL = true
-        Task {
-            await store.connectPairingURL(attachURL)
+        isConnectingLaunchAttachURL = true
+        mobileRootViewLog.info("launch attach URL connect started")
+        Task { @MainActor in
+            let connected = await store.connectPairingURL(attachURL)
+            isConnectingLaunchAttachURL = false
+            mobileRootViewLog.info("launch attach URL connect finished connected=\(connected, privacy: .public)")
+            if !connected, store.connectionState != .connected {
+                reconnectStoredMacIfNeeded()
+            }
         }
         return true
         #else

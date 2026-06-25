@@ -179,6 +179,23 @@ extension AuthCoordinator {
         }
     }
 
+    func performLaunchAutoLoginAfterStaleSessionIfPossible(
+        generation: UInt64,
+        storeWriteHighWater: UInt64
+    ) async -> Bool {
+        #if DEBUG
+        guard let credentials = autoLoginCredentials,
+              credentials.email.isEmpty == false else {
+            return false
+        }
+        authLog.info("Cached session validation failed; retrying with launch auto-login credentials")
+        await performAutoLogin(credentials, generation: generation, storeWriteHighWater: storeWriteHighWater)
+        return true
+        #else
+        return false
+        #endif
+    }
+
     func validateCachedSession(generation: UInt64, storeWriteHighWater: UInt64) async {
         do {
             let client = self.client
@@ -200,6 +217,12 @@ extension AuthCoordinator {
                 await client.refreshToken()
             }
             guard generation == sessionGeneration else { return }
+            if await performLaunchAutoLoginAfterStaleSessionIfPossible(
+                generation: generation,
+                storeWriteHighWater: storeWriteHighWater
+            ) {
+                return
+            }
             await clearStaleSessionState(
                 generation: generation,
                 storeWriteHighWater: storeWriteHighWater,
@@ -246,6 +269,12 @@ extension AuthCoordinator {
                 authLog.error(
                     "Session validation failed and no refresh token survives; routing to login error=\(error.localizedDescription, privacy: .private)"
                 )
+                if await performLaunchAutoLoginAfterStaleSessionIfPossible(
+                    generation: generation,
+                    storeWriteHighWater: storeWriteHighWater
+                ) {
+                    return
+                }
                 await clearStaleSessionState(
                     generation: generation,
                     storeWriteHighWater: storeWriteHighWater,
@@ -260,6 +289,12 @@ extension AuthCoordinator {
             )
             switch action {
             case .clearSession:
+                if await performLaunchAutoLoginAfterStaleSessionIfPossible(
+                    generation: generation,
+                    storeWriteHighWater: storeWriteHighWater
+                ) {
+                    return
+                }
                 await clearStaleSessionState(
                     generation: generation,
                     storeWriteHighWater: storeWriteHighWater,

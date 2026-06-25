@@ -28,8 +28,10 @@ struct WorkspaceListView: View {
     var unreadIndicatorLeftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift
     var profilePictureLeftShift: Double = MobileDisplaySettings.defaultProfilePictureLeftShift
     var profilePictureSize: Double = MobileDisplaySettings.defaultProfilePictureSize
+    var computerSnapshots: [MacComputerSnapshot] = []
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     let createWorkspace: () -> Void
+    var createWorkspaceOnComputerID: ((String) async -> Bool)?
     /// Pull-to-refresh action. Awaits the real workspace-list re-sync from the
     /// paired Mac so the system refresh spinner reflects actual completion (and
     /// ends gracefully, leaving the list intact, when the Mac is offline). Passed
@@ -96,11 +98,14 @@ struct WorkspaceListView: View {
     @State private var showingDeviceTree = false
     /// The active row filter (All / Unread), shared-model state behind the
     /// toolbar ``WorkspaceListFilterMenu``. Session-transient like a search.
-    @State private var filter: MobileWorkspaceListFilter = .all
+    @State var filter: MobileWorkspaceListFilter = .all
     /// The workspace whose destructive close action is awaiting confirmation.
     /// Stored at list scope so reusable rows do not own transient presentation
     /// state while `List` is recycling swipe-action rows.
     @State private var workspacePendingCloseID: MobileWorkspacePreview.ID?
+    @State var computerWorkspaceCreationFailureID: String?
+    @State var computerWorkspaceCreationFailureName = ""
+    @State var computerPendingDetailID: String?
 
     private var trimmedQuery: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -170,6 +175,17 @@ struct WorkspaceListView: View {
                     .listRowSeparator(.hidden)
                 }
             }
+            #if os(iOS)
+            WorkspaceComputerStripSection(
+                computers: computerSnapshots,
+                selectedMachineIDs: filter.machines,
+                createWorkspace: createWorkspaceOnComputer,
+                manageComputer: manageComputerFromStrip,
+                canCreateFallbackWorkspace: canCreateWorkspace,
+                createFallbackWorkspace: createWorkspace,
+                showAddDevice: showAddDevice
+            )
+            #endif
             if connectionStatus != .connected {
                 Section {
                     MobileMacConnectionStatusRow(
@@ -233,9 +249,6 @@ struct WorkspaceListView: View {
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 WorkspaceListFilterMenu(filter: $filter, machines: filterMachines)
-                if canCreateWorkspace {
-                    newWorkspaceButton
-                }
             }
             #else
             ToolbarItemGroup {
@@ -268,6 +281,34 @@ struct WorkspaceListView: View {
                 DeviceTreeView(store: store, selectWorkspace: selectWorkspace, showAddDevice: showAddDevice)
             }
         }
+        .workspaceComputerManagementPresentation(
+            store: store,
+            detailID: computerPendingDetailID,
+            detailPresented: computerDetailPresented,
+            dismissDetail: { computerPendingDetailID = nil }
+        )
+        .alert(
+            L10n.string(
+                "mobile.workspaces.computerStrip.createFailedTitle",
+                defaultValue: "Could not connect to Mac"
+            ),
+            isPresented: computerWorkspaceCreationFailurePresented
+        ) {
+            Button(L10n.string("mobile.common.retry", defaultValue: "Retry")) {
+                retryComputerWorkspaceCreation()
+            }
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
+                clearComputerWorkspaceCreationFailure()
+            }
+        } message: {
+            Text(String(
+                format: L10n.string(
+                    "mobile.workspaces.computerStrip.createFailedMessageFormat",
+                    defaultValue: "%@ is not connected. Check that the Mac app is running, then retry."
+                ),
+                computerWorkspaceCreationFailureName
+            ))
+        }
         #endif
     }
 
@@ -276,10 +317,6 @@ struct WorkspaceListView: View {
         return store.connectionRequiresReauth
             || store.connectionRecoveryFailed
             || store.isRecoveringConnection
-    }
-
-    private var canCreateWorkspace: Bool {
-        connectionStatus == .connected
     }
 
     #if os(iOS)

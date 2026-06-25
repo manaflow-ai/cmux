@@ -78,14 +78,47 @@ public struct MobileRootAuthGate {
     /// - Parameters:
     ///   - stackAuthenticated: Whether Stack auth is established.
     ///   - attachTicketAuthenticated: Whether a temporary attach ticket grants access.
+    ///   - attachURLConnectionInProgress: Whether a launch/deep-link attach URL is already connecting.
     ///   - connectionState: The current connection state.
     /// - Returns: `true` when Stack-authenticated without a temporary ticket and not yet connected.
     public static func shouldReconnectStoredMac(
         stackAuthenticated: Bool,
         attachTicketAuthenticated: Bool,
+        attachURLConnectionInProgress: Bool = false,
         connectionState: MobileConnectionState
     ) -> Bool {
-        stackAuthenticated && !attachTicketAuthenticated && connectionState != .connected
+        stackAuthenticated
+            && !attachTicketAuthenticated
+            && !attachURLConnectionInProgress
+            && connectionState != .connected
+    }
+
+    /// Whether the root should wait for Stack's concrete user id before deciding
+    /// there are no saved Macs.
+    ///
+    /// Paired-Mac backup restore is scoped by Stack user/team. During cached
+    /// session restore, `isAuthenticated` can become true before the user object
+    /// has been published. Treating that gap as "no paired Mac" makes returning
+    /// users see the Add Device sheet even though backup restore would find their
+    /// existing Macs once the account scope arrives.
+    /// - Parameters:
+    ///   - stackAuthenticated: Whether Stack auth is established.
+    ///   - attachTicketAuthenticated: Whether a temporary attach ticket grants access.
+    ///   - connectionState: The current connection state.
+    ///   - currentUserID: The Stack user id used to scope paired-Mac restore.
+    /// - Returns: `true` while Stack-authenticated, not attach-ticket authenticated,
+    ///   disconnected, and the Stack user id is still missing or blank.
+    public static func shouldWaitForAuthenticatedUserScope(
+        stackAuthenticated: Bool,
+        attachTicketAuthenticated: Bool,
+        connectionState: MobileConnectionState,
+        currentUserID: String?
+    ) -> Bool {
+        guard stackAuthenticated, !attachTicketAuthenticated, connectionState != .connected else {
+            return false
+        }
+        let trimmedUserID = currentUserID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedUserID?.isEmpty ?? true
     }
 
     /// Whether the restoring-session UI should be shown while reconnecting a known

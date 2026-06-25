@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileShellModel
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -39,6 +40,85 @@ import Testing
         let registry = [try route(host: "100.9.9.9", port: 51999)]
         let selected = DeviceRegistryService.selectReconnectRoutes(local: local, registry: registry)
         #expect(selected == registry)
+    }
+
+    @MainActor
+    @Test func registryRoutesRescueUnsupportedLocalReconnectRoute() throws {
+        let local = [
+            try CmxAttachRoute(
+                id: "loopback",
+                kind: .debugLoopback,
+                endpoint: .hostPort(host: "127.0.0.1", port: 51000),
+                priority: 0
+            ),
+        ]
+        let registry = [try route(host: "100.9.9.9", port: 51999)]
+
+        let resolved = MobileShellComposite.validatedReconnectRoutes(
+            local: local,
+            registry: registry,
+            supportedKinds: [.tailscale],
+            preferNonLoopback: true
+        )
+        let reachable = MobileShellComposite.firstReconnectHostPortRoute(
+            resolved,
+            supportedKinds: [.tailscale],
+            preferNonLoopback: true
+        )
+
+        #expect(reachable?.0 == "100.9.9.9")
+        #expect(reachable?.1 == 51999)
+    }
+
+    @MainActor
+    @Test func unsupportedRegistryRoutesDoNotReplaceReachableLocalRoute() throws {
+        let local = [try route(host: "100.0.0.1", port: 51000)]
+        let registry = [
+            try CmxAttachRoute(
+                id: "websocket",
+                kind: .websocket,
+                endpoint: .url("wss://example.invalid/cmux"),
+                priority: 0
+            ),
+        ]
+
+        let resolved = MobileShellComposite.validatedReconnectRoutes(
+            local: local,
+            registry: registry,
+            supportedKinds: [.tailscale],
+            preferNonLoopback: true
+        )
+
+        #expect(resolved == local)
+    }
+
+    @MainActor
+    @Test func loopbackOnlyLocalRouteRefreshesBeforePhysicalDial() throws {
+        let loopback = [
+            try CmxAttachRoute(
+                id: "loopback",
+                kind: .debugLoopback,
+                endpoint: .hostPort(host: "127.0.0.1", port: 51000),
+                priority: 0
+            ),
+        ]
+        let realRoute = [try route(host: "100.0.0.1", port: 51000)]
+
+        #expect(MobileShellComposite.shouldRefreshReconnectRoutesBeforeDial(
+            local: loopback,
+            supportedKinds: [.debugLoopback, .tailscale],
+            preferNonLoopback: true
+        ))
+        #expect(!MobileShellComposite.shouldRefreshReconnectRoutesBeforeDial(
+            local: loopback,
+            supportedKinds: [.debugLoopback],
+            preferNonLoopback: false
+        ))
+        #expect(!MobileShellComposite.shouldRefreshReconnectRoutesBeforeDial(
+            local: realRoute,
+            supportedKinds: [.debugLoopback, .tailscale],
+            preferNonLoopback: true
+        ))
     }
 
     @Test func parsesRoutesForMatchingMacFromListResponse() throws {
@@ -216,6 +296,38 @@ import Testing
         )
         #expect(routes?.count == 1)
         #expect(routes?.first?.id == "good")
+    }
+
+    @Test func extractsRoutesFromDecodedRegistryDevices() throws {
+        let routes = [try route(host: "100.9.9.9", port: 51999, id: "fresh")]
+        let devices = [
+            RegistryDevice(
+                deviceId: "mac-a",
+                platform: "mac",
+                displayName: "A",
+                lastSeenAt: .distantPast,
+                instances: [
+                    RegistryAppInstance(tag: "old", routes: [], lastSeenAt: .distantPast),
+                    RegistryAppInstance(tag: "stable", routes: routes, lastSeenAt: .distantPast),
+                ]
+            ),
+            RegistryDevice(
+                deviceId: "mac-b",
+                platform: "mac",
+                displayName: "B",
+                lastSeenAt: .distantPast,
+                instances: [
+                    RegistryAppInstance(
+                        tag: "stable",
+                        routes: [try route(host: "100.0.0.2", port: 51000, id: "other")],
+                        lastSeenAt: .distantPast
+                    ),
+                ]
+            ),
+        ]
+
+        #expect(DeviceRegistryService.routes(forMacDeviceID: "mac-a", in: devices) == routes)
+        #expect(DeviceRegistryService.routes(in: devices[0]) == routes)
     }
 
     @Test func appliesRefreshWhenStillSignedInSameUserSameActiveMac() {

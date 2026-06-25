@@ -1,5 +1,5 @@
 public import CMUXMobileCore
-public import CmuxMobileShellModel
+import CmuxMobileShellModel
 public import Foundation
 import os
 
@@ -113,6 +113,15 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         return registry
     }
 
+    /// Routes to evaluate for reconnect after applying the registry's fresher
+    /// view when it has one, otherwise the locally persisted routes.
+    public static func resolvedReconnectRoutes(
+        local: [CmxAttachRoute],
+        registry: [CmxAttachRoute]?
+    ) -> [CmxAttachRoute] {
+        selectReconnectRoutes(local: local, registry: registry) ?? local
+    }
+
     /// Whether a background registry refresh may write back into the paired-Mac
     /// store, re-evaluated *after* the network call.
     ///
@@ -207,7 +216,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     static func parseDeviceList(in data: Data) -> [RegistryDevice]? {
         struct FailableRoute: Decodable {
             let value: CmxAttachRoute?
-            init(from decoder: Decoder) throws {
+            init(from decoder: any Decoder) throws {
                 value = try? CmxAttachRoute(from: decoder)
             }
         }
@@ -285,7 +294,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         // element decodes to `nil` and is dropped, never throwing for the array.
         struct FailableRoute: Decodable {
             let value: CmxAttachRoute?
-            init(from decoder: Decoder) throws {
+            init(from decoder: any Decoder) throws {
                 value = try? CmxAttachRoute(from: decoder)
             }
         }
@@ -302,10 +311,33 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         guard let decoded = try? JSONDecoder().decode(ListResponse.self, from: data) else {
             return nil
         }
+        let devices = decoded.devices.map { device in
+            RegistryDevice(
+                deviceId: device.deviceId,
+                platform: "mac",
+                displayName: nil,
+                lastSeenAt: .distantPast,
+                instances: device.instances.map { instance in
+                    RegistryAppInstance(
+                        tag: "",
+                        routes: instance.routes.compactMap(\.value),
+                        lastSeenAt: .distantPast
+                    )
+                }
+            )
+        }
+        return routes(forMacDeviceID: macDeviceID, in: devices)
+    }
+
+    static func routes(forMacDeviceID macDeviceID: String, in devices: [RegistryDevice]) -> [CmxAttachRoute]? {
         let target = macDeviceID.lowercased()
-        guard let device = decoded.devices.first(where: { $0.deviceId.lowercased() == target }) else {
+        guard let device = devices.first(where: { $0.deviceId.lowercased() == target }) else {
             return nil
         }
+        return routes(in: device)
+    }
+
+    static func routes(in device: RegistryDevice) -> [CmxAttachRoute]? {
         // A Mac may run multiple tagged app instances (stable + a debug build).
         // The phone's stored routes have no tag to match against in P1, so only
         // substitute routes when exactly one instance is advertising any (the
@@ -314,7 +346,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         // than risk connecting a stable phone to a different tagged build's
         // workspaces. Tag-aware matching is a follow-up (see key-pinning phase).
         let nonEmpty = device.instances
-            .map { $0.routes.compactMap(\.value) }
+            .map(\.routes)
             .filter { !$0.isEmpty }
         return nonEmpty.count == 1 ? nonEmpty[0] : nil
     }
