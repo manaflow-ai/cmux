@@ -13990,23 +13990,30 @@ struct CMUXCLI {
             throw CLIError(message: "Workspace index not found")
         }
 
-        // No usable workspace handle. Prefer the caller's own workspace over the focused
-        // one, so a background agent whose command omits or empties --workspace never
-        // silently acts on whatever workspace is selected in the foreground.
+        // Reached only when `raw` was nil, blank, or nonblank-but-unrecognized (valid
+        // UUID/ref/index selectors returned or threw above).
+        //
+        // An explicit, nonblank, unrecognized selector (e.g. a typo) must fail closed
+        // regardless of caller env or window, so a malformed user-supplied workspace name
+        // never silently resolves to — and mutates — a different workspace.
+        if let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw CLIError(message: "Workspace not found: \(raw)")
+        }
+
+        // `raw` is nil (omitted) or explicitly blank. Prefer the caller's own workspace
+        // over the focused one, so a background agent whose command omits or empties
+        // --workspace never silently acts on whatever workspace is selected in the
+        // foreground.
         if let callerWorkspaceId = callerWorkspaceIdFromEnvironment(windowHandle: windowHandle) {
             return callerWorkspaceId
         }
 
-        // An *explicit* but blank/unparseable selector must fail closed when there is no
-        // caller workspace, rather than silently retargeting the foreground workspace. This
-        // is the dangerous case: `--workspace "${CMUX_WORKSPACE_ID:-}"` expands to an empty
-        // argument when the caller environment is thin. Only a truly omitted selector (raw
-        // == nil), or an explicit --window, falls back to the window's selected workspace.
-        if windowHandle == nil, let raw {
-            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            throw CLIError(message: trimmed.isEmpty
-                ? "No workspace selected: --workspace was blank and CMUX_WORKSPACE_ID is unset"
-                : "Workspace not found: \(raw)")
+        // No caller workspace. An explicit but blank selector (the dangerous
+        // `--workspace "${CMUX_WORKSPACE_ID:-}"`-expands-to-empty case) fails closed rather
+        // than retargeting the foreground workspace. Only a truly omitted selector, or an
+        // explicit --window, falls back to the window's selected workspace.
+        if windowHandle == nil, raw != nil {
+            throw CLIError(message: "No workspace selected: --workspace was blank and CMUX_WORKSPACE_ID is unset")
         }
 
         var currentParams: [String: Any] = [:]

@@ -49,6 +49,22 @@ struct CLICallerWorkspaceDefaultTests {
         #expect(!methods.contains("notification.mark_read"), Comment(rawValue: methods.joined(separator: ",")))
     }
 
+    /// An explicit but unrecognized `--workspace` (e.g. a typo) must fail closed even when
+    /// a caller workspace is present, so a malformed name never silently resolves to — and
+    /// mutates — the caller's workspace.
+    @Test func invalidWorkspaceArgFailsClosedEvenWithCaller() throws {
+        let (requests, result) = try runMarkNotificationRead(
+            workspaceArgument: "not-a-real-workspace",
+            focusedWorkspaceId: Self.focusedWorkspaceId,
+            callerWorkspaceId: Self.callerWorkspaceId
+        )
+
+        #expect(result.status != 0, Comment(rawValue: "expected nonzero exit, got \(result.status)"))
+        let methods = requests.compactMap { $0["method"] as? String }
+        #expect(!methods.contains("notification.mark_read"), Comment(rawValue: methods.joined(separator: ",")))
+        #expect(!methods.contains("workspace.current"), Comment(rawValue: methods.joined(separator: ",")))
+    }
+
     /// An explicit `--workspace <uuid>` must still win over the caller's environment, so
     /// the caller default never hijacks a command that names another workspace.
     @Test func explicitWorkspaceArgStillWins() throws {
