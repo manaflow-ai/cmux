@@ -115,6 +115,7 @@ private struct SpinnerGalleryRootView: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
+                    OverlayComparison()
                     ForEach(specs) { spec in
                         SpinnerCard(spec: spec)
                     }
@@ -142,6 +143,61 @@ private struct SpinnerGalleryRootView: View {
             .foregroundColor(.secondary)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.top, 6)
+    }
+}
+
+/// Superimposes the GPU spokes spinner (red) directly on the native
+/// NSProgressIndicator (grey) at a large size so frame-by-frame screenshots can
+/// confirm whether spoke count, size, phase, and cadence match.
+private struct OverlayComparison: View {
+    private let dim: CGFloat = 120
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("OVERLAY · native (grey) + GPU spokes (red)")
+                .font(.system(size: 11, weight: .heavy))
+                .tracking(0.6)
+                .foregroundColor(.primary.opacity(0.9))
+            HStack(spacing: 20) {
+                overlayWell(label: "superimposed") {
+                    ZStack {
+                        NativeSpinner(threaded: false).frame(width: dim, height: dim)
+                        GPUSpinner(style: .macOSSpokes, color: NSColor.systemRed.withAlphaComponent(0.6))
+                            .frame(width: dim, height: dim)
+                    }
+                }
+                overlayWell(label: "native only") {
+                    NativeSpinner(threaded: false).frame(width: dim, height: dim)
+                }
+                overlayWell(label: "GPU only") {
+                    GPUSpinner(style: .macOSSpokes, color: .secondaryLabelColor)
+                        .frame(width: dim, height: dim)
+                }
+            }
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.primary.opacity(0.04))
+        )
+    }
+
+    @ViewBuilder
+    private func overlayWell<Content: View>(label: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(spacing: 4) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.primary.opacity(0.06))
+                // Centering crosshair to judge alignment.
+                Rectangle().fill(Color.primary.opacity(0.12)).frame(width: 1, height: dim)
+                Rectangle().fill(Color.primary.opacity(0.12)).frame(width: dim, height: 1)
+                content()
+            }
+            .frame(width: dim + 16, height: dim + 16)
+            Text(label)
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+        }
     }
 }
 
