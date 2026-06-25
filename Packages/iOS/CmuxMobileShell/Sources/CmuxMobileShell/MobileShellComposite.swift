@@ -1603,11 +1603,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         func connectCandidate(_ reconnectMac: MobilePairedMac) async -> Bool {
             guard generation == storedMacReconnectGeneration,
                   await isScopeCurrent(scope),
-                  let (host, port) = reachableRoute(reconnectMac) else { return false }
+                  let (host, port) = reachableRoute(reconnectMac),
+                  let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else { return false }
             await connectStoredMacHost(
                 name: reconnectMac.displayName ?? host, host: host, port: port,
                 pairedMacDeviceID: reconnectMac.macDeviceID)
-            return connectionState == .connected
+            guard connectionState == .connected,
+                  case let .hostPort(liveHost, livePort)? = activeRoute?.endpoint else {
+                return false
+            }
+            return liveHost == normalizedHost && livePort == port
         }
         for mac in candidates {
             guard generation == storedMacReconnectGeneration,

@@ -106,7 +106,6 @@ struct WorkspaceListView: View {
     @State var computerWorkspaceCreationFailureID: String?
     @State var computerWorkspaceCreationFailureName = ""
     @State var computerPendingDetailID: String?
-    @State var computerPendingRemoval: MacComputerSnapshot?
 
     private var trimmedQuery: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -182,7 +181,6 @@ struct WorkspaceListView: View {
                 selectedMachineIDs: filter.machines,
                 createWorkspace: createWorkspaceOnComputer,
                 manageComputer: manageComputerFromStrip,
-                removeComputer: requestComputerRemovalFromStrip,
                 canCreateFallbackWorkspace: canCreateWorkspace,
                 createFallbackWorkspace: createWorkspace,
                 showAddDevice: showAddDevice
@@ -287,13 +285,7 @@ struct WorkspaceListView: View {
             store: store,
             detailID: computerPendingDetailID,
             detailPresented: computerDetailPresented,
-            dismissDetail: { computerPendingDetailID = nil },
-            pendingRemoval: computerPendingRemoval,
-            removalPresented: computerRemovalPresented,
-            confirmRemoval: confirmComputerRemovalFromStrip,
-            cancelRemoval: { computerPendingRemoval = nil },
-            removeTitle: removeComputerTitle(computerPendingRemoval),
-            removeMessage: removeComputerMessage(computerPendingRemoval)
+            dismissDetail: { computerPendingDetailID = nil }
         )
         .alert(
             L10n.string(

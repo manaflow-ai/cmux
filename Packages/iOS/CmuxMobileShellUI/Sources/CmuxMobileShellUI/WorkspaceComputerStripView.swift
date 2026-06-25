@@ -8,7 +8,6 @@ struct WorkspaceComputerStripView: View {
     let selectedMachineIDs: Set<String>
     let createWorkspace: (MacComputerSnapshot) -> Void
     let manageComputer: (MacComputerSnapshot) -> Void
-    let removeComputer: (MacComputerSnapshot) -> Void
     var showAddDevice: (() -> Void)?
 
     var body: some View {
@@ -19,8 +18,7 @@ struct WorkspaceComputerStripView: View {
                         computer: computer,
                         isSelected: !selectedMachineIDs.isDisjoint(with: computer.aliasIDSet),
                         createWorkspace: { createWorkspace(computer) },
-                        manageComputer: { manageComputer(computer) },
-                        removeComputer: { removeComputer(computer) }
+                        manageComputer: { manageComputer(computer) }
                     )
                 }
                 if let showAddDevice {

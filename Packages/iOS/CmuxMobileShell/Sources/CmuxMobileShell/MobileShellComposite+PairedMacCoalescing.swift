@@ -18,14 +18,12 @@ extension MobileShellComposite {
         preferNonLoopback: Bool
     ) -> [MobilePairedMac] {
         var selectedByKey: [String: MobilePairedMac] = [:]
-        var orderByKey: [String: Int] = [:]
 
-        for (index, mac) in macs.enumerated() {
+        for mac in macs {
             let key = mac.dialEndpointKey(
                 supportedKinds: supportedKinds,
                 preferNonLoopback: preferNonLoopback
             ) ?? "device:\(mac.macDeviceID)"
-            orderByKey[key] = min(orderByKey[key] ?? index, index)
             guard let existing = selectedByKey[key] else {
                 selectedByKey[key] = mac
                 continue
@@ -39,7 +37,12 @@ extension MobileShellComposite {
 
         return selectedByKey
             .sorted { lhs, rhs in
-                (orderByKey[lhs.key] ?? .max) < (orderByKey[rhs.key] ?? .max)
+                if lhs.value.isActive != rhs.value.isActive {
+                    return lhs.value.isActive
+                }
+                let nameOrder = lhs.value.resolvedName.localizedStandardCompare(rhs.value.resolvedName)
+                if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
+                return lhs.key.localizedStandardCompare(rhs.key) == .orderedAscending
             }
             .map(\.value)
     }

@@ -48,13 +48,35 @@ import Testing
         #expect(sorted.first?.customIcon == "desktopcomputer")
     }
 
+    @Test func stableIdentitySurvivesRepresentativeDeviceIDChanges() {
+        let aliases = ["mac-old", "mac-fresh"]
+        let oldRepresentative = snapshot(
+            "mac-old",
+            title: "Desk",
+            status: .connected,
+            now: Date(timeIntervalSince1970: 10),
+            aliasIDs: aliases
+        )
+        let freshRepresentative = snapshot(
+            "mac-fresh",
+            title: "Desk",
+            status: .connected,
+            now: Date(timeIntervalSince1970: 20),
+            aliasIDs: Array(aliases.reversed())
+        )
+
+        #expect(oldRepresentative.id == freshRepresentative.id)
+        #expect(oldRepresentative.stableIdentity == "mac-fresh|mac-old")
+    }
+
     private func snapshot(
         _ id: String,
         title: String,
         status: MobileMacConnectionStatus,
         now: Date,
         customColor: String? = nil,
-        customIcon: String? = nil
+        customIcon: String? = nil,
+        aliasIDs: [String]? = nil
     ) -> MacComputerSnapshot {
         MacComputerSnapshot(
             deviceId: id,
@@ -69,7 +91,7 @@ import Testing
             routeDescription: nil,
             lastSeenAt: now,
             workspaceCount: 0,
-            aliasIDs: [id]
+            aliasIDs: aliasIDs ?? [id]
         )
     }
 }

@@ -33,6 +33,8 @@ extension MacComputerSnapshot {
             if lhs.connectionSortRank != rhs.connectionSortRank { return connectionOrder }
             let nameOrder = lhs.title.localizedStandardCompare(rhs.title)
             if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
+            let identityOrder = lhs.stableIdentity.localizedStandardCompare(rhs.stableIdentity)
+            if identityOrder != .orderedSame { return identityOrder == .orderedAscending }
             return lhs.deviceId.localizedStandardCompare(rhs.deviceId) == .orderedAscending
         }
     }

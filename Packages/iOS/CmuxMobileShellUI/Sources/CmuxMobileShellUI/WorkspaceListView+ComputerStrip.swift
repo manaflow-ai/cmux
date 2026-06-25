@@ -8,7 +8,6 @@ struct WorkspaceComputerStripSection: View {
     let selectedMachineIDs: Set<String>
     let createWorkspace: (MacComputerSnapshot) -> Void
     let manageComputer: (MacComputerSnapshot) -> Void
-    let removeComputer: (MacComputerSnapshot) -> Void
     let canCreateFallbackWorkspace: Bool
     let createFallbackWorkspace: () -> Void
     var showAddDevice: (() -> Void)?
@@ -22,7 +21,6 @@ struct WorkspaceComputerStripSection: View {
                     selectedMachineIDs: selectedMachineIDs,
                     createWorkspace: createWorkspace,
                     manageComputer: manageComputer,
-                    removeComputer: removeComputer,
                     showAddDevice: showAddDevice
                 )
                 .listRowInsets(EdgeInsets())
@@ -65,21 +63,6 @@ extension WorkspaceListView {
         computerPendingDetailID = computer.deviceId
     }
 
-    func requestComputerRemovalFromStrip(_ computer: MacComputerSnapshot) {
-        computerPendingRemoval = computer
-    }
-
-    func confirmComputerRemovalFromStrip() {
-        guard let computer = computerPendingRemoval, let store else { return }
-        let deviceId = computer.deviceId
-        computerPendingRemoval = nil
-        Task {
-            await store.forgetMac(macDeviceID: deviceId)
-            await store.loadPairedMacs()
-            await store.loadRegistryDevices()
-        }
-    }
-
     func retryComputerWorkspaceCreation() {
         guard let deviceId = computerWorkspaceCreationFailureID else { return }
         let computer = store?.stableComputerSnapshots.first { $0.deviceId == deviceId }
@@ -116,39 +99,6 @@ extension WorkspaceListView {
         )
     }
 
-    var computerRemovalPresented: Binding<Bool> {
-        Binding(
-            get: { computerPendingRemoval != nil },
-            set: { isPresented in
-                if !isPresented {
-                    computerPendingRemoval = nil
-                }
-            }
-        )
-    }
-
-    func removeComputerTitle(_ computer: MacComputerSnapshot?) -> String {
-        String(
-            format: L10n.string("mobile.computers.removeTitleFormat", defaultValue: "Remove %@?"),
-            computer?.title ?? ""
-        )
-    }
-
-    func removeComputerMessage(_ computer: MacComputerSnapshot?) -> String {
-        guard let computer, computer.aliasIDs.count > 1 else {
-            return L10n.string(
-                "mobile.computers.removeMessage",
-                defaultValue: "This computer and its workspaces stop appearing here. Pair it again to add it back."
-            )
-        }
-        return String(
-            format: L10n.string(
-                "mobile.computers.removeMessageRepresentativeFormat",
-                defaultValue: "This removes paired record %@. Other matching records may still appear."
-            ),
-            computer.deviceId
-        )
-    }
 }
 
 extension View {
@@ -156,13 +106,7 @@ extension View {
         store: CMUXMobileShellStore?,
         detailID: String?,
         detailPresented: Binding<Bool>,
-        dismissDetail: @escaping () -> Void,
-        pendingRemoval: MacComputerSnapshot?,
-        removalPresented: Binding<Bool>,
-        confirmRemoval: @escaping () -> Void,
-        cancelRemoval: @escaping () -> Void,
-        removeTitle: String,
-        removeMessage: String
+        dismissDetail: @escaping () -> Void
     ) -> some View {
         self
             .sheet(isPresented: detailPresented) {
@@ -178,18 +122,6 @@ extension View {
                             }
                     }
                 }
-            }
-            .confirmationDialog(removeTitle, isPresented: removalPresented, titleVisibility: .visible) {
-                if pendingRemoval != nil {
-                    Button(L10n.string("mobile.computers.remove", defaultValue: "Remove"), role: .destructive) {
-                        confirmRemoval()
-                    }
-                }
-                Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
-                    cancelRemoval()
-                }
-            } message: {
-                Text(removeMessage)
             }
     }
 }

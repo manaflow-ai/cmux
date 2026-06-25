@@ -8,49 +8,21 @@ struct WorkspaceComputerStripItem: View {
     let isSelected: Bool
     let createWorkspace: () -> Void
     let manageComputer: () -> Void
-    let removeComputer: () -> Void
 
     var body: some View {
         VStack(spacing: 6) {
             Button(action: createWorkspace) {
-                Circle()
-                    .fill(avatarGradient)
-                    .frame(width: 54, height: 54)
-                    .overlay(selectionRing)
-                    .overlay(alignment: .center) {
-                        avatarIcon
-                    }
-                    .overlay(alignment: .bottomTrailing) {
-                        Circle()
-                            .fill(statusColor)
-                            .frame(width: 12, height: 12)
-                            .overlay(Circle().stroke(Color.black.opacity(0.7), lineWidth: 2))
-                            .offset(x: -3, y: -3)
-                            .accessibilityHidden(true)
-                    }
+                avatar
             }
             .buttonStyle(.plain)
             .accessibilityLabel(newWorkspaceAccessibilityLabel)
             .accessibilityHint(itemAccessibilityHint)
             .accessibilityIdentifier("MobileWorkspaceComputerStripItem-\(computer.deviceId)")
-            .contextMenu {
-                Button {
-                    manageComputer()
-                } label: {
-                    Label(
-                        L10n.string("mobile.computers.manage", defaultValue: "Manage Computer"),
-                        systemImage: "slider.horizontal.3"
-                    )
-                }
-                Button(role: .destructive) {
-                    removeComputer()
-                } label: {
-                    Label(
-                        L10n.string("mobile.computers.remove", defaultValue: "Remove"),
-                        systemImage: "trash"
-                    )
-                }
-            }
+            .accessibilityAction(
+                named: Text(L10n.string("mobile.computers.manage", defaultValue: "Manage Computer")),
+                manageComputer
+            )
+            .onLongPressGesture(minimumDuration: 0.45, perform: manageComputer)
 
             Text(computer.title)
                 .font(.caption2.weight(.semibold))
@@ -58,6 +30,25 @@ struct WorkspaceComputerStripItem: View {
                 .truncationMode(.middle)
                 .frame(width: 84)
         }
+    }
+
+    private var avatar: some View {
+        Circle()
+            .fill(avatarGradient)
+            .frame(width: 54, height: 54)
+            .overlay(selectionRing)
+            .overlay(alignment: .center) {
+                avatarIcon
+            }
+            .overlay(alignment: .bottomTrailing) {
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 12, height: 12)
+                    .overlay(Circle().stroke(Color.black.opacity(0.7), lineWidth: 2))
+                    .offset(x: -3, y: -3)
+                    .accessibilityHidden(true)
+            }
+            .contentShape(Circle())
     }
 
     private var newWorkspaceAccessibilityLabel: String {

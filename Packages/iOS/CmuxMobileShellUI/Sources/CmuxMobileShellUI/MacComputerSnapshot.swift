@@ -27,5 +27,11 @@ struct MacComputerSnapshot: Equatable, Identifiable {
     /// Stored paired-Mac ids represented by this visible row.
     let aliasIDs: [String]
 
-    var id: String { deviceId }
+    var id: String { stableIdentity }
+
+    var stableIdentity: String {
+        var ids = Set(aliasIDs)
+        ids.insert(deviceId)
+        return ids.sorted().joined(separator: "|")
+    }
 }
