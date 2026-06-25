@@ -1,4 +1,5 @@
 import Foundation
+import CMUXMobileCore
 import CmuxAppKitSupportUI
 import CmuxTerminal
 import CmuxFoundation
@@ -447,6 +448,7 @@ class GhosttyApp {
     private(set) var defaultCursorTextColor: NSColor = GhosttyApp.fallbackAppearanceConfig.cursorTextColor
     private(set) var defaultSelectionBackground: NSColor = GhosttyApp.fallbackAppearanceConfig.selectionBackground
     private(set) var defaultSelectionForeground: NSColor = GhosttyApp.fallbackAppearanceConfig.selectionForeground
+    private(set) var defaultTerminalPalette: [String] = TerminalTheme.monokai.palette
     private(set) var effectiveTerminalColorSchemePreference: GhosttyConfig.ColorSchemePreference = .dark
     private var appliedGhosttyRuntimeColorScheme: ghostty_color_scheme_e?
     private var runtimeColorSchemeSynchronizationDepth = 0
@@ -2118,6 +2120,7 @@ class GhosttyApp {
                 cursorTextColor: baseline.cursorTextColor,
                 selectionBackground: baseline.selectionBackground,
                 selectionForeground: baseline.selectionForeground,
+                terminalPalette: TerminalTheme.monokai.palette,
                 source: source,
                 scope: scope,
                 forceNotify: forceNotify
@@ -2125,6 +2128,7 @@ class GhosttyApp {
             return
         }
         let resolved = GhosttyConfig.load(preferredColorScheme: preferredColorScheme, useCache: false, globalFontMagnificationPercent: GlobalFontMagnification.storedPercent)
+        let resolvedPalette = resolved.mobileTerminalThemePalette()
         let fallbackForUnspecified = Self.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance()
             ? defaultBackgroundValues(from: nil)
             : baseline
@@ -2185,6 +2189,7 @@ class GhosttyApp {
                 hasParsedDirective: resolved.hasParsedSelectionForeground,
                 hasDirective: resolved.hasSelectionForegroundDirective
             ),
+            terminalPalette: resolvedPalette,
             source: "\(source).resolvedGhosttyConfig",
             scope: scope,
             forceNotify: forceNotify
@@ -2287,6 +2292,7 @@ class GhosttyApp {
         cursorTextColor: NSColor? = nil,
         selectionBackground: NSColor? = nil,
         selectionForeground: NSColor? = nil,
+        terminalPalette: [String]? = nil,
         source: String,
         scope: GhosttyDefaultBackgroundUpdateScope,
         forceNotify: Bool = false
@@ -2313,6 +2319,7 @@ class GhosttyApp {
         let previousCursorTextHex = defaultCursorTextColor.hexString()
         let previousSelectionBackgroundHex = defaultSelectionBackground.hexString()
         let previousSelectionForegroundHex = defaultSelectionForeground.hexString()
+        let previousTerminalPalette = defaultTerminalPalette
         let previousColorScheme = effectiveTerminalColorSchemePreference
         defaultBackgroundColor = color
         defaultBackgroundOpacity = opacity
@@ -2335,6 +2342,9 @@ class GhosttyApp {
         if let selectionForeground {
             defaultSelectionForeground = selectionForeground
         }
+        if let terminalPalette {
+            defaultTerminalPalette = terminalPalette
+        }
         let hasChanged = forceNotify ||
             previousHex != defaultBackgroundColor.hexString() ||
             abs(previousOpacity - defaultBackgroundOpacity) > 0.0001 ||
@@ -2344,6 +2354,7 @@ class GhosttyApp {
             previousCursorTextHex != defaultCursorTextColor.hexString() ||
             previousSelectionBackgroundHex != defaultSelectionBackground.hexString() ||
             previousSelectionForegroundHex != defaultSelectionForeground.hexString() ||
+            previousTerminalPalette != defaultTerminalPalette ||
             previousColorScheme != effectiveTerminalColorSchemePreference
         if hasChanged {
             notifyDefaultBackgroundDidChange(source: source)
@@ -3296,6 +3307,18 @@ class GhosttyApp {
                 try? handle.write(contentsOf: data)
             }
         }
+    }
+}
+
+private extension GhosttyConfig {
+    func mobileTerminalThemePalette() -> [String] {
+        var resolvedPalette = TerminalTheme.monokai.palette
+        for index in 0..<TerminalTheme.paletteCount {
+            if let color = palette[index]?.hexString() {
+                resolvedPalette[index] = color
+            }
+        }
+        return resolvedPalette
     }
 }
 

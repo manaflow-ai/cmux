@@ -94,8 +94,12 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         bytes.append(Data("\u{1B}c".utf8))
         bytes.append(Data("\u{1B}[?2026h".utf8))
 
-        // Dynamic default colors (OSC 10/11/12). Cells already carry explicit
-        // RGB, so these mainly fix the cursor color and color queries.
+        // Dynamic default colors. Cells carry explicit RGB for captured text,
+        // while these repaint the terminal chrome, selection colors, cursor,
+        // and future ANSI-palette output in the live iOS Ghostty surface.
+        if let theme = frame.terminalTheme?.validatedOrDefault() {
+            bytes.append(terminalThemeColorBytes(theme))
+        }
         if let osc = Self.oscColorBytes(10, frame.terminalForeground) { bytes.append(osc) }
         if let osc = Self.oscColorBytes(11, frame.terminalBackground) { bytes.append(osc) }
         if let osc = Self.oscColorBytes(12, frame.terminalCursorColor) { bytes.append(osc) }
@@ -237,6 +241,32 @@ public struct MobileTerminalRenderGridReplay: Sendable {
             rgb.blue
         )
         return Data("\u{1B}]\(ps);\(spec)\u{1B}\\".utf8)
+    }
+
+    private func oscPaletteBytes(_ index: Int, _ hex: String?) -> Data? {
+        guard let rgb = TerminalTheme.rgbComponents(hex) else { return nil }
+        let spec = String(
+            format: "rgb:%02x/%02x/%02x",
+            rgb.red,
+            rgb.green,
+            rgb.blue
+        )
+        return Data("\u{1B}]4;\(index);\(spec)\u{1B}\\".utf8)
+    }
+
+    private func terminalThemeColorBytes(_ theme: TerminalTheme) -> Data {
+        var bytes = Data()
+        if let osc = Self.oscColorBytes(10, theme.foreground) { bytes.append(osc) }
+        if let osc = Self.oscColorBytes(11, theme.background) { bytes.append(osc) }
+        if let osc = Self.oscColorBytes(12, theme.cursor) { bytes.append(osc) }
+        if let osc = Self.oscColorBytes(17, theme.selectionBackground) { bytes.append(osc) }
+        if let osc = Self.oscColorBytes(19, theme.selectionForeground) { bytes.append(osc) }
+        for (index, color) in theme.palette.enumerated() {
+            if let osc = oscPaletteBytes(index, color) {
+                bytes.append(osc)
+            }
+        }
+        return bytes
     }
 
     private static func vtPrintableBytes(_ text: String) -> Data {

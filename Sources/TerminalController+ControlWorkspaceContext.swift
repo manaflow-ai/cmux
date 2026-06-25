@@ -25,6 +25,10 @@ extension TerminalController: ControlWorkspaceContext {
                 localized: "workspace.closeProtected.message",
                 defaultValue: "Pinned workspaces can't be closed while pinned. Unpin the workspace first."
             ),
+            closeBlocked: String(
+                localized: "workspace.closeBlocked.message",
+                defaultValue: "This workspace can't be closed right now."
+            ),
             reorderManyMissingOrder: String(
                 localized: "socket.workspace.reorderMany.missingOrder",
                 defaultValue: "Missing workspace_ids"
@@ -157,6 +161,9 @@ extension TerminalController: ControlWorkspaceContext {
         let windowId = AppDelegate.shared?.windowId(for: tabManager)
         guard let ws = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
             return .notFound
+        }
+        guard tabManager.tabs.count > 1 else {
+            return .blocked(windowID: windowId, pinned: ws.isPinned, reason: "last_workspace")
         }
         guard tabManager.canCloseWorkspace(ws) else {
             return .protected(windowID: windowId)

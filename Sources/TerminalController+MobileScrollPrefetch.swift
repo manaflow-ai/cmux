@@ -1,4 +1,6 @@
+import AppKit
 import CMUXMobileCore
+import CmuxFoundation
 import Foundation
 
 extension TerminalController {
@@ -19,10 +21,12 @@ extension TerminalController {
         scrollbackLines: Int = TerminalController.mobileReplayScrollbackLineBudget
     ) -> MobileTerminalRenderGridFrame? {
         guard surfaceID == terminalPanel.id else { return nil }
-        return terminalPanel.surface.mobileRenderGridFrame(
+        var frame = terminalPanel.surface.mobileRenderGridFrame(
             stateSeq: seq,
             scrollbackLines: scrollbackLines
         )?.frame
+        frame?.terminalTheme = TerminalTheme.currentMacTerminalThemeSnapshot()
+        return frame
     }
 
     func mobileTerminalScrollResponsePayload(
@@ -61,5 +65,20 @@ extension TerminalController {
             max(0, requestedRows),
             Self.mobileScrollPrefetchScrollbackLineBudget
         )
+    }
+}
+
+extension TerminalTheme {
+    @MainActor
+    static func currentMacTerminalThemeSnapshot(app: GhosttyApp = .shared) -> TerminalTheme {
+        TerminalTheme(
+            background: app.defaultBackgroundColor.hexString(),
+            foreground: app.defaultForegroundColor.hexString(),
+            cursor: app.defaultCursorColor.hexString(),
+            cursorText: app.defaultCursorTextColor.hexString(),
+            selectionBackground: app.defaultSelectionBackground.hexString(),
+            selectionForeground: app.defaultSelectionForeground.hexString(),
+            palette: app.defaultTerminalPalette
+        ).validatedOrDefault()
     }
 }

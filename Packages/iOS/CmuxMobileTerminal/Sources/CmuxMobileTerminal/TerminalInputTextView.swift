@@ -62,6 +62,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// The composer toggle, pinned in the container (not the scrollable stack) so
     /// it is always reachable regardless of the button row's scroll position.
     private weak var composerButton: UIButton?
+    private weak var accessoryBackgroundView: UIView?
     /// The armed/sticky modifier state machine, extracted into the testable
     /// ``TerminalInputModifierState`` reducer. This view is now a dumb
     /// first-responder that forwards taps into the reducer and reads its state
@@ -223,7 +224,31 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         inputDelegate?.textDidChange(self)
     }
 
-    private static let monokaiBarColor = UIColor(red: 0x27/255.0, green: 0x28/255.0, blue: 0x22/255.0, alpha: 1)
+    /// The input accessory bar fill, taken from the active terminal theme's
+    /// background so the bar blends with the live terminal under any theme.
+    var terminalTheme: TerminalTheme = .monokai {
+        didSet {
+            guard terminalTheme != oldValue else { return }
+            accessoryBackgroundView?.backgroundColor = themeBarColor
+        }
+    }
+
+    private var themeBarColor: UIColor {
+        themeBarColor(for: terminalTheme)
+    }
+
+    private func themeBarColor(for theme: TerminalTheme) -> UIColor {
+        guard let rgb = TerminalTheme.rgbComponents(theme.background) else {
+            return UIColor(red: 0x27 / 255.0, green: 0x28 / 255.0, blue: 0x22 / 255.0, alpha: 1)
+        }
+        return UIColor(
+            red: CGFloat(rgb.red) / 255.0,
+            green: CGFloat(rgb.green) / 255.0,
+            blue: CGFloat(rgb.blue) / 255.0,
+            alpha: 1
+        )
+    }
+
     private static let accessoryHorizontalInset: CGFloat = 16
     private static let accessoryButtonFont = UIFont.systemFont(ofSize: 14, weight: .medium)
     /// One shared SF Symbol config for every icon on the bar (paste, zoom,
@@ -298,8 +323,9 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         container.frame = CGRect(x: 0, y: 0, width: 0, height: Self.dockedButtonRowHeight)
 
         let backgroundView = UIView()
-        backgroundView.backgroundColor = Self.monokaiBarColor
+        backgroundView.backgroundColor = themeBarColor
         backgroundView.translatesAutoresizingMaskIntoConstraints = false
+        self.accessoryBackgroundView = backgroundView
 
         // Pinned keyboard dismiss button on the left
         let dismissButton = UIButton(type: .system)

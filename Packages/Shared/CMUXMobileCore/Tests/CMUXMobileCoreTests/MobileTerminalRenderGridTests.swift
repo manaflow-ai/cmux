@@ -325,6 +325,38 @@ import Testing
     #expect(vt.contains("\u{1B}]12;rgb:ff/ee/dd\u{1B}\\"))
 }
 
+@Test func renderGridFullSnapshotRestoresThemeColorsAndPalette() throws {
+    let palette = (0..<TerminalTheme.paletteCount).map { index in
+        String(format: "#%02x%02x%02x", index, index + 1, index + 2)
+    }
+    let theme = TerminalTheme(
+        background: "#102030",
+        foreground: "#AABBCC",
+        cursor: "#FFEEDD",
+        cursorText: "#000000",
+        selectionBackground: "#334455",
+        selectionForeground: "#DDEEFF",
+        palette: palette
+    )
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 1,
+        columns: 4,
+        rows: 1,
+        rowSpans: [],
+        terminalTheme: theme
+    )
+
+    let vt = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))
+    #expect(vt.contains("\u{1B}]10;rgb:aa/bb/cc\u{1B}\\"))
+    #expect(vt.contains("\u{1B}]11;rgb:10/20/30\u{1B}\\"))
+    #expect(vt.contains("\u{1B}]12;rgb:ff/ee/dd\u{1B}\\"))
+    #expect(vt.contains("\u{1B}]17;rgb:33/44/55\u{1B}\\"))
+    #expect(vt.contains("\u{1B}]19;rgb:dd/ee/ff\u{1B}\\"))
+    #expect(vt.contains("\u{1B}]4;0;rgb:00/01/02\u{1B}\\"))
+    #expect(vt.contains("\u{1B}]4;15;rgb:0f/10/11\u{1B}\\"))
+}
+
 @Test func renderGridEncodesFullStateFields() throws {
     let frame = try MobileTerminalRenderGridFrame(
         surfaceID: "terminal-a",
@@ -338,6 +370,7 @@ import Testing
             .init(code: 20, ansi: true, on: false),
         ],
         terminalForeground: "#010203",
+        terminalTheme: .monokai,
         scrollbackRows: 1,
         scrollbackSpans: [.init(row: 0, column: 0, text: "sb")]
     )
@@ -352,6 +385,7 @@ import Testing
     #expect(decoded.scrollbackRows == 1)
     #expect(decoded.scrollbackSpans == [.init(row: 0, column: 0, text: "sb")])
     #expect(decoded.terminalForeground == "#010203")
+    #expect(decoded.terminalTheme == .monokai)
 }
 
 @Test func renderGridDeltaDropsFullStateFields() throws {
@@ -365,6 +399,7 @@ import Testing
         rowSpans: [.init(row: 1, column: 0, text: "x")],
         activeScreen: .alternate,
         modes: [.init(code: 1000, ansi: false, on: true)],
+        terminalTheme: .monokai,
         scrollbackRows: 3,
         scrollbackSpans: [.init(row: 0, column: 0, text: "sb")]
     )
@@ -373,6 +408,7 @@ import Testing
     // replay modes; it only clears and repaints its changed rows.
     #expect(frame.scrollbackRows == 0)
     #expect(frame.scrollbackSpans.isEmpty)
+    #expect(frame.terminalTheme == nil)
     let vt = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))
     #expect(!vt.contains("\u{1B}c"))
     #expect(!vt.contains("\u{1B}[?1049h"))

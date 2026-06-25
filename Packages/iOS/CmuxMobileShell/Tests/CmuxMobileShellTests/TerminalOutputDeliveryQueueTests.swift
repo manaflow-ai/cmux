@@ -41,6 +41,109 @@ import Testing
     #expect(String(decoding: secondChunk.data, as: UTF8.self) == "new-second")
 }
 
+@MainActor
+@Test func renderGridDeliveryUpdatesActiveTerminalTheme() throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = try #require(store.selectedTerminalID?.rawValue)
+    _ = store.terminalOutputStream(surfaceID: surfaceID)
+    let theme = TerminalTheme(
+        background: "#102030",
+        foreground: "#f0f1f2",
+        cursor: "#abcdef",
+        cursorText: "#102030",
+        selectionBackground: "#334455",
+        selectionForeground: "#ffffff",
+        palette: TerminalTheme.monokai.palette
+    )
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: 1,
+        columns: 4,
+        rows: 1,
+        rowSpans: [],
+        terminalTheme: theme
+    )
+
+    store.deliverTerminalRenderGrid(frame, surfaceID: surfaceID)
+
+    #expect(store.activeTerminalTheme == theme)
+}
+
+@MainActor
+@Test func renderGridDeliveryKeepsNonSelectedThemeScopedToSurface() throws {
+    let store = MobileShellComposite.preview()
+    let selectedSurfaceID = try #require(store.selectedTerminalID?.rawValue)
+    let otherSurfaceID = "background-terminal"
+    let selectedTheme = TerminalTheme(
+        background: "#102030",
+        foreground: "#f0f1f2",
+        cursor: "#abcdef",
+        cursorText: "#102030",
+        selectionBackground: "#334455",
+        selectionForeground: "#ffffff",
+        palette: TerminalTheme.monokai.palette
+    )
+    let otherTheme = TerminalTheme(
+        background: "#201030",
+        foreground: "#e0e1e2",
+        cursor: "#fedcba",
+        cursorText: "#201030",
+        selectionBackground: "#443355",
+        selectionForeground: "#eeeeee",
+        palette: TerminalTheme.monokai.palette
+    )
+    let selectedFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: selectedSurfaceID,
+        stateSeq: 1,
+        columns: 4,
+        rows: 1,
+        rowSpans: [],
+        terminalTheme: selectedTheme
+    )
+    let otherFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: otherSurfaceID,
+        stateSeq: 1,
+        columns: 4,
+        rows: 1,
+        rowSpans: [],
+        terminalTheme: otherTheme
+    )
+
+    store.deliverTerminalRenderGrid(selectedFrame, surfaceID: selectedSurfaceID)
+    store.deliverTerminalRenderGrid(otherFrame, surfaceID: otherSurfaceID)
+
+    #expect(store.activeTerminalTheme == selectedTheme)
+}
+
+@MainActor
+@Test func selectedThemeFallsBackWhenSurfaceThemeCacheIsRemoved() throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = try #require(store.selectedTerminalID?.rawValue)
+    let theme = TerminalTheme(
+        background: "#102030",
+        foreground: "#f0f1f2",
+        cursor: "#abcdef",
+        cursorText: "#102030",
+        selectionBackground: "#334455",
+        selectionForeground: "#ffffff",
+        palette: TerminalTheme.monokai.palette
+    )
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: 1,
+        columns: 4,
+        rows: 1,
+        rowSpans: [],
+        terminalTheme: theme
+    )
+
+    store.deliverTerminalRenderGrid(frame, surfaceID: surfaceID)
+    store.terminalThemesBySurfaceID.removeValue(forKey: surfaceID)
+    store.applySelectedTerminalTheme()
+
+    #expect(store.activeTerminalTheme == .monokai)
+}
+
 @Test func terminalOutputQueueCoalescesReplaceableViewportFramesBehindBackpressure() {
     var queue = TerminalOutputDeliveryQueue()
     let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)

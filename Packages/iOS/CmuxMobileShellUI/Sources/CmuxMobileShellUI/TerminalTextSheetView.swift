@@ -16,10 +16,22 @@ import UIKit
 /// capped to `TerminalTextSnapshot.defaultLineBudget` lines, with a banner
 /// when older lines were dropped.
 struct TerminalTextSheetView: View {
+    private static let captureTimeout: Duration = .seconds(3)
+
     /// The shell-level surface/terminal id whose text the sheet shows — the
     /// terminal selected in the workspace that opened it. Nil when the
     /// workspace has no terminal; the sheet then shows its empty state.
     let surfaceID: String?
+
+    /// The capture started by `openTextSheetFromMenu` the instant the menu item
+    /// was tapped, while the terminal surface was still fully window-attached.
+    /// Preferred over re-resolving from the registry inside `.task`: by the time
+    /// the sheet's `.task` runs the presenter's window/alpha may have dropped,
+    /// and the registry pick is visibility-scoped, so a late resolve could miss
+    /// the live surface and show the empty state. The sheet just awaits this.
+    /// Nil falls back to a fresh resolve so the path still works if the capture
+    /// was never armed.
+    let capture: Task<String?, Never>?
 
     @Environment(\.dismiss) private var dismiss
 
@@ -27,6 +39,7 @@ struct TerminalTextSheetView: View {
     /// read is in flight.
     @State private var snapshot: TerminalTextSnapshot?
     @State private var isLoading = true
+    @State private var errorMessage: String?
     /// Flips the Copy All label to a checkmark after a copy. Reset is the next
     /// presentation (fresh `@State`), so no timer is needed.
     @State private var didCopy = false
@@ -63,6 +76,13 @@ struct TerminalTextSheetView: View {
         } else if isLoading {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let errorMessage {
+            Text(errorMessage)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityIdentifier("MobileTerminalTextSheetError")
         } else {
             Text(L10n.string(
                 "mobile.textSheet.empty",
@@ -107,11 +127,34 @@ struct TerminalTextSheetView: View {
     }
 
     private func loadSnapshot() async {
-        guard let surfaceID else {
+        errorMessage = nil
+        // Prefer the capture armed at tap time (surface still fully on screen).
+        // Only fall back to a fresh resolve when no capture was provided, which
+        // re-resolves from the registry and can miss the live surface if the
+        // sheet's presentation dropped the presenter's window/alpha.
+        let captureTask: Task<String?, Never>
+        if let existingCapture = capture {
+            captureTask = existingCapture
+        } else {
+            guard let surfaceID else {
+                isLoading = false
+                return
+            }
+            captureTask = await GhosttySurfaceView.copyableTerminalTextCapture(surfaceID: surfaceID)
+        }
+
+        let outcome = await awaitCapture(captureTask)
+        guard !Task.isCancelled else { return }
+        let fullText: String?
+        if outcome.timedOut {
+            errorMessage = L10n.string(
+                "mobile.textSheet.timeout",
+                defaultValue: "Terminal text took too long to load. Close this sheet and try again."
+            )
             isLoading = false
             return
         }
-        let fullText = await GhosttySurfaceView.copyableTerminalText(surfaceID: surfaceID)
+        fullText = outcome.text
         // Cap off the main actor: the capture is bounded by the iOS surface's
         // scrollback-limit (~2MB, see applyiOSDefaults), but splitting and
         // rejoining even that much text is O(content) string work that would
@@ -121,6 +164,37 @@ struct TerminalTextSheetView: View {
         }.value
         snapshot = capped
         isLoading = false
+    }
+
+    private func awaitCapture(_ capture: Task<String?, Never>) async -> (timedOut: Bool, text: String?) {
+        let state = TerminalTextCaptureRaceState()
+        return await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { continuation in
+                let waiter = Task.detached(priority: .userInitiated) {
+                    let text = await capture.value
+                    await state.finish(timedOut: false, text: text)
+                }
+                let timer = Task.detached(priority: .userInitiated) {
+                    do {
+                        try await ContinuousClock().sleep(for: Self.captureTimeout)
+                    } catch {
+                        return
+                    }
+                    await state.finish(timedOut: true, text: nil)
+                    capture.cancel()
+                }
+                Task {
+                    await state.install(continuation: continuation)
+                    await state.setWaiter(waiter)
+                    await state.setTimer(timer)
+                }
+            }
+        }, onCancel: {
+            capture.cancel()
+            Task {
+                await state.cancel()
+            }
+        })
     }
 
     private func copyAll() {

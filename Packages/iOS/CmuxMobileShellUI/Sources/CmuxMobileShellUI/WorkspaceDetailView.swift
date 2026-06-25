@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxAgentChat
 import CmuxMobileBrowser
 import CmuxMobileDiagnostics
@@ -37,6 +38,7 @@ struct WorkspaceDetailView: View {
     /// the top-bar menu. Owned here (not in the menu builder) so the dialog stays
     /// attached to the detail view across menu open/close cycles.
     @State private var isConfirmingClose = false
+    @State private var terminalPalette = TerminalPalette()
     #if canImport(UIKit)
     @State private var isFeedbackComposerPresented = false
     @State private var feedbackText = ""
@@ -56,6 +58,15 @@ struct WorkspaceDetailView: View {
     /// workspace selection changes underneath it (e.g. Mac-side sync) while
     /// the sheet is open; the sheet loads its snapshot once per presentation.
     @State private var textSheetSurfaceID: String?
+    /// The "View as Text" capture, kicked off the instant the menu item is
+    /// tapped — while the terminal surface is still fully window-attached and
+    /// visible — rather than from the sheet's own `.task`. Presenting a sheet
+    /// can briefly drop the presenter's window/alpha, and the registry pick is
+    /// visibility-scoped, so re-resolving the surface after presentation could
+    /// miss the one live surface and show the empty state. Resolving at tap time
+    /// captures the surface (and FIFO-orders its queued read) before any of that
+    /// can happen; the sheet just awaits the result.
+    @State private var textSheetCapture: Task<String?, Never>?
     /// Chat-mode toggle: when on (and a session exists) the detail renders
     /// the agent chat inline in place of the terminal. The toolbar button
     /// flips this; there is no cover and no Done button.
@@ -303,6 +314,8 @@ struct WorkspaceDetailView: View {
                     surfaceID: terminalID,
                     store: store,
                     fontSize: MobileTerminalFontPreference.defaultSize,
+                    terminalTheme: store.activeTerminalTheme,
+                    terminalPalette: terminalPalette,
                     // While the composer is presented the terminal input proxy
                     // must not grab first responder on attach. This covers both
                     // composer states: mid-compose (the field owns the keyboard
@@ -326,7 +339,7 @@ struct WorkspaceDetailView: View {
                     store.consumeTerminalAutoFocusSuppression(for: terminalID)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .background(TerminalPalette.background)
+                .background(terminalPalette.background)
                 // The surface positions its grid + docked toolbar from
                 // `keyboardHeight` directly, so opt out of SwiftUI keyboard
                 // avoidance; otherwise the view ALSO shrinks for the keyboard
@@ -341,11 +354,11 @@ struct WorkspaceDetailView: View {
                 // floats over it.
                 .padding(.top, terminalTopPadding)
             } else {
-                TerminalPalette.background
+                terminalPalette.background
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
             #else
-            TerminalPalette.background
+            terminalPalette.background
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             #endif
         }
@@ -407,16 +420,23 @@ struct WorkspaceDetailView: View {
             // Fill the whole window, including under the translucent nav bar, so
             // the glass tints the terminal's own dark color rather than the page
             // background.
-            TerminalPalette.background
+            terminalPalette.background
                 .ignoresSafeArea(.container, edges: [.horizontal, .top, .bottom])
         }
         #else
-        .background(TerminalPalette.background)
+        .background(terminalPalette.background)
         #endif
         .navigationTitle(workspace.name)
         .mobileTerminalNavigationChrome()
+        .environment(terminalPalette)
         #if os(iOS)
         .task(id: chatRefreshKey) { await refreshChatSessions() }
+        .onAppear {
+            applyTerminalTheme(store.activeTerminalTheme)
+        }
+        .onChange(of: store.activeTerminalTheme) { _, theme in
+            applyTerminalTheme(theme)
+        }
         #endif
         .toolbar {
             #if os(iOS)
@@ -441,8 +461,8 @@ struct WorkspaceDetailView: View {
         .sheet(isPresented: $isFeedbackComposerPresented) {
             feedbackComposer
         }
-        .sheet(isPresented: $isTextSheetPresented) {
-            TerminalTextSheetView(surfaceID: textSheetSurfaceID)
+        .sheet(isPresented: $isTextSheetPresented, onDismiss: { textSheetCapture = nil }) {
+            TerminalTextSheetView(surfaceID: textSheetSurfaceID, capture: textSheetCapture)
         }
         .workspaceRenameDialog(
             isPresented: $isRenamePresented,
@@ -459,6 +479,11 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
+    private func applyTerminalTheme(_ theme: TerminalTheme) {
+        terminalPalette.setTheme(theme)
+        GhosttyRuntime.setTheme(theme)
+    }
+
     /// A nav-bar title on its own Liquid Glass capsule (iOS 26+) so it stays
     /// readable over the pane showing through the cleared header bar. On iOS 18
     /// the bar keeps a material background, so `mobileGlassNavigationTitle` is a
@@ -468,7 +493,7 @@ struct WorkspaceDetailView: View {
             .font(.headline)
             .lineLimit(1)
             .truncationMode(.tail)
-            .foregroundStyle(TerminalPalette.foreground)
+            .foregroundStyle(terminalPalette.foreground)
             // Centered principal item: cap it to the clear center gap so a long
             // name truncates instead of underlapping the bar buttons, but reserve
             // only the actual side clusters (not a flat 300pt) so the middle grows
@@ -486,7 +511,7 @@ struct WorkspaceDetailView: View {
             Label(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"), systemImage: "plus.square.on.square")
                 .labelStyle(.iconOnly)
         }
-        .foregroundStyle(TerminalPalette.foreground)
+        .foregroundStyle(terminalPalette.foreground)
         .disabled(!canCreateWorkspace)
         .accessibilityIdentifier("MobileTerminalNewWorkspaceButton")
     }
@@ -511,7 +536,7 @@ struct WorkspaceDetailView: View {
             )
             .labelStyle(.iconOnly)
         }
-        .foregroundStyle(TerminalPalette.foreground)
+        .foregroundStyle(terminalPalette.foreground)
         .accessibilityIdentifier("MobileTerminalDropdown")
         .accessibilityValue(host)
     }
@@ -648,8 +673,19 @@ struct WorkspaceDetailView: View {
 
     /// Opens the "View as Text" sheet: the terminal's content as selectable
     /// plain text, because the render surface itself has no copy affordance.
+    @MainActor
     private func openTextSheetFromMenu() {
-        textSheetSurfaceID = selectedTerminal?.id.rawValue
+        let surfaceID = selectedTerminal?.id.rawValue
+        textSheetSurfaceID = surfaceID
+        // Resolve + read NOW, on the main actor, while the terminal surface is
+        // still fully on screen. `copyableTerminalTextCapture` does its
+        // visibility-scoped registry pick and FIFO-enqueues the off-main read
+        // synchronously before returning the awaitable, so the surface can never
+        // be filtered out by a window/alpha drop that the sheet's own presentation
+        // would cause.
+        textSheetCapture = surfaceID.map { id in
+            GhosttySurfaceView.copyableTerminalTextCapture(surfaceID: id)
+        }
         isTextSheetPresented = true
     }
 

@@ -6,6 +6,7 @@ import CmuxSettings
 final class FakeWorkspaceControlCommandContext: ControlCommandContext {
     var listResolution: ControlWorkspaceListResolution = .tabManagerUnavailable
     var currentResolution: ControlWorkspaceCurrentResolution = .tabManagerUnavailable
+    var closeResolution: ControlWorkspaceCloseResolution = .tabManagerUnavailable
     var addWorkspaceToGroupResolution: ControlWorkspaceGroupAddResolution = .tabManagerUnavailable
     var addWorkspaceToGroupCall: (
         groupID: UUID,
@@ -29,6 +30,7 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
     func controlWorkspaceStrings() -> ControlWorkspaceStrings {
         ControlWorkspaceStrings(
             closeProtected: "close protected",
+            closeBlocked: "close blocked",
             reorderManyMissingOrder: "missing order",
             reorderManyDuplicateWorkspace: "duplicate workspace",
             reorderManyWorkspaceNotFound: "workspace not found",
@@ -47,6 +49,13 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
 
     func controlWorkspaceCurrent(routing: ControlRoutingSelectors) -> ControlWorkspaceCurrentResolution {
         currentResolution
+    }
+
+    func controlCloseWorkspace(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID
+    ) -> ControlWorkspaceCloseResolution {
+        closeResolution
     }
 
     func controlAddWorkspaceToGroup(

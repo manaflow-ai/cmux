@@ -75,20 +75,110 @@ extension MobileShellComposite {
         )
     }
 
-    /// Close a workspace on the Mac.
+    /// Close a workspace on the Mac with an optimistic UI update.
     ///
-    /// Sends the mutation to the Mac, then re-syncs from the authoritative
-    /// workspace list. If the Mac rejects the close, for example because it is
-    /// the last workspace, the refresh restores the row state on iOS.
+    /// The row is removed from the local list immediately so the close feels
+    /// instant, then the mutation is sent and the authoritative list re-synced.
+    /// While the close is unconfirmed the id is filtered out of every applied
+    /// snapshot (see ``optimisticallyClosedWorkspaces``), so a stale list fetched
+    /// before the Mac processed the close cannot resurrect the row, and the real
+    /// confirmation cannot double-remove it. If the transport call fails (offline
+    /// or a rejected close, e.g. the last workspace) the row is restored before
+    /// the re-sync so iOS snaps back to the Mac's real state.
     /// - Parameter id: The workspace to close.
     public func closeWorkspace(id: MobileWorkspacePreview.ID) async {
         guard workspaceActionCapabilities(for: id).supportsCloseActions else { return }
-        await sendWorkspaceMutation(
-            method: "workspace.close",
-            params: workspaceMutationParams(id: id),
-            id: id,
-            actionName: "close"
-        )
+        let params = workspaceMutationParams(id: id)
+        let target = workspaceMutationTarget(for: id)
+        let removed = applyOptimisticWorkspaceClose(id: id)
+        guard let client = target.client else {
+            if removed { rollbackOptimisticWorkspaceClose(id: id) }
+            await refreshWorkspaces()
+            return
+        }
+        do {
+            let request = try MobileCoreRPCClient.requestData(
+                method: "workspace.close",
+                params: params
+            )
+            let response = try await client.sendRequest(request)
+            if removed, !workspaceCloseResponseConfirmsClosed(response) {
+                rollbackOptimisticWorkspaceClose(id: id)
+            }
+        } catch {
+            if removed { rollbackOptimisticWorkspaceClose(id: id) }
+            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
+            if target.isForeground {
+                markMacConnectionUnavailableIfNeeded(after: error)
+            }
+            mobileShellLog.error("workspace mutation failed action=close id=\(id.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
+        }
+        await refreshAfterWorkspaceMutation(target)
+    }
+
+    /// Remove a workspace from the local list immediately and record its snapshot
+    /// for rollback. Returns `true` when a row was actually removed (so the caller
+    /// only rolls back what it removed). Reselects a neighbor if the closed
+    /// workspace was selected, matching the Mac's "select an adjacent tab" behavior.
+    /// - Parameter id: The workspace to remove optimistically.
+    /// - Returns: Whether a workspace was present and removed.
+    @discardableResult
+    func applyOptimisticWorkspaceClose(id: MobileWorkspacePreview.ID) -> Bool {
+        guard let index = workspaces.firstIndex(where: { $0.id == id }) else {
+            return false
+        }
+        let snapshot = workspaces[index]
+        optimisticallyClosedWorkspaces[id] = snapshot
+        let wasSelected = selectedWorkspaceID == id
+        if wasSelected {
+            optimisticallyClosedSelectedWorkspaceIDs.insert(id)
+        } else {
+            optimisticallyClosedSelectedWorkspaceIDs.remove(id)
+        }
+        if wasSelected {
+            // Prefer the workspace that slid into the closed row's position, then
+            // the previous neighbor, then any remaining workspace.
+            let remaining = workspaces.filter { $0.id != id }
+            let next: MobileWorkspacePreview?
+            if index < remaining.count {
+                next = remaining[index]
+            } else if index - 1 >= 0, index - 1 < remaining.count {
+                next = remaining[index - 1]
+            } else {
+                next = remaining.first
+            }
+            selectedWorkspaceID = next?.id
+            optimisticallyClosedReplacementSelections[id] = next?.id
+        }
+        recomputeDerivedWorkspaceState()
+        if wasSelected {
+            syncSelectedTerminalForWorkspace()
+        }
+        return true
+    }
+
+    /// Restore an optimistically-closed workspace after a failed close, and drop
+    /// its pending entry so the source-derived workspace list can show the row
+    /// again.
+    /// - Parameter id: The workspace whose close failed.
+    func rollbackOptimisticWorkspaceClose(id: MobileWorkspacePreview.ID) {
+        guard optimisticallyClosedWorkspaces.removeValue(forKey: id) != nil else {
+            return
+        }
+        let wasSelected = optimisticallyClosedSelectedWorkspaceIDs.remove(id) != nil
+        let replacementSelection = optimisticallyClosedReplacementSelections.removeValue(forKey: id)
+        recomputeDerivedWorkspaceState()
+        let shouldRestoreSelection = selectedWorkspaceID == nil
+            || (wasSelected && selectedWorkspaceID == replacementSelection)
+        if shouldRestoreSelection, workspaces.contains(where: { $0.id == id }) {
+            selectedWorkspaceID = id
+            syncSelectedTerminalForWorkspace()
+        }
+    }
+
+    func workspaceCloseResponseConfirmsClosed(_ data: Data) -> Bool {
+        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        return object?["closed"] as? Bool ?? true
     }
 
     private func workspaceActionCapabilities(for id: MobileWorkspacePreview.ID) -> MobileWorkspaceActionCapabilities {

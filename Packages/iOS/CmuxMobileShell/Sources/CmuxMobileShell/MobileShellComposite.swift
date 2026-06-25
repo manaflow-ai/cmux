@@ -218,6 +218,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Bumped on every ``workspaces`` mutation: a cheap "lists may have
     /// changed" signal (e.g. for retrying a parked notification deep link).
     public private(set) var workspaceTopologyVersion: UInt64 = 0
+    /// Workspaces removed optimistically on close, keyed by row id, with the
+    /// snapshot captured at removal so a rejected close can roll back the row.
+    ///
+    /// An id stays here only while its close is unconfirmed: every applied remote
+    /// list filters these ids out, and the id is dropped the moment an
+    /// authoritative list confirms the workspace is gone or the close fails.
+    var optimisticallyClosedWorkspaces: [MobileWorkspacePreview.ID: MobileWorkspacePreview] = [:]
+    var optimisticallyClosedSelectedWorkspaceIDs: Set<MobileWorkspacePreview.ID> = []
+    var optimisticallyClosedReplacementSelections: [MobileWorkspacePreview.ID: MobileWorkspacePreview.ID] = [:]
+
     /// The group sections the UI renders. A materialized derivation of
     /// ``workspacesByMac`` (currently the foreground Mac's groups). Each group's
     /// `isCollapsed` reflects this device's choice (see ``groupCollapseStore``),
@@ -451,6 +461,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             swapDraft(from: draftedOutgoingTerminalID, outgoingText: draftedOutgoingText, to: selectedTerminalID)
             draftedOutgoingTerminalID = nil
             draftedOutgoingText = ""
+            applySelectedTerminalTheme()
             // Switching terminals rebuilds the surface (and the composer view with
             // it). When the user was actively composing — the field held first
             // responder at the moment of the switch — ask the incoming terminal's
@@ -690,6 +701,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalScrollQueueTokensBySurfaceID: [String: UUID]
     var terminalScrollQueuesBySurfaceID: [String: TerminalScrollDeliveryQueue]
     var terminalScrollbackPrefetchStatesBySurfaceID: [String: TerminalScrollbackPrefetchState]
+    var terminalThemesBySurfaceID: [String: TerminalTheme]
+    /// The selected terminal surface's current color theme for SwiftUI chrome.
+    public internal(set) var activeTerminalTheme: TerminalTheme
     /// Per-surface continuations for the Mac-pushed live font-size signal. A
     /// mounted surface obtains ``terminalLiveFontStream(surfaceID:)`` and applies
     /// each yielded point size; the Mac emits `terminal.set_font` to drive a live
@@ -741,7 +755,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaces.first { workspaceMatchesRemoteID($0, remoteID: remoteID, macDeviceID: macDeviceID) }?.id
     }
 
-    private func workspaceMatchesRemoteID(
+    func workspaceMatchesRemoteID(
         _ workspace: MobileWorkspacePreview,
         remoteID: MobileWorkspacePreview.ID,
         macDeviceID: String?
@@ -872,6 +886,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalScrollQueueTokensBySurfaceID = [:]
         self.terminalScrollQueuesBySurfaceID = [:]
         self.terminalScrollbackPrefetchStatesBySurfaceID = [:]
+        self.terminalThemesBySurfaceID = [:]
+        self.activeTerminalTheme = .monokai
         self.terminalLiveFontContinuationsBySurfaceID = [:]
         self.terminalLiveFontTokensBySurfaceID = [:]
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
@@ -896,6 +912,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// Creates a preview-backed shell store with fixture workspaces and an optional runtime.
     public static func preview(runtime: (any MobileSyncRuntime)? = nil) -> CMUXMobileShellStore {
         CMUXMobileShellStore(
             runtime: runtime,
@@ -3086,6 +3103,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
             )
             let response = try MobileSyncWorkspaceListResponse.decode(resultData)
+            reconcileOptimisticClosures(against: response, macDeviceID: macDeviceID)
             return response.workspaces.map { remote in
                 var workspace = MobileWorkspacePreview(remote: remote)
                 workspace.macDeviceID = macDeviceID
@@ -3424,7 +3442,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Recompute the derived ``workspaces`` / ``workspaceGroups`` from the per-Mac
     /// source of truth. Pure and cheap; the only place those two are assigned,
     /// called on any ``workspacesByMac`` or foreground change.
-    private func recomputeDerivedWorkspaceState() {
+    func recomputeDerivedWorkspaceState() {
         let previousSelection = selectedWorkspaceID.flatMap { id in
             workspaces.first { $0.id == id }
         }
@@ -3438,6 +3456,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         var derived = workspaceAggregation.derivedWorkspaces(
             statesByMac: workspacesByMac, foregroundMacDeviceID: foregroundKey)
+        if !optimisticallyClosedWorkspaces.isEmpty {
+            derived.removeAll { workspace in
+                optimisticallyClosedWorkspaces.values.contains {
+                    pendingOptimisticClose(
+                        $0,
+                        matchesRemoteID: workspace.rpcWorkspaceID,
+                        macDeviceID: workspace.macDeviceID
+                    )
+                }
+            }
+        }
         // Stamp per-Mac user color/icon overrides from pairedMacs so every
         // workspace avatar matches its computer's customization (same place the
         // aggregation already assigned the automatic color index).
@@ -3471,8 +3500,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             self.selectedWorkspaceID = remapped?.id ?? derived.first?.id
         }
+        let visibleWorkspaceIDs = Set(workspaces.map(\.id))
         workspaceGroups = workspaceAggregation.derivedGroups(
-            statesByMac: workspacesByMac, foregroundMacDeviceID: foregroundKey)
+            statesByMac: workspacesByMac,
+            foregroundMacDeviceID: foregroundKey
+        ).filter { visibleWorkspaceIDs.contains($0.anchorWorkspaceID) }
     }
 
     /// Set the user's per-Mac customizations (name / color / icon), persist them
@@ -4839,6 +4871,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalScrollQueueTokensBySurfaceID = [:]
         terminalScrollQueuesBySurfaceID = [:]
         terminalScrollbackPrefetchStatesBySurfaceID = [:]
+        terminalThemesBySurfaceID = [:]
+        activeTerminalTheme = .monokai
         terminalOutputTransport = .rawBytes
         supportedHostCapabilities = []
         terminalSubscriptionRefreshTask?.cancel()
@@ -5141,7 +5175,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         markMacConnectionUnavailable()
     }
 
-    private func syncSelectedTerminalForWorkspace() {
+    func syncSelectedTerminalForWorkspace() {
         guard let selectedWorkspace else {
             selectedTerminalID = nil
             return
@@ -6238,6 +6272,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalScrollbackPrefetchStatesBySurfaceID.removeValue(forKey: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        terminalThemesBySurfaceID.removeValue(forKey: surfaceID)
+        if selectedTerminalID?.rawValue == surfaceID {
+            applySelectedTerminalTheme()
+        }
         // Tell the Mac this device is no longer viewing the surface so it stops
         // pinning the shared grid to our viewport and clears the macOS border.
         clearTerminalViewport(surfaceID: surfaceID)
@@ -6688,7 +6726,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         mergeExistingWorkspaces: Bool = false,
         groupsAreAuthoritative: Bool = true
     ) {
-        let remoteWorkspaces = remoteWorkspacesPreservingSnapshots(from: response)
+        let remoteWorkspaces = remoteWorkspacesPreservingSnapshots(
+            from: response,
+            authoritativeForPendingClosures: !mergeExistingWorkspaces && groupsAreAuthoritative
+        )
         // Write the foreground Mac's per-Mac state; `workspaces` / `workspaceGroups`
         // recompute from the source of truth automatically (no explicit merge or
         // publish). Group sections are authoritative only on a full-list response:
@@ -6723,33 +6764,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         syncSelectedTerminalForWorkspace()
     }
 
-    private func remoteWorkspacesPreservingSnapshots(
-        from response: MobileSyncWorkspaceListResponse
-    ) -> [MobileWorkspacePreview] {
-        response.workspaces.map { remoteWorkspace in
-            var workspace = MobileWorkspacePreview(remote: remoteWorkspace)
-            // Tag every workspace with the Mac it came from, so the aggregated
-            // multi-Mac list can group and filter by machine (P1 of the multi-Mac
-            // work). Today there is one connected Mac, so all rows share its id.
-            workspace.macDeviceID = activeTicket?.macDeviceID
-            let foregroundMacID = foregroundMacDeviceID ?? activeTicket?.macDeviceID
-            guard let existingWorkspace = workspaces.first(where: {
-                workspaceMatchesRemoteID($0, remoteID: workspace.id, macDeviceID: foregroundMacID)
-            }) else {
-                return workspace
-            }
-            workspace.terminals = workspace.terminals.map { remoteTerminal in
-                guard let existingTerminal = existingWorkspace.terminals.first(where: { $0.id == remoteTerminal.id }) else {
-                    return remoteTerminal
-                }
-                var terminal = remoteTerminal
-                terminal.viewportFit = existingTerminal.viewportFit
-                return terminal
-            }
-            return workspace
-        }
-    }
-
     private func selectActiveTicketTargetIfAvailable() -> Bool {
         guard let activeTicket else {
             return false
@@ -6771,7 +6785,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     func disconnectForAuthorizationFailureIfNeeded(_ error: any Error) -> Bool {
-        guard Self.shouldDisconnectForAuthorizationFailure(error) else {
+        guard MobileShellAuthorizationFailureClassifier().shouldDisconnect(for: error) else {
             return false
         }
         let category = MobilePairingFailureCategory.classify(error: error, route: activeRoute)
@@ -6792,30 +6806,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // also route through here never emit `ios_pairing_failed`.
         recordPairingFailed(reason: category.analyticsReason, phase: "auth")
         return true
-    }
-
-    private static func shouldDisconnectForAuthorizationFailure(_ error: any Error) -> Bool {
-        guard let connectionError = error as? MobileShellConnectionError else {
-            return false
-        }
-        switch connectionError {
-        case .attachTicketExpired, .authorizationFailed, .accountMismatch, .insecureManualRoute:
-            return true
-        case let .rpcError(code, message):
-            let normalizedCode = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            if let normalizedCode,
-               ["unauthorized", "forbidden", "invalid_token", "token_expired", "expired_token", "auth_required"].contains(normalizedCode) {
-                return true
-            }
-            let normalizedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            return normalizedMessage.contains("unauthorized")
-                || normalizedMessage.contains("forbidden")
-                || normalizedMessage.contains("invalid token")
-                || normalizedMessage.contains("expired token")
-                || normalizedMessage.contains("token expired")
-        case .invalidResponse, .connectionClosed, .requestTimedOut:
-            return false
-        }
     }
 
     private func applyPreviewTicket(_ ticket: CmxAttachTicket, route: CmxAttachRoute) {
