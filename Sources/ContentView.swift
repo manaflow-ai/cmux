@@ -13444,18 +13444,6 @@ struct TabItemView: View, Equatable {
                     .frame(width: scaledUnreadBadgeSize, height: scaledUnreadBadgeSize)
                 }
 
-                if showsAgentActivity, !settings.hidesAllDetails, workspaceSnapshot.activeCodingAgentCount > 0 {
-                    SidebarAgentActivityIndicator(
-                        count: workspaceSnapshot.activeCodingAgentCount,
-                        spinnerColor: activeCodingAgentSpinnerNSColor,
-                        foregroundColor: activeSecondaryColor(0.92),
-                        backgroundColor: activeSecondaryColor(0.14),
-                        fontScale: fontScale
-                    )
-                    .safeHelp(activeCodingAgentTooltip)
-                    .accessibilityLabel(Text(activeCodingAgentTooltip))
-                }
-
                 if workspaceSnapshot.isPinned {
                     Image(systemName: "pin.fill")
                         .font(magnifiedFont(scaledFontSize(9), weight: .semibold))
@@ -13511,6 +13499,18 @@ struct TabItemView: View, Equatable {
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)
+
+                // Loading spinner on the trailing edge of the row. Just the
+                // spinner (no count badge); shown while any coding agent or
+                // manual `cmux workspace loading` loader is running.
+                if showsAgentActivity, !settings.hidesAllDetails, workspaceSnapshot.activeCodingAgentCount > 0 {
+                    SidebarAgentActivityIndicator(
+                        spinnerColor: activeCodingAgentSpinnerNSColor,
+                        fontScale: fontScale
+                    )
+                    .safeHelp(activeCodingAgentTooltip)
+                    .accessibilityLabel(Text(activeCodingAgentTooltip))
+                }
 
                 // The close button is a sibling that always reserves its width
                 // when the workspace is closable, so the title wraps/truncates
