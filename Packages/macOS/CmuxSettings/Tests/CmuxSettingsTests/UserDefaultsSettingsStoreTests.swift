@@ -151,6 +151,32 @@ struct UserDefaultsSettingsStoreTests {
         #expect(external?.mutationSource == nil)
     }
 
+    @Test func valueEventsDoNotTagWritesBeforeStreamCreation() async {
+        let (store, catalog) = makeStore()
+        let key = catalog.app.appearance
+        let source = UserDefaultsSettingsMutationSource()
+        await store.set(.dark, for: key, source: source)
+
+        var iterator = store.valueEvents(for: key).makeAsyncIterator()
+        let initial = await iterator.next()
+        #expect(initial?.value == .dark)
+        #expect(initial?.mutationSource == nil)
+    }
+
+    @Test func valueEventsTagWritesAfterStreamCreationBeforeFirstRead() async {
+        let (store, catalog) = makeStore()
+        let key = catalog.app.appearance
+        let stream = store.valueEvents(for: key)
+
+        let source = UserDefaultsSettingsMutationSource()
+        await store.set(.dark, for: key, source: source)
+
+        var iterator = stream.makeAsyncIterator()
+        let initial = await iterator.next()
+        #expect(initial?.value == .dark)
+        #expect(initial?.mutationSource == source)
+    }
+
     @Test func valueEventsDeliverMutationSourceToEveryActiveObserver() async {
         let (store, catalog) = makeStore()
         let key = catalog.app.appearance
