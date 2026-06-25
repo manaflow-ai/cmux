@@ -32,6 +32,16 @@ struct BrowserSSLTrustBypassStateTests {
     }
 
     @Test
+    func errorPageRetryURLAllowsOnlyWebURLs() throws {
+        let retryURL = try #require(BrowserErrorPage.retryURL(from: "https://self-signed.internal/path"))
+        #expect(retryURL.absoluteString == "https://self-signed.internal/path")
+
+        #expect(BrowserErrorPage.retryURL(from: "file:///tmp/cert.html") == nil)
+        #expect(BrowserErrorPage.retryURL(from: "cmux-browser-action://bypass-ssl?token=abc") == nil)
+        #expect(BrowserErrorPage.retryURL(from: "https:missing-host") == nil)
+    }
+
+    @Test
     func pendingBypassRequiresHTTPSRequest() throws {
         let state = BrowserSSLTrustBypassState()
         let httpURL = try #require(URL(string: "http://example.internal"))
