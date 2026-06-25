@@ -103,6 +103,8 @@ struct WorkspaceListView: View {
     @State private var workspacePendingCloseID: MobileWorkspacePreview.ID?
     @State var computerWorkspaceCreationFailureID: String?
     @State var computerWorkspaceCreationFailureName = ""
+    @State var computerPendingDetailID: String?
+    @State var computerPendingRemoval: MacComputerSnapshot?
 
     private var trimmedQuery: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -177,8 +179,9 @@ struct WorkspaceListView: View {
             WorkspaceComputerStripSection(
                 computers: computerSnapshots,
                 selectedMachineIDs: filter.machines,
-                selectComputer: selectComputerInStrip,
                 createWorkspace: createWorkspaceOnComputer,
+                manageComputer: manageComputerFromStrip,
+                removeComputer: requestComputerRemovalFromStrip,
                 showAddDevice: showAddDevice
             )
             #endif
@@ -280,6 +283,18 @@ struct WorkspaceListView: View {
                 DeviceTreeView(store: store, selectWorkspace: selectWorkspace, showAddDevice: showAddDevice)
             }
         }
+        .workspaceComputerManagementPresentation(
+            store: store,
+            detailID: computerPendingDetailID,
+            detailPresented: computerDetailPresented,
+            dismissDetail: { computerPendingDetailID = nil },
+            pendingRemoval: computerPendingRemoval,
+            removalPresented: computerRemovalPresented,
+            confirmRemoval: confirmComputerRemovalFromStrip,
+            cancelRemoval: { computerPendingRemoval = nil },
+            removeTitle: removeComputerTitle(computerPendingRemoval),
+            removeMessage: removeComputerMessage(computerPendingRemoval)
+        )
         .alert(
             L10n.string(
                 "mobile.workspaces.computerStrip.createFailedTitle",

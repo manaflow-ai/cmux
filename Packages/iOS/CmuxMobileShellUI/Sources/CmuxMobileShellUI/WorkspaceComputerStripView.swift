@@ -6,8 +6,9 @@ import SwiftUI
 struct WorkspaceComputerStripView: View {
     let computers: [MacComputerSnapshot]
     let selectedMachineIDs: Set<String>
-    let selectComputer: (MacComputerSnapshot) -> Void
     let createWorkspace: (MacComputerSnapshot) -> Void
+    let manageComputer: (MacComputerSnapshot) -> Void
+    let removeComputer: (MacComputerSnapshot) -> Void
     var showAddDevice: (() -> Void)?
 
     var body: some View {
@@ -17,8 +18,9 @@ struct WorkspaceComputerStripView: View {
                     WorkspaceComputerStripItem(
                         computer: computer,
                         isSelected: !selectedMachineIDs.isDisjoint(with: computer.aliasIDSet),
-                        selectComputer: { selectComputer(computer) },
-                        createWorkspace: { createWorkspace(computer) }
+                        createWorkspace: { createWorkspace(computer) },
+                        manageComputer: { manageComputer(computer) },
+                        removeComputer: { removeComputer(computer) }
                     )
                 }
                 if let showAddDevice {

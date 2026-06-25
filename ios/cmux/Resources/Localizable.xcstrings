@@ -1072,6 +1072,23 @@
         }
       }
     },
+    "mobile.computers.manage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manage Computer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータを管理"
+          }
+        }
+      }
+    },
     "mobile.computers.auto": {
       "extractionState": "manual",
       "localizations": {
@@ -6950,6 +6967,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@、%@"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.computerStrip.itemAccessibilityHintFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@. Touch and hold to manage this computer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@。長押ししてこのコンピュータを管理します。"
           }
         }
       }

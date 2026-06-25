@@ -6,19 +6,21 @@ import SwiftUI
 struct WorkspaceComputerStripItem: View {
     let computer: MacComputerSnapshot
     let isSelected: Bool
-    let selectComputer: () -> Void
     let createWorkspace: () -> Void
+    let manageComputer: () -> Void
+    let removeComputer: () -> Void
 
     var body: some View {
         VStack(spacing: 6) {
-            ZStack(alignment: .topTrailing) {
-                Button(action: selectComputer) {
-                    ZStack(alignment: .bottomTrailing) {
-                        Circle()
-                            .fill(avatarGradient)
-                            .frame(width: 54, height: 54)
-                            .overlay(selectionRing)
+            Button(action: createWorkspace) {
+                Circle()
+                    .fill(avatarGradient)
+                    .frame(width: 54, height: 54)
+                    .overlay(selectionRing)
+                    .overlay(alignment: .center) {
                         avatarIcon
+                    }
+                    .overlay(alignment: .bottomTrailing) {
                         Circle()
                             .fill(statusColor)
                             .frame(width: 12, height: 12)
@@ -26,51 +28,54 @@ struct WorkspaceComputerStripItem: View {
                             .offset(x: -3, y: -3)
                             .accessibilityHidden(true)
                     }
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(itemAccessibilityLabel)
-                .accessibilityIdentifier("MobileWorkspaceComputerStripItem-\(computer.deviceId)")
-
-                Button(action: createWorkspace) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 22, height: 22)
-                        .background(Color.accentColor, in: Circle())
-                        .overlay(Circle().stroke(Color.black.opacity(0.65), lineWidth: 2))
-                }
-                .buttonStyle(.plain)
-                .offset(x: 6, y: -5)
-                .accessibilityLabel(String(
-                    format: L10n.string(
-                        "mobile.workspaces.computerStrip.newWorkspaceFormat",
-                        defaultValue: "New workspace on %@"
-                    ),
-                    computer.title
-                ))
-                .accessibilityIdentifier("MobileWorkspaceComputerStripNew-\(computer.deviceId)")
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel(newWorkspaceAccessibilityLabel)
+            .accessibilityHint(itemAccessibilityHint)
+            .accessibilityIdentifier("MobileWorkspaceComputerStripItem-\(computer.deviceId)")
+            .contextMenu {
+                Button {
+                    manageComputer()
+                } label: {
+                    Label(
+                        L10n.string("mobile.computers.manage", defaultValue: "Manage Computer"),
+                        systemImage: "slider.horizontal.3"
+                    )
+                }
+                Button(role: .destructive) {
+                    removeComputer()
+                } label: {
+                    Label(
+                        L10n.string("mobile.computers.remove", defaultValue: "Remove"),
+                        systemImage: "trash"
+                    )
+                }
+            }
+
             Text(computer.title)
                 .font(.caption2.weight(.semibold))
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .frame(width: 84)
-            Text(statusLabel)
-                .font(.caption2)
-                .foregroundStyle(statusColor)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-                .frame(width: 84)
         }
     }
 
-    private var itemAccessibilityLabel: String {
+    private var newWorkspaceAccessibilityLabel: String {
         String(
             format: L10n.string(
-                "mobile.workspaces.computerStrip.itemAccessibilityFormat",
-                defaultValue: "%@, %@"
+                "mobile.workspaces.computerStrip.newWorkspaceFormat",
+                defaultValue: "New workspace on %@"
             ),
-            computer.title,
+            computer.title
+        )
+    }
+
+    private var itemAccessibilityHint: String {
+        String(
+            format: L10n.string(
+                "mobile.workspaces.computerStrip.itemAccessibilityHintFormat",
+                defaultValue: "%@. Touch and hold to manage this computer."
+            ),
             statusLabel
         )
     }
@@ -105,9 +110,7 @@ struct WorkspaceComputerStripItem: View {
         switch computer.connectionStatus {
         case .connected:
             return .green
-        case .reconnecting:
-            return .orange
-        case .unavailable, nil:
+        case .reconnecting, .unavailable, nil:
             return .red
         }
     }
