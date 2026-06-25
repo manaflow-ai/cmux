@@ -73,6 +73,14 @@ final class HostSettingsActions: SettingsHostActions {
         BrowserHistoryStore.shared.clearHistory()
     }
 
+    func sleepyModePreview() {
+        SleepyModeController.shared.preview()
+    }
+
+    func sleepyModeStart() {
+        SleepyModeController.shared.activate()
+    }
+
     func openConfigInExternalEditor() {
         // Honor the user's configured editor (`preferredEditorCommand`),
         // falling back to the OS default. Opening the config file directly

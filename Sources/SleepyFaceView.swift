@@ -1,3 +1,4 @@
+import CmuxSettingsUI
 import SwiftUI
 
 /// Cute pixel-art sleeping scene for Sleepy Mode. Renders from the live
@@ -201,43 +202,52 @@ struct SleepyFaceView: View {
 
     private func drawStatus(in ctx: inout GraphicsContext, size: CGSize, pixel: CGFloat, time t: Double, color: Color) {
         let status = SleepyStatusProvider.shared.sample(at: t)
-        let cell = max(2, (pixel * 0.5).rounded())
-        var x = (size.width - 18 * cell).rounded()
+        let cell = max(2, (pixel * 0.55).rounded())
+        let margin = (size.width * 0.03).rounded()
         let y = (size.height * 0.07).rounded()
 
-        // Wifi: four ascending bars.
-        let bars = status.wifiBars
+        let batCols = 13, batRows = 7
+        let baseline = y + CGFloat(batRows) * cell
+
+        var x = (size.width - margin).rounded()
+        if let level = status.batteryLevel {
+            x -= CGFloat(batCols + 1) * cell  // body + terminal nub
+            drawBattery(in: &ctx, x: x, y: y, cell: cell, cols: batCols, rows: batRows, level: level, charging: status.charging, color: color)
+            x -= 3 * cell
+        }
+        x -= CGFloat(4 * 2 + 3) * cell
+        drawWifi(in: &ctx, x: x, baseline: baseline, cell: cell, bars: status.wifiBars, color: color)
+    }
+
+    /// Clean battery: even 1-cell border, 1-cell inner padding, level fill, nub.
+    private func drawBattery(in ctx: inout GraphicsContext, x: CGFloat, y: CGFloat, cell: CGFloat, cols: Int, rows: Int, level: Double, charging: Bool, color: Color) {
+        let frame = color.opacity(0.65)
+        func put(_ col: Int, _ row: Int, _ c: Color) {
+            ctx.fill(Path(CGRect(x: x + CGFloat(col) * cell, y: y + CGFloat(row) * cell, width: cell, height: cell)), with: .color(c))
+        }
+        // Border.
+        for col in 0..<cols { put(col, 0, frame); put(col, rows - 1, frame) }
+        for row in 0..<rows { put(0, row, frame); put(cols - 1, row, frame) }
+        // Terminal nub.
+        put(cols, rows / 2 - 1, frame); put(cols, rows / 2, frame); put(cols, rows / 2 + 1, frame)
+        // Level fill (1-cell padding inside the border).
+        let region = cols - 4
+        let filled = max(0, min(region, Int((Double(region) * level).rounded())))
+        let fillColor: Color = charging
+            ? Color(red: 0.36, green: 0.88, blue: 0.52)
+            : (level <= 0.2 ? Color(red: 1.0, green: 0.45, blue: 0.45) : color.opacity(0.95))
+        for col in 0..<filled {
+            for row in 2..<(rows - 2) { put(2 + col, row, fillColor) }
+        }
+    }
+
+    /// Clean Wi-Fi: four 2-wide ascending bars, bottom-aligned.
+    private func drawWifi(in ctx: inout GraphicsContext, x: CGFloat, baseline: CGFloat, cell: CGFloat, bars: Int?, color: Color) {
         for i in 0..<4 {
             let active = bars.map { i < $0 } ?? false
             let h = CGFloat(i + 2) * cell
-            let rect = CGRect(x: x + CGFloat(i) * (cell + 1), y: y + (5 * cell - h), width: cell, height: h)
-            ctx.fill(Path(rect), with: .color(color.opacity(active ? 0.95 : 0.22)))
-        }
-        x += 7 * cell
-
-        // Battery: outline + level fill (+ charging tint).
-        if let level = status.batteryLevel {
-            let w = 11, h = 6
-            for col in 0..<w {
-                fillStatusCell(in: &ctx, x: x, y: y, cell: cell, col: col, row: 0, color: color.opacity(0.6))
-                fillStatusCell(in: &ctx, x: x, y: y, cell: cell, col: col, row: h - 1, color: color.opacity(0.6))
-            }
-            for row in 0..<h {
-                fillStatusCell(in: &ctx, x: x, y: y, cell: cell, col: 0, row: row, color: color.opacity(0.6))
-                fillStatusCell(in: &ctx, x: x, y: y, cell: cell, col: w - 1, row: row, color: color.opacity(0.6))
-            }
-            fillStatusCell(in: &ctx, x: x, y: y, cell: cell, col: w, row: 2, color: color.opacity(0.6))
-            fillStatusCell(in: &ctx, x: x, y: y, cell: cell, col: w, row: 3, color: color.opacity(0.6))
-
-            let fillCols = Int((Double(w - 2) * level).rounded())
-            let fillColor: Color = status.charging
-                ? Color(red: 0.35, green: 0.86, blue: 0.5)
-                : (level <= 0.2 ? Color(red: 1.0, green: 0.42, blue: 0.42) : color)
-            for col in 0..<fillCols {
-                for row in 1..<(h - 1) {
-                    fillStatusCell(in: &ctx, x: x, y: y, cell: cell, col: 1 + col, row: row, color: fillColor)
-                }
-            }
+            let bx = x + CGFloat(i) * 3 * cell
+            ctx.fill(Path(CGRect(x: bx, y: baseline - h, width: cell * 2, height: h)), with: .color(color.opacity(active ? 0.95 : 0.2)))
         }
     }
 
@@ -254,10 +264,6 @@ struct SleepyFaceView: View {
             }
             x += CGFloat(widths[index] + 1) * pixel
         }
-    }
-
-    private func fillStatusCell(in ctx: inout GraphicsContext, x: CGFloat, y: CGFloat, cell: CGFloat, col: Int, row: Int, color: Color) {
-        ctx.fill(Path(CGRect(x: x + CGFloat(col) * cell, y: y + CGFloat(row) * cell, width: cell, height: cell)), with: .color(color))
     }
 
     private func drawSprite(in ctx: inout GraphicsContext, rows: [String], palette: [Character: Color], origin: CGPoint, pixel: CGFloat, alpha: Double = 1) {

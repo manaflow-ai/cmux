@@ -1,3 +1,4 @@
+import CmuxSettingsUI
 import AppKit
 import CmuxRemoteSession
 import CmuxCore
@@ -10051,7 +10052,7 @@ class TerminalController {
           set_shortcut <name> <combo|clear> - Set a keyboard shortcut (test-only)
           simulate_shortcut <combo>       - Simulate a keyDown shortcut (test-only)
           simulate_type <text>            - Insert text into the current first responder (test-only)
-          sleepy_mode <cmd> [val]         - Sleepy Mode: on|off|unlock|preview|settings|theme <t>|mascot <m>|glow <g>|toggle <k> (test-only)
+          sleepy_mode <cmd> [val]         - Sleepy Mode: on|off|unlock|preview|theme <t>|mascot <m>|glow <g>|toggle <k> (test-only)
           simulate_file_drop <id|idx> <path[|path...]> - Simulate dropping file path(s) on terminal (test-only)
           seed_drag_pasteboard_fileurl    - Seed NSDrag pasteboard with public.file-url (test-only)
           seed_drag_pasteboard_tabtransfer - Seed NSDrag pasteboard with tab transfer type (test-only)
@@ -11486,8 +11487,6 @@ class TerminalController {
                 SleepyModeController.shared.requestUnlock()
             case "preview":
                 SleepyModeController.shared.preview()
-            case "settings":
-                SleepyModeSettingsWindowController.shared.show()
             case "theme":
                 if let theme = SleepyTheme.allCases.first(where: { $0.rawValue.lowercased() == value }) { store.theme = theme }
             case "mascot":

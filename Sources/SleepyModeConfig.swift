@@ -1,37 +1,10 @@
+import CmuxSettingsUI
 import CoreWLAN
 import IOKit.ps
 import SwiftUI
 
-// MARK: - Config
-
-enum SleepyTheme: String, CaseIterable, Identifiable, Sendable {
-    case cmux, blossom, mint, mono
-    var id: String { rawValue }
-}
-
-enum SleepyMascot: String, CaseIterable, Identifiable, Sendable {
-    case cmux, cat, ghost, logoFace
-    var id: String { rawValue }
-}
-
-enum SleepyGlow: String, CaseIterable, Identifiable, Sendable {
-    case midnight, cmux, aurora, sunset, ocean
-    var id: String { rawValue }
-}
-
-/// Immutable snapshot of the user's Sleepy Mode preferences, read fresh each
-/// frame by the renderer so settings changes preview live.
-struct SleepyModeConfig: Equatable, Sendable {
-    var theme: SleepyTheme = .cmux
-    var mascot: SleepyMascot = .cmux
-    var glow: SleepyGlow = .cmux
-    var showMoon = true
-    var showStars = true
-    var showZs = true
-    var showClock = true
-    var showStatus = true
-    var requireAuth = true
-}
+// SleepyTheme / SleepyMascot / SleepyGlow / SleepyModeConfig / the settings
+// store live in CmuxSettingsUI so the Preferences section can bind to them.
 
 // MARK: - Palettes
 
@@ -90,6 +63,8 @@ enum SleepyPalette {
 
     static func glowColors(for glow: SleepyGlow) -> [Color] {
         switch glow {
+        case .black:
+            return [.black, .black]
         case .midnight:
             return [Color(red: 0.06, green: 0.07, blue: 0.14), Color(red: 0.01, green: 0.01, blue: 0.03)]
         case .cmux:

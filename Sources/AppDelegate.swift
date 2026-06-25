@@ -8819,9 +8819,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             onToggleSleepyMode: {
                 SleepyModeController.shared.toggle()
             },
-            onOpenSleepyModeSettings: {
-                SleepyModeSettingsWindowController.shared.show()
-            },
             onCheckForUpdates: { [weak self] in
                 self?.checkForUpdates(nil)
             },

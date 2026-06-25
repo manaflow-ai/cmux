@@ -5,6 +5,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case app
     case terminal
     case textBox
+    case sleepyMode
     case mobile
     case sidebarAppearance
     case customSidebars
@@ -30,6 +31,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.terminal", defaultValue: "Terminal")
         case .textBox:
             return String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)")
+        case .sleepyMode:
+            return String(localized: "settings.section.sleepyMode", defaultValue: "Sleepy Mode")
         case .mobile:
             return String(localized: "settings.section.mobile", defaultValue: "Mobile")
         case .workspaceColors:
@@ -67,6 +70,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "terminal"
         case .textBox:
             return "textformat"
+        case .sleepyMode:
+            return "moon.zzz"
         case .mobile:
             return "iphone"
         case .workspaceColors:
@@ -104,6 +109,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "\(title) scrollbar auto resume restore reopen relaunch quit sessions agents claude codex opencode rovodev hibernation idle suspend commands approvals prefixes toggle"
         case .textBox:
             return "\(title) textbox text box rich input prompt beta new terminal workspace split tab focus height"
+        case .sleepyMode:
+            return "\(title) sleepy mode screensaver caffeinate keep awake lock touch id battery wifi clock mascot theme glow pixel"
         case .mobile:
             return "\(title) ios iphone ipad mobile pairing local network sync"
         case .workspaceColors:

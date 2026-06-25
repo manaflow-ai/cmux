@@ -1,3 +1,4 @@
+import CmuxSettingsUI
 import AppKit
 import IOKit.pwr_mgt
 import LocalAuthentication
