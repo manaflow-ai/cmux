@@ -67,6 +67,26 @@ import Testing
         #expect(RemoteTmuxSSHTransport.indicatesAuthRequired(stderr))
     }
 
+    @Test(arguments: [
+        "command refresh-client: unknown flag -B",
+        "refresh-client: unknown option -- B",
+        "refresh-client: invalid option -- B",
+        "refresh-client: illegal option -- B",
+    ])
+    func classifiesUnsupportedRefreshClientSubscriptionProbe(_ stderr: String) {
+        #expect(RemoteTmuxSSHTransport.indicatesRefreshClientSubscriptionUnsupported(stderr))
+        #expect(!RemoteTmuxSSHTransport.indicatesRefreshClientNeedsCurrentClient(stderr))
+    }
+
+    @Test(arguments: [
+        "no current client",
+        "refresh-client: not a client",
+    ])
+    func classifiesRecognizedRefreshClientSubscriptionProbeWithoutClient(_ stderr: String) {
+        #expect(!RemoteTmuxSSHTransport.indicatesRefreshClientSubscriptionUnsupported(stderr))
+        #expect(RemoteTmuxSSHTransport.indicatesRefreshClientNeedsCurrentClient(stderr))
+    }
+
     // MARK: - Host-key policy in the standard control args
 
     @Test func nonInteractiveControlArgsDoNotPinHostKeyPolicy() {

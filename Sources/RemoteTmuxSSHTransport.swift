@@ -89,17 +89,32 @@ actor RemoteTmuxSSHTransport {
         return (serverExists: true, version: nil)
     }
 
+    /// Probes the live-subscription capability directly when server version text
+    /// is unparseable. New tmux recognizes `-B` but may fail with "no current
+    /// client" outside control mode; old tmux rejects the flag itself.
+    private func serverSupportsRefreshClientSubscriptions() async throws -> Bool {
+        let result = try await runTmux(["refresh-client", "-B", "cmux_probe:#{version}"])
+        if result.succeeded { return true }
+        if Self.indicatesRefreshClientSubscriptionUnsupported(result.stderr) { return false }
+        if Self.indicatesRefreshClientNeedsCurrentClient(result.stderr) { return true }
+        throw RemoteTmuxError.commandFailed(exitCode: result.exitCode, stderr: result.stderr)
+    }
+
     /// Asserts that the remote server supports live mirroring.
     ///
     /// Call this before any `tmux -CC` control stream can launch. An unparseable
-    /// running-server version fails closed: old tmux servers may not expose
-    /// `#{version}`, and attaching anyway would enter the broken mirror state.
+    /// running-server version falls back to a direct `refresh-client -B`
+    /// capability probe so dev/distro builds are treated consistently with the
+    /// cold-start path while old servers still fail before attach.
     /// When no server is running, pass `true` only for paths that will create one;
     /// those paths gate on the tmux client binary that will become the new server.
     func assertMinimumTmuxVersion(checkClientWhenNoServer: Bool) async throws {
         let serverProbe = try await tmuxServerVersionProbe()
         if serverProbe.serverExists {
             guard let version = serverProbe.version else {
+                if try await serverSupportsRefreshClientSubscriptions() {
+                    return
+                }
                 throw RemoteTmuxError.unsupportedTmux(detected: RemoteTmuxError.unknownVersionDisplayName)
             }
             try Self.assertSupportedTmuxVersion(version)
@@ -223,6 +238,24 @@ actor RemoteTmuxSSHTransport {
         return lowered.contains("no server running")
             || lowered.contains("no sessions")
             || (lowered.contains("error connecting to /") && lowered.contains("/tmux-"))
+    }
+
+    static func indicatesRefreshClientSubscriptionUnsupported(_ stderr: String) -> Bool {
+        let lowered = stderr.lowercased()
+        let mentionsBFlag = lowered.contains("-b")
+            || lowered.contains(" b")
+            || lowered.contains("flag b")
+            || lowered.contains("option b")
+        let rejectsOption = lowered.contains("unknown flag")
+            || lowered.contains("unknown option")
+            || lowered.contains("invalid option")
+            || lowered.contains("illegal option")
+        return mentionsBFlag && rejectsOption
+    }
+
+    static func indicatesRefreshClientNeedsCurrentClient(_ stderr: String) -> Bool {
+        let lowered = stderr.lowercased()
+        return lowered.contains("no current client") || lowered.contains("not a client")
     }
 
     /// Whether a failed non-interactive (`BatchMode=yes`) connect failed because
