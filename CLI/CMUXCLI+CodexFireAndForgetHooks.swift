@@ -29,19 +29,39 @@ extension CMUXCLI {
         guard let codexDef = Self.agentDef(named: "codex") else {
             throw CLIError(message: "Codex hook integration is unavailable.")
         }
+        // Prefer a #!/bin/sh SCRIPT FILE as the hook command over an inline shell
+        // snippet. Some codex-compatible runtimes (subrouters, proxies) exec the
+        // `command` string directly as a program instead of via a shell, so an
+        // inline snippet fails with "No such file or directory (os error 2)". A
+        // bare executable file path runs correctly whether the runtime execs it
+        // directly or through a shell, and normal codex (which runs it via shell)
+        // is unaffected. The scripts are env-driven and identical across
+        // invocations, so they are written once into a cmux-owned dir (~/.cmux/
+        // hooks), not the user's ~/.codex. Any write failure falls back to the
+        // inline snippet so the working path can never regress.
+        let hooksDir = Self.codexHookScriptsDirectory()
         var args: [String] = ["--enable", "hooks", "--dangerously-bypass-hook-trust"]
         for event in Self.codexWrapperInjectionEvents {
             let ff = Self.codexFireAndForgetAgentHookShellCommand(
                 "cmux hooks codex \(event.cmuxSubcommand)", for: codexDef
             )
+            let command: String
+            if let scriptPath = hooksDir.flatMap({
+                Self.writeCodexHookScript(subcommand: event.cmuxSubcommand, body: ff, in: $0)
+            }), !scriptPath.contains("'''") {
+                command = scriptPath
+            } else {
+                command = ff
+            }
             // TOML multi-line literal string ('''...''') preserves bytes verbatim
             // and may contain single quotes, so the embedded `echo '{}'` / `sh -c
             // '...'` survive with no escaping. TOML forbids only a literal triple
-            // single quote inside; guard against it (the command never has one).
-            guard !ff.contains("'''") else {
-                throw CLIError(message: "Codex fire-and-forget hook command contains a triple single quote and cannot be TOML-encoded.")
+            // single quote inside; guard against it (neither a path nor the
+            // command ever has one).
+            guard !command.contains("'''") else {
+                throw CLIError(message: "Codex hook command contains a triple single quote and cannot be TOML-encoded.")
             }
-            let toml = "hooks.\(event.agentEvent)=[{hooks=[{type=\"command\",command='''\(ff)''',timeout=\(event.timeoutMs)}]}]"
+            let toml = "hooks.\(event.agentEvent)=[{hooks=[{type=\"command\",command='''\(command)''',timeout=\(event.timeoutMs)}]}]"
             args.append("-c")
             args.append(toml)
         }
@@ -55,6 +75,49 @@ extension CMUXCLI {
             out.append(0)
         }
         FileHandle.standardOutput.write(out)
+    }
+
+    /// The cmux-owned directory holding the generated codex hook scripts.
+    /// `~/.cmux/hooks` (NOT the user's `~/.codex`), created on demand. Returns
+    /// nil if it cannot be created, so the caller falls back to inline commands.
+    static func codexHookScriptsDirectory() -> URL? {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let dir = home
+            .appendingPathComponent(".cmux", isDirectory: true)
+            .appendingPathComponent("hooks", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            return dir
+        } catch {
+            return nil
+        }
+    }
+
+    /// Writes (idempotently) a `#!/bin/sh` hook script for one event into `dir`
+    /// and returns its absolute path, or nil on any failure. The body is the
+    /// same env-driven fire-and-forget snippet used inline; as a real executable
+    /// file it runs under any runtime, including ones that exec the hook command
+    /// directly rather than through a shell. Content is identical across
+    /// invocations, so the file is only rewritten when missing or changed.
+    static func writeCodexHookScript(subcommand: String, body: String, in dir: URL) -> String? {
+        let safeName = subcommand.replacingOccurrences(
+            of: "[^A-Za-z0-9_-]", with: "-", options: .regularExpression
+        )
+        let url = dir.appendingPathComponent("cmux-codex-hook-\(safeName).sh", isDirectory: false)
+        let contents = "#!/bin/sh\n\(body)\n"
+        let fileManager = FileManager.default
+        if let existing = try? String(contentsOf: url, encoding: .utf8), existing == contents {
+            // Ensure it stays executable, then reuse.
+            try? fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+            return url.path
+        }
+        do {
+            try contents.data(using: .utf8)?.write(to: url, options: .atomic)
+            try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+            return url.path
+        } catch {
+            return nil
+        }
     }
 
     static func codexFireAndForgetAgentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
