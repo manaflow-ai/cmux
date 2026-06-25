@@ -155,7 +155,11 @@ private struct SpinnerGalleryRootView: View {
 /// NSProgressIndicator (grey) at a large size so frame-by-frame screenshots can
 /// confirm whether spoke count, size, phase, and cadence match.
 private struct OverlayComparison: View {
-    private let dim: CGFloat = 120
+    // Well box; the spinners inside are drawn at the native spinner's intrinsic
+    // regular size so the overlay is size-fair (NSProgressIndicator ignores its
+    // frame and always draws at this intrinsic size).
+    private let dim: CGFloat = 72
+    private let nativeBox: CGFloat = 32
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -164,19 +168,24 @@ private struct OverlayComparison: View {
                 .tracking(0.6)
                 .foregroundColor(.primary.opacity(0.9))
             HStack(spacing: 20) {
-                overlayWell(label: "superimposed") {
+                // Size-matched: native at its intrinsic regular size, GPU framed
+                // to the same box, both centered, so the red spokes should land
+                // on the grey ones if count/size/phase match.
+                overlayWell(label: "superimposed (≈\(Int(nativeBox))pt)") {
                     ZStack {
-                        NativeSpinner(threaded: false).frame(width: dim, height: dim)
-                        GPUSpinner(style: .macOSSpokes, color: NSColor.systemRed.withAlphaComponent(0.6))
-                            .frame(width: dim, height: dim)
+                        NativeSpinner(threaded: false, controlSize: .regular)
+                        GPUSpinner(style: .macOSSpokes, color: NSColor.systemRed.withAlphaComponent(0.7))
+                            .frame(width: nativeBox, height: nativeBox)
                     }
+                    .frame(width: nativeBox, height: nativeBox)
                 }
                 overlayWell(label: "native only") {
-                    NativeSpinner(threaded: false).frame(width: dim, height: dim)
+                    NativeSpinner(threaded: false, controlSize: .regular)
+                        .frame(width: nativeBox, height: nativeBox)
                 }
-                overlayWell(label: "GPU only") {
+                overlayWell(label: "GPU only (\(Int(nativeBox))pt)") {
                     GPUSpinner(style: .macOSSpokes, color: .secondaryLabelColor)
-                        .frame(width: dim, height: dim)
+                        .frame(width: nativeBox, height: nativeBox)
                 }
             }
         }
@@ -256,11 +265,12 @@ private struct SpinnerCard: View {
 /// AppKit `NSProgressIndicator` wrapped for the gallery comparison.
 private struct NativeSpinner: NSViewRepresentable {
     let threaded: Bool
+    var controlSize: NSControl.ControlSize = .small
 
     func makeNSView(context: Context) -> NSProgressIndicator {
         let view = NSProgressIndicator()
         view.style = .spinning
-        view.controlSize = .small
+        view.controlSize = controlSize
         view.isIndeterminate = true
         view.isDisplayedWhenStopped = false
         view.usesThreadedAnimation = threaded
@@ -269,6 +279,7 @@ private struct NativeSpinner: NSViewRepresentable {
     }
 
     func updateNSView(_ view: NSProgressIndicator, context: Context) {
+        view.controlSize = controlSize
         view.usesThreadedAnimation = threaded
         view.startAnimation(nil)
     }
