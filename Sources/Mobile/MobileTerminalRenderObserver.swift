@@ -215,14 +215,18 @@ final class MobileTerminalRenderObserver {
             renderSurfaceIDs.formUnion(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id))
         }
         for surfaceID in renderSurfaceIDs {
-            emitRenderGrid(surfaceID: surfaceID)
+            emitRenderGrid(surfaceID: surfaceID, includeScrollback: shouldEmitThemeRefresh)
         }
     }
 
-    private func emitRenderGrid(surfaceID: UUID) {
+    private func emitRenderGrid(surfaceID: UUID, includeScrollback: Bool) {
         let stateSeq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceID) ?? 0
         guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID),
-              let snapshot = surface.mobileRenderGridFrame(stateSeq: stateSeq, full: true) else {
+              let snapshot = surface.mobileRenderGridFrame(
+                stateSeq: stateSeq,
+                full: true,
+                scrollbackLines: includeScrollback ? TerminalController.mobileReplayScrollbackLineBudget : 0
+              ) else {
             renderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
             return
         }
