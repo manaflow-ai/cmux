@@ -19,6 +19,27 @@ struct BrowserSSLTrustBypassStateTests {
     }
 
     @Test
+    func replayShapeMatchRejectsDifferentMethodAndBody() throws {
+        let url = try #require(URL(string: "https://example.internal/submit"))
+        var postRequest = URLRequest(url: url)
+        postRequest.httpMethod = "POST"
+        postRequest.httpBody = Data("confirm=true".utf8)
+
+        var matchingPostRequest = URLRequest(url: url)
+        matchingPostRequest.httpMethod = "post"
+        matchingPostRequest.httpBody = Data("confirm=true".utf8)
+        #expect(matchingPostRequest.browserMatchesReplayShape(of: postRequest))
+
+        let getRequest = URLRequest(url: url)
+        #expect(!getRequest.browserMatchesReplayShape(of: postRequest))
+
+        var differentBodyRequest = URLRequest(url: url)
+        differentBodyRequest.httpMethod = "POST"
+        differentBodyRequest.httpBody = Data("confirm=false".utf8)
+        #expect(!differentBodyRequest.browserMatchesReplayShape(of: postRequest))
+    }
+
+    @Test
     func secureConnectionFailedPermitsSSLBypass() {
         let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorSecureConnectionFailed)
 

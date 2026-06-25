@@ -54,22 +54,18 @@ struct BrowserErrorPage {
         <style>
         :root {
             color-scheme: light dark;
-            --page-bg: #f4f5f7;
-            --surface: rgba(255, 255, 255, 0.86);
-            --surface-border: rgba(0, 0, 0, 0.10);
-            --text: #17181a;
-            --muted: #5e646d;
-            --faint: #747b85;
-            --url-bg: rgba(0, 0, 0, 0.045);
-            --button-bg: #22262b;
-            --button-bg-hover: #343941;
-            --button-text: #ffffff;
-            --danger: #b42318;
-            --danger-border: rgba(180, 35, 24, 0.55);
-            --danger-bg: rgba(180, 35, 24, 0.10);
-            --danger-bg-hover: rgba(180, 35, 24, 0.16);
-            --focus-ring: rgba(0, 122, 255, 0.35);
-            --shadow: 0 18px 54px rgba(18, 24, 31, 0.14);
+            --background: #f7f7f8;
+            --surface: #ffffff;
+            --border: rgba(0, 0, 0, 0.12);
+            --text: #1d1d1f;
+            --secondary: #666a70;
+            --tertiary: #80858c;
+            --code-background: rgba(0, 0, 0, 0.045);
+            --primary-background: #1d1d1f;
+            --primary-background-hover: #343437;
+            --primary-text: #ffffff;
+            --secondary-background-hover: rgba(0, 0, 0, 0.055);
+            --focus-ring: rgba(0, 122, 255, 0.32);
         }
 
         body {
@@ -81,7 +77,7 @@ struct BrowserErrorPage {
             box-sizing: border-box;
             margin: 0;
             padding: 32px;
-            background: var(--page-bg);
+            background: var(--background);
             color: var(--text);
             -webkit-font-smoothing: antialiased;
             text-rendering: optimizeLegibility;
@@ -91,24 +87,17 @@ struct BrowserErrorPage {
             width: min(520px, 100%);
             box-sizing: border-box;
             padding: 28px;
-            border: 1px solid var(--surface-border);
+            border: 1px solid var(--border);
             border-radius: 8px;
             background: var(--surface);
-            box-shadow: var(--shadow);
+            box-shadow: 0 12px 34px rgba(0, 0, 0, 0.08);
             text-align: left;
         }
 
         .icon {
-            width: 44px;
-            height: 44px;
-            display: grid;
-            place-items: center;
-            margin-bottom: 18px;
-            border: 1px solid rgba(180, 35, 24, 0.20);
-            border-radius: 50%;
-            background: var(--danger-bg);
-            color: var(--danger);
-            font-size: 24px;
+            margin-bottom: 14px;
+            color: var(--secondary);
+            font-size: 22px;
             font-weight: 700;
             line-height: 1;
         }
@@ -132,8 +121,8 @@ struct BrowserErrorPage {
             margin-top: 18px;
             padding: 10px 12px;
             border-radius: 6px;
-            background: var(--url-bg);
-            color: var(--faint);
+            background: var(--code-background);
+            color: var(--tertiary);
             direction: ltr;
             font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
             font-size: 12px;
@@ -168,23 +157,22 @@ struct BrowserErrorPage {
         }
 
         .reload {
-            background: var(--button-bg);
-            color: var(--button-text);
+            background: var(--primary-background);
+            color: var(--primary-text);
         }
 
         .reload:hover {
-            background: var(--button-bg-hover);
+            background: var(--primary-background-hover);
         }
 
         .bypass {
             background: transparent;
-            border-color: var(--danger-border);
-            color: var(--danger);
+            border-color: var(--border);
+            color: var(--text);
         }
 
         .bypass:hover {
-            background: var(--danger-bg-hover);
-            border-color: var(--danger);
+            background: var(--secondary-background-hover);
         }
 
         .button:focus-visible {
@@ -194,21 +182,17 @@ struct BrowserErrorPage {
 
         @media (prefers-color-scheme: dark) {
             :root {
-                --page-bg: #17191d;
-                --surface: rgba(33, 35, 40, 0.88);
-                --surface-border: rgba(255, 255, 255, 0.10);
-                --text: #f3f4f6;
-                --muted: #aeb4bd;
-                --faint: #8d949e;
-                --url-bg: rgba(255, 255, 255, 0.065);
-                --button-bg: #f2f3f5;
-                --button-bg-hover: #ffffff;
-                --button-text: #15171a;
-                --danger: #ff6b5f;
-                --danger-border: rgba(255, 107, 95, 0.58);
-                --danger-bg: rgba(255, 107, 95, 0.12);
-                --danger-bg-hover: rgba(255, 107, 95, 0.18);
-                --shadow: 0 18px 54px rgba(0, 0, 0, 0.32);
+                --background: #1c1c1e;
+                --surface: #242426;
+                --border: rgba(255, 255, 255, 0.14);
+                --text: #f5f5f7;
+                --secondary: #a1a1a6;
+                --tertiary: #8e8e93;
+                --code-background: rgba(255, 255, 255, 0.07);
+                --primary-background: #f5f5f7;
+                --primary-background-hover: #ffffff;
+                --primary-text: #1d1d1f;
+                --secondary-background-hover: rgba(255, 255, 255, 0.08);
             }
         }
 

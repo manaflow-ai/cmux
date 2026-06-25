@@ -8938,12 +8938,14 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     private func shouldPreserveSSLTrustBypassForErrorPageNavigation(_ request: URLRequest) -> Bool {
         guard acceptsSSLTrustBypassMessages,
               let failedURL = activeSSLTrustBypassErrorPageFailedURL,
+              let lastAttemptedRequest,
               let url = request.url,
               let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https" else {
             return false
         }
         return request.browserMatchesFailedNavigationURLString(failedURL)
+            && request.browserMatchesReplayShape(of: lastAttemptedRequest)
     }
 
     func webView(
