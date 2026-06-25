@@ -93,6 +93,36 @@ extension VSCodeServeWebController {
         return sourceComponents?.url
     }
 
+    static func serveWebURLForPersistence(_ sourceURL: URL, rewrittenToLoopbackOrigin originURL: URL) -> URL? {
+        guard isLoopbackHTTPURL(sourceURL),
+              isLoopbackHTTPURL(originURL),
+              let originToken = connectionTokenQueryValue(originURL) else {
+            return nil
+        }
+        if let sourceToken = connectionTokenQueryValue(sourceURL) {
+            guard sourceToken == originToken else { return nil }
+        } else {
+            guard serveWebURLMatchesPersistentURLWithoutToken(sourceURL, persistentURL: originURL) else {
+                return nil
+            }
+        }
+
+        var sourceComponents = URLComponents(url: sourceURL, resolvingAgainstBaseURL: false)
+        let originComponents = URLComponents(url: originURL, resolvingAgainstBaseURL: false)
+        sourceComponents?.scheme = originComponents?.scheme
+        sourceComponents?.host = originComponents?.host
+        sourceComponents?.port = originComponents?.port
+
+        var queryItems = sourceComponents?.queryItems ?? []
+        if let tokenIndex = queryItems.firstIndex(where: { $0.name == "tkn" }) {
+            queryItems[tokenIndex] = URLQueryItem(name: "tkn", value: originToken)
+        } else {
+            queryItems.insert(URLQueryItem(name: "tkn", value: originToken), at: 0)
+        }
+        sourceComponents?.queryItems = queryItems
+        return sourceComponents?.url
+    }
+
     static func stableServeWebURL(
         for launchedURL: URL,
         launchOptions: VSCodeServeWebLaunchOptions? = VSCodeServeWebLaunchOptions.resolve()
@@ -110,6 +140,17 @@ extension VSCodeServeWebController {
         var components = URLComponents(url: launchedURL, resolvingAgainstBaseURL: false)
         components?.port = launchOptions.port
         return components?.url
+    }
+
+    static func persistentServeWebSnapshotOrigin(
+        for launchedURL: URL,
+        launchOptions: VSCodeServeWebLaunchOptions? = VSCodeServeWebLaunchOptions.resolve()
+    ) -> URL? {
+        if let stableURL = stableServeWebURL(for: launchedURL, launchOptions: launchOptions) {
+            return stableURL
+        }
+        guard isPersistentServeWebURL(launchedURL, launchOptions: launchOptions) else { return nil }
+        return launchedURL
     }
 
     private static func isPossiblePersistentServeWebURL(_ candidateURL: URL?) -> Bool {
@@ -137,6 +178,17 @@ extension VSCodeServeWebController {
             return nil
         }
         return value
+    }
+
+    private static func serveWebURLMatchesPersistentURLWithoutToken(_ sourceURL: URL, persistentURL: URL) -> Bool {
+        guard sourceURL.path == persistentURL.path else { return false }
+        return queryItemsExcludingConnectionToken(sourceURL) == queryItemsExcludingConnectionToken(persistentURL)
+    }
+
+    private static func queryItemsExcludingConnectionToken(_ url: URL) -> [URLQueryItem]? {
+        URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .filter { $0.name != "tkn" }
     }
 
     static func terminateProcessesBeforeRestart(

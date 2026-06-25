@@ -7712,7 +7712,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             targetTabManager
                 .browserPanel(tabId: targetWorkspaceId, panelId: browserPanelId)?
                 .setInlineVSCodeServeWebStableSnapshotOrigin(
-                    VSCodeServeWebController.stableServeWebURL(for: serveWebURL)
+                    VSCodeServeWebController.persistentServeWebSnapshotOrigin(for: serveWebURL)
                 )
         }
 

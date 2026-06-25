@@ -780,6 +780,8 @@ final class VSCodeServeWebControllerTests: XCTestCase {
                 let secureURL = try XCTUnwrap(URL(string: "https://localhost:\(options.port)/?tkn=\(token)"))
                 let fallbackURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(wrongPort)/?tkn=\(token)"))
                 let fallbackFolderURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(wrongPort)/?tkn=\(token)&folder=/tmp/cmux"))
+                let tokenDroppedFallbackFolderURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(wrongPort)/?folder=/tmp/cmux"))
+                let unrelatedTokenDroppedURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(wrongPort)/?folder=/tmp/other"))
 
                 XCTAssertTrue(VSCodeServeWebController.isPersistentServeWebURL(matchingURL, launchOptions: options))
                 XCTAssertFalse(VSCodeServeWebController().isServeWebURL(matchingURL))
@@ -801,11 +803,31 @@ final class VSCodeServeWebControllerTests: XCTestCase {
                     matchingURL.absoluteString
                 )
                 XCTAssertEqual(
+                    VSCodeServeWebController.serveWebURLForPersistence(
+                        tokenDroppedFallbackFolderURL,
+                        rewrittenToLoopbackOrigin: matchingURL
+                    )?.absoluteString,
+                    matchingURL.absoluteString
+                )
+                XCTAssertNil(
+                    VSCodeServeWebController.serveWebURLForPersistence(
+                        unrelatedTokenDroppedURL,
+                        rewrittenToLoopbackOrigin: matchingURL
+                    )
+                )
+                XCTAssertEqual(
                     VSCodeServeWebController.stableServeWebURL(
                         for: fallbackURL,
                         launchOptions: options
                     )?.absoluteString,
                     "http://127.0.0.1:\(options.port)/?tkn=\(token)"
+                )
+                XCTAssertEqual(
+                    VSCodeServeWebController.persistentServeWebSnapshotOrigin(
+                        for: matchingURL,
+                        launchOptions: options
+                    )?.absoluteString,
+                    matchingURL.absoluteString
                 )
                 XCTAssertNil(VSCodeServeWebController.preparedRestoredServeWebURL(matchingURL, launchedURL: wrongTokenURL))
             }

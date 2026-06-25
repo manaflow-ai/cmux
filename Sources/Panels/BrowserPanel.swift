@@ -4507,7 +4507,7 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         return urlStrings.map { urlString in
             guard let url = URL(string: urlString),
-                  let stableURL = VSCodeServeWebController.serveWebURL(
+                  let stableURL = VSCodeServeWebController.serveWebURLForPersistence(
                     url,
                     rewrittenToLoopbackOrigin: stableOriginURL
                   ),
@@ -4629,7 +4629,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 return
             }
             let usedFallbackPort = preparedURL.absoluteString != restoredURL.absoluteString
-            self.restoredInlineVSCodeServeWebStableSnapshotOriginURL = usedFallbackPort ? restoredURL : nil
+            self.restoredInlineVSCodeServeWebStableSnapshotOriginURL = restoredURL
             self.currentURL = preparedURL
             if usedFallbackPort {
                 self.abandonRestoredSessionHistoryIfNeeded()
@@ -4703,7 +4703,7 @@ final class BrowserPanel: Panel, ObservableObject {
     func preferredURLStringForSessionSnapshot() -> String? {
         if let stableOriginURL = restoredInlineVSCodeServeWebStableSnapshotOriginURL {
             if let webViewURL = Self.remoteProxyDisplayURL(for: webView.url),
-               let stableWebViewURL = VSCodeServeWebController.serveWebURL(
+               let stableWebViewURL = VSCodeServeWebController.serveWebURLForPersistence(
                 webViewURL,
                 rewrittenToLoopbackOrigin: stableOriginURL
                ),
@@ -4711,7 +4711,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 return value
             }
             if let currentURL,
-               let stableCurrentURL = VSCodeServeWebController.serveWebURL(
+               let stableCurrentURL = VSCodeServeWebController.serveWebURLForPersistence(
                 currentURL,
                 rewrittenToLoopbackOrigin: stableOriginURL
                ),
