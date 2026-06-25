@@ -54,9 +54,10 @@ import {
 } from "./syncDevices";
 import {
   applyBackupOps,
-  listBackupSnapshot,
+  listBackupSnapshotWithUnscopedFallback,
   pairedMacsCollection,
   PAIRED_MACS_COLLECTION,
+  PAIRED_MACS_COLLECTION_TOMBSTONE_PREFIXES,
   relabelDelta,
   relabelSnapshot,
   type PairedMacBackupOp,
@@ -353,7 +354,7 @@ export class TeamPresence extends DurableObject {
     clientScope?: string | null,
   ): Promise<{ records: PairedMacBackupRecord[]; deletedMacDeviceIDs: string[] }> {
     await this.rememberTeamId(teamId);
-    return await listBackupSnapshot(this.syncStorage(), userId, clientScope);
+    return await listBackupSnapshotWithUnscopedFallback(this.syncStorage(), userId, clientScope);
   }
 
   // ---- Subscribe transports (worker forwards the original Request) ----
@@ -650,18 +651,17 @@ export class TeamPresence extends DurableObject {
       // instances left to schedule a heartbeat-driven alarm) still wakes to GC
       // its tombstones and advance the GC floor (DESIGN.md §3.5).
       tombGc = await nextTombstoneGcTime(this.syncStorage(), DEVICES_COLLECTION);
-      // Each Stack user's paired-Mac backup is its OWN physical collection
-      // (`pairedMacs:<userId>`), so GC every one that currently holds tombstones;
-      // otherwise an authenticated client churning create/delete grows
-      // `synced:`/`synctomb:` storage without bound (the live-record cap resets on
-      // delete). Fold each collection's next-GC deadline into the alarm schedule.
-      for (const collection of await listTombstonedCollections(
-        this.syncStorage(),
-        `${PAIRED_MACS_COLLECTION}:`,
-      )) {
-        await gcTombstones(this.syncStorage(), collection, now);
-        const next = await nextTombstoneGcTime(this.syncStorage(), collection);
-        if (next !== null) tombGc = tombGc === null ? next : Math.min(tombGc, next);
+      // Each Stack user's paired-Mac backup is its OWN physical collection,
+      // including build-scoped variants. GC every collection that currently holds
+      // tombstones; otherwise authenticated create/delete churn grows
+      // `synced:`/`synctomb:` storage without bound. Fold each collection's next
+      // GC deadline into the alarm schedule.
+      for (const prefix of PAIRED_MACS_COLLECTION_TOMBSTONE_PREFIXES) {
+        for (const collection of await listTombstonedCollections(this.syncStorage(), prefix)) {
+          await gcTombstones(this.syncStorage(), collection, now);
+          const next = await nextTombstoneGcTime(this.syncStorage(), collection);
+          if (next !== null) tombGc = tombGc === null ? next : Math.min(tombGc, next);
+        }
       }
     } catch (err) {
       console.error("sync projection/GC failed (alarm); presence unaffected", err);

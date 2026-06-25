@@ -8,6 +8,7 @@ import { describe, expect, it } from "bun:test";
 import {
   applyBackupOps,
   listBackupSnapshot,
+  listBackupSnapshotWithUnscopedFallback,
   listLiveBackup,
   MAX_BACKUP_OPS,
   MAX_PAIRED_MAC_RECORDS_PER_USER,
@@ -15,6 +16,7 @@ import {
   normalizeClientScope,
   pairedMacsCollection,
   PAIRED_MACS_COLLECTION,
+  PAIRED_MACS_COLLECTION_TOMBSTONE_PREFIXES,
   parsePairedMacBackup,
   type PairedMacBackupRecord,
 } from "../src/syncPairedMacs";
@@ -339,15 +341,60 @@ describe("applyBackupOps", () => {
     const storage = new FakeStorage();
     await applyBackupOps(storage, "user-1", [{ kind: "upsert", id: "mac-a", record: record("mac-a", "192.168.1.50", 22) }], T0);
     await applyBackupOps(storage, "user-1", [{ kind: "delete", id: "mac-a" }], T0 + 1000);
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [{ kind: "upsert", id: "scoped-mac", record: record("scoped-mac", "192.168.1.51", 22) }],
+      T0,
+      "ios:dev",
+    );
+    await applyBackupOps(storage, "user-1", [{ kind: "delete", id: "scoped-mac" }], T0 + 1000, "ios:dev");
     // The alarm discovers the per-user collection by tombstone prefix without
-    // knowing the user id ahead of time.
+    // knowing the user id or iOS build scope ahead of time.
     const collection = pairedMacsCollection("user-1");
+    const scopedCollection = pairedMacsCollection("user-1", "ios:dev");
     expect(await listTombstonedCollections(storage, `${PAIRED_MACS_COLLECTION}:`)).toContain(collection);
+    expect(await listTombstonedCollections(storage, PAIRED_MACS_COLLECTION_TOMBSTONE_PREFIXES[1] ?? "")).toContain(
+      scopedCollection,
+    );
     // GC with retention elapsed collects the tombstone, so churned create/delete
     // cannot grow storage without bound.
     const res = await gcTombstones(storage, collection, T0 + 1_000_000_000, 0);
     expect(res.collected).toBe(1);
+    const scopedRes = await gcTombstones(storage, scopedCollection, T0 + 1_000_000_000, 0);
+    expect(scopedRes.collected).toBe(1);
     expect(await listTombstonedCollections(storage, `${PAIRED_MACS_COLLECTION}:`)).not.toContain(collection);
+    expect(await listTombstonedCollections(storage, PAIRED_MACS_COLLECTION_TOMBSTONE_PREFIXES[1] ?? "")).not.toContain(
+      scopedCollection,
+    );
+  });
+
+  it("scoped restore falls back to unscoped Mac seed only until the scoped collection exists", async () => {
+    const storage = new FakeStorage();
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [{ kind: "upsert", id: "mac-seed", record: record("mac-seed", "192.168.1.50", 22) }],
+      T0,
+    );
+
+    const emptyScoped = await listBackupSnapshotWithUnscopedFallback(storage, "user-1", "ios:dev");
+    expect(emptyScoped.records.map((r) => r.macDeviceID)).toEqual(["mac-seed"]);
+
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [{ kind: "upsert", id: "scoped-mac", record: record("scoped-mac", "192.168.1.51", 22) }],
+      T0 + 1000,
+      "ios:dev",
+    );
+    const nonEmptyScoped = await listBackupSnapshotWithUnscopedFallback(storage, "user-1", "ios:dev");
+    expect(nonEmptyScoped.records.map((r) => r.macDeviceID)).toEqual(["scoped-mac"]);
+
+    await applyBackupOps(storage, "user-1", [{ kind: "delete", id: "scoped-mac" }], T0 + 2000, "ios:dev");
+    const tombstonedScoped = await listBackupSnapshotWithUnscopedFallback(storage, "user-1", "ios:dev");
+    expect(tombstonedScoped.records).toEqual([]);
+    expect(tombstonedScoped.deletedMacDeviceIDs).toEqual(["scoped-mac"]);
   });
 
   it("listLiveBackup returns live records newest-first and excludes tombstones, scoped per user", async () => {

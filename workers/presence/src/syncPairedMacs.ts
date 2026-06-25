@@ -33,6 +33,10 @@ import {
 /** Logical collection name the client subscribes to and stores under. */
 export const PAIRED_MACS_COLLECTION = "pairedMacs";
 const SCOPED_PAIRED_MACS_COLLECTION = "pairedMacsScoped";
+export const PAIRED_MACS_COLLECTION_TOMBSTONE_PREFIXES = [
+  `${PAIRED_MACS_COLLECTION}:`,
+  `${SCOPED_PAIRED_MACS_COLLECTION}:`,
+];
 
 /** Max saved-host records a single user may back up. Bounds the storage a client
  * can create, mirroring MAX_DEVICES_PER_TEAM for the device registry. */
@@ -436,6 +440,23 @@ export async function listBackupSnapshot(
     .map((r) => r.id)
     .sort();
   return { records, deletedMacDeviceIDs };
+}
+
+/** Restore a scoped tagged iOS build, falling back to the legacy unscoped Mac
+ * self-publish seed only while the scoped collection has never been written.
+ * Once the scoped collection has any live record or tombstone, it is
+ * authoritative for that build scope. */
+export async function listBackupSnapshotWithUnscopedFallback(
+  storage: SyncStorage,
+  userId: string,
+  clientScope?: string | null,
+): Promise<PairedMacBackupSnapshot> {
+  const scoped = await listBackupSnapshot(storage, userId, clientScope);
+  if (!normalizeClientScope(clientScope)) return scoped;
+  if (scoped.records.length > 0 || scoped.deletedMacDeviceIDs.length > 0) {
+    return scoped;
+  }
+  return await listBackupSnapshot(storage, userId);
 }
 
 /** Re-export so the DO can build an empty delta if it ever needs to. */
