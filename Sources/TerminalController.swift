@@ -10051,7 +10051,7 @@ class TerminalController {
           set_shortcut <name> <combo|clear> - Set a keyboard shortcut (test-only)
           simulate_shortcut <combo>       - Simulate a keyDown shortcut (test-only)
           simulate_type <text>            - Insert text into the current first responder (test-only)
-          sleepy_mode [on|off|unlock]     - Sleepy Mode lock: on, force-off (no auth), or unlock (Touch ID) (test-only)
+          sleepy_mode <cmd> [val]         - Sleepy Mode: on|off|unlock|preview|settings|theme <t>|mascot <m>|glow <g>|toggle <k> (test-only)
           simulate_file_drop <id|idx> <path[|path...]> - Simulate dropping file path(s) on terminal (test-only)
           seed_drag_pasteboard_fileurl    - Seed NSDrag pasteboard with public.file-url (test-only)
           seed_drag_pasteboard_tabtransfer - Seed NSDrag pasteboard with tab transfer type (test-only)
@@ -11467,11 +11467,15 @@ class TerminalController {
     /// Drives Sleepy Mode from the debug socket so automation can exercise the
     /// overlay. `on`/`off` force a state; anything else toggles.
     func sleepyModeCommand(_ args: String) -> String {
-        let mode = args.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
+        let cmd = parts.first?.lowercased() ?? ""
+        let value = parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespaces).lowercased() : ""
         var isActive = false
         var holding = false
         v2MainSync {
-            switch mode {
+            let store = SleepyModeSettingsStore.shared
+            switch cmd {
             case "on", "activate", "start":
                 SleepyModeController.shared.activate()
             case "off", "deactivate", "stop":
@@ -11480,6 +11484,26 @@ class TerminalController {
             case "unlock":
                 // Exercise the real Touch ID / password unlock path.
                 SleepyModeController.shared.requestUnlock()
+            case "preview":
+                SleepyModeController.shared.preview()
+            case "settings":
+                SleepyModeSettingsWindowController.shared.show()
+            case "theme":
+                if let theme = SleepyTheme.allCases.first(where: { $0.rawValue.lowercased() == value }) { store.theme = theme }
+            case "mascot":
+                if let mascot = SleepyMascot.allCases.first(where: { $0.rawValue.lowercased() == value }) { store.mascot = mascot }
+            case "glow":
+                if let glow = SleepyGlow.allCases.first(where: { $0.rawValue.lowercased() == value }) { store.glow = glow }
+            case "toggle":
+                switch value {
+                case "moon": store.showMoon.toggle()
+                case "stars": store.showStars.toggle()
+                case "zs", "z": store.showZs.toggle()
+                case "clock": store.showClock.toggle()
+                case "status": store.showStatus.toggle()
+                case "auth", "requireauth": store.requireAuth.toggle()
+                default: break
+                }
             default:
                 SleepyModeController.shared.toggle()
             }

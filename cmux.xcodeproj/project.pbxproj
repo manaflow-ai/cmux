@@ -840,7 +840,10 @@
 		988C6A036BA56EA5759A95A0 /* SidebarWorkspaceSnapshotRefreshPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D50D9BCE46701FBA91C2EFB6 /* SidebarWorkspaceSnapshotRefreshPolicy.swift */; };
 		62270F3DCECB4787D789CCE3 /* SidebarWorkspaceSnapshotRefreshPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F016B5C09357B3226FA2E014 /* SidebarWorkspaceSnapshotRefreshPolicyTests.swift */; };
 		C7B0000000000000000000B2 /* SleepyFaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0000000000000000000B1 /* SleepyFaceView.swift */; };
+		C7B0000000000000000000C2 /* SleepyModeConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0000000000000000000C1 /* SleepyModeConfig.swift */; };
 		C7B0000000000000000000A2 /* SleepyModeController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0000000000000000000A1 /* SleepyModeController.swift */; };
+		C7B0000000000000000000D2 /* SleepyModeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0000000000000000000D1 /* SleepyModeSettings.swift */; };
+		C7B0000000000000000000E2 /* SleepyModeSettingsWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0000000000000000000E1 /* SleepyModeSettingsWindow.swift */; };
 		A5001226 /* SocketControlMode+Display.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001225 /* SocketControlMode+Display.swift */; };
 		F8000000A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */; };
 		C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C510C1E00000000000000001 /* SocketOperationTelemetry.swift */; };
@@ -1916,7 +1919,10 @@
 		D50D9BCE46701FBA91C2EFB6 /* SidebarWorkspaceSnapshotRefreshPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarWorkspaceSnapshotRefreshPolicy.swift; sourceTree = "<group>"; };
 		F016B5C09357B3226FA2E014 /* SidebarWorkspaceSnapshotRefreshPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceSnapshotRefreshPolicyTests.swift; sourceTree = "<group>"; };
 		C7B0000000000000000000B1 /* SleepyFaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyFaceView.swift; sourceTree = "<group>"; };
+		C7B0000000000000000000C1 /* SleepyModeConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyModeConfig.swift; sourceTree = "<group>"; };
 		C7B0000000000000000000A1 /* SleepyModeController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyModeController.swift; sourceTree = "<group>"; };
+		C7B0000000000000000000D1 /* SleepyModeSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyModeSettings.swift; sourceTree = "<group>"; };
+		C7B0000000000000000000E1 /* SleepyModeSettingsWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyModeSettingsWindow.swift; sourceTree = "<group>"; };
 		A5001225 /* SocketControlMode+Display.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SocketControlMode+Display.swift"; sourceTree = "<group>"; };
 		F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketControlPasswordStoreTests.swift; sourceTree = "<group>"; };
 			C510C1E00000000000000001 /* SocketOperationTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketOperationTelemetry.swift; sourceTree = "<group>"; };
@@ -2680,6 +2686,9 @@
 				C7A50E000000000000000001 /* CmuxTopProcessDetails.swift */,
 				C7A502000000000000000001 /* TaskManagerWindowController.swift */,
 				C7B0000000000000000000A1 /* SleepyModeController.swift */,
+				C7B0000000000000000000C1 /* SleepyModeConfig.swift */,
+				C7B0000000000000000000D1 /* SleepyModeSettings.swift */,
+				C7B0000000000000000000E1 /* SleepyModeSettingsWindow.swift */,
 				C7B0000000000000000000B1 /* SleepyFaceView.swift */,
 				C7A506000000000000000001 /* TaskManagerView.swift */,
 				C7A503000000000000000001 /* TaskManagerSnapshot.swift */,
@@ -4223,7 +4232,10 @@
 				D35450010000000000000001 /* SidebarWorkspaceRowHoverTracker.swift in Sources */,
 				988C6A036BA56EA5759A95A0 /* SidebarWorkspaceSnapshotRefreshPolicy.swift in Sources */,
 				C7B0000000000000000000B2 /* SleepyFaceView.swift in Sources */,
+				C7B0000000000000000000C2 /* SleepyModeConfig.swift in Sources */,
 				C7B0000000000000000000A2 /* SleepyModeController.swift in Sources */,
+				C7B0000000000000000000D2 /* SleepyModeSettings.swift in Sources */,
+				C7B0000000000000000000E2 /* SleepyModeSettingsWindow.swift in Sources */,
 				A5001226 /* SocketControlMode+Display.swift in Sources */,
 				E30780000000000000000012 /* SSHPTYAttachStartupCommandBuilder.swift in Sources */,
 				D35B71010000000000000001 /* StartupBreadcrumbLog.swift in Sources */,

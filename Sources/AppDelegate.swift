@@ -1916,9 +1916,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        // Sleepy Mode is a lock: refuse to quit (e.g. Cmd-Q) while it is engaged.
-        // The locked overlay requires Touch ID / password to exit first.
-        if SleepyModeController.shared.isActive {
+        // Sleepy Mode lock: refuse to quit (e.g. Cmd-Q) while it is engaged as a
+        // secure lock. The locked overlay requires Touch ID / password first.
+        // Casual/preview mode does not block quitting.
+        if SleepyModeController.shared.isLocked {
             return .terminateCancel
         }
         if let reply = Self.pendingTerminateReply(
@@ -8817,6 +8818,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             },
             onToggleSleepyMode: {
                 SleepyModeController.shared.toggle()
+            },
+            onOpenSleepyModeSettings: {
+                SleepyModeSettingsWindowController.shared.show()
             },
             onCheckForUpdates: { [weak self] in
                 self?.checkForUpdates(nil)

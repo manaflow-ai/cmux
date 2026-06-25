@@ -23,6 +23,10 @@ final class SleepyModeController {
     static let shared = SleepyModeController()
 
     private(set) var isActive = false
+    private var locked = false
+
+    /// True only while engaged as a secure lock (kiosk + auth required to exit).
+    var isLocked: Bool { isActive && locked }
 
     /// Invoked whenever sleepy mode turns on or off so menu UI can refresh.
     var onStateChange: (() -> Void)?
@@ -57,18 +61,33 @@ final class SleepyModeController {
 
     func toggle() {
         if isActive {
-            requestUnlock()
+            if locked { requestUnlock() } else { deactivate() }
         } else {
             activate()
         }
     }
 
+    /// Engage Sleepy Mode using the user's settings (locks when "Require Touch
+    /// ID to exit" is on, otherwise a casual screensaver that any key/click wakes).
     func activate() {
+        activateInternal(locked: SleepyModeSettingsStore.shared.requireAuth)
+    }
+
+    /// Non-locking full-screen preview: shows the scene without the kiosk
+    /// lockdown, and any key/click exits without authentication.
+    func preview() {
+        activateInternal(locked: false)
+    }
+
+    private func activateInternal(locked: Bool) {
         guard !isActive else { return }
         isActive = true
+        self.locked = locked
         beginPowerAssertions()
-        applyKioskPresentationOptions()
-        installKeyMonitor()
+        if locked {
+            applyKioskPresentationOptions()
+            installKeyMonitor()
+        }
         installScreenObserver()
         rebuildOverlayWindows()
         NSApp.unhide(nil)
@@ -108,6 +127,7 @@ final class SleepyModeController {
     func deactivate() {
         guard isActive else { return }
         isActive = false
+        locked = false
         isAuthenticating = false
         removeKeyMonitor()
         removeScreenObserver()
@@ -148,7 +168,8 @@ final class SleepyModeController {
         window.acceptsMouseMovedEvents = true
         window.setFrame(screen.frame, display: true)
         window.onExit = { [weak self] in
-            self?.requestUnlock()
+            guard let self else { return }
+            if self.locked { self.requestUnlock() } else { self.deactivate() }
         }
         window.contentView = NSHostingView(rootView: SleepyFaceView())
         return window
@@ -282,6 +303,12 @@ final class SleepyOverlayWindow: NSWindow {
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
+
+    override func keyDown(with event: NSEvent) {
+        // In locked mode the controller's local monitor swallows keys before
+        // they reach here; this path serves casual/preview mode.
+        onExit?()
+    }
 
     override func mouseDown(with event: NSEvent) {
         onExit?()
