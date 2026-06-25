@@ -81,13 +81,6 @@ struct SettingsFileStringMapping {
     let defaultsKey: String
 }
 
-struct SettingsFileStringEnumMapping {
-    let jsonKey: String
-    let defaultsKey: String
-    let acceptedValues: Set<String>
-    let invalidPath: String
-}
-
 struct SettingsFileStringArrayMapping {
     let jsonKey: String
     let defaultsKey: String
@@ -249,14 +242,19 @@ enum SidebarSettingsFileMapping {
         ),
     ]
 
-    static let stringEnumSettings: [SettingsFileStringEnumMapping] = [
-        .init(
+    static let stringEnumSettings: [(
+        jsonKey: String,
+        defaultsKey: String,
+        acceptedValues: Set<String>,
+        invalidPath: String
+    )] = [
+        (
             jsonKey: "workspaceStatusStyle",
             defaultsKey: sidebarCatalog.workspaceStatusStyle.userDefaultsKey,
             acceptedValues: Set(SidebarWorkspaceStatusStyle.allCases.map(\.rawValue)),
             invalidPath: "sidebar.workspaceStatusStyle"
         ),
-        .init(
+        (
             jsonKey: "scrollEdgeFade",
             defaultsKey: sidebarCatalog.scrollEdgeFade.userDefaultsKey,
             acceptedValues: Set(SidebarScrollEdgeFadeStyle.allCases.map(\.rawValue)),
