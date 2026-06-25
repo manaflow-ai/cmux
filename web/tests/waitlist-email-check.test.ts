@@ -89,14 +89,24 @@ describe("checkEmailDeliverable", () => {
 
   test("fails open (unknown) when DNS exceeds the timeout", async () => {
     // A hung resolver must never reject a real address; the bounded check
-    // resolves to "unknown" so the caller passes the email through.
-    const hang = () => new Promise<never>(() => {});
+    // resolves to "unknown" so the caller passes the email through. Capture the
+    // rejecters so the abandoned lookup can be settled at the end rather than
+    // left dangling across other test files in the shared process.
+    const rejecters: Array<(reason: unknown) => void> = [];
+    const hang = () =>
+      new Promise<never>((_, reject) => {
+        rejecters.push(reject);
+      });
     resolveMx = hang;
     resolve4 = hang;
     resolve6 = hang;
     const start = Date.now();
     expect(await checkEmailDeliverable("a@hung.test", 20)).toBe("unknown");
     expect(Date.now() - start).toBeLessThan(500);
+    // Settle the abandoned lookup so its in-flight entry clears and nothing
+    // lingers for later tests.
+    rejecters.forEach((reject) => reject(new Error("test cleanup")));
+    await new Promise((r) => setTimeout(r, 0));
   });
 
   test("coalesces concurrent lookups for one domain onto a single DNS call", async () => {
