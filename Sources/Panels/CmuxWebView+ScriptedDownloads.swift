@@ -23,6 +23,7 @@ extension CmuxWebView {
         let blobDownloadInFlight = false;
         let lastTrustedActivationMs = 0;
         let lastDownloadPostMs = 0;
+        const handledAnchors = typeof WeakSet === "function" ? new WeakSet() : null;
 
         try {
           isMainFrame = window.top === window;
@@ -222,6 +223,11 @@ extension CmuxWebView {
 
         document.addEventListener("click", (event) => {
           const anchor = anchorForEvent(event);
+          if (anchor && handledAnchors?.has(anchor)) {
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+          }
           if (!interceptAnchorDownload(anchor, event)) return;
           event.preventDefault();
           event.stopPropagation();
@@ -237,7 +243,10 @@ extension CmuxWebView {
               const nested = node.querySelectorAll?.("a[href][download],area[href][download]") ?? [];
               for (const anchor of nested) candidates.push(anchor);
               for (const anchor of candidates) {
-                if (interceptAnchorDownload(anchor, null)) return;
+                if (interceptAnchorDownload(anchor, null)) {
+                  handledAnchors?.add(anchor);
+                  return;
+                }
               }
             } catch (_) {}
           };

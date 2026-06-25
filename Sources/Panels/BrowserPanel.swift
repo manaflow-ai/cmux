@@ -8915,7 +8915,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             buttonNumber: navigationAction.buttonNumber,
             hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
         )
-        recordSubframeDownloadIntentIfNeeded(navigationAction)
+        updateSubframeDownloadIntentIfNeeded(navigationAction)
 #if DEBUG
         let currentEventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
         let currentEventButton = NSApp.currentEvent.map { String($0.buttonNumber) } ?? "nil"
@@ -9060,14 +9060,19 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         decisionHandler(.allow)
     }
 
-    private func recordSubframeDownloadIntentIfNeeded(_ navigationAction: WKNavigationAction) {
+    private func updateSubframeDownloadIntentIfNeeded(_ navigationAction: WKNavigationAction) {
         guard navigationAction.targetFrame?.isMainFrame == false,
               let url = navigationAction.request.url,
               Self.isHTTPDownloadIntentURL(url) else { return }
-        guard navigationAction.navigationType == .linkActivated
-            || browserNavigationHasSimpleUserActivation() else { return }
         let now = ProcessInfo.processInfo.systemUptime
         pruneSubframeDownloadIntents(now: now)
+        guard navigationAction.navigationType == .linkActivated
+            || browserNavigationHasSimpleUserActivation() else {
+            if recentSubframeDownloadIntentKeys.count == 1 {
+                recentSubframeDownloadIntentKeys[0] = (Self.downloadIntentKey(for: url), now)
+            }
+            return
+        }
         let key = Self.downloadIntentKey(for: url)
         recentSubframeDownloadIntentKeys.removeAll { $0.key == key }
         recentSubframeDownloadIntentKeys.append((key, now))
@@ -9088,9 +9093,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             recentSubframeDownloadIntentKeys.remove(at: index)
             return true
         }
-        guard !recentSubframeDownloadIntentKeys.isEmpty else { return false }
-        recentSubframeDownloadIntentKeys.removeFirst()
-        return true
+        return false
     }
 
     private func pruneSubframeDownloadIntents(now: TimeInterval) {

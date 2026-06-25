@@ -632,7 +632,7 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
             decisionHandler(.cancel)
             return
         }
-        recordSubframeDownloadIntentIfNeeded(navigationAction)
+        updateSubframeDownloadIntentIfNeeded(navigationAction)
 
         // Only guard main-frame navigations
         guard navigationAction.targetFrame?.isMainFrame != false else {
@@ -699,14 +699,19 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         controller?.handleWebContentProcessTermination(for: webView)
     }
 
-    private func recordSubframeDownloadIntentIfNeeded(_ navigationAction: WKNavigationAction) {
+    private func updateSubframeDownloadIntentIfNeeded(_ navigationAction: WKNavigationAction) {
         guard navigationAction.targetFrame?.isMainFrame == false,
               let url = navigationAction.request.url,
               Self.isHTTPDownloadIntentURL(url) else { return }
-        guard navigationAction.navigationType == .linkActivated
-            || browserNavigationHasSimpleUserActivation() else { return }
         let now = ProcessInfo.processInfo.systemUptime
         pruneSubframeDownloadIntents(now: now)
+        guard navigationAction.navigationType == .linkActivated
+            || browserNavigationHasSimpleUserActivation() else {
+            if recentSubframeDownloadIntentKeys.count == 1 {
+                recentSubframeDownloadIntentKeys[0] = (Self.downloadIntentKey(for: url), now)
+            }
+            return
+        }
         let key = Self.downloadIntentKey(for: url)
         recentSubframeDownloadIntentKeys.removeAll { $0.key == key }
         recentSubframeDownloadIntentKeys.append((key, now))
@@ -727,9 +732,7 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
             recentSubframeDownloadIntentKeys.remove(at: index)
             return true
         }
-        guard !recentSubframeDownloadIntentKeys.isEmpty else { return false }
-        recentSubframeDownloadIntentKeys.removeFirst()
-        return true
+        return false
     }
 
     private func pruneSubframeDownloadIntents(now: TimeInterval) {
