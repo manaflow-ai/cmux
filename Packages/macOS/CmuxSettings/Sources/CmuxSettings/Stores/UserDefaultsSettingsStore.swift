@@ -173,7 +173,7 @@ public actor UserDefaultsSettingsStore {
     /// - The first element is yielded as soon as the consumer starts iterating.
     /// - Subsequent elements are yielded when `UserDefaults.didChangeNotification`
     ///   fires and the typed value at this key differs from the previously
-    ///   yielded value.
+    ///   yielded value, or when a store-owned mutation source needs delivery.
     /// - Cancelling the consuming `Task` removes the underlying notification
     ///   observer, cancels the drain task, and ends the stream.
     /// - Buffering is `.bufferingNewest(1)`: a burst of writes (e.g. a
@@ -275,7 +275,7 @@ public actor UserDefaultsSettingsStore {
                     )
                     consumedSourceSequence = snapshot.consumedSourceSequence
                     let currentEvent = snapshot.event
-                    if currentEvent.value != lastYieldedEvent.value {
+                    if currentEvent.value != lastYieldedEvent.value || currentEvent.mutationSource != nil {
                         lastYieldedEvent = currentEvent
                         continuation.yield(currentEvent)
                     }
