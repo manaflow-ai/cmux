@@ -164,6 +164,71 @@ enum MobileHostRPCEnvelope {
     }
 }
 
+/// The live set of accepted ``MobileHostConnection``s, keyed by connection id.
+///
+/// Single owner of the host's active-connection state: it backs
+/// `MobileHostServiceStatus.activeConnectionCount`, enforces the accept-time
+/// connection cap, and snapshots the connections for event fan-out. Held by
+/// `MobileHostService` as a constructor-injected instance (no `static let
+/// shared`); the lock keeps it `Sendable` so the service's `nonisolated static`
+/// `emitEvent` forwarder can snapshot it without hopping to the main actor.
+///
+/// `@unchecked Sendable` is justified: the only mutable state is `connections`,
+/// and every access is guarded by `lock`.
+final class MobileHostConnectionRegistry: @unchecked Sendable {
+    private let lock = NSLock()
+    private var connections: [UUID: MobileHostConnection] = [:]
+
+    var count: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return connections.count
+    }
+
+    func insert(_ connection: MobileHostConnection, id: UUID, limit: Int) -> Bool {
+        lock.lock()
+        guard connections.count < limit else {
+            lock.unlock()
+            return false
+        }
+        connections[id] = connection
+        lock.unlock()
+        // Notify after the authoritative count actually changes (this registry
+        // backs `MobileHostServiceStatus.activeConnectionCount`), so the Mobile
+        // settings diagnostics reflect the real count rather than a stale one.
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+        return true
+    }
+
+    func remove(id: UUID) {
+        lock.lock()
+        let didRemove = connections.removeValue(forKey: id) != nil
+        lock.unlock()
+        if didRemove {
+            NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+        }
+    }
+
+    func removeAll() -> [MobileHostConnection] {
+        lock.lock()
+        let values = Array(connections.values)
+        connections.removeAll()
+        lock.unlock()
+        if !values.isEmpty {
+            NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+        }
+        return values
+    }
+
+    /// Snapshot of current connections — caller fans out event delivery
+    /// without holding the registry lock across `await`.
+    func snapshot() -> [MobileHostConnection] {
+        lock.lock()
+        defer { lock.unlock() }
+        return Array(connections.values)
+    }
+}
+
 /// One framed mobile-sync connection accepted by `MobileHostService`.
 ///
 /// Owns the per-connection receive loop, first-frame/idle timeouts, per-frame

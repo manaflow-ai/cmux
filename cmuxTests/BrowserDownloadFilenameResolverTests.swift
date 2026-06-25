@@ -130,7 +130,7 @@ import CmuxBrowser
             try Self.cookie(name: "wrong-path", domain: ".example.test", path: "/admin"),
         ]
 
-        let names = Set(CmuxWebView.cookiesForDownloadRequest(cookies, url: url).map(\.name))
+        let names = Set(BrowserDownloadCookieFilter().filter(cookies, url: url).map(\.name))
 
         #expect(names == ["parent", "host"])
     }
@@ -144,7 +144,7 @@ import CmuxBrowser
             try Self.cookie(name: "future", domain: "example.test", expires: Date(timeIntervalSince1970: 4_102_444_800)),
         ]
 
-        let names = Set(CmuxWebView.cookiesForDownloadRequest(cookies, url: url).map(\.name))
+        let names = Set(BrowserDownloadCookieFilter().filter(cookies, url: url).map(\.name))
 
         #expect(names == ["plain", "future"])
     }

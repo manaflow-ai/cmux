@@ -24,98 +24,6 @@ extension Notification.Name {
     )
 }
 
-private final class MobileHostConnectionRegistry: @unchecked Sendable {
-    static let shared = MobileHostConnectionRegistry()
-
-    private let lock = NSLock()
-    private var connections: [UUID: MobileHostConnection] = [:]
-
-    var count: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return connections.count
-    }
-
-    func insert(_ connection: MobileHostConnection, id: UUID, limit: Int) -> Bool {
-        lock.lock()
-        guard connections.count < limit else {
-            lock.unlock()
-            return false
-        }
-        connections[id] = connection
-        lock.unlock()
-        // Notify after the authoritative count actually changes (this registry
-        // backs `MobileHostServiceStatus.activeConnectionCount`), so the Mobile
-        // settings diagnostics reflect the real count rather than a stale one.
-        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
-        return true
-    }
-
-    func remove(id: UUID) {
-        lock.lock()
-        let didRemove = connections.removeValue(forKey: id) != nil
-        lock.unlock()
-        if didRemove {
-            NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
-        }
-    }
-
-    func removeAll() -> [MobileHostConnection] {
-        lock.lock()
-        let values = Array(connections.values)
-        connections.removeAll()
-        lock.unlock()
-        if !values.isEmpty {
-            NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
-        }
-        return values
-    }
-
-    /// Snapshot of current connections — caller fans out event delivery
-    /// without holding the registry lock across `await`.
-    func snapshot() -> [MobileHostConnection] {
-        lock.lock()
-        defer { lock.unlock() }
-        return Array(connections.values)
-    }
-}
-
-private enum MobileHostPublicStatusCache {
-    private static let lock = NSLock()
-    private nonisolated(unsafe) static var routes: [CmxAttachRoute] = []
-
-    static func update(routes nextRoutes: [CmxAttachRoute]) {
-        lock.lock()
-        routes = nextRoutes
-        lock.unlock()
-        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
-    }
-
-    static func result(includeIdentity: Bool = false) -> MobileHostRPCResult {
-        lock.lock()
-        let cachedRoutes = routes
-        lock.unlock()
-        let projector = MobileHostStatusPayloadProjector(
-            routesPayload: cachedRoutes.map(\.mobileHostJSONObject)
-        )
-        guard includeIdentity else {
-            return .ok(projector.publicPayload)
-        }
-        // Identity strings are resolved app-side (`MobileHostIdentity` is
-        // UserDefaults-backed, `MobileHostBuildIdentity` reads `Bundle.main`)
-        // and handed to the pure projector, which stays in CMUXMobileCore.
-        let build = MobileHostBuildIdentity.current()
-        return .ok(
-            projector.identityPayload(
-                deviceID: MobileHostIdentity.deviceID(),
-                displayName: MobileHostIdentity.displayName(),
-                appVersion: build.appVersion,
-                appBuild: build.appBuild
-            )
-        )
-    }
-}
-
 /// Moved to ``CMUXMobileCore.MobileHostServiceStatus`` (a pure `Sendable` value).
 /// Kept as an app-side typealias so this file and `HostSettingsActions` consumers
 /// stay byte-identical.
@@ -168,13 +76,33 @@ final class MobileHostService {
     nonisolated static func networkStatusResult(for request: MobileHostRPCRequest) async -> MobileHostRPCResult {
         let trimmedToken = request.auth?.stackAccessToken?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedToken?.isEmpty == false else {
-            return MobileHostPublicStatusCache.result(includeIdentity: false)
+            return .ok(MobileHostService.shared.publicStatusCache.publicPayload())
         }
         let verified = await MobileHostService.shared.verifiedStackCaller(for: request)
         if !verified {
             mobileHostLog.error("mobile host status identity withheld: stack verification failed")
         }
-        return MobileHostPublicStatusCache.result(includeIdentity: verified)
+        return MobileHostService.shared.statusResult(includeIdentity: verified)
+    }
+
+    /// Wraps the public status cache's payload into a `MobileHostRPCResult`,
+    /// resolving the Mac's identity strings app-side when `includeIdentity` is
+    /// set. The identity reads (`MobileHostBuildIdentity` reads `Bundle.main`,
+    /// `MobileHostIdentity` is `UserDefaults`-backed) stay in the app target;
+    /// the route projection lives in ``MobileHostPublicStatusCache``.
+    nonisolated func statusResult(includeIdentity: Bool) -> MobileHostRPCResult {
+        guard includeIdentity else {
+            return .ok(publicStatusCache.publicPayload())
+        }
+        let build = MobileHostBuildIdentity.current()
+        return .ok(
+            publicStatusCache.identityPayload(
+                deviceID: MobileHostIdentity.deviceID(),
+                displayName: MobileHostIdentity.displayName(),
+                appVersion: build.appVersion,
+                appBuild: build.appBuild
+            )
+        )
     }
 
     private let callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-listener")
@@ -186,6 +114,15 @@ final class MobileHostService {
     /// `MobileHostConnection` this service creates; the `nonisolated static`
     /// emit/has-subscribers forwarders read it through `shared`.
     nonisolated let eventSubscriptionRegistry = MobileHostEventSubscriptionRegistry()
+    /// The single owner of the host's accepted-connection set. A
+    /// constructor-injected instance (no `static let shared`), mirroring
+    /// ``eventSubscriptionRegistry`` and ``requestActivity``. Backs
+    /// `MobileHostServiceStatus.activeConnectionCount`, enforces the accept cap,
+    /// and snapshots connections for event fan-out. `nonisolated` so the
+    /// `nonisolated static` ``emitEvent(topic:payload:)`` forwarder can snapshot
+    /// it through ``shared`` without hopping to the main actor; the lock inside
+    /// makes that access safe.
+    nonisolated let connectionRegistry = MobileHostConnectionRegistry()
     /// The process-wide request/connection activity counters that drive idle-quiet
     /// math. A single shared default (one per process, mirroring the previous
     /// `MobileHostRequestActivity` static-namespace state) injected here at the
@@ -193,6 +130,16 @@ final class MobileHostService {
     /// forwarders below read it so the existing call sites stay one token wide.
     nonisolated private static let sharedRequestActivity = MobileHostRequestActivityTracker()
     nonisolated let requestActivity: MobileHostRequestActivityTracker = MobileHostService.sharedRequestActivity
+    /// Caches the host's advertised attach routes and projects the
+    /// `mobile.host.status` reply bodies. Constructor-injected with the
+    /// status-change post (the `mobileHostStatusDidChange` name is declared in
+    /// this app target, so the closure posts it) and held here, mirroring
+    /// ``requestActivity``. The ~20 lifecycle/update call sites and the two
+    /// status-reply readers below go through this instance; the `.ok(...)`
+    /// wrapping and the identity reads stay app-side.
+    nonisolated let publicStatusCache = MobileHostPublicStatusCache(onChange: {
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+    })
 
     /// True while any mobile request is being served. Forwards to the shared
     /// ``MobileHostRequestActivityTracker``.
@@ -234,7 +181,6 @@ final class MobileHostService {
     /// ephemeral fallback). Used to decide whether a settings change needs a
     /// restart. `nil` while stopped.
     private var appliedPreferredPort: Int?
-    private var activeConnections: [UUID: MobileHostConnection] = [:]
     private var clientIDsByConnectionID: [UUID: Set<String>] = [:]
     private var lastErrorDescription: String?
     /// Watches for network path changes while the listener is bound, so the
@@ -317,7 +263,7 @@ final class MobileHostService {
         guard shared.eventSubscriptionRegistry.hasSubscribers(topic: topic) else {
             return
         }
-        let connections = MobileHostConnectionRegistry.shared.snapshot()
+        let connections = shared.connectionRegistry.snapshot()
         guard !connections.isEmpty else { return }
         #if DEBUG
         cmuxDebugLog("mobile.emit topic=\(topic) connections=\(connections.count)")
@@ -510,13 +456,9 @@ final class MobileHostService {
         listener?.stateUpdateHandler = nil
         listener?.newConnectionHandler = nil
         listener?.cancel()
-        for connection in activeConnections.values {
+        for connection in connectionRegistry.removeAll() {
             Task { await connection.close(reason: "pairing port changed") }
         }
-        for connection in MobileHostConnectionRegistry.shared.removeAll() {
-            Task { await connection.close(reason: "pairing port changed") }
-        }
-        activeConnections.removeAll()
         clientIDsByConnectionID.removeAll()
 
         listener = candidate
@@ -536,7 +478,7 @@ final class MobileHostService {
                 self?.updatePublicStatusRoutes(port: port, generation: generation, tailscaleHosts: hosts)
             }
         })
-        MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: port).routes)
+        publicStatusCache.update(routes: routeResolver.routes(port: port).routes)
         startNetworkPathMonitorIfNeeded()
         drainReadinessWaiters()
     }
@@ -573,7 +515,7 @@ final class MobileHostService {
         listenerPort = port
         appliedPreferredPort = port
         lastErrorDescription = nil
-        MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: port).routes)
+        publicStatusCache.update(routes: routeResolver.routes(port: port).routes)
         mobileHostLog.info("mobile host listener disabled; publishing XCTest routes without binding")
     }
     #endif
@@ -643,16 +585,12 @@ final class MobileHostService {
         listener = nil
         listenerPort = nil
         appliedPreferredPort = nil
-        for connection in activeConnections.values {
+        for connection in connectionRegistry.removeAll() {
             Task { await connection.close(reason: "service stopped") }
         }
-        for connection in MobileHostConnectionRegistry.shared.removeAll() {
-            Task { await connection.close(reason: "service stopped") }
-        }
-        activeConnections.removeAll()
         clientIDsByConnectionID.removeAll()
         eventSubscriptionRegistry.reset()
-        MobileHostPublicStatusCache.update(routes: [])
+        publicStatusCache.update(routes: [])
         TerminalController.shared.clearAllMobileViewportReports(reason: "mobile.host.stopped")
         drainReadinessWaiters()
     }
@@ -754,7 +692,7 @@ final class MobileHostService {
             // editing the preferred port before a restart must not flip this.
             usesEphemeralFallback: isRunning && listenerUsesEphemeralFallback,
             routes: routes,
-            activeConnectionCount: MobileHostConnectionRegistry.shared.count,
+            activeConnectionCount: connectionRegistry.count,
             lastErrorDescription: lastErrorDescription
         )
     }
@@ -855,12 +793,12 @@ final class MobileHostService {
                     return result
                 },
                 onClose: { id in
-                    MobileHostConnectionRegistry.shared.remove(id: id)
+                    MobileHostService.shared.connectionRegistry.remove(id: id)
                     await MobileHostService.shared.removeConnection(id: id)
                 },
                 eventSubscriptionRegistry: MobileHostService.shared.eventSubscriptionRegistry
             )
-            guard MobileHostConnectionRegistry.shared.insert(
+            guard MobileHostService.shared.connectionRegistry.insert(
                 session,
                 id: id,
                 limit: Self.maximumActiveConnectionCount
@@ -915,54 +853,8 @@ final class MobileHostService {
         return try ticketStore.payload(for: ticket)
     }
 
-    private func accept(_ connection: NWConnection, generation: UUID) {
-        guard listener != nil, generation == listenerGeneration else {
-            connection.cancel()
-            MobileHostService.endConnection()
-            return
-        }
-        guard activeConnections.count < Self.maximumActiveConnectionCount else {
-            mobileHostLog.error("mobile host rejected connection because active connection limit was reached")
-            connection.cancel()
-            MobileHostService.endConnection()
-            return
-        }
-
-        let id = UUID()
-        let session = MobileHostConnection(
-            id: id,
-            connection: connection,
-            authorizeRequest: { request in
-                await MobileHostService.shared.authorizationError(for: request)
-            },
-            onAuthorizedRequest: { request in
-                if let clientID = Self.clientID(from: request.params) {
-                    await MobileHostService.shared.recordClientID(clientID, for: id)
-                }
-            },
-            handleRequest: { request in
-                if request.method == "mobile.host.status" {
-                    return await MobileHostService.networkStatusResult(for: request)
-                }
-                let result = await TerminalController.shared.mobileHostHandleRPC(request)
-                await MobileHostService.shared.recordCreatedResourcesIfNeeded(
-                    request: request,
-                    result: result
-                )
-                return result
-            },
-            onClose: { id in
-                await MobileHostService.shared.removeConnection(id: id)
-            },
-            eventSubscriptionRegistry: eventSubscriptionRegistry
-        )
-        activeConnections[id] = session
-        Task { await session.start() }
-    }
-
     private func removeConnection(id: UUID) {
-        MobileHostConnectionRegistry.shared.remove(id: id)
-        activeConnections.removeValue(forKey: id)
+        connectionRegistry.remove(id: id)
         // Drop this connection's sticky viewport reports so a disconnected
         // device stops pinning the shared grid (and its macOS viewport border
         // clears) even though it never sent an explicit clear.
@@ -1175,9 +1067,9 @@ final class MobileHostService {
                         )
                     }
                 })
-                MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: listenerPort).routes)
+                publicStatusCache.update(routes: routeResolver.routes(port: listenerPort).routes)
             } else {
-                MobileHostPublicStatusCache.update(routes: [])
+                publicStatusCache.update(routes: [])
             }
             mobileHostLog.info("mobile host listener ready on port \(self.listenerPort ?? 0)")
             drainReadinessWaiters()
@@ -1188,7 +1080,7 @@ final class MobileHostService {
             listener = nil
             listenerUsesEphemeralFallback = false
             listenerPort = nil
-            MobileHostPublicStatusCache.update(routes: [])
+            publicStatusCache.update(routes: [])
             drainReadinessWaiters()
         case let .waiting(error):
             // A preferred-port bind blocked by another listener surfaces as
@@ -1199,11 +1091,11 @@ final class MobileHostService {
                 handleListenerBindFailure(error: error, context: "in use (waiting)")
             } else {
                 listenerPort = nil
-                MobileHostPublicStatusCache.update(routes: [])
+                publicStatusCache.update(routes: [])
             }
         case .setup:
             listenerPort = nil
-            MobileHostPublicStatusCache.update(routes: [])
+            publicStatusCache.update(routes: [])
         @unknown default:
             break
         }
@@ -1214,7 +1106,7 @@ final class MobileHostService {
     /// Shared by the `.failed` and `.waiting(addressUnavailable)` paths.
     private func handleListenerBindFailure(error: NWError, context: String) {
         lastErrorDescription = String(describing: error)
-        MobileHostPublicStatusCache.update(routes: [])
+        publicStatusCache.update(routes: [])
         let shouldRetryWithEphemeralPort = !listenerUsesEphemeralFallback
         listener?.stateUpdateHandler = nil
         listener?.newConnectionHandler = nil
@@ -1242,7 +1134,7 @@ final class MobileHostService {
         guard generation == listenerGeneration, listenerPort == port else {
             return
         }
-        MobileHostPublicStatusCache.update(
+        publicStatusCache.update(
             routes: routeResolver.routes(port: port, tailscaleHosts: tailscaleHosts).routes
         )
     }
@@ -1290,7 +1182,7 @@ final class MobileHostService {
                 self?.updatePublicStatusRoutes(port: port, generation: generation, tailscaleHosts: hosts)
             }
         })
-        MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: port).routes)
+        publicStatusCache.update(routes: routeResolver.routes(port: port).routes)
     }
 }
 
@@ -1301,7 +1193,7 @@ extension MobileHostService {
         listenerGeneration = UUID()
         listenerUsesEphemeralFallback = false
         listenerPort = nil
-        activeConnections.removeAll()
+        _ = connectionRegistry.removeAll()
         clientIDsByConnectionID.removeAll()
         requestActivity.resetForTesting()
         eventSubscriptionRegistry.resetForTesting()

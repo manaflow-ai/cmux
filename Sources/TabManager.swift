@@ -1189,63 +1189,31 @@ class TabManager {
     }
 
     func requestBackgroundWorkspaceLoad(for workspaceId: UUID) {
-        guard !pendingBackgroundWorkspaceLoadIds.contains(workspaceId) else { return }
-        var updated = pendingBackgroundWorkspaceLoadIds
-        updated.insert(workspaceId)
-        backgroundWorkspaceLoad.pendingBackgroundWorkspaceLoadIds = updated
+        backgroundWorkspaceLoad.requestBackgroundWorkspaceLoad(for: workspaceId)
     }
 
     func completeBackgroundWorkspaceLoad(for workspaceId: UUID) {
-        guard pendingBackgroundWorkspaceLoadIds.contains(workspaceId) else { return }
-        var updated = pendingBackgroundWorkspaceLoadIds
-        updated.remove(workspaceId)
-        backgroundWorkspaceLoad.pendingBackgroundWorkspaceLoadIds = updated
-        releaseBackgroundWorkspaceMount(for: workspaceId)
+        backgroundWorkspaceLoad.completeBackgroundWorkspaceLoad(for: workspaceId)
     }
 
     func retainBackgroundWorkspaceMount(for workspaceId: UUID) {
-        guard !mountedBackgroundWorkspaceLoadIds.contains(workspaceId) else { return }
-        var updated = mountedBackgroundWorkspaceLoadIds
-        updated.insert(workspaceId)
-        backgroundWorkspaceLoad.mountedBackgroundWorkspaceLoadIds = updated
+        backgroundWorkspaceLoad.retainBackgroundWorkspaceMount(for: workspaceId)
     }
 
     func releaseBackgroundWorkspaceMount(for workspaceId: UUID) {
-        guard mountedBackgroundWorkspaceLoadIds.contains(workspaceId) else { return }
-        var updated = mountedBackgroundWorkspaceLoadIds
-        updated.remove(workspaceId)
-        backgroundWorkspaceLoad.mountedBackgroundWorkspaceLoadIds = updated
+        backgroundWorkspaceLoad.releaseBackgroundWorkspaceMount(for: workspaceId)
     }
 
     func retainDebugWorkspaceLoads(for workspaceIds: Set<UUID>) {
-        guard !workspaceIds.isEmpty else { return }
-        var updated = debugPinnedWorkspaceLoadIds
-        updated.formUnion(workspaceIds)
-        guard updated != debugPinnedWorkspaceLoadIds else { return }
-        backgroundWorkspaceLoad.debugPinnedWorkspaceLoadIds = updated
+        backgroundWorkspaceLoad.retainDebugWorkspaceLoads(for: workspaceIds)
     }
 
     func releaseDebugWorkspaceLoads(for workspaceIds: Set<UUID>) {
-        guard !workspaceIds.isEmpty else { return }
-        var updated = debugPinnedWorkspaceLoadIds
-        updated.subtract(workspaceIds)
-        guard updated != debugPinnedWorkspaceLoadIds else { return }
-        backgroundWorkspaceLoad.debugPinnedWorkspaceLoadIds = updated
+        backgroundWorkspaceLoad.releaseDebugWorkspaceLoads(for: workspaceIds)
     }
 
     func pruneBackgroundWorkspaceLoads(existingIds: Set<UUID>) {
-        let pruned = pendingBackgroundWorkspaceLoadIds.intersection(existingIds)
-        if pruned != pendingBackgroundWorkspaceLoadIds {
-            backgroundWorkspaceLoad.pendingBackgroundWorkspaceLoadIds = pruned
-        }
-        let mounted = mountedBackgroundWorkspaceLoadIds.intersection(existingIds)
-        if mounted != mountedBackgroundWorkspaceLoadIds {
-            backgroundWorkspaceLoad.mountedBackgroundWorkspaceLoadIds = mounted
-        }
-        let retained = debugPinnedWorkspaceLoadIds.intersection(existingIds)
-        if retained != debugPinnedWorkspaceLoadIds {
-            backgroundWorkspaceLoad.debugPinnedWorkspaceLoadIds = retained
-        }
+        backgroundWorkspaceLoad.pruneBackgroundWorkspaceLoads(existingIds: existingIds)
     }
 
     // Keep addTab as convenience alias (forwards through the creation coordinator).

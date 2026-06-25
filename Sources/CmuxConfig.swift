@@ -823,6 +823,16 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
     }
 }
 
+// Resolution seam for `WorkspaceSurfaceTabBarButtonResolution` (CmuxWorkspaces):
+// the button stays app-side, so the conformance projects the four fields the
+// package resolver reads. Kept co-located with the button type.
+extension CmuxSurfaceTabBarButton: WorkspaceSurfaceTabBarButtonResolvable {
+    var resolutionID: String { id }
+    var resolutionTerminalCommand: String? { terminalCommand }
+    var resolutionActionSourcePath: String? { actionSourcePath }
+    var resolutionAction: CmuxSurfaceTabBarButtonAction { action }
+}
+
 struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
     var id: String
     var title: String

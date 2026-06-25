@@ -333,36 +333,6 @@ extension CmuxWebView {
         return scheme == "data"
     }
 
-    static func cookiesForDownloadRequest(_ cookies: [HTTPCookie], url: URL) -> [HTTPCookie] {
-        guard let host = url.host?.lowercased() else { return [] }
-        let requestPath = url.path.isEmpty ? "/" : url.path
-        let isHTTPS = url.scheme?.caseInsensitiveCompare("https") == .orderedSame
-        let now = Date.now
-
-        return cookies.filter { cookie in
-            if cookie.isSecure && !isHTTPS { return false }
-            if let expires = cookie.expiresDate, expires <= now { return false }
-            guard domain(cookie.domain, matches: host) else { return false }
-            return path(cookie.path, matches: requestPath)
-        }
-    }
-
-    private static func domain(_ cookieDomain: String, matches host: String) -> Bool {
-        let normalized = cookieDomain.trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased()
-        guard !normalized.isEmpty else { return false }
-        if cookieDomain.hasPrefix(".") {
-            return host == normalized || host.hasSuffix(".\(normalized)")
-        }
-        return host == normalized
-    }
-
-    private static func path(_ cookiePath: String, matches requestPath: String) -> Bool {
-        let normalized = cookiePath.isEmpty ? "/" : cookiePath
-        if normalized == "/" || requestPath == normalized { return true }
-        guard requestPath.hasPrefix(normalized) else { return false }
-        return normalized.hasSuffix("/") || requestPath.dropFirst(normalized.count).first == "/"
-    }
-
     private static let sharedScriptedDownloadMessageHandler = ScriptedDownloadMessageHandler()
 }
 
