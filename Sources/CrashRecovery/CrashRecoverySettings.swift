@@ -59,7 +59,8 @@ enum CrashRecoverySettings {
         defaults: UserDefaults = .standard
     ) -> Bool {
         if launchState.priorRunCrashed {
-            return offerResumeAfterCrash(defaults: defaults)
+            return offerResumeAfterCrash(defaults: defaults) ||
+                shouldDeliverSilentReentry(launchState: launchState, defaults: defaults)
         }
         if launchState.restoreWasIntended {
             return true

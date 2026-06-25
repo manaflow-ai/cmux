@@ -46,7 +46,15 @@ import Testing
         sessionId: String,
         payloadSessionId: String? = nil
     ) throws -> String {
-        let dir = (home as NSString).appendingPathComponent(".codex/sessions/2026/06/25")
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
+        let components = calendar.dateComponents([.year, .month, .day], from: Date())
+        let year = try #require(components.year)
+        let month = try #require(components.month)
+        let day = try #require(components.day)
+        let dir = (home as NSString).appendingPathComponent(
+            String(format: ".codex/sessions/%04d/%02d/%02d", year, month, day)
+        )
         try fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
         let path = (dir as NSString).appendingPathComponent("rollout-2026-06-25T000000-\(sessionId).jsonl")
         let payloadId = payloadSessionId ?? sessionId

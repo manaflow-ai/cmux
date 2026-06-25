@@ -426,19 +426,12 @@ extension Workspace: ResumableWorkspaceSurface {
     }
 
     /// Silent-path agent-first re-entry for a cold-restored agent panel (U11/R17).
-    ///
-    /// cmux already issues the native `claude --resume` during restore (PR #6741
-    /// fixes the cwd it `cd`s into). This layers the re-entry message on top,
-    /// gated on a real crash, the opt-in breadcrumb setting, and the absence of
-    /// a launch-level crash offer taking ownership of the injected prompt.
-    ///
-    /// Per-panel by construction (facts built from the panel's own snapshot, not
-    /// the focused-panel accessors), so a multi-window restore recovers each
-    /// window's own work without cross-bleed.
+    /// Per-panel by construction: facts come from the panel's own snapshot.
     @MainActor
     func scheduleCrashRecoveryReentry(
         panel: TerminalPanel,
         agent: SessionRestorableAgentSnapshot,
+        nativeResumeAlreadyScheduled: Bool,
         defaults: UserDefaults = .standard,
         launchState: CrashRecoveryLaunchState?
     ) {
@@ -473,27 +466,32 @@ extension Workspace: ResumableWorkspaceSurface {
                     cwd: cwd,
                     transcriptPath: verification.presence.resolvedPathAtWindowCwd
                 )
-
-                let message: String?
-                switch RecoveryRouter(injectBreadcrumb: true).route(verification.facts, context: context) {
-                case .resumeVerified(let breadcrumb):
-                    message = breadcrumb
-                case .honestRecovery(let prompt, _):
-                    message = prompt
-                }
-                return (verification: verification, message: message)
+                let action = RecoveryRouter(injectBreadcrumb: true).route(verification.facts, context: context)
+                return (verification: verification, action: action)
             }.value
             guard !Task.isCancelled else { return }
             guard result.verification.facts.agentKind == agentKind,
                   result.verification.facts.sessionId == sessionId,
-                  let message = result.message,
                   let self,
                   let panel = self.panels[panelId] as? TerminalPanel else { return }
             if self.restoredAgentSnapshotsByPanelId[panelId]?.kind == agentKind,
                self.restoredAgentSnapshotsByPanelId[panelId]?.sessionId == sessionId {
                 self.restoredAgentVerificationByPanelId[panelId] = result.verification
             }
-            self.sendInputWhenReady(message + "\n", to: panel, reason: .recoveryInput)
+            switch result.action {
+            case .resumeVerified(let breadcrumb):
+                if !nativeResumeAlreadyScheduled,
+                   let input = agent.resumeStartupInput(allowOversizedInlineInput: true),
+                   !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    self.restoredAgentResumeStatesByPanelId[panelId] = .awaitingAutoResumeCommand
+                    self.sendInputWhenReady(input, to: panel, reason: .recoveryInput)
+                }
+                if let breadcrumb {
+                    self.sendInputWhenReady(breadcrumb + "\n", to: panel, reason: .recoveryInput)
+                }
+            case .honestRecovery(let prompt, _):
+                self.sendInputWhenReady(prompt + "\n", to: panel, reason: .recoveryInput)
+            }
         }
     }
 }

@@ -1467,15 +1467,14 @@ extension Workspace {
                     restoredAgentResumeStatesByPanelId[terminalPanel.id] = .manualResumeAvailable
                 }
                 invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: terminalPanel.id)
-                // Agent-first re-entry (breadcrumb / honest recovery) for a
-                // cold-restored agent — only for a true resume, not a hibernation
-                // restore (which has its own flow below).
-                if restoredHibernation == nil,
-                   restoredAgentWillRunStartupCommand || restoredAgentWillRunStartupInput {
+                let restoredAgentStartupAlreadyScheduled = restoredAgentWillRunStartupCommand || restoredAgentWillRunStartupInput
+                let shouldVerifyCrashRecoveryReentry = shouldAutoResumeAgent && (launchState.map { CrashRecoverySettings.shouldDeliverSilentReentry(launchState: $0) } ?? false)
+                if restoredHibernation == nil, restoredAgentStartupAlreadyScheduled || shouldVerifyCrashRecoveryReentry {
                     scheduleCrashRecoveryReentry(
                         panel: terminalPanel,
                         agent: restorableAgent,
-                        launchState: AppDelegate.shared?.crashRecoveryLaunchState
+                        nativeResumeAlreadyScheduled: restoredAgentStartupAlreadyScheduled,
+                        launchState: launchState
                     )
                 }
                 if let restoredHibernation,

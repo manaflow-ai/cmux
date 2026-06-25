@@ -191,6 +191,7 @@ enum ClaudeTranscriptPresenceResolver {
 /// resolver only verifies a binding when both values match the restored window.
 enum CodexTranscriptPresenceResolver {
     private static let headByteCap = 64 * 1024
+    private static let recentDayLimit = 370
 
     static func resolve(
         sessionId: String?,
@@ -215,27 +216,28 @@ enum CodexTranscriptPresenceResolver {
         ) {
             let sessionsRoot = URL(fileURLWithPath: root, isDirectory: true)
                 .appendingPathComponent("sessions", isDirectory: true)
-            guard let enumerator = fileManager.enumerator(
-                at: sessionsRoot,
-                includingPropertiesForKeys: nil,
-                options: [.skipsHiddenFiles]
-            ) else {
-                continue
-            }
-
-            for case let url as URL in enumerator {
+            for directory in recentSessionDirectories(sessionsRoot: sessionsRoot) {
                 guard !Task.isCancelled else { return .absent }
                 guard resolvedAtCwd == nil else { break }
-                guard url.pathExtension == "jsonl",
-                      url.lastPathComponent.lowercased().contains(needle),
-                      let meta = sessionMeta(in: url),
-                      meta.sessionId == sessionId else {
-                    continue
-                }
-                if cwdMatches(meta.cwd, cwd) {
-                    resolvedAtCwd = url.path
-                } else if nonEmpty(meta.cwd) != nil {
-                    existsElsewhere = true
+                guard let entries = try? fileManager.contentsOfDirectory(
+                    at: directory,
+                    includingPropertiesForKeys: nil,
+                    options: [.skipsHiddenFiles]
+                ) else { continue }
+                for url in entries {
+                    guard !Task.isCancelled else { return .absent }
+                    guard url.pathExtension == "jsonl",
+                          url.lastPathComponent.lowercased().contains(needle),
+                          let meta = sessionMeta(in: url),
+                          meta.sessionId == sessionId else {
+                        continue
+                    }
+                    if cwdMatches(meta.cwd, cwd) {
+                        resolvedAtCwd = url.path
+                        break
+                    } else if nonEmpty(meta.cwd) != nil {
+                        existsElsewhere = true
+                    }
                 }
             }
         }
@@ -264,6 +266,20 @@ enum CodexTranscriptPresenceResolver {
         let home = ((homeDirectory as NSString).expandingTildeInPath as NSString).standardizingPath
         add((home as NSString).appendingPathComponent(".codex"))
         return roots
+    }
+
+    private static func recentSessionDirectories(sessionsRoot: URL, now: Date = Date()) -> [URL] {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
+        return (0..<recentDayLimit).compactMap { offset in
+            guard let date = calendar.date(byAdding: .day, value: -offset, to: now) else { return nil }
+            let components = calendar.dateComponents([.year, .month, .day], from: date)
+            guard let year = components.year, let month = components.month, let day = components.day else { return nil }
+            return sessionsRoot
+                .appendingPathComponent(String(format: "%04d", year), isDirectory: true)
+                .appendingPathComponent(String(format: "%02d", month), isDirectory: true)
+                .appendingPathComponent(String(format: "%02d", day), isDirectory: true)
+        }
     }
 
     private static func sessionMeta(in url: URL) -> (sessionId: String, cwd: String?)? {

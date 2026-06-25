@@ -78,7 +78,7 @@ import Testing
         ))
 
         CrashRecoverySettings.setInjectResumeBreadcrumb(true, defaults: d)
-        #expect(!CrashRecoverySettings.shouldGateRestoredAgentStartup(
+        #expect(CrashRecoverySettings.shouldGateRestoredAgentStartup(
             launchState: crashedLaunch,
             defaults: d
         ))
