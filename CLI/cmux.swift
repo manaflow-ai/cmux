@@ -30319,7 +30319,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return summary.status == .error ? summary : nil
             }()
 
-            let cwd = hookCwd ?? mapped?.cwd
+            let rawCwd = hookCwd ?? mapped?.cwd
+            let launchCommand = agentLaunchCommandFromEnvironment(env, fallbackPID: pid, fallbackKind: def.name, cwd: rawCwd)
+            let cwd = preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped)
             let grokAssistantMessage: String? = {
                 guard def.name == "grok" else { return nil }
                 return latestGrokAssistantMessage(
@@ -30370,12 +30372,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }()
             let staleIdleStopHasNewerRunningSession = lifecycleAfterStop == .idle &&
                 hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId)
-            let launchCommand = agentLaunchCommandFromEnvironment(
-                env,
-                fallbackPID: pid,
-                fallbackKind: def.name,
-                cwd: cwd
-            )
             let terminalActivePromptTurnIdsForStop: Set<String>
             if !staleIdleStopHasNewerRunningSession,
                def.name == "codex",
