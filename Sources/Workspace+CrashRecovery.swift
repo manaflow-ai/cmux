@@ -324,6 +324,7 @@ extension Workspace: ResumableWorkspaceSurface {
                 sessionId: sessionId,
                 cwd: cwd,
                 codexHomeOverride: codexHomeOverride,
+                searchElsewhere: searchElsewhere,
                 fileManager: fileManager,
                 homeDirectory: homeDirectory
             )

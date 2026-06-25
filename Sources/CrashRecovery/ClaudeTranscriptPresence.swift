@@ -211,12 +211,16 @@ enum CodexTranscriptPresenceResolver {
         sessionId: String?,
         cwd: String?,
         codexHomeOverride: String? = nil,
+        searchElsewhere: Bool = true,
         fileManager: FileManager = .default,
         homeDirectory: String = NSHomeDirectory()
     ) -> ClaudeTranscriptPresence {
         guard let sessionId = nonEmpty(sessionId),
               isSafeFilename(sessionId),
               let cwd = nonEmpty(cwd) else {
+            return .absent
+        }
+        guard searchElsewhere else {
             return .absent
         }
 
@@ -260,7 +264,7 @@ enum CodexTranscriptPresenceResolver {
             existsAtWindowCwd: resolvedAtCwd != nil,
             existsElsewhere: resolvedAtCwd == nil && existsElsewhere,
             resolvedPathAtWindowCwd: resolvedAtCwd,
-            searchedElsewhere: true
+            searchedElsewhere: searchElsewhere
         )
     }
 

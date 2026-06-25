@@ -219,6 +219,24 @@ import Testing
         #expect(presence.resolvedPathAtWindowCwd == path)
     }
 
+    @Test func codexRestoreTimeLookupSkipsHistoricalRolloutScan() throws {
+        let home = try makeHome()
+        defer { try? fm.removeItem(atPath: home) }
+        let cwd = "/Users/me/repo"
+        let id = "codex-session-restore-time"
+        try seedCodexRollout(home: home, cwd: cwd, sessionId: id)
+
+        let presence = CodexTranscriptPresenceResolver.resolve(
+            sessionId: id,
+            cwd: cwd,
+            searchElsewhere: false,
+            homeDirectory: home
+        )
+
+        #expect(presence == .absent)
+        #expect(presence.searchedElsewhere == false)
+    }
+
     @Test func codexRolloutUnderDifferentCwdIsElsewhereNotAtCwd() throws {
         let home = try makeHome()
         defer { try? fm.removeItem(atPath: home) }
