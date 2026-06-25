@@ -93,7 +93,7 @@ actor RemoteTmuxSSHTransport {
     /// is unparseable. New tmux recognizes `-B` but may fail with "no current
     /// client" outside control mode; old tmux rejects the flag itself.
     private func serverSupportsRefreshClientSubscriptions() async throws -> Bool {
-        let result = try await runTmux(["refresh-client", "-B", "cmux_probe:#{version}"])
+        let result = try await runTmux(["refresh-client", "-B", "cmux_probe::#{version}"])
         if result.succeeded { return true }
         if Self.indicatesRefreshClientSubscriptionUnsupported(result.stderr) { return false }
         if Self.indicatesRefreshClientNeedsCurrentClient(result.stderr) { return true }
@@ -255,7 +255,9 @@ actor RemoteTmuxSSHTransport {
 
     static func indicatesRefreshClientNeedsCurrentClient(_ stderr: String) -> Bool {
         let lowered = stderr.lowercased()
-        return lowered.contains("no current client") || lowered.contains("not a client")
+        return lowered.contains("no current client")
+            || lowered.contains("not a client")
+            || lowered.contains("not a control client")
     }
 
     /// Whether a failed non-interactive (`BatchMode=yes`) connect failed because

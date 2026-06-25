@@ -80,6 +80,7 @@ import Testing
 
     @Test(arguments: [
         "no current client",
+        "not a control client",
         "refresh-client: not a client",
     ])
     func classifiesRecognizedRefreshClientSubscriptionProbeWithoutClient(_ stderr: String) {
