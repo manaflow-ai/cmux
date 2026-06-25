@@ -1112,7 +1112,7 @@ final class ClaudeHookSessionStore {
             // captured) only when we don't already hold an argv-bearing one — so the durable store
             // keeps the non-default home for the fork/resume path without ever downgrading a richer
             // earlier capture to an env-only stub.
-            if incomingHasArguments || (incomingHasEnvironment && !existingHasArguments) {
+            if incomingHasArguments || normalizeOptional(launchCommand.source)?.lowercased() == "rejected" || (incomingHasEnvironment && !existingHasArguments) {
                 record.launchCommand = launchCommand
             }
         }
