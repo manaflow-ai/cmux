@@ -1,6 +1,7 @@
 import Foundation
 import WebKit
 
+@MainActor
 struct BrowserErrorPage {
     let failedURL: String
     let failedRequest: URLRequest?

@@ -7,6 +7,7 @@ import Testing
 @testable import cmux
 #endif
 
+@MainActor
 @Suite
 struct BrowserSSLTrustBypassStateTests {
     @Test

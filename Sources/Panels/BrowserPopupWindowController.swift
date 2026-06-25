@@ -618,6 +618,7 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
 
 // MARK: - PopupNavigationDelegate
 
+@MainActor
 private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
     weak var controller: BrowserPopupWindowController?
     var downloadDelegate: WKDownloadDelegate?

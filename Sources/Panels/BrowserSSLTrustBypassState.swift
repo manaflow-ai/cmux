@@ -7,6 +7,7 @@ import Security
 /// owned by one navigation delegate instead of a global actor or singleton.
 /// That keeps bypass grants scoped to the lifetime of the relevant browser
 /// surface while preserving the exact failed `URLRequest` for replay.
+@MainActor
 final class BrowserSSLTrustBypassState {
     private var bypassedTrusts: Set<BrowserSSLTrustGrant> = []
     private var bypassedTrustOrder: [BrowserSSLTrustGrant] = []
