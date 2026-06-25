@@ -168,6 +168,9 @@ nonisolated struct VSCodeServeWebLaunchOptions: Equatable {
             "connection-token",
             isDirectory: false
         )
+        // serve-web URLs include this token, and cmux restores those URLs across
+        // app relaunches. Keep the token stable; loopback binding plus 0700/0600
+        // filesystem permissions are the intended local security boundary.
         if fileManager.fileExists(atPath: tokenFileURL.path) {
             if isUsableConnectionTokenFile(tokenFileURL, fileManager: fileManager) {
                 return tokenFileURL
