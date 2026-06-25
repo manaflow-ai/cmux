@@ -11,6 +11,7 @@ import {
   listBackupSnapshotWithUnscopedFallback,
   listLiveBackup,
   MAX_BACKUP_OPS,
+  MAX_CLIENT_SCOPE_LENGTH,
   MAX_PAIRED_MAC_CLIENT_SCOPES_PER_USER,
   MAX_PAIRED_MAC_RECORDS_PER_USER,
   MAX_PAIRED_MACS_PER_USER,
@@ -131,11 +132,17 @@ describe("applyBackupOps", () => {
       "ios:other",
     );
 
-    expect(normalizeClientScope(" ios:Feature Tag ")).toBe("ios:feature-tag");
-    expect(pairedMacsCollection("user-1", "ios:Feature Tag")).toBe("pairedMacsScoped:user-1:ios:feature-tag");
+    expect(normalizeClientScope(" ios:Feature Tag ")).toBe("b64_aW9zOkZlYXR1cmUgVGFn");
+    expect(pairedMacsCollection("user-1", "ios:Feature Tag")).toBe(
+      "pairedMacsScoped:user-1:b64_aW9zOkZlYXR1cmUgVGFn",
+    );
     expect((await listBackupSnapshot(storage, "user-1", "ios:Feature Tag")).records.map((r) => r.macDeviceID)).toEqual(["mac-a"]);
     expect((await listBackupSnapshot(storage, "user-1", "ios:other")).records.map((r) => r.macDeviceID)).toEqual(["mac-b"]);
     expect((await listBackupSnapshot(storage, "user-1")).records).toEqual([]);
+  });
+
+  it("rejects over-limit client scopes instead of rewriting them", () => {
+    expect(normalizeClientScope(`ios:${"x".repeat(MAX_CLIENT_SCOPE_LENGTH)}`)).toBeNull();
   });
 
   it("bounds client-created scoped collections per user", async () => {
@@ -432,6 +439,26 @@ describe("applyBackupOps", () => {
     const tombstonedScoped = await listBackupSnapshotWithUnscopedFallback(storage, "user-1", "ios:dev");
     expect(tombstonedScoped.records).toEqual([]);
     expect(tombstonedScoped.deletedMacDeviceIDs).toEqual(["scoped-mac"]);
+  });
+
+  it("scoped delete of an unscoped fallback seed blocks future fallback restores", async () => {
+    const storage = new FakeStorage();
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [{ kind: "upsert", id: "mac-seed", record: record("mac-seed", "192.168.1.50", 22) }],
+      T0,
+    );
+
+    expect(
+      (await listBackupSnapshotWithUnscopedFallback(storage, "user-1", "ios:dev")).records.map((r) => r.macDeviceID),
+    ).toEqual(["mac-seed"]);
+
+    const deltas = await applyBackupOps(storage, "user-1", [{ kind: "delete", id: "mac-seed" }], T0 + 1000, "ios:dev");
+    expect(deltas).toHaveLength(1);
+    const afterDelete = await listBackupSnapshotWithUnscopedFallback(storage, "user-1", "ios:dev");
+    expect(afterDelete.records).toEqual([]);
+    expect(afterDelete.deletedMacDeviceIDs).toEqual(["mac-seed"]);
   });
 
   it("listLiveBackup returns live records newest-first and excludes tombstones, scoped per user", async () => {

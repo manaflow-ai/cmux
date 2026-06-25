@@ -49,9 +49,41 @@ import Testing
         #expect(try await feature.loadAll(stackUserID: "user-1", teamID: "team-a").first?.teamID == "team-a")
     }
 
+    @Test func removeAllOnlyDeletesCurrentBuildScope() async throws {
+        let (inner, directory) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let feature = IOSBuildScopedPairedMacStore(inner: inner, scope: try #require(MobileIOSBuildScope("feature")))
+        let other = IOSBuildScopedPairedMacStore(inner: inner, scope: try #require(MobileIOSBuildScope("other")))
+
+        try await feature.upsert(
+            macDeviceID: "mac-a",
+            displayName: "A",
+            routes: [try route("10.0.0.1")],
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 1)
+        )
+        try await other.upsert(
+            macDeviceID: "mac-b",
+            displayName: "B",
+            routes: [try route("10.0.0.2")],
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 2)
+        )
+
+        try await feature.removeAll()
+
+        #expect(try await feature.loadAll(stackUserID: "user-1", teamID: "team-a").isEmpty)
+        #expect(try await other.loadAll(stackUserID: "user-1", teamID: "team-a").map(\.macDeviceID) == ["mac-b"])
+    }
+
     @Test func currentScopeReadsInfoPlistThenBundleSuffix() {
         #expect(MobileIOSBuildScope.current(infoDictionary: ["CMUXDevTag": "feat"], bundleIdentifier: "dev.cmux.ios.other")?.value == "feat")
         #expect(MobileIOSBuildScope.current(infoDictionary: ["CMUXDevTag": ""], bundleIdentifier: "dev.cmux.ios.agent")?.value == "agent")
         #expect(MobileIOSBuildScope.current(infoDictionary: ["CMUXDevTag": ""], bundleIdentifier: "dev.cmux.ios") == nil)
+        #expect(MobileIOSBuildScope("Feature Tag")?.serializedScope == "ios:RmVhdHVyZSBUYWc")
     }
 }

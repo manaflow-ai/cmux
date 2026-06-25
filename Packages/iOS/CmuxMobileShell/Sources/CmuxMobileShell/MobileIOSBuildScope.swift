@@ -36,17 +36,14 @@ public struct MobileIOSBuildScope: Sendable, Equatable {
     }
 
     public var storageComponent: String {
-        value
-            .lowercased()
-            .unicodeScalars
-            .map { scalar in
-                let value = scalar.value
-                let isLowercaseLetter = value >= 97 && value <= 122
-                let isNumber = value >= 48 && value <= 57
-                return (isLowercaseLetter || isNumber || scalar == "-" || scalar == "_")
-                    ? Character(scalar)
-                    : "-"
-            }
-            .reduce(into: "") { $0.append($1) }
+        Data(value.utf8)
+            .base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    public var serializedScope: String {
+        "ios:\(storageComponent)"
     }
 }

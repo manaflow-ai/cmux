@@ -117,18 +117,42 @@ struct WorkspaceListView: View {
     /// flattens the same way, for the same reason. A single-Mac picker scope
     /// still renders groups only for the foreground Mac whose group metadata is
     /// available here; "All Macs" and secondary Mac selections flatten because
-    /// group ids are Mac-local.
+    /// group ids are Mac-local. Non-iOS builds keep the pre-picker behavior.
     private var rendersGroupedSections: Bool {
         !groups.isEmpty
             && trimmedQuery.isEmpty
             && filter.readState == .all
-            && selectedMacCanUseForegroundGroups
+            && canRenderGroupsForSelection
     }
 
-    private var selectedMacCanUseForegroundGroups: Bool {
-        guard case .machine(let id) = visibleMacSelection else { return false }
-        return store?.connectedMacDeviceID == id
+    private var canRenderGroupsForSelection: Bool {
+        #if os(iOS)
+        selectedMacCanUseForegroundGroups
+        #else
+        true
+        #endif
     }
+
+    #if os(iOS)
+    private var selectedMacCanUseForegroundGroups: Bool {
+        switch visibleMacSelection {
+        case .machine(let id):
+            return store?.connectedMacDeviceID == id
+        case .all, .automatic:
+            return visibleRowsAreOnlyForegroundMac
+        }
+    }
+
+    private var visibleRowsAreOnlyForegroundMac: Bool {
+        guard !workspaces.isEmpty else { return false }
+        let macIDs = Set(workspaces.compactMap(\.macDeviceID))
+        if macIDs.isEmpty {
+            return store?.connectedMacDeviceID == nil
+        }
+        guard let connectedID = store?.connectedMacDeviceID else { return false }
+        return macIDs == Set([connectedID])
+    }
+    #endif
 
     private func matchesQuery(_ workspace: MobileWorkspacePreview, query: String) -> Bool {
         workspace.name.localizedCaseInsensitiveContains(query)

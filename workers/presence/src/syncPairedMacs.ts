@@ -132,17 +132,20 @@ function trimmedString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function base64URL(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
 /** Physical per-user collection name. Derived from the VERIFIED user id, with an
  * optional client-owned sub-scope for tagged app builds. The client scope never
  * replaces user/team authorization; it only partitions that user's own backup. */
 export function normalizeClientScope(value: unknown): string | null {
   const trimmed = trimmedString(value);
   if (!trimmed) return null;
-  const normalized = trimmed
-    .slice(0, MAX_CLIENT_SCOPE_LENGTH)
-    .toLowerCase()
-    .replace(/[^a-z0-9:_-]/g, "-");
-  return normalized || null;
+  if (trimmed.length > MAX_CLIENT_SCOPE_LENGTH) return null;
+  return `b64_${base64URL(new TextEncoder().encode(trimmed))}`;
 }
 
 export function pairedMacsCollection(userId: string, clientScope?: string | null): string {
@@ -314,7 +317,8 @@ export async function applyBackupOps(
   clientScope?: string | null,
 ): Promise<SyncDeltaFrame<unknown>[]> {
   const collection = pairedMacsCollection(userId, clientScope);
-  if (normalizeClientScope(clientScope) && !(await hasScopedCollectionCapacity(storage, userId, collection))) {
+  const scope = normalizeClientScope(clientScope);
+  if (scope && !(await hasScopedCollectionCapacity(storage, userId, collection))) {
     return [];
   }
   // One listing gives both the live count (cap on visible Macs) AND the total
@@ -333,11 +337,25 @@ export async function applyBackupOps(
 
   for (const op of ops) {
     if (op.kind === "delete") {
-      const res = await tombstoneRecord(storage, collection, op.id, nowMs);
+      const existing = await readRecord<PairedMacBackupRecord>(storage, collection, op.id);
+      let res = await tombstoneRecord(storage, collection, op.id, nowMs);
+      if (
+        res.delta === null &&
+        scope &&
+        existing === undefined &&
+        totalCount < MAX_PAIRED_MAC_RECORDS_PER_USER
+      ) {
+        const fallback = await readRecord<PairedMacBackupRecord>(storage, pairedMacsCollection(userId), op.id);
+        if (fallback !== undefined && !fallback.deleted) {
+          res = await tombstoneRecord(storage, collection, op.id, nowMs, { createIfMissing: true });
+          if (res.delta !== null) totalCount += 1;
+        }
+      }
       if (res.delta !== null) {
-        liveCount = Math.max(0, liveCount - 1);
-        // `totalCount` is unchanged: tombstoning replaces the live record in place
-        // (same storage key), it does not add a slot.
+        if (existing !== undefined && !existing.deleted) liveCount = Math.max(0, liveCount - 1);
+        // Normal tombstoning replaces a live record in place. A scoped fallback
+        // delete can create a tombstone slot above to make the scoped collection
+        // authoritative against the legacy unscoped seed.
         deltas.push(relabelDelta(res.delta));
       }
       continue;

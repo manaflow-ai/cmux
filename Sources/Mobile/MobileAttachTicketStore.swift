@@ -205,22 +205,17 @@ enum MobileHostIdentity {
     }
 
     static func deviceID(defaults: UserDefaults, sharedIDURL: URL?) -> String {
-        if let sharedIDURL,
-           let existing = try? String(contentsOf: sharedIDURL, encoding: .utf8),
-           let id = normalizedID(existing) {
+        if let id = readSharedDeviceID(from: sharedIDURL) {
             defaults.set(id, forKey: deviceIDKey)
             return id
         }
 
         if let id = normalizedID(defaults.string(forKey: deviceIDKey)) {
-            writeSharedDeviceID(id, to: sharedIDURL)
-            return id
+            return settleSharedDeviceID(id, defaults: defaults, sharedIDURL: sharedIDURL)
         }
 
         let generated = UUID().uuidString
-        defaults.set(generated, forKey: deviceIDKey)
-        writeSharedDeviceID(generated, to: sharedIDURL)
-        return generated
+        return settleSharedDeviceID(generated, defaults: defaults, sharedIDURL: sharedIDURL)
     }
 
     private static func defaultSharedDeviceIDURL(fileManager: FileManager = .default) -> URL? {
@@ -241,12 +236,36 @@ enum MobileHostIdentity {
 
     private static func normalizedID(_ value: String?) -> String? {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmed.isEmpty ? nil : trimmed
+        guard let uuid = UUID(uuidString: trimmed) else { return nil }
+        return uuid.uuidString
     }
 
-    private static func writeSharedDeviceID(_ id: String, to url: URL?) {
-        guard let url else { return }
-        try? id.write(to: url, atomically: true, encoding: .utf8)
+    private static func readSharedDeviceID(from url: URL?) -> String? {
+        guard let url,
+              let existing = try? String(contentsOf: url, encoding: .utf8) else {
+            return nil
+        }
+        return normalizedID(existing)
+    }
+
+    private static func settleSharedDeviceID(_ candidate: String, defaults: UserDefaults, sharedIDURL: URL?) -> String {
+        guard let sharedIDURL else {
+            defaults.set(candidate, forKey: deviceIDKey)
+            return candidate
+        }
+        try? FileManager.default.createDirectory(
+            at: sharedIDURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let data = Data(candidate.utf8)
+        if !FileManager.default.createFile(atPath: sharedIDURL.path, contents: data),
+           let winner = readSharedDeviceID(from: sharedIDURL) {
+            defaults.set(winner, forKey: deviceIDKey)
+            return winner
+        }
+        let settled = readSharedDeviceID(from: sharedIDURL) ?? candidate
+        defaults.set(settled, forKey: deviceIDKey)
+        return settled
     }
 
     static func displayName() -> String? {

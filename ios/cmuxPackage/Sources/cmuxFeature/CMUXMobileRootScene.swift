@@ -207,7 +207,7 @@ public struct CMUXMobileRootScene: View {
                 currentUserID: { await coordinator.currentUser?.id }
             ),
             teamIDProvider: { await coordinator.resolvedTeamID },
-            clientScopeProvider: { buildScope.map { "ios:\($0.storageComponent)" } }
+            clientScopeProvider: { buildScope?.serializedScope }
         )
         return BackingUpPairedMacStore(
             inner: scopedStore,

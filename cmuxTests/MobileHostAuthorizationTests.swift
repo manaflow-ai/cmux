@@ -17,15 +17,16 @@ struct MobileHostAuthorizationTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let sharedIDURL = directory.appendingPathComponent("mobile-host-device-id")
-        try "shared-mac-id".write(to: sharedIDURL, atomically: true, encoding: .utf8)
+        let sharedID = "3D56C547-271C-47D8-84F6-5C79C9394A37"
+        try sharedID.lowercased().write(to: sharedIDURL, atomically: true, encoding: .utf8)
 
         let suiteName = "mobile-host-identity-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        defaults.set("per-bundle-id", forKey: "mobileHost.deviceID")
+        defaults.set("175dff61-cabe-4076-b5ac-f5c1c04b62fa", forKey: "mobileHost.deviceID")
 
-        #expect(MobileHostIdentity.deviceID(defaults: defaults, sharedIDURL: sharedIDURL) == "shared-mac-id")
-        #expect(defaults.string(forKey: "mobileHost.deviceID") == "shared-mac-id")
+        #expect(MobileHostIdentity.deviceID(defaults: defaults, sharedIDURL: sharedIDURL) == sharedID)
+        #expect(defaults.string(forKey: "mobileHost.deviceID") == sharedID)
     }
 
     @Test func testMobileHostIdentityMigratesExistingBundleIDToSharedFile() throws {
@@ -38,11 +39,29 @@ struct MobileHostAuthorizationTests {
         let suiteName = "mobile-host-identity-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        defaults.set("old-bundle-id", forKey: "mobileHost.deviceID")
+        let defaultID = "C2FD4C2D-E0AF-447D-A8A4-D37BF67751EF"
+        defaults.set(defaultID.lowercased(), forKey: "mobileHost.deviceID")
 
-        #expect(MobileHostIdentity.deviceID(defaults: defaults, sharedIDURL: sharedIDURL) == "old-bundle-id")
+        #expect(MobileHostIdentity.deviceID(defaults: defaults, sharedIDURL: sharedIDURL) == defaultID)
         let persisted = try String(contentsOf: sharedIDURL, encoding: .utf8)
-        #expect(persisted == "old-bundle-id")
+        #expect(persisted == defaultID)
+    }
+
+    @Test func testMobileHostIdentityRereadsSharedWinnerAfterCreateCollision() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sharedIDURL = directory.appendingPathComponent("mobile-host-device-id")
+        let sharedID = "4BF9566D-5D67-4C79-8974-B42D5CF39DE9"
+        try sharedID.write(to: sharedIDURL, atomically: true, encoding: .utf8)
+
+        let suiteName = "mobile-host-identity-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        #expect(MobileHostIdentity.deviceID(defaults: defaults, sharedIDURL: sharedIDURL) == sharedID)
+        #expect(defaults.string(forKey: "mobileHost.deviceID") == sharedID)
     }
 
     @Test func testAttachTicketStoreKeepsMultipleTicketsForSameTerminal() throws {

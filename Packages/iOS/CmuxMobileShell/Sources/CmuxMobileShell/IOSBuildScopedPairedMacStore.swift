@@ -10,7 +10,6 @@ public import Foundation
 /// Macs.
 public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
     private static let separator = "\u{1F}"
-    private static let prefix = "ios:"
 
     private let inner: any MobilePairedMacStoring
     private let scope: MobileIOSBuildScope
@@ -82,21 +81,31 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
     }
 
     public func removeAll() async throws {
-        try await inner.removeAll()
+        for mac in try await inner.loadAll(stackUserID: nil, teamID: nil) where isScoped(mac) {
+            try await inner.remove(macDeviceID: mac.macDeviceID, stackUserID: mac.stackUserID, teamID: mac.teamID)
+        }
     }
 
     private func scopedTeamID(_ teamID: String?) -> String {
         let team = teamID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return "\(team)\(Self.separator)\(Self.prefix)\(scope.storageComponent)"
+        return "\(team)\(Self.separator)\(scope.serializedScope)"
     }
 
     private func unscoped(_ mac: MobilePairedMac) -> MobilePairedMac? {
         guard let teamID = mac.teamID else { return nil }
-        let suffix = "\(Self.separator)\(Self.prefix)\(scope.storageComponent)"
+        let suffix = scopedSuffix
         guard teamID.hasSuffix(suffix) else { return nil }
         let rawTeam = String(teamID.dropLast(suffix.count))
         var copy = mac
         copy.teamID = rawTeam.isEmpty ? nil : rawTeam
         return copy
+    }
+
+    private func isScoped(_ mac: MobilePairedMac) -> Bool {
+        mac.teamID?.hasSuffix(scopedSuffix) == true
+    }
+
+    private var scopedSuffix: String {
+        "\(Self.separator)\(scope.serializedScope)"
     }
 }

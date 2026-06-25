@@ -89,7 +89,11 @@ export default {
       //   GET   read it back (the sign-in restore path on a fresh install)
       const team = await resolveTeamOr403(request, env);
       if (!team.ok) return team.response;
-      const clientScope = normalizeClientScope(request.headers.get("x-cmux-client-scope"));
+      const rawClientScope = request.headers.get("x-cmux-client-scope");
+      const clientScope = normalizeClientScope(rawClientScope);
+      if ((rawClientScope?.trim() ?? "") && clientScope === null) {
+        return json({ error: "invalid_client_scope" }, 400);
+      }
       if (request.method === "GET") {
         return json(await team.stub.listPairedMacs(team.teamId, team.user.id, clientScope));
       }
