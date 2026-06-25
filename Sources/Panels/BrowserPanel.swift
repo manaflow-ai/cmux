@@ -8623,6 +8623,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     private let sslBypassState: BrowserSSLTrustBypassState
     private var lastAttemptedRequest: URLRequest?
     private var acceptsSSLTrustBypassMessages = false
+    private var activeSSLTrustBypassErrorPageFailedURL: String?
 
     init(sslBypassState: BrowserSSLTrustBypassState? = nil) {
         self.sslBypassState = sslBypassState
@@ -8633,6 +8634,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     func recordAttemptedRequest(_ request: URLRequest, displayURL: URL? = nil) {
         sslBypassState.clearPendingBypasses()
         acceptsSSLTrustBypassMessages = false
+        activeSSLTrustBypassErrorPageFailedURL = nil
         lastAttemptedRequest = request
         lastAttemptedURL = displayURL ?? request.url
     }
@@ -8641,6 +8643,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         if discardPendingBypasses {
             sslBypassState.clearPendingBypasses()
             acceptsSSLTrustBypassMessages = false
+            activeSSLTrustBypassErrorPageFailedURL = nil
         }
         lastAttemptedRequest = nil
         lastAttemptedURL = nil
@@ -8649,6 +8652,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     func clearSSLTrustState() {
         sslBypassState.clearAllTrustState()
         acceptsSSLTrustBypassMessages = false
+        activeSSLTrustBypassErrorPageFailedURL = nil
         lastAttemptedRequest = nil
         lastAttemptedURL = nil
     }
@@ -8751,12 +8755,14 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     }
 
     private func loadErrorPage(in webView: WKWebView, failedURL: String, failedRequest: URLRequest?, error: NSError) {
-        acceptsSSLTrustBypassMessages = BrowserErrorPage(
+        let canBypass = BrowserErrorPage(
             failedURL: failedURL,
             failedRequest: failedRequest,
             error: error,
             sslBypassState: sslBypassState
         ).load(in: webView)
+        acceptsSSLTrustBypassMessages = canBypass
+        activeSSLTrustBypassErrorPageFailedURL = canBypass ? failedURL : nil
     }
 
     func webView(
@@ -8887,7 +8893,12 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         cmuxDebugLog("browser.nav.decidePolicy.action kind=allow url=\(targetURL)")
 #endif
         if navigationAction.targetFrame?.isMainFrame != false {
-            if let url = navigationAction.request.url,
+            if shouldPreserveSSLTrustBypassForErrorPageNavigation(navigationAction.request) {
+#if DEBUG
+                let targetURL = navigationAction.request.url?.absoluteString ?? "nil"
+                cmuxDebugLog("browser.nav.decidePolicy.action kind=preserveSSLBypassErrorPage url=\(targetURL)")
+#endif
+            } else if let url = navigationAction.request.url,
                let scheme = url.scheme?.lowercased(),
                scheme == "http" || scheme == "https" {
                 recordAttemptedRequest(navigationAction.request)
@@ -8908,6 +8919,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
         acceptsSSLTrustBypassMessages = false
+        activeSSLTrustBypassErrorPageFailedURL = nil
         recordAttemptedRequest(request)
         browserLoadRequest(request, in: webView)
     }
@@ -8918,8 +8930,20 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
         acceptsSSLTrustBypassMessages = false
+        activeSSLTrustBypassErrorPageFailedURL = nil
         recordAttemptedRequest(request)
         browserLoadRequest(request, in: webView)
+    }
+
+    private func shouldPreserveSSLTrustBypassForErrorPageNavigation(_ request: URLRequest) -> Bool {
+        guard acceptsSSLTrustBypassMessages,
+              let failedURL = activeSSLTrustBypassErrorPageFailedURL,
+              let url = request.url,
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
+            return false
+        }
+        return request.browserMatchesFailedNavigationURLString(failedURL)
     }
 
     func webView(

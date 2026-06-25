@@ -626,10 +626,12 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
     private var lastAttemptedURL: URL?
     private var lastAttemptedRequest: URLRequest?
     private var acceptsSSLTrustBypassMessages = false
+    private var activeSSLTrustBypassErrorPageFailedURL: String?
 
     private func recordAttemptedRequest(_ request: URLRequest) {
         sslBypassState.clearPendingBypasses()
         acceptsSSLTrustBypassMessages = false
+        activeSSLTrustBypassErrorPageFailedURL = nil
         lastAttemptedRequest = request
         lastAttemptedURL = request.url
     }
@@ -638,6 +640,7 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         if discardPendingBypasses {
             sslBypassState.clearPendingBypasses()
             acceptsSSLTrustBypassMessages = false
+            activeSSLTrustBypassErrorPageFailedURL = nil
         }
         lastAttemptedRequest = nil
         lastAttemptedURL = nil
@@ -708,7 +711,11 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
 
-        if let scheme = url.scheme?.lowercased(),
+        if shouldPreserveSSLTrustBypassForErrorPageNavigation(navigationAction.request) {
+            #if DEBUG
+            cmuxDebugLog("popup.nav.preserveSSLBypassErrorPage url=\(url.absoluteString)")
+            #endif
+        } else if let scheme = url.scheme?.lowercased(),
            scheme == "http" || scheme == "https" {
             recordAttemptedRequest(navigationAction.request)
         } else {
@@ -741,12 +748,14 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         let failedURL = nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String
             ?? lastAttemptedURL?.absoluteString
             ?? ""
-        acceptsSSLTrustBypassMessages = BrowserErrorPage(
+        let canBypass = BrowserErrorPage(
             failedURL: failedURL,
             failedRequest: requestForFailedNavigation(failedURL: failedURL),
             error: nsError,
             sslBypassState: sslBypassState
         ).load(in: webView)
+        acceptsSSLTrustBypassMessages = canBypass
+        activeSSLTrustBypassErrorPageFailedURL = canBypass ? failedURL : nil
     }
 
     func webView(
@@ -786,6 +795,7 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
         acceptsSSLTrustBypassMessages = false
+        activeSSLTrustBypassErrorPageFailedURL = nil
         recordAttemptedRequest(request)
         browserLoadRequest(request, in: webView)
     }
@@ -796,8 +806,20 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
         acceptsSSLTrustBypassMessages = false
+        activeSSLTrustBypassErrorPageFailedURL = nil
         recordAttemptedRequest(request)
         browserLoadRequest(request, in: webView)
+    }
+
+    private func shouldPreserveSSLTrustBypassForErrorPageNavigation(_ request: URLRequest) -> Bool {
+        guard acceptsSSLTrustBypassMessages,
+              let failedURL = activeSSLTrustBypassErrorPageFailedURL,
+              let url = request.url,
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
+            return false
+        }
+        return request.browserMatchesFailedNavigationURLString(failedURL)
     }
 
     func webView(
