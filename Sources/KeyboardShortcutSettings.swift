@@ -3,6 +3,7 @@ import Bonsplit
 import Carbon
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxShortcuts
 import CmuxWorkspaces
 import SwiftUI
 
@@ -1485,10 +1486,12 @@ struct ShortcutStroke: Equatable, Hashable {
         case unsupportedKey
     }
 
-    private struct RecordableKey {
-        let key: String
-        let keyCode: UInt16?
-    }
+    private typealias RecordableKey = ShortcutKeyTable.RecordableKey
+
+    /// The pure key-code/character mapping tables this stroke forwards its
+    /// recording and matching lookups into. Stateless value; one shared instance
+    /// since `ShortcutStroke`'s table accessors are `static`.
+    private static let keyTable = ShortcutKeyTable()
 
     var key: String
     var command: Bool
@@ -1552,7 +1555,7 @@ struct ShortcutStroke: Equatable, Hashable {
     var keyEquivalent: KeyEquivalent? {
         if key == "space" { return KeyEquivalent(Character(" ")) }
 
-        if Self.usesDirectKeyCodeMatching(key) {
+        if Self.keyTable.usesDirectKeyCodeMatching(key) {
             return nil
         }
 
@@ -1596,7 +1599,7 @@ struct ShortcutStroke: Equatable, Hashable {
     var menuItemKeyEquivalent: String? {
         if key == "space" { return " " }
 
-        if Self.usesDirectKeyCodeMatching(key) {
+        if Self.keyTable.usesDirectKeyCodeMatching(key) {
             return nil
         }
 
@@ -1723,8 +1726,8 @@ struct ShortcutStroke: Equatable, Hashable {
         guard flags == self.modifierFlags else { return false }
 
         let shortcutKey = key.lowercased()
-        if Self.usesDirectKeyCodeMatching(shortcutKey) {
-            guard let expectedKeyCode = self.keyCode ?? Self.keyCodeForShortcutKey(shortcutKey) else {
+        if Self.keyTable.usesDirectKeyCodeMatching(shortcutKey) {
+            guard let expectedKeyCode = self.keyCode ?? Self.keyTable.keyCodeForShortcutKey(shortcutKey) else {
                 return false
             }
             return keyCode == expectedKeyCode
@@ -1734,7 +1737,7 @@ struct ShortcutStroke: Equatable, Hashable {
             return keyCode == 36 || keyCode == 76
         }
 
-        if Self.shortcutCharacterMatches(
+        if Self.keyTable.shortcutCharacterMatches(
             eventCharacter: eventCharacter,
             shortcutKey: shortcutKey,
             applyShiftSymbolNormalization: flags.contains(.shift),
@@ -1760,7 +1763,7 @@ struct ShortcutStroke: Equatable, Hashable {
         if shortcutKeyIsDigit,
            hasEventChars,
            eventCharsAreASCII,
-           Self.digitForNumberKeyCode(keyCode) == nil {
+           Self.keyTable.digitForNumberKeyCode(keyCode) == nil {
             return false
         }
         if commandPrintableCharacterShouldBlockFallback {
@@ -1768,7 +1771,7 @@ struct ShortcutStroke: Equatable, Hashable {
         }
 
         let layoutCharacter = layoutCharacterProvider(keyCode, modifierFlags)
-        if Self.shortcutCharacterMatches(
+        if Self.keyTable.shortcutCharacterMatches(
             eventCharacter: layoutCharacter,
             shortcutKey: shortcutKey,
             applyShiftSymbolNormalization: false,
@@ -1781,12 +1784,12 @@ struct ShortcutStroke: Equatable, Hashable {
             || (flags.contains(.command)
                 && !flags.contains(.control)
                 && (
-                    !Self.shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey)
+                    !Self.keyTable.shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey)
                         || (hasEventChars && !eventCharsAreASCII)
                         || (!hasEventChars && (layoutCharacter?.isEmpty ?? true))
                 ))
         if allowANSIKeyCodeFallback,
-           let expectedKeyCode = Self.keyCodeForShortcutKey(shortcutKey) {
+           let expectedKeyCode = Self.keyTable.keyCodeForShortcutKey(shortcutKey) {
             return keyCode == expectedKeyCode
         }
 
@@ -1794,7 +1797,7 @@ struct ShortcutStroke: Equatable, Hashable {
     }
 
     private var isBareShortcutAllowedWithoutModifier: Bool {
-        Self.usesDirectKeyCodeMatching(key)
+        Self.keyTable.usesDirectKeyCodeMatching(key)
     }
 
     private static func recordableKey(from event: NSEvent) -> RecordableKey? {
@@ -1807,11 +1810,11 @@ struct ShortcutStroke: Equatable, Hashable {
         }
 
         if let specialKey = event.specialKey,
-           let recordableKey = recordableKey(from: specialKey, eventKeyCode: event.keyCode) {
+           let recordableKey = keyTable.recordableKey(from: specialKey, eventKeyCode: event.keyCode) {
             return recordableKey
         }
 
-        guard let storedKey = storedKey(
+        guard let storedKey = keyTable.storedKey(
             keyCode: event.keyCode,
             charactersIgnoringModifiers: event.charactersIgnoringModifiers
         ) else {
@@ -1820,283 +1823,12 @@ struct ShortcutStroke: Equatable, Hashable {
         return RecordableKey(key: storedKey, keyCode: event.keyCode)
     }
 
-    private static func storedKey(
-        keyCode: UInt16,
-        charactersIgnoringModifiers: String?
-    ) -> String? {
-        // Prefer keyCode mapping so shifted symbol keys (e.g. "}") record as "]".
-        switch keyCode {
-        case 123: return "←" // left arrow
-        case 124: return "→" // right arrow
-        case 125: return "↓" // down arrow
-        case 126: return "↑" // up arrow
-        case 48: return "\t" // tab
-        case 49: return "space" // kVK_Space
-        case 36, 76: return "\r" // return, keypad enter
-        case 33: return "["  // kVK_ANSI_LeftBracket
-        case 30: return "]"  // kVK_ANSI_RightBracket
-        case 27: return "-"  // kVK_ANSI_Minus
-        case 24: return "="  // kVK_ANSI_Equal
-        case 43: return ","  // kVK_ANSI_Comma
-        case 47: return "."  // kVK_ANSI_Period
-        case 44: return "/"  // kVK_ANSI_Slash
-        case 41: return ";"  // kVK_ANSI_Semicolon
-        case 39: return "'"  // kVK_ANSI_Quote
-        case 50: return "`"  // kVK_ANSI_Grave
-        case 42: return "\\" // kVK_ANSI_Backslash
-        default:
-            break
-        }
-
-        guard let chars = charactersIgnoringModifiers?.lowercased(),
-              let char = chars.first else {
-            return nil
-        }
-
-        if char.isLetter || char.isNumber {
-            return String(char)
-        }
-        return nil
-    }
-
-    private static func recordableKey(
-        from specialKey: NSEvent.SpecialKey,
-        eventKeyCode: UInt16
-    ) -> RecordableKey? {
-        switch specialKey {
-        case .f1: return RecordableKey(key: "f1", keyCode: eventKeyCode)
-        case .f2: return RecordableKey(key: "f2", keyCode: eventKeyCode)
-        case .f3: return RecordableKey(key: "f3", keyCode: eventKeyCode)
-        case .f4: return RecordableKey(key: "f4", keyCode: eventKeyCode)
-        case .f5: return RecordableKey(key: "f5", keyCode: eventKeyCode)
-        case .f6: return RecordableKey(key: "f6", keyCode: eventKeyCode)
-        case .f7: return RecordableKey(key: "f7", keyCode: eventKeyCode)
-        case .f8: return RecordableKey(key: "f8", keyCode: eventKeyCode)
-        case .f9: return RecordableKey(key: "f9", keyCode: eventKeyCode)
-        case .f10: return RecordableKey(key: "f10", keyCode: eventKeyCode)
-        case .f11: return RecordableKey(key: "f11", keyCode: eventKeyCode)
-        case .f12: return RecordableKey(key: "f12", keyCode: eventKeyCode)
-        case .f13: return RecordableKey(key: "f13", keyCode: eventKeyCode)
-        case .f14: return RecordableKey(key: "f14", keyCode: eventKeyCode)
-        case .f15: return RecordableKey(key: "f15", keyCode: eventKeyCode)
-        case .f16: return RecordableKey(key: "f16", keyCode: eventKeyCode)
-        case .f17: return RecordableKey(key: "f17", keyCode: eventKeyCode)
-        case .f18: return RecordableKey(key: "f18", keyCode: eventKeyCode)
-        case .f19: return RecordableKey(key: "f19", keyCode: eventKeyCode)
-        case .f20: return RecordableKey(key: "f20", keyCode: eventKeyCode)
-        default:
-            return nil
-        }
-    }
-
     private static func mediaKey(from event: NSEvent) -> RecordableKey? {
-        guard event.type == .systemDefined,
-              event.subtype.rawValue == Int16(8) else {
-            return nil
-        }
-
-        let data1 = UInt32(truncatingIfNeeded: event.data1)
-        let keyCode = UInt16((data1 & 0xFFFF0000) >> 16)
-        let keyState = UInt8((data1 & 0x0000FF00) >> 8)
-        guard keyState == 0x0A else { return nil }
-
-        switch keyCode {
-        case 0: return RecordableKey(key: "media.volumeUp", keyCode: keyCode)
-        case 1: return RecordableKey(key: "media.volumeDown", keyCode: keyCode)
-        case 2: return RecordableKey(key: "media.brightnessUp", keyCode: keyCode)
-        case 3: return RecordableKey(key: "media.brightnessDown", keyCode: keyCode)
-        case 7: return RecordableKey(key: "media.mute", keyCode: keyCode)
-        case 16: return RecordableKey(key: "media.playPause", keyCode: keyCode)
-        case 17: return RecordableKey(key: "media.next", keyCode: keyCode)
-        case 18: return RecordableKey(key: "media.previous", keyCode: keyCode)
-        default:
-            return nil
-        }
-    }
-
-    static func normalizedShortcutEventCharacter(
-        _ eventCharacter: String,
-        applyShiftSymbolNormalization: Bool,
-        eventKeyCode: UInt16
-    ) -> String {
-        let lowered = eventCharacter.lowercased()
-
-        // "+" -> "=" and "_" -> "-" are normalized regardless of Shift. On US
-        // layouts these symbols only exist as Shift variants, so the Shift gate
-        // below historically sufficed. On European layouts (German QWERTZ, French
-        // AZERTY, Nordic) "+" and "-" are dedicated keys typed WITHOUT Shift, so a
-        // bare "+"/"_" can only originate from such a key. Mapping them to their
-        // base zoom key ("=", "-") unconditionally is therefore safe (no shortcut
-        // key is ever stored as "+"/"_") and is what makes Cmd zoom work there.
-        switch lowered {
-        case "+": return "="
-        case "_": return "-"
-        default: break
-        }
-
-        guard applyShiftSymbolNormalization else { return lowered }
-
-        switch lowered {
-        case "{": return "["
-        case "}": return "]"
-        case "<": return eventKeyCode == 43 ? "," : lowered // kVK_ANSI_Comma
-        case ">": return eventKeyCode == 47 ? "." : lowered // kVK_ANSI_Period
-        case "?": return "/"
-        case ":": return ";"
-        case "\"": return "'"
-        case "|": return "\\"
-        case "~": return "`"
-        case "!": return eventKeyCode == 18 ? "1" : lowered // kVK_ANSI_1
-        case "@": return eventKeyCode == 19 ? "2" : lowered // kVK_ANSI_2
-        case "#": return eventKeyCode == 20 ? "3" : lowered // kVK_ANSI_3
-        case "$": return eventKeyCode == 21 ? "4" : lowered // kVK_ANSI_4
-        case "%": return eventKeyCode == 23 ? "5" : lowered // kVK_ANSI_5
-        case "^": return eventKeyCode == 22 ? "6" : lowered // kVK_ANSI_6
-        case "&": return eventKeyCode == 26 ? "7" : lowered // kVK_ANSI_7
-        case "*": return eventKeyCode == 28 ? "8" : lowered // kVK_ANSI_8
-        case "(": return eventKeyCode == 25 ? "9" : lowered // kVK_ANSI_9
-        case ")": return eventKeyCode == 29 ? "0" : lowered // kVK_ANSI_0
-        default: return lowered
-        }
-    }
-
-    private static func shouldRequireCharacterMatchForCommandShortcut(shortcutKey: String) -> Bool {
-        guard shortcutKey.count == 1, let scalar = shortcutKey.unicodeScalars.first else {
-            return false
-        }
-        return CharacterSet.letters.contains(scalar)
-    }
-
-    private static func shortcutCharacterMatches(
-        eventCharacter: String?,
-        shortcutKey: String,
-        applyShiftSymbolNormalization: Bool,
-        eventKeyCode: UInt16
-    ) -> Bool {
-        guard let eventCharacter, !eventCharacter.isEmpty else { return false }
-        return normalizedShortcutEventCharacter(
-            eventCharacter,
-            applyShiftSymbolNormalization: applyShiftSymbolNormalization,
-            eventKeyCode: eventKeyCode
-        ) == shortcutKey
-    }
-
-    private static func keyCodeForShortcutKey(_ key: String) -> UInt16? {
-        switch key {
-        case "f1": return 122
-        case "f2": return 120
-        case "f3": return 99
-        case "f4": return 118
-        case "f5": return 96
-        case "f6": return 97
-        case "f7": return 98
-        case "f8": return 100
-        case "f9": return 101
-        case "f10": return 109
-        case "f11": return 103
-        case "f12": return 111
-        case "f13": return 105
-        case "f14": return 107
-        case "f15": return 113
-        case "f16": return 106
-        case "f17": return 64
-        case "f18": return 79
-        case "f19": return 80
-        case "f20": return 90
-        case "media.volumeUp": return 0
-        case "media.volumeDown": return 1
-        case "media.brightnessUp": return 2
-        case "media.brightnessDown": return 3
-        case "media.mute": return 7
-        case "media.playPause": return 16
-        case "media.next": return 17
-        case "media.previous": return 18
-        case "space": return 49
-        case "a": return 0
-        case "s": return 1
-        case "d": return 2
-        case "f": return 3
-        case "h": return 4
-        case "g": return 5
-        case "z": return 6
-        case "x": return 7
-        case "c": return 8
-        case "v": return 9
-        case "b": return 11
-        case "q": return 12
-        case "w": return 13
-        case "e": return 14
-        case "r": return 15
-        case "y": return 16
-        case "t": return 17
-        case "1": return 18
-        case "2": return 19
-        case "3": return 20
-        case "4": return 21
-        case "6": return 22
-        case "5": return 23
-        case "=": return 24
-        case "9": return 25
-        case "7": return 26
-        case "-": return 27
-        case "8": return 28
-        case "0": return 29
-        case "]": return 30
-        case "o": return 31
-        case "u": return 32
-        case "[": return 33
-        case "i": return 34
-        case "p": return 35
-        case "l": return 37
-        case "j": return 38
-        case "'": return 39
-        case "k": return 40
-        case ";": return 41
-        case "\\": return 42
-        case ",": return 43
-        case "/": return 44
-        case "n": return 45
-        case "m": return 46
-        case ".": return 47
-        case "\t": return 48
-        case "`": return 50
-        case "\r": return 36
-        case "←": return 123
-        case "→": return 124
-        case "↓": return 125
-        case "↑": return 126
-        default:
-            return nil
-        }
-    }
-
-    private static func usesDirectKeyCodeMatching(_ key: String) -> Bool {
-        key == "space" || functionKeyDisplayString(for: key) != nil || key.hasPrefix("media.")
-    }
-
-    private static func functionKeyDisplayString(for key: String) -> String? {
-        guard key.hasPrefix("f"),
-              let number = Int(key.dropFirst()),
-              (1...20).contains(number) else {
-            return nil
-        }
-        return "F\(number)"
-    }
-
-    private static func digitForNumberKeyCode(_ keyCode: UInt16) -> Int? {
-        switch keyCode {
-        case 18: return 1
-        case 19: return 2
-        case 20: return 3
-        case 21: return 4
-        case 23: return 5
-        case 22: return 6
-        case 26: return 7
-        case 28: return 8
-        case 25: return 9
-        default:
-            return nil
-        }
+        guard event.type == .systemDefined else { return nil }
+        return keyTable.mediaKey(
+            systemDefinedSubtype: event.subtype.rawValue,
+            data1: event.data1
+        )
     }
 
     var carbonModifiers: UInt32 {
@@ -2119,9 +1851,9 @@ struct ShortcutStroke: Equatable, Hashable {
         let flags = modifierFlags
         let applyShiftNormalization = flags.contains(.shift)
 
-        for candidateKeyCode in Self.supportedShortcutKeyCodes {
+        for candidateKeyCode in Self.keyTable.supportedShortcutKeyCodes {
             let candidateCharacter = layoutCharacterProvider(candidateKeyCode, flags)
-            if Self.shortcutCharacterMatches(
+            if Self.keyTable.shortcutCharacterMatches(
                 eventCharacter: candidateCharacter,
                 shortcutKey: shortcutKey,
                 applyShiftSymbolNormalization: applyShiftNormalization,
@@ -2131,20 +1863,13 @@ struct ShortcutStroke: Equatable, Hashable {
             }
         }
 
-        return Self.keyCodeForShortcutKey(shortcutKey)
+        return Self.keyTable.keyCodeForShortcutKey(shortcutKey)
     }
 
     var carbonHotKeyRegistration: CarbonHotKeyRegistration? {
         guard let keyCode = resolvedKeyCode() else { return nil }
         return CarbonHotKeyRegistration(keyCode: UInt32(keyCode), modifiers: carbonModifiers)
     }
-
-    private static let supportedShortcutKeyCodes: [UInt16] = [
-        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17,
-        18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
-        33, 34, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49,
-        50, 123, 124, 125, 126,
-    ]
 }
 
 /// A keyboard shortcut that can be stored in UserDefaults
@@ -2413,174 +2138,80 @@ struct StoredShortcut: Codable, Equatable, Hashable {
 }
 
 extension ShortcutStroke {
-    static func parseConfig(_ rawValue: String) -> ShortcutStroke? {
-        guard !rawValue.isEmpty else { return nil }
-
-        let rawParts = rawValue.split(separator: "+", omittingEmptySubsequences: false)
-            .map(String.init)
-        let parts = rawParts.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        guard !parts.isEmpty, let lastRawPart = rawParts.last, !lastRawPart.isEmpty else {
-            return nil
-        }
-
-        var command = false
-        var shift = false
-        var option = false
-        var control = false
-
-        for modifier in parts.dropLast() {
-            switch modifier.lowercased() {
-            case "cmd", "command", "⌘":
-                command = true
-            case "shift", "⇧":
-                shift = true
-            case "opt", "option", "alt", "⌥":
-                option = true
-            case "ctrl", "control", "ctl", "⌃":
-                control = true
-            default:
-                return nil
-            }
-        }
-
-        guard let key = parseConfigKeyToken(lastRawPart) else { return nil }
-        return ShortcutStroke(
+    /// This stroke as its persisted ``CmuxSettings/ShortcutStroke`` value.
+    ///
+    /// The app-target stroke is field-identical to the package stroke; this
+    /// adapter is the single point where the two shapes meet so the config
+    /// grammar can live entirely in `CmuxShortcuts`.
+    var cmuxSettingsShortcutStroke: CmuxSettings.ShortcutStroke {
+        CmuxSettings.ShortcutStroke(
             key: key,
             command: command,
             shift: shift,
             option: option,
-            control: control
+            control: control,
+            keyCode: keyCode
         )
     }
 
+    /// Reconstructs an app-target stroke from a persisted
+    /// ``CmuxSettings/ShortcutStroke`` value.
+    init(cmuxSettings stroke: CmuxSettings.ShortcutStroke) {
+        self.init(
+            key: stroke.key,
+            command: stroke.command,
+            shift: stroke.shift,
+            option: stroke.option,
+            control: stroke.control,
+            keyCode: stroke.keyCode
+        )
+    }
+
+    /// Parses one config token into an app-target stroke by delegating to the
+    /// `cmd+shift+x` grammar in ``CmuxSettings/ShortcutStroke/parseConfig(_:)``.
+    static func parseConfig(_ rawValue: String) -> ShortcutStroke? {
+        CmuxSettings.ShortcutStroke.parseConfig(rawValue).map(ShortcutStroke.init(cmuxSettings:))
+    }
+
+    /// Formats this stroke as a config token via the grammar in
+    /// ``CmuxSettings/ShortcutStroke/configString(preserveDigit:)``.
     func configString(preserveDigit: Bool = true) -> String {
-        var parts: [String] = []
-        if command { parts.append("cmd") }
-        if shift { parts.append("shift") }
-        if option { parts.append("opt") }
-        if control { parts.append("ctrl") }
-        parts.append(configKeyString(preserveDigit: preserveDigit))
-        return parts.joined(separator: "+")
-    }
-
-    private func configKeyString(preserveDigit: Bool) -> String {
-        if preserveDigit {
-            return key
-        }
-        if let digit = Int(key), (1...9).contains(digit) {
-            return "1"
-        }
-        return key
-    }
-
-    private static func parseConfigKeyToken(_ rawValue: String) -> String? {
-        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            return rawValue == " " ? "space" : nil
-        }
-
-        let lowered = trimmed.lowercased()
-        switch lowered {
-        case "left", "arrowleft", "leftarrow", "←":
-            return "←"
-        case "right", "arrowright", "rightarrow", "→":
-            return "→"
-        case "up", "arrowup", "uparrow", "↑":
-            return "↑"
-        case "down", "arrowdown", "downarrow", "↓":
-            return "↓"
-        case "tab":
-            return "\t"
-        case "return", "enter", "↩":
-            return "\r"
-        case "space", "spacebar", "<space>":
-            return "space"
-        case "comma":
-            return ","
-        case "period", "dot":
-            return "."
-        case "slash":
-            return "/"
-        case "backslash":
-            return "\\"
-        case "semicolon":
-            return ";"
-        case "quote", "apostrophe":
-            return "'"
-        case "backtick", "grave":
-            return "`"
-        case "minus", "hyphen":
-            return "-"
-        case "plus", "equals":
-            return "="
-        case "leftbracket", "openbracket":
-            return "["
-        case "rightbracket", "closebracket":
-            return "]"
-        case "volumeup", "mediavolumeup", "media.volumeup":
-            return "media.volumeUp"
-        case "volumedown", "mediavolumedown", "media.volumedown":
-            return "media.volumeDown"
-        case "brightnessup", "mediabrightnessup", "media.brightnessup":
-            return "media.brightnessUp"
-        case "brightnessdown", "mediabrightnessdown", "media.brightnessdown":
-            return "media.brightnessDown"
-        case "mute", "mediamute", "media.mute":
-            return "media.mute"
-        case "playpause", "mediaplaypause", "media.playpause":
-            return "media.playPause"
-        case "nexttrack", "medianext", "media.next", "media.nexttrack":
-            return "media.next"
-        case "previoustrack", "mediaprevious", "media.previous", "media.previoustrack":
-            return "media.previous"
-        default:
-            if lowered.hasPrefix("f"),
-               let number = Int(lowered.dropFirst()),
-               (1...20).contains(number) {
-                return "f\(number)"
-            }
-            guard lowered.count == 1 else { return nil }
-            return lowered
-        }
+        cmuxSettingsShortcutStroke.configString(preserveDigit: preserveDigit)
     }
 }
 
 extension StoredShortcut {
+    /// Reconstructs an app-target binding from a persisted
+    /// ``CmuxSettings/StoredShortcut`` value.
+    init(cmuxSettings shortcut: CmuxSettings.StoredShortcut) {
+        if shortcut.isUnbound {
+            self = .unbound
+            return
+        }
+        self.init(
+            first: ShortcutStroke(cmuxSettings: shortcut.first),
+            second: shortcut.second.map(ShortcutStroke.init(cmuxSettings:))
+        )
+    }
+
+    /// Parses a single config token (string form) into an app-target binding by
+    /// delegating to ``CmuxSettings/StoredShortcut/parseConfig(_:allowBareFirstStroke:)``.
     static func parseConfig(_ rawValue: String, allowBareFirstStroke: Bool = false) -> StoredShortcut? {
-        if isUnboundConfigToken(rawValue) {
-            return .unbound
-        }
-        return parseConfig(strokes: [rawValue], allowBareFirstStroke: allowBareFirstStroke)
+        CmuxSettings.StoredShortcut.parseConfig(rawValue, allowBareFirstStroke: allowBareFirstStroke)
+            .map(StoredShortcut.init(cmuxSettings:))
     }
 
+    /// Parses a one-or-two-stroke chord array into an app-target binding by
+    /// delegating to ``CmuxSettings/StoredShortcut/parseConfig(strokes:allowBareFirstStroke:)``.
     static func parseConfig(strokes: [String], allowBareFirstStroke: Bool = false) -> StoredShortcut? {
-        guard !strokes.isEmpty, strokes.count <= 2 else { return nil }
-        if strokes.count == 1, let rawValue = strokes.first, isUnboundConfigToken(rawValue) {
-            return .unbound
-        }
-        let parsedStrokes = strokes.compactMap(ShortcutStroke.parseConfig(_:))
-        guard parsedStrokes.count == strokes.count, let firstStroke = parsedStrokes.first else {
-            return nil
-        }
-        guard allowBareFirstStroke || !firstStroke.modifierFlags.isEmpty || firstStroke.key == "space" else { return nil }
-        let secondStroke = parsedStrokes.count == 2 ? parsedStrokes[1] : nil
-        return StoredShortcut(first: firstStroke, second: secondStroke)
+        CmuxSettings.StoredShortcut.parseConfig(strokes: strokes, allowBareFirstStroke: allowBareFirstStroke)
+            .map(StoredShortcut.init(cmuxSettings:))
     }
 
+    /// The canonical config token(s) for this binding via
+    /// ``CmuxSettings/StoredShortcut/configIdentifier``.
     var configIdentifier: String {
-        if isUnbound { return "none" }
-        if let secondStroke {
-            return "\(firstStroke.configString()) \(secondStroke.configString())"
-        }
-        return firstStroke.configString()
-    }
-
-    private static func isUnboundConfigToken(_ rawValue: String) -> Bool {
-        if rawValue.isEmpty { return true }
-        if rawValue == " " { return false }
-        let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !normalized.isEmpty else { return true }
-        return normalized == "none" || normalized == "clear" || normalized == "unbound" || normalized == "disabled"
+        cmuxSettingsStoredShortcut.configIdentifier
     }
 }
 

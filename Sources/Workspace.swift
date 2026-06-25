@@ -24,31 +24,6 @@ import Darwin
 import Network
 import CoreText
 
-#if DEBUG
-extension String {
-    /// DEBUG-only single-line preview of a workspace description/title: escapes
-    /// control characters and truncates to `limit` for log readability.
-    static func debugWorkspaceDescriptionPreview(_ text: String?, limit: Int = 120) -> String {
-        guard let text else { return "nil" }
-        return text.debugWorkspaceDescriptionPreview(limit: limit)
-    }
-
-    /// DEBUG-only single-line preview of this string: escapes control characters
-    /// and truncates to `limit` for log readability.
-    func debugWorkspaceDescriptionPreview(limit: Int = 120) -> String {
-        let escaped = self
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\n", with: "\\n")
-            .replacingOccurrences(of: "\r", with: "\\r")
-            .replacingOccurrences(of: "\t", with: "\\t")
-        if escaped.count <= limit {
-            return escaped
-        }
-        return "\(escaped.prefix(limit))..."
-    }
-}
-#endif
-
 private final class WorkspacePendingTerminalInputObserver: @unchecked Sendable {
     var observer: NSObjectProtocol?
 }
@@ -5039,54 +5014,28 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         remoteConnectionCoordinator.maybeDemoteRemoteWorkspaceAfterSSHSessionEnded()
     }
 
-    /// Normalizes a user-supplied workspace environment: trims keys and drops any
-    /// entry with a blank key or blank value. Dropping blank values keeps behavior
-    /// identical across the `additionalEnvironment` channel (which already skips
-    /// empty values) and the `initialEnvironmentOverrides` channel (which would
-    /// otherwise export a blank value on the initial shell only).
-    ///
-    /// Reserved `CMUX_*` variables are intentionally *not* stripped by name — they
-    /// are protected at spawn time by `mergedStartupEnvironment(protectedKeys:)`,
-    /// the single authority on which keys are managed. That protection is an exact
-    /// Swift-string match, but the env eventually crosses the Swift→C boundary
-    /// (`strdup` / Ghostty), where a key is truncated at its first NUL. A key like
-    /// `"CMUX_SOCKET_PATH\0x"` would dodge the exact-match check yet collapse to
-    /// `CMUX_SOCKET_PATH` in the spawned shell, so reject any key containing a NUL
-    /// (and `=`, which is never a valid env var name) and any value containing a
-    /// NUL. This is the single choke point for every entry point (CLI, cmux.json,
-    /// session restore), so the guard cannot be bypassed.
-    // `nonisolated` so the nonisolated socket workspace-create parsing path
-    // (`v2WorkspaceCreate`) can call this pure helper without hopping to the main
-    // actor; `Workspace` is `@MainActor`, so its statics are main-actor-isolated by
-    // default.
+    /// Thin forwarder to ``CmuxWorkspaces/SurfaceCreationCoordinator/sanitizedWorkspaceEnvironment(_:)``.
+    /// Retained as a `Workspace`-namespaced entry point so external callers
+    /// (`Workspace.init`/restore, `TerminalController`, `WorkspaceEnvironmentTests`)
+    /// stay byte-identical. `nonisolated` so the nonisolated socket
+    /// workspace-create parsing path (`v2WorkspaceCreate`) can call it without
+    /// hopping to the main actor.
     nonisolated static func sanitizedWorkspaceEnvironment(_ environment: [String: String]) -> [String: String] {
-        environment.reduce(into: [String: String]()) { result, pair in
-            let key = pair.key.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !key.isEmpty,
-                  !pair.value.isEmpty,
-                  !key.contains("\0"),
-                  !key.contains("="),
-                  !pair.value.contains("\0") else { return }
-            result[key] = pair.value
-        }
+        SurfaceCreationCoordinator.sanitizedWorkspaceEnvironment(environment)
     }
 
-    /// Pure merge core: overlays `explicit` on top of `workspaceEnvironment`.
-    /// Managed `CMUX_*` / terminal-identity keys are protected downstream by
-    /// `mergedStartupEnvironment(protectedKeys:)`; this only decides precedence
-    /// among user-supplied values — explicit per-surface entries (layout `env`,
-    /// scrollback replay, SSH startup) win over the workspace set. Static so the
-    /// `init` path can call it before `self` is fully initialized.
+    /// Thin forwarder to ``CmuxWorkspaces/SurfaceCreationCoordinator/startupEnvironment(workspaceEnvironment:overlaying:)``.
+    /// Retained as a `Workspace`-namespaced entry point so the `init` path (which
+    /// calls it before `self` is fully initialized) and the instance convenience
+    /// ``startupEnvironmentMergingWorkspaceEnvironment(_:)`` stay byte-identical.
     static func startupEnvironment(
         workspaceEnvironment: [String: String],
         overlaying explicit: [String: String]
     ) -> [String: String] {
-        guard !workspaceEnvironment.isEmpty else { return explicit }
-        var merged = workspaceEnvironment
-        for (key, value) in explicit {
-            merged[key] = value
-        }
-        return merged
+        SurfaceCreationCoordinator.startupEnvironment(
+            workspaceEnvironment: workspaceEnvironment,
+            overlaying: explicit
+        )
     }
 
     /// Instance convenience over ``startupEnvironment(workspaceEnvironment:overlaying:)``
@@ -5132,8 +5081,13 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         )
     }
 
+    /// Thin forwarder to the canonical
+    /// ``CmuxRemoteSession/RemoteSurfaceCoordinator/defaultSSHPTYSessionID(workspaceId:panelId:)``.
+    /// The duplicated `ssh-<workspaceId>-<panelId>` body lives in the package; this
+    /// static stays so the ~15 cmuxTests call sites and in-file callers keep using
+    /// `Workspace.defaultSSHPTYSessionID(...)` unchanged.
     nonisolated static func defaultSSHPTYSessionID(workspaceId: UUID, panelId: UUID) -> String {
-        "ssh-\(workspaceId.uuidString)-\(panelId.uuidString)"
+        RemoteSurfaceCoordinator<Workspace>.defaultSSHPTYSessionID(workspaceId: workspaceId, panelId: panelId)
     }
 
     nonisolated static func sshPTYAttachStartupCommand(sessionID: String) -> String {

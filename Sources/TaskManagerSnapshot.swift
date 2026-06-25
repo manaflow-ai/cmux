@@ -1,3 +1,4 @@
+import CmuxTaskManager
 import Foundation
 
 struct CmuxTaskManagerSnapshot {
@@ -32,7 +33,7 @@ struct CmuxTaskManagerSnapshot {
         guard let sampledAt else {
             return String(localized: "taskManager.updated.never", defaultValue: "Never")
         }
-        return CmuxTaskManagerFormat.time(sampledAt)
+        return CmuxTaskManagerDateFormatting().timeString(for: sampledAt)
     }
 
     init(
@@ -73,7 +74,7 @@ struct CmuxTaskManagerSnapshot {
 
     init(payload: [String: Any]) {
         let sample = payload["sample"] as? [String: Any] ?? [:]
-        self.sampledAt = CmuxTaskManagerFormat.iso8601Date(sample["sampled_at"] as? String)
+        self.sampledAt = CmuxTaskManagerDateFormatting().date(fromISO8601: sample["sampled_at"] as? String)
         self.total = CmuxTaskManagerResources(payload["totals"] as? [String: Any] ?? [:])
 
         var rows: [CmuxTaskManagerRow] = []

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxTaskManager
 import Darwin
 import Observation
 import SwiftUI

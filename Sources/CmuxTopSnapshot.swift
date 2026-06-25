@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Darwin
 import Foundation
 
@@ -137,6 +138,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
     private let pidsByTTYDevice: [Int64: [Int]]
     private let pidsByCMUXSurfaceID: [UUID: [Int]]
     private let residentMemorySources: [CmuxTopProcessMemorySource]
+    private let agentDetector = AgentDetector()
 
     static func capture(includeProcessDetails: Bool = false) -> CmuxTopProcessSnapshot {
         CmuxTopProcessSnapshot(
@@ -414,8 +416,8 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
 
         for pid in pids.sorted() {
             guard let process = processesByPID[pid] else { continue }
-            let processArguments = Self.processArgumentsIfNeeded(for: process)
-            guard let definition = CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+            let processArguments = processArgumentsIfNeeded(for: process)
+            guard let definition = agentDetector.match(
                 processName: process.name,
                 processPath: process.path,
                 arguments: processArguments?.arguments ?? [],
@@ -428,18 +430,18 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             aggregates[definition.id]?.append(process)
         }
 
-        return CmuxTaskManagerCodingAgentDefinition.builtIns.compactMap { definition in
+        return agentDetector.catalog.compactMap { definition in
             guard let aggregate = aggregates[definition.id] else { return nil }
             return aggregate.payload()
         }
     }
 
-    private static func processArgumentsIfNeeded(for process: CmuxTopProcessInfo) -> CmuxTopProcessArguments? {
-        guard CmuxTaskManagerCodingAgentDefinition.shouldReadArguments(
+    private func processArgumentsIfNeeded(for process: CmuxTopProcessInfo) -> CmuxTopProcessArguments? {
+        guard agentDetector.shouldReadArguments(
             processName: process.name,
             processPath: process.path
         ) else { return nil }
-        return processArgumentsAndEnvironment(for: process.pid)
+        return Self.processArgumentsAndEnvironment(for: process.pid)
     }
 
     private struct CmuxProgramProcessAggregate {
@@ -494,7 +496,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
     }
 
     private struct CmuxCodingAgentProcessAggregate {
-        let definition: CmuxTaskManagerCodingAgentDefinition
+        let definition: AgentDefinition
         var cpuPercent: Double = 0
         var memoryBytes: Int64 = 0
         var residentBytes: Int64 = 0

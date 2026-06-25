@@ -1,3 +1,5 @@
+import CmuxTaskManager
+import CmuxTaskManagerUI
 import Observation
 import SwiftUI
 
@@ -71,20 +73,20 @@ struct CmuxTaskManagerView: View {
         HStack(spacing: 24) {
             metric(
                 title: String(localized: "taskManager.summary.cpu", defaultValue: "CPU"),
-                value: CmuxTaskManagerFormat.cpu(model.snapshot.total.cpuPercent)
+                value: model.snapshot.total.cpuPercent.taskManagerCPUString
             )
             metric(
                 title: String(localized: "taskManager.summary.memory", defaultValue: "Memory"),
-                value: CmuxTaskManagerFormat.bytes(model.snapshot.total.memoryBytes)
+                value: model.snapshot.total.memoryBytes.taskManagerByteString
             )
             if let memoryDiagnostic = model.snapshot.memoryDiagnostic {
                 metric(
                     title: String(localized: "taskManager.summary.appFootprint", defaultValue: "App Footprint"),
-                    value: CmuxTaskManagerFormat.bytes(memoryDiagnostic.appFootprintBytes)
+                    value: memoryDiagnostic.appFootprintBytes.taskManagerByteString
                 )
                 metric(
                     title: String(localized: "taskManager.summary.childRSS", defaultValue: "Child RSS"),
-                    value: CmuxTaskManagerFormat.bytes(memoryDiagnostic.childRSSBytes)
+                    value: memoryDiagnostic.childRSSBytes.taskManagerByteString
                 )
             }
             metric(
@@ -447,9 +449,9 @@ struct CmuxTaskManagerRowView: View, Equatable {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(CmuxTaskManagerFormat.cpu(row.resources.cpuPercent))
+            Text(row.resources.cpuPercent.taskManagerCPUString)
                 .frame(width: 82, alignment: .trailing)
-            Text(CmuxTaskManagerFormat.bytes(row.resources.memoryBytes))
+            Text(row.resources.memoryBytes.taskManagerByteString)
                 .frame(width: 96, alignment: .trailing)
             Text("\(row.resources.processCount)")
                 .frame(width: 70, alignment: .trailing)

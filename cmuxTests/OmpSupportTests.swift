@@ -329,7 +329,7 @@ struct OmpSupportTests {
     }
 
     @Test func taskManagerClassifiesOmpBeforeLegacyPiPackageNeedles() throws {
-        let direct = try #require(CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+        let direct = try #require(AgentDetector().match(
             processName: "omp",
             processPath: "/Users/example/.bun/bin/omp",
             arguments: ["/Users/example/.bun/bin/omp", "--model", "anthropic/claude-sonnet-4-5"],
@@ -337,7 +337,7 @@ struct OmpSupportTests {
         ))
         #expect(direct.id == "omp")
 
-        let hostedOmp = try #require(CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+        let hostedOmp = try #require(AgentDetector().match(
             processName: "bun",
             processPath: "/opt/homebrew/bin/bun",
             arguments: [
@@ -350,7 +350,7 @@ struct OmpSupportTests {
         ))
         #expect(hostedOmp.id == "omp")
 
-        let legacyPi = try #require(CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+        let legacyPi = try #require(AgentDetector().match(
             processName: "bun",
             processPath: "/opt/homebrew/bin/bun",
             arguments: [

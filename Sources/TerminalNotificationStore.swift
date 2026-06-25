@@ -1,3 +1,4 @@
+import CmuxCore
 import CmuxFoundation
 import AppKit
 import Foundation
@@ -107,39 +108,6 @@ enum AppFocusState {
             return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
         }
         return false
-    }
-}
-
-enum NotificationAuthorizationState: Equatable, Sendable {
-    case unknown
-    case notDetermined
-    case authorized
-    case denied
-    case provisional
-    case ephemeral
-
-    var statusLabel: String {
-        switch self {
-        case .unknown, .notDetermined:
-            return "Not Requested"
-        case .authorized:
-            return "Allowed"
-        case .denied:
-            return "Denied"
-        case .provisional:
-            return "Deliver Quietly"
-        case .ephemeral:
-            return "Temporary"
-        }
-    }
-
-    var allowsDelivery: Bool {
-        switch self {
-        case .authorized, .provisional, .ephemeral:
-            return true
-        case .unknown, .notDetermined, .denied:
-            return false
-        }
     }
 }
 

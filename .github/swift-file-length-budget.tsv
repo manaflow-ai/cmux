@@ -111,7 +111,7 @@
 845	cmuxTests/SSHStartupSignalLifecycleTests.swift
 834	Sources/TerminalController+ControlSurfaceSendNotifyV1.swift
 831	Sources/ClosedItemHistory.swift
-830	Sources/TaskManagerTypes.swift
+529	Sources/TaskManagerTypes.swift
 826	Sources/App/ShortcutRoutingSupport.swift
 825	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/TerminalComposerView.swift
 810	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/SwiftViewInterpreterTests.swift
@@ -155,7 +155,7 @@
 654	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/KeyboardShortcutsSection.swift
 653	Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/Import/Detection/BrowserInstalledBrowserDetector.swift
 650	Sources/Panels/MarkdownRemoteImageLoader.swift
-649	Sources/CmuxTopSnapshot.swift
+651	Sources/CmuxTopSnapshot.swift
 641	cmuxTests/CommandPaletteNucleoFFITests.swift
 637	Sources/TerminalController+ControlPaneContext.swift
 635	Packages/macOS/CmuxWorkspaces/Tests/CmuxWorkspacesTests/Core/SurfaceRegistryModelTests.swift

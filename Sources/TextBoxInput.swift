@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxPanes
 import CmuxRemoteSession
 import CmuxWindowing
@@ -793,6 +794,11 @@ enum TextBoxAgentDetection: CaseIterable {
     case codex
     case opencode
 
+    /// Shared detector over the built-in agent catalog. Immutable value constructed once; reused so
+    /// command-segment matching does not rebuild the catalog per call. An enum case cannot hold
+    /// stored state, so the held detector lives here as a documented default.
+    private static let detector = AgentDetector()
+
     private var definitionID: String {
         switch self {
         case .claudeCode:
@@ -872,7 +878,7 @@ enum TextBoxAgentDetection: CaseIterable {
         guard !tokens.isEmpty else { return false }
         let resolved = Self.resolvedCommandSegment(tokens)
         guard let executable = resolved.arguments.first else { return false }
-        if CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+        if Self.detector.match(
             processName: executable,
             processPath: executable,
             arguments: resolved.arguments,
