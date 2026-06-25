@@ -1,4 +1,4 @@
-import XCTest
+@_exported import XCTest
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
