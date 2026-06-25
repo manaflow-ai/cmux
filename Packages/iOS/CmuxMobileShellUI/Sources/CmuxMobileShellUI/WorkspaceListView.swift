@@ -572,6 +572,8 @@ struct WorkspaceListView: View {
 
 #if os(iOS)
 private struct WorkspaceMacTitlePickerLabel: View {
+    private static let titleWidth: CGFloat = 165
+
     let title: String
 
     var body: some View {
@@ -583,6 +585,7 @@ private struct WorkspaceMacTitlePickerLabel: View {
             Text(title)
                 .lineLimit(1)
                 .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .center)
                 .layoutPriority(1)
             Image(systemName: "chevron.down")
                 .font(.caption.weight(.bold))
@@ -591,7 +594,7 @@ private struct WorkspaceMacTitlePickerLabel: View {
         .font(.headline)
         .bold()
         .foregroundStyle(.white)
-        .frame(minWidth: 165, maxWidth: 220, alignment: .center)
+        .frame(width: Self.titleWidth, alignment: .center)
         .contentShape(Rectangle())
     }
 }
