@@ -139,8 +139,8 @@ final class VSCodeServeWebController {
         }
 
         let launchOptionCandidates = [launchOptions] + [launchOptions.ephemeralPortFallback()].compactMap { $0 }
-        let launchCandidates = launchConfigurations.flatMap { launchConfiguration in
-            launchOptionCandidates.map { launchOptions in
+        let launchCandidates = launchOptionCandidates.flatMap { launchOptions in
+            launchConfigurations.map { launchConfiguration in
                 (launchConfiguration: launchConfiguration, launchOptions: launchOptions)
             }
         }
