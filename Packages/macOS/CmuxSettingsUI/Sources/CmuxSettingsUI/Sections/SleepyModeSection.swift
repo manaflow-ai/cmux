@@ -25,6 +25,7 @@ public struct SleepyModeSection: View {
                         Text(String(localized: "sleepyMode.theme.blossom", defaultValue: "Blossom")).tag(SleepyTheme.blossom)
                         Text(String(localized: "sleepyMode.theme.mint", defaultValue: "Mint")).tag(SleepyTheme.mint)
                         Text(String(localized: "sleepyMode.theme.mono", defaultValue: "Mono")).tag(SleepyTheme.mono)
+                        Text(String(localized: "sleepyMode.theme.custom", defaultValue: "Custom")).tag(SleepyTheme.custom)
                     }
                     .labelsHidden().pickerStyle(.menu).controlSize(.small)
                 }
@@ -53,8 +54,29 @@ public struct SleepyModeSection: View {
                         Text(String(localized: "sleepyMode.glow.aurora", defaultValue: "Aurora")).tag(SleepyGlow.aurora)
                         Text(String(localized: "sleepyMode.glow.sunset", defaultValue: "Sunset")).tag(SleepyGlow.sunset)
                         Text(String(localized: "sleepyMode.glow.ocean", defaultValue: "Ocean")).tag(SleepyGlow.ocean)
+                        Text(String(localized: "sleepyMode.glow.custom", defaultValue: "Custom")).tag(SleepyGlow.custom)
                     }
                     .labelsHidden().pickerStyle(.menu).controlSize(.small)
+                }
+            }
+
+            if store.theme == .custom || store.glow == .custom {
+                SettingsCard {
+                    if store.theme == .custom {
+                        colorRow(String(localized: "sleepyMode.color.face", defaultValue: "Face"), $store.customFace)
+                        SettingsCardDivider()
+                        colorRow(String(localized: "sleepyMode.color.cap", defaultValue: "Nightcap"), $store.customCap)
+                        SettingsCardDivider()
+                        colorRow(String(localized: "sleepyMode.color.blush", defaultValue: "Blush"), $store.customBlush)
+                        SettingsCardDivider()
+                        colorRow(String(localized: "sleepyMode.color.eyes", defaultValue: "Eyes"), $store.customInk)
+                        SettingsCardDivider()
+                        colorRow(String(localized: "sleepyMode.color.logo", defaultValue: "Logo"), $store.customLogo)
+                        if store.glow == .custom { SettingsCardDivider() }
+                    }
+                    if store.glow == .custom {
+                        colorRow(String(localized: "sleepyMode.color.background", defaultValue: "Background"), $store.customBackground)
+                    }
                 }
             }
 
@@ -118,6 +140,17 @@ public struct SleepyModeSection: View {
     private func toggleRow(_ title: String, _ binding: Binding<Bool>) -> some View {
         SettingsCardRow(configurationReview: .settingsOnly, title) {
             Toggle("", isOn: binding).labelsHidden().controlSize(.small)
+        }
+    }
+
+    @ViewBuilder
+    private func colorRow(_ title: String, _ hex: Binding<String>) -> some View {
+        SettingsCardRow(configurationReview: .settingsOnly, title) {
+            ColorPicker("", selection: Binding(
+                get: { Color(sleepyHex: hex.wrappedValue) },
+                set: { hex.wrappedValue = $0.sleepyHex }
+            ))
+            .labelsHidden()
         }
     }
 }

@@ -6,7 +6,7 @@ import Observation
 // renderer and controller read the same store.
 
 public enum SleepyTheme: String, CaseIterable, Identifiable, Sendable {
-    case cmux, blossom, mint, mono
+    case cmux, blossom, mint, mono, custom
     public var id: String { rawValue }
 }
 
@@ -16,8 +16,18 @@ public enum SleepyMascot: String, CaseIterable, Identifiable, Sendable {
 }
 
 public enum SleepyGlow: String, CaseIterable, Identifiable, Sendable {
-    case black, midnight, cmux, aurora, sunset, ocean
+    case black, midnight, cmux, aurora, sunset, ocean, custom
     public var id: String { rawValue }
+}
+
+/// Default custom colors (matched to the cmux theme so "Custom" starts familiar).
+public enum SleepyCustomDefaults {
+    public static let face = "E0EDFF"
+    public static let cap = "5CD6FF"
+    public static let blush = "FF99B5"
+    public static let ink = "333D6B"
+    public static let logo = "6BDEFF"
+    public static let background = "060812"
 }
 
 /// Immutable snapshot of the user's Sleepy Mode preferences, read fresh each
@@ -33,6 +43,14 @@ public struct SleepyModeConfig: Equatable, Sendable {
     public var showStatus = true
     public var showPets = true
     public var requireAuth = true
+
+    // Custom colors (used when theme == .custom / glow == .custom). Hex "RRGGBB".
+    public var customFace = SleepyCustomDefaults.face
+    public var customCap = SleepyCustomDefaults.cap
+    public var customBlush = SleepyCustomDefaults.blush
+    public var customInk = SleepyCustomDefaults.ink
+    public var customLogo = SleepyCustomDefaults.logo
+    public var customBackground = SleepyCustomDefaults.background
 
     public init() {}
 }
@@ -56,6 +74,13 @@ public final class SleepyModeSettingsStore {
     public var showPets: Bool { didSet { persist(showPets, Keys.showPets) } }
     public var requireAuth: Bool { didSet { persist(requireAuth, Keys.requireAuth) } }
 
+    public var customFace: String { didSet { persist(customFace, Keys.customFace) } }
+    public var customCap: String { didSet { persist(customCap, Keys.customCap) } }
+    public var customBlush: String { didSet { persist(customBlush, Keys.customBlush) } }
+    public var customInk: String { didSet { persist(customInk, Keys.customInk) } }
+    public var customLogo: String { didSet { persist(customLogo, Keys.customLogo) } }
+    public var customBackground: String { didSet { persist(customBackground, Keys.customBackground) } }
+
     private let defaults: UserDefaults
 
     private enum Keys {
@@ -69,6 +94,12 @@ public final class SleepyModeSettingsStore {
         static let showStatus = "sleepyMode.showStatus"
         static let showPets = "sleepyMode.showPets"
         static let requireAuth = "sleepyMode.requireAuth"
+        static let customFace = "sleepyMode.customFace"
+        static let customCap = "sleepyMode.customCap"
+        static let customBlush = "sleepyMode.customBlush"
+        static let customInk = "sleepyMode.customInk"
+        static let customLogo = "sleepyMode.customLogo"
+        static let customBackground = "sleepyMode.customBackground"
     }
 
     public init(defaults: UserDefaults = .standard) {
@@ -84,6 +115,12 @@ public final class SleepyModeSettingsStore {
         showStatus = defaults.object(forKey: Keys.showStatus) as? Bool ?? fallback.showStatus
         showPets = defaults.object(forKey: Keys.showPets) as? Bool ?? fallback.showPets
         requireAuth = defaults.object(forKey: Keys.requireAuth) as? Bool ?? fallback.requireAuth
+        customFace = defaults.string(forKey: Keys.customFace) ?? fallback.customFace
+        customCap = defaults.string(forKey: Keys.customCap) ?? fallback.customCap
+        customBlush = defaults.string(forKey: Keys.customBlush) ?? fallback.customBlush
+        customInk = defaults.string(forKey: Keys.customInk) ?? fallback.customInk
+        customLogo = defaults.string(forKey: Keys.customLogo) ?? fallback.customLogo
+        customBackground = defaults.string(forKey: Keys.customBackground) ?? fallback.customBackground
     }
 
     public func snapshot() -> SleepyModeConfig {
@@ -98,6 +135,12 @@ public final class SleepyModeSettingsStore {
         config.showStatus = showStatus
         config.showPets = showPets
         config.requireAuth = requireAuth
+        config.customFace = customFace
+        config.customCap = customCap
+        config.customBlush = customBlush
+        config.customInk = customInk
+        config.customLogo = customLogo
+        config.customBackground = customBackground
         return config
     }
 

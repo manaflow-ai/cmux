@@ -11504,6 +11504,20 @@ class TerminalController {
                 case "pets": store.showPets.toggle()
                 default: break
                 }
+            case "customcolor":
+                let fields = value.split(separator: " ").map(String.init)
+                if fields.count == 2 {
+                    let hex = fields[1].uppercased()
+                    switch fields[0] {
+                    case "face": store.customFace = hex
+                    case "cap": store.customCap = hex
+                    case "blush": store.customBlush = hex
+                    case "eyes", "ink": store.customInk = hex
+                    case "logo": store.customLogo = hex
+                    case "bg", "background": store.customBackground = hex
+                    default: break
+                    }
+                }
             case "pets":
                 if value == "clear" {
                     SleepyAgentCensus.shared.debugOverride = nil

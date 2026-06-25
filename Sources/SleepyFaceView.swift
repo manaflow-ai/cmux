@@ -13,7 +13,7 @@ struct SleepyFaceView: View {
         let config = store.snapshot()
         return ZStack {
             RadialGradient(
-                colors: SleepyPalette.glowColors(for: config.glow),
+                colors: SleepyPalette.glowColors(for: config),
                 center: .center,
                 startRadius: 0,
                 endRadius: 950
@@ -34,7 +34,7 @@ struct SleepyFaceView: View {
     }
 
     private func bottomBar(config: SleepyModeConfig) -> some View {
-        let accent = SleepyPalette.colors(for: config.theme)["O"] ?? .white
+        let accent = SleepyPalette.colors(for: config)["O"] ?? .white
         let hintText = config.requireAuth
             ? String(localized: "sleepyMode.dismissHint", defaultValue: "Touch ID or password to unlock")
             : String(localized: "sleepyMode.dismissHintCasual", defaultValue: "Click or press any key to wake")
@@ -78,8 +78,8 @@ struct SleepyFaceView: View {
     // MARK: - Scene
 
     private func draw(in ctx: inout GraphicsContext, size: CGSize, time t: Double, config: SleepyModeConfig, agents: SleepyAgentCounts) {
-        let palette = SleepyPalette.colors(for: config.theme)
-        let ink = SleepyPalette.ink(for: config.theme)
+        let palette = SleepyPalette.colors(for: config)
+        let ink = SleepyPalette.ink(for: config)
         let s = min(size.width, size.height)
         let pixel = max(2, (s / 48).rounded())
         let center = CGPoint(x: (size.width / 2).rounded(), y: (size.height * 0.48).rounded())

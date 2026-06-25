@@ -9,8 +9,24 @@ import SwiftUI
 // MARK: - Palettes
 
 enum SleepyPalette {
-    static func colors(for theme: SleepyTheme) -> [Character: Color] {
-        switch theme {
+    static func colors(for config: SleepyModeConfig) -> [Character: Color] {
+        switch config.theme {
+        case .custom:
+            let face = Color(sleepyHex: config.customFace)
+            let cap = Color(sleepyHex: config.customCap)
+            let logo = Color(sleepyHex: config.customLogo)
+            return [
+                "O": face,
+                "o": face.sleepyDarkened(0.22),
+                "P": cap,
+                "p": cap.sleepyDarkened(0.32),
+                "W": .white,
+                "B": Color(sleepyHex: config.customBlush),
+                "H": logo.sleepyLightened(0.30),
+                "C": logo,
+                "c": logo.sleepyDarkened(0.30),
+                "Y": Color(red: 1.0, green: 0.93, blue: 0.70),
+            ]
         case .cmux:
             return base(
                 face: Color(red: 0.88, green: 0.93, blue: 1.0),
@@ -58,12 +74,19 @@ enum SleepyPalette {
         ]
     }
 
-    static func ink(for theme: SleepyTheme) -> Color {
-        theme == .mono ? Color(white: 0.18) : Color(red: 0.20, green: 0.24, blue: 0.42)
+    static func ink(for config: SleepyModeConfig) -> Color {
+        switch config.theme {
+        case .custom: return Color(sleepyHex: config.customInk)
+        case .mono: return Color(white: 0.18)
+        default: return Color(red: 0.20, green: 0.24, blue: 0.42)
+        }
     }
 
-    static func glowColors(for glow: SleepyGlow) -> [Color] {
-        switch glow {
+    static func glowColors(for config: SleepyModeConfig) -> [Color] {
+        switch config.glow {
+        case .custom:
+            let bg = Color(sleepyHex: config.customBackground)
+            return [bg, bg]
         case .black:
             return [.black, .black]
         case .midnight:
