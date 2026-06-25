@@ -46,6 +46,8 @@ final class TerminalPalette {
     }
     /// Disabled icon/text color for chrome that sits on top of the terminal background.
     var disabledControlForeground: Color { controlForeground.opacity(0.42) }
+    /// Navigation bar color scheme matching chrome drawn over the terminal background.
+    var navigationColorScheme: ColorScheme { isLightBackground ? .light : .dark }
 
     private var isLightBackground: Bool {
         guard let rgb = TerminalTheme.rgbComponents(theme.background) else { return false }

@@ -258,7 +258,6 @@ struct TerminalComposerView: View {
             }
         } else {
             composerBar
-                .background(.bar)
         }
     }
 
@@ -359,6 +358,7 @@ struct TerminalComposerView: View {
         // padding); the band height is still driven by content + this padding.
         .padding(.top, 2)
         .padding(.bottom, 8)
+        .background(terminalPalette.background)
         .photosPicker(
             isPresented: $isPickerPresented,
             selection: $pickerSelection,

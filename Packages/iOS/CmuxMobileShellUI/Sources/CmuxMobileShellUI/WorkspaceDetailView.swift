@@ -167,7 +167,7 @@ struct WorkspaceDetailView: View {
         .id(session.id)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .safeAreaPadding(.top, terminalTopPadding)
-        .mobileTerminalNavigationChrome()
+        .mobileTerminalNavigationChrome(colorScheme: terminalPalette.navigationColorScheme)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 chatToggleButton
@@ -266,7 +266,7 @@ struct WorkspaceDetailView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
         .navigationTitle(browser.title ?? workspace.name)
-        .mobileTerminalNavigationChrome()
+        .mobileTerminalNavigationChrome(colorScheme: terminalPalette.navigationColorScheme)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 glassTitle(browser.title ?? workspace.name)
@@ -416,7 +416,7 @@ struct WorkspaceDetailView: View {
         .background(terminalPalette.background)
         #endif
         .navigationTitle(workspace.name)
-        .mobileTerminalNavigationChrome()
+        .mobileTerminalNavigationChrome(colorScheme: terminalPalette.navigationColorScheme)
         .environment(terminalPalette)
         #if os(iOS)
         .task(id: chatRefreshKey) { await refreshChatSessions() }
@@ -482,7 +482,7 @@ struct WorkspaceDetailView: View {
             .font(.headline)
             .lineLimit(1)
             .truncationMode(.tail)
-            .foregroundStyle(terminalPalette.foreground)
+            .foregroundStyle(terminalPalette.controlForeground)
             // Centered principal item: cap it to the clear center gap so a long
             // name truncates instead of underlapping the bar buttons, but reserve
             // only the actual side clusters (not a flat 300pt) so the middle grows
@@ -491,7 +491,10 @@ struct WorkspaceDetailView: View {
                 contentWidth: contentWidth,
                 hasChatToggle: isChatMode || sessionForSelectedTerminal != nil
             ))
-            .mobileGlassNavigationTitle()
+            .mobileGlassNavigationTitle(
+                fill: AnyShapeStyle(terminalPalette.controlFill),
+                stroke: terminalPalette.controlStroke
+            )
     }
     #endif
 
@@ -500,7 +503,7 @@ struct WorkspaceDetailView: View {
             Label(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"), systemImage: "plus.square.on.square")
                 .labelStyle(.iconOnly)
         }
-        .foregroundStyle(terminalPalette.foreground)
+        .foregroundStyle(terminalPalette.controlForeground)
         .disabled(!canCreateWorkspace)
         .accessibilityIdentifier("MobileTerminalNewWorkspaceButton")
     }
@@ -525,7 +528,7 @@ struct WorkspaceDetailView: View {
             )
             .labelStyle(.iconOnly)
         }
-        .foregroundStyle(terminalPalette.foreground)
+        .foregroundStyle(terminalPalette.controlForeground)
         .accessibilityIdentifier("MobileTerminalDropdown")
         .accessibilityValue(host)
     }

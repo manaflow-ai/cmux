@@ -23,23 +23,22 @@ extension View {
     /// legible over busy terminal text instead of floating bare.
     ///
     /// iOS 18 has no per-element glass, so keep a translucent material bar as the
-    /// backing (which also backs the title); `mobileGlassNavigationTitle` is a
-    /// no-op there. Keep the dark color scheme so the title and toolbar buttons
-    /// stay light and legible over the dark panes.
+    /// backing. The caller supplies the color scheme so toolbar buttons stay
+    /// legible over both light and dark terminal themes.
     @ViewBuilder
-    func mobileTerminalNavigationChrome() -> some View {
+    func mobileTerminalNavigationChrome(colorScheme: ColorScheme = .dark) -> some View {
         #if os(iOS)
         if #available(iOS 26.0, *) {
             self
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbarBackground(.hidden, for: .navigationBar)
-                .toolbarColorScheme(.dark, for: .navigationBar)
+                .toolbarColorScheme(colorScheme, for: .navigationBar)
         } else {
             self
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
                 .toolbarBackground(.visible, for: .navigationBar)
-                .toolbarColorScheme(.dark, for: .navigationBar)
+                .toolbarColorScheme(colorScheme, for: .navigationBar)
         }
         #else
         self

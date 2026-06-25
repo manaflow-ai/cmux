@@ -52,7 +52,7 @@ extension View {
     /// a translucent material background, so the title is already backed and this
     /// is a no-op.
     @ViewBuilder
-    func mobileGlassNavigationTitle() -> some View {
+    func mobileGlassNavigationTitle(fill: AnyShapeStyle? = nil, stroke: Color? = nil) -> some View {
         #if os(iOS)
         if #available(iOS 26.0, *) {
             self
@@ -62,12 +62,22 @@ extension View {
                 // bar-button glass items. Padding (not a fixed height) so the
                 // multi-line chat header pill can still grow.
                 .padding(.vertical, 9)
+                .background(fill ?? AnyShapeStyle(.clear), in: Capsule())
                 .glassEffect(.regular, in: .capsule)
+                .overlay(Capsule().stroke(stroke ?? .clear, lineWidth: stroke == nil ? 0 : 1))
         } else {
             self
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .background(fill ?? AnyShapeStyle(.ultraThinMaterial), in: Capsule())
+                .overlay(Capsule().stroke(stroke ?? .clear, lineWidth: stroke == nil ? 0 : 1))
         }
         #else
         self
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .background(fill ?? AnyShapeStyle(.ultraThinMaterial), in: Capsule())
+            .overlay(Capsule().stroke(stroke ?? .clear, lineWidth: stroke == nil ? 0 : 1))
         #endif
     }
 
