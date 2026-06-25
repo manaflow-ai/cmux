@@ -242,10 +242,21 @@ actor RemoteTmuxSSHTransport {
 
     static func indicatesRefreshClientSubscriptionUnsupported(_ stderr: String) -> Bool {
         let lowered = stderr.lowercased()
-        let mentionsBFlag = lowered.contains("-b")
-            || lowered.contains(" b")
-            || lowered.contains("flag b")
-            || lowered.contains("option b")
+        let tokens = lowered.split { character in
+            !(character.isLetter || character.isNumber || character == "-")
+        }.map(String.init)
+        let mentionsBFlag = tokens.enumerated().contains { index, token in
+            if token == "-b" || token == "--b" { return true }
+            guard token == "b" else { return false }
+            if index > 0, tokens[index - 1] == "flag" || tokens[index - 1] == "option" {
+                return true
+            }
+            if index > 1, tokens[index - 1] == "--" {
+                let optionNoun = tokens[index - 2]
+                return optionNoun == "flag" || optionNoun == "option"
+            }
+            return false
+        }
         let rejectsOption = lowered.contains("unknown flag")
             || lowered.contains("unknown option")
             || lowered.contains("invalid option")

@@ -79,6 +79,16 @@ import Testing
     }
 
     @Test(arguments: [
+        "refresh-client: unknown option while building command",
+        "refresh-client: unknown option btree",
+        "refresh-client: invalid option because backend returned an error",
+    ])
+    func doesNotClassifyUnrelatedBWordsAsUnsupportedRefreshClientSubscriptionProbe(_ stderr: String) {
+        #expect(!RemoteTmuxSSHTransport.indicatesRefreshClientSubscriptionUnsupported(stderr))
+        #expect(!RemoteTmuxSSHTransport.indicatesRefreshClientNeedsCurrentClient(stderr))
+    }
+
+    @Test(arguments: [
         "no current client",
         "not a control client",
         "refresh-client: not a client",
