@@ -176,13 +176,12 @@ extension CMUXCLI {
         stdoutFDs[1] = -1
 
         let maxOutputBytes = 64 * 1024
-        let stdinHandle = FileHandle(fileDescriptor: stdinFDs[1], closeOnDealloc: false)
-        if let promptData = prompt.data(using: .utf8) {
-            _ = cliWrite(promptData, to: stdinHandle, onBrokenPipe: .ignore)
+        let promptData = prompt.data(using: .utf8) ?? Data()
+        configureCLIWriteFDNoSIGPIPE(stdinFDs[1])
+        let stdinFlags = fcntl(stdinFDs[1], F_GETFL, 0)
+        if stdinFlags >= 0 {
+            _ = fcntl(stdinFDs[1], F_SETFL, stdinFlags | O_NONBLOCK)
         }
-        try? stdinHandle.close()
-        stdinFDs[1] = -1
-
         let stdoutFD = stdoutFDs[0]
         let stdoutFlags = fcntl(stdoutFD, F_GETFL, 0)
         if stdoutFlags >= 0 {
@@ -197,12 +196,19 @@ extension CMUXCLI {
         var output = Data()
         let firstWait = waitForAutoNamingProcess(
             pid: spawnedPID,
+            stdinFD: &stdinFDs[1],
+            promptData: promptData,
             stdoutFD: stdoutFD,
             output: &output,
             maxBytes: maxOutputBytes,
             timeout: timeout
         )
+        closeAutoNamingFD(&stdinFDs[1])
         guard firstWait.outputWithinLimit else {
+            terminateAutoNamingProcessGroup(pid: spawnedPID, stdoutFD: stdoutFD, output: &output, maxBytes: maxOutputBytes)
+            return nil
+        }
+        guard firstWait.promptDelivered else {
             terminateAutoNamingProcessGroup(pid: spawnedPID, stdoutFD: stdoutFD, output: &output, maxBytes: maxOutputBytes)
             return nil
         }
@@ -222,8 +228,11 @@ extension CMUXCLI {
         maxBytes: Int
     ) -> Int32? {
         signalAutoNamingProcessGroup(pid: pid, signal: SIGTERM)
+        var noStdin: Int32 = -1
         let terminated = waitForAutoNamingProcess(
             pid: pid,
+            stdinFD: &noStdin,
+            promptData: Data(),
             stdoutFD: stdoutFD,
             output: &output,
             maxBytes: maxBytes,
@@ -231,8 +240,11 @@ extension CMUXCLI {
         )
         if let rawStatus = terminated.rawStatus { return rawStatus }
         signalAutoNamingProcessGroup(pid: pid, signal: SIGKILL)
+        noStdin = -1
         return waitForAutoNamingProcess(
             pid: pid,
+            stdinFD: &noStdin,
+            promptData: Data(),
             stdoutFD: stdoutFD,
             output: &output,
             maxBytes: maxBytes,
@@ -242,35 +254,24 @@ extension CMUXCLI {
 
     private func waitForAutoNamingProcess(
         pid: pid_t,
+        stdinFD: inout Int32,
+        promptData: Data,
         stdoutFD: Int32,
         output: inout Data,
         maxBytes: Int,
         timeout: TimeInterval
-    ) -> (rawStatus: Int32?, outputWithinLimit: Bool) {
+    ) -> (rawStatus: Int32?, outputWithinLimit: Bool, promptDelivered: Bool) {
         var stdoutEOF = false
+        var promptOffset = 0
+        var promptDelivered = promptData.isEmpty
         var reapedStatus: Int32?
         let deadline = Date().addingTimeInterval(timeout)
+        if promptDelivered {
+            closeAutoNamingFD(&stdinFD)
+        }
         while true {
             if reapedStatus == nil {
                 reapedStatus = reapAutoNamingProcessIfExited(pid: pid)
-            }
-            if let rawStatus = reapedStatus {
-                if !stdoutEOF {
-                    let withinLimit = drainAvailableAutoNamingOutput(
-                        from: stdoutFD,
-                        into: &output,
-                        maxBytes: maxBytes,
-                        reachedEOF: &stdoutEOF
-                    )
-                    guard withinLimit else { return (nil, false) }
-                    if !stdoutEOF {
-                        let remaining = deadline.timeIntervalSinceNow
-                        guard remaining > 0 else { return (nil, true) }
-                        waitForAutoNamingOutputChange(from: stdoutFD, timeout: min(remaining, 0.25))
-                        continue
-                    }
-                }
-                return (rawStatus, true)
             }
             if !stdoutEOF {
                 let withinLimit = drainAvailableAutoNamingOutput(
@@ -279,18 +280,85 @@ extension CMUXCLI {
                     maxBytes: maxBytes,
                     reachedEOF: &stdoutEOF
                 )
-                guard withinLimit else { return (nil, false) }
+                guard withinLimit else { return (nil, false, promptDelivered) }
+            }
+            if !promptDelivered {
+                switch writeAvailableAutoNamingInput(promptData, offset: &promptOffset, to: stdinFD) {
+                case .complete:
+                    promptDelivered = true
+                    closeAutoNamingFD(&stdinFD)
+                case .wouldBlock:
+                    break
+                case .failed:
+                    closeAutoNamingFD(&stdinFD)
+                    return (nil, true, false)
+                }
             }
             if reapedStatus == nil {
                 reapedStatus = reapAutoNamingProcessIfExited(pid: pid)
             }
+            if let rawStatus = reapedStatus {
+                guard promptDelivered else {
+                    closeAutoNamingFD(&stdinFD)
+                    return (nil, true, false)
+                }
+                if stdoutEOF { return (rawStatus, true, true) }
+            }
             let remaining = deadline.timeIntervalSinceNow
-            guard remaining > 0 else { return (nil, true) }
-            if stdoutEOF {
+            guard remaining > 0 else { return (nil, true, promptDelivered) }
+            if stdoutEOF && promptDelivered {
                 waitForAutoNamingProcessExitEvent(pid: pid, timeout: min(remaining, 0.25))
             } else {
-                waitForAutoNamingOutputChange(from: stdoutFD, timeout: min(remaining, 0.25))
+                waitForAutoNamingPipeChange(
+                    stdoutFD: stdoutEOF ? nil : stdoutFD,
+                    stdinFD: promptDelivered ? nil : stdinFD,
+                    timeout: min(remaining, 0.25)
+                )
             }
+        }
+    }
+
+    private enum AutoNamingInputWriteResult {
+        case complete
+        case wouldBlock
+        case failed
+    }
+
+    private func closeAutoNamingFD(_ fd: inout Int32) {
+        if fd >= 0 {
+            close(fd)
+            fd = -1
+        }
+    }
+
+    private func writeAvailableAutoNamingInput(
+        _ data: Data,
+        offset: inout Int,
+        to fd: Int32
+    ) -> AutoNamingInputWriteResult {
+        guard fd >= 0 else { return .failed }
+        guard !data.isEmpty else { return .complete }
+        return data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.bindMemory(to: UInt8.self).baseAddress else {
+                return .complete
+            }
+            while offset < rawBuffer.count {
+                let written = Darwin.write(fd, baseAddress.advanced(by: offset), rawBuffer.count - offset)
+                if written > 0 {
+                    offset += written
+                    continue
+                }
+                if written == 0 { return .failed }
+                switch errno {
+                case EINTR:
+                    continue
+                case EAGAIN, EWOULDBLOCK:
+                    return .wouldBlock
+                default:
+                    return .failed
+                }
+            }
+            return .complete
         }
     }
 
@@ -361,11 +429,20 @@ extension CMUXCLI {
         _ = kevent(queue, &registrationEvent, 1, &exitEvent, 1, &timeoutSpec)
     }
 
-    private func waitForAutoNamingOutputChange(from fd: Int32, timeout: TimeInterval) {
-        var descriptor = pollfd(fd: fd, events: Int16(POLLIN | POLLHUP | POLLERR), revents: 0)
+    private func waitForAutoNamingPipeChange(stdoutFD: Int32?, stdinFD: Int32?, timeout: TimeInterval) {
+        var descriptors: [pollfd] = []
+        if let stdoutFD {
+            descriptors.append(pollfd(fd: stdoutFD, events: Int16(POLLIN | POLLHUP | POLLERR), revents: 0))
+        }
+        if let stdinFD {
+            descriptors.append(pollfd(fd: stdinFD, events: Int16(POLLOUT | POLLHUP | POLLERR), revents: 0))
+        }
+        guard !descriptors.isEmpty else { return }
         let timeoutMilliseconds = max(0, Int32((timeout * 1_000).rounded(.up)))
         while true {
-            let result = poll(&descriptor, 1, timeoutMilliseconds)
+            let result = descriptors.withUnsafeMutableBufferPointer { buffer in
+                poll(buffer.baseAddress, nfds_t(buffer.count), timeoutMilliseconds)
+            }
             if result >= 0 { return }
             if errno == EINTR { continue }
             return

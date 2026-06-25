@@ -53,7 +53,7 @@ extension CMUXCLI {
         } else if let envName, let envTag {
             language = AutoNamingPromptLanguage(name: envName, tag: envTag)
         } else {
-            let resolved = AutoNamingLanguageResolver().resolve(rawSetting: AutoNamingLanguageCatalog.autoSlug)
+            let resolved = AutoNamingLanguageResolver().resolve(rawSetting: "en")
             language = AutoNamingPromptLanguage(name: resolved.promptName, tag: resolved.bcp47Tag)
             telemetry.breadcrumb("\(telemetryKey).language-fallback.\(language.tag)")
         }

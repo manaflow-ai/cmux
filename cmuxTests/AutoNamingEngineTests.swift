@@ -467,4 +467,17 @@ import Testing
         #expect(policy.claudeModel(from: ["ANTHROPIC_SMALL_FAST_MODEL": "  "]) == "haiku")
         #expect(policy.claudeModel(from: ["ANTHROPIC_SMALL_FAST_MODEL": "vertex-haiku-id"]) == "vertex-haiku-id")
     }
+
+    @Test func summarizerTimeoutAppliesWhileWritingLargePromptToUnreadStdin() {
+        let prompt = String(repeating: "x", count: 2 * 1024 * 1024)
+        let output = CMUXCLI(args: []).runAutoNamingSummarizer(
+            executable: "/bin/sh",
+            arguments: ["-c", "sleep 1"],
+            prompt: prompt,
+            environment: ["PATH": "/bin:/usr/bin"],
+            timeout: 0.2
+        )
+
+        #expect(output == nil)
+    }
 }
