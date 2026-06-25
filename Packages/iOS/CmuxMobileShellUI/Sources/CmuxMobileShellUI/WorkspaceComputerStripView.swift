@@ -6,8 +6,8 @@ import SwiftUI
 struct WorkspaceComputerStripView: View {
     let computers: [MacComputerSnapshot]
     let selectedMachineIDs: Set<String>
-    let selectComputer: (String) -> Void
-    let createWorkspace: (String) -> Void
+    let selectComputer: (MacComputerSnapshot) -> Void
+    let createWorkspace: (MacComputerSnapshot) -> Void
     var showAddDevice: (() -> Void)?
 
     var body: some View {
@@ -16,9 +16,9 @@ struct WorkspaceComputerStripView: View {
                 ForEach(computers) { computer in
                     WorkspaceComputerStripItem(
                         computer: computer,
-                        isSelected: selectedMachineIDs.contains(computer.deviceId),
-                        selectComputer: { selectComputer(computer.deviceId) },
-                        createWorkspace: { createWorkspace(computer.deviceId) }
+                        isSelected: !selectedMachineIDs.isDisjoint(with: computer.aliasIDSet),
+                        selectComputer: { selectComputer(computer) },
+                        createWorkspace: { createWorkspace(computer) }
                     )
                 }
                 if let showAddDevice {
@@ -53,6 +53,14 @@ struct WorkspaceComputerStripView: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("MobileWorkspaceComputerStripAdd")
+    }
+}
+
+private extension MacComputerSnapshot {
+    var aliasIDSet: Set<String> {
+        var ids = Set(aliasIDs)
+        ids.insert(deviceId)
+        return ids
     }
 }
 #endif

@@ -32,18 +32,18 @@ import Testing
         #expect(!environmentDisabled)
     }
 
-    @Test func automaticSecondaryAggregationIsCapped() throws {
-        let macs = try (0..<(MobileShellComposite.maximumAutomaticSecondaryMacCount + 3)).map { index in
+    @Test func automaticSecondaryAggregationCapsBackgroundStreams() throws {
+        let macs = try (0..<(MobileShellComposite.maximumAutomaticSecondaryMacSubscriptions + 3)).map { index in
             try pairedMac(id: "mac-\(index)")
         }
 
         let candidates = MobileShellComposite.secondaryAggregationCandidates(
             from: macs,
-            foregroundMacDeviceID: "mac-0"
+            foregroundMacDeviceIDs: ["mac-0"]
         )
 
-        #expect(candidates.count == MobileShellComposite.maximumAutomaticSecondaryMacCount)
-        #expect(candidates.map(\.macDeviceID) == (1...MobileShellComposite.maximumAutomaticSecondaryMacCount).map { "mac-\($0)" })
+        #expect(candidates.count == MobileShellComposite.maximumAutomaticSecondaryMacSubscriptions)
+        #expect(candidates.map(\.macDeviceID) == (1...MobileShellComposite.maximumAutomaticSecondaryMacSubscriptions).map { "mac-\($0)" })
     }
 }
 

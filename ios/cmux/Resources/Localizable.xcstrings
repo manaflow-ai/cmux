@@ -1514,6 +1514,23 @@
         }
       }
     },
+    "mobile.computers.removeMessageRepresentativeFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This removes paired record %@. Other matching records may still appear."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング済みレコード %@ を削除します。一致する他のレコードは引き続き表示される場合があります。"
+          }
+        }
+      }
+    },
     "mobile.computers.removeTitleFormat": {
       "extractionState": "manual",
       "localizations": {

@@ -34,7 +34,8 @@ import Testing
             buildLabel: nil,
             routeDescription: nil,
             lastSeenAt: now,
-            workspaceCount: 0
+            workspaceCount: 0,
+            aliasIDs: [id]
         )
     }
 }

@@ -3,11 +3,13 @@ import CmuxMobilePairedMac
 import Foundation
 
 actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
-    private let recordsByTeam: [String: [MobilePairedMac]]
+    private var recordsByTeam: [String: [MobilePairedMac]]
     private let blockedTeams: Set<String>
     private var startedTeams: Set<String> = []
     private var startWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
     private var blockers: [String: CheckedContinuation<Void, Never>] = [:]
+    private var upsertCount = 0
+    private var upsertWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
 
     init(recordsByTeam: [String: [MobilePairedMac]], blockedTeams: Set<String>) {
         self.recordsByTeam = recordsByTeam
@@ -22,7 +24,35 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
         stackUserID: String?,
         teamID: String?,
         now: Date
-    ) async throws {}
+    ) async throws {
+        let key = teamID ?? ""
+        if markActive {
+            recordsByTeam[key] = recordsByTeam[key]?.map { mac in
+                var copy = mac
+                copy.isActive = false
+                return copy
+            }
+        }
+        if let index = recordsByTeam[key]?.firstIndex(where: { $0.macDeviceID == macDeviceID }) {
+            recordsByTeam[key]?[index].displayName = displayName
+            recordsByTeam[key]?[index].routes = routes
+            recordsByTeam[key]?[index].lastSeenAt = now
+            recordsByTeam[key]?[index].isActive = markActive
+        } else {
+            recordsByTeam[key, default: []].append(MobilePairedMac(
+                macDeviceID: macDeviceID,
+                displayName: displayName,
+                routes: routes,
+                createdAt: now,
+                lastSeenAt: now,
+                isActive: markActive,
+                stackUserID: stackUserID,
+                teamID: teamID
+            ))
+        }
+        upsertCount += 1
+        resumeUpsertWaiters()
+    }
 
     func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
         let key = teamID ?? ""
@@ -46,8 +76,17 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
         stackUserID: String?,
         teamID: String?,
         now: Date
-    ) async throws {}
-    func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {}
+    ) async throws {
+        let key = teamID ?? ""
+        guard let index = recordsByTeam[key]?.firstIndex(where: { $0.macDeviceID == macDeviceID }) else { return }
+        recordsByTeam[key]?[index].customName = customName
+        recordsByTeam[key]?[index].customColor = customColor
+        recordsByTeam[key]?[index].customIcon = customIcon
+    }
+    func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
+        let key = teamID ?? ""
+        recordsByTeam[key]?.removeAll { $0.macDeviceID == macDeviceID }
+    }
     func removeAll() async throws {}
 
     func waitUntilLoadStarted(teamID: String?) async {
@@ -63,9 +102,26 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
         blockers.removeValue(forKey: key)?.resume()
     }
 
+    func waitUntilUpsertCount(_ count: Int) async {
+        if upsertCount >= count { return }
+        await withCheckedContinuation { continuation in
+            upsertWaiters.append((count, continuation))
+        }
+    }
+
+    func currentUpsertCount() -> Int {
+        upsertCount
+    }
+
     private func markStarted(_ key: String) {
         startedTeams.insert(key)
         let waiters = startWaiters.removeValue(forKey: key) ?? []
         for waiter in waiters { waiter.resume() }
+    }
+
+    private func resumeUpsertWaiters() {
+        let ready = upsertWaiters.filter { upsertCount >= $0.0 }
+        upsertWaiters.removeAll { upsertCount >= $0.0 }
+        for (_, waiter) in ready { waiter.resume() }
     }
 }

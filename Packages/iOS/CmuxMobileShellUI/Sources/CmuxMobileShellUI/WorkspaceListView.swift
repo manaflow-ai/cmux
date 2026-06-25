@@ -156,6 +156,7 @@ struct WorkspaceListView: View {
     }
 
     var body: some View {
+        let computerSnapshots = store?.stableComputerSnapshots ?? []
         List {
             if let store, showsConnectionRecoveryRow {
                 Section {
@@ -173,22 +174,13 @@ struct WorkspaceListView: View {
                 }
             }
             #if os(iOS)
-            if let store {
-                let computers = store.stableComputerSnapshots
-                if !computers.isEmpty {
-                    Section {
-                        WorkspaceComputerStripView(
-                            computers: computers,
-                            selectedMachineIDs: filter.machines,
-                            selectComputer: selectComputerInStrip,
-                            createWorkspace: createWorkspaceOnComputer,
-                            showAddDevice: showAddDevice
-                        )
-                        .listRowInsets(EdgeInsets())
-                        .listRowSeparator(.hidden)
-                    }
-                }
-            }
+            WorkspaceComputerStripSection(
+                computers: computerSnapshots,
+                selectedMachineIDs: filter.machines,
+                selectComputer: selectComputerInStrip,
+                createWorkspace: createWorkspaceOnComputer,
+                showAddDevice: showAddDevice
+            )
             #endif
             if connectionStatus != .connected {
                 Section {
@@ -296,9 +288,7 @@ struct WorkspaceListView: View {
             isPresented: computerWorkspaceCreationFailurePresented
         ) {
             Button(L10n.string("mobile.common.retry", defaultValue: "Retry")) {
-                guard let macDeviceID = computerWorkspaceCreationFailureID else { return }
-                clearComputerWorkspaceCreationFailure()
-                createWorkspaceOnComputer(macDeviceID)
+                retryComputerWorkspaceCreation()
             }
             Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
                 clearComputerWorkspaceCreationFailure()

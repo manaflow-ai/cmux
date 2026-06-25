@@ -124,10 +124,7 @@ struct DeviceTreeView: View {
                     pendingRemoval = nil
                 }
             } message: {
-                Text(L10n.string(
-                    "mobile.computers.removeMessage",
-                    defaultValue: "This computer and its workspaces stop appearing here. Pair it again to add it back."
-                ))
+                Text(removeMessage(pendingRemoval))
             }
         }
         .accessibilityIdentifier("MobileDeviceTree")
@@ -168,6 +165,22 @@ struct DeviceTreeView: View {
         String(
             format: L10n.string("mobile.computers.removeTitleFormat", defaultValue: "Remove %@?"),
             computer?.title ?? ""
+        )
+    }
+
+    private func removeMessage(_ computer: MacComputerSnapshot?) -> String {
+        guard let computer, computer.aliasIDs.count > 1 else {
+            return L10n.string(
+                "mobile.computers.removeMessage",
+                defaultValue: "This computer and its workspaces stop appearing here. Pair it again to add it back."
+            )
+        }
+        return String(
+            format: L10n.string(
+                "mobile.computers.removeMessageRepresentativeFormat",
+                defaultValue: "This removes paired record %@. Other matching records may still appear."
+            ),
+            computer.deviceId
         )
     }
 

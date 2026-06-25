@@ -42,10 +42,10 @@ extension MobileShellComposite {
 
     static func secondaryAggregationCandidates(
         from macs: [MobilePairedMac],
-        foregroundMacDeviceID: String?
+        foregroundMacDeviceIDs: Set<String>
     ) -> [MobilePairedMac] {
         Array(macs.lazy.filter { mac in
-            !mac.macDeviceID.isEmpty && mac.macDeviceID != foregroundMacDeviceID
-        }.prefix(maximumAutomaticSecondaryMacCount))
+            !mac.macDeviceID.isEmpty && !foregroundMacDeviceIDs.contains(mac.macDeviceID)
+        }.prefix(maximumAutomaticSecondaryMacSubscriptions))
     }
 }

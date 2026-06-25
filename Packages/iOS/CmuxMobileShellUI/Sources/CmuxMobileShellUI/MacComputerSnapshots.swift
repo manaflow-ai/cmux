@@ -16,22 +16,29 @@ extension MacComputerSnapshot {
 
 extension CMUXMobileShellStore {
     var stableComputerSnapshots: [MacComputerSnapshot] {
-        let workspaces = workspaces
         let workspaceCounts = Dictionary(
             grouping: workspaces.compactMap(\.macDeviceID),
             by: { $0 }
         ).mapValues(\.count)
         let colorIndex = machineColorIndex
         let connectionStatuses = macConnectionStatuses
-        return MacComputerSnapshot.stableSorted(pairedMacs.map { mac in
-            let summary = presenceMap.deviceSummary(deviceId: mac.macDeviceID)
+        return MacComputerSnapshot.stableSorted(displayPairedMacs.map { mac in
+            let aliases = pairedMacAliasIDs(for: mac.macDeviceID)
+            let summaries = aliases.compactMap { presenceMap.deviceSummary(deviceId: $0) }
+            let freshest = summaries.max { $0.lastSeenAt < $1.lastSeenAt }
+            let summary = summaries.isEmpty ? nil : PresenceMap.DeviceSummary(
+                online: summaries.contains(where: \.online),
+                lastSeenAt: freshest?.lastSeenAt ?? Date(timeIntervalSince1970: 0),
+                buildLabel: summaries.first { $0.online && $0.buildLabel != nil }?.buildLabel
+                    ?? freshest?.buildLabel
+            )
             let presence: DeviceTreePresence? = summary
                 .map { $0.online ? .online : .offline(lastSeenAt: $0.lastSeenAt) }
             return MacComputerSnapshot(
                 deviceId: mac.macDeviceID,
                 title: mac.resolvedName,
                 platform: "mac",
-                colorIndex: colorIndex[mac.macDeviceID],
+                colorIndex: aliases.compactMap { colorIndex[$0] }.first,
                 customColor: mac.customColor,
                 customIcon: mac.customIcon,
                 connectionStatus: connectionStatuses[mac.macDeviceID],
@@ -39,7 +46,10 @@ extension CMUXMobileShellStore {
                 buildLabel: summary?.buildLabel,
                 routeDescription: CmxAttachRoute.deviceTreeRouteDescription(for: mac.routes),
                 lastSeenAt: mac.lastSeenAt,
-                workspaceCount: workspaceCounts[mac.macDeviceID] ?? 0
+                workspaceCount: aliases.reduce(0) { total, macDeviceID in
+                    total + (workspaceCounts[macDeviceID] ?? 0)
+                },
+                aliasIDs: aliases
             )
         })
     }
