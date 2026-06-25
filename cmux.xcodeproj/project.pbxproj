@@ -931,6 +931,7 @@
 		A5001401 /* TerminalPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001411 /* TerminalPanel.swift */; };
 		E8B3D5F71A2C49608B7D5E31 /* TerminalPanelCreationOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A6C8E40D5B17293C8F6A42 /* TerminalPanelCreationOutcome.swift */; };
 		C0DE5A410000000000000001 /* TerminalPanelShellActivityModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE5A410000000000000002 /* TerminalPanelShellActivityModel.swift */; };
+		C0DE6B420000000000000001 /* TerminalPanelTextBoxState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE6B420000000000000002 /* TerminalPanelTextBoxState.swift */; };
 		A5001403 /* TerminalPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001413 /* TerminalPanelView.swift */; };
 		D5671001D5671001D5671001 /* TerminalScrollSpeedSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5671002D5671002D5671002 /* TerminalScrollSpeedSettings.swift */; };
 		D5671101D5671101D5671101 /* TerminalScrollSpeedSettingsFileStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5671102D5671102D5671102 /* TerminalScrollSpeedSettingsFileStoreTests.swift */; };
@@ -2000,6 +2001,7 @@
 		A5001411 /* TerminalPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanel.swift; sourceTree = "<group>"; };
 		F2A6C8E40D5B17293C8F6A42 /* TerminalPanelCreationOutcome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPanelCreationOutcome.swift; sourceTree = "<group>"; };
 		C0DE5A410000000000000002 /* TerminalPanelShellActivityModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanelShellActivityModel.swift; sourceTree = "<group>"; };
+		C0DE6B420000000000000002 /* TerminalPanelTextBoxState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanelTextBoxState.swift; sourceTree = "<group>"; };
 		A5001413 /* TerminalPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanelView.swift; sourceTree = "<group>"; };
 		D5671002D5671002D5671002 /* TerminalScrollSpeedSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TerminalScrollSpeedSettings.swift; sourceTree = "<group>"; };
 		D5671102D5671102D5671102 /* TerminalScrollSpeedSettingsFileStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalScrollSpeedSettingsFileStoreTests.swift; sourceTree = "<group>"; };
@@ -2749,6 +2751,7 @@
 				A5F0C0010000000000000001 /* WorkspaceAttentionFlashRingView.swift */,
 				A5001411 /* TerminalPanel.swift */,
 				C0DE5A410000000000000002 /* TerminalPanelShellActivityModel.swift */,
+				C0DE6B420000000000000002 /* TerminalPanelTextBoxState.swift */,
 				B42450020000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift */,
 				B42450040000000000000001 /* BrowserHiddenWebViewDiscardManager.swift */,
 				A5001412 /* BrowserPanel.swift */,
@@ -4276,6 +4279,7 @@
 				A5001401 /* TerminalPanel.swift in Sources */,
 				E8B3D5F71A2C49608B7D5E31 /* TerminalPanelCreationOutcome.swift in Sources */,
 				C0DE5A410000000000000001 /* TerminalPanelShellActivityModel.swift in Sources */,
+				C0DE6B420000000000000001 /* TerminalPanelTextBoxState.swift in Sources */,
 				A5001403 /* TerminalPanelView.swift in Sources */,
 				D5671001D5671001D5671001 /* TerminalScrollSpeedSettings.swift in Sources */,
 				C0DE53350000000000000001 /* TerminalSearchOverlayHostingView.swift in Sources */,

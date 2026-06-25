@@ -113,6 +113,44 @@ struct TextBoxSubmitActionTests {
         )
     }
 
+    @Test
+    func testTextBoxSubmitActionRejectsPromptPlaceholderInsideShellQuotes() {
+        let singleQuoted = TextBoxSubmitAction(
+            id: "single-quoted-router",
+            title: "Single Quoted Router",
+            kind: .commandTemplate,
+            commandTemplate: "router --prompt '{{prompt}}'",
+            systemImage: "wand.and.stars",
+            backgroundColorHex: "#123456"
+        )
+        let doubleQuoted = TextBoxSubmitAction(
+            id: "double-quoted-router",
+            title: "Double Quoted Router",
+            kind: .commandTemplate,
+            commandTemplate: "router --prompt \"{{prompt}}\"",
+            systemImage: "wand.and.stars",
+            backgroundColorHex: "#123456"
+        )
+        let unquotedEmbedded = TextBoxSubmitAction(
+            id: "embedded-router",
+            title: "Embedded Router",
+            kind: .commandTemplate,
+            commandTemplate: "router --prompt={{prompt}}",
+            systemImage: "wand.and.stars",
+            backgroundColorHex: "#123456"
+        )
+
+        XCTAssertFalse(singleQuoted.isValid)
+        XCTAssertFalse(doubleQuoted.isValid)
+        XCTAssertEqual(singleQuoted.command(forPrompt: "hi; rm -rf /"), nil)
+        XCTAssertEqual(doubleQuoted.command(forPrompt: "hi; rm -rf /"), nil)
+        XCTAssertTrue(unquotedEmbedded.isValid)
+        XCTAssertEqual(
+            unquotedEmbedded.command(forPrompt: "hi; rm -rf /"),
+            "router --prompt='hi; rm -rf /'"
+        )
+    }
+
 
     @Test
     func testBuiltInTextBoxSubmitActionsUseExpectedCommandModes() throws {
@@ -229,7 +267,7 @@ struct TextBoxSubmitActionTests {
 
 
     @Test
-    func testTextBoxForceTextEntryRequiresActiveAgentContext() {
+    func testTextBoxForceTextEntryRequiresCommandTemplateEligibility() {
         XCTAssertFalse(
             TextBoxInputContainer.shouldForceTextEntrySubmit(
                 allowsCommandTemplateSubmit: true,
@@ -242,12 +280,34 @@ struct TextBoxSubmitActionTests {
                 terminalAgentContext: "restoredAgent:claude"
             )
         )
-        XCTAssertFalse(
+        XCTAssertTrue(
             TextBoxInputContainer.shouldForceTextEntrySubmit(
                 allowsCommandTemplateSubmit: false,
                 terminalAgentContext: ""
             )
         )
+    }
+
+    @Test
+    func testTextBoxForceTextEntryDetectsAgentContextEdgeCases() {
+        let contexts = [
+            "restoredAgent:opencode",
+            "agentPIDKey:omx.12345",
+            "initialCommand:/bin/zsh -lc 'codex --dangerously-bypass-approvals-and-sandbox \"hi\"'",
+            "tmuxStartCommand:env FOO=bar opencode --prompt 'line one\nline two'",
+            "initialCommand:pi 'question with\ttab'",
+            "initialCommand:claude --dangerously-skip-permissions 'question'"
+        ]
+
+        for context in contexts {
+            #expect(
+                TextBoxInputContainer.shouldForceTextEntrySubmit(
+                    allowsCommandTemplateSubmit: false,
+                    terminalAgentContext: context
+                ),
+                Comment(rawValue: context)
+            )
+        }
     }
 
 
@@ -317,6 +377,28 @@ struct TextBoxSubmitActionTests {
         XCTAssertTrue(TextBoxAgentDetection.supportsAgentPrefixes(context: context))
     }
 
+    @Test
+    func testTextBoxPendingLaunchClearsOnAgentDetectionOrPromptIdleFallback() {
+        XCTAssertTrue(
+            TextBoxInputContainer.shouldClearPendingProviderLaunch(
+                allowsCommandTemplateSubmit: false,
+                terminalAgentContext: "initialCommand:codex --dangerously-bypass-approvals-and-sandbox"
+            )
+        )
+        XCTAssertTrue(
+            TextBoxInputContainer.shouldClearPendingProviderLaunch(
+                allowsCommandTemplateSubmit: true,
+                terminalAgentContext: ""
+            )
+        )
+        XCTAssertFalse(
+            TextBoxInputContainer.shouldClearPendingProviderLaunch(
+                allowsCommandTemplateSubmit: false,
+                terminalAgentContext: ""
+            )
+        )
+    }
+
 
     @Test
     func testTextBoxDefaultSubmitActionAcceptsTextEntryEscapeHatch() {
@@ -369,7 +451,7 @@ struct TextBoxSubmitActionTests {
     }
 
     @Test
-    func testForcedTextEntryPresentationKeepsCycledActionVisible() {
+    func testForcedTextEntryPresentationShowsTextEntryInsteadOfProviderLogo() {
         let selectedAction = TextBoxSubmitAction.builtInActions[0]
 
         let presentation = TextBoxInputContainer.submitActionPresentation(
@@ -377,8 +459,31 @@ struct TextBoxSubmitActionTests {
             shouldForceTextEntrySubmit: true
         )
 
-        XCTAssertEqual(presentation.action.id, selectedAction.id)
+        XCTAssertEqual(presentation.action.id, TextBoxSubmitAction.textEntryAction.id)
         XCTAssertTrue(presentation.isForcedTextEntry)
+        XCTAssertEqual(presentation.label, "Text Entry")
+        XCTAssertTrue(presentation.helpText.contains("Shift-Tab is disabled"))
+    }
+
+    @Test
+    func testForcedTextEntryPreventsShiftTabCycling() {
+        let actions = TextBoxSubmitAction.builtInActions
+
+        #expect(
+            TextBoxInputContainer.nextCycledSubmitActionID(
+                defaultSubmitActionID: actions[0].id,
+                submitActions: actions,
+                shouldForceTextEntrySubmit: true
+            ) == nil
+        )
+        XCTAssertEqual(
+            TextBoxInputContainer.nextCycledSubmitActionID(
+                defaultSubmitActionID: actions[0].id,
+                submitActions: actions,
+                shouldForceTextEntrySubmit: false
+            ),
+            actions[1].id
+        )
     }
 
     @Test
@@ -438,6 +543,56 @@ struct TextBoxSubmitActionTests {
 
         XCTAssertEqual(cycleCount, 0)
         XCTAssertTrue(textView.hasMarkedText())
+    }
+
+    @Test
+    func testFocusTextBoxOnNewTerminalsDefaultDoesNotFocusBackgroundOrAutomationTerminals() {
+        let showKey = TerminalTextBoxInputSettings.showOnNewTerminalsKey
+        let focusKey = TerminalTextBoxInputSettings.focusOnNewTerminalsKey
+        preservingDefaults(keys: [showKey, focusKey]) {
+            let defaults = UserDefaults.standard
+            defaults.set(false, forKey: showKey)
+            defaults.set(true, forKey: focusKey)
+
+            let manager = TabManager()
+            guard let workspace = manager.selectedWorkspace,
+                  let paneId = workspace.bonsplitController.focusedPaneId else {
+                XCTFail("Expected initial terminal workspace")
+                return
+            }
+
+            guard let backgroundPanel = workspace.newTerminalSurface(inPane: paneId, focus: false) else {
+                XCTFail("Expected background terminal tab")
+                return
+            }
+
+            XCTAssertTrue(backgroundPanel.isTextBoxActive)
+            #expect(backgroundPanel.preferredFocusIntentForActivation() != .terminal(.textBoxInput))
+
+            guard let automationPanel = workspace.newTerminalSurface(
+                inPane: paneId,
+                focus: true,
+                allowTextBoxFocusDefault: false
+            ) else {
+                XCTFail("Expected automation terminal tab")
+                return
+            }
+
+            XCTAssertTrue(automationPanel.isTextBoxActive)
+            #expect(automationPanel.preferredFocusIntentForActivation() != .terminal(.textBoxInput))
+
+            let automationWorkspace = manager.addWorkspace(
+                select: true,
+                allowTextBoxFocusDefault: false
+            )
+            guard let automationWorkspacePanel = automationWorkspace.focusedTerminalPanel else {
+                XCTFail("Expected automation workspace terminal")
+                return
+            }
+
+            XCTAssertTrue(automationWorkspacePanel.isTextBoxActive)
+            #expect(automationWorkspacePanel.preferredFocusIntentForActivation() != .terminal(.textBoxInput))
+        }
     }
 
 

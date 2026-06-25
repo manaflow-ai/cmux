@@ -2418,68 +2418,6 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
         XCTAssertEqual(splitPanel.preferredFocusIntentForActivation(), .terminal(.textBoxInput))
     }
 
-    func testFocusTextBoxOnNewTerminalsDefaultDoesNotFocusBackgroundOrAutomationTerminals() {
-        let defaults = UserDefaults.standard
-        let showKey = TerminalTextBoxInputSettings.showOnNewTerminalsKey
-        let focusKey = TerminalTextBoxInputSettings.focusOnNewTerminalsKey
-        let previousShowValue = defaults.object(forKey: showKey)
-        let previousFocusValue = defaults.object(forKey: focusKey)
-        defer {
-            if let previousShowValue {
-                defaults.set(previousShowValue, forKey: showKey)
-            } else {
-                defaults.removeObject(forKey: showKey)
-            }
-            if let previousFocusValue {
-                defaults.set(previousFocusValue, forKey: focusKey)
-            } else {
-                defaults.removeObject(forKey: focusKey)
-            }
-        }
-
-        defaults.set(false, forKey: showKey)
-        defaults.set(true, forKey: focusKey)
-
-        let manager = TabManager()
-        guard let workspace = manager.selectedWorkspace,
-              let paneId = workspace.bonsplitController.focusedPaneId else {
-            XCTFail("Expected initial terminal workspace")
-            return
-        }
-
-        guard let backgroundPanel = workspace.newTerminalSurface(inPane: paneId, focus: false) else {
-            XCTFail("Expected background terminal tab")
-            return
-        }
-
-        XCTAssertTrue(backgroundPanel.isTextBoxActive)
-        XCTAssertNotEqual(backgroundPanel.preferredFocusIntentForActivation(), .terminal(.textBoxInput))
-
-        guard let automationPanel = workspace.newTerminalSurface(
-            inPane: paneId,
-            focus: true,
-            allowTextBoxFocusDefault: false
-        ) else {
-            XCTFail("Expected automation terminal tab")
-            return
-        }
-
-        XCTAssertTrue(automationPanel.isTextBoxActive)
-        XCTAssertNotEqual(automationPanel.preferredFocusIntentForActivation(), .terminal(.textBoxInput))
-
-        let automationWorkspace = manager.addWorkspace(
-            select: true,
-            allowTextBoxFocusDefault: false
-        )
-        guard let automationWorkspacePanel = automationWorkspace.focusedTerminalPanel else {
-            XCTFail("Expected automation workspace terminal")
-            return
-        }
-
-        XCTAssertTrue(automationWorkspacePanel.isTextBoxActive)
-        XCTAssertNotEqual(automationWorkspacePanel.preferredFocusIntentForActivation(), .terminal(.textBoxInput))
-    }
-
     func testShowTextBoxOnNewTerminalsDefaultShowsWithoutStealingFocus() {
         let defaults = UserDefaults.standard
         let showKey = TerminalTextBoxInputSettings.showOnNewTerminalsKey

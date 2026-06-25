@@ -122,7 +122,7 @@ Action fields:
 - `systemImage`: fallback SF Symbol name shown on the submit button.
 - `assetName`: optional app asset catalog image name, for example `AgentIcons/Codex`.
 - `imagePath`: optional PNG or image path for the submit button.
-- `backgroundColorHex`: submit button fill color.
+- `backgroundColorHex`: action color metadata as RGB or RGBA hex. The submit button fill stays white and only changes opacity between enabled and disabled states.
 
 ## `automation.workspaceAutoNaming`
 

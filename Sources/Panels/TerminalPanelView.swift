@@ -61,7 +61,9 @@ struct TerminalPanelView: View {
     }
 
     private var terminalBody: some View {
-        VStack(spacing: 0) {
+        @Bindable var textBoxState = panel.textBoxState
+
+        return VStack(spacing: 0) {
             // Layering contract: terminal find UI is mounted in GhosttySurfaceScrollView (AppKit portal layer)
             // via `searchState`. Rendering `SurfaceSearchOverlay` in this SwiftUI container can hide it.
             GhosttyTerminalView(
@@ -96,7 +98,7 @@ struct TerminalPanelView: View {
                 TextBoxInputContainer(
                     text: $panel.textBoxContent,
                     attachments: $panel.textBoxAttachments,
-                    pendingProviderLaunchAction: $panel.pendingTextBoxProviderLaunchAction,
+                    pendingProviderLaunchAction: $textBoxState.pendingProviderLaunchAction,
                     surface: panel.surface,
                     terminalBackgroundColor: appearance.backgroundColor,
                     terminalForegroundColor: appearance.foregroundColor,

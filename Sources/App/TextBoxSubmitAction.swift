@@ -128,7 +128,10 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
                   !commandTemplate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return false
             }
-            return commandTemplate.contains("{{prompt}}") || shouldPreservePromptAfterLaunch
+            if commandTemplate.contains(Self.promptPlaceholder) {
+                return Self.promptPlaceholdersAreUnquoted(in: commandTemplate)
+            }
+            return shouldPreservePromptAfterLaunch
         }
     }
 
@@ -154,13 +157,52 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
     func command(forPrompt prompt: String) -> String? {
         guard kind == .commandTemplate,
               let commandTemplate,
-              commandTemplate.contains("{{prompt}}") else {
+              commandTemplate.contains(Self.promptPlaceholder),
+              Self.promptPlaceholdersAreUnquoted(in: commandTemplate) else {
             return nil
         }
         return commandTemplate.replacingOccurrences(
-            of: "{{prompt}}",
+            of: Self.promptPlaceholder,
             with: Self.shellQuoted(prompt)
         )
+    }
+
+    private static let promptPlaceholder = "{{prompt}}"
+
+    private static func promptPlaceholdersAreUnquoted(in template: String) -> Bool {
+        var foundPlaceholder = false
+        var inSingleQuote = false
+        var inDoubleQuote = false
+        var escaping = false
+        var index = template.startIndex
+
+        while index < template.endIndex {
+            if template[index...].hasPrefix(promptPlaceholder) {
+                foundPlaceholder = true
+                guard !inSingleQuote, !inDoubleQuote else { return false }
+                index = template.index(index, offsetBy: promptPlaceholder.count)
+                escaping = false
+                continue
+            }
+
+            let character = template[index]
+            if escaping {
+                escaping = false
+                index = template.index(after: index)
+                continue
+            }
+
+            if character == "\\" && !inSingleQuote {
+                escaping = true
+            } else if character == "'" && !inDoubleQuote {
+                inSingleQuote.toggle()
+            } else if character == "\"" && !inSingleQuote {
+                inDoubleQuote.toggle()
+            }
+            index = template.index(after: index)
+        }
+
+        return foundPlaceholder
     }
 
     private static func shellQuoted(_ value: String) -> String {

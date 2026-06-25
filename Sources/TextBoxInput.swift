@@ -2423,7 +2423,6 @@ struct TextBoxInputContainer: View {
     var defaultSubmitActionID = TerminalTextBoxInputSettings.defaultSubmitActionID
     @AppStorage(TerminalTextBoxInputSettings.submitActionsKey)
     var configuredSubmitActionsJSON = ""
-    @State var submitActionsCache = TextBoxSubmitAction.selectableActions
     @State var submitActionImageCache: [String: NSImage] = [:]
 
     @Binding var text: String
@@ -2567,16 +2566,14 @@ struct TextBoxInputContainer: View {
         )
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .task(id: configuredSubmitActionsJSON) {
-            await refreshSubmitActionsCache(raw: configuredSubmitActionsJSON)
-        }
         .task(id: submitActionImageCacheTaskKey) {
             await refreshSubmitActionImageCache(keys: submitActionImageCacheKeys)
         }
-        .onChange(of: terminalAgentContext) { _, terminalAgentContext in
-            if TextBoxAgentDetection.supportsAgentPrefixes(context: terminalAgentContext) {
-                clearPendingProviderLaunch()
-            }
+        .onChange(of: terminalAgentContext) { _, _ in
+            reconcilePendingProviderLaunch()
+        }
+        .onChange(of: allowsCommandTemplateSubmit) { _, _ in
+            reconcilePendingProviderLaunch()
         }
         .onChange(of: defaultSubmitActionID) { _, _ in clearPendingProviderLaunch() }
     }

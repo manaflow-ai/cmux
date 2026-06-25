@@ -3,7 +3,7 @@ import SwiftUI
 
 extension TextBoxInputContainer {
     var submitActions: [TextBoxSubmitAction] {
-        submitActionsCache
+        TerminalTextBoxInputSettings.submitActions(configuredJSON: configuredSubmitActionsJSON)
     }
 
     var submitActionImageCacheKeys: [String] {
@@ -68,11 +68,28 @@ extension TextBoxInputContainer {
         pendingProviderLaunchAction = nil
     }
 
+    func reconcilePendingProviderLaunch() {
+        guard pendingProviderLaunchAction != nil else { return }
+        if Self.shouldClearPendingProviderLaunch(
+            allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
+            terminalAgentContext: terminalAgentContext
+        ) {
+            clearPendingProviderLaunch()
+        }
+    }
+
+    static func shouldClearPendingProviderLaunch(
+        allowsCommandTemplateSubmit: Bool,
+        terminalAgentContext: String
+    ) -> Bool {
+        allowsCommandTemplateSubmit || TextBoxAgentDetection.supportsAgentPrefixes(context: terminalAgentContext)
+    }
+
     static func shouldForceTextEntrySubmit(
         allowsCommandTemplateSubmit: Bool,
         terminalAgentContext: String
     ) -> Bool {
-        !allowsCommandTemplateSubmit && TextBoxAgentDetection.supportsAgentPrefixes(context: terminalAgentContext)
+        !allowsCommandTemplateSubmit
     }
 
     static func textEntryTerminalAgentContext(
@@ -104,9 +121,10 @@ extension TextBoxInputContainer {
         selectedSubmitAction: TextBoxSubmitAction,
         shouldForceTextEntrySubmit: Bool
     ) -> TextBoxSubmitActionPresentation {
-        TextBoxSubmitActionPresentation(
-            action: selectedSubmitAction,
-            isForcedTextEntry: shouldForceTextEntrySubmit && selectedSubmitAction.kind != .textEntry
+        let action = shouldForceTextEntrySubmit ? TextBoxSubmitAction.textEntryAction : selectedSubmitAction
+        return TextBoxSubmitActionPresentation(
+            action: action,
+            isForcedTextEntry: shouldForceTextEntrySubmit
         )
     }
 
@@ -258,15 +276,6 @@ extension TextBoxInputContainer {
         }
     }
 
-    @MainActor
-    func refreshSubmitActionsCache(raw: String) async {
-        let actions = await Task.detached(priority: .utility) {
-            TerminalTextBoxInputSettings.submitActions(configuredJSON: raw)
-        }.value
-        guard !Task.isCancelled else { return }
-        submitActionsCache = actions
-    }
-
     func expandedSubmitActionImagePath(_ path: String) -> String {
         NSString(string: path).expandingTildeInPath
     }
@@ -337,11 +346,25 @@ extension TextBoxInputContainer {
     }
 
     func cycleSubmitAction() {
-        let actions = submitActions
-        guard !actions.isEmpty else { return }
-        let currentIndex = actions.firstIndex(where: { $0.id == defaultSubmitActionID }) ?? 0
-        let nextIndex = actions.index(after: currentIndex)
-        defaultSubmitActionID = actions[nextIndex == actions.endIndex ? actions.startIndex : nextIndex].id
+        guard let nextID = Self.nextCycledSubmitActionID(
+            defaultSubmitActionID: defaultSubmitActionID,
+            submitActions: submitActions,
+            shouldForceTextEntrySubmit: shouldForceTextEntrySubmit
+        ) else {
+            return
+        }
+        defaultSubmitActionID = nextID
+    }
+
+    static func nextCycledSubmitActionID(
+        defaultSubmitActionID: String,
+        submitActions: [TextBoxSubmitAction],
+        shouldForceTextEntrySubmit: Bool
+    ) -> String? {
+        guard !shouldForceTextEntrySubmit, !submitActions.isEmpty else { return nil }
+        let currentIndex = submitActions.firstIndex(where: { $0.id == defaultSubmitActionID }) ?? 0
+        let nextIndex = submitActions.index(after: currentIndex)
+        return submitActions[nextIndex == submitActions.endIndex ? submitActions.startIndex : nextIndex].id
     }
 
     func openSubmitActionsDocumentation() {
