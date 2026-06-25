@@ -153,6 +153,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
             pendingStoreEchoValue = nil
             return
         }
+        pendingStoreEchoValue = nil
         updateCurrent(value)
     }
 

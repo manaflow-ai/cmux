@@ -189,6 +189,41 @@ import Testing
         #expect(model.revision == 2)
     }
 
+    @Test func nonMatchingObservationClearsStaleLocalEcho() async {
+        let store = UserDefaultsSettingsStore(
+            defaults: UserDefaults(suiteName: "defaults-value-model-stale-echo")!
+        )
+        let key = SettingCatalog().betaFeatures.extensions
+        let (stream, continuation) = AsyncStream<Bool>.makeStream()
+        let model = DefaultsValueModel(
+            store: store,
+            key: key,
+            makeStream: { stream }
+        )
+        model.startObserving()
+
+        model.set(false)
+        #expect(model.revision == 1)
+
+        continuation.yield(true)
+        var spins = 0
+        while model.current != true, spins < 100_000 {
+            await Task.yield()
+            spins += 1
+        }
+        #expect(model.current == true)
+        #expect(model.revision == 2)
+
+        continuation.yield(false)
+        spins = 0
+        while model.current != false, spins < 100_000 {
+            await Task.yield()
+            spins += 1
+        }
+        #expect(model.current == false)
+        #expect(model.revision == 3)
+    }
+
     @Test func setAfterCommitRunsAfterStoreWrite() async {
         let suiteName = "defaults-value-model-after-commit"
         UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)

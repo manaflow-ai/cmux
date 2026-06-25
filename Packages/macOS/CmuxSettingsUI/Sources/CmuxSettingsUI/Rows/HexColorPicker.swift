@@ -2,15 +2,13 @@ import SwiftUI
 
 @MainActor
 struct HexColorPicker: View {
-    private let storedHex: String
-    private let reconcileRevision: Int
+    private let reconcileState: HexColorPickerReconcileState
     private let onChange: (String) -> Void
 
     @State private var selection: HexColorPickerSelection
 
     init(storedHex: String, fallback: Color, reconcileRevision: Int, onChange: @escaping (String) -> Void) {
-        self.storedHex = storedHex
-        self.reconcileRevision = reconcileRevision
+        self.reconcileState = HexColorPickerReconcileState(storedHex: storedHex, revision: reconcileRevision)
         self.onChange = onChange
         _selection = State(initialValue: HexColorPickerSelection(storedHex: storedHex, fallback: fallback))
     }
@@ -29,8 +27,8 @@ struct HexColorPicker: View {
         }
         .labelsHidden()
         .frame(width: 38)
-        .onChange(of: reconcileRevision) { _, _ in
-            selection.reconcile(storedHex: storedHex)
+        .onChange(of: reconcileState) { _, newState in
+            selection.reconcile(storedHex: newState.storedHex)
         }
     }
 }
