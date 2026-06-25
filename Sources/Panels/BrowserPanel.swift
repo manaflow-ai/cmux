@@ -3851,6 +3851,7 @@ final class BrowserPanel: Panel, ObservableObject {
         if let errorPageDisplayURL = navigationDelegate?.activeErrorPageDisplayURL {
             currentURL = Self.remoteProxyDisplayURL(for: errorPageDisplayURL) ?? errorPageDisplayURL
             refreshBackgroundAppearance()
+            GlobalSearchCoordinator.shared.captureBrowserPanel(self)
             return
         }
         currentURL = Self.remoteProxyDisplayURL(for: webView.url)
