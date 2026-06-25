@@ -209,6 +209,50 @@ extension ControlCommandCoordinator {
         }
     }
 
+    // MARK: - report_pwd
+
+    /// `surface.report_pwd` — record a surface's working directory. Mirrors the
+    /// legacy v1 `report_pwd` text command but reachable over the JSON-RPC relay
+    /// (issue #5360); the SSH shell integration uses this to update the file
+    /// explorer when the remote shell `cd`s to another directory.
+    func surfaceReportPWD(_ params: [String: JSONValue]) -> ControlCallResult {
+        guard let workspaceID = uuid(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        let requestedSurfaceID = uuid(params, "surface_id")
+        if hasNonNull(params, "surface_id"), requestedSurfaceID == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+        guard let path = rawString(params, "path")?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !path.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing path", data: nil)
+        }
+
+        let resolution = context?.controlSurfaceReportPWD(
+            workspaceID: workspaceID,
+            requestedSurfaceID: requestedSurfaceID,
+            path: path
+        ) ?? .workspaceNotFound
+        let requestedSurfaceData = surfaceReportSurfaceFields(
+            workspaceID: workspaceID,
+            requestedSurfaceID: requestedSurfaceID
+        )
+        switch resolution {
+        case .workspaceNotFound:
+            return .err(code: "not_found", message: "Workspace not found", data: .object(requestedSurfaceData))
+        case .surfaceNotFound:
+            return .err(code: "not_found", message: "Surface not found", data: .object(requestedSurfaceData))
+        case .recorded(let surfaceID):
+            return .ok(.object([
+                "workspace_id": .string(workspaceID.uuidString),
+                "workspace_ref": ref(.workspace, workspaceID),
+                "surface_id": .string(surfaceID.uuidString),
+                "surface_ref": ref(.surface, surfaceID),
+                "path": .string(path),
+            ]))
+        }
+    }
+
     // MARK: - report_shell_state
 
     /// `surface.report_shell_state` — record reported shell-activity state.

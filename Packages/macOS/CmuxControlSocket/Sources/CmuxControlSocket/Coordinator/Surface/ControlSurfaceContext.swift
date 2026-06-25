@@ -297,6 +297,19 @@ public protocol ControlSurfaceContext: AnyObject {
         ttyName: String
     ) -> ControlSurfaceReportTTYResolution
 
+    /// Records a reported working directory for `surface.report_pwd`.
+    ///
+    /// - Parameters:
+    ///   - workspaceID: The target workspace.
+    ///   - requestedSurfaceID: The explicit `surface_id`, or `nil` to resolve.
+    ///   - path: The reported (trimmed, non-empty) directory path.
+    /// - Returns: The report resolution.
+    func controlSurfaceReportPWD(
+        workspaceID: UUID,
+        requestedSurfaceID: UUID?,
+        path: String
+    ) -> ControlSurfaceReportPWDResolution
+
     /// Parses a raw shell-activity token via the app's
     /// `parseReportedShellActivityState`, returning the state's raw value (the
     /// coordinator rejects a `nil` result as `invalid_params`).
