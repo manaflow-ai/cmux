@@ -27,8 +27,10 @@ struct DeviceTreeView: View {
     var showAddDevice: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
 
-    /// The computer pending a remove confirmation.
-    @State private var pendingRemoval: MacComputerSnapshot?
+    /// The computer whose destructive remove action is awaiting confirmation.
+    /// Stored at list scope so reusable rows do not own transient presentation
+    /// state while `List` is recycling swipe-action rows.
+    @State private var computerPendingRemovalID: String?
 
     /// The user's computers as immutable snapshots, sourced from the paired-Mac
     /// backup (`pairedMacs`) — this feature's source of truth, the same set that
@@ -73,15 +75,12 @@ struct DeviceTreeView: View {
                 } else {
                     Section {
                         ForEach(computers) { computer in
-                            NavigationLink(value: computer.deviceId) {
-                                MacComputerRow(computer: computer)
-                            }
-                            .swipeActions(edge: .trailing) {
-                                removeButton(for: computer)
-                            }
-                            .contextMenu {
-                                removeButton(for: computer)
-                            }
+                            MacComputerRow(
+                                computer: computer,
+                                requestRemove: requestComputerRemoval,
+                                isConfirmingRemove: removalConfirmationBinding(for: computer.deviceId),
+                                confirmRemove: { _ in confirmComputerRemoval() }
+                            )
                         }
                     } footer: {
                         Text(L10n.string(
@@ -133,45 +132,8 @@ struct DeviceTreeView: View {
                     await store.refreshComputersScreen()
                 }
             }
-            .confirmationDialog(
-                removeTitle(pendingRemoval),
-                isPresented: removalDialogBinding,
-                titleVisibility: .visible
-            ) {
-                if let pending = pendingRemoval {
-                    Button(
-                        L10n.string("mobile.computers.remove", defaultValue: "Remove"),
-                        role: .destructive
-                    ) {
-                        let deviceId = pending.deviceId
-                        pendingRemoval = nil
-                        Task {
-                            await store.forgetMac(macDeviceID: deviceId)
-                            await reload()
-                        }
-                    }
-                }
-                Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
-                    pendingRemoval = nil
-                }
-            } message: {
-                Text(removeMessage(pendingRemoval))
-            }
         }
         .accessibilityIdentifier("MobileDeviceTree")
-    }
-
-    @ViewBuilder
-    private func removeButton(for computer: MacComputerSnapshot) -> some View {
-        Button(role: .destructive) {
-            pendingRemoval = computer
-        } label: {
-            Label(
-                L10n.string("mobile.computers.remove", defaultValue: "Remove"),
-                systemImage: "trash"
-            )
-        }
-        .accessibilityIdentifier("MobileComputerRemove-\(computer.deviceId)")
     }
 
     @ViewBuilder
@@ -185,34 +147,32 @@ struct DeviceTreeView: View {
         }
     }
 
-    private var removalDialogBinding: Binding<Bool> {
+    private func requestComputerRemoval(_ deviceID: String) {
+        computerPendingRemovalID = deviceID
+    }
+
+    private func removalConfirmationBinding(for deviceID: String) -> Binding<Bool> {
         Binding(
-            get: { pendingRemoval != nil },
-            set: { presented in if !presented { pendingRemoval = nil } }
+            get: { computerPendingRemovalID == deviceID },
+            set: { isPresented in
+                if isPresented {
+                    computerPendingRemovalID = deviceID
+                } else if computerPendingRemovalID == deviceID {
+                    computerPendingRemovalID = nil
+                }
+            }
         )
     }
 
-    private func removeTitle(_ computer: MacComputerSnapshot?) -> String {
-        String(
-            format: L10n.string("mobile.computers.removeTitleFormat", defaultValue: "Remove %@?"),
-            computer?.title ?? ""
-        )
-    }
-
-    private func removeMessage(_ computer: MacComputerSnapshot?) -> String {
-        guard let computer, computer.aliasIDs.count > 1 else {
-            return L10n.string(
-                "mobile.computers.removeMessage",
-                defaultValue: "This computer and its workspaces stop appearing here. Pair it again to add it back."
-            )
+    private func confirmComputerRemoval() {
+        guard let deviceID = computerPendingRemovalID else {
+            return
         }
-        return String(
-            format: L10n.string(
-                "mobile.computers.removeMessageRepresentativeFormat",
-                defaultValue: "This removes paired record %@. Other matching records may still appear."
-            ),
-            computer.deviceId
-        )
+        computerPendingRemovalID = nil
+        Task {
+            await store.forgetMac(macDeviceID: deviceID)
+            await reload()
+        }
     }
 
     private func reload() async {
