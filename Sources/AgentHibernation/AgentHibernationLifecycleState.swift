@@ -16,9 +16,17 @@ enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseI
         self == .idle
     }
 
-    static func dominant(in states: [Self], fallback: Self?) -> Self {
+    static func dominantForHibernation(in states: [Self], fallback: Self?) -> Self {
         if states.contains(.running) { return .running }
         if states.contains(.needsInput) { return .needsInput }
+        if states.contains(.unknown) { return .unknown }
+        if states.contains(.idle) { return .idle }
+        return fallback ?? .unknown
+    }
+
+    static func dominantForStatusIndicator(in states: [Self], fallback: Self?) -> Self {
+        if states.contains(.needsInput) { return .needsInput }
+        if states.contains(.running) { return .running }
         if states.contains(.unknown) { return .unknown }
         if states.contains(.idle) { return .idle }
         return fallback ?? .unknown

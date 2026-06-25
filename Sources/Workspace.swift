@@ -4648,7 +4648,7 @@ final class Workspace: Identifiable, ObservableObject {
               !panelStates.isEmpty else {
             return fallback ?? .unknown
         }
-        return AgentHibernationLifecycleState.dominant(
+        return AgentHibernationLifecycleState.dominantForHibernation(
             in: Array(panelStates.values),
             fallback: fallback
         )
