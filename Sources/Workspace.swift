@@ -1223,7 +1223,7 @@ extension Workspace {
             )
             let launchState = AppDelegate.shared?.crashRecoveryLaunchState
             let shouldGateAgentStartupForCrashRecovery =
-                launchState?.priorRunCrashed == true || launchState?.restoreWasIntended == true
+                launchState.map { CrashRecoverySettings.shouldGateRestoredAgentStartup(launchState: $0) } ?? false
             let resumeBindingStartupVerification = effectiveResumeBindingForStartup.flatMap { binding in
                 binding.isAgentHookBinding
                     ? Self.crashRecoveryVerificationWithoutFilesystemScan(binding: binding)

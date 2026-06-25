@@ -147,13 +147,23 @@ struct WorkspaceResumeCoordinator {
     }
 
     func performVerifiedResume(_ surface: ResumableWorkspaceSurface, breadcrumb: String?) -> ResumeOutcome {
+        let deliveredBreadcrumb = performVerifiedResumeDelivery(surface, breadcrumb: breadcrumb)
+        return .resumed(deliveredBreadcrumb: deliveredBreadcrumb)
+    }
+
+    private func performVerifiedRecovery(_ surface: ResumableWorkspaceSurface, breadcrumb: String?) -> RecoveryPerformed {
+        let deliveredBreadcrumb = performVerifiedResumeDelivery(surface, breadcrumb: breadcrumb)
+        return .resumed(deliveredBreadcrumb: deliveredBreadcrumb)
+    }
+
+    private func performVerifiedResumeDelivery(_ surface: ResumableWorkspaceSurface, breadcrumb: String?) -> Bool {
         if !surface.isAgentLive {
             surface.runNativeResume()
         }
         if let breadcrumb {
             surface.deliverResumeBreadcrumb(breadcrumb)
         }
-        return .resumed(deliveredBreadcrumb: breadcrumb != nil)
+        return breadcrumb != nil
     }
 
     // MARK: - Verification-gated recovery (U11/R14)
@@ -236,7 +246,7 @@ struct WorkspaceResumeCoordinator {
         let facts = bindingFacts(for: surface)
         switch router.route(facts, context: recoveryContext(for: surface)) {
         case .resumeVerified(let breadcrumb):
-            return performVerifiedResume(surface, breadcrumb: breadcrumb)
+            return performVerifiedRecovery(surface, breadcrumb: breadcrumb)
         case .honestRecovery(let prompt, let reason):
             surface.deliverHonestRecoveryPrompt(prompt)
             return .honestRecovery(reason: reason)

@@ -19,6 +19,14 @@ import Testing
         return d
     }
 
+    private func makeTempHome() -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-crash-recovery-settings-tests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
     @Test func allFlagsDefaultOff() {
         let d = makeDefaults()
         #expect(!CrashRecoverySettings.offerResumeAfterCrash(defaults: d))
@@ -41,6 +49,45 @@ import Testing
         CrashRecoverySettings.setOfferResumeAfterCrash(true, defaults: d)
         CrashRecoverySettings.reset(defaults: d)
         #expect(!CrashRecoverySettings.offerResumeAfterCrash(defaults: d))
+    }
+
+    @MainActor
+    @Test func restoredAgentStartupGatingOnlyAppliesWhenRecoveryTakesOwnership() {
+        let d = makeDefaults()
+
+        let crashHome = makeTempHome()
+        UncleanShutdownSentinel.markRunning(homeDirectory: crashHome, environment: [:])
+        let crashedLaunch = CrashRecoveryLaunchState()
+        crashedLaunch.captureAtLaunch(homeDirectory: crashHome, environment: [:])
+        #expect(!CrashRecoverySettings.shouldGateRestoredAgentStartup(
+            launchState: crashedLaunch,
+            defaults: d
+        ))
+
+        let updateHome = makeTempHome()
+        CrashRecoveryLaunchState().markIntentionalRelaunch(
+            reason: "sparkle-update",
+            homeDirectory: updateHome,
+            environment: [:]
+        )
+        let updateLaunch = CrashRecoveryLaunchState()
+        updateLaunch.captureAtLaunch(homeDirectory: updateHome, environment: [:])
+        #expect(!CrashRecoverySettings.shouldGateRestoredAgentStartup(
+            launchState: updateLaunch,
+            defaults: d
+        ))
+
+        CrashRecoverySettings.setInjectResumeBreadcrumb(true, defaults: d)
+        #expect(CrashRecoverySettings.shouldGateRestoredAgentStartup(
+            launchState: crashedLaunch,
+            defaults: d
+        ))
+
+        CrashRecoverySettings.setResumeAgentsAfterUpdate(true, defaults: d)
+        #expect(CrashRecoverySettings.shouldGateRestoredAgentStartup(
+            launchState: updateLaunch,
+            defaults: d
+        ))
     }
 
     @Test func cmuxJsonMappingsAreWiredUnderTerminal() {

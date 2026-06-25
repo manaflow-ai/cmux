@@ -53,6 +53,21 @@ enum CrashRecoverySettings {
         return false
     }
 
+    @MainActor
+    static func shouldGateRestoredAgentStartup(
+        launchState: CrashRecoveryLaunchState,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        if launchState.priorRunCrashed {
+            return offerResumeAfterCrash(defaults: defaults) ||
+                shouldDeliverSilentReentry(launchState: launchState, defaults: defaults)
+        }
+        if launchState.restoreWasIntended {
+            return resumeAgentsAfterUpdate(defaults: defaults)
+        }
+        return false
+    }
+
     static func setOfferResumeAfterCrash(_ enabled: Bool, defaults: UserDefaults = .standard) {
         defaults.set(enabled, forKey: offerResumeAfterCrashKey)
     }

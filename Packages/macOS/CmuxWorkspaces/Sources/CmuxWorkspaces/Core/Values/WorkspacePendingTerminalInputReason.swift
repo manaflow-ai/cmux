@@ -12,13 +12,13 @@ public enum WorkspacePendingTerminalInputReason: Sendable, Equatable {
     case recoveryInput
 
     /// How long queued input for this reason may wait for shell readiness
-    /// before being dropped, or `nil` to wait indefinitely.
+    /// before being dropped.
     public var timeout: TimeInterval? {
         switch self {
         case .configurationCommand:
             return 3.0
         case .recoveryInput:
-            return nil
+            return 60.0
         }
     }
 }
