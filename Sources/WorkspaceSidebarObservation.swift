@@ -39,7 +39,11 @@ private struct SidebarObservationState: Equatable {
     let remoteConnectionDetail: String?
     let activeRemoteTerminalSessionCount: Int
     let listeningPorts: [Int]
-    let agentLifecycleStates: [UUID: [String: AgentHibernationLifecycleState]]
+    // Reduced to the visible running-agent count (not the full lifecycle map) so
+    // idle/needsInput/unknown churn that leaves the count unchanged does not
+    // invalidate sidebar rows via removeDuplicates(). See the sidebar hot-path
+    // rule in CLAUDE.md (issue #2586 class).
+    let activeCodingAgentCount: Int
     let browserMediaActivity: BrowserMediaActivity
 }
 
@@ -132,7 +136,9 @@ extension Workspace {
                     remoteConnectionDetail: remoteFields.2,
                     activeRemoteTerminalSessionCount: remoteFields.3,
                     listeningPorts: listeningPorts,
-                    agentLifecycleStates: agentLifecycleStates,
+                    activeCodingAgentCount: SidebarAgentActivitySummary.activeCodingAgentCount(
+                        statesByPanelId: agentLifecycleStates
+                    ),
                     browserMediaActivity: self.browserMediaActivity
                 )
             }
