@@ -24,6 +24,11 @@ extension Workspace: ResumableWorkspaceSurface {
         return restoredAgentResumeStatesByPanelId[panelId]
     }
 
+    private var crashRecoveryStoredVerification: (facts: ResumeBindingFacts, presence: ClaudeTranscriptPresence)? {
+        guard let panelId = focusedPanelId else { return nil }
+        return restoredAgentVerificationByPanelId[panelId]
+    }
+
     var resumeWorkspaceName: String { title }
 
     var resumeAgentKind: RestorableAgentKind? {
@@ -36,8 +41,12 @@ extension Workspace: ResumableWorkspaceSurface {
         if let agent = crashRecoveryRestoredAgent, !agent.sessionId.isEmpty {
             return agent.sessionId
         }
-        let trimmed = crashRecoveryResumeBinding?.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return (trimmed?.isEmpty == false) ? trimmed : nil
+        if let trimmed = crashRecoveryResumeBinding?.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !trimmed.isEmpty {
+            return trimmed
+        }
+        let command = crashRecoveryResumeBinding?.command.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (command?.isEmpty == false) ? command : nil
     }
 
     var isResumeBindingProven: Bool {
@@ -59,6 +68,35 @@ extension Workspace: ResumableWorkspaceSurface {
         }
     }
 
+    var resumeCwd: String? {
+        crashRecoveryRestoredAgent?.workingDirectory
+            ?? crashRecoveryResumeBinding?.cwd
+            ?? currentDirectory
+    }
+
+    var resumeTranscriptPath: String? {
+        crashRecoveryStoredVerification?.presence.resolvedPathAtWindowCwd
+    }
+
+    var resumeCommandConstructable: Bool {
+        if let agent = crashRecoveryRestoredAgent {
+            return agent.resumeCommand != nil
+        }
+        if let binding = crashRecoveryResumeBinding {
+            return !binding.isProcessDetected
+                && !binding.command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        return false
+    }
+
+    var transcriptExistsAtWindowCwd: Bool {
+        crashRecoveryStoredVerification?.facts.transcriptExistsAtWindowCwd ?? false
+    }
+
+    var transcriptExistsElsewhere: Bool {
+        crashRecoveryStoredVerification?.facts.transcriptExistsElsewhere ?? false
+    }
+
     func runNativeResume() {
         guard let panel = focusedTerminalPanel else { return }
         let startupInput = crashRecoveryRestoredAgent?.resumeStartupInput(allowOversizedInlineInput: true)
@@ -71,6 +109,133 @@ extension Workspace: ResumableWorkspaceSurface {
     func deliverResumeBreadcrumb(_ text: String) {
         guard let panel = focusedTerminalPanel else { return }
         sendInputWhenReady(text + "\n", to: panel)
+    }
+
+    static func crashRecoveryVerification(
+        agent: SessionRestorableAgentSnapshot,
+        fileManager: FileManager = .default,
+        homeDirectory: String = NSHomeDirectory()
+    ) -> (facts: ResumeBindingFacts, presence: ClaudeTranscriptPresence) {
+        let presence = transcriptPresence(
+            kind: agent.kind,
+            sessionId: agent.sessionId,
+            cwd: agent.workingDirectory,
+            configDirOverride: agent.launchCommand?.environment?["CLAUDE_CONFIG_DIR"],
+            fileManager: fileManager,
+            homeDirectory: homeDirectory
+        )
+        let facts = ResumeBindingFacts(
+            hasBinding: true,
+            agentKind: agent.kind,
+            sessionId: agent.sessionId,
+            resumeCommandConstructable: agent.resumeCommand != nil,
+            transcriptExistsAtWindowCwd: presence.existsAtWindowCwd,
+            transcriptExistsElsewhere: presence.existsElsewhere
+        )
+        return (facts, presence)
+    }
+
+    static func crashRecoveryVerification(
+        binding: SurfaceResumeBindingSnapshot,
+        fileManager: FileManager = .default,
+        homeDirectory: String = NSHomeDirectory()
+    ) -> (facts: ResumeBindingFacts, presence: ClaudeTranscriptPresence) {
+        let kind = binding.kind.flatMap(RestorableAgentKind.init(rawValue:))
+        let sessionId = binding.checkpointId ?? WorkspaceResumeCoordinator.bareSessionId(from: binding.command)
+        let presence: ClaudeTranscriptPresence
+        if let kind {
+            presence = transcriptPresence(
+                kind: kind,
+                sessionId: sessionId,
+                cwd: binding.cwd,
+                configDirOverride: binding.environment?["CLAUDE_CONFIG_DIR"],
+                fileManager: fileManager,
+                homeDirectory: homeDirectory
+            )
+        } else {
+            presence = .absent
+        }
+        let facts = ResumeBindingFacts(
+            hasBinding: !binding.isProcessDetected && (kind != nil || nonEmpty(sessionId) != nil),
+            agentKind: kind,
+            sessionId: sessionId,
+            resumeCommandConstructable: !binding.isProcessDetected
+                && !binding.command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            transcriptExistsAtWindowCwd: presence.existsAtWindowCwd,
+            transcriptExistsElsewhere: presence.existsElsewhere
+        )
+        return (facts, presence)
+    }
+
+    private static func transcriptPresence(
+        kind: RestorableAgentKind,
+        sessionId: String?,
+        cwd: String?,
+        configDirOverride: String?,
+        fileManager: FileManager,
+        homeDirectory: String
+    ) -> ClaudeTranscriptPresence {
+        if kind == .claude {
+            return ClaudeTranscriptPresenceResolver.resolve(
+                sessionId: sessionId,
+                cwd: cwd,
+                configDirOverride: configDirOverride,
+                fileManager: fileManager,
+                homeDirectory: homeDirectory
+            )
+        }
+        return ClaudeTranscriptPresence(
+            existsAtWindowCwd: nonEmpty(sessionId) != nil,
+            existsElsewhere: false,
+            resolvedPathAtWindowCwd: nil
+        )
+    }
+
+    private static func nonEmpty(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+
+    @MainActor
+    func prepareCrashRecoveryResumeVerification() async -> Bool {
+        guard let panelId = focusedPanelId else { return false }
+        if let agent = crashRecoveryRestoredAgent {
+            let verification = await Task.detached(priority: .utility) {
+                Self.crashRecoveryVerification(agent: agent)
+            }.value
+            guard restoredAgentSnapshotsByPanelId[panelId]?.kind == agent.kind,
+                  restoredAgentSnapshotsByPanelId[panelId]?.sessionId == agent.sessionId else {
+                return false
+            }
+            restoredAgentVerificationByPanelId[panelId] = verification
+            return ResumeFidelityGate().isVerified(verification.facts)
+        }
+        if let binding = crashRecoveryResumeBinding {
+            let verification = await Task.detached(priority: .utility) {
+                Self.crashRecoveryVerification(binding: binding)
+            }.value
+            guard surfaceResumeBindingsByPanelId[panelId] == binding else { return false }
+            restoredAgentVerificationByPanelId[panelId] = verification
+            return ResumeFidelityGate().isVerified(verification.facts)
+        }
+        return false
+    }
+
+    @MainActor
+    func crashRecoveryVerifiedResumeAction(defaults: UserDefaults = .standard) async -> RecoveryAction? {
+        guard await prepareCrashRecoveryResumeVerification() else { return nil }
+        let coordinator = WorkspaceResumeCoordinator(
+            injectBreadcrumb: CrashRecoverySettings.injectResumeBreadcrumb(defaults: defaults)
+        )
+        let action = coordinator.router.route(
+            coordinator.bindingFacts(for: self),
+            context: coordinator.recoveryContext(for: self)
+        )
+        if case .resumeVerified = action {
+            return action
+        }
+        return nil
     }
 
     /// Resume the focused agent and, when enabled, inject the breadcrumb. The
@@ -99,6 +264,7 @@ extension Workspace: ResumableWorkspaceSurface {
     /// Per-panel by construction (facts built from the panel's own snapshot, not
     /// the focused-panel accessors), so a multi-window restore recovers each
     /// window's own work without cross-bleed.
+    @MainActor
     func scheduleCrashRecoveryReentry(
         panel: TerminalPanel,
         agent: SessionRestorableAgentSnapshot,
@@ -117,50 +283,34 @@ extension Workspace: ResumableWorkspaceSurface {
         let agentKind = agent.kind
         let sessionId = agent.sessionId
         let cwd = agent.workingDirectory
-        let configDirOverride = agent.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]
-        let resumeCommandConstructable = agent.resumeCommand != nil
 
         Task { [weak self] in
-            let message = await Task.detached(priority: .utility) {
-                let presence: ClaudeTranscriptPresence
-                if agentKind == .claude {
-                    presence = ClaudeTranscriptPresenceResolver.resolve(
-                        sessionId: sessionId,
-                        cwd: cwd,
-                        configDirOverride: configDirOverride
-                    )
-                } else {
-                    presence = ClaudeTranscriptPresence(
-                        existsAtWindowCwd: !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                        existsElsewhere: false,
-                        resolvedPathAtWindowCwd: nil
-                    )
-                }
-
-                let facts = ResumeBindingFacts(
-                    hasBinding: true,
-                    agentKind: agentKind,
-                    sessionId: sessionId,
-                    resumeCommandConstructable: resumeCommandConstructable,
-                    transcriptExistsAtWindowCwd: presence.existsAtWindowCwd,
-                    transcriptExistsElsewhere: presence.existsElsewhere
-                )
+            let result = await Task.detached(priority: .utility) {
+                let verification = Self.crashRecoveryVerification(agent: agent)
                 let context = RecoveryContext(
                     workspaceName: workspaceName,
                     cwd: cwd,
-                    transcriptPath: presence.resolvedPathAtWindowCwd
+                    transcriptPath: verification.presence.resolvedPathAtWindowCwd
                 )
 
-                switch RecoveryRouter(injectBreadcrumb: true).route(facts, context: context) {
+                let message: String?
+                switch RecoveryRouter(injectBreadcrumb: true).route(verification.facts, context: context) {
                 case .resumeVerified(let breadcrumb):
-                    return breadcrumb
+                    message = breadcrumb
                 case .honestRecovery(let prompt, _):
-                    return prompt
+                    message = prompt
                 }
+                return (verification: verification, message: message)
             }.value
-            guard let message,
+            guard result.verification.facts.agentKind == agentKind,
+                  result.verification.facts.sessionId == sessionId,
+                  let message = result.message,
                   let self,
                   let panel = self.panels[panelId] as? TerminalPanel else { return }
+            if self.restoredAgentSnapshotsByPanelId[panelId]?.kind == agentKind,
+               self.restoredAgentSnapshotsByPanelId[panelId]?.sessionId == sessionId {
+                self.restoredAgentVerificationByPanelId[panelId] = result.verification
+            }
             self.sendInputWhenReady(message + "\n", to: panel)
         }
     }

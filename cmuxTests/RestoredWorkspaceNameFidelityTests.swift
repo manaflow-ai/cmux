@@ -56,15 +56,15 @@ import Testing
         #expect(name == .keepUserTitle("My important window"))
     }
 
-    @Test func absentProvenanceBecomesNeutral() {
-        // Missing provenance is not reliable enough to distinguish a user title
-        // from a legacy auto summary, so restore fails closed.
+    @Test func absentProvenancePreservesLegacyUserTitle() {
+        // Snapshot decoding treats missing provenance as a legacy user title for
+        // backwards compatibility; only explicit `.auto` summaries are gated.
         let name = resolver.resolve(
             persistedTitle: "Legacy title",
             source: nil,
             isVerified: false
         )
-        #expect(name == .neutral)
+        #expect(name == .keepUserTitle("Legacy title"))
     }
 
     @Test func emptyOrBlankTitleIsNeutral() {

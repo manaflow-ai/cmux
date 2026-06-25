@@ -147,7 +147,7 @@ enum ClaudeTranscriptPresenceResolver {
 
     /// The transcript file for `sessionId` under a project dir, or nil. Covers the
     /// two layouts Claude uses: `<projectRoot>/<id>.jsonl` and the nested
-    /// `<projectRoot>/messages/<id>.jsonl`.
+    /// `<projectRoot>/<id>/messages/<id>.jsonl`.
     private static func transcriptPath(
         inProjectRoot projectRoot: String,
         sessionId: String,
@@ -155,7 +155,10 @@ enum ClaudeTranscriptPresenceResolver {
     ) -> String? {
         let flat = (projectRoot as NSString).appendingPathComponent("\(sessionId).jsonl")
         if regularNonEmptyFileExists(atPath: flat, fileManager: fileManager) { return flat }
-        let nested = (projectRoot as NSString).appendingPathComponent("messages/\(sessionId).jsonl")
+        let nested = (((projectRoot as NSString)
+            .appendingPathComponent(sessionId) as NSString)
+            .appendingPathComponent("messages") as NSString)
+            .appendingPathComponent("\(sessionId).jsonl")
         if regularNonEmptyFileExists(atPath: nested, fileManager: fileManager) { return nested }
         return nil
     }

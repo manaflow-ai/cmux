@@ -29,7 +29,10 @@ import Testing
     private func seedTranscript(home: String, cwd: String, sessionId: String, nested: Bool = false) throws -> String {
         let projectDir = RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd)
         var dir = (home as NSString).appendingPathComponent(".claude/projects/\(projectDir)")
-        if nested { dir = (dir as NSString).appendingPathComponent("messages") }
+        if nested {
+            dir = ((dir as NSString).appendingPathComponent(sessionId) as NSString)
+                .appendingPathComponent("messages")
+        }
         try fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
         let path = (dir as NSString).appendingPathComponent("\(sessionId).jsonl")
         try "{\"type\":\"summary\"}\n".write(toFile: path, atomically: true, encoding: .utf8)

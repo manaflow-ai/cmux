@@ -113,8 +113,8 @@ struct WorkspaceResumeCoordinator {
 
     /// Decide without performing — used to enable/disable the manual action.
     func canResume(_ surface: ResumableWorkspaceSurface) -> Bool {
-        if case .resume = planner.decide(context(for: surface)) { return true }
-        return false
+        guard case .resume = planner.decide(context(for: surface)) else { return false }
+        return router.wouldAutoResume(bindingFacts(for: surface))
     }
 
     /// Resume the surface: native resume if the agent isn't live, then deliver the
@@ -125,15 +125,41 @@ struct WorkspaceResumeCoordinator {
         switch planner.decide(context(for: surface)) {
         case .skip(let reason):
             return .skipped(reason)
-        case .resume(let breadcrumb):
-            if !surface.isAgentLive {
-                surface.runNativeResume()
+        case .resume:
+            switch router.route(bindingFacts(for: surface), context: recoveryContext(for: surface)) {
+            case .honestRecovery(_, let reason):
+                return .skipped(Self.skipReason(for: reason))
+            case .resumeVerified(let breadcrumb):
+                if !surface.isAgentLive {
+                    surface.runNativeResume()
+                }
+                if let breadcrumb {
+                    surface.deliverResumeBreadcrumb(breadcrumb)
+                }
+                return .resumed(deliveredBreadcrumb: breadcrumb != nil)
             }
-            if let breadcrumb {
-                surface.deliverResumeBreadcrumb(breadcrumb)
-            }
-            return .resumed(deliveredBreadcrumb: breadcrumb != nil)
         }
+    }
+
+    private static func skipReason(for reason: UnverifiedReason) -> ResumeBreadcrumbBuilder.SkipReason {
+        switch reason {
+        case .noSessionId:
+            return .noSessionId
+        case .unsupportedAgent(let kind):
+            return .unsupportedAgent(kind)
+        case .noBinding, .resumeUnavailable, .transcriptMissing, .cwdMismatch:
+            return .unprovenSession
+        }
+    }
+
+    func performVerifiedResume(_ surface: ResumableWorkspaceSurface, breadcrumb: String?) -> ResumeOutcome {
+        if !surface.isAgentLive {
+            surface.runNativeResume()
+        }
+        if let breadcrumb {
+            surface.deliverResumeBreadcrumb(breadcrumb)
+        }
+        return .resumed(deliveredBreadcrumb: breadcrumb != nil)
     }
 
     // MARK: - Verification-gated recovery (U11/R14)
@@ -154,7 +180,7 @@ struct WorkspaceResumeCoordinator {
 
     /// Return the bare session id from either the modern checkpoint id or a
     /// legacy resume command token such as `claude --resume <id>`.
-    private static func bareSessionId(from token: String?) -> String? {
+    static func bareSessionId(from token: String?) -> String? {
         guard let trimmed = token?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else { return nil }
 

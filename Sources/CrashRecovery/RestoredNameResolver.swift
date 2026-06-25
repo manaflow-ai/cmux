@@ -19,12 +19,14 @@ nonisolated enum RestoredName: Equatable, Sendable {
 /// session's summary. The provenance machinery already round-trips
 /// (`Workspace.CustomTitleSource`; `.auto` never clobbers `.user`), but on
 /// restore the name must additionally be gated on *verification*: an auto
-/// summary is only trustworthy for the window whose binding verified. This
-/// resolver encodes that gate as a side-effect-free decision so it is testable
-/// without the app host; the restore call site applies the result.
+/// summary is only trustworthy for the window whose binding verified. Legacy
+/// snapshots without provenance are treated as user titles, matching the
+/// persistence model's backwards-compatible restore contract. This resolver
+/// encodes the gate as a side-effect-free decision so it is testable without the
+/// app host; the restore call site applies the result.
 ///
 /// Order of authority:
-/// 1. A user-set (`.user`) title is sacrosanct — kept regardless of verification.
+/// 1. A user-set (`.user` or legacy nil) title is sacrosanct — kept regardless of verification.
 /// 2. An auto (`.auto`) summary is re-applied ONLY when the binding verified.
 /// 3. Otherwise the window shows a neutral name (never a foreign summary).
 nonisolated struct RestoredNameResolver {
@@ -37,8 +39,8 @@ nonisolated struct RestoredNameResolver {
         let trimmed = persistedTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasTitle = (trimmed?.isEmpty == false)
 
-        // 1. A user title is never overwritten by restore.
-        if hasTitle, source == .user, let title = trimmed {
+        // 1. A user/legacy title is never overwritten by restore.
+        if hasTitle, source != .auto, let title = trimmed {
             return .keepUserTitle(title)
         }
 

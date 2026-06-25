@@ -33,7 +33,7 @@ enum CrashRecoveryOfferText {
 /// Presents the Chrome-style "you crashed — resume?" offer at launch and, on
 /// accept, resumes every resumable workspace. Gated on a real crash + opt-in
 /// (`CrashRecoveryLaunchState.shouldOfferResume`). The decision logic lives in
-/// the planner/launch-state; this is thin AppKit glue.
+/// the verification router/launch-state; this is thin AppKit glue.
 @MainActor
 enum CrashRecoveryOfferPresenter {
     /// Resumable workspaces in the manager (those whose focused surface can be
@@ -41,8 +41,8 @@ enum CrashRecoveryOfferPresenter {
     static func resumableWorkspaces(
         in manager: TabManager,
         defaults: UserDefaults = .standard
-    ) -> [Workspace] {
-        resumableWorkspaces(in: [manager], defaults: defaults)
+    ) async -> [Workspace] {
+        await resumableWorkspaces(in: [manager], defaults: defaults)
     }
 
     /// Resumable workspaces across every restored main-window manager. Managers
@@ -51,17 +51,30 @@ enum CrashRecoveryOfferPresenter {
     static func resumableWorkspaces(
         in managers: [TabManager],
         defaults: UserDefaults = .standard
-    ) -> [Workspace] {
+    ) async -> [Workspace] {
+        let plans = await verifiedResumePlans(in: managers, defaults: defaults)
+        return plans.map(\.workspace)
+    }
+
+    private static func verifiedResumePlans(
+        in managers: [TabManager],
+        defaults: UserDefaults
+    ) async -> [(workspace: Workspace, breadcrumb: String?)] {
         var seenManagers = Set<ObjectIdentifier>()
         var seenWorkspaces = Set<ObjectIdentifier>()
-        var workspaces: [Workspace] = []
+        var plans: [(workspace: Workspace, breadcrumb: String?)] = []
         for manager in managers where seenManagers.insert(ObjectIdentifier(manager)).inserted {
-            for workspace in manager.tabs where workspace.canResumeWhereWeLeftOff(defaults: defaults) {
+            for workspace in manager.tabs {
                 guard seenWorkspaces.insert(ObjectIdentifier(workspace)).inserted else { continue }
-                workspaces.append(workspace)
+                guard let action = await workspace.crashRecoveryVerifiedResumeAction(defaults: defaults) else {
+                    continue
+                }
+                if case .resumeVerified(let breadcrumb) = action {
+                    plans.append((workspace, breadcrumb))
+                }
             }
         }
-        return workspaces
+        return plans
     }
 
     /// Shows the offer once after restore, if the prior run crashed and the user
@@ -70,8 +83,8 @@ enum CrashRecoveryOfferPresenter {
         in manager: TabManager,
         launchState: CrashRecoveryLaunchState,
         defaults: UserDefaults = .standard
-    ) {
-        presentOfferIfNeeded(in: [manager], launchState: launchState, defaults: defaults)
+    ) async {
+        await presentOfferIfNeeded(in: [manager], launchState: launchState, defaults: defaults)
     }
 
     /// Shows the launch offer for all restored windows, if the prior run crashed
@@ -80,20 +93,23 @@ enum CrashRecoveryOfferPresenter {
         in managers: [TabManager],
         launchState: CrashRecoveryLaunchState,
         defaults: UserDefaults = .standard
-    ) {
+    ) async {
         guard launchState.shouldOfferResume(defaults: defaults) else { return }
-        let resumable = resumableWorkspaces(in: managers, defaults: defaults)
-        guard !resumable.isEmpty else { return }
+        let plans = await verifiedResumePlans(in: managers, defaults: defaults)
+        guard !plans.isEmpty else { return }
 
-        let content = CrashRecoveryOfferText.make(resumableCount: resumable.count)
+        let content = CrashRecoveryOfferText.make(resumableCount: plans.count)
         let alert = NSAlert()
         alert.messageText = content.title
         alert.informativeText = content.message
         alert.addButton(withTitle: content.resumeButton)
         alert.addButton(withTitle: content.dismissButton)
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        for workspace in resumable {
-            _ = workspace.resumeWhereWeLeftOff(defaults: defaults)
+        let coordinator = WorkspaceResumeCoordinator(
+            injectBreadcrumb: CrashRecoverySettings.injectResumeBreadcrumb(defaults: defaults)
+        )
+        for plan in plans {
+            _ = coordinator.performVerifiedResume(plan.workspace, breadcrumb: plan.breadcrumb)
         }
     }
 
@@ -104,8 +120,8 @@ enum CrashRecoveryOfferPresenter {
         in manager: TabManager,
         launchState: CrashRecoveryLaunchState,
         defaults: UserDefaults = .standard
-    ) {
-        resumeAfterIntentionalRelaunchIfNeeded(in: [manager], launchState: launchState, defaults: defaults)
+    ) async {
+        await resumeAfterIntentionalRelaunchIfNeeded(in: [manager], launchState: launchState, defaults: defaults)
     }
 
     /// After an intentional relaunch, silently auto-resume agents in every
@@ -114,11 +130,15 @@ enum CrashRecoveryOfferPresenter {
         in managers: [TabManager],
         launchState: CrashRecoveryLaunchState,
         defaults: UserDefaults = .standard
-    ) {
+    ) async {
         guard launchState.restoreWasIntended,
               CrashRecoverySettings.resumeAgentsAfterUpdate(defaults: defaults) else { return }
-        for workspace in resumableWorkspaces(in: managers, defaults: defaults) {
-            _ = workspace.resumeWhereWeLeftOff(defaults: defaults)
+        let plans = await verifiedResumePlans(in: managers, defaults: defaults)
+        let coordinator = WorkspaceResumeCoordinator(
+            injectBreadcrumb: CrashRecoverySettings.injectResumeBreadcrumb(defaults: defaults)
+        )
+        for plan in plans {
+            _ = coordinator.performVerifiedResume(plan.workspace, breadcrumb: plan.breadcrumb)
         }
     }
 }

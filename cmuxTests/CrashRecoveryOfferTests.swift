@@ -26,19 +26,37 @@ import Testing
         #expect(!content.dismissButton.isEmpty)
     }
 
-    @Test func resumableWorkspacesIncludesAllManagersOnce() throws {
+    @Test func resumableWorkspacesIncludesAllManagersOnce() async throws {
         let first = try makeManagerWithResumeBinding(session: "sess-1")
         let second = try makeManagerWithResumeBinding(session: "sess-2")
+        defer {
+            try? FileManager.default.removeItem(at: first.root)
+            try? FileManager.default.removeItem(at: second.root)
+        }
 
-        let resumable = CrashRecoveryOfferPresenter.resumableWorkspaces(
-            in: [first, second, first]
+        let resumable = await CrashRecoveryOfferPresenter.resumableWorkspaces(
+            in: [first.manager, second.manager, first.manager]
         )
 
         #expect(resumable.count == 2)
         #expect(Set(resumable.map(\.id)).count == 2)
     }
 
-    private func makeManagerWithResumeBinding(session: String) throws -> TabManager {
+    private func makeManagerWithResumeBinding(session: String) throws -> (manager: TabManager, root: URL) {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-crash-offer-\(UUID().uuidString)", isDirectory: true)
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectDir = configDir
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent(RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd.path), isDirectory: true)
+        try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+        try "{}\n".write(
+            to: projectDir.appendingPathComponent("\(session).jsonl", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
         let manager = TabManager(autoWelcomeIfNeeded: false)
         let workspace = try #require(manager.selectedWorkspace)
         let panelId = try #require(workspace.focusedPanelId)
@@ -47,14 +65,15 @@ import Testing
                 name: "Recovered \(session)",
                 kind: RestorableAgentKind.claude.rawValue,
                 command: "claude --resume \(session)",
-                cwd: FileManager.default.temporaryDirectory.path,
+                cwd: cwd.path,
                 checkpointId: session,
                 source: "agent-hook",
+                environment: ["CLAUDE_CONFIG_DIR": configDir.path],
                 autoResume: true
             ),
             panelId: panelId
         )
         #expect(didSet)
-        return manager
+        return (manager, root)
     }
 }

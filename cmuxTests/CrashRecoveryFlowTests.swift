@@ -20,6 +20,10 @@ import Testing
         var resumeSessionToken: String?
         var isResumeBindingProven: Bool
         var isAgentLive: Bool
+        var resumeCwd: String? = "/Users/me/repo"
+        var resumeTranscriptPath: String? = "/Users/me/.claude/projects/-Users-me-repo/session.jsonl"
+        var transcriptExistsAtWindowCwd: Bool = true
+        var transcriptExistsElsewhere: Bool = false
         private(set) var nativeResumeCount = 0
         private(set) var breadcrumbs: [String] = []
 

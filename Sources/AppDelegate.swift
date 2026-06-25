@@ -7260,12 +7260,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 .map(\.tabManager)
             guard !managers.isEmpty else { return }
             // Update relaunch: silently auto-resume agents if opted in.
-            CrashRecoveryOfferPresenter.resumeAfterIntentionalRelaunchIfNeeded(
+            await CrashRecoveryOfferPresenter.resumeAfterIntentionalRelaunchIfNeeded(
                 in: managers,
                 launchState: self.crashRecoveryLaunchState
             )
             // Crash: offer to resume (gated on crash + opt-in).
-            CrashRecoveryOfferPresenter.presentOfferIfNeeded(
+            await CrashRecoveryOfferPresenter.presentOfferIfNeeded(
                 in: managers,
                 launchState: self.crashRecoveryLaunchState
             )

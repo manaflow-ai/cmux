@@ -19,6 +19,10 @@ import Testing
         var resumeSessionToken: String?
         var isResumeBindingProven: Bool
         var isAgentLive: Bool
+        var resumeCwd: String? = "/Users/me/repo"
+        var resumeTranscriptPath: String? = "/Users/me/.claude/projects/-Users-me-repo/sess-1.jsonl"
+        var transcriptExistsAtWindowCwd: Bool = true
+        var transcriptExistsElsewhere: Bool = false
 
         private(set) var nativeResumeCount = 0
         private(set) var deliveredBreadcrumbs: [String] = []
@@ -78,6 +82,15 @@ import Testing
         let surface = FakeSurface(proven: false)
         #expect(WorkspaceResumeCoordinator(injectBreadcrumb: true).resume(surface) == .skipped(.unprovenSession))
         #expect(surface.nativeResumeCount == 0)
+    }
+
+    @Test func missingVerifiedTranscriptIsSkipped() {
+        let surface = FakeSurface(live: false)
+        surface.transcriptExistsAtWindowCwd = false
+        let outcome = WorkspaceResumeCoordinator(injectBreadcrumb: true).resume(surface)
+        #expect(outcome == .skipped(.unprovenSession))
+        #expect(surface.nativeResumeCount == 0)
+        #expect(surface.deliveredBreadcrumbs.isEmpty)
     }
 
     @Test func missingSessionIsSkipped() {

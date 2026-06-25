@@ -160,4 +160,52 @@ import Testing
         workspace.setCustomTitle(legacyDecoded.customTitle, source: legacyDecoded.customTitleSource ?? .user)
         #expect(workspace.effectiveCustomTitleSource == .user)
     }
+
+    @Test func restoreDropsUnverifiedAutoWorkspaceTitle() {
+        let workspace = Workspace(title: "Terminal")
+        let snapshot = SessionWorkspaceSnapshot(
+            processTitle: "zsh",
+            customTitle: "Foreign Summary",
+            customTitleSource: .auto,
+            customDescription: nil,
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: "/tmp",
+            focusedPanelId: nil,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)),
+            panels: [],
+            statusEntries: [],
+            logEntries: []
+        )
+
+        workspace.restoreSessionSnapshot(snapshot)
+
+        #expect(workspace.customTitle == nil)
+        #expect(workspace.effectiveCustomTitleSource == nil)
+        #expect(workspace.title == "zsh")
+    }
+
+    @Test func restorePreservesLegacyWorkspaceTitleWithoutProvenance() {
+        let workspace = Workspace(title: "Terminal")
+        let snapshot = SessionWorkspaceSnapshot(
+            processTitle: "zsh",
+            customTitle: "Legacy Title",
+            customTitleSource: nil,
+            customDescription: nil,
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: "/tmp",
+            focusedPanelId: nil,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)),
+            panels: [],
+            statusEntries: [],
+            logEntries: []
+        )
+
+        workspace.restoreSessionSnapshot(snapshot)
+
+        #expect(workspace.customTitle == "Legacy Title")
+        #expect(workspace.effectiveCustomTitleSource == .user)
+        #expect(workspace.title == "Legacy Title")
+    }
 }
