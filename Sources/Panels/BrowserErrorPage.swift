@@ -113,7 +113,7 @@ struct BrowserErrorPage {
         p {
             margin: 10px 0 0;
             font-size: 14px;
-            color: var(--muted);
+            color: var(--secondary);
             line-height: 1.5;
         }
 

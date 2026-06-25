@@ -326,6 +326,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
         WebViewInspectorTeardown.closeInspector(for: webView)
         closeAllChildPopups()
+        popupNavigationDelegate.cancelPendingHTTPBasicAuthPrompts()
 
         // Invalidate observations
         titleObservation?.invalidate()
@@ -334,12 +335,11 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         urlObservation = nil
 
         // Tear down web view
-        webAuthnCoordinator.uninstall(from: webView)
         webView.configuration.userContentController.removeScriptMessageHandler(
             forName: BrowserSSLTrustBypassMessageHandler.name
         )
         sslTrustBypassMessageHandler = nil
-        webView.stopLoading()
+        webAuthnCoordinator.tearDown(from: webView); webView.stopLoading()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
 
@@ -618,15 +618,19 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
 
 // MARK: - PopupNavigationDelegate
 
-@MainActor
-private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
+@MainActor private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
     weak var controller: BrowserPopupWindowController?
     var downloadDelegate: WKDownloadDelegate?
+    private let basicAuthPromptCoordinator = BrowserHTTPBasicAuthPromptCoordinator()
     private let sslBypassState = BrowserSSLTrustBypassState()
     private var lastAttemptedURL: URL?
     private var lastAttemptedRequest: URLRequest?
     private var acceptsSSLTrustBypassMessages = false
     private var activeSSLTrustBypassErrorPageFailedURL: String?
+
+    func cancelPendingHTTPBasicAuthPrompts() {
+        basicAuthPromptCoordinator.cancelAll()
+    }
 
     private func recordAttemptedRequest(_ request: URLRequest) {
         sslBypassState.clearPendingBypasses()
@@ -648,10 +652,9 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
 
     private func requestForFailedNavigation(failedURL: String) -> URLRequest? {
         if let lastAttemptedRequest,
-           lastAttemptedRequest.url != nil {
-            if lastAttemptedRequest.browserMatchesFailedNavigationURLString(failedURL) {
-                return lastAttemptedRequest
-            }
+           lastAttemptedRequest.url != nil,
+           lastAttemptedRequest.browserMatchesFailedNavigationURLString(failedURL) {
+            return lastAttemptedRequest
         }
         guard let url = URL(string: failedURL) else { return nil }
         return URLRequest(url: url)
@@ -716,7 +719,7 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
             cmuxDebugLog("popup.nav.preserveSSLBypassErrorPage url=\(url.absoluteString)")
             #endif
         } else if let scheme = url.scheme?.lowercased(),
-           scheme == "http" || scheme == "https" {
+                  scheme == "http" || scheme == "https" {
             recordAttemptedRequest(navigationAction.request)
         } else {
             clearAttemptedRequest()
@@ -837,6 +840,20 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
                 return
             }
             sslBypassState.recordObservedServerTrust(trust, for: challenge.protectionSpace)
+        }
+
+        if basicAuthPromptCoordinator.handle(
+            challenge: challenge,
+            startPrompt: { finishPrompt, registerCancelPrompt in
+                browserHandleHTTPBasicAuthenticationChallenge(
+                    in: webView, challenge: challenge,
+                    registerCancelPrompt: registerCancelPrompt,
+                    completionHandler: finishPrompt
+                )
+            },
+            completionHandler: completionHandler
+        ) {
+            return
         }
 
         // Parity with main browser: performDefaultHandling enables system keychain
