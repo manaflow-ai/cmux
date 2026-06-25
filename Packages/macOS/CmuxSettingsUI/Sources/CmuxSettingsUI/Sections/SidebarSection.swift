@@ -481,6 +481,7 @@ public struct SidebarSection: View {
                     .labelsHidden()
                     .controlSize(.small)
             }
+            .disabled(hideAll.current)
             SettingsCardDivider()
 
             SettingsCardRow(

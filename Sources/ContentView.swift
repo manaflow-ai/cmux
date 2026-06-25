@@ -13441,7 +13441,7 @@ struct TabItemView: View, Equatable {
                     .frame(width: scaledUnreadBadgeSize, height: scaledUnreadBadgeSize)
                 }
 
-                if showsAgentActivity, workspaceSnapshot.activeCodingAgentCount > 0 {
+                if showsAgentActivity, !settings.hidesAllDetails, workspaceSnapshot.activeCodingAgentCount > 0 {
                     SidebarAgentActivityIndicator(
                         count: workspaceSnapshot.activeCodingAgentCount,
                         spinnerColor: activeCodingAgentSpinnerNSColor,
