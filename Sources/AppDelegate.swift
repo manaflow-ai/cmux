@@ -1213,42 +1213,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // Keep debug-only windows alive when tests intentionally inject key mismatches.
     private var debugDetachedContextWindows: [NSWindow] = []
 
-    private func childExitKeyboardProbePath() -> String? {
-        let env = ProcessInfo.processInfo.environment
-        guard env["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_SETUP"] == "1",
-              let path = env["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_PATH"],
-              !path.isEmpty else {
-            return nil
-        }
-        return path
-    }
-
-    private func childExitKeyboardProbeHex(_ value: String?) -> String {
-        guard let value else { return "" }
-        return value.unicodeScalars
-            .map { String(format: "%04X", $0.value) }
-            .joined(separator: ",")
-    }
-
-    private func writeChildExitKeyboardProbe(_ updates: [String: String], increments: [String: Int] = [:]) {
-        guard let path = childExitKeyboardProbePath() else { return }
-        var payload: [String: String] = {
-            guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
-                return [:]
-            }
-            return object
-        }()
-        for (key, by) in increments {
-            let current = Int(payload[key] ?? "") ?? 0
-            payload[key] = String(current + by)
-        }
-        for (key, value) in updates {
-            payload[key] = value
-        }
-        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
-        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
-    }
+    /// Owns the child-exit (Ctrl+D) keyboard-probe diagnostic file I/O for its
+    /// XCUITest scenario. The shortcut-dispatch call sites forward to it.
+    private let childExitKeyboardProbeRecorder = ChildExitKeyboardProbeRecorder()
 #endif
 
     private var mainWindowControllers: [MainWindowController] = []
@@ -8245,10 +8212,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let isControlD = isControlOnly && (controlDChar || event.keyCode == 2)
 #if DEBUG
         if isControlD {
-            writeChildExitKeyboardProbe(
+            childExitKeyboardProbeRecorder.write(
                 [
-                    "probeAppShortcutCharsHex": childExitKeyboardProbeHex(event.characters),
-                    "probeAppShortcutCharsIgnoringHex": childExitKeyboardProbeHex(event.charactersIgnoringModifiers),
+                    "probeAppShortcutCharsHex": childExitKeyboardProbeRecorder.hex(event.characters),
+                    "probeAppShortcutCharsIgnoringHex": childExitKeyboardProbeRecorder.hex(event.charactersIgnoringModifiers),
                     "probeAppShortcutKeyCode": String(event.keyCode),
                     "probeAppShortcutModsRaw": String(event.modifierFlags.rawValue),
                 ],
@@ -8647,7 +8614,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             #if DEBUG
             let frAfterType = shortcutRoutingKeyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
             cmuxDebugLog("shortcut.ctrlD stage=postReconcile fr=\(frAfterType)")
-            writeChildExitKeyboardProbe([:], increments: ["probeAppShortcutCtrlDPassedCount": 1])
+            childExitKeyboardProbeRecorder.write([:], increments: ["probeAppShortcutCtrlDPassedCount": 1])
             #endif
             // Ctrl+D belongs to the focused terminal surface; never treat it as an app shortcut.
             return false

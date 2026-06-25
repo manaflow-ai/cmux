@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Carbon
+import CmuxBrowser
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxShortcuts

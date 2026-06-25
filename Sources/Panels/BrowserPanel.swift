@@ -321,19 +321,13 @@ final class BrowserPanel: Panel, ObservableObject {
         evaluator: BrowserFindWebViewEvaluator(panel: self)
     )
     let portalAnchorView = BrowserPortalAnchorView(frame: .zero)
-    private struct PortalHostLease {
-        let hostId: ObjectIdentifier
-        let paneId: UUID
-        let inWindow: Bool
-        let area: CGFloat
-    }
-    private struct PortalHostLock {
-        let hostId: ObjectIdentifier
-        let paneId: UUID
-    }
-    private var activePortalHostLease: PortalHostLease?
-    private var pendingDistinctPortalHostReplacementPaneId: UUID?
-    private var lockedPortalHost: PortalHostLock?
+    /// The portal-host lease decision logic, lifted to
+    /// `CmuxBrowser/Panel/BrowserPortalHostLeaseMachine.swift` as a pure value
+    /// type. The panel holds this instance, feeds it `(hostId, paneId, inWindow,
+    /// bounds)` through the thin `claimPortalHost`/`releasePortalHostIfOwned`/
+    /// `preparePortalHostReplacementForNextDistinctClaim` appliers below, adopts
+    /// the returned machine state, and emits the requested DEBUG markers app-side.
+    private var portalHostLeaseMachine = BrowserPortalHostLeaseMachine()
     private var webViewCancellables = Set<AnyCancellable>()
     private var navigationDelegate: BrowserNavigationDelegate?
     private var uiDelegate: BrowserUIDelegate?
@@ -632,9 +626,7 @@ final class BrowserPanel: Panel, ObservableObject {
         nativeCanGoForward = false
         isLoading = false
         estimatedProgress = 0
-        activePortalHostLease = nil
-        pendingDistinctPortalHostReplacementPaneId = nil
-        lockedPortalHost = nil
+        portalHostLeaseMachine = portalHostLeaseMachine.cleared()
 
         bindWebView(replacement)
         applyProxyConfigurationIfAvailable()
@@ -688,33 +680,22 @@ final class BrowserPanel: Panel, ObservableObject {
         )
     }
 
-    private static let portalHostAreaThreshold: CGFloat = 4
-    private static let portalHostReplacementAreaGainRatio: CGFloat = 1.2
-
-    private static func portalHostArea(for bounds: CGRect) -> CGFloat {
-        max(0, bounds.width) * max(0, bounds.height)
-    }
-
-    private static func portalHostIsUsable(_ lease: PortalHostLease) -> Bool {
-        lease.inWindow && lease.area > portalHostAreaThreshold
-    }
-
+    /// Re-arms a one-shot force-distinct portal-host replacement for the next claim
+    /// in `paneId`. Thin applier over ``BrowserPortalHostLeaseMachine``: feeds the
+    /// machine, adopts its next state, and emits the DEBUG marker app-side.
     func preparePortalHostReplacementForNextDistinctClaim(
         inPane paneId: PaneID,
         reason: String
     ) {
-        pendingDistinctPortalHostReplacementPaneId = paneId.id
-        if lockedPortalHost?.paneId == paneId.id {
-            lockedPortalHost = nil
-        }
-#if DEBUG
-        cmuxDebugLog(
-            "browser.portal.host.rearm panel=\(id.uuidString.prefix(5)) " +
-            "reason=\(reason) pane=\(paneId.id.uuidString.prefix(5))"
-        )
-#endif
+        let outcome = portalHostLeaseMachine.prepareReplacementForNextDistinctClaim(inPane: paneId)
+        portalHostLeaseMachine = outcome.machine
+        emitPortalHostLeaseDebugEvents(outcome.debugEvents, reason: reason)
     }
 
+    /// Claims (or keeps) the portal host for `paneId`. Thin applier over
+    /// ``BrowserPortalHostLeaseMachine``: gates inline developer-tools hosting
+    /// app-side, feeds the machine, adopts its next state, emits the DEBUG markers,
+    /// and returns the machine's verdict.
     func claimPortalHost(
         hostId: ObjectIdentifier,
         paneId: PaneID,
@@ -722,133 +703,87 @@ final class BrowserPanel: Panel, ObservableObject {
         bounds: CGRect,
         reason: String
     ) -> Bool {
-        if shouldUseLocalInlineDeveloperToolsHosting() {
-            activePortalHostLease = nil
-            lockedPortalHost = nil
-#if DEBUG
-            cmuxDebugLog(
-                "browser.portal.host.skip panel=\(id.uuidString.prefix(5)) " +
-                "reason=\(reason).localInlineDevTools host=\(hostId) pane=\(paneId.id.uuidString.prefix(5)) " +
-                "inWin=\(inWindow ? 1 : 0) size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height))"
-            )
-#endif
-            return false
-        }
-
-        let next = PortalHostLease(
+        let outcome = portalHostLeaseMachine.claim(
             hostId: hostId,
-            paneId: paneId.id,
+            paneId: paneId,
             inWindow: inWindow,
-            area: Self.portalHostArea(for: bounds)
+            bounds: bounds,
+            usesLocalInlineDeveloperToolsHosting: shouldUseLocalInlineDeveloperToolsHosting()
         )
-
-        if let current = activePortalHostLease {
-            if let lock = lockedPortalHost,
-               (lock.hostId != current.hostId || lock.paneId != current.paneId) {
-                lockedPortalHost = nil
-            }
-
-            if current.hostId == hostId {
-                activePortalHostLease = next
-                return true
-            }
-
-            let currentUsable = Self.portalHostIsUsable(current)
-            let nextUsable = Self.portalHostIsUsable(next)
-            let isSamePaneReplacement = current.paneId == paneId.id
-            let shouldForceDistinctReplacement =
-                isSamePaneReplacement &&
-                pendingDistinctPortalHostReplacementPaneId == paneId.id &&
-                inWindow
-            if shouldForceDistinctReplacement {
-#if DEBUG
-                cmuxDebugLog(
-                    "browser.portal.host.claim panel=\(id.uuidString.prefix(5)) " +
-                    "reason=\(reason) host=\(hostId) pane=\(paneId.id.uuidString.prefix(5)) " +
-                    "inWin=\(inWindow ? 1 : 0) size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
-                    "replacingHost=\(current.hostId) replacingPane=\(current.paneId.uuidString.prefix(5)) " +
-                    "replacingInWin=\(current.inWindow ? 1 : 0) replacingArea=\(String(format: "%.1f", current.area)) " +
-                    "forced=1"
-                )
-#endif
-                activePortalHostLease = next
-                pendingDistinctPortalHostReplacementPaneId = nil
-                lockedPortalHost = PortalHostLock(hostId: hostId, paneId: paneId.id)
-                return true
-            }
-
-            let lockBlocksSamePaneReplacement =
-                isSamePaneReplacement &&
-                currentUsable &&
-                lockedPortalHost?.hostId == current.hostId &&
-                lockedPortalHost?.paneId == current.paneId
-            let shouldReplace =
-                current.paneId != paneId.id ||
-                !currentUsable ||
-                (
-                    !lockBlocksSamePaneReplacement &&
-                    nextUsable &&
-                    next.area > (current.area * Self.portalHostReplacementAreaGainRatio)
-                )
-
-            if shouldReplace {
-                if lockedPortalHost?.hostId == current.hostId &&
-                    lockedPortalHost?.paneId == current.paneId {
-                    lockedPortalHost = nil
-                }
-#if DEBUG
-                cmuxDebugLog(
-                    "browser.portal.host.claim panel=\(id.uuidString.prefix(5)) " +
-                    "reason=\(reason) host=\(hostId) pane=\(paneId.id.uuidString.prefix(5)) " +
-                    "inWin=\(inWindow ? 1 : 0) size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
-                    "replacingHost=\(current.hostId) replacingPane=\(current.paneId.uuidString.prefix(5)) " +
-                    "replacingInWin=\(current.inWindow ? 1 : 0) replacingArea=\(String(format: "%.1f", current.area))"
-                )
-#endif
-                activePortalHostLease = next
-                return true
-            }
-
-#if DEBUG
-            cmuxDebugLog(
-                "browser.portal.host.skip panel=\(id.uuidString.prefix(5)) " +
-                "reason=\(reason) host=\(hostId) pane=\(paneId.id.uuidString.prefix(5)) " +
-                "inWin=\(inWindow ? 1 : 0) size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
-                "ownerHost=\(current.hostId) ownerPane=\(current.paneId.uuidString.prefix(5)) " +
-                "ownerInWin=\(current.inWindow ? 1 : 0) ownerArea=\(String(format: "%.1f", current.area)) " +
-                "locked=\(lockBlocksSamePaneReplacement ? 1 : 0)"
-            )
-#endif
-            return false
-        }
-
-        activePortalHostLease = next
-#if DEBUG
-        cmuxDebugLog(
-            "browser.portal.host.claim panel=\(id.uuidString.prefix(5)) " +
-            "reason=\(reason) host=\(hostId) pane=\(paneId.id.uuidString.prefix(5)) " +
-            "inWin=\(inWindow ? 1 : 0) size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
-            "replacingHost=nil"
-        )
-#endif
-        return true
+        portalHostLeaseMachine = outcome.machine
+        emitPortalHostLeaseDebugEvents(outcome.debugEvents, reason: reason)
+        return outcome.claimed
     }
 
+    /// Releases the portal host when this panel's lease is owned by `hostId`. Thin
+    /// applier over ``BrowserPortalHostLeaseMachine``.
     @discardableResult
     func releasePortalHostIfOwned(hostId: ObjectIdentifier, reason: String) -> Bool {
-        guard let current = activePortalHostLease, current.hostId == hostId else { return false }
-        activePortalHostLease = nil
-        if lockedPortalHost?.hostId == hostId {
-            lockedPortalHost = nil
-        }
+        let outcome = portalHostLeaseMachine.release(hostId: hostId)
+        portalHostLeaseMachine = outcome.machine
+        emitPortalHostLeaseDebugEvents(outcome.debugEvents, reason: reason)
+        return outcome.released
+    }
+
+    /// Emits the `#if DEBUG` `cmuxDebugLog` markers the lease machine requested,
+    /// reproducing the legacy log lines one-for-one (the panel owns the `panel=…`
+    /// prefix and the `reason=…` suffix the machine cannot see).
+    private func emitPortalHostLeaseDebugEvents(
+        _ events: [BrowserPortalHostLeaseMachine.DebugEvent],
+        reason: String
+    ) {
 #if DEBUG
-        cmuxDebugLog(
-            "browser.portal.host.release panel=\(id.uuidString.prefix(5)) " +
-            "reason=\(reason) host=\(hostId) pane=\(current.paneId.uuidString.prefix(5)) " +
-            "inWin=\(current.inWindow ? 1 : 0) area=\(String(format: "%.1f", current.area))"
-        )
+        let panelPrefix = id.uuidString.prefix(5)
+        for event in events {
+            switch event {
+            case let .rearm(paneId):
+                cmuxDebugLog(
+                    "browser.portal.host.rearm panel=\(panelPrefix) " +
+                    "reason=\(reason) pane=\(paneId.uuidString.prefix(5))"
+                )
+            case let .skipLocalInlineDevTools(host, paneId, inWindow, bounds):
+                cmuxDebugLog(
+                    "browser.portal.host.skip panel=\(panelPrefix) " +
+                    "reason=\(reason).localInlineDevTools host=\(host) pane=\(paneId.uuidString.prefix(5)) " +
+                    "inWin=\(inWindow ? 1 : 0) size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height))"
+                )
+            case let .claimReplacing(host, paneId, inWindow, bounds, replacing, forced):
+                cmuxDebugLog(
+                    "browser.portal.host.claim panel=\(panelPrefix) " +
+                    "reason=\(reason) host=\(host) pane=\(paneId.uuidString.prefix(5)) " +
+                    "inWin=\(inWindow ? 1 : 0) size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
+                    "replacingHost=\(replacing.hostId) replacingPane=\(replacing.paneId.uuidString.prefix(5)) " +
+                    "replacingInWin=\(replacing.inWindow ? 1 : 0) replacingArea=\(String(format: "%.1f", replacing.area))" +
+                    (forced ? " forced=1" : "")
+                )
+            case let .skipOwner(host, paneId, inWindow, bounds, owner, locked):
+                cmuxDebugLog(
+                    "browser.portal.host.skip panel=\(panelPrefix) " +
+                    "reason=\(reason) host=\(host) pane=\(paneId.uuidString.prefix(5)) " +
+                    "inWin=\(inWindow ? 1 : 0) size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
+                    "ownerHost=\(owner.hostId) ownerPane=\(owner.paneId.uuidString.prefix(5)) " +
+                    "ownerInWin=\(owner.inWindow ? 1 : 0) ownerArea=\(String(format: "%.1f", owner.area)) " +
+                    "locked=\(locked ? 1 : 0)"
+                )
+            case let .claimFresh(host, paneId, inWindow, bounds):
+                cmuxDebugLog(
+                    "browser.portal.host.claim panel=\(panelPrefix) " +
+                    "reason=\(reason) host=\(host) pane=\(paneId.uuidString.prefix(5)) " +
+                    "inWin=\(inWindow ? 1 : 0) size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
+                    "replacingHost=nil"
+                )
+            case let .release(host, released):
+                cmuxDebugLog(
+                    "browser.portal.host.release panel=\(panelPrefix) " +
+                    "reason=\(reason) host=\(host) pane=\(released.paneId.uuidString.prefix(5)) " +
+                    "inWin=\(released.inWindow ? 1 : 0) area=\(String(format: "%.1f", released.area))"
+                )
+            }
+        }
+#else
+        _ = events
+        _ = reason
 #endif
-        return true
     }
 
     var displayIcon: String? {
@@ -2859,9 +2794,7 @@ extension BrowserPanel {
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
         faviconPNGData = nil
         resetWebViewLifecycleMetadata()
-        activePortalHostLease = nil
-        pendingDistinctPortalHostReplacementPaneId = nil
-        lockedPortalHost = nil
+        portalHostLeaseMachine = portalHostLeaseMachine.cleared()
 
         let oldWebView = webView
         webViewObservers.removeAll()

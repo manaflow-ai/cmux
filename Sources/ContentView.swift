@@ -1,6 +1,7 @@
 import CmuxRemoteSession
 import AppKit
 import CmuxAppKitSupportUI
+import CmuxBrowser
 import CmuxCommandPalette
 import CmuxCommandPaletteUI
 import CmuxCore

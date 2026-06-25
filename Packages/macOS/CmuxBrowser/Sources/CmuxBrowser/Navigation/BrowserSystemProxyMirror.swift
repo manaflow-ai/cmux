@@ -1,6 +1,7 @@
+public import Foundation
+public import Network
+
 import CFNetwork
-import Foundation
-import Network
 
 /// An explicit browser proxy mirrored from the macOS system proxy settings,
 /// with hostname exclusions so loopback and proxy-bypass-list hosts connect
@@ -15,7 +16,7 @@ import Network
 /// while loopback connects directly, matching Chromium's implicit proxy-bypass
 /// rules.
 /// https://github.com/manaflow-ai/cmux/issues/5888
-struct BrowserSystemProxyMirror: Equatable {
+public struct BrowserSystemProxyMirror: Equatable {
     /// A system proxy expressible as a Network.framework `ProxyConfiguration`.
     ///
     /// `ProxyConfiguration` routes every non-excluded connection the same way.
@@ -24,16 +25,17 @@ struct BrowserSystemProxyMirror: Equatable {
     /// settings; Network.framework's HTTP CONNECT configuration is not a
     /// faithful replacement for that policy, so those settings are never
     /// mirrored and WebKit keeps its default system-proxy behavior.
-    enum Proxy: Equatable {
+    public enum Proxy: Equatable {
+        /// A SOCKSv5 proxy reachable at `host:port`.
         case socksV5(host: String, port: UInt16)
     }
 
     /// The proxy every non-excluded connection should use.
-    let proxy: Proxy
+    public let proxy: Proxy
 
     /// Hostname suffixes that bypass the proxy: the implicit defaults merged
     /// with the expressible entries of the user's macOS proxy bypass list.
-    let excludedDomains: [String]
+    public let excludedDomains: [String]
 
     /// Hosts that always connect directly, mirroring Chromium's implicit
     /// proxy-bypass rules: localhost (and subdomains), the canonical
@@ -43,7 +45,7 @@ struct BrowserSystemProxyMirror: Equatable {
     /// system bypass is not representable — see
     /// `init?(systemProxySettings:)`). Entries are domain suffixes, so
     /// `"local"` covers `*.local`.
-    static let implicitExclusions: [String] = [
+    public static let implicitExclusions: [String] = [
         "localhost", "127.0.0.1", "::1", "local", "169.254.169.254", "169.254.170.2",
     ]
 
@@ -62,7 +64,7 @@ struct BrowserSystemProxyMirror: Equatable {
     /// are the only flow that loses its bypass, and only when no other
     /// unrepresentable rule already declines the mirror — any deliberately
     /// curated CIDR list still fails closed.
-    init?(systemProxySettings settings: [String: Any]) {
+    public init?(systemProxySettings settings: [String: Any]) {
         // PAC files and WPAD evaluate a script per URL; they cannot be
         // expressed as static ProxyConfiguration values, so the system keeps
         // handling them (current behavior, no loopback bypass).
@@ -195,7 +197,7 @@ extension BrowserSystemProxyMirror {
     /// local-workspace `WKWebsiteDataStore` should use: the mirrored system
     /// proxy with loopback excluded, or empty — WebKit's system-proxy
     /// fallback, unchanged behavior — when no faithful mirror exists.
-    static func currentProxyConfigurations() -> [ProxyConfiguration] {
+    public static func currentProxyConfigurations() -> [ProxyConfiguration] {
         guard let rawSettings = CFNetworkCopySystemProxySettings()?.takeRetainedValue() else {
             return []
         }
@@ -212,7 +214,7 @@ extension BrowserSystemProxyMirror {
     /// Failover stays disabled (the platform default) so the mirror keeps the
     /// system proxy's semantics: traffic meant for the proxy never silently
     /// falls back to a direct connection.
-    func proxyConfigurations() -> [ProxyConfiguration] {
+    public func proxyConfigurations() -> [ProxyConfiguration] {
         let host: String
         let port: UInt16
         switch proxy {

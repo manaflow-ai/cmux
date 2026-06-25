@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import CoreGraphics
 import Foundation
 import Testing
