@@ -371,13 +371,21 @@ import WebKit
 
     private func shouldPreserveSSLTrustBypassForErrorPageNavigation(_ navigationAction: WKNavigationAction) -> Bool {
         let request = navigationAction.request
+        guard activeErrorPageDisplayURL != nil,
+              navigationAction.navigationType == .other else {
+            return false
+        }
+
+        guard let url = request.url,
+              let scheme = url.scheme?.lowercased() else {
+            return true
+        }
+        guard scheme == "http" || scheme == "https" else {
+            return true
+        }
         guard acceptsSSLTrustBypassMessages,
-              navigationAction.navigationType == .other,
               let failedURL = activeSSLTrustBypassErrorPageFailedURL,
-              let lastAttemptedRequest,
-              let url = request.url,
-              let scheme = url.scheme?.lowercased(),
-              scheme == "http" || scheme == "https" else {
+              let lastAttemptedRequest else {
             return false
         }
         return request.browserMatchesFailedNavigationURLString(failedURL)
