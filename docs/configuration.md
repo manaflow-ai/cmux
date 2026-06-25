@@ -105,7 +105,7 @@ Press Shift-Tab in the TextBox to cycle the default action. This shortcut is `sh
 Built-in action IDs: `claude`, `codex`, `opencode`, `pi`.
 
 Set `textBoxDefaultSubmitAction` to `text-entry` to force plain Text Entry for new terminals.
-The built-in Claude action runs `env CLAUDE_CODE_SANDBOXED=1 claude --dangerously-skip-permissions {{prompt}}`; cmux shell-quotes `{{prompt}}` before pasting the command. Built-in Codex, OpenCode, and Pi actions launch the provider first and keep the prompt in the TextBox. Once the provider owns the terminal, submit again to send the prompt through Text Entry.
+The built-in Claude action runs `claude --dangerously-skip-permissions {{prompt}}`; cmux shell-quotes `{{prompt}}` before pasting the command. Claude may still show its workspace trust prompt before processing the prompt. Built-in Codex, OpenCode, and Pi actions launch the provider first and keep the prompt in the TextBox. Once the provider owns the terminal, submit again to send the prompt through Text Entry.
 
 Action fields:
 
