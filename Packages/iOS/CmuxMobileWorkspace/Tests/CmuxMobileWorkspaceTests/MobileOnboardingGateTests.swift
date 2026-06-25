@@ -11,11 +11,11 @@ import Testing
         ))
     }
 
-    /// A returning, paired-but-offline user (reachable after a failed stored-Mac
-    /// reconnect) must not be interrupted by onboarding, even if the seen flag is
-    /// still `false` because they updated from a build that predates the flag.
-    @Test func skipsOnboardingForNeverOnboardedButPaired() {
-        #expect(!MobileOnboardingGate.shouldShowOnboarding(
+    /// Pairing state must not suppress the first-run explainer. Otherwise a user
+    /// who auto-paired before seeing onboarding can delete every computer and get
+    /// sent to onboarding later.
+    @Test func showsOnboardingForNeverOnboardedButPaired() {
+        #expect(MobileOnboardingGate.shouldShowOnboarding(
             hasSeenOnboarding: false,
             hasKnownPairedMac: true
         ))
