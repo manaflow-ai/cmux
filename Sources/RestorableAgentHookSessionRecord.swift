@@ -12,8 +12,3 @@ struct RestorableAgentHookSessionRecord: Codable, Sendable {
     var agentLifecycle: AgentHibernationLifecycleState?
     var updatedAt: TimeInterval
 }
-
-struct RestorableAgentHookSessionStoreFile: Codable, Sendable {
-    var version: Int = 1
-    var sessions: [String: RestorableAgentHookSessionRecord] = [:]
-}
