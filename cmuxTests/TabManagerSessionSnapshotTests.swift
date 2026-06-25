@@ -1,4 +1,5 @@
 import CmuxRemoteSession
+import CmuxRemoteWorkspace
 import CmuxWorkspaces
 import Darwin
 import CmuxCore
@@ -1745,7 +1746,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             panel: Self.browserPanelSnapshot(id: browserPanelId),
             focusedPanelId: browserPanelId
         )
-        XCTAssertTrue(Workspace.shouldAutoConnectRestoredRemote(
+        XCTAssertTrue(Workspace.makeSessionRestorePolicyService().shouldAutoConnectRestoredRemote(
             foregroundAuthToken: " token-a ",
             snapshot: browserOnlySnapshot,
             isRunningUnderAutomatedTests: false
@@ -1756,7 +1757,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             panel: Self.terminalPanelSnapshot(id: terminalPanelId),
             focusedPanelId: terminalPanelId
         )
-        XCTAssertFalse(Workspace.shouldAutoConnectRestoredRemote(
+        XCTAssertFalse(Workspace.makeSessionRestorePolicyService().shouldAutoConnectRestoredRemote(
             foregroundAuthToken: "token-a",
             snapshot: terminalSnapshot,
             isRunningUnderAutomatedTests: false
@@ -1771,7 +1772,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             pane.panelIds.append(localTerminalPanelId)
             browserAndLocalTerminalSnapshot.layout = .pane(pane)
         }
-        XCTAssertTrue(Workspace.shouldAutoConnectRestoredRemote(
+        XCTAssertTrue(Workspace.makeSessionRestorePolicyService().shouldAutoConnectRestoredRemote(
             foregroundAuthToken: "token-a",
             snapshot: browserAndLocalTerminalSnapshot,
             isRunningUnderAutomatedTests: false
@@ -1787,18 +1788,18 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             pane.panelIds.append(restoredAttachPanelId)
             browserAndRestoredAttachSnapshot.layout = .pane(pane)
         }
-        XCTAssertFalse(Workspace.shouldAutoConnectRestoredRemote(
+        XCTAssertFalse(Workspace.makeSessionRestorePolicyService().shouldAutoConnectRestoredRemote(
             foregroundAuthToken: "token-a",
             snapshot: browserAndRestoredAttachSnapshot,
             isRunningUnderAutomatedTests: false
         ))
 
-        XCTAssertTrue(Workspace.shouldAutoConnectRestoredRemote(
+        XCTAssertTrue(Workspace.makeSessionRestorePolicyService().shouldAutoConnectRestoredRemote(
             foregroundAuthToken: nil,
             snapshot: terminalSnapshot,
             isRunningUnderAutomatedTests: false
         ))
-        XCTAssertFalse(Workspace.shouldAutoConnectRestoredRemote(
+        XCTAssertFalse(Workspace.makeSessionRestorePolicyService().shouldAutoConnectRestoredRemote(
             foregroundAuthToken: nil,
             snapshot: browserOnlySnapshot,
             isRunningUnderAutomatedTests: true
@@ -2130,7 +2131,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         remoteWorkspace.remoteConnectionCoordinator.configureRemoteConnection(configuration, autoConnect: false)
         let remotePanelId = try XCTUnwrap(remoteWorkspace.focusedPanelId)
         remoteWorkspace.updatePanelDirectory(panelId: remotePanelId, directory: "/home/dev/persistent-project")
-        let expectedSessionID = Workspace.defaultSSHPTYSessionID(
+        let expectedSessionID = RemoteSurfaceCoordinator<Workspace>.defaultSSHPTYSessionID(
             workspaceId: remoteWorkspace.id,
             panelId: remotePanelId
         )
@@ -2316,8 +2317,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             remoteWorkspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal, focus: true)
         )
         let expectedSessionIDs: Set<String> = [
-            Workspace.defaultSSHPTYSessionID(workspaceId: remoteWorkspace.id, panelId: firstPanelId),
-            Workspace.defaultSSHPTYSessionID(workspaceId: remoteWorkspace.id, panelId: secondPanel.id),
+            RemoteSurfaceCoordinator<Workspace>.defaultSSHPTYSessionID(workspaceId: remoteWorkspace.id, panelId: firstPanelId),
+            RemoteSurfaceCoordinator<Workspace>.defaultSSHPTYSessionID(workspaceId: remoteWorkspace.id, panelId: secondPanel.id),
         ]
 
         let snapshot = manager.sessionSnapshot(includeScrollback: false)
@@ -2381,7 +2382,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         remoteWorkspace.remoteConnectionCoordinator.configureRemoteConnection(configuration, autoConnect: false)
         let originalWorkspaceId = remoteWorkspace.id
         let originalPanelId = try XCTUnwrap(remoteWorkspace.focusedPanelId)
-        let sessionID = Workspace.defaultSSHPTYSessionID(
+        let sessionID = RemoteSurfaceCoordinator<Workspace>.defaultSSHPTYSessionID(
             workspaceId: originalWorkspaceId,
             panelId: originalPanelId
         )
@@ -2556,7 +2557,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         ]
         let requestData = try JSONSerialization.data(withJSONObject: request, options: [])
 
-        let rewrittenData = Workspace.rewriteRemoteRelayCommandLine(
+        let rewrittenData = RemoteRelayCommandLineRewriter.rewrite(
             requestData,
             workspaceAliases: [staleID: restoredWorkspaceID],
             surfaceAliases: [staleID: restoredPanelID]
@@ -2598,7 +2599,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
         let sourceWorkspaceId = sourceWorkspace.id
         let sourcePanelId = try XCTUnwrap(sourceWorkspace.focusedPanelId)
-        let sessionID = Workspace.defaultSSHPTYSessionID(
+        let sessionID = RemoteSurfaceCoordinator<Workspace>.defaultSSHPTYSessionID(
             workspaceId: sourceWorkspaceId,
             panelId: sourcePanelId
         )
@@ -2695,7 +2696,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         remoteWorkspace.remoteConnectionCoordinator.configureRemoteConnection(configuration, autoConnect: false)
         let originalWorkspaceId = remoteWorkspace.id
         let originalPanelId = try XCTUnwrap(remoteWorkspace.focusedPanelId)
-        let sessionID = Workspace.defaultSSHPTYSessionID(
+        let sessionID = RemoteSurfaceCoordinator<Workspace>.defaultSSHPTYSessionID(
             workspaceId: originalWorkspaceId,
             panelId: originalPanelId
         )
@@ -2714,7 +2715,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(ended.untrackedRemoteTerminal)
 
         let paneId = try XCTUnwrap(restoredWorkspace.bonsplitController.allPaneIds.first)
-        let attachStartupCommand = Workspace.sshPTYAttachStartupCommand(sessionID: sessionID)
+        let attachStartupCommand = SSHPTYAttachStartupCommandBuilder.command(sessionID: sessionID)
         XCTAssertTrue(attachStartupCommand.hasPrefix("/bin/sh -c "), attachStartupCommand)
         let reattachedPanel = try XCTUnwrap(
             restoredWorkspace.newTerminalSurface(
@@ -2794,7 +2795,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
         remoteWorkspace.remoteConnectionCoordinator.configureRemoteConnection(configuration, autoConnect: false)
         let originalPanelId = try XCTUnwrap(remoteWorkspace.focusedPanelId)
-        let expectedSessionID = Workspace.defaultSSHPTYSessionID(
+        let expectedSessionID = RemoteSurfaceCoordinator<Workspace>.defaultSSHPTYSessionID(
             workspaceId: remoteWorkspace.id,
             panelId: originalPanelId
         )
@@ -2856,7 +2857,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
         remoteWorkspace.remoteConnectionCoordinator.configureRemoteConnection(configuration, autoConnect: false)
         let originalPanelId = try XCTUnwrap(remoteWorkspace.focusedPanelId)
-        let endedSessionID = Workspace.defaultSSHPTYSessionID(
+        let endedSessionID = RemoteSurfaceCoordinator<Workspace>.defaultSSHPTYSessionID(
             workspaceId: remoteWorkspace.id,
             panelId: originalPanelId
         )
@@ -3017,7 +3018,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
         remoteWorkspace.remoteConnectionCoordinator.configureRemoteConnection(configuration, autoConnect: false)
         let remotePanelId = try XCTUnwrap(remoteWorkspace.focusedPanelId)
-        let expectedSessionID = Workspace.defaultSSHPTYSessionID(workspaceId: remoteWorkspace.id, panelId: remotePanelId)
+        let expectedSessionID = RemoteSurfaceCoordinator<Workspace>.defaultSSHPTYSessionID(workspaceId: remoteWorkspace.id, panelId: remotePanelId)
 
         let snapshotURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-pty-durable-restore-\(UUID().uuidString).json")

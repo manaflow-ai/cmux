@@ -77,6 +77,9 @@ final class MinimalModeSidebarControlActionView: NSView {
     var telemetryPrefix = "minimalSidebarClickProxy"
     var onAction: ((MinimalModeSidebarControlActionSlot, NSView, NSPoint) -> Void)?
     private var cancellables: Set<AnyCancellable> = []
+    // Observes the @Observable NotificationsPopoverVisibilityState via its broadcast
+    // notification (the model dropped its Combine `$shownWindowNumbers` publisher).
+    private var popoverVisibilityObserver: NSObjectProtocol?
     private let buttons: [MinimalModeSidebarControlActionSlot: MinimalModeSidebarControlButton]
 
     override init(frame frameRect: NSRect) {
@@ -265,10 +268,21 @@ final class MinimalModeSidebarControlActionView: NSView {
             .sink { [weak self] _ in self?.syncButtons() }
             .store(in: &cancellables)
 
-        NotificationsPopoverVisibilityState.shared.$shownWindowNumbers
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.syncButtons() }
-            .store(in: &cancellables)
+        popoverVisibilityObserver = NotificationCenter.default.addObserver(
+            forName: .cmuxNotificationsPopoverVisibilityDidChange,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            // The model posts on the main actor; re-enter MainActor isolation to
+            // touch the view's @MainActor button state without a Combine bridge.
+            Task { @MainActor in self?.syncButtons() }
+        }
+    }
+
+    deinit {
+        if let popoverVisibilityObserver {
+            NotificationCenter.default.removeObserver(popoverVisibilityObserver)
+        }
     }
 
     private func syncButtons() {

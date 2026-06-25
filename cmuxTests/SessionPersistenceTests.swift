@@ -653,27 +653,31 @@ final class SessionPersistenceTests: XCTestCase {
 
     func testSessionScrollbackPersistenceHonorsReportedShellState() {
         XCTAssertTrue(
-            Workspace.shouldPersistSessionScrollback(
-                shellActivityState: .promptIdle,
-                fallbackNeedsConfirmClose: true
+            Workspace.makeSessionRestorePolicyService().shouldPersistSessionScrollback(
+                closeConfirmationRequired: PanelShellActivityState.promptIdle.closeConfirmationRequired(
+                    fallbackNeedsConfirmClose: true
+                )
             )
         )
         XCTAssertFalse(
-            Workspace.shouldPersistSessionScrollback(
-                shellActivityState: .commandRunning,
-                fallbackNeedsConfirmClose: false
+            Workspace.makeSessionRestorePolicyService().shouldPersistSessionScrollback(
+                closeConfirmationRequired: PanelShellActivityState.commandRunning.closeConfirmationRequired(
+                    fallbackNeedsConfirmClose: false
+                )
             )
         )
         XCTAssertFalse(
-            Workspace.shouldPersistSessionScrollback(
-                shellActivityState: .unknown,
-                fallbackNeedsConfirmClose: true
+            Workspace.makeSessionRestorePolicyService().shouldPersistSessionScrollback(
+                closeConfirmationRequired: PanelShellActivityState.unknown.closeConfirmationRequired(
+                    fallbackNeedsConfirmClose: true
+                )
             )
         )
         XCTAssertTrue(
-            Workspace.shouldPersistSessionScrollback(
-                shellActivityState: nil,
-                fallbackNeedsConfirmClose: false
+            Workspace.makeSessionRestorePolicyService().shouldPersistSessionScrollback(
+                closeConfirmationRequired: (PanelShellActivityState?.none ?? .unknown).closeConfirmationRequired(
+                    fallbackNeedsConfirmClose: false
+                )
             )
         )
     }
@@ -1273,7 +1277,7 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     func testResolvedSnapshotTerminalScrollbackPrefersCaptured() {
-        let resolved = Workspace.resolvedSnapshotTerminalScrollback(
+        let resolved = Workspace.makeSessionRestorePolicyService().resolvedSnapshotTerminalScrollback(
             capturedScrollback: "captured-value",
             fallbackScrollback: "fallback-value"
         )
@@ -1282,7 +1286,7 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     func testResolvedSnapshotTerminalScrollbackFallsBackWhenCaptureMissing() {
-        let resolved = Workspace.resolvedSnapshotTerminalScrollback(
+        let resolved = Workspace.makeSessionRestorePolicyService().resolvedSnapshotTerminalScrollback(
             capturedScrollback: nil,
             fallbackScrollback: "fallback-value"
         )
@@ -1295,7 +1299,7 @@ final class SessionPersistenceTests: XCTestCase {
             repeating: "x",
             count: SessionPersistencePolicy.maxScrollbackCharactersPerTerminal + 37
         )
-        let resolved = Workspace.resolvedSnapshotTerminalScrollback(
+        let resolved = Workspace.makeSessionRestorePolicyService().resolvedSnapshotTerminalScrollback(
             capturedScrollback: nil,
             fallbackScrollback: oversizedFallback
         )
@@ -1307,7 +1311,7 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     func testResolvedSnapshotTerminalScrollbackSkipsFallbackWhenRestoreIsUnsafe() {
-        let resolved = Workspace.resolvedSnapshotTerminalScrollback(
+        let resolved = Workspace.makeSessionRestorePolicyService().resolvedSnapshotTerminalScrollback(
             capturedScrollback: nil,
             fallbackScrollback: "fallback-value",
             allowFallbackScrollback: false
@@ -1324,8 +1328,8 @@ final class SessionPersistenceTests: XCTestCase {
             launchCommand: nil
         )
 
-        XCTAssertFalse(Workspace.shouldReplaySessionScrollback(restorableAgent: agent))
-        XCTAssertTrue(Workspace.shouldReplaySessionScrollback(restorableAgent: nil))
+        XCTAssertFalse(Workspace.makeSessionRestorePolicyService().shouldReplaySessionScrollback(hasRestorableAgent: agent != nil))
+        XCTAssertTrue(Workspace.makeSessionRestorePolicyService().shouldReplaySessionScrollback(hasRestorableAgent: (nil as SessionRestorableAgentSnapshot?) != nil))
     }
 
     @MainActor
@@ -5226,7 +5230,7 @@ extension SessionPersistenceTests {
             signingSecret: secret
         ))
 
-        let input = Workspace.surfaceResumeStartupInput(
+        let input = Workspace.makeSessionRestorePolicyService().surfaceResumeStartupInput(
             binding,
             autoResumeAgentSessions: true,
             approvalStoreURL: storeURL,
@@ -5251,7 +5255,7 @@ extension SessionPersistenceTests {
             signingSecret: secret
         ))
 
-        let input = Workspace.surfaceResumeStartupInput(
+        let input = Workspace.makeSessionRestorePolicyService().surfaceResumeStartupInput(
             binding,
             autoResumeAgentSessions: true,
             promptForApproval: false,
@@ -5318,10 +5322,11 @@ extension SessionPersistenceTests {
             autoResume: true
         )
 
-        let input = try XCTUnwrap(Workspace.surfaceResumeStartupInput(
+        let input = try XCTUnwrap(Workspace.makeSessionRestorePolicyService().surfaceResumeStartupInput(
             binding,
             autoResumeAgentSessions: true,
-            promptForApproval: false
+            promptForApproval: false,
+            approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
         ))
 
         XCTAssertTrue(input.contains("config set model.provider"))
@@ -5345,10 +5350,11 @@ extension SessionPersistenceTests {
             autoResume: true
         )
 
-        let input = try XCTUnwrap(Workspace.surfaceResumeStartupInput(
+        let input = try XCTUnwrap(Workspace.makeSessionRestorePolicyService().surfaceResumeStartupInput(
             binding,
             autoResumeAgentSessions: true,
-            promptForApproval: false
+            promptForApproval: false,
+            approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
         ))
 
         XCTAssertTrue(input.contains("'/opt/homebrew/bin/hermes' config set model.provider"))
@@ -5367,10 +5373,11 @@ extension SessionPersistenceTests {
             autoResume: true
         )
 
-        let input = try XCTUnwrap(Workspace.surfaceResumeStartupInput(
+        let input = try XCTUnwrap(Workspace.makeSessionRestorePolicyService().surfaceResumeStartupInput(
             binding,
             autoResumeAgentSessions: true,
-            promptForApproval: false
+            promptForApproval: false,
+            approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
         ))
 
         let cdRange = try XCTUnwrap(input.range(of: "cd --"))
@@ -5392,10 +5399,11 @@ extension SessionPersistenceTests {
             autoResume: true
         )
 
-        let input = try XCTUnwrap(Workspace.surfaceResumeStartupInput(
+        let input = try XCTUnwrap(Workspace.makeSessionRestorePolicyService().surfaceResumeStartupInput(
             binding,
             autoResumeAgentSessions: true,
-            promptForApproval: false
+            promptForApproval: false,
+            approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
         ))
 
         XCTAssertEqual(input.components(separatedBy: "config set model.provider").count - 1, 1)
@@ -5415,10 +5423,11 @@ extension SessionPersistenceTests {
             autoResume: true
         )
 
-        let input = try XCTUnwrap(Workspace.surfaceResumeStartupInput(
+        let input = try XCTUnwrap(Workspace.makeSessionRestorePolicyService().surfaceResumeStartupInput(
             binding,
             autoResumeAgentSessions: true,
-            promptForApproval: false
+            promptForApproval: false,
+            approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
         ))
 
         XCTAssertTrue(input.contains("config set model.provider"))
@@ -5436,10 +5445,11 @@ extension SessionPersistenceTests {
             autoResume: true
         )
 
-        let input = try XCTUnwrap(Workspace.surfaceResumeStartupInput(
+        let input = try XCTUnwrap(Workspace.makeSessionRestorePolicyService().surfaceResumeStartupInput(
             binding,
             autoResumeAgentSessions: true,
-            promptForApproval: false
+            promptForApproval: false,
+            approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
         ))
 
         XCTAssertFalse(input.contains("config set model.provider"))

@@ -9,8 +9,6 @@ import Foundation
 /// Authorized verbs do not pass through this limiter; their verification
 /// posture is unchanged.
 actor MobileHostStatusVerificationLimiter {
-    static let shared = MobileHostStatusVerificationLimiter()
-
     private var inFlight = 0
     private let limit: Int
 

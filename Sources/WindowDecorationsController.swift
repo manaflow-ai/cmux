@@ -118,6 +118,11 @@ final class WindowDecorationsController {
                 slot: actionSlot
             )
             #endif
+            // TODO(@MainActor): NotificationsPopoverVisibilityState is now @MainActor @Observable.
+            // This NSEvent local-monitor closure runs on the main thread but is nonisolated, and it
+            // co-reads the sibling non-@MainActor MinimalModeSidebarChromeHoverState singleton (a
+            // different slice). Reconcile isolation when both this controller and that hover-state
+            // singleton are made @MainActor / packaged; runtime behavior is correct (main-thread only).
             let controlsAreRevealed = MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumber == window.windowNumber
                 || NotificationsPopoverVisibilityState.shared.isShown(in: window.windowNumber)
             if event.type == .leftMouseDown,
@@ -171,6 +176,10 @@ final class WindowDecorationsController {
             window: window,
             locationInWindow: locationInWindow
         )
+        // TODO(@MainActor): NotificationsPopoverVisibilityState is now @MainActor @Observable.
+        // This path co-reads the sibling non-@MainActor MinimalModeSidebarChromeHoverState singleton;
+        // reconcile isolation when this controller and that hover-state are made @MainActor / packaged
+        // (runtime is main-thread only via the local event monitor / .main-queue handlers).
         let controlsAreRevealed = MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumber == window.windowNumber
             || NotificationsPopoverVisibilityState.shared.isShown(in: window.windowNumber)
         let actionSlot = minimalModeSidebarControlActionSlot(

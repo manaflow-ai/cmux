@@ -44,6 +44,10 @@ final class CmuxWebView: WKWebView {
     /// predicates to it (through `contextDownloadService`, which holds it).
     private let downloadURLClassifier = BrowserDownloadURLClassifier()
     private let contextMenuItemClassifier = BrowserContextMenuItemClassifier()
+    /// Set-membership predicates over the stable drag wire identifiers, owned in
+    /// `CmuxBrowser`. The drag-registration filter and the five
+    /// `NSDraggingInfo` overrides below route through this held policy.
+    private let internalPaneDragRoutingPolicy = BrowserInternalPaneDragRoutingPolicy()
     /// The context-menu download + image-copy network/save orchestration, owned in
     /// `CmuxBrowser`. The `@objc` action methods resolve the clicked URL from app
     /// capture state, then call this service to fetch/save/copy. App-side state
@@ -130,7 +134,6 @@ final class CmuxWebView: WKWebView {
     }
 
     private static var contextMenuFallbackKey: UInt8 = 0
-    private static let pasteAsPlainTextKeyCode: UInt16 = 9 // V key (hardware position, layout-independent)
     var onContextMenuDownloadStateChanged: ((Bool) -> Void)?
     /// Called when "Open Link in New Tab" context menu is selected.
     /// Bypasses createWebViewWith so the link opens as a tab, not a popup.
@@ -264,12 +267,6 @@ final class CmuxWebView: WKWebView {
 #endif
         }
         return body()
-    }
-
-    private static func isPasteAsPlainTextCommandEquivalent(_ event: NSEvent) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
-        return event.keyCode == pasteAsPlainTextKeyCode && normalizedFlags == [.command, .shift]
     }
 
     private func webKitPasteAsPlainTextFallback(_ sender: Any?) {
@@ -429,7 +426,7 @@ final class CmuxWebView: WKWebView {
             return finish(super.performKeyEquivalent(with: event))
         }
 
-        if Self.isPasteAsPlainTextCommandEquivalent(event) {
+        if BrowserPasteAsPlainTextKeyCommand().matches(event: event) {
             if event.timestamp > 0 {
                 lastPasteAsPlainTextPerformKeyEventTimestamp = event.timestamp
             } else {
@@ -530,7 +527,7 @@ final class CmuxWebView: WKWebView {
             }
         }
 
-        if Self.isPasteAsPlainTextCommandEquivalent(event) {
+        if BrowserPasteAsPlainTextKeyCommand().matches(event: event) {
             if shouldSkipRepeatedPasteAsPlainTextPreflight(for: event) {
 #if DEBUG
                 route = "super"
@@ -972,49 +969,40 @@ final class CmuxWebView: WKWebView {
     // AppKit only bubbles up through superviews, not siblings.
     //
     // Fix: filter out text-based types that conflict with bonsplit tab drags, but keep
-    // file URL types so Finder file drops and HTML drag-and-drop work.
-    private static let blockedDragTypes: Set<NSPasteboard.PasteboardType> = [
-        .string, // public.utf8-plain-text — matches bonsplit's NSString tab drags
-        NSPasteboard.PasteboardType("public.text"),
-        NSPasteboard.PasteboardType("public.plain-text"),
-        NSPasteboard.PasteboardType("com.splittabbar.tabtransfer"),
-        NSPasteboard.PasteboardType("com.cmux.sidebar-tab-reorder"),
-    ]
-
-    static func shouldRejectInternalPaneDrag(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
-        DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
-            || DragOverlayRoutingPolicy.hasSidebarTabReorder(pasteboardTypes)
-    }
+    // file URL types so Finder file drops and HTML drag-and-drop work. The blocked-type
+    // set and the internal-pane-drag predicate live in `BrowserInternalPaneDragRoutingPolicy`
+    // (held as `internalPaneDragRoutingPolicy`); these overrides route through it.
 
     override func registerForDraggedTypes(_ newTypes: [NSPasteboard.PasteboardType]) {
-        let filtered = newTypes.filter { !Self.blockedDragTypes.contains($0) }
+        let blocked = internalPaneDragRoutingPolicy.blockedDragTypes
+        let filtered = newTypes.filter { !blocked.contains($0) }
         if !filtered.isEmpty {
             super.registerForDraggedTypes(filtered)
         }
     }
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        guard !Self.shouldRejectInternalPaneDrag(sender.draggingPasteboard.types) else { return [] }
+        guard !internalPaneDragRoutingPolicy.shouldRejectInternalPaneDrag(sender.draggingPasteboard.types) else { return [] }
         return super.draggingEntered(sender)
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        guard !Self.shouldRejectInternalPaneDrag(sender.draggingPasteboard.types) else { return [] }
+        guard !internalPaneDragRoutingPolicy.shouldRejectInternalPaneDrag(sender.draggingPasteboard.types) else { return [] }
         return super.draggingUpdated(sender)
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        guard !Self.shouldRejectInternalPaneDrag(sender.draggingPasteboard.types) else { return false }
+        guard !internalPaneDragRoutingPolicy.shouldRejectInternalPaneDrag(sender.draggingPasteboard.types) else { return false }
         return super.performDragOperation(sender)
     }
 
     override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        guard !Self.shouldRejectInternalPaneDrag(sender.draggingPasteboard.types) else { return false }
+        guard !internalPaneDragRoutingPolicy.shouldRejectInternalPaneDrag(sender.draggingPasteboard.types) else { return false }
         return super.prepareForDragOperation(sender)
     }
 
     override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
-        guard !Self.shouldRejectInternalPaneDrag(sender?.draggingPasteboard.types) else { return }
+        guard !internalPaneDragRoutingPolicy.shouldRejectInternalPaneDrag(sender?.draggingPasteboard.types) else { return }
         super.concludeDragOperation(sender)
     }
 

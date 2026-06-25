@@ -141,6 +141,13 @@ final class MobileHostService {
     nonisolated let publicStatusCache = MobileHostPublicStatusCache(onChange: {
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     })
+    /// Caps concurrent cache-miss Stack verifications driven by the
+    /// unauthenticated `mobile.host.status` identity gate. A single
+    /// constructor-held instance (one per `MobileHostService`, mirroring
+    /// ``eventSubscriptionRegistry``/``connectionRegistry``/``requestActivity``)
+    /// that replaces the previous process-wide `.shared` actor singleton. Read
+    /// only from ``verifiedStackCaller(for:)`` on the main actor.
+    private let statusVerificationLimiter = MobileHostStatusVerificationLimiter()
 
     private var listener: NWListener?
     private var listenerGeneration = UUID()
@@ -890,7 +897,7 @@ final class MobileHostService {
         if let cachedVerdict = await stackAuthVerifier.cachedVerdict(stackAccessToken: request.auth?.stackAccessToken) {
             return cachedVerdict
         }
-        guard await MobileHostStatusVerificationLimiter.shared.acquire() else {
+        guard await statusVerificationLimiter.acquire() else {
             mobileHostLog.error("mobile host status identity withheld: verification limiter saturated")
             return false
         }
@@ -903,7 +910,7 @@ final class MobileHostService {
         }
         // Non-throwing actor call: runs even if this task was cancelled
         // mid-verification, so a slot can never leak.
-        await MobileHostStatusVerificationLimiter.shared.release()
+        await statusVerificationLimiter.release()
         return verified
     }
 

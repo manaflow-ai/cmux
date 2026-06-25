@@ -1752,15 +1752,17 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         let hasDelayEnvironmentOverride =
             ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_DISCARD_DELAY_SECONDS"] != nil
 
+        let policy = BrowserHiddenWebViewDiscardPolicy(defaults: defaults)
+
         if !hasEnabledEnvironmentOverride {
             XCTAssertEqual(
-                BrowserHiddenWebViewDiscardPolicy.isEnabled(defaults: defaults),
+                policy.isEnabled,
                 BrowserHiddenWebViewDiscardPolicy.defaultEnabled
             )
         }
         if !hasDelayEnvironmentOverride {
             XCTAssertEqual(
-                BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults),
+                policy.hiddenDelay,
                 BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay
             )
         }
@@ -1770,20 +1772,20 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
 
         if !hasEnabledEnvironmentOverride {
             XCTAssertEqual(defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey) as? Bool, false)
-            XCTAssertFalse(BrowserHiddenWebViewDiscardPolicy.isEnabled(defaults: defaults))
+            XCTAssertFalse(policy.isEnabled)
         }
         if !hasDelayEnvironmentOverride {
-            XCTAssertEqual(BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults), 42.5)
+            XCTAssertEqual(policy.hiddenDelay, 42.5)
 
             defaults.set(7200, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
             XCTAssertEqual(
-                BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults),
+                policy.hiddenDelay,
                 BrowserHiddenWebViewDiscardPolicy.maximumHiddenDelay
             )
 
             defaults.set(-1, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
             XCTAssertEqual(
-                BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults),
+                policy.hiddenDelay,
                 BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay
             )
         }

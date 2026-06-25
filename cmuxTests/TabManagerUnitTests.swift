@@ -493,7 +493,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
             ),
             autoConnect: false
         )
-        let sessionID = Workspace.defaultSSHPTYSessionID(workspaceId: workspace.id, panelId: remotePanelId)
+        let sessionID = RemoteSurfaceCoordinator<Workspace>.defaultSSHPTYSessionID(workspaceId: workspace.id, panelId: remotePanelId)
 
         let outcome = workspace.markRemotePTYAttachEnded(surfaceId: remotePanelId, sessionID: sessionID)
 

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import Foundation
 
 @MainActor
@@ -42,12 +43,22 @@ final class BrowserHiddenWebViewDiscardManager {
 
     weak var delegate: BrowserHiddenWebViewDiscardManagerDelegate?
 
+    /// Resolves enabled/hidden-delay from the environment and `UserDefaults`. The
+    /// app composition point owns picking `UserDefaults.standard` /
+    /// `ProcessInfo.processInfo`; tests inject scoped seams.
+    private let policy: BrowserHiddenWebViewDiscardPolicy
+
     private var discardTimer: DispatchSourceTimer?
     private var policyObserver: NSObjectProtocol?
     private var systemSleepObservers: [NSObjectProtocol] = []
     private var systemSleepObserverCenter: NotificationCenter?
-    private var policyState = BrowserHiddenWebViewDiscardPolicy.resolved()
+    private var policyState: BrowserHiddenWebViewDiscardPolicy.ResolvedPolicy
     private var scheduleGeneration: UInt64 = 0
+
+    init(policy: BrowserHiddenWebViewDiscardPolicy = BrowserHiddenWebViewDiscardPolicy()) {
+        self.policy = policy
+        self.policyState = policy.resolved()
+    }
 
     /// Sleep/wake state used to keep a hidden-webview discard from running in
     /// the fragile window right after system wake
@@ -67,7 +78,7 @@ final class BrowserHiddenWebViewDiscardManager {
 
     func blockers(for snapshot: BlockerSnapshot) -> [String] {
         var blockers: [String] = []
-        if !BrowserHiddenWebViewDiscardPolicy.isEnabled { blockers.append("policy_disabled") }
+        if !policy.isEnabled { blockers.append("policy_disabled") }
         if isSystemSleeping { blockers.append("system_sleeping") }
         if snapshot.isClosing { blockers.append("closing") }
         if isDiscardedForMemory { blockers.append("already_discarded") }
@@ -107,7 +118,7 @@ final class BrowserHiddenWebViewDiscardManager {
         // (https://github.com/manaflow-ai/cmux/issues/5261).
         let effectiveHiddenAt = lastSystemWakeAt.map { max(hiddenAt, $0) } ?? hiddenAt
         let elapsed = Date().timeIntervalSince(effectiveHiddenAt)
-        let remaining = max(0, BrowserHiddenWebViewDiscardPolicy.hiddenDelay - elapsed)
+        let remaining = max(0, policy.hiddenDelay - elapsed)
         if remaining <= 0 {
             delegate.hiddenWebViewDiscardManagerDidRequestDiscard(self, reason: reason)
             return
@@ -188,7 +199,7 @@ final class BrowserHiddenWebViewDiscardManager {
     }
 
     func installPolicyObserver() {
-        policyState = BrowserHiddenWebViewDiscardPolicy.resolved()
+        policyState = policy.resolved()
         guard policyObserver == nil else { return }
         policyObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
@@ -257,7 +268,7 @@ final class BrowserHiddenWebViewDiscardManager {
     }
 
     private func handlePolicyDefaultsChanged() {
-        let nextPolicyState = BrowserHiddenWebViewDiscardPolicy.resolved()
+        let nextPolicyState = policy.resolved()
         guard policyState != nextPolicyState else { return }
         policyState = nextPolicyState
         delegate?.hiddenWebViewDiscardManagerPolicyDidChange(self, reason: "policy_changed")

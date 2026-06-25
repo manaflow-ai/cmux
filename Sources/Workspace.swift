@@ -588,98 +588,6 @@ extension Workspace {
         closedPanelHistoryCoordinator.restoreClosedPanel(entry)
     }
 
-    nonisolated static func resolvedSnapshotTerminalScrollback(
-        capturedScrollback: String?,
-        fallbackScrollback: String?,
-        allowFallbackScrollback: Bool = true
-    ) -> String? {
-        makeSessionRestorePolicyService().resolvedSnapshotTerminalScrollback(
-            capturedScrollback: capturedScrollback,
-            fallbackScrollback: fallbackScrollback,
-            allowFallbackScrollback: allowFallbackScrollback
-        )
-    }
-
-    nonisolated static func shouldReplaySessionScrollback(
-        restorableAgent: SessionRestorableAgentSnapshot?,
-        tmuxStartCommand: String? = nil,
-        hasResumeStartupWork: Bool = false
-    ) -> Bool {
-        makeSessionRestorePolicyService().shouldReplaySessionScrollback(
-            hasRestorableAgent: restorableAgent != nil,
-            tmuxStartCommand: tmuxStartCommand,
-            hasResumeStartupWork: hasResumeStartupWork
-        )
-    }
-
-    nonisolated static func shouldAutoConnectRestoredRemote(
-        foregroundAuthToken: String?,
-        snapshot: SessionWorkspaceSnapshot,
-        isRunningUnderAutomatedTests: Bool = SessionRestorePolicy.isRunningUnderAutomatedTests()
-    ) -> Bool {
-        makeSessionRestorePolicyService().shouldAutoConnectRestoredRemote(
-            foregroundAuthToken: foregroundAuthToken,
-            snapshot: snapshot,
-            isRunningUnderAutomatedTests: isRunningUnderAutomatedTests
-        )
-    }
-
-    nonisolated static func surfaceResumeStartupInput(
-        _ resumeBinding: SurfaceResumeBindingSnapshot?,
-        autoResumeAgentSessions: Bool,
-        allowLauncherScript: Bool = false,
-        promptForApproval: Bool = true,
-        approvalStoreURL: URL = SurfaceResumeApprovalStore.defaultURL(),
-        approvalSigningSecret: Data? = nil
-    ) -> String? {
-        makeSessionRestorePolicyService().surfaceResumeStartupInput(
-            resumeBinding,
-            autoResumeAgentSessions: autoResumeAgentSessions,
-            allowLauncherScript: allowLauncherScript,
-            promptForApproval: promptForApproval,
-            approvalStoreURL: approvalStoreURL,
-            approvalSigningSecret: approvalSigningSecret
-        )
-    }
-
-    nonisolated static func surfaceResumeStartupLaunch(
-        _ resumeBinding: SurfaceResumeBindingSnapshot?,
-        autoResumeAgentSessions: Bool,
-        allowLauncherScript: Bool = true,
-        promptForApproval: Bool = true,
-        approvalStoreURL: URL = SurfaceResumeApprovalStore.defaultURL(),
-        approvalSigningSecret: Data? = nil,
-        fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
-    ) -> SurfaceResumeStartupLaunch? {
-        makeSessionRestorePolicyService(
-            temporaryDirectory: temporaryDirectory
-        ).surfaceResumeStartupLaunch(
-            resumeBinding,
-            autoResumeAgentSessions: autoResumeAgentSessions,
-            allowLauncherScript: allowLauncherScript,
-            promptForApproval: promptForApproval,
-            approvalStoreURL: approvalStoreURL,
-            approvalSigningSecret: approvalSigningSecret,
-            fileManager: fileManager
-        )
-    }
-
-    nonisolated static func restorableTmuxStartCommand(_ rawCommand: String?) -> String? {
-        makeSessionRestorePolicyService().restorableTmuxStartCommand(rawCommand)
-    }
-
-    nonisolated static func shouldPersistSessionScrollback(
-        shellActivityState: PanelShellActivityState?,
-        fallbackNeedsConfirmClose: Bool
-    ) -> Bool {
-        makeSessionRestorePolicyService().shouldPersistSessionScrollback(
-            closeConfirmationRequired: (shellActivityState ?? .unknown).closeConfirmationRequired(
-                fallbackNeedsConfirmClose: fallbackNeedsConfirmClose
-            )
-        )
-    }
-
     private func terminalSnapshotScrollback(
         panelId: UUID,
         capturedScrollback: String?,
@@ -971,7 +879,7 @@ extension Workspace {
                 guard snapshot.terminal?.isRemoteTerminal == true else {
                     return nil
                 }
-                return Self.defaultSSHPTYSessionID(workspaceId: snapshotWorkspaceId ?? id, panelId: snapshot.id)
+                return RemoteSurfaceCoordinator<Workspace>.defaultSSHPTYSessionID(workspaceId: snapshotWorkspaceId ?? id, panelId: snapshot.id)
             }()
             let restoredRemotePTYAttachCommand = restoredRemotePTYSessionID.map {
                 remotePTYAttachStartupCommand(sessionID: $0)
@@ -2227,7 +2135,16 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
 
     private var processTitle: String
 
-    nonisolated private static func makeSessionRestorePolicyService(
+    /// Builds the app-injected session restore policy service.
+    ///
+    /// Owns the composition of the package
+    /// ``CmuxWorkspaces/WorkspaceSessionRestorePolicyService`` with the app's
+    /// concrete approval storage, prompt handling, automated-test detection,
+    /// scrollback truncation, and Hermes Codex defaults. `Workspace.init`
+    /// constructs the held `sessionRestorePolicy` from this; the cmuxTests build
+    /// their own instance from it to exercise the policy decisions directly
+    /// (replacing the former `Workspace` static forwarders).
+    nonisolated static func makeSessionRestorePolicyService(
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot> {
         WorkspaceSessionRestorePolicyService(
@@ -4567,7 +4484,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         remoteSurfaceCoordinator.state.transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
         if remoteConnectionCoordinator.state.remoteConfiguration?.preserveAfterTerminalExit == true,
            normalizedRemotePTYSessionID(remoteSurfaceCoordinator.state.remotePTYSessionIDsByPanelId[panelId]) == nil {
-            remoteSurfaceCoordinator.state.remotePTYSessionIDsByPanelId[panelId] = Self.defaultSSHPTYSessionID(workspaceId: id, panelId: panelId)
+            remoteSurfaceCoordinator.state.remotePTYSessionIDsByPanelId[panelId] = RemoteSurfaceCoordinator<Workspace>.defaultSSHPTYSessionID(workspaceId: id, panelId: panelId)
         }
         guard remoteSurfaceCoordinator.state.activeRemoteTerminalSurfaceIds.insert(panelId).inserted else { return }
         remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount = remoteSurfaceCoordinator.state.activeRemoteTerminalSurfaceIds.count
@@ -4633,40 +4550,11 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         surfaceCreation.normalizedRemotePTYSessionID(value)
     }
 
-    /// Alias-explicit relay-command rewrite. Forwards to
-    /// ``CmuxRemoteWorkspace/RemoteRelayCommandLineRewriter``; retained as a
-    /// `Workspace`-namespaced entry point for callers that pass alias maps
-    /// directly (session-restore tests).
-    nonisolated static func rewriteRemoteRelayCommandLine(
-        _ commandLine: Data,
-        workspaceAliases: [UUID: UUID],
-        surfaceAliases: [UUID: UUID]
-    ) -> Data {
-        RemoteRelayCommandLineRewriter.rewrite(
-            commandLine,
-            workspaceAliases: workspaceAliases,
-            surfaceAliases: surfaceAliases
-        )
-    }
-
-    /// Thin forwarder to the canonical
-    /// ``CmuxRemoteSession/RemoteSurfaceCoordinator/defaultSSHPTYSessionID(workspaceId:panelId:)``.
-    /// The duplicated `ssh-<workspaceId>-<panelId>` body lives in the package; this
-    /// static stays so the ~15 cmuxTests call sites and in-file callers keep using
-    /// `Workspace.defaultSSHPTYSessionID(...)` unchanged.
-    nonisolated static func defaultSSHPTYSessionID(workspaceId: UUID, panelId: UUID) -> String {
-        RemoteSurfaceCoordinator<Workspace>.defaultSSHPTYSessionID(workspaceId: workspaceId, panelId: panelId)
-    }
-
-    nonisolated static func sshPTYAttachStartupCommand(sessionID: String) -> String {
-        SSHPTYAttachStartupCommandBuilder.command(sessionID: sessionID)
-    }
-
     private func remotePTYAttachStartupCommand(sessionID: String) -> String {
         guard let remoteConfiguration = remoteConnectionCoordinator.state.remoteConfiguration,
               remoteConfiguration.preserveAfterTerminalExit,
               let foregroundAuthToken = remoteConfiguration.foregroundAuthToken else {
-            return Self.sshPTYAttachStartupCommand(sessionID: sessionID)
+            return SSHPTYAttachStartupCommandBuilder.command(sessionID: sessionID)
         }
         let foregroundAuth = SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
             destination: remoteConfiguration.destination,
@@ -4685,7 +4573,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     func markRemotePTYAttachEnded(surfaceId: UUID, sessionID: String) -> (clearedRemotePTYSession: Bool, untrackedRemoteTerminal: Bool) {
         let normalizedSessionID = normalizedRemotePTYSessionID(sessionID)
         let expectedSessionID = normalizedRemotePTYSessionID(remoteSurfaceCoordinator.state.remotePTYSessionIDsByPanelId[surfaceId])
-            ?? Self.defaultSSHPTYSessionID(workspaceId: id, panelId: surfaceId)
+            ?? RemoteSurfaceCoordinator<Workspace>.defaultSSHPTYSessionID(workspaceId: id, panelId: surfaceId)
         guard let normalizedSessionID, normalizedSessionID == expectedSessionID else {
             return (false, false)
         }

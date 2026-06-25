@@ -1527,7 +1527,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
 
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
-        let expectedSessionID = Workspace.defaultSSHPTYSessionID(workspaceId: workspace.id, panelId: panelID)
+        let expectedSessionID = RemoteSurfaceCoordinator<Workspace>.defaultSSHPTYSessionID(workspaceId: workspace.id, panelId: panelID)
         workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: 64012)
 
         wait(for: [cleanupRequested], timeout: 0.2)
@@ -2682,7 +2682,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
         workspace.remoteConnectionCoordinator.configureRemoteConnection(reseededConfig, autoConnect: false)
 
-        let defaultSessionID = Workspace.defaultSSHPTYSessionID(workspaceId: workspace.id, panelId: panel.id)
+        let defaultSessionID = RemoteSurfaceCoordinator<Workspace>.defaultSSHPTYSessionID(workspaceId: workspace.id, panelId: panel.id)
         XCTAssertTrue(workspace.remoteSurfaceCoordinator.remotePTYSessionIDMatches(panelId: panel.id, sessionID: defaultSessionID))
         let outcome = workspace.markRemotePTYAttachEnded(surfaceId: panel.id, sessionID: defaultSessionID)
         XCTAssertTrue(outcome.clearedRemotePTYSession)
@@ -2733,7 +2733,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
         workspace.remoteConnectionCoordinator.configureRemoteConnection(replacementConfig, autoConnect: false)
 
-        let defaultSessionID = Workspace.defaultSSHPTYSessionID(workspaceId: workspace.id, panelId: panel.id)
+        let defaultSessionID = RemoteSurfaceCoordinator<Workspace>.defaultSSHPTYSessionID(workspaceId: workspace.id, panelId: panel.id)
         XCTAssertTrue(workspace.remoteSurfaceCoordinator.remotePTYSessionIDMatches(panelId: panel.id, sessionID: defaultSessionID))
     }
 
@@ -2795,7 +2795,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
 
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
-        let expectedSessionID = Workspace.defaultSSHPTYSessionID(workspaceId: workspace.id, panelId: panelID)
+        let expectedSessionID = RemoteSurfaceCoordinator<Workspace>.defaultSSHPTYSessionID(workspaceId: workspace.id, panelId: panelID)
 
         XCTAssertTrue(workspace.remoteSurfaceCoordinator.remotePTYSessionIDMatches(panelId: panelID, sessionID: expectedSessionID))
         XCTAssertEqual(

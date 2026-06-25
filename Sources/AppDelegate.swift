@@ -89,6 +89,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func ensureClosedItemHistoryInstalled() {
         _ = closedItemHistory
     }
+    /// The app-target composition owner for the cross-window notifications-popover
+    /// visibility state (`NotificationsPopoverVisibilityState`). Constructed once at
+    /// the composition root (`applicationDidFinishLaunching` calls
+    /// ``ensureNotificationsPopoverVisibilityStateInstalled()``) so the type no
+    /// longer self-vivifies a `static let shared`. The per-window popover controller
+    /// and the titlebar/minimal-mode chrome views still reach this same instance
+    /// through the transitional ``NotificationsPopoverVisibilityState/shared``
+    /// accessor while they are migrated to an injected reference.
+    private(set) lazy var notificationsPopoverVisibilityState: NotificationsPopoverVisibilityState = {
+        let instance = NotificationsPopoverVisibilityState.shared
+        NotificationsPopoverVisibilityState.installCompositionRootInstance(instance)
+        return instance
+    }()
+
+    /// Resolve + own the ``NotificationsPopoverVisibilityState`` at startup.
+    /// Idempotent (the `lazy` runs once); calling it from
+    /// `applicationDidFinishLaunching` makes ownership explicit at the composition
+    /// root. The per-window consumers reach the same object through the transitional
+    /// ``NotificationsPopoverVisibilityState/shared`` accessor, so there is exactly
+    /// one instance.
+    func ensureNotificationsPopoverVisibilityStateInstalled() {
+        _ = notificationsPopoverVisibilityState
+    }
     /// Composition-root owner of the appearance-mode UserDefaults observer.
     /// Constructed once at startup and `startObserving()` is called on this held
     /// instance from `applicationDidFinishLaunching`, so the type no longer
@@ -1767,6 +1790,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // composition root (de-singletonization stage b73): the type no longer
         // self-vivifies a `static let shared`.
         ensureClosedItemHistoryInstalled()
+        // Construct + own the cross-window notifications-popover visibility state
+        // at the composition root: the type no longer self-vivifies a
+        // `static let shared`.
+        ensureNotificationsPopoverVisibilityStateInstalled()
         appearanceSettingsObserver.startObserving()
         browserSystemProxyWatcher.startObserving()
         if isRunningUnderXCTest {

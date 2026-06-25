@@ -7,6 +7,7 @@ import CmuxSettings
 import CmuxSettingsUI
 import CmuxSidebar
 import CmuxTestSupport
+import Observation
 import SwiftUI
 
 enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
@@ -117,20 +118,125 @@ struct TitlebarControlsStyleConfig {
     let hoverBackground: Bool
 }
 
+// Pure layout/style derivations for the titlebar controls. These live on the
+// style/config value type they read so call sites resolve `config.<member>`
+// instead of free functions (no-free-functions ruling).
+extension TitlebarControlsStyleConfig {
+    var notificationBadgeFontSize: CGFloat {
+        max(7, badgeSize - 6)
+    }
+
+    static func controlPressedScale(isPressed _: Bool) -> CGFloat {
+        1
+    }
+
+    var shortcutHintHeight: CGFloat {
+        max(14, iconSize + 1)
+    }
+
+    /// Width of a titlebar shortcut-hint pill, measured with the same font `ShortcutHintPill`
+    /// renders with (SF Rounded at the pill's font size). Measuring with the default
+    /// (non-rounded) system font underestimated command-symbol glyphs and let the pill
+    /// overflow its reserved slot. The `+ 12` matches the pill's 6pt horizontal padding per side.
+    func hintPillWidth(for shortcut: StoredShortcut) -> CGFloat {
+        let pillFontSize = max(8, iconSize - 5)
+        let baseFont = NSFont.systemFont(ofSize: pillFontSize, weight: .semibold)
+        let pillFont = baseFont.fontDescriptor.withDesign(.rounded)
+            .flatMap { NSFont(descriptor: $0, size: pillFontSize) } ?? baseFont
+        let textWidth = (shortcut.displayString as NSString).size(withAttributes: [.font: pillFont]).width
+        return ceil(textWidth) + 12
+    }
+
+    /// The rightmost edge the shortcut-hint pills occupy, in the controls' content
+    /// coordinate space (measured from the leading edge of the button row), after the
+    /// horizontal planner resolves overlaps.
+    ///
+    /// This mirrors `TitlebarControlsView.titlebarHintIntervals` and the
+    /// `ShortcutHintLayoutPlanner.assignRightEdges(for:)` so the accessory reserves exactly enough width for
+    /// the real layout. It is computed unconditionally for every command-bound slot (not
+    /// gated on modifier state) so the reserved width stays stable whether or not the hints
+    /// are currently visible. Returns 0 when no slot would show a hint.
+    func hintLayoutRightmostExtent(
+        titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX
+    ) -> CGFloat {
+        let xOffset = CGFloat(ShortcutHintDebugSettings.clamped(titlebarShortcutHintXOffset))
+        var intervals: [ClosedRange<CGFloat>] = []
+        for slot in TitlebarShortcutHintActionSlot.allCases {
+            let shortcut = KeyboardShortcutSettings.shortcut(for: slot.action)
+            guard !shortcut.isUnbound, shortcut.command else { continue }
+            let width = hintPillWidth(for: shortcut)
+            intervals.append(
+                TitlebarControlsLayoutMetrics.hintInterval(
+                    for: slot,
+                    width: width,
+                    config: self,
+                    xOffset: xOffset
+                )
+            )
+        }
+        guard !intervals.isEmpty else { return 0 }
+        return intervals.map(\.upperBound).max() ?? 0
+    }
+
+    var shortcutHintVerticalOffset: CGFloat {
+        buttonSize + TitlebarShortcutHintMetrics.verticalGap
+    }
+
+    static func controlForegroundOpacity(isHovering: Bool, isPressed: Bool) -> Double {
+        controlForegroundOpacity(isHovering: isHovering, isPressed: isPressed, isEnabled: true)
+    }
+
+    static func controlForegroundOpacity(isHovering: Bool, isPressed: Bool, isEnabled: Bool) -> Double {
+        HeaderChromeIconStyle.foregroundOpacity(isHovering: isHovering, isPressed: isPressed, isEnabled: isEnabled)
+    }
+
+    func controlBackgroundOpacity(
+        isHovering: Bool,
+        isPressed: Bool
+    ) -> Double {
+        controlBackgroundOpacity(isHovering: isHovering, isPressed: isPressed, isEnabled: true)
+    }
+
+    func controlBackgroundOpacity(
+        isHovering: Bool,
+        isPressed: Bool,
+        isEnabled: Bool
+    ) -> Double {
+        HeaderChromeIconStyle.backgroundOpacity(
+            hoverBackground: hoverBackground,
+            isHovering: isHovering,
+            isPressed: isPressed,
+            isEnabled: isEnabled
+        )
+    }
+
+    func controlBorderOpacity(
+        isHovering: Bool,
+        isPressed: Bool
+    ) -> Double {
+        controlBorderOpacity(isHovering: isHovering, isPressed: isPressed, isEnabled: true)
+    }
+
+    func controlBorderOpacity(
+        isHovering: Bool,
+        isPressed: Bool,
+        isEnabled: Bool
+    ) -> Double {
+        HeaderChromeIconStyle.borderOpacity(
+            buttonBackground: buttonBackground,
+            isHovering: isHovering,
+            isPressed: isPressed,
+            isEnabled: isEnabled
+        )
+    }
+}
+
 enum TitlebarControlsVisualMetrics {
     static let verticalLift: CGFloat = 0
 
     static func liftedYOffset(_ yOffset: CGFloat) -> CGFloat {
         yOffset + verticalLift
     }
-}
-
-func titlebarNotificationBadgeFontSize(for config: TitlebarControlsStyleConfig) -> CGFloat {
-    max(7, config.badgeSize - 6)
-}
-
-func titlebarControlPressedScale(isPressed _: Bool) -> CGFloat {
-    1
 }
 
 final class TitlebarControlsViewModel: ObservableObject {
@@ -213,37 +319,76 @@ private enum NotificationsPopoverVisibilityUserInfoKey {
     static let windowNumber = "windowNumber"
 }
 
-final class NotificationsPopoverVisibilityState: ObservableObject {
-    static let shared = NotificationsPopoverVisibilityState()
+/// Tracks which windows currently show the notifications popover, so the titlebar
+/// controls and the minimal-mode chrome stay revealed while a popover is open.
+///
+/// Every mutation originates on the main actor (popover open/close, NSPopover
+/// delegate callbacks), and every reader (`TitlebarControlsView`,
+/// `HiddenTitlebarSidebarControlsView`, `WindowDecorationsController`,
+/// `MinimalModeSidebarControlActionView`) reads synchronously on main, so the
+/// model lives on `@MainActor` with no isolation hops. It is `@Observable` so the
+/// SwiftUI readers track `isShown(in:)` directly; AppKit readers observe the
+/// `.cmuxNotificationsPopoverVisibilityDidChange` notification this model posts.
+///
+/// De-singletonized: ownership lives at the composition root
+/// (`AppDelegate.notificationsPopoverVisibilityState`), which constructs the
+/// single instance and records it via ``installCompositionRootInstance(_:)``.
+/// The type no longer self-vivifies an eager `static let shared`. The cross-window
+/// consumers (the per-window popover controller, the titlebar/minimal-mode chrome
+/// views, `WindowDecorationsController`) are AppKit/SwiftUI surfaces constructed
+/// per window with no shared injection point of their own, so they reach the one
+/// composition-root-owned instance through the transitional ``shared`` accessor,
+/// which returns exactly that object. Dropping ``shared`` is the end state once a
+/// per-window injection seam exists.
+@MainActor
+@Observable
+final class NotificationsPopoverVisibilityState {
+    /// Composition-root-owned instance, installed once at startup by
+    /// ``AppDelegate`` via ``installCompositionRootInstance(_:)``. Reading reaches
+    /// it through ``shared`` so every cross-window consumer resolves to the same
+    /// object. `nonisolated(unsafe)`: written exactly once at startup before any
+    /// concurrent reader exists. Retires with ``shared`` once every consumer is
+    /// injected.
+    nonisolated(unsafe) private static var compositionRootInstance: NotificationsPopoverVisibilityState?
 
-    @Published private(set) var isShown = false
-    @Published private(set) var shownWindowNumbers: Set<Int> = []
+    /// Fallback instance, lazily constructed on first access if the composition
+    /// root has not installed one yet (e.g. early reads, tests). A `static let` of
+    /// a `@MainActor` type is nonisolated-readable and its initializer runs the
+    /// `@MainActor` `init`, the same contract the legacy eager `static let shared`
+    /// had.
+    private static let fallbackInstance = NotificationsPopoverVisibilityState()
+
+    /// Transitional accessor for the de-singletonization (`static let shared` →
+    /// construct-and-inject). The type no longer self-vivifies an eager
+    /// `static let shared`; ownership lives at the composition root
+    /// (``AppDelegate/notificationsPopoverVisibilityState``). The per-window
+    /// AppKit/SwiftUI consumers still reach the same single object here while they
+    /// are migrated to an injected reference; dropping ``shared`` is the end state.
+    static var shared: NotificationsPopoverVisibilityState {
+        compositionRootInstance ?? fallbackInstance
+    }
+
+    /// Called once by ``AppDelegate`` at startup to record composition-root
+    /// ownership of the single instance. Idempotent (keeps the first installed
+    /// instance).
+    static func installCompositionRootInstance(_ instance: NotificationsPopoverVisibilityState) {
+        guard compositionRootInstance == nil else { return }
+        compositionRootInstance = instance
+    }
+
+    private(set) var isShown = false
+    private(set) var shownWindowNumbers: Set<Int> = []
     private var shownPopoverIDs: Set<ObjectIdentifier> = []
     private var shownPopoverWindowNumbers: [ObjectIdentifier: Int] = [:]
     private var sourceLessShown = false
 
-    private init() {}
+    init() {}
 
     func setShown(_ newValue: Bool) {
         setShown(newValue, source: nil, windowNumber: nil)
     }
 
     func setShown(_ newValue: Bool, source: AnyObject?, windowNumber: Int? = nil) {
-        if Thread.isMainThread {
-            setShownOnMain(newValue, source: source, windowNumber: windowNumber)
-        } else {
-            DispatchQueue.main.async { [weak self] in
-                self?.setShown(newValue, source: source, windowNumber: windowNumber)
-            }
-        }
-    }
-
-    func isShown(in windowNumber: Int?) -> Bool {
-        guard let windowNumber else { return isShown }
-        return sourceLessShown || shownWindowNumbers.contains(windowNumber)
-    }
-
-    private func setShownOnMain(_ newValue: Bool, source: AnyObject?, windowNumber: Int?) {
         if let source {
             let id = ObjectIdentifier(source)
             if newValue {
@@ -261,6 +406,28 @@ final class NotificationsPopoverVisibilityState: ObservableObject {
             sourceLessShown = newValue
         }
         updateShown()
+    }
+
+    func isShown(in windowNumber: Int?) -> Bool {
+        guard let windowNumber else { return isShown }
+        return sourceLessShown || shownWindowNumbers.contains(windowNumber)
+    }
+
+    /// Updates the visibility state and broadcasts `.cmuxNotificationsPopoverVisibilityDidChange`
+    /// so AppKit chrome that cannot observe `@Observable` directly can re-sync.
+    /// Folded in from the former file-private `postNotificationsPopoverVisibilityDidChange`
+    /// free function (no-free-functions ruling).
+    func notifyVisibilityChanged(isShown: Bool, source: AnyObject? = nil, windowNumber: Int? = nil) {
+        setShown(isShown, source: source, windowNumber: windowNumber)
+        var userInfo: [String: Any] = [NotificationsPopoverVisibilityUserInfoKey.isShown: self.isShown]
+        if let windowNumber {
+            userInfo[NotificationsPopoverVisibilityUserInfoKey.windowNumber] = windowNumber
+        }
+        NotificationCenter.default.post(
+            name: .cmuxNotificationsPopoverVisibilityDidChange,
+            object: nil,
+            userInfo: userInfo
+        )
     }
 
     private func updateShown() {
@@ -281,20 +448,6 @@ final class NotificationsPopoverVisibilityState: ObservableObject {
         updateShown()
     }
     #endif
-}
-
-private func postNotificationsPopoverVisibilityDidChange(isShown: Bool, source: AnyObject? = nil, windowNumber: Int? = nil) {
-    let state = NotificationsPopoverVisibilityState.shared
-    state.setShown(isShown, source: source, windowNumber: windowNumber)
-    var userInfo: [String: Any] = [NotificationsPopoverVisibilityUserInfoKey.isShown: state.isShown]
-    if let windowNumber {
-        userInfo[NotificationsPopoverVisibilityUserInfoKey.windowNumber] = windowNumber
-    }
-    NotificationCenter.default.post(
-        name: .cmuxNotificationsPopoverVisibilityDidChange,
-        object: nil,
-        userInfo: userInfo
-    )
 }
 
 struct NotificationsAnchorView: NSViewRepresentable {
@@ -337,61 +490,8 @@ final class AnchorNSView: NSView {
     }
 }
 
-func titlebarShortcutHintHeight(for config: TitlebarControlsStyleConfig) -> CGFloat {
-    max(14, config.iconSize + 1)
-}
-
-/// Width of a titlebar shortcut-hint pill, measured with the same font `ShortcutHintPill`
-/// renders with (SF Rounded at the pill's font size). Measuring with the default
-/// (non-rounded) system font underestimated command-symbol glyphs and let the pill
-/// overflow its reserved slot. The `+ 12` matches the pill's 6pt horizontal padding per side.
-func titlebarHintPillWidth(for shortcut: StoredShortcut, config: TitlebarControlsStyleConfig) -> CGFloat {
-    let pillFontSize = max(8, config.iconSize - 5)
-    let baseFont = NSFont.systemFont(ofSize: pillFontSize, weight: .semibold)
-    let pillFont = baseFont.fontDescriptor.withDesign(.rounded)
-        .flatMap { NSFont(descriptor: $0, size: pillFontSize) } ?? baseFont
-    let textWidth = (shortcut.displayString as NSString).size(withAttributes: [.font: pillFont]).width
-    return ceil(textWidth) + 12
-}
-
-/// The rightmost edge the shortcut-hint pills occupy, in the controls' content
-/// coordinate space (measured from the leading edge of the button row), after the
-/// horizontal planner resolves overlaps.
-///
-/// This mirrors `TitlebarControlsView.titlebarHintIntervals` and the
-/// `ShortcutHintLayoutPlanner.assignRightEdges(for:)` so the accessory reserves exactly enough width for
-/// the real layout. It is computed unconditionally for every command-bound slot (not
-/// gated on modifier state) so the reserved width stays stable whether or not the hints
-/// are currently visible. Returns 0 when no slot would show a hint.
-func titlebarHintLayoutRightmostExtent(
-    config: TitlebarControlsStyleConfig,
-    titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX
-) -> CGFloat {
-    let xOffset = CGFloat(ShortcutHintDebugSettings.clamped(titlebarShortcutHintXOffset))
-    var intervals: [ClosedRange<CGFloat>] = []
-    for slot in TitlebarShortcutHintActionSlot.allCases {
-        let shortcut = KeyboardShortcutSettings.shortcut(for: slot.action)
-        guard !shortcut.isUnbound, shortcut.command else { continue }
-        let width = titlebarHintPillWidth(for: shortcut, config: config)
-        intervals.append(
-            TitlebarControlsLayoutMetrics.hintInterval(
-                for: slot,
-                width: width,
-                config: config,
-                xOffset: xOffset
-            )
-        )
-    }
-    guard !intervals.isEmpty else { return 0 }
-    return intervals.map(\.upperBound).max() ?? 0
-}
-
 enum TitlebarShortcutHintMetrics {
     static let verticalGap: CGFloat = -3
-}
-
-func titlebarShortcutHintVerticalOffset(for config: TitlebarControlsStyleConfig) -> CGFloat {
-    config.buttonSize + TitlebarShortcutHintMetrics.verticalGap
 }
 
 enum TitlebarShortcutHintActionSlot: Int, CaseIterable {
@@ -474,8 +574,7 @@ enum TitlebarControlsLayoutMetrics {
         // overlap-shift the planner applies (which the fixed inset above ignores) is
         // always covered. This is what prevents the rightmost pill from clipping.
         let hintReservation = hintLeadingPadding
-            + titlebarHintLayoutRightmostExtent(
-                config: config,
+            + config.hintLayoutRightmostExtent(
                 titlebarShortcutHintXOffset: titlebarShortcutHintXOffset
             )
             + hintShadowMargin
@@ -532,58 +631,6 @@ private enum TitlebarControlIconStyle {
     static func iconFrameSize(for config: TitlebarControlsStyleConfig) -> CGFloat {
         HeaderChromeIconStyle.iconFrameSize(forIconSize: config.iconSize)
     }
-}
-
-func titlebarControlForegroundOpacity(isHovering: Bool, isPressed: Bool) -> Double {
-    titlebarControlForegroundOpacity(isHovering: isHovering, isPressed: isPressed, isEnabled: true)
-}
-
-func titlebarControlForegroundOpacity(isHovering: Bool, isPressed: Bool, isEnabled: Bool) -> Double {
-    HeaderChromeIconStyle.foregroundOpacity(isHovering: isHovering, isPressed: isPressed, isEnabled: isEnabled)
-}
-
-func titlebarControlBackgroundOpacity(
-    config: TitlebarControlsStyleConfig,
-    isHovering: Bool,
-    isPressed: Bool
-) -> Double {
-    titlebarControlBackgroundOpacity(config: config, isHovering: isHovering, isPressed: isPressed, isEnabled: true)
-}
-
-func titlebarControlBackgroundOpacity(
-    config: TitlebarControlsStyleConfig,
-    isHovering: Bool,
-    isPressed: Bool,
-    isEnabled: Bool
-) -> Double {
-    HeaderChromeIconStyle.backgroundOpacity(
-        hoverBackground: config.hoverBackground,
-        isHovering: isHovering,
-        isPressed: isPressed,
-        isEnabled: isEnabled
-    )
-}
-
-func titlebarControlBorderOpacity(
-    config: TitlebarControlsStyleConfig,
-    isHovering: Bool,
-    isPressed: Bool
-) -> Double {
-    titlebarControlBorderOpacity(config: config, isHovering: isHovering, isPressed: isPressed, isEnabled: true)
-}
-
-func titlebarControlBorderOpacity(
-    config: TitlebarControlsStyleConfig,
-    isHovering: Bool,
-    isPressed: Bool,
-    isEnabled: Bool
-) -> Double {
-    HeaderChromeIconStyle.borderOpacity(
-        buttonBackground: config.buttonBackground,
-        isHovering: isHovering,
-        isPressed: isPressed,
-        isEnabled: isEnabled
-    )
 }
 
 struct TitlebarControlButton<Content: View>: View {
@@ -677,7 +724,7 @@ private struct TitlebarControlButtonStyleBody: View {
                         .stroke(foregroundColor.opacity(borderOpacity), lineWidth: 0.5)
                 }
             }
-            .scaleEffect(titlebarControlPressedScale(isPressed: configuration.isPressed))
+            .scaleEffect(TitlebarControlsStyleConfig.controlPressedScale(isPressed: configuration.isPressed))
             .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
             .animation(.easeInOut(duration: 0.12), value: isHovering)
             .contentShape(Rectangle())
@@ -689,7 +736,7 @@ private struct TitlebarControlButtonStyleBody: View {
     }
 
     private var foregroundOpacity: Double {
-        titlebarControlForegroundOpacity(
+        TitlebarControlsStyleConfig.controlForegroundOpacity(
             isHovering: isHovering,
             isPressed: configuration.isPressed,
             isEnabled: isEnabled
@@ -697,8 +744,7 @@ private struct TitlebarControlButtonStyleBody: View {
     }
 
     private var backgroundOpacity: Double {
-        titlebarControlBackgroundOpacity(
-            config: config,
+        config.controlBackgroundOpacity(
             isHovering: isHovering,
             isPressed: configuration.isPressed,
             isEnabled: isEnabled
@@ -706,8 +752,7 @@ private struct TitlebarControlButtonStyleBody: View {
     }
 
     private var borderOpacity: Double {
-        titlebarControlBorderOpacity(
-            config: config,
+        config.controlBorderOpacity(
             isHovering: isHovering,
             isPressed: configuration.isPressed,
             isEnabled: isEnabled
@@ -756,7 +801,6 @@ struct TitlebarControlsView: View {
     let onFocusHistoryBack: () -> Void
     let onFocusHistoryForward: () -> Void
     let visibilityMode: TitlebarControlsVisibilityMode
-    @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
     @State private var shortcutRefreshTick = 0
     @State private var appearanceRefreshTick = 0
@@ -764,6 +808,9 @@ struct TitlebarControlsView: View {
     @State private var hostWindowNumber: Int?
     @State private var focusHistoryAvailabilityRevision: UInt64 = 0
     @State private var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
+    // Injected via the composition-owned `.shared` seam; tracked through @Observable
+    // since the body reads `popoverVisibilityState.isShown(in:)`.
+    private let popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     private let titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
     private let titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
     private let alwaysShowShortcutHints = ShortcutHintDebugSettings().alwaysShowHints
@@ -875,7 +922,7 @@ struct TitlebarControlsView: View {
     }
 
     private func titlebarHintVerticalBaseOffset(for config: TitlebarControlsStyleConfig) -> CGFloat {
-        titlebarShortcutHintVerticalOffset(for: config)
+        config.shortcutHintVerticalOffset
     }
 
     @MainActor
@@ -922,7 +969,7 @@ struct TitlebarControlsView: View {
 
                     if notificationStore.unreadCount > 0 {
                         Text("\(min(notificationStore.unreadCount, 99))")
-                            .font(.system(size: titlebarNotificationBadgeFontSize(for: config), weight: .semibold))
+                            .font(.system(size: config.notificationBadgeFontSize, weight: .semibold))
                             .foregroundColor(.white)
                             .frame(width: config.badgeSize, height: config.badgeSize)
                             .background(
@@ -1071,7 +1118,7 @@ struct TitlebarControlsView: View {
     }
 
     private func titlebarHintWidth(for shortcut: StoredShortcut, config: TitlebarControlsStyleConfig) -> CGFloat {
-        titlebarHintPillWidth(for: shortcut, config: config)
+        config.hintPillWidth(for: shortcut)
     }
 
     @ViewBuilder
@@ -1092,7 +1139,7 @@ struct TitlebarControlsView: View {
                     .background(TitlebarChromeGeometryReporter(keyPrefix: "titlebarShortcutHint_\(item.action.rawValue)"))
                     .position(
                         x: item.centerX,
-                        y: yOffset + titlebarShortcutHintHeight(for: config) / 2.0
+                        y: yOffset + config.shortcutHintHeight / 2.0
                     )
                     .shortcutHintTransition()
             }
@@ -1106,7 +1153,7 @@ struct TitlebarControlsView: View {
         config: TitlebarControlsStyleConfig
     ) -> some View {
         ShortcutHintPill(shortcut: shortcut, fontSize: max(8, config.iconSize - 5))
-            .frame(minHeight: titlebarShortcutHintHeight(for: config))
+            .frame(minHeight: config.shortcutHintHeight)
     }
 
     @ViewBuilder
@@ -1277,7 +1324,9 @@ struct HiddenTitlebarSidebarControlsView: View {
     let onFocusHistoryBack: () -> Void
     let onFocusHistoryForward: () -> Void
     @StateObject private var viewModel = TitlebarControlsViewModel()
-    @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
+    // Injected via the composition-owned `.shared` seam; tracked through @Observable
+    // since the body reads `popoverVisibilityState.isShown(in:)`.
+    private let popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @State private var isHoveringHost = false
     @State private var isHoveringWindowChrome = false
     @State private var hostWindowNumber: Int?
@@ -1902,7 +1951,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             if !anchorRect.isEmpty {
                 notificationsPopover.animates = animated
                 notificationsPopover.show(relativeTo: anchorRect, of: anchorContentView, preferredEdge: .maxY)
-                postNotificationsPopoverVisibilityDidChange(
+                NotificationsPopoverVisibilityState.shared.notifyVisibilityChanged(
                     isShown: true,
                     source: notificationsPopover,
                     windowNumber: anchorView.window?.windowNumber ?? window.windowNumber
@@ -1917,7 +1966,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             if !anchorRect.isEmpty {
                 notificationsPopover.animates = animated
                 notificationsPopover.show(relativeTo: anchorRect, of: contentView, preferredEdge: .maxY)
-                postNotificationsPopoverVisibilityDidChange(
+                NotificationsPopoverVisibilityState.shared.notifyVisibilityChanged(
                     isShown: true,
                     source: notificationsPopover,
                     windowNumber: window.windowNumber
@@ -1931,7 +1980,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         let anchorRect = NSRect(x: 12, y: bounds.maxY - 8, width: 1, height: 1)
         notificationsPopover.animates = animated
         notificationsPopover.show(relativeTo: anchorRect, of: contentView, preferredEdge: .maxY)
-        postNotificationsPopoverVisibilityDidChange(
+        NotificationsPopoverVisibilityState.shared.notifyVisibilityChanged(
             isShown: true,
             source: notificationsPopover,
             windowNumber: window.windowNumber
@@ -1958,7 +2007,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     func popoverDidClose(_ notification: Notification) {
         // Clear the content view controller to stop SwiftUI observers when popover is hidden
         notificationsPopover.contentViewController = nil
-        postNotificationsPopoverVisibilityDidChange(isShown: false, source: notificationsPopover)
+        NotificationsPopoverVisibilityState.shared.notifyVisibilityChanged(isShown: false, source: notificationsPopover)
     }
 }
 
@@ -2726,9 +2775,9 @@ final class UpdateTitlebarAccessoryController {
             self.detachedNotificationsPopover = nil
             self.detachedNotificationsPopoverDelegate = nil
             if let popover {
-                postNotificationsPopoverVisibilityDidChange(isShown: false, source: popover)
+                NotificationsPopoverVisibilityState.shared.notifyVisibilityChanged(isShown: false, source: popover)
             } else {
-                postNotificationsPopoverVisibilityDidChange(isShown: false)
+                NotificationsPopoverVisibilityState.shared.notifyVisibilityChanged(isShown: false)
             }
         }
         popover.behavior = .semitransient
@@ -2751,7 +2800,7 @@ final class UpdateTitlebarAccessoryController {
         detachedNotificationsPopover = popover
         detachedNotificationsPopoverDelegate = delegate
         popover.show(relativeTo: anchorRect, of: contentView, preferredEdge: .maxY)
-        postNotificationsPopoverVisibilityDidChange(
+        NotificationsPopoverVisibilityState.shared.notifyVisibilityChanged(
             isShown: true,
             source: popover,
             windowNumber: window.windowNumber
