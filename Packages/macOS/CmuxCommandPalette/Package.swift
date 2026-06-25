@@ -20,6 +20,9 @@ let package = Package(
         // CmuxSidebar owns the pure RightSidebarMode data core that the
         // right-sidebar contribution provider maps to palette command IDs.
         .package(path: "../CmuxSidebar"),
+        // CmuxPanes owns PanelType, which carries the switcher's surface
+        // keyword-kind mapping (PanelType+CommandPaletteSurfaceKeywordKind).
+        .package(path: "../CmuxPanes"),
     ],
     targets: [
         .target(
@@ -27,6 +30,7 @@ let package = Package(
             dependencies: [
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CmuxSidebar", package: "CmuxSidebar"),
+                .product(name: "CmuxPanes", package: "CmuxPanes"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

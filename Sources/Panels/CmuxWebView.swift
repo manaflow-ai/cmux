@@ -32,21 +32,58 @@ import CmuxTestSupport
 /// choose browser find or right-sidebar file search from the current focus owner.
 final class CmuxWebView: WKWebView {
     // Some sites/WebKit paths report middle-click link activations as
-    // WKNavigationAction.buttonNumber=4 instead of 2. Track a recent local
-    // middle-click so navigation delegates can recover intent reliably.
-    private struct MiddleClickIntent {
-        let webViewID: ObjectIdentifier
-        let uptime: TimeInterval
-    }
-
-    private static var lastMiddleClickIntent: MiddleClickIntent?
-    private static let middleClickIntentMaxAge: TimeInterval = 0.8
+    // WKNavigationAction.buttonNumber=4 instead of 2. The recent-middle-click
+    // store moved to `BrowserMiddleClickIntentTracker` in
+    // `CmuxBrowser/Navigation`; this view holds an injected instance and records
+    // into it on `otherMouseDown`/`otherMouseUp`. The navigation/UI delegates read
+    // through the same held instance via `hasRecentMiddleClickIntent`.
+    let middleClickIntentTracker: BrowserMiddleClickIntentTracker
 
     /// Pure URL classification for the context-menu download/copy paths, owned in
     /// `CmuxBrowser`. This view forwards the scheme/favicon/image/redirect/MIME
-    /// predicates to it.
+    /// predicates to it (through `contextDownloadService`, which holds it).
     private let downloadURLClassifier = BrowserDownloadURLClassifier()
     private let contextMenuItemClassifier = BrowserContextMenuItemClassifier()
+    /// The context-menu download + image-copy network/save orchestration, owned in
+    /// `CmuxBrowser`. The `@objc` action methods resolve the clicked URL from app
+    /// capture state, then call this service to fetch/save/copy. App-side state
+    /// (cookie store, user agent, referer, downloading-state notification,
+    /// native-action fallback, JavaScript URL lookups, debug log) rides in through
+    /// the injected `BrowserContextDownloadSeam`.
+    private lazy var contextDownloadService = BrowserContextDownloadService(
+        urlClassifier: downloadURLClassifier,
+        filenameResolver: BrowserDownloadFilenameResolver(),
+        seam: BrowserContextDownloadSeam(
+            cookieStore: { [weak self] in
+                self?.configuration.websiteDataStore.httpCookieStore ?? WKWebsiteDataStore.default().httpCookieStore
+            },
+            referer: { [weak self] in self?.url?.absoluteString },
+            userAgent: { [weak self] in self?.customUserAgent },
+            onDownloadStateChanged: { [weak self] downloading in
+                self?.onContextMenuDownloadStateChanged?(downloading)
+            },
+            runFallback: { [weak self] action, target, sender, traceID, reason in
+                self?.runContextMenuFallback(
+                    action: action,
+                    target: target,
+                    sender: sender,
+                    traceID: traceID,
+                    reason: reason
+                )
+            },
+            findImageURLAtPoint: { [weak self] point, completion in
+                guard let self else { return completion(nil) }
+                self.findImageURLAtPoint(point, completion: completion)
+            },
+            findLinkURLAtPoint: { [weak self] point, completion in
+                guard let self else { return completion(nil) }
+                self.findLinkURLAtPoint(point, completion: completion)
+            },
+            log: { [weak self] message in
+                self?.debugContextDownload(message)
+            }
+        )
+    )
     private static let browserFocusModeContextMenuItemIdentifier =
         NSUserInterfaceItemIdentifier("cmux.browserFocusMode.toggle")
     private static var pasteAsPlainTextFocusHandlerInstalledKey: UInt8 = 0
@@ -73,24 +110,13 @@ final class CmuxWebView: WKWebView {
 
     private static let sharedPasteAsPlainTextFocusMessageHandler = PasteAsPlainTextFocusMessageHandler()
 
+    /// Answers whether the navigating web view had a recent local middle-click,
+    /// routing through that view's held `BrowserMiddleClickIntentTracker`. The
+    /// navigation/UI delegates call this with the web view they are navigating, so
+    /// the per-view tracker matches exactly the view that recorded the click.
     static func hasRecentMiddleClickIntent(for webView: WKWebView) -> Bool {
         guard let webView = webView as? CmuxWebView else { return false }
-        guard let intent = lastMiddleClickIntent else { return false }
-
-        let age = ProcessInfo.processInfo.systemUptime - intent.uptime
-        if age > middleClickIntentMaxAge {
-            lastMiddleClickIntent = nil
-            return false
-        }
-
-        return intent.webViewID == ObjectIdentifier(webView)
-    }
-
-    private static func recordMiddleClickIntent(for webView: CmuxWebView) {
-        lastMiddleClickIntent = MiddleClickIntent(
-            webViewID: ObjectIdentifier(webView),
-            uptime: ProcessInfo.processInfo.systemUptime
-        )
+        return webView.middleClickIntentTracker.hasRecentIntent(for: webView)
     }
 
     private final class ContextMenuFallbackBox: NSObject {
@@ -127,13 +153,22 @@ final class CmuxWebView: WKWebView {
     }
     var debugPointerFocusAllowanceDepth: Int { pointerFocusAllowanceDepth }
 
-    override init(frame: NSRect, configuration: WKWebViewConfiguration) {
+    init(
+        frame: NSRect,
+        configuration: WKWebViewConfiguration,
+        middleClickIntentTracker: BrowserMiddleClickIntentTracker = BrowserMiddleClickIntentTracker()
+    ) {
+        self.middleClickIntentTracker = middleClickIntentTracker
         super.init(frame: frame, configuration: configuration)
         installPasteAsPlainTextFocusTracking()
         installScriptedDownloadInterception()
         installContextMenuLinkCapture()
     }
+    override convenience init(frame: NSRect, configuration: WKWebViewConfiguration) {
+        self.init(frame: frame, configuration: configuration, middleClickIntentTracker: BrowserMiddleClickIntentTracker())
+    }
     required init?(coder: NSCoder) {
+        self.middleClickIntentTracker = BrowserMiddleClickIntentTracker()
         super.init(coder: coder)
         installPasteAsPlainTextFocusTracking()
         installScriptedDownloadInterception()
@@ -609,7 +644,7 @@ final class CmuxWebView: WKWebView {
 
     override func otherMouseDown(with event: NSEvent) {
         if event.buttonNumber == 2 {
-            Self.recordMiddleClickIntent(for: self)
+            middleClickIntentTracker.record(for: self)
         }
 #if DEBUG
         let point = convert(event.locationInWindow, from: nil)
@@ -632,7 +667,7 @@ final class CmuxWebView: WKWebView {
 
     override func otherMouseUp(with event: NSEvent) {
         if event.buttonNumber == 2 {
-            Self.recordMiddleClickIntent(for: self)
+            middleClickIntentTracker.record(for: self)
         }
 #if DEBUG
         let point = convert(event.locationInWindow, from: nil)
@@ -708,15 +743,15 @@ final class CmuxWebView: WKWebView {
     }
 
     private func isDownloadableScheme(_ url: URL) -> Bool {
-        downloadURLClassifier.isDownloadableScheme(url)
+        contextDownloadService.isDownloadableScheme(url)
     }
 
     private func isDataURLScheme(_ url: URL) -> Bool {
-        downloadURLClassifier.isDataURLScheme(url)
+        contextDownloadService.isDataURLScheme(url)
     }
 
     private func isDownloadSupportedScheme(_ url: URL) -> Bool {
-        downloadURLClassifier.isDownloadSupportedScheme(url)
+        contextDownloadService.isDownloadSupportedScheme(url)
     }
 
     private func isOurContextMenuAction(target: AnyObject?, action: Selector?) -> Bool {
@@ -731,20 +766,16 @@ final class CmuxWebView: WKWebView {
             || action == #selector(contextMenuDownloadLinkedFile(_:))
     }
 
-    private func resolveGoogleRedirectURL(_ url: URL) -> URL? {
-        downloadURLClassifier.resolveGoogleRedirectURL(url)
-    }
-
     private func normalizedLinkedDownloadURL(_ url: URL) -> URL {
-        downloadURLClassifier.normalizedLinkedDownloadURL(url)
+        contextDownloadService.normalizedLinkedDownloadURL(url)
     }
 
     private func isLikelyFaviconURL(_ url: URL) -> Bool {
-        downloadURLClassifier.isLikelyFaviconURL(url)
+        contextDownloadService.isLikelyFaviconURL(url)
     }
 
     private func isLikelyImageURL(_ url: URL) -> Bool {
-        downloadURLClassifier.isLikelyImageURL(url)
+        contextDownloadService.isLikelyImageURL(url)
     }
 
     private func captureFallbackForMenuItemIfNeeded(_ item: NSMenuItem) {
@@ -860,13 +891,7 @@ final class CmuxWebView: WKWebView {
     }
 
     private func notifyContextMenuDownloadState(_ downloading: Bool) {
-        if Thread.isMainThread {
-            onContextMenuDownloadStateChanged?(downloading)
-        } else {
-            DispatchQueue.main.async { [weak self] in
-                self?.onContextMenuDownloadStateChanged?(downloading)
-            }
-        }
+        contextDownloadService.notifyContextMenuDownloadState(downloading)
     }
 
     func downloadURLViaSession(
@@ -877,225 +902,14 @@ final class CmuxWebView: WKWebView {
         fallbackTarget: AnyObject?,
         traceID: String
     ) {
-        guard isDownloadSupportedScheme(url) else {
-            debugContextDownload(
-                "browser.ctxdl.request trace=\(traceID) stage=rejectUnsupportedScheme url=\(url.absoluteString)"
-            )
-            runContextMenuFallback(
-                action: fallbackAction,
-                target: fallbackTarget,
-                sender: sender,
-                traceID: traceID,
-                reason: "unsupported_scheme"
-            )
-            return
-        }
-        let scheme = url.scheme?.lowercased() ?? ""
-        debugContextDownload(
-            "browser.ctxdl.request trace=\(traceID) stage=start scheme=\(scheme) url=\(url.absoluteString)"
+        contextDownloadService.downloadURLViaSession(
+            url,
+            suggestedFilename: suggestedFilename,
+            sender: sender,
+            fallbackAction: fallbackAction,
+            fallbackTarget: fallbackTarget,
+            traceID: traceID
         )
-        notifyContextMenuDownloadState(true)
-        debugContextDownload("browser.ctxdl.state trace=\(traceID) downloading=1")
-
-        if scheme == "data" {
-            DispatchQueue.main.async {
-                guard let parsed = BrowserDataURLPayload(url: url) else {
-                    self.notifyContextMenuDownloadState(false)
-                    self.debugContextDownload(
-                        "browser.ctxdl.data trace=\(traceID) stage=parseFailure urlLength=\(url.absoluteString.count)"
-                    )
-                    self.runContextMenuFallback(
-                        action: fallbackAction,
-                        target: fallbackTarget,
-                        sender: sender,
-                        traceID: traceID,
-                        reason: "data_url_parse_error"
-                    )
-                    return
-                }
-
-                let saveName = parsed.suggestedFilename(
-                    forSuggestedFilename: suggestedFilename
-                )
-                self.debugContextDownload(
-                    "browser.ctxdl.data trace=\(traceID) stage=parseSuccess mime=\(parsed.mimeType ?? "nil") bytes=\(parsed.data.count)"
-                )
-
-                let savePanel = NSSavePanel()
-                savePanel.nameFieldStringValue = saveName
-                savePanel.canCreateDirectories = true
-                savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-                self.notifyContextMenuDownloadState(false)
-                self.debugContextDownload(
-                    "browser.ctxdl.data trace=\(traceID) stage=savePrompt shown=1 defaultName=\(saveName)"
-                )
-                savePanel.begin { result in
-                    guard result == .OK, let destURL = savePanel.url else {
-                        self.debugContextDownload(
-                            "browser.ctxdl.data trace=\(traceID) stage=savePrompt result=cancel"
-                        )
-                        return
-                    }
-                    do {
-                        try parsed.data.write(to: destURL, options: .atomic)
-                        self.debugContextDownload(
-                            "browser.ctxdl.data trace=\(traceID) stage=saveSuccess path=\(destURL.path)"
-                        )
-                    } catch {
-                        self.debugContextDownload(
-                            "browser.ctxdl.data trace=\(traceID) stage=saveFailure error=\(error.localizedDescription)"
-                        )
-                        self.runContextMenuFallback(
-                            action: fallbackAction,
-                            target: fallbackTarget,
-                            sender: sender,
-                            traceID: traceID,
-                            reason: "data_save_write_error"
-                        )
-                    }
-                }
-            }
-            return
-        }
-
-        if scheme == "file" {
-            DispatchQueue.main.async {
-                do {
-                    let data = try Data(contentsOf: url)
-                    self.debugContextDownload(
-                        "browser.ctxdl.file trace=\(traceID) stage=readSuccess bytes=\(data.count) path=\(url.path)"
-                    )
-                    let filename = suggestedFilename?.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let saveName = (filename?.isEmpty == false ? filename! : url.lastPathComponent.isEmpty ? "download" : url.lastPathComponent)
-                    let savePanel = NSSavePanel()
-                    savePanel.nameFieldStringValue = saveName
-                    savePanel.canCreateDirectories = true
-                    savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-                    // Download is already complete; we're now waiting for user save choice.
-                    self.notifyContextMenuDownloadState(false)
-                    self.debugContextDownload(
-                        "browser.ctxdl.file trace=\(traceID) stage=savePrompt shown=1 defaultName=\(saveName)"
-                    )
-                    savePanel.begin { result in
-                        guard result == .OK, let destURL = savePanel.url else {
-                            self.debugContextDownload(
-                                "browser.ctxdl.file trace=\(traceID) stage=savePrompt result=cancel"
-                            )
-                            return
-                        }
-                        do {
-                            try data.write(to: destURL, options: .atomic)
-                            self.debugContextDownload(
-                                "browser.ctxdl.file trace=\(traceID) stage=saveSuccess path=\(destURL.path)"
-                            )
-                        } catch {
-                            self.debugContextDownload(
-                                "browser.ctxdl.file trace=\(traceID) stage=saveFailure error=\(error.localizedDescription)"
-                            )
-                        }
-                    }
-                } catch {
-                    self.notifyContextMenuDownloadState(false)
-                    self.debugContextDownload(
-                        "browser.ctxdl.file trace=\(traceID) stage=readFailure error=\(error.localizedDescription)"
-                    )
-                    self.runContextMenuFallback(
-                        action: fallbackAction,
-                        target: fallbackTarget,
-                        sender: sender,
-                        traceID: traceID,
-                        reason: "file_read_error"
-                    )
-                }
-            }
-            return
-        }
-
-        let cookieStore = configuration.websiteDataStore.httpCookieStore
-        cookieStore.getAllCookies { cookies in
-            var request = URLRequest(url: url)
-            request.httpMethod = "GET"
-            let cookieHeaders = HTTPCookie.requestHeaderFields(with: BrowserDownloadCookieFilter().filter(cookies, url: url))
-            for (key, value) in cookieHeaders {
-                request.setValue(value, forHTTPHeaderField: key)
-            }
-            if let referer = self.url?.absoluteString, !referer.isEmpty {
-                request.setValue(referer, forHTTPHeaderField: "Referer")
-            }
-            if let ua = self.customUserAgent, !ua.isEmpty {
-                request.setValue(ua, forHTTPHeaderField: "User-Agent")
-            }
-            self.debugContextDownload(
-                "browser.ctxdl.request trace=\(traceID) stage=dispatch method=\(request.httpMethod ?? "GET") cookies=\(cookies.count) referer=\(request.value(forHTTPHeaderField: "Referer") ?? "nil") uaSet=\(request.value(forHTTPHeaderField: "User-Agent") == nil ? 0 : 1)"
-            )
-
-            URLSession.shared.dataTask(with: request) { data, response, error in
-                DispatchQueue.main.async {
-                    guard let data, error == nil else {
-                        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-                        let mime = response?.mimeType ?? "nil"
-                        let hasResponse = response == nil ? 0 : 1
-                        self.debugContextDownload(
-                            "browser.ctxdl.response trace=\(traceID) stage=failure hasResponse=\(hasResponse) status=\(statusCode) mime=\(mime) error=\(error?.localizedDescription ?? "unknown")"
-                        )
-                        self.notifyContextMenuDownloadState(false)
-                        self.runContextMenuFallback(
-                            action: fallbackAction,
-                            target: fallbackTarget,
-                            sender: sender,
-                            traceID: traceID,
-                            reason: "network_error"
-                        )
-                        return
-                    }
-                    let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-                    let mime = response?.mimeType ?? "nil"
-                    let expectedLength = response?.expectedContentLength ?? -1
-                    self.debugContextDownload("browser.ctxdl.response trace=\(traceID) stage=success hasResponse=1 status=\(statusCode) mime=\(mime) bytes=\(data.count) expected=\(expectedLength)")
-                    let filenameResolver = BrowserDownloadFilenameResolver()
-                    if case .reject = filenameResolver.httpStatusDecision(for: response) {
-                        self.notifyContextMenuDownloadState(false)
-                        self.runContextMenuFallback(action: fallbackAction, target: fallbackTarget, sender: sender, traceID: traceID, reason: "http_status")
-                        return
-                    }
-                    let saveName = filenameResolver.suggestedFilename(suggestedFilename: suggestedFilename, response: response, sourceURL: url, imageData: data)
-
-                    let savePanel = NSSavePanel()
-                    savePanel.nameFieldStringValue = saveName
-                    savePanel.canCreateDirectories = true
-                    savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-                    self.notifyContextMenuDownloadState(false)
-                    self.debugContextDownload(
-                        "browser.ctxdl.response trace=\(traceID) stage=savePrompt shown=1 defaultName=\(saveName)"
-                    )
-                    savePanel.begin { result in
-                        guard result == .OK, let destURL = savePanel.url else {
-                            self.debugContextDownload(
-                                "browser.ctxdl.response trace=\(traceID) stage=savePrompt result=cancel"
-                            )
-                            return
-                        }
-                        do {
-                            try data.write(to: destURL, options: .atomic)
-                            self.debugContextDownload(
-                                "browser.ctxdl.response trace=\(traceID) stage=saveSuccess path=\(destURL.path)"
-                            )
-                        } catch {
-                            self.debugContextDownload(
-                                "browser.ctxdl.response trace=\(traceID) stage=saveFailure error=\(error.localizedDescription)"
-                            )
-                            self.runContextMenuFallback(
-                                action: fallbackAction,
-                                target: fallbackTarget,
-                                sender: sender,
-                                traceID: traceID,
-                                reason: "save_write_error"
-                            )
-                        }
-                    }
-                }
-            }.resume()
-        }
     }
 
     private func startContextMenuDownload(
@@ -1105,10 +919,8 @@ final class CmuxWebView: WKWebView {
         fallbackTarget: AnyObject?,
         traceID: String
     ) {
-        debugContextDownload("browser.ctxdl.start trace=\(traceID) url=\(url.absoluteString)")
-        downloadURLViaSession(
+        contextDownloadService.startContextMenuDownload(
             url,
-            suggestedFilename: nil,
             sender: sender,
             fallbackAction: fallbackAction,
             fallbackTarget: fallbackTarget,
@@ -1117,40 +929,14 @@ final class CmuxWebView: WKWebView {
     }
 
     private func inferredImageMIMEType(from url: URL) -> String? {
-        downloadURLClassifier.inferredImageMIMEType(from: url)
+        contextDownloadService.inferredImageMIMEType(from: url)
     }
 
     private func resolveContextMenuCopyImageSourceURL(
         at point: NSPoint,
         completion: @escaping (URL?) -> Void
     ) {
-        findImageURLAtPoint(point) { [weak self] imageURL in
-            guard let self else { return completion(nil) }
-
-            if let imageURL {
-                let normalized = self.normalizedLinkedDownloadURL(imageURL)
-                if self.isDownloadSupportedScheme(normalized) {
-                    completion(normalized)
-                    return
-                }
-            }
-
-            self.findLinkURLAtPoint(point) { fallbackLinkURL in
-                guard let fallbackLinkURL else {
-                    completion(nil)
-                    return
-                }
-
-                let normalized = self.normalizedLinkedDownloadURL(fallbackLinkURL)
-                guard self.isDownloadSupportedScheme(normalized),
-                      self.isLikelyImageURL(normalized) else {
-                    completion(nil)
-                    return
-                }
-
-                completion(normalized)
-            }
-        }
+        contextDownloadService.resolveContextMenuCopyImageSourceURL(at: point, completion: completion)
     }
 
     private func fetchContextMenuImageCopyPayload(
@@ -1158,114 +944,11 @@ final class CmuxWebView: WKWebView {
         traceID: String,
         completion: @escaping (BrowserImageCopyPasteboardPayload?) -> Void
     ) {
-        let scheme = sourceURL.scheme?.lowercased() ?? ""
-        debugContextDownload(
-            "browser.ctxcopy.fetch trace=\(traceID) stage=start scheme=\(scheme) url=\(sourceURL.absoluteString)"
+        contextDownloadService.fetchContextMenuImageCopyPayload(
+            from: sourceURL,
+            traceID: traceID,
+            completion: completion
         )
-
-        if scheme == "data" {
-            guard let parsed = BrowserDataURLPayload(url: sourceURL), !parsed.data.isEmpty else {
-                debugContextDownload(
-                    "browser.ctxcopy.fetch trace=\(traceID) stage=dataParseFailure"
-                )
-                completion(nil)
-                return
-            }
-            debugContextDownload(
-                "browser.ctxcopy.fetch trace=\(traceID) stage=dataParseSuccess mime=\(parsed.mimeType ?? "nil") bytes=\(parsed.data.count)"
-            )
-            completion(
-                BrowserImageCopyPasteboardPayload(
-                    imageData: parsed.data,
-                    mimeType: parsed.mimeType,
-                    sourceURL: nil
-                )
-            )
-            return
-        }
-
-        if scheme == "file" {
-            DispatchQueue.global(qos: .userInitiated).async {
-                let data = try? Data(contentsOf: sourceURL)
-                DispatchQueue.main.async {
-                    guard let data, !data.isEmpty else {
-                        self.debugContextDownload(
-                            "browser.ctxcopy.fetch trace=\(traceID) stage=fileReadFailure path=\(sourceURL.path)"
-                        )
-                        completion(nil)
-                        return
-                    }
-
-                    self.debugContextDownload(
-                        "browser.ctxcopy.fetch trace=\(traceID) stage=fileReadSuccess bytes=\(data.count) path=\(sourceURL.path)"
-                    )
-                    completion(
-                        BrowserImageCopyPasteboardPayload(
-                            imageData: data,
-                            mimeType: self.inferredImageMIMEType(from: sourceURL),
-                            sourceURL: nil
-                        )
-                    )
-                }
-            }
-            return
-        }
-
-        guard scheme == "http" || scheme == "https" else {
-            debugContextDownload(
-                "browser.ctxcopy.fetch trace=\(traceID) stage=unsupportedScheme url=\(sourceURL.absoluteString)"
-            )
-            completion(nil)
-            return
-        }
-
-        let cookieStore = configuration.websiteDataStore.httpCookieStore
-        cookieStore.getAllCookies { cookies in
-            var request = URLRequest(url: sourceURL)
-            request.httpMethod = "GET"
-            let cookieHeaders = HTTPCookie.requestHeaderFields(with: cookies)
-            for (key, value) in cookieHeaders {
-                request.setValue(value, forHTTPHeaderField: key)
-            }
-            if let referer = self.url?.absoluteString, !referer.isEmpty {
-                request.setValue(referer, forHTTPHeaderField: "Referer")
-            }
-            if let ua = self.customUserAgent, !ua.isEmpty {
-                request.setValue(ua, forHTTPHeaderField: "User-Agent")
-            }
-
-            self.debugContextDownload(
-                "browser.ctxcopy.fetch trace=\(traceID) stage=dispatch cookies=\(cookies.count) referer=\(request.value(forHTTPHeaderField: "Referer") ?? "nil") uaSet=\(request.value(forHTTPHeaderField: "User-Agent") == nil ? 0 : 1)"
-            )
-
-            URLSession.shared.dataTask(with: request) { data, response, error in
-                DispatchQueue.main.async {
-                    guard let data, !data.isEmpty, error == nil else {
-                        self.debugContextDownload(
-                            "browser.ctxcopy.fetch trace=\(traceID) stage=networkFailure status=\((response as? HTTPURLResponse)?.statusCode ?? -1) mime=\(response?.mimeType ?? "nil") error=\(error?.localizedDescription ?? "unknown")"
-                        )
-                        completion(nil)
-                        return
-                    }
-
-                    let resolvedURL = response?.url.flatMap {
-                        let scheme = $0.scheme?.lowercased() ?? ""
-                        return (scheme == "http" || scheme == "https") ? $0 : nil
-                    } ?? sourceURL
-                    let mimeType = response?.mimeType ?? self.inferredImageMIMEType(from: resolvedURL)
-                    self.debugContextDownload(
-                        "browser.ctxcopy.fetch trace=\(traceID) stage=networkSuccess status=\((response as? HTTPURLResponse)?.statusCode ?? -1) mime=\(mimeType ?? "nil") bytes=\(data.count)"
-                    )
-                    completion(
-                        BrowserImageCopyPasteboardPayload(
-                            imageData: data,
-                            mimeType: mimeType,
-                            sourceURL: resolvedURL
-                        )
-                    )
-                }
-            }.resume()
-        }
     }
 
     private func writeContextMenuImageCopyPayload(
@@ -1273,28 +956,11 @@ final class CmuxWebView: WKWebView {
         expectedPasteboardChangeCount: Int,
         traceID: String
     ) -> (wrote: Bool, shouldFallback: Bool) {
-        let pasteboard = NSPasteboard.general
-        if pasteboard.changeCount != expectedPasteboardChangeCount {
-            debugContextDownload(
-                "browser.ctxcopy.write trace=\(traceID) stage=skipPasteboardRace expected=\(expectedPasteboardChangeCount) actual=\(pasteboard.changeCount)"
-            )
-            return (false, false)
-        }
-
-        let items = payload.pasteboardItems
-        guard !items.isEmpty else {
-            debugContextDownload(
-                "browser.ctxcopy.write trace=\(traceID) stage=buildFailure mime=\(payload.mimeType ?? "nil") url=\(payload.sourceURL?.absoluteString ?? "nil") bytes=\(payload.imageData.count)"
-            )
-            return (false, true)
-        }
-
-        _ = pasteboard.clearContents()
-        let wrote = pasteboard.writeObjects(items)
-        debugContextDownload(
-            "browser.ctxcopy.write trace=\(traceID) stage=finish wrote=\(wrote ? 1 : 0) itemCount=\(items.count) types=\(items.map { $0.types.map(\.rawValue).joined(separator: ",") }.joined(separator: "|"))"
+        contextDownloadService.writeContextMenuImageCopyPayload(
+            payload,
+            expectedPasteboardChangeCount: expectedPasteboardChangeCount,
+            traceID: traceID
         )
-        return (wrote, !wrote)
     }
 
     // MARK: - Drag-and-drop passthrough

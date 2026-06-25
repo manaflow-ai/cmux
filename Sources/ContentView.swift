@@ -2763,7 +2763,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
                                 fallback: panel.displayTitle
                             ),
                             kindLabel: commandPaletteSurfaceKindLabel(for: panel.panelType),
-                            keywordKind: Self.commandPaletteSurfaceKeywordKind(for: panel.panelType),
+                            keywordKind: panel.panelType.commandPaletteSurfaceKeywordKind,
                             metadata: commandPaletteSurfaceSearchMetadata(for: workspace, panelId: panelId),
                             action: {
                                 focusCommandPaletteSwitcherSurfaceTarget(
@@ -2959,27 +2959,6 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             return String(localized: "commandPalette.kind.project", defaultValue: "Project")
         case .extensionBrowser:
             return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
-        }
-    }
-
-    private static func commandPaletteSurfaceKeywordKind(for panelType: PanelType) -> CommandPaletteSurfaceKeywordKind {
-        switch panelType {
-        case .terminal:
-            return .terminal
-        case .browser:
-            return .browser
-        case .markdown:
-            return .markdown
-        case .filePreview:
-            return .filePreview
-        case .rightSidebarTool:
-            return .rightSidebarTool
-        case .agentSession:
-            return .agentSession
-        case .project:
-            return .project
-        case .extensionBrowser:
-            return .extensionBrowser
         }
     }
 

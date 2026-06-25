@@ -808,8 +808,8 @@ final class WindowBrowserHostView: NSView {
             minimumInspectorWidth: Self.minimumHostedInspectorWidth,
             reason: reason
         )
-        return !Self.rectApproximatelyEqual(oldPageFrame, hit.pageView.frame, epsilon: 0.5) ||
-            !Self.rectApproximatelyEqual(oldInspectorFrame, hit.inspectorView.frame, epsilon: 0.5)
+        return !oldPageFrame.isApproximatelyEqual(to: hit.pageView.frame, epsilon: 0.5) ||
+            !oldInspectorFrame.isApproximatelyEqual(to: hit.inspectorView.frame, epsilon: 0.5)
     }
 
     @discardableResult
@@ -832,8 +832,8 @@ final class WindowBrowserHostView: NSView {
 
         let oldPageFrame = hit.pageView.frame
         let oldInspectorFrame = hit.inspectorView.frame
-        let pageChanged = !Self.rectApproximatelyEqual(pageFrame, oldPageFrame, epsilon: 0.5)
-        let inspectorChanged = !Self.rectApproximatelyEqual(inspectorFrame, oldInspectorFrame, epsilon: 0.5)
+        let pageChanged = !pageFrame.isApproximatelyEqual(to: oldPageFrame, epsilon: 0.5)
+        let inspectorChanged = !inspectorFrame.isApproximatelyEqual(to: oldInspectorFrame, epsilon: 0.5)
         guard pageChanged || inspectorChanged else {
             return (pageFrame, inspectorFrame)
         }
@@ -927,13 +927,6 @@ final class WindowBrowserHostView: NSView {
         }
 
         return nil
-    }
-
-    private static func rectApproximatelyEqual(_ lhs: NSRect, _ rhs: NSRect, epsilon: CGFloat = 0.01) -> Bool {
-        abs(lhs.origin.x - rhs.origin.x) <= epsilon &&
-            abs(lhs.origin.y - rhs.origin.y) <= epsilon &&
-            abs(lhs.size.width - rhs.size.width) <= epsilon &&
-            abs(lhs.size.height - rhs.size.height) <= epsilon
     }
 
     private static func sizeApproximatelyEqual(_ lhs: NSSize, _ rhs: NSSize, epsilon: CGFloat = 0.01) -> Bool {
@@ -1447,7 +1440,7 @@ final class WindowBrowserSlotView: NSView {
         attachDropZoneOverlayIfNeeded()
 
         let targetFrame = dropZoneOverlayFrame(for: zone, in: bounds.size)
-        let needsFrameUpdate = !Self.rectApproximatelyEqual(previousFrame, targetFrame)
+        let needsFrameUpdate = !previousFrame.isApproximatelyEqual(to: targetFrame, epsilon: 0.5)
         let zoneChanged = previousZone != zone
 
         if !dropZoneOverlayView.isHidden && !needsFrameUpdate && !zoneChanged {
@@ -1518,7 +1511,7 @@ final class WindowBrowserSlotView: NSView {
     }
 
     private func applyDropZoneOverlayFrame(_ frame: CGRect) {
-        if Self.rectApproximatelyEqual(dropZoneOverlayView.frame, frame) { return }
+        if dropZoneOverlayView.frame.isApproximatelyEqual(to: frame, epsilon: 0.5) { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         dropZoneOverlayView.frame = frame
@@ -1533,13 +1526,6 @@ final class WindowBrowserSlotView: NSView {
         )
         guard let superview else { return localFrame }
         return superview.convert(localFrame, from: self)
-    }
-
-    private static func rectApproximatelyEqual(_ lhs: CGRect, _ rhs: CGRect, epsilon: CGFloat = 0.5) -> Bool {
-        abs(lhs.origin.x - rhs.origin.x) <= epsilon &&
-            abs(lhs.origin.y - rhs.origin.y) <= epsilon &&
-            abs(lhs.size.width - rhs.size.width) <= epsilon &&
-            abs(lhs.size.height - rhs.size.height) <= epsilon
     }
 }
 
@@ -1716,9 +1702,9 @@ final class WindowBrowserPortal: NSObject {
             installedContainerView = container
             installedReferenceView = reference
         } else {
-            let aboveReference = Self.isView(hostView, above: reference, in: container)
+            let aboveReference = hostView.isAbove(reference, in: container)
             let abovePlacementReference = placementReference === reference
-                || Self.isView(hostView, above: placementReference, in: container)
+                || hostView.isAbove(placementReference, in: container)
             if !aboveReference || !abovePlacementReference {
                 container.addSubview(hostView, positioned: .above, relativeTo: placementReference)
             }
@@ -1742,7 +1728,7 @@ final class WindowBrowserPortal: NSObject {
             frameInContainer.size.height.isFinite
         guard hasFiniteFrame else { return false }
 
-        if !Self.rectApproximatelyEqual(hostView.frame, frameInContainer) {
+        if !hostView.frame.isApproximatelyEqual(to: frameInContainer) {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             hostView.frame = frameInContainer
@@ -1762,42 +1748,6 @@ final class WindowBrowserPortal: NSObject {
             .contentOverlayTargetResolver
             .installationTarget(for: window) else { return nil }
         return (target.container, target.reference)
-    }
-
-    private static func isHiddenOrAncestorHidden(_ view: NSView) -> Bool {
-        if view.isHidden { return true }
-        var current = view.superview
-        while let v = current {
-            if v.isHidden { return true }
-            current = v.superview
-        }
-        return false
-    }
-
-    private static func rectApproximatelyEqual(_ lhs: NSRect, _ rhs: NSRect, epsilon: CGFloat = 0.01) -> Bool {
-        abs(lhs.origin.x - rhs.origin.x) <= epsilon &&
-            abs(lhs.origin.y - rhs.origin.y) <= epsilon &&
-            abs(lhs.size.width - rhs.size.width) <= epsilon &&
-            abs(lhs.size.height - rhs.size.height) <= epsilon
-    }
-
-    private static func pixelSnappedRect(_ rect: NSRect, in view: NSView) -> NSRect {
-        guard rect.origin.x.isFinite,
-              rect.origin.y.isFinite,
-              rect.size.width.isFinite,
-              rect.size.height.isFinite else {
-            return rect
-        }
-        let scale = max(1.0, view.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1.0)
-        func snap(_ value: CGFloat) -> CGFloat {
-            (value * scale).rounded(.toNearestOrAwayFromZero) / scale
-        }
-        return NSRect(
-            x: snap(rect.origin.x),
-            y: snap(rect.origin.y),
-            width: max(0, snap(rect.size.width)),
-            height: max(0, snap(rect.size.height))
-        )
     }
 
     /// Convert an anchor view's bounds to window coordinates while honoring ancestor clipping.
@@ -1822,14 +1772,6 @@ final class WindowBrowserPortal: NSObject {
             current = ancestor.superview
         }
         return frameInWindow
-    }
-
-    private static func isView(_ view: NSView, above reference: NSView, in container: NSView) -> Bool {
-        guard let viewIndex = container.subviews.firstIndex(of: view),
-              let referenceIndex = container.subviews.firstIndex(of: reference) else {
-            return false
-        }
-        return viewIndex > referenceIndex
     }
 
     private func preferredHostPlacementReference(in container: NSView, fallback reference: NSView) -> NSView {
@@ -2805,7 +2747,7 @@ final class WindowBrowserPortal: NSObject {
         _ = synchronizeHostFrameToReference()
         let frameInWindow = effectiveAnchorFrameInWindow(for: anchorView)
         let frameInHostRaw = hostView.convert(frameInWindow, from: nil)
-        let frameInHost = Self.pixelSnappedRect(frameInHostRaw, in: hostView)
+        let frameInHost = hostView.pixelSnapped(frameInHostRaw)
         let hostBounds = hostView.bounds
         let hasFiniteHostBounds =
             hostBounds.origin.x.isFinite &&
@@ -2871,7 +2813,7 @@ final class WindowBrowserPortal: NSObject {
             clampedFrame.width > 1 &&
             clampedFrame.height > 1
         let targetFrame = hasVisibleIntersection ? clampedFrame : frameInHost
-        let anchorHidden = Self.isHiddenOrAncestorHidden(anchorView)
+        let anchorHidden = anchorView.isHiddenOrAncestorHidden
         let tinyFrame = targetFrame.width <= 1 || targetFrame.height <= 1
         let outsideHostBounds = !hasVisibleIntersection
         let shouldHide =
@@ -2907,7 +2849,7 @@ final class WindowBrowserPortal: NSObject {
             transientRecoveryReason == nil &&
             !shouldHide
 #if DEBUG
-        let frameWasClamped = hasFiniteFrame && !Self.rectApproximatelyEqual(frameInHost, targetFrame)
+        let frameWasClamped = hasFiniteFrame && !frameInHost.isApproximatelyEqual(to: targetFrame)
         if frameWasClamped {
             cmuxDebugLog(
                 "browser.portal.frame.clamp container=\(browserPortalDebugToken(containerView)) " +
@@ -2952,7 +2894,7 @@ final class WindowBrowserPortal: NSObject {
                 return
             }
         }
-        if !Self.rectApproximatelyEqual(oldFrame, targetFrame) {
+        if !oldFrame.isApproximatelyEqual(to: targetFrame) {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             containerView.frame = targetFrame
@@ -2961,7 +2903,7 @@ final class WindowBrowserPortal: NSObject {
         }
 
         let expectedContainerBounds = NSRect(origin: .zero, size: targetFrame.size)
-        if !Self.rectApproximatelyEqual(containerView.bounds, expectedContainerBounds) {
+        if !containerView.bounds.isApproximatelyEqual(to: expectedContainerBounds) {
             let oldContainerBounds = containerView.bounds
             CATransaction.begin()
             CATransaction.setDisableActions(true)

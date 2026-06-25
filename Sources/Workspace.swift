@@ -24,10 +24,6 @@ import Darwin
 import Network
 import CoreText
 
-private final class WorkspacePendingTerminalInputObserver: @unchecked Sendable {
-    var observer: NSObjectProtocol?
-}
-
 private struct SessionPaneRestoreEntry {
     let paneId: PaneID
     let snapshot: SessionPaneLayoutSnapshot
@@ -1332,100 +1328,26 @@ extension Workspace {
         layoutCoordinator.applyCustomLayout(layout.workspaceCustomLayoutNode, baseCwd: baseCwd)
     }
 
-    /// Sends `text` to the terminal panel once its surface is ready, registering
-    /// a one-shot not-ready observer (with a timeout drop) when it is not. Kept on
-    /// `Workspace` because it touches the workspace panel registry, the pending
-    /// observer machinery, and `NotificationCenter`; the custom-layout coordinator
-    /// reaches it through ``WorkspaceLayoutHosting/layoutSendStartupCommand(_:toTerminalPanelId:)``.
+    /// Sends `text` to the terminal panel once its surface is ready. Thin
+    /// forwarder to ``CmuxWorkspaces/PendingTerminalInputCoordinator/sendInputWhenReady(_:toPanelId:reason:)``;
+    /// the coordinator owns the per-panel pending registry and the one-shot
+    /// readiness wait, driving the live panel reads/writes and the
+    /// `NotificationCenter` observer back through ``PendingTerminalInputHosting``
+    /// (conformed in `Workspace+PendingTerminalInputHosting.swift`). The
+    /// custom-layout coordinator reaches it through
+    /// ``WorkspaceLayoutHosting/layoutSendStartupCommand(_:toTerminalPanelId:)``.
     func sendInputWhenReady(
         _ text: String,
         to panel: TerminalPanel,
         reason: WorkspacePendingTerminalInputReason = .configurationCommand
     ) {
-        if panel.surface.surface != nil {
-            panel.sendInput(text)
-            return
-        }
-
-        let timeout = reason.timeout
-        let panelId = panel.id
-        let registration = WorkspacePendingTerminalInputObserver()
-
-        registration.observer = NotificationCenter.default.addObserver(
-            forName: .terminalSurfaceDidBecomeReady,
-            object: panel.surface,
-            queue: .main
-        ) { [weak self, registration] _ in
-            Task { @MainActor [weak self, registration] in
-                guard
-                    let self,
-                    self.hasPendingTerminalInputObserver(registration, forPanelId: panelId)
-                else {
-                    return
-                }
-
-                self.removePendingTerminalInputObserver(registration, forPanelId: panelId)
-                if let panel = self.panels[panelId] as? TerminalPanel {
-                    panel.sendInput(text)
-                }
-            }
-        }
-        pendingTerminalInputObserversByPanelId[panelId, default: []].append(registration)
-        panel.surface.requestBackgroundSurfaceStartIfNeeded()
-
-        guard let timeout else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self, registration] in
-            Task { @MainActor [weak self, registration] in
-                guard
-                    let self,
-                    self.hasPendingTerminalInputObserver(registration, forPanelId: panelId)
-                else {
-                    return
-                }
-
-                self.removePendingTerminalInputObserver(registration, forPanelId: panelId)
-                #if DEBUG
-                NSLog("[CmuxConfig] surface not ready after 3s, dropping command (%d chars)", text.count)
-                #endif
-            }
-        }
+        pendingTerminalInput.sendInputWhenReady(text, toPanelId: panel.id, reason: reason)
     }
 
-    private func hasPendingTerminalInputObserver(
-        _ registration: WorkspacePendingTerminalInputObserver,
-        forPanelId panelId: UUID
-    ) -> Bool {
-        pendingTerminalInputObserversByPanelId[panelId]?.contains {
-            $0 === registration
-        } == true
-    }
-
-    private func removePendingTerminalInputObserver(
-        _ registration: WorkspacePendingTerminalInputObserver,
-        forPanelId panelId: UUID
-    ) {
-        if let observer = registration.observer {
-            NotificationCenter.default.removeObserver(observer)
-            registration.observer = nil
-        }
-        pendingTerminalInputObserversByPanelId[panelId]?.removeAll {
-            $0 === registration
-        }
-        if pendingTerminalInputObserversByPanelId[panelId]?.isEmpty == true {
-            pendingTerminalInputObserversByPanelId.removeValue(forKey: panelId)
-        }
-    }
-
+    /// Cancels every pending readiness wait for a closed panel. Thin forwarder to
+    /// ``CmuxWorkspaces/PendingTerminalInputCoordinator/removeObservations(forPanelId:)``.
     func removePendingTerminalInputObservers(forPanelId panelId: UUID) {
-        guard let observers = pendingTerminalInputObserversByPanelId.removeValue(forKey: panelId) else {
-            return
-        }
-        for registration in observers {
-            if let observer = registration.observer {
-                NotificationCenter.default.removeObserver(observer)
-                registration.observer = nil
-            }
-        }
+        pendingTerminalInput.removeObservations(forPanelId: panelId)
     }
 
 }
@@ -1654,6 +1576,26 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     /// (candidate panels, Ghostty surface probes, lineage bookkeeping) through the
     /// seam because those require the live panel registry and the C bridge.
     let surfaceCreation = SurfaceCreationCoordinator()
+
+    /// The pending-terminal-input queue (CmuxWorkspaces): owns the per-panel
+    /// registry of one-shot surface-readiness waits and the timeout drop for
+    /// queued input (cmux.json `command` blocks that fire before the shell is
+    /// live). `Workspace` forwards `sendInputWhenReady` / `removePendingTerminalInputObservers`
+    /// here and conforms to ``PendingTerminalInputHosting`` (witnessed in
+    /// `Workspace+PendingTerminalInputHosting.swift`) so the panel-registry
+    /// lookup, surface-readiness probe, input send, background-surface kick, and
+    /// `NotificationCenter` `.terminalSurfaceDidBecomeReady` observer stay
+    /// app-side. The DEBUG drop trace is passed in as a closure so the package
+    /// never depends on the DEBUG-only log facility.
+    let pendingTerminalInput: PendingTerminalInputCoordinator = {
+        #if DEBUG
+        return PendingTerminalInputCoordinator(debugLogDrop: { count in
+            NSLog("[CmuxConfig] surface not ready after 3s, dropping command (%d chars)", count)
+        })
+        #else
+        return PendingTerminalInputCoordinator()
+        #endif
+    }()
 
     /// Routes external drag-and-drop onto the split layout (CmuxWorkspaces): the
     /// `handleExternalTabDrop` dispatch (session-index / file-preview drag →
@@ -2218,7 +2160,6 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         get { agentHibernation.invalidatedRestoredAgentFingerprintsByPanelId }
         set { agentHibernation.invalidatedRestoredAgentFingerprintsByPanelId = newValue }
     }
-    private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
     private let sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>
 
     typealias SurfaceResumeStartupLaunch = WorkspaceSurfaceResumeStartupLaunch
@@ -2644,6 +2585,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         surfaceList.attach(tree: self)
         surfaceLifecycle.attach(host: self)
         layoutCoordinator.attach(host: self)
+        pendingTerminalInput.attach(host: self)
         layoutFollowUpCoordinator.attach(host: self)
         splitMoveReorder.attach(host: self)
         splitClose.attach(host: self)
@@ -2886,13 +2828,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     // deinit delegates to the coordinator instead of reaching into the moved
     // state.
     isolated deinit {
-        for registrations in pendingTerminalInputObserversByPanelId.values {
-            for registration in registrations {
-                if let observer = registration.observer {
-                    NotificationCenter.default.removeObserver(observer)
-                }
-            }
-        }
+        pendingTerminalInput.cancelAllObservations()
         remoteConnectionCoordinator.teardownOnWorkspaceDeinit()
     }
 
@@ -3493,7 +3429,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
 
     private func hasBackgroundSurfaceStartWork(for panel: TerminalPanel) -> Bool {
         panel.surface.hasDeferredStartupWorkForBackgroundStart() ||
-            pendingTerminalInputObserversByPanelId[panel.id]?.isEmpty == false
+            pendingTerminalInput.hasPendingObservations(forPanelId: panel.id)
     }
 
     private var backgroundPrimeTerminalPanelsNeedingSurfaceStart: [TerminalPanel] {
@@ -4283,9 +4219,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     }
 
     func pruneSurfaceMetadata(validSurfaceIds: Set<UUID>) {
-        for panelId in Array(pendingTerminalInputObserversByPanelId.keys) where !validSurfaceIds.contains(panelId) {
-            removePendingTerminalInputObservers(forPanelId: panelId)
-        }
+        pendingTerminalInput.removeObservations(forPanelIdsNotIn: validSurfaceIds)
         panelDirectories = panelDirectories.filter { validSurfaceIds.contains($0.key) }
         panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
@@ -6584,7 +6518,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         debugSessionSnapshotScrollbackFallbackPanelIds.removeAll(keepingCapacity: false)
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeAll(keepingCapacity: false)
 #endif
-        pendingTerminalInputObserversByPanelId.removeAll(keepingCapacity: false)
+        pendingTerminalInput.clearAllObservationsWithoutCanceling()
         terminalConfigInheritanceModel.reset()
     }
 
