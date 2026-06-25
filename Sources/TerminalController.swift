@@ -210,6 +210,7 @@ class TerminalController {
         "workspace.previous",
         "workspace.last",
         "workspace.group.focus",
+        "workspace.cloud_vm_open",
         "surface.focus",
         "pane.focus",
         "pane.last",
@@ -1810,6 +1811,10 @@ class TerminalController {
         // foreground_auth_ready/reconnect/disconnect/status/pty_attach_end/
         // terminal_session_end) handled by ControlCommandCoordinator. The worker-lane
         // workspace.remote.pty_* methods stay on the app-side worker path.
+        case "workspace.cloud_vm_open":
+            return v2Result(id: id, self.v2WorkspaceCloudVMOpen(params: params))
+        case "workspace.cloud_vm_terminal_ready":
+            return v2Result(id: id, self.v2WorkspaceCloudVMTerminalReady(params: params))
         case "workspace.set_auto_title":
             return v2Result(id: id, self.v2WorkspaceSetAutoTitle(params: params))
 
@@ -2006,6 +2011,8 @@ class TerminalController {
             "window.display",
             "workspace.list",
             "workspace.create",
+            "workspace.cloud_vm_open",
+            "workspace.cloud_vm_terminal_ready",
             "workspace.env",
             "workspace.select",
             "workspace.current",
@@ -13299,6 +13306,79 @@ class TerminalController {
             "workspace_ref": v2Ref(kind: .workspace, uuid: newId),
             "surface_id": v2OrNull(initialSurfaceId?.uuidString),
             "surface_ref": v2Ref(kind: .surface, uuid: initialSurfaceId)
+        ])
+    }
+
+    func v2WorkspaceCloudVMOpen(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        let beforeIds = Set(tabManager.tabs.map(\.id))
+        let didStart = AppDelegate.shared?.performCloudVMAction(
+            tabManager: tabManager,
+            debugSource: "rpc.workspace.cloud_vm_open"
+        ) ?? false
+        let createdWorkspace = tabManager.tabs.first { workspace in
+            !beforeIds.contains(workspace.id)
+                && workspace.panels.values.contains(where: { $0.panelType == .cloudVMLoading })
+        }
+
+        guard didStart || createdWorkspace != nil else {
+            return .err(code: "unavailable", message: "Cloud VM action could not be started", data: nil)
+        }
+
+        let workspace = createdWorkspace ?? tabManager.selectedWorkspace
+        let workspaceId = workspace?.id
+        let surfaceId = workspace?.focusedPanelId
+        let windowId = v2ResolveWindowId(tabManager: tabManager)
+        return .ok([
+            "started": didStart,
+            "window_id": v2OrNull(windowId?.uuidString),
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "workspace_id": v2OrNull(workspaceId?.uuidString),
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+            "surface_id": v2OrNull(surfaceId?.uuidString),
+            "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+        ])
+    }
+
+    func v2WorkspaceCloudVMTerminalReady(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let rawWorkspaceId = v2RawString(params, "workspace_id")?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let workspaceId = UUID(uuidString: rawWorkspaceId) else {
+            return .err(code: "invalid_params", message: "workspace_id is required", data: nil)
+        }
+        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+            return .err(code: "not_found", message: "Workspace not found", data: ["workspace_id": workspaceId.uuidString])
+        }
+        guard let command = v2RawString(params, "initial_command")?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !command.isEmpty else {
+            return .err(code: "invalid_params", message: "initial_command is required", data: ["workspace_id": workspaceId.uuidString])
+        }
+
+        let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
+        guard let panel = workspace.replaceCloudVMLoadingSurfaceWithTerminal(
+            workspaceId: workspaceId,
+            initialCommand: command,
+            focus: focus
+        ) else {
+            return .err(
+                code: "not_found",
+                message: "Cloud VM loading surface not found",
+                data: ["workspace_id": workspaceId.uuidString]
+            )
+        }
+        let windowId = v2ResolveWindowId(tabManager: tabManager)
+        return .ok([
+            "window_id": v2OrNull(windowId?.uuidString),
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "workspace_id": workspaceId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+            "surface_id": panel.id.uuidString,
+            "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
         ])
     }
 

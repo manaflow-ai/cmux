@@ -13,6 +13,7 @@ public enum PanelType: String, Codable, Sendable {
     case agentSession
     case project
     case extensionBrowser
+    case cloudVMLoading
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -35,6 +36,10 @@ public enum PanelType: String, Codable, Sendable {
         }
         if rawValue.lowercased() == Self.agentSession.rawValue.lowercased() {
             self = .agentSession
+            return
+        }
+        if rawValue.lowercased() == Self.cloudVMLoading.rawValue.lowercased() {
+            self = .cloudVMLoading
             return
         }
         throw DecodingError.dataCorruptedError(
@@ -363,5 +368,41 @@ extension Panel {
 
     func triggerFlash() {
         triggerFlash(reason: .navigation)
+    }
+}
+
+@MainActor
+final class CloudVMLoadingPanel: Panel {
+    enum Phase {
+        case loading
+        case failed(String)
+    }
+
+    let id: UUID
+    let workspaceId: UUID
+    let panelType: PanelType = .cloudVMLoading
+    @Published var phase: Phase = .loading
+
+    var displayTitle: String {
+        String(localized: "panel.cloudVM.loading.title", defaultValue: "Cloud VM")
+    }
+
+    var displayIcon: String? { "cloud.fill" }
+
+    init(id: UUID = UUID(), workspaceId: UUID) {
+        self.id = id
+        self.workspaceId = workspaceId
+    }
+
+    func close() {}
+    func focus() {}
+    func unfocus() {}
+    func triggerFlash(reason: WorkspaceAttentionFlashReason) {}
+
+    func showFailure(_ message: String) {
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        phase = .failed(trimmed.isEmpty
+            ? String(localized: "panel.cloudVM.loading.failed.generic", defaultValue: "Cloud VM could not be opened.")
+            : trimmed)
     }
 }

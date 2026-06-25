@@ -3666,7 +3666,8 @@ struct CMUXCLI {
             case "new", "create":
                 let (imageOpt, rem0) = parseOption(rest, name: "--image")
                 let (providerOpt, rem1) = parseOption(rem0, name: "--provider")
-                let (windowOpt, rem2) = parseOption(rem1, name: "--window")
+                let (targetWorkspaceOpt, rem1a) = parseOption(rem1, name: "--workspace")
+                let (windowOpt, rem2) = parseOption(rem1a, name: "--window")
                 let detach = hasFlag(rem2, name: "--detach") || hasFlag(rem2, name: "-d")
                 let remaining = rem2.filter { $0 != "--detach" && $0 != "-d" }
                 if let unknown = remaining.first(where: { Self.isUnknownFlagToken($0, allowedShortFlags: ["-d"]) }) {
@@ -3676,6 +3677,7 @@ struct CMUXCLI {
                         Known flags:
                           --image <image-id>
                           --provider <provider>
+                          --workspace <workspace-id>
                           --detach, -d
 
                         Try:
@@ -3755,6 +3757,7 @@ struct CMUXCLI {
                     id: id,
                     workspaceName: usesPersistentDefaultCloud ? Self.persistentFreestyleCloudWorkspaceName : "vm:\(shortId)",
                     windowRaw: targetWindow,
+                    targetWorkspaceId: targetWorkspaceOpt,
                     forceSSH: false,
                     shouldPinWorkspaceToTop: usesPersistentDefaultCloud,
                     client: client,
@@ -10202,6 +10205,7 @@ struct CMUXCLI {
         id: String,
         workspaceName: String?,
         windowRaw: String?,
+        targetWorkspaceId: String? = nil,
         forceSSH: Bool,
         shouldPinWorkspaceToTop: Bool,
         client: SocketClient,
@@ -10269,6 +10273,7 @@ struct CMUXCLI {
                 endpoint: endpoint,
                 workspaceName: workspaceName,
                 windowRaw: windowRaw,
+                targetWorkspaceId: targetWorkspaceId,
                 shouldPinWorkspaceToTop: shouldPinWorkspaceToTop,
                 client: client,
                 jsonOutput: jsonOutput,
@@ -11024,6 +11029,7 @@ struct CMUXCLI {
         endpoint: VMPtyWebSocketEndpoint,
         workspaceName: String?,
         windowRaw: String?,
+        targetWorkspaceId: String? = nil,
         shouldPinWorkspaceToTop: Bool,
         client: SocketClient,
         jsonOutput: Bool,
@@ -11041,19 +11047,46 @@ struct CMUXCLI {
            !workspaceName.isEmpty {
             params["title"] = workspaceName
         }
-        try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowRaw)
-        let workspaceCreateStartedAt = Date()
-        let workspaceCreate = try client.sendV2(method: "workspace.create", params: params)
-        guard let workspaceId = workspaceCreate["workspace_id"] as? String, !workspaceId.isEmpty else {
-            throw CLIError(message: "workspace.create did not return workspace_id")
+        let normalizedTargetWorkspaceId = targetWorkspaceId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let workspaceCreate: [String: Any]
+        let workspaceId: String
+        let didCreateWorkspace: Bool
+        if let normalizedTargetWorkspaceId, !normalizedTargetWorkspaceId.isEmpty {
+            workspaceId = normalizedTargetWorkspaceId
+            didCreateWorkspace = false
+            var precreatedWorkspacePayload: [String: Any] = [
+                "workspace_id": workspaceId,
+                "workspace_ref": workspaceId,
+            ]
+            if let windowRaw, !windowRaw.isEmpty {
+                precreatedWorkspacePayload["window_id"] = windowRaw
+                precreatedWorkspacePayload["window_ref"] = windowRaw
+            }
+            workspaceCreate = precreatedWorkspacePayload
+            logVMTiming(
+                "workspace.precreated",
+                vmID: id,
+                transport: "websocket",
+                startedAt: startedAt,
+                extra: "workspace=\(String(workspaceId.prefix(8)))"
+            )
+        } else {
+            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowRaw)
+            let workspaceCreateStartedAt = Date()
+            workspaceCreate = try client.sendV2(method: "workspace.create", params: params)
+            guard let createdWorkspaceId = workspaceCreate["workspace_id"] as? String, !createdWorkspaceId.isEmpty else {
+                throw CLIError(message: "workspace.create did not return workspace_id")
+            }
+            workspaceId = createdWorkspaceId
+            didCreateWorkspace = true
+            logVMTiming(
+                "workspace.create",
+                vmID: id,
+                transport: "websocket",
+                startedAt: workspaceCreateStartedAt,
+                extra: "workspace=\(String(workspaceId.prefix(8)))"
+            )
         }
-        logVMTiming(
-            "workspace.create",
-            vmID: id,
-            transport: "websocket",
-            startedAt: workspaceCreateStartedAt,
-            extra: "workspace=\(String(workspaceId.prefix(8)))"
-        )
 
         let target = URL(string: endpoint.url)?.host ?? "websocket"
         let configureStartedAt = Date()
@@ -11090,6 +11123,25 @@ struct CMUXCLI {
                 extra: "workspace=\(String(workspaceId.prefix(8)))"
             )
 
+            if normalizedTargetWorkspaceId?.isEmpty == false {
+                let readyStartedAt = Date()
+                _ = try client.sendV2(
+                    method: "workspace.cloud_vm_terminal_ready",
+                    params: [
+                        "workspace_id": workspaceId,
+                        "initial_command": initialStartupCommand,
+                        "focus": true,
+                    ]
+                )
+                logVMTiming(
+                    "workspace.cloud_vm_terminal_ready",
+                    vmID: id,
+                    transport: "websocket",
+                    startedAt: readyStartedAt,
+                    extra: "workspace=\(String(workspaceId.prefix(8)))"
+                )
+            }
+
             var selectParams: [String: Any] = ["workspace_id": workspaceId]
             if let workspaceWindowId = (workspaceCreate["window_id"] as? String)?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -11106,11 +11158,13 @@ struct CMUXCLI {
                 extra: "workspace=\(String(workspaceId.prefix(8)))"
             )
         } catch {
-            do {
-                _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
-            } catch {
-                let warning = "Warning: failed to rollback workspace \(workspaceId): \(error)\n"
-                cliWriteStderr(Data(warning.utf8))
+            if didCreateWorkspace {
+                do {
+                    _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
+                } catch {
+                    let warning = "Warning: failed to rollback workspace \(workspaceId): \(error)\n"
+                    cliWriteStderr(Data(warning.utf8))
+                }
             }
             throw error
         }

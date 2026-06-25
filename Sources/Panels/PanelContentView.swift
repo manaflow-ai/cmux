@@ -140,6 +140,11 @@ struct PanelContentView: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        case .cloudVMLoading:
+            if let loadingPanel = panel as? CloudVMLoadingPanel {
+                CloudVMLoadingPanelView(panel: loadingPanel)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
     }
 
@@ -157,11 +162,49 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .project, .extensionBrowser:
+        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .project, .extensionBrowser, .cloudVMLoading:
             return true
         case .terminal, .browser:
             return false
         }
+    }
+}
+
+private struct CloudVMLoadingPanelView: View {
+    @ObservedObject var panel: CloudVMLoadingPanel
+
+    var body: some View {
+        VStack(spacing: 14) {
+            switch panel.phase {
+            case .loading:
+                ProgressView()
+                    .controlSize(.small)
+                Text(String(localized: "panel.cloudVM.loading.headline", defaultValue: "Opening Cloud VM"))
+                    .cmuxFont(size: 14, weight: .semibold)
+                    .foregroundStyle(.primary)
+                Text(String(
+                    localized: "panel.cloudVM.loading.message",
+                    defaultValue: "Creating or reattaching to your persistent Cloud VM."
+                ))
+                .cmuxFont(size: 12)
+                .foregroundStyle(.secondary)
+            case .failed(let message):
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .cmuxSymbolRasterSize(18)
+                    .foregroundStyle(.orange)
+                Text(String(localized: "panel.cloudVM.loading.failed.headline", defaultValue: "Cloud VM unavailable"))
+                    .cmuxFont(size: 14, weight: .semibold)
+                    .foregroundStyle(.primary)
+                Text(message)
+                    .cmuxFont(size: 12)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 420)
+            }
+        }
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: GhosttyApp.shared.defaultBackgroundColor))
     }
 }
 

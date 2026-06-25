@@ -41,6 +41,7 @@ final class CloudVMActionLauncher {
         arguments: [String] = ["vm", "new"],
         successTitle: String? = nil,
         presentOutputOnSuccess: Bool = false,
+        showsProgress: Bool = true,
         onCompletion: ((Completion) -> Void)? = nil
     ) -> Bool {
         let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux")
@@ -78,11 +79,13 @@ final class CloudVMActionLauncher {
         outputCollector.start()
         let launchWindow = preferredWindow
         let presentation = Self.progressPresentation(arguments: arguments)
-        let progressController = CloudVMActionProgressController(
-            title: presentation.title,
-            message: presentation.message,
-            preferredWindow: preferredWindow
-        )
+        let progressController = showsProgress
+            ? CloudVMActionProgressController(
+                title: presentation.title,
+                message: presentation.message,
+                preferredWindow: preferredWindow
+            )
+            : nil
         process.terminationHandler = { terminatedProcess in
             let output = outputCollector.finish()
             let processIdentifier = terminatedProcess.processIdentifier
@@ -122,17 +125,19 @@ final class CloudVMActionLauncher {
         }
 
         do {
-            progressController.show()
+            progressController?.show()
             try process.run()
             processes[process.processIdentifier] = process
-            progressControllers[process.processIdentifier] = progressController
+            if let progressController {
+                progressControllers[process.processIdentifier] = progressController
+            }
 #if DEBUG
             cmuxDebugLog("cloudVM.launch pid=\(process.processIdentifier) socket=\(socketPath)")
 #endif
             return true
         } catch {
             outputCollector.cancel()
-            progressController.close()
+            progressController?.close()
             presentStartFailure(
                 summary: String(
                     localized: "command.cloudVM.failed.launch",
