@@ -814,10 +814,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private static let viewportReportSettleThreshold = 8
     private static let snapshotFallbackZPosition: CGFloat = 900
     private static let disablesSnapshotFallback = ProcessInfo.processInfo.environment["CMUX_DISABLE_SNAPSHOT_FALLBACK"] == "1"
-    /// Throttle stamp for snapshot fallback text reads in `processOutput`.
+    /// Per-view throttle stamp for snapshot fallback text reads in `processOutput`.
     /// Accessed only on the serial `outputQueue`, so the unchecked mutation is
-    /// safe.
-    nonisolated(unsafe) fileprivate static var lastSnapshotFallbackTextTime: CFTimeInterval = 0
+    /// safe. This must stay per-instance: the fallback is the first visible
+    /// frame for each terminal surface, and sibling surfaces must not suppress it.
+    nonisolated(unsafe) private var lastSnapshotFallbackTextTime: CFTimeInterval = 0
     /// Daemon-authoritative effective grid (min across attached devices). When
     /// set, the Ghostty surface is pinned to this cols×rows inside the
     /// container so every attached device renders at the same grid. When
@@ -2245,8 +2246,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             var fallbackSnapshot: String?
             let snapshotNow = CACurrentMediaTime()
             if shouldReadFallbackSnapshot,
-               snapshotNow - Self.lastSnapshotFallbackTextTime > 0.25 {
-                Self.lastSnapshotFallbackTextTime = snapshotNow
+               let self,
+               snapshotNow - self.lastSnapshotFallbackTextTime > 0.25 {
+                self.lastSnapshotFallbackTextTime = snapshotNow
                 fallbackSnapshot = Self.surfaceText(surface, pointTag: GHOSTTY_POINT_VIEWPORT)
             }
             #if DEBUG
