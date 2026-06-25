@@ -155,7 +155,6 @@ final class VSCodeServeWebController {
             self.serveWebURL
         })
         return Self.urlsShareLoopbackOrigin(candidateURL, serveWebURL)
-            || Self.isPersistentServeWebURL(candidateURL)
     }
 
     @discardableResult

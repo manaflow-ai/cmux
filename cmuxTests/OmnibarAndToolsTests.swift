@@ -779,8 +779,10 @@ final class VSCodeServeWebControllerTests: XCTestCase {
                 let wrongPortURL = try XCTUnwrap(URL(string: "http://localhost:\(wrongPort)/?tkn=\(token)"))
                 let secureURL = try XCTUnwrap(URL(string: "https://localhost:\(options.port)/?tkn=\(token)"))
                 let fallbackURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(wrongPort)/?tkn=\(token)"))
+                let fallbackFolderURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(wrongPort)/?tkn=\(token)&folder=/tmp/cmux"))
 
                 XCTAssertTrue(VSCodeServeWebController.isPersistentServeWebURL(matchingURL, launchOptions: options))
+                XCTAssertFalse(VSCodeServeWebController().isServeWebURL(matchingURL))
                 XCTAssertFalse(VSCodeServeWebController.isPersistentServeWebURL(wrongTokenURL, launchOptions: options))
                 XCTAssertFalse(VSCodeServeWebController.isPersistentServeWebURL(wrongPortURL, launchOptions: options))
                 XCTAssertFalse(VSCodeServeWebController.isPersistentServeWebURL(secureURL, launchOptions: options))
@@ -790,6 +792,13 @@ final class VSCodeServeWebControllerTests: XCTestCase {
                         launchedURL: fallbackURL
                     )?.absoluteString,
                     "http://127.0.0.1:\(wrongPort)/?tkn=\(token)&folder=/tmp/cmux"
+                )
+                XCTAssertEqual(
+                    VSCodeServeWebController.serveWebURL(
+                        fallbackFolderURL,
+                        rewrittenToLoopbackOrigin: matchingURL
+                    )?.absoluteString,
+                    matchingURL.absoluteString
                 )
                 XCTAssertNil(VSCodeServeWebController.preparedRestoredServeWebURL(matchingURL, launchedURL: wrongTokenURL))
             }

@@ -76,13 +76,21 @@ extension VSCodeServeWebController {
         if urlsShareLoopbackOrigin(restoredURL, launchedURL) {
             return restoredURL
         }
+        return serveWebURL(restoredURL, rewrittenToLoopbackOrigin: launchedURL)
+    }
 
-        var restoredComponents = URLComponents(url: restoredURL, resolvingAgainstBaseURL: false)
-        let launchedComponents = URLComponents(url: launchedURL, resolvingAgainstBaseURL: false)
-        restoredComponents?.scheme = launchedComponents?.scheme
-        restoredComponents?.host = launchedComponents?.host
-        restoredComponents?.port = launchedComponents?.port
-        return restoredComponents?.url
+    static func serveWebURL(_ sourceURL: URL, rewrittenToLoopbackOrigin originURL: URL) -> URL? {
+        guard connectionTokenQueryValue(sourceURL) == connectionTokenQueryValue(originURL),
+              isLoopbackHTTPURL(sourceURL),
+              isLoopbackHTTPURL(originURL) else {
+            return nil
+        }
+        var sourceComponents = URLComponents(url: sourceURL, resolvingAgainstBaseURL: false)
+        let originComponents = URLComponents(url: originURL, resolvingAgainstBaseURL: false)
+        sourceComponents?.scheme = originComponents?.scheme
+        sourceComponents?.host = originComponents?.host
+        sourceComponents?.port = originComponents?.port
+        return sourceComponents?.url
     }
 
     private static func isPossiblePersistentServeWebURL(_ candidateURL: URL?) -> Bool {

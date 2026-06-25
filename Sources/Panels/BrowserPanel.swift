@@ -2849,6 +2849,7 @@ final class BrowserPanel: Panel, ObservableObject {
     @Published private(set) var backgroundAppearanceRevision: UInt64 = 0
     private let hiddenWebViewDiscardManager = BrowserHiddenWebViewDiscardManager()
     private var restoredInlineVSCodeServeWebURLAwaitingPreparation: URL?
+    private var restoredInlineVSCodeServeWebStableSnapshotOriginURL: URL?
 
     @Published private(set) var webViewLifecycleState: BrowserWebViewLifecycleState = .newTab
     private(set) var webViewLastVisibleAt: Date?
@@ -4595,6 +4596,7 @@ final class BrowserPanel: Panel, ObservableObject {
             self.restoredInlineVSCodeServeWebURLAwaitingPreparation = nil
             guard let preparedURL else { return }
             let usedFallbackPort = preparedURL.absoluteString != restoredURL.absoluteString
+            self.restoredInlineVSCodeServeWebStableSnapshotOriginURL = usedFallbackPort ? restoredURL : nil
             self.currentURL = preparedURL
             if usedFallbackPort {
                 self.abandonRestoredSessionHistoryIfNeeded()
@@ -4666,6 +4668,24 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func preferredURLStringForSessionSnapshot() -> String? {
+        if let stableOriginURL = restoredInlineVSCodeServeWebStableSnapshotOriginURL {
+            if let webViewURL = Self.remoteProxyDisplayURL(for: webView.url),
+               let stableWebViewURL = VSCodeServeWebController.serveWebURL(
+                webViewURL,
+                rewrittenToLoopbackOrigin: stableOriginURL
+               ),
+               let value = Self.serializableSessionHistoryURLString(stableWebViewURL) {
+                return value
+            }
+            if let currentURL,
+               let stableCurrentURL = VSCodeServeWebController.serveWebURL(
+                currentURL,
+                rewrittenToLoopbackOrigin: stableOriginURL
+               ),
+               let value = Self.serializableSessionHistoryURLString(stableCurrentURL) {
+                return value
+            }
+        }
         if let webViewURL = Self.remoteProxyDisplayURL(for: webView.url),
            let value = Self.serializableSessionHistoryURLString(webViewURL) {
             return value
