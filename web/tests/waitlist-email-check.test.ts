@@ -86,4 +86,16 @@ describe("checkEmailDeliverable", () => {
     resolve6 = noRecord;
     expect(await checkEmailDeliverable("not-an-email")).toBe("invalid");
   });
+
+  test("fails open (unknown) when DNS exceeds the timeout", async () => {
+    // A hung resolver must never reject a real address; the bounded check
+    // resolves to "unknown" so the caller passes the email through.
+    const hang = () => new Promise<never>(() => {});
+    resolveMx = hang;
+    resolve4 = hang;
+    resolve6 = hang;
+    const start = Date.now();
+    expect(await checkEmailDeliverable("a@hung.test", 20)).toBe("unknown");
+    expect(Date.now() - start).toBeLessThan(500);
+  });
 });

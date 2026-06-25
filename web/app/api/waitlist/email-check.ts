@@ -112,6 +112,28 @@ async function hasAddressRecord(domain: string): Promise<EmailCheck> {
   return "invalid";
 }
 
+// Upper bound on the DNS work per check. A slow or hung resolver should fail
+// open ("unknown" -> caller passes the email) within a couple of seconds rather
+// than stall the signup waiting on c-ares' multi-second retries.
+const DNS_TIMEOUT_MS = 2500;
+
+// resolveDomain never rejects (its callees swallow DNS errors), so the losing
+// race branch settles and is GC'd without an unhandled rejection.
+async function withTimeout(
+  work: Promise<EmailCheck>,
+  ms: number,
+): Promise<EmailCheck> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<EmailCheck>((resolve) => {
+    timer = setTimeout(() => resolve("unknown"), ms);
+  });
+  try {
+    return await Promise.race([work, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function resolveDomain(domain: string): Promise<EmailCheck> {
   try {
     const mx = await dns.resolveMx(domain);
@@ -133,7 +155,10 @@ async function resolveDomain(domain: string): Promise<EmailCheck> {
  * providers, without proving inbox ownership. Returns `unknown` on transient
  * DNS failures so callers can fail open.
  */
-export async function checkEmailDeliverable(email: string): Promise<EmailCheck> {
+export async function checkEmailDeliverable(
+  email: string,
+  timeoutMs: number = DNS_TIMEOUT_MS,
+): Promise<EmailCheck> {
   const at = email.lastIndexOf("@");
   if (at < 0) return "invalid";
   const domain = email
@@ -147,8 +172,9 @@ export async function checkEmailDeliverable(email: string): Promise<EmailCheck> 
   const cached = cacheGet(domain);
   if (cached) return cached;
 
-  const status = await resolveDomain(domain);
-  // Cache only stable answers; let `unknown` retry on the next submit.
+  const status = await withTimeout(resolveDomain(domain), timeoutMs);
+  // Cache only stable answers; let `unknown` (transient failure or timeout)
+  // retry on the next submit.
   if (status !== "unknown") cacheSet(domain, status);
   return status;
 }
