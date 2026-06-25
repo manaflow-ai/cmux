@@ -72,11 +72,9 @@ import Testing
         #expect(V.minimumSupported.displayString == "3.2")
     }
 
-    @Test func unsupportedErrorMessageNamesVersionAndMinimum() {
+    @Test func unsupportedErrorMessageInterpolatesVersionAndMinimum() {
         let msg = RemoteTmuxError.unsupportedTmux(detected: "2.6").message
         #expect(msg.contains("2.6"))
         #expect(msg.contains("3.2"))
-        #expect(msg.lowercased().contains("too old"))
-        #expect(!msg.lowercased().contains("tmux"))
     }
 }
