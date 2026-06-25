@@ -179,8 +179,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 composerController = controller
                 surfaceView.mountComposerView(controller.view)
                 // The field opens at one line; report its initial height without
-                // animation (the composer's open transition already animates), then
-                // live grows/shrinks animate.
+                // animation. Live text/attachment grows also apply without animation
+                // so the bottom edge stays pinned to the keyboard.
                 reportComposerHeight(animated: false)
             } else {
                 // Symmetric close: animate the band to 0 with the field STILL
@@ -208,12 +208,19 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// sizes the surface band.
         @MainActor
         private func makeComposerController(store: CMUXMobileShellStore) -> UIHostingController<TerminalComposerView> {
-            let view = TerminalComposerView(store: store, terminalID: surfaceID) { [weak self] in
-                // Content changed (a line added/removed, or cleared after send): live
-                // grows/shrinks animate. `setComposerBandHeight` is idempotent on
-                // unchanged heights, so a no-op change is harmless.
-                self?.reportComposerHeight(animated: true)
-            }
+            let view = TerminalComposerView(
+                store: store,
+                terminalID: surfaceID,
+                requestHeightRemeasure: { [weak self] in
+                // Content changed (a line added/removed, attachment row changed, or
+                // cleared after send): apply immediately so the composer bottom stays
+                // pinned to the keyboard and only the top edge moves.
+                self?.reportComposerHeight(animated: false)
+                },
+                onFocusChange: { [weak self] focused in
+                    self?.surfaceView?.setComposerFieldFocused(focused)
+                }
+            )
             let controller = UIHostingController(rootView: view)
             // The field is pinned edge-to-edge in the band, so the band frame (not an
             // intrinsic size) drives the hosting view's height; the measured ideal
@@ -228,8 +235,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// current (pinned) frame, so it is not circular: the band height is set FROM
         /// this measurement, and the measurement does not depend on the band height.
         /// The proposed width is the surface width and the proposed height is unbounded
-        /// so a multi-line field measures its full desired height (capped to 14 lines by
-        /// the field's own `lineLimit`).
+        /// so a multi-line field measures its full desired height. The field's own
+        /// `lineLimit` and the surface's available-terminal-height cap bound the result.
         @MainActor
         private func reportComposerHeight(animated: Bool) {
             guard let controller = composerController, let surfaceView else { return }

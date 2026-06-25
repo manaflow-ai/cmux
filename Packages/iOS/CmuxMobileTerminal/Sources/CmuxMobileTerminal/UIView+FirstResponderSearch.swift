@@ -28,8 +28,8 @@ extension UIView {
         return nil
     }
 
-    /// Returns the first focusable text input (`UITextField` / `UITextView`)
-    /// within this view's subtree (including `self`), or `nil` when none exists.
+    /// Returns the first focusable text input within this view's subtree
+    /// (including `self`), or `nil` when none exists.
     ///
     /// Used as the deterministic UIKit focus path for the composer band: SwiftUI's
     /// programmatic `@FocusState` set can be dropped for a field hosted inside a
@@ -39,7 +39,12 @@ extension UIView {
     /// short-circuits on the first match, main-actor (UIKit).
     @MainActor
     func firstFocusableTextInputInSubtree() -> UIView? {
-        if (self is UITextField || self is UITextView), canBecomeFirstResponder {
+        let isTextInput =
+            self is UITextField ||
+            self is UITextView ||
+            self is any UITextInput ||
+            self is any UIKeyInput
+        if isTextInput, canBecomeFirstResponder {
             return self
         }
         for subview in subviews {

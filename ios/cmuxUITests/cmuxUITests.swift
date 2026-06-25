@@ -1426,6 +1426,56 @@ final class cmuxUITests: XCTestCase {
         assertDockCoherent(in: app, cycle: 1)
     }
 
+    /// Adding newlines should grow the composer upward from the keyboard edge, then
+    /// cap and scroll internally instead of eating the whole terminal viewport.
+    @MainActor
+    func testComposerGrowthStaysBottomPinnedAndCapped() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8))
+
+        let composeButton = app.buttons[Composer.composeButton]
+        composeButton.tap()
+        let field = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(field.waitForExistence(timeout: 4))
+        waitForDock(in: app, describe: "OPEN: fieldFocused=1 before multiline typing") {
+            $0["composerActive"] == "1" && $0["fieldFocused"] == "1"
+        }
+
+        field.typeText("one")
+        _ = waitForDock(in: app, describe: "one line typed") { _ in
+            (self.storeComposer(in: app)["draftLength"].flatMap(Int.init) ?? 0) >= 3
+        }
+        let oneLineFrame = field.frame
+
+        let longDraft = (2...30).map { "line \($0)" }.joined(separator: "\n")
+        field.typeText("\n" + longDraft)
+        let dock = waitForDock(in: app, timeout: 8, describe: "multiline draft typed and capped") { surface in
+            guard let bandHeight = surface["composerBandHeight"].flatMap(Int.init),
+                  let maxHeight = surface["composerMaxHeight"].flatMap(Int.init) else {
+                return false
+            }
+            let draftLength = self.storeComposer(in: app)["draftLength"].flatMap(Int.init) ?? 0
+            return draftLength >= ("one\n" + longDraft).count && bandHeight <= maxHeight
+        }
+        let expandedFrame = field.frame
+
+        XCTAssertGreaterThan(
+            expandedFrame.height,
+            oneLineFrame.height,
+            "composer should grow after adding lines. oneLine=\(oneLineFrame) expanded=\(expandedFrame) dock=\(dock)"
+        )
+        XCTAssertEqual(
+            expandedFrame.maxY,
+            oneLineFrame.maxY,
+            accuracy: 4,
+            "composer bottom must stay pinned while top grows upward. oneLine=\(oneLineFrame) expanded=\(expandedFrame) dock=\(dock)"
+        )
+    }
+
     /// Rapid double-toggle: two compose taps with no settle in between. This is the
     /// most direct provocation of the deferred-focus race — the second tap can land
     /// before the field has taken first responder, so the reducer mis-resolves and the
