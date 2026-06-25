@@ -34,4 +34,17 @@ extension CMUXCLI {
         }
         return current ?? mapped
     }
+
+    func agentHookMappedSessionHasDurableTargetEvidence(
+        kind: String,
+        mapped: ClaudeHookSessionRecord?
+    ) -> Bool {
+        guard kind == "codex" else { return mapped != nil }
+        guard let mapped else { return false }
+        if normalizedHookValue(mapped.transcriptPath) != nil { return true }
+        guard let launchCommand = mapped.launchCommand else { return false }
+        if normalizedHookValue(launchCommand.environment?["CODEX_HOME"]) != nil { return true }
+        guard !launchCommand.arguments.isEmpty else { return false }
+        return normalizedHookValue(launchCommand.source)?.lowercased() == "environment"
+    }
 }
