@@ -25,6 +25,35 @@ import Foundation
 ///     applyAppearance(mode)
 /// }
 /// ```
+/// Identifies one caller-originated `UserDefaultsSettingsStore` mutation.
+///
+/// Consumers that optimistically update UI can attach a source to their store
+/// write and ignore the matching observation echo without suppressing unrelated
+/// external writes that happen to carry the same setting value.
+public struct UserDefaultsSettingsMutationSource: Sendable, Hashable {
+    fileprivate let rawValue: UUID
+
+    /// Creates a unique mutation source for one logical write.
+    public init() {
+        self.rawValue = UUID()
+    }
+}
+
+/// One observed `UserDefaults` setting value plus its optional mutation source.
+public struct UserDefaultsSettingsValueEvent<Value: SettingCodable>: Sendable, Equatable {
+    /// The decoded value for the observed key.
+    public let value: Value
+
+    /// The source attached to the latest store-owned write for the key, if any.
+    public let mutationSource: UserDefaultsSettingsMutationSource?
+
+    /// Creates an observed value event.
+    public init(value: Value, mutationSource: UserDefaultsSettingsMutationSource? = nil) {
+        self.value = value
+        self.mutationSource = mutationSource
+    }
+}
+
 public actor UserDefaultsSettingsStore {
     /// The `UserDefaults` suite this store reads and writes.
     ///
@@ -32,6 +61,7 @@ public actor UserDefaultsSettingsStore {
     /// instance inside a private unchecked-Sendable wrapper and expose only
     /// typed operations.
     private let storage: UserDefaultsSettingsStorage
+    private var mutationSources: [String: UserDefaultsSettingsMutationSource] = [:]
 
     /// Creates a store backed by the given `UserDefaults` instance.
     ///
@@ -70,14 +100,27 @@ public actor UserDefaultsSettingsStore {
     }
 
     /// Writes a value for the key.
-    public func set<Value>(_ value: Value, for key: DefaultsKey<Value>) {
+    @discardableResult
+    public func set<Value>(
+        _ value: Value,
+        for key: DefaultsKey<Value>,
+        source: UserDefaultsSettingsMutationSource? = nil
+    ) -> UserDefaultsSettingsMutationSource? {
+        recordMutationSource(source, for: key.userDefaultsKey)
         storage.set(value, for: key)
+        return source
     }
 
     /// Removes the stored override for the key. After this call ``value(for:)``
     /// returns the key's default value until something writes a new override.
-    public func reset<Value>(_ key: DefaultsKey<Value>) {
+    @discardableResult
+    public func reset<Value>(
+        _ key: DefaultsKey<Value>,
+        source: UserDefaultsSettingsMutationSource? = nil
+    ) -> UserDefaultsSettingsMutationSource? {
+        recordMutationSource(source, for: key.userDefaultsKey)
         storage.removeObject(forKey: key.userDefaultsKey)
+        return source
     }
 
     /// Removes the stored overrides for every UserDefaults-backed entry in
@@ -100,6 +143,18 @@ public actor UserDefaultsSettingsStore {
             }
             defaults.removeObject(forKey: storageKey)
         }
+    }
+
+    private func recordMutationSource(_ source: UserDefaultsSettingsMutationSource?, for storageKey: String) {
+        if let source {
+            mutationSources[storageKey] = source
+        } else {
+            mutationSources.removeValue(forKey: storageKey)
+        }
+    }
+
+    private func mutationSource(for storageKey: String) -> UserDefaultsSettingsMutationSource? {
+        mutationSources[storageKey]
     }
 
     /// Returns an `AsyncStream` that yields the current value and every later change.
@@ -146,6 +201,62 @@ public actor UserDefaultsSettingsStore {
                     if current != lastYielded {
                         lastYielded = current
                         continuation.yield(current)
+                    }
+                }
+                continuation.finish()
+            }
+
+            continuation.onTermination = { _ in
+                drainTask.cancel()
+                signalContinuation.finish()
+                observer.remove()
+            }
+        }
+    }
+
+    /// Returns value changes tagged with the source of the most recent
+    /// store-owned mutation for this key.
+    ///
+    /// The source is present only for writes that explicitly pass one to
+    /// ``set(_:for:source:)`` or ``reset(_:source:)``. Callers use it to
+    /// distinguish their own async store echoes from external settings
+    /// changes without relying on lossy value equality.
+    public nonisolated func valueEvents<Value>(
+        for key: DefaultsKey<Value>
+    ) -> AsyncStream<UserDefaultsSettingsValueEvent<Value>> {
+        AsyncStream<UserDefaultsSettingsValueEvent<Value>>(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+
+            let observer = NotificationObserverToken(
+                NotificationCenter.default.addObserver(
+                    forName: UserDefaults.didChangeNotification,
+                    object: nil,
+                    queue: nil
+                ) { [weak self] _ in
+                    guard self != nil else { return }
+                    signalContinuation.yield(())
+                }
+            )
+
+            let storageKey = key.userDefaultsKey
+            let drainTask = Task { [weak self] in
+                guard let self else {
+                    continuation.finish()
+                    return
+                }
+                var lastYielded = await self.value(for: key)
+                let initialSource = await self.mutationSource(for: storageKey)
+                continuation.yield(UserDefaultsSettingsValueEvent(value: lastYielded, mutationSource: initialSource))
+
+                for await _ in signals {
+                    if Task.isCancelled { break }
+                    let current = await self.value(for: key)
+                    if current != lastYielded {
+                        lastYielded = current
+                        let source = await self.mutationSource(for: storageKey)
+                        continuation.yield(UserDefaultsSettingsValueEvent(value: current, mutationSource: source))
                     }
                 }
                 continuation.finish()
