@@ -64,7 +64,7 @@ private struct SpinnerSpec: Identifiable {
 }
 
 private struct SpinnerGalleryRootView: View {
-    private let tint = NSColor.controlAccentColor
+    private let tint = NSColor.secondaryLabelColor
     private let size: CGFloat = 22
 
     private var specs: [SpinnerSpec] {

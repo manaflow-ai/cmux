@@ -13254,8 +13254,11 @@ struct TabItemView: View, Equatable {
     }
 
     private var activeCodingAgentSpinnerNSColor: NSColor {
+        // Muted grey in both states: secondary label on normal rows, a dimmed
+        // selection foreground on selected rows so it stays grey but legible on
+        // the highlight.
         usesInvertedActiveForeground
-            ? selectedWorkspaceForegroundNSColor(opacity: 0.92)
+            ? selectedWorkspaceForegroundNSColor(opacity: 0.55)
             : .secondaryLabelColor
     }
 

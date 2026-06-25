@@ -102,8 +102,8 @@ final class GPUSpinnerNSView: NSView {
         let side = min(bounds.width, bounds.height)
         guard side > 0, spokeLayers.count == Self.spokeCount else { return }
         let center = CGPoint(x: bounds.midX, y: bounds.midY)
-        let thickness = max(1, side * 0.16)
-        let length = max(2, side * 0.30)
+        let thickness = max(1, side * 0.10)
+        let length = max(2, side * 0.34)
         // Distance from the center to each spoke's own center.
         let radius = side / 2 - length / 2
         for (index, spoke) in spokeLayers.enumerated() {
@@ -126,7 +126,7 @@ final class GPUSpinnerNSView: NSView {
         guard side > 0 else { return }
         arcLayer.frame = CGRect(x: 0, y: 0, width: side, height: side)
         arcLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
-        arcLayer.lineWidth = max(1.4, side * 0.16)
+        arcLayer.lineWidth = max(1, side * 0.10)
         let inset = arcLayer.lineWidth / 2
         arcLayer.path = CGPath(
             ellipseIn: CGRect(x: inset, y: inset, width: side - inset * 2, height: side - inset * 2),
