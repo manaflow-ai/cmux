@@ -70,4 +70,24 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
             "Expected non-visible remote heartbeat updates to avoid invalidating sidebar rows"
         )
     }
+
+    func testSidebarObservationPublisherEmitsForAgentLifecycleOnlyChange() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        var publishCount = 0
+        let cancellable = workspace.sidebarObservationPublisher.sink {
+            publishCount += 1
+        }
+        defer { cancellable.cancel() }
+        publishCount = 0
+
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .needsInput)
+
+        XCTAssertGreaterThan(
+            publishCount,
+            0,
+            "Agent lifecycle changes must refresh extension sidebar status dots even when no visible metadata text changes"
+        )
+    }
 }

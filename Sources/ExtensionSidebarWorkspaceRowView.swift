@@ -40,7 +40,6 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
         let primarySize: CGFloat = isSuperCompact ? 10.5 : 12.5
         let secondarySize: CGFloat = isSuperCompact ? 9 : 10
         let subtitle = rendered(row.subtitle)
-        let showsStatusDot = workspaceStatusStyle == .dot && workspaceAgentLifecycleState != nil
         HStack(spacing: isSuperCompact ? 5 : 7) {
             VStack(alignment: .leading, spacing: isSuperCompact ? 0 : 2) {
                 HStack(spacing: 5) {
@@ -52,7 +51,7 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
 
                     if workspaceStatusStyle == .dot, let workspaceAgentLifecycleState {
                         let accessibilityLabel = agentStatusAccessibilityLabel(
-                            subtitle: subtitle,
+                            subtitle: replacesSubtitleWithStatusDot ? subtitle : nil,
                             state: workspaceAgentLifecycleState
                         )
                         Circle()
@@ -63,7 +62,7 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
                     }
                 }
 
-                if !showsStatusDot, !isSuperCompact, let subtitle {
+                if !replacesSubtitleWithStatusDot, !isSuperCompact, let subtitle {
                     Text(subtitle)
                         .cmuxFont(size: secondarySize, weight: .regular)
                         .foregroundColor(.secondary)
@@ -130,15 +129,27 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
         }
     }
 
+    private var showsStatusDot: Bool {
+        workspaceStatusStyle == .dot && workspaceAgentLifecycleState != nil
+    }
+
+    private var replacesSubtitleWithStatusDot: Bool {
+        showsStatusDot && providerId == CmuxSidebarProviderDescriptor.defaultWorkspacesID
+    }
+
+    private var usesOneLineStatusDotLayout: Bool {
+        showsStatusDot && (row.subtitle == nil || replacesSubtitleWithStatusDot)
+    }
+
     private var rowVerticalPadding: CGFloat {
         if isSuperCompact { return 2 }
-        if isThin || workspaceStatusStyle == .dot { return 5 }
+        if isThin || usesOneLineStatusDotLayout { return 5 }
         return 7
     }
 
     private var rowMinimumHeight: CGFloat {
         if isSuperCompact { return 22 }
-        if workspaceStatusStyle == .dot { return 28 }
+        if usesOneLineStatusDotLayout { return 28 }
         return 32
     }
 
