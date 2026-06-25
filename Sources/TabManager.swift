@@ -1,5 +1,6 @@
 import CmuxRemoteSession
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxTerminalCore
 import SwiftUI
@@ -186,6 +187,45 @@ class TabManager {
     @ObservationIgnored
     private(set) lazy var surfaceMetadata = SurfaceMetadataCoordinator(model: workspaces)
 
+    /// Presents the close-confirmation `NSAlert` (CmuxAppKitSupportUI). The
+    /// AppKit alert-construction / button-wiring / checkbox / modal-run ceremony
+    /// lives in the presenter; this composition point injects the app-side modal
+    /// runner (the shared `runCmuxModalAlert` presenter plus the DEBUG UITest
+    /// presentation-path telemetry, both of which must stay app-side). The
+    /// `present(_:)` witness below builds the localized button strings and
+    /// resolves the presenting window, then forwards to this presenter.
+    @ObservationIgnored
+    private(set) lazy var closeConfirmationPresenter = CloseConfirmationAlertPresenter { alert, presentingWindow in
+        // Presentation (activate + sheet-on-main-window, else app-modal) is
+        // shared with every other cmux dialog via `runCmuxModalAlert`. This
+        // runner only adds the close-confirmation-specific UITest telemetry,
+        // recorded from the presenter's actual path so the label can never
+        // disagree with how the alert was really shown.
+        runCmuxModalAlert(
+            alert,
+            presentingWindow: presentingWindow
+        ) { presentation in
+            #if DEBUG
+            switch presentation {
+            case .sheet(let hostWindow):
+                // The sheet attaches after this hook returns, so read the
+                // attachment on the next runloop turn (during the modal loop).
+                DispatchQueue.main.async {
+                    UITestRecorder.record([
+                        "closeConfirmationPresentation": "sheet",
+                        "closeConfirmationAttachedSheet": hostWindow.attachedSheet == nil ? "0" : "1",
+                    ])
+                }
+            case .appModal(let hostWindowHadAttachedSheet):
+                UITestRecorder.record([
+                    "closeConfirmationPresentation": "appModal",
+                    "closeConfirmationAttachedSheet": hostWindowHadAttachedSheet ? "1" : "0",
+                ])
+            }
+            #endif
+        }
+    }
+
     var tabs: [Workspace] {
         get { workspaces.tabs }
         set { workspaces.tabs = newValue }
@@ -230,9 +270,6 @@ class TabManager {
         backgroundWorkspaceLoad.debugPinnedWorkspaceLoadIds
     }
 
-    /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
-    /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
-    static var nextPortOrdinal: Int = 0
     var selectedTabId: UUID? {
         get { workspaces.selectedTabId }
         set { workspaces.selectedTabId = newValue }
@@ -568,6 +605,18 @@ class TabManager {
     // the legacy shared limiter; tests inject their own instance.
     private static let sharedWorkspaceGitProbeLimiter = WorkspaceGitMetadataProbeLimiter(limit: 2)
 
+    // Process-wide CMUX_PORT ordinal counter, shared by every window's
+    // TabManager so port ranges don't overlap across windows (each window has
+    // its own TabManager). A static (not a per-instance default) on purpose:
+    // the counter is per process, not per window, matching the legacy
+    // `static var nextPortOrdinal`; tests inject their own instance.
+    private static let sharedPortOrdinalAllocator = PortOrdinalAllocator()
+
+    // The injected ordinal allocator (extracted to CmuxWorkspaces). Defaults
+    // to the process-wide shared instance at the composition point; the
+    // `nextPortOrdinal()` accessor forwards to it.
+    private let portOrdinalAllocator: PortOrdinalAllocator
+
     // The sidebar git/PR subsystem (extracted to CmuxSidebarGit). TabManager
     // is the per-window composition point: it constructs the concrete
     // services, stores only the seams, implements SidebarGitHosting
@@ -586,11 +635,13 @@ class TabManager {
         workspaceGitMetadataReader: (any WorkspaceGitMetadataReading)? = nil,
         gitPollClock: any GitPollClock = SystemGitPollClock(),
         gitProbeLimiter: WorkspaceGitMetadataProbeLimiter? = nil,
+        portOrdinalAllocator: PortOrdinalAllocator? = nil,
         selectionSideEffectsClock: any TabManagerSelectionSideEffectsClock = SystemTabManagerSelectionSideEffectsClock(),
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard)
     ) {
         self.selectionSideEffectsClock = selectionSideEffectsClock
         self.settings = settings
+        self.portOrdinalAllocator = portOrdinalAllocator ?? Self.sharedPortOrdinalAllocator
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
         workspaceCommands = WorkspaceCommandCoordinator(model: workspaces, reordering: workspaceReordering)
         workspaceGrouping = WorkspaceGroupCoordinator(model: workspaces)
@@ -1976,42 +2027,6 @@ class TabManager {
     // `confirmClose` / `confirmAnchorWorkspaceClose` alert construction.
 
     func present(_ prompt: CloseConfirmationPrompt) -> CloseConfirmationOutcome {
-        _ = prompt.acceptCmdD
-
-        let alert = NSAlert()
-        alert.messageText = prompt.title
-        alert.informativeText = prompt.message
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: String(localized: "dialog.closeTab.close", defaultValue: "Close"))
-        alert.addButton(withTitle: String(localized: "dialog.closeTab.cancel", defaultValue: "Cancel"))
-
-        let suppressionButton: NSButton?
-        if prompt.showsSuppressionCheckbox {
-            let button = NSButton(
-                checkboxWithTitle: String(
-                    localized: "dialog.dontAskAgain",
-                    defaultValue: "Don\u{2019}t ask again"
-                ),
-                target: nil,
-                action: nil
-            )
-            button.state = .off
-            alert.accessoryView = button
-            suppressionButton = button
-        } else {
-            suppressionButton = nil
-        }
-
-        if let closeButton = alert.buttons.first {
-            closeButton.keyEquivalent = "\r"
-            closeButton.keyEquivalentModifierMask = []
-            alert.window.defaultButtonCell = closeButton.cell as? NSButtonCell
-            alert.window.initialFirstResponder = closeButton
-        }
-        if let cancelButton = alert.buttons.dropFirst().first {
-            cancelButton.keyEquivalent = "\u{1b}"
-        }
-
         #if DEBUG
         UITestRecorder.record([
             "closeConfirmationTitle": prompt.title,
@@ -2019,10 +2034,22 @@ class TabManager {
         ])
         #endif
 
-        let confirmed = runCloseConfirmationAlert(alert) == .alertFirstButtonReturn
-        return CloseConfirmationOutcome(
-            confirmed: confirmed,
-            suppressionChecked: confirmed && (suppressionButton?.state == .on)
+        // The localized button labels must resolve in the app bundle (the
+        // package bundle lacks these keys), so they are resolved here and handed
+        // to the presenter through the Sendable strings value. The AppKit
+        // ceremony (alert construction, button/checkbox wiring, modal run) lives
+        // in CmuxAppKitSupportUI's CloseConfirmationAlertPresenter.
+        return closeConfirmationPresenter.present(
+            prompt,
+            buttonStrings: CloseConfirmationButtonStrings(
+                close: String(localized: "dialog.closeTab.close", defaultValue: "Close"),
+                cancel: String(localized: "dialog.closeTab.cancel", defaultValue: "Cancel"),
+                dontAskAgain: String(
+                    localized: "dialog.dontAskAgain",
+                    defaultValue: "Don\u{2019}t ask again"
+                )
+            ),
+            presentingWindow: closeConfirmationPresentingWindow()
         )
     }
 
@@ -2310,9 +2337,7 @@ class TabManager {
     }
 
     func nextPortOrdinal() -> Int {
-        let ordinal = Self.nextPortOrdinal
-        Self.nextPortOrdinal += 1
-        return ordinal
+        portOrdinalAllocator.next()
     }
 
     func requestBackgroundWorkspaceLoad(workspaceId: UUID) {
@@ -2373,37 +2398,6 @@ class TabManager {
         ])
     }
 #endif
-
-    private func runCloseConfirmationAlert(_ alert: NSAlert) -> NSApplication.ModalResponse {
-        // Presentation (activate + sheet-on-main-window, else app-modal) is
-        // shared with every other cmux dialog via `runCmuxModalAlert`. This
-        // wrapper only adds the close-confirmation-specific UITest telemetry,
-        // recorded from the presenter's actual path so the label can never
-        // disagree with how the alert was really shown.
-        return runCmuxModalAlert(
-            alert,
-            presentingWindow: closeConfirmationPresentingWindow()
-        ) { presentation in
-            #if DEBUG
-            switch presentation {
-            case .sheet(let hostWindow):
-                // The sheet attaches after this hook returns, so read the
-                // attachment on the next runloop turn (during the modal loop).
-                DispatchQueue.main.async {
-                    UITestRecorder.record([
-                        "closeConfirmationPresentation": "sheet",
-                        "closeConfirmationAttachedSheet": hostWindow.attachedSheet == nil ? "0" : "1",
-                    ])
-                }
-            case .appModal(let hostWindowHadAttachedSheet):
-                UITestRecorder.record([
-                    "closeConfirmationPresentation": "appModal",
-                    "closeConfirmationAttachedSheet": hostWindowHadAttachedSheet ? "1" : "0",
-                ])
-            }
-            #endif
-        }
-    }
 
     private func closeConfirmationPresentingWindow() -> NSWindow? {
         cmuxMainWindowForModalPresentation(preferring: window)
@@ -4903,8 +4897,7 @@ extension TabManager {
         let workspaceSnapshots = (snapshot?.workspaces ?? [])
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
         for workspaceSnapshot in workspaceSnapshots {
-            let ordinal = Self.nextPortOrdinal
-            Self.nextPortOrdinal += 1
+            let ordinal = portOrdinalAllocator.next()
             let workspace = Workspace(
                 title: workspaceSnapshot.processTitle,
                 workingDirectory: workspaceSnapshot.currentDirectory,
@@ -4919,8 +4912,7 @@ extension TabManager {
         }
 
         if newTabs.isEmpty {
-            let ordinal = Self.nextPortOrdinal
-            Self.nextPortOrdinal += 1
+            let ordinal = portOrdinalAllocator.next()
             let fallback = Workspace(title: "Terminal 1", portOrdinal: ordinal)
             fallback.owningTabManager = self
             wireClosedBrowserTracking(for: fallback)

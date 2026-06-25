@@ -396,7 +396,7 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
     }
 
     func testBrowserChromeDrawDecisionClearsBlankPageForTransparentGhosttyBackground() {
-        XCTAssertFalse(BrowserPanel.drawsWebViewBackground(
+        XCTAssertFalse(BrowserWebViewBackgroundDrawPolicy().drawsWebViewBackground(
             isBlankPage: true,
             opacity: 0.42,
             usesGhosttyGlassStyle: false,
@@ -405,7 +405,7 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
     }
 
     func testBrowserChromeDrawDecisionClearsBlankPageForGhosttyGlassStyle() {
-        XCTAssertFalse(BrowserPanel.drawsWebViewBackground(
+        XCTAssertFalse(BrowserWebViewBackgroundDrawPolicy().drawsWebViewBackground(
             isBlankPage: true,
             opacity: 1.0,
             usesGhosttyGlassStyle: true,
@@ -414,7 +414,7 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
     }
 
     func testBrowserChromeDrawDecisionClearsBlankPageForTransparentWindow() {
-        XCTAssertFalse(BrowserPanel.drawsWebViewBackground(
+        XCTAssertFalse(BrowserWebViewBackgroundDrawPolicy().drawsWebViewBackground(
             isBlankPage: true,
             opacity: 1.0,
             usesGhosttyGlassStyle: false,
@@ -423,7 +423,7 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
     }
 
     func testBrowserChromeDrawDecisionKeepsFillForRealPagesWithTransparentGhosttyBackground() {
-        XCTAssertTrue(BrowserPanel.drawsWebViewBackground(
+        XCTAssertTrue(BrowserWebViewBackgroundDrawPolicy().drawsWebViewBackground(
             isBlankPage: false,
             opacity: 0.42,
             usesGhosttyGlassStyle: false,
@@ -432,7 +432,7 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
     }
 
     func testBrowserChromeDrawDecisionClearsTransparentInternalRealPagesWithTransparentGhosttyBackground() {
-        XCTAssertFalse(BrowserPanel.drawsWebViewBackground(
+        XCTAssertFalse(BrowserWebViewBackgroundDrawPolicy().drawsWebViewBackground(
             isBlankPage: false,
             usesTransparentBackground: true,
             opacity: 0.42,
@@ -442,7 +442,7 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
     }
 
     func testBrowserChromeDrawDecisionKeepsFillForOpaqueGhosttyBackground() {
-        XCTAssertTrue(BrowserPanel.drawsWebViewBackground(
+        XCTAssertTrue(BrowserWebViewBackgroundDrawPolicy().drawsWebViewBackground(
             isBlankPage: true,
             opacity: 1.0,
             usesGhosttyGlassStyle: false,

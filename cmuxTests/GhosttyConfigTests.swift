@@ -2767,7 +2767,7 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
         let activeSelectedTabId = UUID()
 
         XCTAssertTrue(
-            GhosttyNSView.shouldApplyWindowBackground(
+            TerminalSurfaceBackgroundApplicabilityPolicy.shouldApplyWindowBackground(
                 surfaceTabId: tabId,
                 owningManagerExists: true,
                 owningSelectedTabId: tabId,
@@ -2780,7 +2780,7 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
         let tabId = UUID()
 
         XCTAssertFalse(
-            GhosttyNSView.shouldApplyWindowBackground(
+            TerminalSurfaceBackgroundApplicabilityPolicy.shouldApplyWindowBackground(
                 surfaceTabId: tabId,
                 owningManagerExists: true,
                 owningSelectedTabId: UUID(),
@@ -2793,7 +2793,7 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
         let tabId = UUID()
 
         XCTAssertTrue(
-            GhosttyNSView.shouldApplyWindowBackground(
+            TerminalSurfaceBackgroundApplicabilityPolicy.shouldApplyWindowBackground(
                 surfaceTabId: tabId,
                 owningManagerExists: true,
                 owningSelectedTabId: nil,
@@ -2806,7 +2806,7 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
         let tabId = UUID()
 
         XCTAssertTrue(
-            GhosttyNSView.shouldApplyWindowBackground(
+            TerminalSurfaceBackgroundApplicabilityPolicy.shouldApplyWindowBackground(
                 surfaceTabId: tabId,
                 owningManagerExists: false,
                 owningSelectedTabId: nil,
@@ -2814,7 +2814,7 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            GhosttyNSView.shouldApplyWindowBackground(
+            TerminalSurfaceBackgroundApplicabilityPolicy.shouldApplyWindowBackground(
                 surfaceTabId: tabId,
                 owningManagerExists: false,
                 owningSelectedTabId: nil,
@@ -2825,7 +2825,7 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
 
     func testShouldApplyWindowBackgroundAllowsWhenNoSelectionContext() {
         XCTAssertTrue(
-            GhosttyNSView.shouldApplyWindowBackground(
+            TerminalSurfaceBackgroundApplicabilityPolicy.shouldApplyWindowBackground(
                 surfaceTabId: UUID(),
                 owningManagerExists: false,
                 owningSelectedTabId: nil,
@@ -2833,7 +2833,7 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
             )
         )
         XCTAssertTrue(
-            GhosttyNSView.shouldApplyWindowBackground(
+            TerminalSurfaceBackgroundApplicabilityPolicy.shouldApplyWindowBackground(
                 surfaceTabId: nil,
                 owningManagerExists: false,
                 owningSelectedTabId: nil,
@@ -2841,7 +2841,7 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
             )
         )
         XCTAssertTrue(
-            GhosttyNSView.shouldApplyWindowBackground(
+            TerminalSurfaceBackgroundApplicabilityPolicy.shouldApplyWindowBackground(
                 surfaceTabId: nil,
                 owningManagerExists: true,
                 owningSelectedTabId: UUID(),
@@ -3573,7 +3573,7 @@ final class UITestLaunchManifestTests: XCTestCase {
 final class GhosttyMouseFocusTests: XCTestCase {
     func testShouldRequestFirstResponderForMouseFocusWhenEnabledAndWindowIsActive() {
         XCTAssertTrue(
-            GhosttyNSView.shouldRequestFirstResponderForMouseFocus(
+            TerminalSurfaceMouseFocusPolicy.shouldRequestFirstResponder(
                 focusFollowsMouseEnabled: true,
                 pressedMouseButtons: 0,
                 appIsActive: true,
@@ -3588,7 +3588,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
     func testShouldNotRequestFirstResponderWhenFocusFollowsMouseDisabled() {
         XCTAssertFalse(
-            GhosttyNSView.shouldRequestFirstResponderForMouseFocus(
+            TerminalSurfaceMouseFocusPolicy.shouldRequestFirstResponder(
                 focusFollowsMouseEnabled: false,
                 pressedMouseButtons: 0,
                 appIsActive: true,
@@ -3603,7 +3603,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
     func testShouldNotRequestFirstResponderDuringMouseDrag() {
         XCTAssertFalse(
-            GhosttyNSView.shouldRequestFirstResponderForMouseFocus(
+            TerminalSurfaceMouseFocusPolicy.shouldRequestFirstResponder(
                 focusFollowsMouseEnabled: true,
                 pressedMouseButtons: 1,
                 appIsActive: true,
@@ -3618,7 +3618,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
     func testShouldNotRequestFirstResponderWhenViewCannotSafelyReceiveFocus() {
         XCTAssertFalse(
-            GhosttyNSView.shouldRequestFirstResponderForMouseFocus(
+            TerminalSurfaceMouseFocusPolicy.shouldRequestFirstResponder(
                 focusFollowsMouseEnabled: true,
                 pressedMouseButtons: 0,
                 appIsActive: true,
@@ -3630,7 +3630,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            GhosttyNSView.shouldRequestFirstResponderForMouseFocus(
+            TerminalSurfaceMouseFocusPolicy.shouldRequestFirstResponder(
                 focusFollowsMouseEnabled: true,
                 pressedMouseButtons: 0,
                 appIsActive: true,

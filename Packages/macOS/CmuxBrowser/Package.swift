@@ -26,6 +26,10 @@ let package = Package(
         // host normalization / loopback classification the insecure-HTTP allowlist
         // policy delegates to (leaf, acyclic).
         .package(path: "../CmuxCore"),
+        // CmuxPanes owns PanelAppearance, whose shouldUseClearContentBackground
+        // pure policy backs BrowserWebViewBackgroundDrawPolicy. Acyclic:
+        // CmuxPanes deps never reach CmuxBrowser.
+        .package(path: "../CmuxPanes"),
     ],
     targets: [
         .target(
@@ -36,6 +40,7 @@ let package = Package(
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
                 .product(name: "CmuxAppKitSupportUI", package: "CmuxAppKitSupportUI"),
                 .product(name: "CmuxCore", package: "CmuxCore"),
+                .product(name: "CmuxPanes", package: "CmuxPanes"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

@@ -1826,24 +1826,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private var hasUsableFocusGeometry: Bool { bounds.width > 1 && bounds.height > 1 }
 
-    static func shouldRequestFirstResponderForMouseFocus(
-        focusFollowsMouseEnabled: Bool,
-        pressedMouseButtons: Int,
-        appIsActive: Bool,
-        windowIsKey: Bool,
-        alreadyFirstResponder: Bool,
-        visibleInUI: Bool,
-        hasUsableGeometry: Bool,
-        hiddenInHierarchy: Bool
-    ) -> Bool {
-        guard focusFollowsMouseEnabled else { return false }
-        guard pressedMouseButtons == 0 else { return false }
-        guard appIsActive, windowIsKey else { return false }
-        guard !alreadyFirstResponder else { return false }
-        guard visibleInUI, hasUsableGeometry, !hiddenInHierarchy else { return false }
-        return true
-    }
-
     // Visibility is used for focus gating. Explicit portal visibility transitions
     // also drive Ghostty occlusion so hidden workspace/split surfaces pause and
     // queue a redraw when they become visible again.
@@ -1909,26 +1891,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // is in this view's TerminalSurfaceRenderHosting conformance.
     func applySurfaceBackground() {
         renderCoordinator.applySurfaceBackground()
-    }
-
-    // Theme/background application is window-local. During cross-window workspace
-    // switches (e.g. jump-to-unread), the global active tab manager can lag behind.
-    // Prefer the owning window's selected workspace when available.
-    static func shouldApplyWindowBackground(
-        surfaceTabId: UUID?,
-        owningManagerExists: Bool,
-        owningSelectedTabId: UUID?,
-        activeSelectedTabId: UUID?
-    ) -> Bool {
-        guard let surfaceTabId else { return true }
-        if owningManagerExists {
-            guard let owningSelectedTabId else { return true }
-            return owningSelectedTabId == surfaceTabId
-        }
-        if let activeSelectedTabId {
-            return activeSelectedTabId == surfaceTabId
-        }
-        return true
     }
 
     @MainActor
@@ -4531,7 +4493,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func maybeRequestFirstResponderForMouseFocus() {
         guard let window else { return }
         let alreadyFirstResponder = window.firstResponder === self
-        let shouldRequest = Self.shouldRequestFirstResponderForMouseFocus(
+        let shouldRequest = TerminalSurfaceMouseFocusPolicy.shouldRequestFirstResponder(
             focusFollowsMouseEnabled: GhosttyApp.shared.focusFollowsMouseEnabled(),
             pressedMouseButtons: NSEvent.pressedMouseButtons,
             appIsActive: NSApp.isActive,
@@ -5309,7 +5271,7 @@ extension GhosttyNSView: TerminalSurfaceRenderHosting {
         let owningManager = tabId.flatMap { appDelegate?.tabManagerFor(tabId: $0) }
         let owningSelectedTabId = owningManager?.selectedTabId
         let activeSelectedTabId = owningManager == nil ? appDelegate?.tabManager?.selectedTabId : nil
-        return Self.shouldApplyWindowBackground(
+        return TerminalSurfaceBackgroundApplicabilityPolicy.shouldApplyWindowBackground(
             surfaceTabId: tabId,
             owningManagerExists: owningManager != nil,
             owningSelectedTabId: owningSelectedTabId,

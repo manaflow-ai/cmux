@@ -126,12 +126,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let window: NSWindow? = {
                     if let key = NSApp.keyWindow,
                        let raw = key.identifier?.rawValue,
-                       raw == "cmux.main" || raw.hasPrefix("cmux.main.") {
+                       WindowID.isMainWindowIdentifier(raw) {
                         return key
                     }
                     return NSApp.windows.first(where: {
                         guard let raw = $0.identifier?.rawValue else { return false }
-                        return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
+                        return WindowID.isMainWindowIdentifier(raw)
                     })
                 }()
                 guard let window else { return }
@@ -4071,7 +4071,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func isCommandPaletteResponder(_ responder: NSResponder) -> Bool {
         if let textView = responder as? NSTextView, textView.isFieldEditor {
             if let delegateView = textView.delegate as? NSView {
-                return isInsideCommandPaletteOverlay(delegateView)
+                return delegateView.isInsideCommandPaletteOverlay
             }
             // SwiftUI can attach a non-view delegate to TextField editors.
             // When command palette is visible, its search/rename editor is the
@@ -4079,24 +4079,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         if let view = responder as? NSView {
-            return isInsideCommandPaletteOverlay(view)
+            return view.isInsideCommandPaletteOverlay
         }
         return false
     }
 
     private func isFocusStealingResponderWhileCommandPaletteVisible(_ responder: NSResponder) -> Bool {
         responder.isCommandPaletteFocusStealingTerminalOrBrowser
-    }
-
-    private func isInsideCommandPaletteOverlay(_ view: NSView) -> Bool {
-        var current: NSView? = view
-        while let candidate = current {
-            if candidate.identifier == commandPaletteOverlayContainerIdentifier {
-                return true
-            }
-            current = candidate.superview
-        }
-        return false
     }
 
     private func keyRoutingOwnerView(for responder: NSResponder?) -> NSView? {
@@ -4525,10 +4514,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func mainWindowId(from window: NSWindow) -> UUID? {
         guard let raw = window.identifier?.rawValue else { return nil }
-        let prefix = "cmux.main."
-        guard raw.hasPrefix(prefix) else { return nil }
-        let suffix = String(raw.dropFirst(prefix.count))
-        return UUID(uuidString: suffix)
+        return WindowID(mainWindowIdentifier: raw)?.rawValue
     }
 
     func contextForMainTerminalWindow(_ window: NSWindow, reindex: Bool = true) -> RegisteredMainWindow? {
@@ -4627,27 +4613,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let id = windowCoordinator.id(for: window) {
             return id.rawValue
         }
-        guard let rawIdentifier = window.identifier?.rawValue,
-              rawIdentifier.hasPrefix("cmux.main.") else { return nil }
-        let idPart = String(rawIdentifier.dropFirst("cmux.main.".count))
-        return UUID(uuidString: idPart)
-    }
-
-    private func commandPaletteOverlayContainer(in window: NSWindow) -> NSView? {
-        guard let searchRoot = window.contentView?.superview ?? window.contentView else { return nil }
-        var stack: [NSView] = [searchRoot]
-        while let candidate = stack.popLast() {
-            if candidate.identifier == commandPaletteOverlayContainerIdentifier {
-                return candidate
-            }
-            stack.append(contentsOf: candidate.subviews)
-        }
-        return nil
-    }
-
-    private func isCommandPaletteOverlayPresented(in window: NSWindow) -> Bool {
-        guard let container = commandPaletteOverlayContainer(in: window) else { return false }
-        return !container.isHidden && container.alphaValue > 0.001
+        guard let rawIdentifier = window.identifier?.rawValue else { return nil }
+        return WindowID(mainWindowIdentifier: rawIdentifier)?.rawValue
     }
 
     private func isCommandPaletteResponderActive(in window: NSWindow) -> Bool {
@@ -4657,7 +4624,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            !(textView.delegate is NSView) {
             // Field-editor delegates can be non-view responders. Confirm the overlay is
             // mounted and visible to avoid treating unrelated editors as palette input.
-            return isCommandPaletteOverlayPresented(in: window)
+            return window.isCommandPaletteOverlayPresented
         }
         return isCommandPaletteResponder(responder)
     }
@@ -4690,7 +4657,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func isCommandPaletteEffectivelyVisible(in window: NSWindow) -> Bool {
         isCommandPaletteVisible(for: window)
             || isCommandPalettePendingOpen(for: window)
-            || isCommandPaletteOverlayPresented(in: window)
+            || window.isCommandPaletteOverlayPresented
             || isCommandPaletteResponderActive(in: window)
     }
 
@@ -8289,7 +8256,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             isCommandPalettePendingOpen(for: $0)
         } ?? false
         let commandPaletteOverlayVisibleInTargetWindow = commandPaletteTargetWindow.map {
-            isCommandPaletteOverlayPresented(in: $0)
+            $0.isCommandPaletteOverlayPresented
         } ?? false
         let commandPaletteResponderActiveInTargetWindow = commandPaletteTargetWindow.map {
             isCommandPaletteResponderActive(in: $0)
@@ -11218,7 +11185,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         guard let raw = window.identifier?.rawValue else { return false }
-        return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
+        return WindowID.isMainWindowIdentifier(raw)
     }
 
     private func workspaceForMainActor(tabId: UUID) -> Workspace? {
@@ -11236,7 +11203,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         closeMainWindowContainingTabIdObserverForTesting?(tabId, recordHistory)
 #endif
         guard let context = contextContainingTabId(tabId) else { return }
-        let expectedIdentifier = "cmux.main.\(context.windowId.uuidString)"
+        let expectedIdentifier = WindowID(context.windowId).mainWindowIdentifierRawValue
         let window: NSWindow? = context.window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
         if !recordHistory {
             closedWindowHistorySuppressedWindowIds.insert(context.windowId)
@@ -11311,7 +11278,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func openNotificationInContext(_ context: RegisteredMainWindow, tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
-        let expectedIdentifier = "cmux.main.\(context.windowId.uuidString)"
+        let expectedIdentifier = WindowID(context.windowId).mainWindowIdentifierRawValue
         let window: NSWindow? = context.window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
         guard let window else {
 #if DEBUG
@@ -11754,46 +11721,13 @@ private extension NSWindow {
         }
 
         if let ownerView = cmuxFieldEditorOwnerView(textView) {
-            guard let container = cmuxCommandPaletteOverlayAncestor(of: ownerView) else {
+            guard let container = ownerView.commandPaletteOverlayContainerAncestor else {
                 return false
             }
-            return cmuxCommandPaletteOverlayIsPresented(container)
+            return container.isCommandPaletteOverlayPresented
         }
 
-        guard let container = cmuxCommandPaletteOverlayContainer(in: window) else {
-            return false
-        }
-
-        return cmuxCommandPaletteOverlayIsPresented(container)
-    }
-
-    private static func cmuxCommandPaletteOverlayAncestor(of view: NSView) -> NSView? {
-        var current: NSView? = view
-        while let candidate = current {
-            if candidate.identifier == commandPaletteOverlayContainerIdentifier {
-                return candidate
-            }
-            current = candidate.superview
-        }
-        return nil
-    }
-
-    private static func cmuxCommandPaletteOverlayIsPresented(_ container: NSView) -> Bool {
-        !container.isHidden && container.alphaValue > 0.001
-    }
-
-    private static func cmuxCommandPaletteOverlayContainer(in window: NSWindow) -> NSView? {
-        guard let searchRoot = window.contentView?.superview ?? window.contentView else {
-            return nil
-        }
-        var stack: [NSView] = [searchRoot]
-        while let candidate = stack.popLast() {
-            if candidate.identifier == commandPaletteOverlayContainerIdentifier {
-                return candidate
-            }
-            stack.append(contentsOf: candidate.subviews)
-        }
-        return nil
+        return window.isCommandPaletteOverlayPresented
     }
 
     @objc func cmux_makeFirstResponder(_ responder: NSResponder?) -> Bool {

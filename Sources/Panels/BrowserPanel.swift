@@ -523,18 +523,13 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func refreshWebViewLifecycleState() {
-        let nextState: BrowserWebViewLifecycleState
-        if isClosingWebViewLifecycle {
-            nextState = .closing
-        } else if hiddenWebViewDiscardManager.isDiscardedForMemory {
-            nextState = .discarded
-        } else if !shouldRenderWebView {
-            nextState = preferredURLStringForOmnibar() == nil ? .newTab : .deferredURL
-        } else if isWebViewVisibleInUI {
-            nextState = .liveVisible
-        } else {
-            nextState = .liveHidden
-        }
+        let nextState = BrowserWebViewLifecycleState.resolve(
+            isClosing: isClosingWebViewLifecycle,
+            isDiscardedForMemory: hiddenWebViewDiscardManager.isDiscardedForMemory,
+            shouldRenderWebView: shouldRenderWebView,
+            hasPreferredURL: preferredURLStringForOmnibar() != nil,
+            isVisibleInUI: isWebViewVisibleInUI
+        )
         guard webViewLifecycleState != nextState else { return }
         webViewLifecycleState = nextState
     }
@@ -1990,12 +1985,14 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     /// Whether browser native/SwiftUI fills should draw over the window root
-    /// backdrop. Mirrors terminal/markdown panel background decisions.
+    /// backdrop. Mirrors terminal/markdown panel background decisions. Reads the
+    /// app-coupled engine runtime + window composition policy, then forwards the
+    /// resolved inputs into `BrowserWebViewBackgroundDrawPolicy` (CmuxBrowser).
     static func drawsConfiguredWebViewBackground(
         isBlankPage: Bool,
         usesTransparentBackground: Bool = false
     ) -> Bool {
-        drawsWebViewBackground(
+        BrowserWebViewBackgroundDrawPolicy().drawsWebViewBackground(
             isBlankPage: isBlankPage,
             usesTransparentBackground: usesTransparentBackground,
             opacity: GhosttyApp.shared.engineRuntime.defaultBackgroundOpacity,
@@ -2020,40 +2017,6 @@ final class BrowserPanel: Panel, ObservableObject {
             currentURL: currentURL,
             pendingNavigationURL: pendingNavigationURL,
             isMainFrameProvisionalNavigationActive: isMainFrameProvisionalNavigationActive
-        )
-    }
-
-    nonisolated static func drawsWebViewBackground(
-        isBlankPage: Bool,
-        usesTransparentBackground: Bool = false,
-        opacity: Double,
-        usesGhosttyGlassStyle: Bool,
-        usesTransparentWindow: Bool
-    ) -> Bool {
-        if usesTransparentBackground {
-            return drawsWebViewBackground(
-                opacity: opacity,
-                usesGhosttyGlassStyle: usesGhosttyGlassStyle,
-                usesTransparentWindow: usesTransparentWindow
-            )
-        }
-        guard isBlankPage else { return true }
-        return drawsWebViewBackground(
-            opacity: opacity,
-            usesGhosttyGlassStyle: usesGhosttyGlassStyle,
-            usesTransparentWindow: usesTransparentWindow
-        )
-    }
-
-    nonisolated static func drawsWebViewBackground(
-        opacity: Double,
-        usesGhosttyGlassStyle: Bool,
-        usesTransparentWindow: Bool
-    ) -> Bool {
-        !PanelAppearance.shouldUseClearContentBackground(
-            opacity: opacity,
-            usesGhosttyGlassStyle: usesGhosttyGlassStyle,
-            usesTransparentWindow: usesTransparentWindow
         )
     }
 
