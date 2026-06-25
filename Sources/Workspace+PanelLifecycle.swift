@@ -361,6 +361,7 @@ extension Workspace {
         restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
         restoredAgentVerificationByPanelId.removeValue(forKey: panelId)
         restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
+        pendingResumeBreadcrumbsByPanelId.removeValue(forKey: panelId)
         cancelCrashRecoveryReentryTask(panelId: panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)

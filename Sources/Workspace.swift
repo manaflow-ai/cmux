@@ -4640,6 +4640,17 @@ final class Workspace: Identifiable, ObservableObject {
                 restoredAgent: restoredAgent,
                 shellState: state
             )
+        } else {
+            switch (restoredAgentResumeStatesByPanelId[panelId], state) {
+            case (.some(.awaitingAutoResumeCommand), .commandRunning):
+                restoredAgentResumeStatesByPanelId[panelId] = .autoResumeCommandRunning
+                deliverPendingResumeBreadcrumbIfReady(panelId: panelId)
+            case (.some(.autoResumeCommandRunning), .promptIdle):
+                restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
+                pendingResumeBreadcrumbsByPanelId.removeValue(forKey: panelId)
+            default:
+                break
+            }
         }
 #if DEBUG
         cmuxDebugLog(

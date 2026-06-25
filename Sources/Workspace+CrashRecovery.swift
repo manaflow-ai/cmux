@@ -150,7 +150,7 @@ extension Workspace: ResumableWorkspaceSurface {
             ?? crashRecoveryResumeBinding?.inlineStartupInput(repairPortableAgentExecutable: false)
         guard let input = startupInput,
               !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        if restoredAgentSnapshotsByPanelId[panel.id] != nil {
+        if crashRecoveryRestoredAgent != nil || crashRecoveryResumeBinding != nil {
             restoredAgentResumeStatesByPanelId[panel.id] = .awaitingAutoResumeCommand
             invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panel.id)
         }
@@ -159,10 +159,15 @@ extension Workspace: ResumableWorkspaceSurface {
 
     func deliverResumeBreadcrumb(_ text: String) {
         guard let panel = focusedTerminalPanel else { return }
-        if canDeliverResumeBreadcrumbNow(panelId: panel.id) {
+        deliverResumeBreadcrumb(text, panelId: panel.id)
+    }
+
+    private func deliverResumeBreadcrumb(_ text: String, panelId: UUID) {
+        guard let panel = panels[panelId] as? TerminalPanel else { return }
+        if canDeliverResumeBreadcrumbNow(panelId: panelId) {
             sendInputWhenReady(text + "\n", to: panel, reason: .recoveryInput)
-        } else if restoredAgentResumeStatesByPanelId[panel.id] == .awaitingAutoResumeCommand {
-            pendingResumeBreadcrumbsByPanelId[panel.id] = text
+        } else if restoredAgentResumeStatesByPanelId[panelId] == .awaitingAutoResumeCommand {
+            pendingResumeBreadcrumbsByPanelId[panelId] = text
         }
     }
 
@@ -599,7 +604,7 @@ extension Workspace: ResumableWorkspaceSurface {
                     self.sendInputWhenReady(input, to: panel, reason: .recoveryInput)
                 }
                 if let breadcrumb {
-                    self.sendInputWhenReady(breadcrumb + "\n", to: panel, reason: .recoveryInput)
+                    self.deliverResumeBreadcrumb(breadcrumb, panelId: panelId)
                 }
             case .honestRecovery(let prompt, _):
                 guard self.canDeliverHonestRecoveryPrompt(panelId: panelId) else { return }
