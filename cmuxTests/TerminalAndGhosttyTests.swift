@@ -1,4 +1,4 @@
-import XCTest
+@preconcurrency import XCTest
 import CmuxTerminal
 import Testing
 import CmuxControlSocket
@@ -2126,7 +2126,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
         )
     }
 
-    func testShiftVMatchesVisualToggleBehavior() {
+    func testShiftVStartsVisualLineSelection() {
         XCTAssertEqual(
             terminalKeyboardCopyModeAction(
                 keyCode: 9,
@@ -2134,7 +2134,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
                 modifierFlags: [.shift],
                 hasSelection: false
             ),
-            .startSelection
+            .startLineSelection
         )
         XCTAssertEqual(
             terminalKeyboardCopyModeAction(
@@ -2143,7 +2143,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
                 modifierFlags: [.shift],
                 hasSelection: true
             ),
-            .clearSelection
+            .startLineSelection
         )
     }
 

@@ -12,7 +12,9 @@ extension MobileMacConnectionStatus {
         case .reconnecting:
             return L10n.string("mobile.connection.reconnecting", defaultValue: "Reconnecting")
         case .unavailable:
-            return L10n.string("mobile.connection.unavailable", defaultValue: "Mac offline")
+            // The phone's live stream to the Mac is down. Don't assert the Mac
+            // itself is offline (it usually isn't): say what we actually know.
+            return L10n.string("mobile.connection.unavailable", defaultValue: "Disconnected")
         }
     }
 
@@ -23,7 +25,7 @@ extension MobileMacConnectionStatus {
         case .reconnecting:
             return L10n.string("mobile.connection.reconnectingDescription", defaultValue: "Trying to reach the Mac app.")
         case .unavailable:
-            return L10n.string("mobile.connection.unavailableDescription", defaultValue: "Open cmux on the Mac or wake the computer.")
+            return L10n.string("mobile.connection.unavailableDescription", defaultValue: "The live connection dropped. The Mac may still be online. Tap Reconnect.")
         }
     }
 
