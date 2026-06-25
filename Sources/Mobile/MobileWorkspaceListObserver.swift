@@ -335,3 +335,69 @@ final class MobileWorkspaceListObserver {
     }
     #endif
 }
+
+/// Owns the set of live ``MobileWorkspaceListObserver``s, one per active
+/// ``TabManager``, keyed by the manager's object identity.
+///
+/// De-singletonization: this state used to live as a raw
+/// `[ObjectIdentifier: MobileWorkspaceListObserver]` dictionary plus two helper
+/// methods on the `AppDelegate` singleton. It is now a constructor-injected
+/// owner the composition root holds, so new shared state does not accrete on
+/// `AppDelegate`. Each observer owns the `@Observable`/Combine subscriptions
+/// that publish `workspace.updated` to mobile clients, so the registry holds the
+/// observers strongly and drops one only when its window is gone.
+///
+/// `notificationStore` is late-bound on `AppDelegate` (assigned in
+/// `configure(...)`), so the store is passed to ``ensure(for:notificationStore:)``
+/// at observer-creation time rather than stored on the registry; this keeps the
+/// observer wrapping app-side `TabManager` + `TerminalNotificationStore` exactly
+/// as before. The window-still-in-use decision stays with `AppDelegate` (it owns
+/// the window registry), passed in as a predicate to
+/// ``removeIfUnused(for:isStillInUse:)``.
+///
+/// Co-located with ``MobileWorkspaceListObserver`` in this app-target file so
+/// the registry compiles into the build target without a separate pbxproj file
+/// reference; the type stays app-side because the observer it owns wraps the
+/// app-side `TabManager` + `TerminalNotificationStore`.
+@MainActor
+final class MobileWorkspaceListObserverRegistry {
+    /// Strongly-held observers for every active TabManager. Each observer owns
+    /// subscriptions that publish `workspace.updated` to mobile clients.
+    private var observers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
+
+    /// Creates an empty registry. Wired by the composition root before the first
+    /// main window registers.
+    init() {}
+
+    /// Ensures an observer exists for `tabManager`, creating one bound to the
+    /// given notification store if absent. Idempotent: a manager that already has
+    /// an observer is left untouched (the store argument is ignored in that case,
+    /// matching the prior `if observers[id] == nil` guard).
+    ///
+    /// - Parameters:
+    ///   - tabManager: The manager whose workspace list to observe.
+    ///   - notificationStore: The app-global notification store, source of each
+    ///     workspace's last-activity preview line. May be `nil` before the
+    ///     composition root has configured it.
+    func ensure(for tabManager: TabManager, notificationStore: TerminalNotificationStore?) {
+        let id = ObjectIdentifier(tabManager)
+        if observers[id] == nil {
+            observers[id] = MobileWorkspaceListObserver(
+                tabManager: tabManager,
+                notificationStore: notificationStore
+            )
+        }
+    }
+
+    /// Drops the observer for `tabManager` when its window is gone.
+    ///
+    /// - Parameters:
+    ///   - tabManager: The manager whose observer to retire.
+    ///   - isStillInUse: Predicate the caller supplies (`AppDelegate` checks its
+    ///     window registry); when it returns `true` the observer is kept, exactly
+    ///     as the prior `registeredMainWindow(forManager:) != nil` guard.
+    func removeIfUnused(for tabManager: TabManager, isStillInUse: () -> Bool) {
+        guard !isStillInUse() else { return }
+        observers.removeValue(forKey: ObjectIdentifier(tabManager))
+    }
+}

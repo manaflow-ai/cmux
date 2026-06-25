@@ -848,9 +848,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // `FocusedNotificationResolving`).
     /// The auth graph, injected once via `configure(...)` at app startup.
     private(set) var auth: MacAuthComposition?
-    /// Strongly-held observers for every active TabManager. Each observer owns
-    /// Combine subscriptions that publish workspace.updated to mobile clients.
-    private var mobileWorkspaceListObservers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
+    /// Owns the strongly-held `MobileWorkspaceListObserver`s (one per active
+    /// `TabManager`) that publish `workspace.updated` to mobile clients. The raw
+    /// `[ObjectIdentifier: MobileWorkspaceListObserver]` dictionary and its
+    /// ensure/remove logic moved off this singleton into the registry; this is a
+    /// constructor-injected owner the composition root holds, not new shared
+    /// state on `AppDelegate`. `notificationStore` is late-bound (set in
+    /// `configure(...)`), so it is passed to the registry at ensure time rather
+    /// than stored on it. Constructed at startup and held by the composition
+    /// root (mirroring `paneMemoryGuardrail`/`shortcutCoordinator`); AppKit
+    /// instantiates `AppDelegate` via `@NSApplicationDelegateAdaptor`'s required
+    /// `init()`, so the owner is wired here at declaration, before the first
+    /// `registerMainWindow`, rather than passed through that initializer.
+    private let mobileWorkspaceListObserverRegistry = MobileWorkspaceListObserverRegistry()
     private let agentChatTranscriptService = AgentChatTranscriptService()
     /// Per-pane runaway-memory guardrail, constructed and wired at startup
     /// (replaces the former `PaneMemoryGuardrail.shared` singleton). Held by the
@@ -1685,7 +1695,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func application(_ application: NSApplication, open urls: [URL]) {
         #if DEBUG
-        AuthDebugLog().log("auth.openURLs.received count=\(urls.count) summaries=\(urls.map(Self.authURLDebugSummary).joined(separator: "|"))")
+        AuthDebugLog().log("auth.openURLs.received count=\(urls.count) summaries=\(urls.map(\.authDebugSummary).joined(separator: "|"))")
         #endif
         if handleCmuxExternalURLs(from: urls) {
             #if DEBUG
@@ -1742,15 +1752,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
     }
-
-    #if DEBUG
-    private static func authURLDebugSummary(_ url: URL) -> String {
-        let scheme = url.scheme ?? "nil"
-        let target = url.host ?? url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.map(\.name).joined(separator: ",") ?? ""
-        return "\(scheme):\(target.isEmpty ? "nil" : target):\(queryItems.isEmpty ? "none" : queryItems)"
-    }
-    #endif
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if hasVisibleMainTerminalWindow() {
@@ -3484,18 +3485,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         NotificationCenter.default.post(name: .mainWindowContextsDidChange, object: self)
     }
 
+    /// Forwards to ``mobileWorkspaceListObserverRegistry``, supplying the
+    /// late-bound `notificationStore`. Kept on `AppDelegate` because the registry
+    /// is reached from `registerMainWindow`, `configure(...)`, and the external
+    /// `AppDelegate.shared?` surface in `TerminalController`.
     func ensureMobileWorkspaceListObserver(for tabManager: TabManager) {
-        let id = ObjectIdentifier(tabManager)
-        if mobileWorkspaceListObservers[id] == nil {
-            mobileWorkspaceListObservers[id] = MobileWorkspaceListObserver(tabManager: tabManager, notificationStore: notificationStore)
-        }
+        mobileWorkspaceListObserverRegistry.ensure(for: tabManager, notificationStore: notificationStore)
     }
 
     private func removeMobileWorkspaceListObserverIfUnused(for tabManager: TabManager) {
-        guard registeredMainWindow(forManager: tabManager) == nil else {
-            return
+        // The window-still-in-use decision stays here (this object owns the
+        // window registry); the registry only owns the observer dictionary.
+        mobileWorkspaceListObserverRegistry.removeIfUnused(for: tabManager) { [weak self] in
+            self?.registeredMainWindow(forManager: tabManager) != nil
         }
-        mobileWorkspaceListObservers.removeValue(forKey: ObjectIdentifier(tabManager))
     }
 
     /// Register a terminal window with the AppDelegate so menu commands and socket control
@@ -6723,6 +6726,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .environmentObject(notificationStore)
             .environmentObject(notificationStore.sidebarUnread)
             .environmentObject(sidebarState)
+            // TODO(refactor): SidebarSelectionState migrated to @MainActor @Observable
+            // (Sources/SidebarSelectionState.swift); ContentView consumes it via
+            // @Environment(SidebarSelectionState.self). At final integration build, flip
+            // this provider (the `.environmentObject(sidebarSelectionState)` line just
+            // below, Sources/AppDelegate.swift:6734) from
+            // `.environmentObject(sidebarSelectionState)` to
+            // `.environment(sidebarSelectionState)`. @Observable cannot be injected via
+            // .environmentObject (requires ObservableObject), so this seam is broken
+            // until flipped. Not flipped here because AppDelegate.swift is a forbidden god.
             .environmentObject(sidebarSelectionState)
             .environmentObject(fileExplorerState)
             .environment(cmuxConfigStore)
@@ -9528,17 +9540,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return "selected=\(selected) focused=\(focused) addr=\(addressBar) keyWin=\(keyWindow) fr=\(firstResponderType)"
     }
 
-    private func redactedDebugURL(_ url: URL?) -> String {
-        guard let url else { return "nil" }
-        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
-            return "<invalid>"
-        }
-        components.user = nil
-        components.password = nil
-        components.query = nil
-        components.fragment = nil
-        return components.string ?? "<redacted>"
-    }
 #endif
 
     @discardableResult
@@ -9578,7 +9579,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog(
                 "browser.focus.openAndFocus result=blocked_browser_disabled " +
-                "insertAtEnd=\(insertAtEnd ? 1 : 0) url=\(redactedDebugURL(url))"
+                "insertAtEnd=\(insertAtEnd ? 1 : 0) url=\(url?.debugRedactedString ?? "nil")"
             )
 #endif
             return nil
@@ -9595,7 +9596,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog(
                 "browser.focus.openAndFocus result=open_failed insertAtEnd=\(insertAtEnd ? 1 : 0) " +
-                "url=\(redactedDebugURL(url)) \(browserFocusStateSnapshot())"
+                "url=\(url?.debugRedactedString ?? "nil") \(browserFocusStateSnapshot())"
             )
 #endif
             return nil
@@ -9603,7 +9604,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         cmuxDebugLog(
             "browser.focus.openAndFocus result=open_ok panel=\(panelId.uuidString.prefix(5)) " +
-            "insertAtEnd=\(insertAtEnd ? 1 : 0) url=\(redactedDebugURL(url))"
+            "insertAtEnd=\(insertAtEnd ? 1 : 0) url=\(url?.debugRedactedString ?? "nil")"
         )
 #endif
 #if DEBUG

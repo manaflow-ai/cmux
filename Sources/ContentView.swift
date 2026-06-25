@@ -153,7 +153,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     @EnvironmentObject var sidebarUnread: SidebarUnreadModel
     var notificationStore: TerminalNotificationStore { .shared }
     @EnvironmentObject var sidebarState: SidebarState
-    @EnvironmentObject var sidebarSelectionState: SidebarSelectionState
+    @Environment(SidebarSelectionState.self) var sidebarSelectionState
     @Environment(CmuxConfigStore.self) var cmuxConfigStore
     @EnvironmentObject var fileExplorerState: FileExplorerState
     @Environment(\.colorScheme) private var colorScheme
@@ -736,7 +736,8 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     }
 
     private var sidebarView: some View {
-        VerticalTabsSidebar(
+        @Bindable var sidebarSelectionState = sidebarSelectionState
+        return VerticalTabsSidebar(
             updateViewModel: updateViewModel,
             fileExplorerState: fileExplorerState,
             windowId: windowId,
@@ -774,6 +775,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     }
 
     private func terminalContent(appearance: WindowAppearanceSnapshot) -> some View {
+        @Bindable var sidebarSelectionState = sidebarSelectionState
         let mountedWorkspaceIdSet = Set(workspaceHandoffCoordinator.mountedWorkspaceIds)
         let mountedWorkspaces = tabManager.tabs.filter { mountedWorkspaceIdSet.contains($0.id) }
         let selectedWorkspaceId = tabManager.selectedTabId

@@ -111,13 +111,15 @@ final class BrowserPanel: Panel, ObservableObject {
     }
     private var pendingWebContentRecoveryURL: URL?
 
-    /// Prevent the omnibar from auto-focusing for a short window after explicit programmatic focus.
-    /// This avoids races where SwiftUI focus state steals first responder back from WebKit.
-    private var suppressOmnibarAutofocusUntil: Date?
-
-    /// Prevent forcing web-view focus when another UI path requested omnibar focus.
-    /// Used to keep omnibar text-field focus from being immediately stolen by panel focus.
-    private var suppressWebViewFocusUntil: Date?
+    /// The deadline-based omnibar/web-view focus suppression policy.
+    ///
+    /// Holds the two short-lived suppression deadlines (omnibar auto-focus and
+    /// forced web-view focus) and owns the pure `Date() < until` decisions. The
+    /// panel arms and clears the deadlines through the mutators below and reads
+    /// the decisions through them; `#if DEBUG` logging stays app-side at those
+    /// mutators. The address-bar suppression latch is app-side state (below) and
+    /// is passed into the web-view decision rather than stored on the policy.
+    private var focusSuppression = BrowserFocusSuppressionPolicy()
     private var suppressWebViewFocusForAddressBar: Bool = false
     private let blankURLString = "about:blank"
 
@@ -350,9 +352,14 @@ final class BrowserPanel: Panel, ObservableObject {
     private var loadingEndWorkItem: DispatchWorkItem?
     private var loadingGeneration: Int = 0
 
-    private var faviconTask: Task<Void, Never>?
-    private var faviconRefreshGeneration: Int = 0
-    private var lastFaviconURLString: String?
+    /// Favicon discovery, fetch, decode, and validation for this panel's tab/sidebar
+    /// icon. Owns the in-flight refresh task, refresh generation, and last-fetched
+    /// icon URL; reaches the panel's live web view and remote-proxy state through
+    /// ``BrowserFaviconWebViewEvaluator``. The panel owns the published
+    /// `faviconPNGData` state and assigns it from the service's validated result.
+    private lazy var faviconService = BrowserFaviconService(
+        evaluator: BrowserFaviconWebViewEvaluator(panel: self)
+    )
     private let minPageZoom: CGFloat = 0.25
     private let maxPageZoom: CGFloat = 5.0
     private let pageZoomStep: CGFloat = 0.1
@@ -605,9 +612,7 @@ final class BrowserPanel: Panel, ObservableObject {
         searchState = nil
         loadingEndWorkItem?.cancel()
         loadingEndWorkItem = nil
-        faviconTask?.cancel()
-        faviconTask = nil
-        faviconRefreshGeneration &+= 1
+        faviconService.cancel()
         loadingGeneration &+= 1
         cancelPendingInteractiveBrowserPrompts(reason: "discardHiddenWebView")
 
@@ -1054,7 +1059,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 // shows the failed URL instead of the old page's branding.
                 self.pageTitle = failedURL.isEmpty ? "" : failedURL
                 self.faviconPNGData = nil
-                self.lastFaviconURLString = nil
+                self.faviconService.clearLastFetchedIconURL()
                 self.applyMuteState(to: failedWebView, reason: "navigationFail")
                 // Keep find-in-page open and clear stale counters on failed loads.
                 self.restoreFindStateAfterNavigation(replaySearch: false)
@@ -1616,9 +1621,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewCancellables.removeAll()
         clearWebContentTerminationRecovery()
         clearBrowserFocusMode(reason: "profileSwitch")
-        faviconTask?.cancel()
-        faviconTask = nil
-        faviconRefreshGeneration &+= 1
+        faviconService.cancel()
         cancelPendingInteractiveBrowserPrompts(reason: "profileSwitch")
         closeBackgroundPreloadHost(reason: "profileSwitch")
         BrowserWindowPortalRegistry.detach(webView: previousWebView)
@@ -2174,9 +2177,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
         clearBrowserFocusMode(reason: reason)
-        faviconTask?.cancel()
-        faviconTask = nil
-        faviconRefreshGeneration &+= 1
+        faviconService.cancel()
         loadingGeneration &+= 1
         loadingEndWorkItem?.cancel()
         loadingEndWorkItem = nil
@@ -2386,8 +2387,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewDidRequestClose = nil
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
-        faviconTask?.cancel()
-        faviconTask = nil
+        faviconService.cancel()
     }
 
     // MARK: - Popup window management
@@ -2412,248 +2412,32 @@ final class BrowserPanel: Panel, ObservableObject {
         reevaluateHiddenWebViewDiscardScheduling(reason: "popup_closed")
     }
 
+    /// Drives ``BrowserFaviconService`` for the panel's current page and publishes
+    /// the validated PNG into `faviconPNGData`.
+    ///
+    /// The service owns the discovery/fetch/decode flow, the in-flight task, and
+    /// the dedup state; this forwarder only supplies the committed page URL plus
+    /// the live web-view identity and reads/writes the panel's published
+    /// `faviconPNGData`.
     private func refreshFavicon(from webView: WKWebView) {
-        faviconTask?.cancel()
-        faviconTask = nil
-
-        guard let pageURL = webView.url else { return }
-        guard let scheme = pageURL.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return }
-        faviconRefreshGeneration &+= 1
-        let refreshGeneration = faviconRefreshGeneration
-        let refreshWebViewInstanceID = webViewInstanceID
-
-        faviconTask = Task { @MainActor [weak self, weak webView] in
-            guard let self, let webView else { return }
-            guard self.isCurrentWebView(webView, instanceID: refreshWebViewInstanceID) else { return }
-            guard self.isCurrentFaviconRefresh(generation: refreshGeneration) else { return }
-#if DEBUG
-            cmuxDebugLog(
-                "browser.favicon.begin " +
-                "panel=\(id.uuidString.prefix(5)) " +
-                "page=\(pageURL.absoluteString)"
-            )
-#endif
-
-            // Try to discover the best icon URL from the document.
-            let js = """
-            (() => {
-              const links = Array.from(document.querySelectorAll(
-                'link[rel~=\"icon\"], link[rel=\"shortcut icon\"], link[rel=\"apple-touch-icon\"], link[rel=\"apple-touch-icon-precomposed\"]'
-              ));
-              function score(link) {
-                const v = (link.sizes && link.sizes.value) ? link.sizes.value : '';
-                if (v === 'any') return 1000;
-                let max = 0;
-                for (const part of v.split(/\\s+/)) {
-                  const m = part.match(/(\\d+)x(\\d+)/);
-                  if (!m) continue;
-                  const a = parseInt(m[1], 10);
-                  const b = parseInt(m[2], 10);
-                  if (Number.isFinite(a)) max = Math.max(max, a);
-                  if (Number.isFinite(b)) max = Math.max(max, b);
-                }
-                return max;
-              }
-              links.sort((a, b) => score(b) - score(a));
-              return links[0]?.href || '';
-            })();
-            """
-
-            var discoveredURL: URL?
-            if let href = await self.evaluateJavaScriptString(
-                js,
-                in: webView,
-                timeoutNanoseconds: 400_000_000
-            ) {
-                let trimmed = href.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty, let u = URL(string: trimmed) {
-                    discoveredURL = u
-                }
-            }
-            guard self.isCurrentWebView(webView, instanceID: refreshWebViewInstanceID) else { return }
-            guard self.isCurrentFaviconRefresh(generation: refreshGeneration) else { return }
-
-            // SPAs often inject <link rel="icon"> via JavaScript after the initial
-            // HTML loads. If no link tag was found, wait briefly and retry once to
-            // give client-side scripts time to add the tag.
-            if discoveredURL == nil {
-                try? await Task.sleep(nanoseconds: 600_000_000)
-                guard self.isCurrentWebView(webView, instanceID: refreshWebViewInstanceID) else { return }
-                guard self.isCurrentFaviconRefresh(generation: refreshGeneration) else { return }
-                if let href = await self.evaluateJavaScriptString(
-                    js,
-                    in: webView,
-                    timeoutNanoseconds: 400_000_000
-                ) {
-                    let trimmed = href.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !trimmed.isEmpty, let u = URL(string: trimmed) {
-                        discoveredURL = u
-                    }
-                }
-                guard self.isCurrentWebView(webView, instanceID: refreshWebViewInstanceID) else { return }
-                guard self.isCurrentFaviconRefresh(generation: refreshGeneration) else { return }
-            }
-
-            let fallbackURL = URL(string: "/favicon.ico", relativeTo: pageURL)
-            let iconURL = discoveredURL ?? fallbackURL
-            guard let iconURL else { return }
-#if DEBUG
-            cmuxDebugLog(
-                "browser.favicon.iconURL " +
-                "panel=\(id.uuidString.prefix(5)) " +
-                "discovered=\(discoveredURL?.absoluteString ?? "<nil>") " +
-                "fallback=\(fallbackURL?.absoluteString ?? "<nil>") " +
-                "chosen=\(iconURL.absoluteString)"
-            )
-#endif
-
-            // Avoid repeated fetches.
-            let iconURLString = iconURL.absoluteString
-            if iconURLString == lastFaviconURLString, faviconPNGData != nil {
-#if DEBUG
-                cmuxDebugLog(
-                    "browser.favicon.skipCached " +
-                    "panel=\(id.uuidString.prefix(5)) " +
-                    "icon=\(iconURLString)"
-                )
-#endif
-                return
-            }
-            lastFaviconURLString = iconURLString
-
-            var req = URLRequest(url: iconURL)
-            req.timeoutInterval = 2.0
-            req.cachePolicy = .returnCacheDataElseLoad
-            req.setValue(BrowserUserAgent.safari, forHTTPHeaderField: "User-Agent")
-            let effectiveRequest = remoteProxyPreparedRequest(from: req, logScope: "faviconRewrite")
-
-            let data: Data
-            let response: URLResponse
-            do {
-                let remoteSession = remoteProxyEndpoint.flatMap {
-                    BrowserRemoteProxyURLResolver().urlSession(for: $0)
-                }
-                defer { remoteSession?.finishTasksAndInvalidate() }
-                if let remoteSession {
-#if DEBUG
-                    cmuxDebugLog(
-                        "browser.favicon.fetch " +
-                        "panel=\(id.uuidString.prefix(5)) " +
-                        "via=proxy " +
-                        "url=\(effectiveRequest.url?.absoluteString ?? "<nil>")"
-                    )
-#endif
-                    (data, response) = try await remoteSession.data(for: effectiveRequest)
-                } else {
-#if DEBUG
-                    cmuxDebugLog(
-                        "browser.favicon.fetch " +
-                        "panel=\(id.uuidString.prefix(5)) " +
-                        "via=direct " +
-                        "url=\(effectiveRequest.url?.absoluteString ?? "<nil>")"
-                    )
-#endif
-                    (data, response) = try await URLSession.shared.data(for: effectiveRequest)
-                }
-            } catch {
-#if DEBUG
-                cmuxDebugLog(
-                    "browser.favicon.fetchError " +
-                    "panel=\(id.uuidString.prefix(5)) " +
-                    "error=\(String(describing: error))"
-                )
-#endif
-                return
-            }
-            guard self.isCurrentWebView(webView, instanceID: refreshWebViewInstanceID) else { return }
-            guard self.isCurrentFaviconRefresh(generation: refreshGeneration) else { return }
-
-            guard let http = response as? HTTPURLResponse,
-                  (200..<300).contains(http.statusCode) else {
-#if DEBUG
-                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
-                cmuxDebugLog(
-                    "browser.favicon.badResponse " +
-                    "panel=\(id.uuidString.prefix(5)) " +
-                    "status=\(status)"
-                )
-#endif
-                return
-            }
-#if DEBUG
-            cmuxDebugLog(
-                "browser.favicon.response " +
-                "panel=\(id.uuidString.prefix(5)) " +
-                "status=\(http.statusCode) " +
-                "bytes=\(data.count)"
-            )
-#endif
-
-            // Use >= 2x the rendered point size so we don't upscale (blurry) on Retina.
-            guard let png = NSImage(data: data)?.faviconPNGData(targetPx: 32) else {
-#if DEBUG
-                cmuxDebugLog(
-                    "browser.favicon.decodeFailed " +
-                    "panel=\(id.uuidString.prefix(5)) " +
-                    "bytes=\(data.count)"
-                )
-#endif
-                return
-            }
-            // Only update if we got a real icon; keep the old one otherwise to avoid flashes.
-            faviconPNGData = png
-#if DEBUG
-            cmuxDebugLog(
-                "browser.favicon.ready " +
-                "panel=\(id.uuidString.prefix(5)) " +
-                "pngBytes=\(png.count)"
-            )
-#endif
+        guard let pageURL = webView.url else {
+            faviconService.cancel()
+            return
         }
-    }
-
-    private func isCurrentFaviconRefresh(generation: Int) -> Bool {
-        guard !Task.isCancelled else { return false }
-        return generation == faviconRefreshGeneration
-    }
-
-    @MainActor
-    private func evaluateJavaScriptString(
-        _ script: String,
-        in webView: WKWebView,
-        timeoutNanoseconds: UInt64
-    ) async -> String? {
-        await withCheckedContinuation { continuation in
-            var hasResumed = false
-
-            func resume(_ value: String?) {
-                guard !hasResumed else { return }
-                hasResumed = true
-                continuation.resume(returning: value)
-            }
-
-            webView.evaluateJavaScript(script) { result, _ in
-                let value = result as? String
-                Task { @MainActor in
-                    resume(value)
-                }
-            }
-
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: timeoutNanoseconds)
-                resume(nil)
-            }
-        }
+        faviconService.refresh(
+            pageURL: pageURL,
+            webViewInstanceID: webViewInstanceID,
+            panelIDPrefix: String(id.uuidString.prefix(5)),
+            currentFaviconPNGData: { [weak self] in self?.faviconPNGData },
+            assignFaviconPNGData: { [weak self] png in self?.faviconPNGData = png }
+        )
     }
 
     private func handleWebViewLoadingChanged(_ newValue: Bool) {
         if newValue {
             cancelHiddenWebViewDiscard()
             // Any new load invalidates older favicon fetches, even for same-URL reloads.
-            faviconRefreshGeneration &+= 1
-            faviconTask?.cancel()
-            faviconTask = nil
-            lastFaviconURLString = nil
+            faviconService.resetForNewLoad()
             // Clear the previous page's favicon so it never persists across navigations.
             // The loading spinner covers this gap; didFinish will fetch the new favicon.
             faviconPNGData = nil
@@ -2796,7 +2580,14 @@ final class BrowserPanel: Panel, ObservableObject {
         browserLoadRequest(effectiveRequest, in: webView)
     }
 
-    private func remoteProxyPreparedRequest(from request: URLRequest, logScope: String) -> URLRequest {
+    /// The panel's active remote-workspace proxy endpoint, or `nil` when the panel
+    /// is not bound to a remote workspace. Read by ``BrowserFaviconWebViewEvaluator``
+    /// so the favicon fetch tunnels through the same proxy as page navigations.
+    var activeRemoteProxyEndpoint: BrowserProxyEndpoint? {
+        remoteProxyEndpoint
+    }
+
+    func remoteProxyPreparedRequest(from request: URLRequest, logScope: String) -> URLRequest {
         guard remoteProxyEndpoint != nil else { return request }
         guard let url = request.url else { return request }
         guard let rewrittenURL = BrowserRemoteProxyURLResolver().loopbackAliasURL(for: url) else { return request }
@@ -3066,9 +2857,7 @@ extension BrowserPanel {
 
         loadingEndWorkItem?.cancel()
         loadingEndWorkItem = nil
-        faviconTask?.cancel()
-        faviconTask = nil
-        faviconRefreshGeneration &+= 1
+        faviconService.resetForNewLoad()
         loadingGeneration &+= 1
         activeDownloadCount = 0
         isDownloading = false
@@ -3082,8 +2871,8 @@ extension BrowserPanel {
         pendingAddressBarFocusRequestId = nil
         pendingAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
         preferredFocusIntent = .addressBar
-        suppressOmnibarAutofocusUntil = nil
-        suppressWebViewFocusUntil = nil
+        focusSuppression.omnibarAutofocusUntil = nil
+        focusSuppression.webViewFocusUntil = nil
         endSuppressWebViewFocusForAddressBar()
         invalidateAddressBarPageFocusRestoreAttempts()
         invalidateSearchFocusRequests(reason: "contextReset")
@@ -3093,7 +2882,6 @@ extension BrowserPanel {
         currentURL = nil
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
         faviconPNGData = nil
-        lastFaviconURLString = nil
         resetWebViewLifecycleMetadata()
         activePortalHostLease = nil
         pendingDistinctPortalHostReplacementPaneId = nil
@@ -4419,7 +4207,7 @@ extension BrowserPanel {
     }
 
     func suppressOmnibarAutofocus(for seconds: TimeInterval) {
-        suppressOmnibarAutofocusUntil = Date().addingTimeInterval(seconds)
+        focusSuppression.omnibarAutofocusUntil = Date().addingTimeInterval(seconds)
 #if DEBUG
         cmuxDebugLog(
             "browser.focus.omnibarAutofocus.suppress panel=\(id.uuidString.prefix(5)) " +
@@ -4429,7 +4217,7 @@ extension BrowserPanel {
     }
 
     func suppressWebViewFocus(for seconds: TimeInterval) {
-        suppressWebViewFocusUntil = Date().addingTimeInterval(seconds)
+        focusSuppression.webViewFocusUntil = Date().addingTimeInterval(seconds)
 #if DEBUG
         cmuxDebugLog(
             "browser.focus.webView.suppress panel=\(id.uuidString.prefix(5)) " +
@@ -4439,30 +4227,22 @@ extension BrowserPanel {
     }
 
     func clearWebViewFocusSuppression() {
-        suppressWebViewFocusUntil = nil
+        focusSuppression.webViewFocusUntil = nil
 #if DEBUG
         cmuxDebugLog("browser.focus.webView.suppress.clear panel=\(id.uuidString.prefix(5))")
 #endif
     }
 
     func shouldSuppressOmnibarAutofocus() -> Bool {
-        if let until = suppressOmnibarAutofocusUntil {
-            return Date() < until
-        }
-        return false
+        focusSuppression.shouldSuppressOmnibarAutofocus(now: Date())
     }
 
     func shouldSuppressWebViewFocus() -> Bool {
-        if suppressWebViewFocusForAddressBar {
-            return true
-        }
-        if searchState != nil {
-            return true
-        }
-        if let until = suppressWebViewFocusUntil {
-            return Date() < until
-        }
-        return false
+        focusSuppression.shouldSuppressWebViewFocus(
+            addressBarSuppressed: suppressWebViewFocusForAddressBar,
+            searchActive: searchState != nil,
+            now: Date()
+        )
     }
 
     func beginSuppressWebViewFocusForAddressBar() {

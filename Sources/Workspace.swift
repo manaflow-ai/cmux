@@ -383,10 +383,10 @@ extension Workspace {
                 promptForApproval: false,
                 approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
             )
-            let closeConfirmationRequired = Self.resolveCloseConfirmation(
-                shellActivityState: panelShellActivityStates[panelId],
-                fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()
-            )
+            let closeConfirmationRequired = (panelShellActivityStates[panelId] ?? .unknown)
+                .closeConfirmationRequired(
+                    fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()
+                )
             let shouldPersistScrollback = sessionRestorePolicy.shouldPersistSessionScrollback(
                 closeConfirmationRequired: closeConfirmationRequired
             ) && sessionRestorePolicy.shouldReplaySessionScrollback(
@@ -795,8 +795,7 @@ extension Workspace {
         fallbackNeedsConfirmClose: Bool
     ) -> Bool {
         makeSessionRestorePolicyService().shouldPersistSessionScrollback(
-            closeConfirmationRequired: resolveCloseConfirmation(
-                shellActivityState: shellActivityState,
+            closeConfirmationRequired: (shellActivityState ?? .unknown).closeConfirmationRequired(
                 fallbackNeedsConfirmClose: fallbackNeedsConfirmClose
             )
         )
@@ -2407,20 +2406,6 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     }
 
     private var processTitle: String
-
-    nonisolated static func resolveCloseConfirmation(
-        shellActivityState: PanelShellActivityState?,
-        fallbackNeedsConfirmClose: Bool
-    ) -> Bool {
-        switch shellActivityState ?? .unknown {
-        case .promptIdle:
-            return false
-        case .commandRunning:
-            return true
-        case .unknown:
-            return fallbackNeedsConfirmClose
-        }
-    }
 
     nonisolated private static func makeSessionRestorePolicyService(
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
@@ -4302,8 +4287,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     }
 
     func panelNeedsConfirmClose(panelId: UUID, fallbackNeedsConfirmClose: Bool) -> Bool {
-        Self.resolveCloseConfirmation(
-            shellActivityState: panelShellActivityStates[panelId],
+        (panelShellActivityStates[panelId] ?? .unknown).closeConfirmationRequired(
             fallbackNeedsConfirmClose: fallbackNeedsConfirmClose
         )
     }
@@ -8668,7 +8652,7 @@ extension Workspace: BonsplitDelegate {
             explicitFocusIntent ||
             TerminalController.socketCommandAllowsInAppFocusMutations()
         if let browserPanel = panel as? BrowserPanel,
-           shouldAllowBrowserOmnibarAutofocus(for: activationIntent),
+           activationIntent.allowsBrowserOmnibarAutofocus,
            previousFocusedPanelId != panelId || focusIntentAllowsBrowserOmnibarAutofocus {
             maybeAutoFocusBrowserAddressBarOnPanelFocus(browserPanel, trigger: .standard)
         }
@@ -8679,7 +8663,7 @@ extension Workspace: BonsplitDelegate {
         // Converge AppKit first responder with bonsplit's selected tab in the focused pane.
         // Without this, keyboard input can remain on a different terminal than the blue tab indicator.
         if reassertAppKitFocus, let terminalPanel = panel as? TerminalPanel {
-            if shouldMoveTerminalSurfaceFocus(for: activationIntent) {
+            if activationIntent.movesTerminalSurfaceFocus {
                 if !terminalPanel.hostedView.isSurfaceViewFirstResponder() {
 #if DEBUG
                     let previousExists = previousTerminalHostedView != nil ? 1 : 0
@@ -8702,7 +8686,7 @@ extension Workspace: BonsplitDelegate {
             }
         }
 
-        if shouldRestoreFocusIntentAfterActivation(activationIntent) {
+        if activationIntent.restoresAfterActivation {
             _ = panel.restoreFocusIntent(activationIntent)
         }
 
@@ -8745,7 +8729,7 @@ extension Workspace: BonsplitDelegate {
         reassertAppKitFocus: Bool
     ) {
         if let terminalPanel = panel as? TerminalPanel {
-            let shouldFocusTerminalSurface = shouldMoveTerminalSurfaceFocus(for: focusIntent)
+            let shouldFocusTerminalSurface = focusIntent.movesTerminalSurfaceFocus
             terminalPanel.surface.setFocus(shouldFocusTerminalSurface)
             terminalPanel.hostedView.setActive(true)
             if reassertAppKitFocus && shouldFocusTerminalSurface {
@@ -8755,7 +8739,7 @@ extension Workspace: BonsplitDelegate {
         }
 
         if let browserPanel = panel as? BrowserPanel {
-            guard shouldFocusBrowserWebView(for: focusIntent) else { return }
+            guard focusIntent.focusesBrowserWebView else { return }
             browserPanel.focus()
             return
         }
@@ -8793,42 +8777,6 @@ extension Workspace: BonsplitDelegate {
 #endif
             _ = panel.yieldFocusIntent(ownedIntent, in: window)
             return
-        }
-    }
-
-    private func shouldMoveTerminalSurfaceFocus(for intent: PanelFocusIntent) -> Bool {
-        switch intent {
-        case .terminal(.findField), .terminal(.textBoxInput):
-            return false
-        default:
-            return true
-        }
-    }
-
-    private func shouldFocusBrowserWebView(for intent: PanelFocusIntent) -> Bool {
-        switch intent {
-        case .browser(.addressBar), .browser(.findField):
-            return false
-        default:
-            return true
-        }
-    }
-
-    private func shouldAllowBrowserOmnibarAutofocus(for intent: PanelFocusIntent) -> Bool {
-        switch intent {
-        case .browser(.webView), .panel:
-            return true
-        default:
-            return false
-        }
-    }
-
-    private func shouldRestoreFocusIntentAfterActivation(_ intent: PanelFocusIntent) -> Bool {
-        switch intent {
-        case .browser(.addressBar), .browser(.findField), .terminal(.findField), .terminal(.textBoxInput):
-            return true
-        case .panel, .browser(.webView), .terminal(.surface), .filePreview, .project:
-            return false
         }
     }
 

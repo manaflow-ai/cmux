@@ -4961,8 +4961,8 @@ class TerminalController: MobileViewportSurfaceLimiting {
         // is a mutating action, so it must target an explicit workspace and never
         // fall back to the Mac's currently selected workspace (which
         // v2WorkspaceAction would otherwise do for a missing workspace_id).
-        if let error = mobileWorkspaceIDValidationError(params: params) {
-            return error
+        if let error = mobileWorkspaceIDValidation(params: params).validationError {
+            return mobileValidationError(error)
         }
         guard v2UUID(params, "workspace_id") != nil else {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
@@ -5028,11 +5028,11 @@ class TerminalController: MobileViewportSurfaceLimiting {
         // Auth verification, which is brittle on real-world networks.
         let isMacScope = scope?.lowercased() == "mac"
 
-        if let error = mobileWorkspaceIDValidationError(params: params) {
-            return error
+        if let error = mobileWorkspaceIDValidation(params: params).validationError {
+            return mobileValidationError(error)
         }
-        if let error = mobileTerminalAliasValidationError(params: params) {
-            return error
+        if let error = mobileTerminalAliasUUID(params: params).validationError {
+            return mobileValidationError(error)
         }
 
         let resolvedWorkspaceID: String
@@ -5122,23 +5122,34 @@ class TerminalController: MobileViewportSurfaceLimiting {
         return sawAlias ? .invalid : .missing
     }
 
-    private func mobileTerminalAliasValidationError(params: [String: Any]) -> V2CallResult? {
-        switch mobileTerminalAliasUUID(params: params) {
-        case .missing, .value:
-            return nil
-        case .invalid:
-            return .err(code: "invalid_params", message: "Missing or invalid terminal_id", data: nil)
-        case .conflict:
-            return .err(code: "invalid_params", message: "Conflicting terminal identifiers", data: nil)
-        }
-    }
-
-    private func mobileWorkspaceIDValidationError(params: [String: Any]) -> V2CallResult? {
+    // Pure classification of the optional `workspace_id` param: acceptable when
+    // absent or a well-formed UUID/ref, otherwise present-but-invalid. The typed
+    // result lives in CMUXMobileCore; the wire-error mapping (and its localized
+    // string) stays app-side via `mobileValidationError(_:)`.
+    private func mobileWorkspaceIDValidation(params: [String: Any]) -> MobileWorkspaceIDValidation {
         guard v2HasNonNullParam(params, "workspace_id"),
               v2UUID(params, "workspace_id") == nil else {
-            return nil
+            return .ok
         }
-        return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        return .invalid
+    }
+
+    // Maps a typed mobile param-validation error to the `invalid_params` wire
+    // response. These v2 socket error messages are wire-protocol strings (the
+    // entire v2 surface uses bare literals, matching the legacy bodies byte for
+    // byte); the message text stays app-side here, the package only names the
+    // failure via the message key.
+    private func mobileValidationError(_ error: MobileParamValidationError) -> V2CallResult {
+        let message: String
+        switch error.messageKey {
+        case .missingOrInvalidTerminalID:
+            message = "Missing or invalid terminal_id"
+        case .conflictingTerminalIdentifiers:
+            message = "Conflicting terminal identifiers"
+        case .missingOrInvalidWorkspaceID:
+            message = "Missing or invalid workspace_id"
+        }
+        return .err(code: error.code, message: message, data: nil)
     }
 
     // Still used by the v1 close-workspace witness (its v2 counterpart moved to
@@ -5285,8 +5296,8 @@ class TerminalController: MobileViewportSurfaceLimiting {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
         }
-        if let error = mobileWorkspaceIDValidationError(params: params) {
-            return error
+        if let error = mobileWorkspaceIDValidation(params: params).validationError {
+            return mobileValidationError(error)
         }
         guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
             return .err(code: "not_found", message: "Workspace not found", data: nil)
@@ -5311,11 +5322,11 @@ class TerminalController: MobileViewportSurfaceLimiting {
     }
 
     func v2MobileTerminalReplay(params: [String: Any]) -> V2CallResult {
-        if let error = mobileWorkspaceIDValidationError(params: params) {
-            return error
+        if let error = mobileWorkspaceIDValidation(params: params).validationError {
+            return mobileValidationError(error)
         }
-        if let error = mobileTerminalAliasValidationError(params: params) {
-            return error
+        if let error = mobileTerminalAliasUUID(params: params).validationError {
+            return mobileValidationError(error)
         }
         guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
               let surfaceId = resolved.surfaceId,
@@ -5376,11 +5387,11 @@ class TerminalController: MobileViewportSurfaceLimiting {
     /// resize: the smallest attached viewport wins and every device shows the
     /// same cols×rows with a clear border around the live area.
     func v2MobileTerminalViewport(params: [String: Any]) -> V2CallResult {
-        if let error = mobileWorkspaceIDValidationError(params: params) {
-            return error
+        if let error = mobileWorkspaceIDValidation(params: params).validationError {
+            return mobileValidationError(error)
         }
-        if let error = mobileTerminalAliasValidationError(params: params) {
-            return error
+        if let error = mobileTerminalAliasUUID(params: params).validationError {
+            return mobileValidationError(error)
         }
         guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
               let surfaceId = resolved.surfaceId,
@@ -5418,11 +5429,11 @@ class TerminalController: MobileViewportSurfaceLimiting {
     /// the resulting viewport mirrors back to the phone; nudge an emit since a
     /// pure scroll with no PTY output may not fire a render/tick on its own.
     func v2MobileTerminalScroll(params: [String: Any]) -> V2CallResult {
-        if let error = mobileWorkspaceIDValidationError(params: params) {
-            return error
+        if let error = mobileWorkspaceIDValidation(params: params).validationError {
+            return mobileValidationError(error)
         }
-        if let error = mobileTerminalAliasValidationError(params: params) {
-            return error
+        if let error = mobileTerminalAliasUUID(params: params).validationError {
+            return mobileValidationError(error)
         }
         guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
               let surfaceId = resolved.surfaceId,
@@ -5445,11 +5456,11 @@ class TerminalController: MobileViewportSurfaceLimiting {
     }
 
     func v2MobileTerminalMouse(params: [String: Any]) -> V2CallResult {
-        if let error = mobileWorkspaceIDValidationError(params: params) {
-            return error
+        if let error = mobileWorkspaceIDValidation(params: params).validationError {
+            return mobileValidationError(error)
         }
-        if let error = mobileTerminalAliasValidationError(params: params) {
-            return error
+        if let error = mobileTerminalAliasUUID(params: params).validationError {
+            return mobileValidationError(error)
         }
         guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
               let surfaceId = resolved.surfaceId,
@@ -5470,11 +5481,11 @@ class TerminalController: MobileViewportSurfaceLimiting {
         guard let text = v2RawString(params, "text"), !text.isEmpty else {
             return .err(code: "invalid_params", message: "Missing text", data: nil)
         }
-        if let error = mobileWorkspaceIDValidationError(params: params) {
-            return error
+        if let error = mobileWorkspaceIDValidation(params: params).validationError {
+            return mobileValidationError(error)
         }
-        if let error = mobileTerminalAliasValidationError(params: params) {
-            return error
+        if let error = mobileTerminalAliasUUID(params: params).validationError {
+            return mobileValidationError(error)
         }
         guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
               let surfaceId = resolved.surfaceId,
@@ -5528,11 +5539,11 @@ class TerminalController: MobileViewportSurfaceLimiting {
             return .err(code: "invalid_params", message: "Missing or invalid image_base64", data: nil)
         }
         let format = v2RawString(params, "image_format") ?? "png"
-        if let error = mobileWorkspaceIDValidationError(params: params) {
-            return error
+        if let error = mobileWorkspaceIDValidation(params: params).validationError {
+            return mobileValidationError(error)
         }
-        if let error = mobileTerminalAliasValidationError(params: params) {
-            return error
+        if let error = mobileTerminalAliasUUID(params: params).validationError {
+            return mobileValidationError(error)
         }
         guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
               let surfaceId = resolved.surfaceId,
@@ -5609,11 +5620,11 @@ class TerminalController: MobileViewportSurfaceLimiting {
         default:
             return .err(code: "invalid_params", message: "Unsupported submit_key", data: ["submit_key": submitKeyRaw])
         }
-        if let error = mobileWorkspaceIDValidationError(params: params) {
-            return error
+        if let error = mobileWorkspaceIDValidation(params: params).validationError {
+            return mobileValidationError(error)
         }
-        if let error = mobileTerminalAliasValidationError(params: params) {
-            return error
+        if let error = mobileTerminalAliasUUID(params: params).validationError {
+            return mobileValidationError(error)
         }
         guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
               let surfaceId = resolved.surfaceId,
