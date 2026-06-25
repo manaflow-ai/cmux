@@ -157,7 +157,7 @@
 650	Sources/Panels/MarkdownRemoteImageLoader.swift
 651	Sources/CmuxTopSnapshot.swift
 641	cmuxTests/CommandPaletteNucleoFFITests.swift
-637	Sources/TerminalController+ControlPaneContext.swift
+643	Sources/TerminalController+ControlPaneContext.swift
 635	Packages/macOS/CmuxWorkspaces/Tests/CmuxWorkspacesTests/Core/SurfaceRegistryModelTests.swift
 630	Packages/macOS/CmuxSettings/Sources/CmuxSettings/Values/ShortcutWhenClause.swift
 623	Sources/App/MenuBarExtraController.swift

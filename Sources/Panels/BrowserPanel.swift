@@ -12,7 +12,6 @@ import AppKit
 import Bonsplit
 import CmuxTerminalCore
 import CmuxNotifications
-import Network
 import CFNetwork
 import Darwin
 import CmuxTerminal
@@ -1465,18 +1464,7 @@ final class BrowserPanel: Panel, ObservableObject {
             return
         }
 
-        let host = endpoint.host.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !host.isEmpty,
-              endpoint.port > 0 && endpoint.port <= 65535,
-              let nwPort = NWEndpoint.Port(rawValue: UInt16(endpoint.port)) else {
-            store.proxyConfigurations = []
-            return
-        }
-
-        let nwEndpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(host), port: nwPort)
-        let socks = ProxyConfiguration(socksv5Proxy: nwEndpoint)
-        let connect = ProxyConfiguration(httpCONNECTProxy: nwEndpoint)
-        store.proxyConfigurations = [socks, connect]
+        store.proxyConfigurations = endpoint.proxyConfigurations()
     }
 
     private func beginDownloadActivity() {

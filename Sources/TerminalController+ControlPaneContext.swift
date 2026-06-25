@@ -10,9 +10,10 @@ import Foundation
 /// hop would re-apply the identical thread-local focus-allowance stack — a no-op.
 ///
 /// App-coupled resolution (`resolveTabManager(routing:)`, `v2LocatePane`,
-/// `v2ResolveWindowId`, the Bonsplit layout, the split-resize candidate
-/// collection) stays here; the seam exposes only Sendable snapshots and
-/// resolution enums.
+/// `v2ResolveWindowId`, the Bonsplit layout) stays here; the split-resize
+/// candidate walk + divider math now lives in `CmuxPanes`
+/// (`ExternalTreeNode.relativeResizeDividerPlan` / `absoluteSizeDividerAdjustment`),
+/// and the seam exposes only Sendable snapshots and resolution enums.
 extension TerminalController: ControlPaneContext {
     func controlPaneRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool {
         resolveTabManager(routing: routing) != nil
@@ -343,64 +344,69 @@ extension TerminalController: ControlPaneContext {
         }
 
         let tree = ws.bonsplitController.treeSnapshot()
-        var candidates: [V2PaneResizeCandidate] = []
-        let trace = v2PaneResizeCollectCandidates(
-            node: tree,
-            targetPaneId: paneUUID.uuidString,
-            candidates: &candidates
-        )
-        guard trace.containsTarget else {
+        guard tree.containsPane(paneUUID.uuidString) else {
             return .paneNotFoundInTree(paneUUID)
         }
 
         if let absoluteAxis = inputs.absoluteAxis,
            let targetPixels = inputs.targetPixels,
-           let absoluteResize = v2SetAbsolutePaneSize(
-                workspace: ws,
-                paneUUID: paneUUID,
+           let absolutePlan = tree.absoluteSizeDividerAdjustment(
+                targetPaneId: paneUUID.uuidString,
                 axis: absoluteAxis,
                 targetPixels: CGFloat(targetPixels)
+           ),
+           ws.bonsplitController.setDividerPosition(
+                absolutePlan.newPosition,
+                forSplit: absolutePlan.splitId,
+                fromExternal: true
            ) {
             let windowId = v2ResolveWindowId(tabManager: tabManager)
             return .absoluteResized(
                 windowID: windowId,
                 workspaceID: ws.id,
                 paneID: paneUUID,
-                splitID: absoluteResize.splitId,
+                splitID: absolutePlan.splitId,
                 absoluteAxis: absoluteAxis,
                 targetPixels: targetPixels,
-                oldDividerPosition: Double(absoluteResize.oldPosition),
-                newDividerPosition: Double(absoluteResize.newPosition)
+                oldDividerPosition: Double(absolutePlan.oldPosition),
+                newDividerPosition: Double(absolutePlan.newPosition)
             )
         } else if inputs.absoluteAxis != nil || inputs.targetPixels != nil {
             return .noAbsoluteSplitAncestor(paneID: paneUUID, absoluteAxis: inputs.absoluteAxis)
         }
 
-        guard let direction = inputs.direction.flatMap(V2PaneResizeDirection.init(rawValue:)) else {
+        guard let direction = inputs.direction.flatMap(ResizeDirection.init(controlToken:)) else {
             // Unreachable: the coordinator pre-validates the relative path.
             return .noAdjacentBorder(paneID: paneUUID, direction: inputs.direction ?? "")
         }
 
-        let orientationMatches = candidates.filter { $0.orientation == direction.splitOrientation }
-        guard !orientationMatches.isEmpty else {
+        let relativePlan = tree.relativeResizeDividerPlan(
+            targetPaneId: paneUUID.uuidString,
+            direction: direction,
+            amountPixels: CGFloat(inputs.amount)
+        )
+        let plan: SplitResizeDividerPlan
+        switch relativePlan {
+        case .planned(let resolved):
+            plan = resolved
+        case .paneNotFound:
+            return .paneNotFoundInTree(paneUUID)
+        case .noOrientationSplitAncestor:
             return .noOrientationSplitAncestor(
                 paneID: paneUUID,
                 orientation: direction.splitOrientation,
-                direction: direction.rawValue
+                direction: direction.controlToken
             )
+        case .noAdjacentBorder:
+            return .noAdjacentBorder(paneID: paneUUID, direction: direction.controlToken)
         }
 
-        guard let candidate = orientationMatches.first(where: {
-            $0.paneInFirstChild == direction.requiresPaneInFirstChild
-        }) else {
-            return .noAdjacentBorder(paneID: paneUUID, direction: direction.rawValue)
-        }
-
-        let delta = CGFloat(inputs.amount) / candidate.axisPixels
-        let requested = candidate.dividerPosition + (direction.dividerDeltaSign * delta)
-        let clamped = min(max(requested, 0.1), 0.9)
-        guard ws.bonsplitController.setDividerPosition(clamped, forSplit: candidate.splitId, fromExternal: true) else {
-            return .setDividerFailed(splitID: candidate.splitId)
+        guard ws.bonsplitController.setDividerPosition(
+            plan.newPosition,
+            forSplit: plan.splitId,
+            fromExternal: true
+        ) else {
+            return .setDividerFailed(splitID: plan.splitId)
         }
 
         let windowId = v2ResolveWindowId(tabManager: tabManager)
@@ -408,11 +414,11 @@ extension TerminalController: ControlPaneContext {
             windowID: windowId,
             workspaceID: ws.id,
             paneID: paneUUID,
-            splitID: candidate.splitId,
-            direction: direction.rawValue,
+            splitID: plan.splitId,
+            direction: direction.controlToken,
             amount: inputs.amount,
-            oldDividerPosition: Double(candidate.dividerPosition),
-            newDividerPosition: Double(clamped)
+            oldDividerPosition: Double(plan.oldPosition),
+            newDividerPosition: Double(plan.newPosition)
         )
     }
 

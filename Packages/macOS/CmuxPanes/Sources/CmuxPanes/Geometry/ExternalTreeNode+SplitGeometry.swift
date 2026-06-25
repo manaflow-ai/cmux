@@ -91,23 +91,96 @@ extension ExternalTreeNode {
         direction: ResizeDirection,
         amountPixels: UInt16
     ) -> SplitDividerAdjustment? {
+        switch relativeResizeDividerPlan(
+            targetPaneId: targetPaneId,
+            direction: direction,
+            amountPixels: CGFloat(amountPixels)
+        ) {
+        case .planned(let plan):
+            return SplitDividerAdjustment(splitId: plan.splitId, position: plan.newPosition)
+        case .paneNotFound, .noOrientationSplitAncestor, .noAdjacentBorder:
+            return nil
+        }
+    }
+
+    /// Plans a relative resize of the pane's controlling divider, walking the
+    /// splits enclosing `targetPaneId` (innermost first), picking the first
+    /// split matching `direction`'s orientation and child side, converting
+    /// `amountPixels` into a divider delta along that split's axis, and clamping
+    /// to 0.1-0.9. Distinguishes the legacy failure reasons (pane absent from
+    /// the tree, no enclosing split matching the resize axis, or no split with
+    /// the target on the controlling child side). The byte-faithful home of the
+    /// candidate walk + delta/clamp math that the app-side `pane.resize`
+    /// relative path previously duplicated; ``resizeDividerAdjustment`` is the
+    /// position-only view of `.planned`, and the relative resize resolution maps
+    /// the failure cases directly.
+    public func relativeResizeDividerPlan(
+        targetPaneId: String,
+        direction: ResizeDirection,
+        amountPixels: CGFloat
+    ) -> RelativeResizeDividerPlan {
         var candidates: [ResizeSplitCandidate] = []
         let trace = collectResizeCandidates(targetPaneId: targetPaneId, candidates: &candidates)
-        guard trace.containsTarget else { return nil }
+        guard trace.containsTarget else { return .paneNotFound }
 
         let orientationMatches = candidates.filter { $0.orientation == direction.splitOrientation }
-        guard !orientationMatches.isEmpty else { return nil }
+        guard !orientationMatches.isEmpty else { return .noOrientationSplitAncestor }
 
         guard let candidate = orientationMatches.first(where: {
             $0.paneInFirstChild == direction.requiresPaneInFirstChild
         }) else {
+            return .noAdjacentBorder
+        }
+
+        let delta = amountPixels / candidate.axisPixels
+        let requested = candidate.dividerPosition + (direction.dividerDeltaSign * delta)
+        let clamped = min(max(requested, 0.1), 0.9)
+        return .planned(SplitResizeDividerPlan(
+            splitId: candidate.splitId,
+            oldPosition: candidate.dividerPosition,
+            newPosition: clamped
+        ))
+    }
+
+    /// Plans an absolute resize that drives the pane's controlling divider so
+    /// the pane spans `targetPixels` along `axis` ("horizontal"/"vertical").
+    /// Walks the same candidate set as the relative path, picks the first split
+    /// matching the axis, converts the target span into a divider fraction
+    /// (inverted when the pane is the second child), and clamps to 0.1-0.9.
+    /// Returns `nil` for a non-positive target, an unrecognized axis, the pane
+    /// being absent, or no enclosing split matching the axis. The byte-faithful
+    /// home of the app-side `v2SetAbsolutePaneSize` divider math.
+    public func absoluteSizeDividerAdjustment(
+        targetPaneId: String,
+        axis: String,
+        targetPixels: CGFloat
+    ) -> SplitResizeDividerPlan? {
+        guard targetPixels > 0 else { return nil }
+        let orientationName: String
+        switch axis.lowercased() {
+        case "horizontal":
+            orientationName = "horizontal"
+        case "vertical":
+            orientationName = "vertical"
+        default:
             return nil
         }
 
-        let delta = CGFloat(amountPixels) / candidate.axisPixels
-        let requested = candidate.dividerPosition + (direction.dividerDeltaSign * delta)
+        var candidates: [ResizeSplitCandidate] = []
+        let trace = collectResizeCandidates(targetPaneId: targetPaneId, candidates: &candidates)
+        guard trace.containsTarget,
+              let candidate = candidates.first(where: { $0.orientation == orientationName }) else {
+            return nil
+        }
+
+        let targetFraction = targetPixels / candidate.axisPixels
+        let requested = candidate.paneInFirstChild ? targetFraction : (1 - targetFraction)
         let clamped = min(max(requested, 0.1), 0.9)
-        return SplitDividerAdjustment(splitId: candidate.splitId, position: clamped)
+        return SplitResizeDividerPlan(
+            splitId: candidate.splitId,
+            oldPosition: candidate.dividerPosition,
+            newPosition: clamped
+        )
     }
 
     private struct ResizeSplitCandidate {

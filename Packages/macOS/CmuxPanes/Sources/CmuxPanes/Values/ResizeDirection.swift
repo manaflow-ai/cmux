@@ -53,4 +53,30 @@ public enum ResizeDirection: Sendable {
         default: return nil
         }
     }
+
+    /// Map the `pane.resize` wire `direction` token (`left`/`right`/`up`/`down`)
+    /// onto the `ResizeDirection`, returning `nil` for any unrecognized value.
+    /// The byte-faithful home of the former app-side `V2PaneResizeDirection`
+    /// raw-value enum the relative `pane.resize` path used.
+    public init?(controlToken token: String) {
+        switch token {
+        case "left": self = .left
+        case "right": self = .right
+        case "up": self = .up
+        case "down": self = .down
+        default: return nil
+        }
+    }
+
+    /// The `pane.resize` wire `direction` token for this direction, the inverse
+    /// of ``init(controlToken:)`` and the byte-faithful replacement for the
+    /// former `V2PaneResizeDirection.rawValue`.
+    public var controlToken: String {
+        switch self {
+        case .left: return "left"
+        case .right: return "right"
+        case .up: return "up"
+        case .down: return "down"
+        }
+    }
 }
