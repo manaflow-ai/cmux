@@ -466,6 +466,112 @@ import Testing
         #expect(store.displayPairedMacs.map(\.macDeviceID) == ["mac-b"])
     }
 
+    @Test func workspaceListReconnectPrefersSelectedUnavailableWorkspaceMac() async throws {
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "mac-a",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: true
+                    ),
+                    try Self.pairedMac(
+                        id: "mac-b",
+                        displayName: "Laptop Mac",
+                        host: "100.82.214.113",
+                        lastSeenAt: Date(timeIntervalSince1970: 20),
+                        isActive: false
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" }
+        )
+        await store.loadPairedMacs()
+        store.setWorkspaceStatesForTesting([
+            "mac-a": MacWorkspaceState(
+                macDeviceID: "mac-a",
+                workspaces: [
+                    MobileWorkspacePreview(
+                        id: "workspace-a",
+                        macDeviceID: "mac-a",
+                        name: "Desk",
+                        terminals: []
+                    ),
+                ],
+                status: .unavailable
+            ),
+            "mac-b": MacWorkspaceState(
+                macDeviceID: "mac-b",
+                workspaces: [
+                    MobileWorkspacePreview(
+                        id: "workspace-b",
+                        macDeviceID: "mac-b",
+                        name: "Laptop",
+                        terminals: []
+                    ),
+                ],
+                status: .unavailable
+            ),
+        ], foregroundMacDeviceID: "mac-a")
+
+        let workspaceB = try #require(store.workspaces.first {
+            $0.rpcWorkspaceID.rawValue == "workspace-b"
+        })
+        store.selectedWorkspaceID = workspaceB.id
+
+        #expect(store.workspaceListReconnectTargetMacDeviceIDForTesting() == "mac-b")
+    }
+
+    @Test func workspaceListReconnectUsesSingleUnavailableWorkspaceOwner() async throws {
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "mac-b",
+                        displayName: "Laptop Mac",
+                        host: "100.82.214.113",
+                        lastSeenAt: Date(timeIntervalSince1970: 20),
+                        isActive: false
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" }
+        )
+        await store.loadPairedMacs()
+        store.setWorkspaceStatesForTesting([
+            "mac-b": MacWorkspaceState(
+                macDeviceID: "mac-b",
+                workspaces: [
+                    MobileWorkspacePreview(
+                        id: "workspace-b",
+                        macDeviceID: "mac-b",
+                        name: "Laptop",
+                        terminals: []
+                    ),
+                ],
+                status: .unavailable
+            ),
+        ], foregroundMacDeviceID: nil)
+
+        store.selectedWorkspaceID = nil
+
+        #expect(store.workspaceListReconnectTargetMacDeviceIDForTesting() == "mac-b")
+    }
+
     @Test func destructiveActionsDoNothingWithoutSignedInScope() async throws {
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [

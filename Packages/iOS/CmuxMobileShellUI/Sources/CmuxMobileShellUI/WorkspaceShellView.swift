@@ -266,7 +266,8 @@ struct WorkspaceShellView: View {
     private var refreshWorkspacesClosure: @Sendable () async -> Void {
         let store = store
         // Reconnect-or-refresh: when offline, pull-to-refresh re-attempts the saved
-        // active Mac instead of no-opping, so the offline list can recover itself.
+        // active Mac or the visible unavailable workspace owner instead of
+        // no-opping, so the offline list can recover itself.
         return { await store.reconnectOrRefresh() }
     }
 
