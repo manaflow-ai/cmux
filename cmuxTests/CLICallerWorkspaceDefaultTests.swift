@@ -17,10 +17,12 @@ struct CLICallerWorkspaceDefaultTests {
     /// A blank `--workspace` from a caller pane must target the caller's workspace and
     /// must never consult `workspace.current` (the focused workspace).
     @Test func blankWorkspaceArgDefaultsToCallerWorkspace() throws {
-        let requests = try runMarkNotificationRead(
+        let (requests, result) = try runMarkNotificationRead(
             workspaceArgument: "   ",
-            focusedWorkspaceId: Self.focusedWorkspaceId
+            focusedWorkspaceId: Self.focusedWorkspaceId,
+            callerWorkspaceId: Self.callerWorkspaceId
         )
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
 
         let methods = requests.compactMap { $0["method"] as? String }
         #expect(methods == ["notification.mark_read"], Comment(rawValue: methods.joined(separator: ",")))
@@ -30,13 +32,32 @@ struct CLICallerWorkspaceDefaultTests {
         #expect(params["tab_id"] as? String == Self.callerWorkspaceId)
     }
 
+    /// A blank `--workspace` with no caller workspace in the environment must fail closed
+    /// (nonzero exit) rather than silently retargeting the focused workspace. This is the
+    /// dangerous case where `--workspace "${CMUX_WORKSPACE_ID:-}"` expands to an empty
+    /// argument because the caller environment is thin.
+    @Test func blankWorkspaceArgWithoutCallerFailsClosed() throws {
+        let (requests, result) = try runMarkNotificationRead(
+            workspaceArgument: "   ",
+            focusedWorkspaceId: Self.focusedWorkspaceId,
+            callerWorkspaceId: nil
+        )
+
+        #expect(result.status != 0, Comment(rawValue: "expected nonzero exit, got \(result.status)"))
+        let methods = requests.compactMap { $0["method"] as? String }
+        #expect(!methods.contains("workspace.current"), Comment(rawValue: methods.joined(separator: ",")))
+        #expect(!methods.contains("notification.mark_read"), Comment(rawValue: methods.joined(separator: ",")))
+    }
+
     /// An explicit `--workspace <uuid>` must still win over the caller's environment, so
     /// the caller default never hijacks a command that names another workspace.
     @Test func explicitWorkspaceArgStillWins() throws {
-        let requests = try runMarkNotificationRead(
+        let (requests, result) = try runMarkNotificationRead(
             workspaceArgument: Self.otherWorkspaceId,
-            focusedWorkspaceId: Self.focusedWorkspaceId
+            focusedWorkspaceId: Self.focusedWorkspaceId,
+            callerWorkspaceId: Self.callerWorkspaceId
         )
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
 
         let methods = requests.compactMap { $0["method"] as? String }
         #expect(methods == ["notification.mark_read"], Comment(rawValue: methods.joined(separator: ",")))
@@ -47,12 +68,14 @@ struct CLICallerWorkspaceDefaultTests {
     }
 
     /// Drives `mark-notification-read --workspace <argument>` against a mock socket and
-    /// returns the recorded JSON-RPC requests. The mock answers `workspace.current` with
-    /// `focusedWorkspaceId` so that, pre-fix, the command would visibly retarget there.
+    /// returns the recorded JSON-RPC requests plus the process result. The mock answers
+    /// `workspace.current` with `focusedWorkspaceId` so that, pre-fix, the command would
+    /// visibly retarget there. Pass `callerWorkspaceId: nil` to omit `CMUX_WORKSPACE_ID`.
     private func runMarkNotificationRead(
         workspaceArgument: String,
-        focusedWorkspaceId: String
-    ) throws -> [[String: Any]] {
+        focusedWorkspaceId: String,
+        callerWorkspaceId: String?
+    ) throws -> ([[String: Any]], ProcessRunResult) {
         let socketPath = Self.makeSocketPath("caller-ws")
         let listenerFD = try Self.bindUnixSocket(at: socketPath)
         defer {
@@ -84,27 +107,31 @@ struct CLICallerWorkspaceDefaultTests {
         let result = Self.runProcess(
             executablePath: try Self.bundledCLIPath(),
             arguments: ["mark-notification-read", "--workspace", workspaceArgument],
-            environment: cliEnvironment(socketPath: socketPath),
+            environment: cliEnvironment(socketPath: socketPath, callerWorkspaceId: callerWorkspaceId),
             timeout: 5
         )
 
         #expect(handled.wait(timeout: .now() + 5) == .success)
         #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
-        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
 
-        return try state.requestObjects()
+        return (try state.requestObjects(), result)
     }
 
-    private func cliEnvironment(socketPath: String) -> [String: String] {
+    private func cliEnvironment(socketPath: String, callerWorkspaceId: String?) -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_WORKSPACE_ID"] = Self.callerWorkspaceId
-        environment["CMUX_SURFACE_ID"] = Self.callerSurfaceId
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
-        // Clear any ambient window targeting inherited from the test host's own pane.
-        environment["CMUX_WINDOW_ID"] = nil
+        // Clear any ambient caller/window context inherited from the test host's own pane,
+        // then set only what this scenario needs.
+        environment.removeValue(forKey: "CMUX_SURFACE_ID")
+        environment.removeValue(forKey: "CMUX_WINDOW_ID")
+        if let callerWorkspaceId {
+            environment["CMUX_WORKSPACE_ID"] = callerWorkspaceId
+        } else {
+            environment.removeValue(forKey: "CMUX_WORKSPACE_ID")
+        }
         return environment
     }
 
