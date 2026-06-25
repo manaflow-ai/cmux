@@ -2236,63 +2236,6 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         true
     }
 
-    // Pure Bonsplit chrome-color compute moved to
-    // CmuxAppKitSupportUI.BonsplitChromeColorResolver (instance value type
-    // composed with WindowChromeColorResolver). These thin static forwards
-    // remain only for the external callers that still reference them through
-    // `Workspace.<name>`: GhosttyTerminalView.usesBonsplitPaneTerminalBackdrop
-    // and GhosttyConfigTests (resolvedChromeColors / bonsplitChromeHex /
-    // bonsplitChromeColors). Retire these forwards once those callers call the
-    // resolver directly.
-
-    nonisolated static func bonsplitChromeHex(
-        backgroundColor: NSColor,
-        backgroundOpacity: Double,
-        sharesWindowBackdrop: Bool = false
-    ) -> String {
-        BonsplitChromeColorResolver().chromeHex(
-            backgroundColor: backgroundColor,
-            backgroundOpacity: backgroundOpacity,
-            sharesWindowBackdrop: sharesWindowBackdrop
-        )
-    }
-
-    nonisolated static func usesBonsplitPaneTerminalBackdrop(
-        renderingMode: GhosttyTerminalBackdropRenderingMode,
-        sharesWindowBackdrop: Bool
-    ) -> Bool {
-        BonsplitChromeColorResolver().usesPaneTerminalBackdrop(
-            renderingMode: renderingMode,
-            sharesWindowBackdrop: sharesWindowBackdrop
-        )
-    }
-
-    nonisolated static func bonsplitChromeColors(
-        backgroundColor: NSColor,
-        backgroundOpacity: Double,
-        sharesWindowBackdrop: Bool = false,
-        renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop
-    ) -> BonsplitConfiguration.Appearance.ChromeColors {
-        BonsplitChromeColorResolver().chromeColors(
-            backgroundColor: backgroundColor,
-            backgroundOpacity: backgroundOpacity,
-            sharesWindowBackdrop: sharesWindowBackdrop,
-            renderingMode: renderingMode
-        )
-    }
-
-    nonisolated static func resolvedChromeColors(
-        from backgroundColor: NSColor,
-        sharesWindowBackdrop: Bool = false,
-        renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop
-    ) -> BonsplitConfiguration.Appearance.ChromeColors {
-        BonsplitChromeColorResolver().resolvedChromeColors(
-            from: backgroundColor,
-            sharesWindowBackdrop: sharesWindowBackdrop,
-            renderingMode: renderingMode
-        )
-    }
-
     private static func bonsplitAppearance(
         from backgroundColor: NSColor,
         backgroundOpacity: Double,

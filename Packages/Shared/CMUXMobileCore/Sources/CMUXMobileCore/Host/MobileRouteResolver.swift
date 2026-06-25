@@ -1,16 +1,24 @@
-import CMUXMobileCore
 import Darwin
-import Foundation
+public import Foundation
 
-struct MobileHostRouteSnapshot: Sendable {
-    let routes: [CmxAttachRoute]
-
-    var payload: [[String: Any]] {
-        routes.map(\.mobileHostJSONObject)
-    }
-}
-
-final class MobileRouteResolver: @unchecked Sendable {
+/// Projects the Mac's reachable transports into the ``CmxAttachRoute`` set the
+/// mobile host advertises for a listener port.
+///
+/// It always offers a debug-loopback route (DEBUG builds only) and one route per
+/// resolved Tailscale host. Tailscale hosts are discovered from `getifaddrs`
+/// (CGNAT `100.64/10` v4 + `fd7a:115c:a1e0:`/`utun` confirmation), optionally
+/// resolved to their `*.ts.net` MagicDNS name, and cached for
+/// ``tailscaleRouteCacheTTL`` seconds.
+///
+/// Concurrency: callers reach this from the main actor and from the host's
+/// listener callback queue, and the cache is shared across them, so the resolved
+/// state lives behind ``cacheLock`` (an `NSLock`) rather than on an isolation
+/// domain. The DNS resolution itself is offloaded to detached tasks whose results
+/// are folded back into the cache under the lock, guarded by ``cacheGeneration``
+/// so a resolution started before an ``invalidateResolvedTailscaleHostCache()``
+/// cannot write stale (old-network) hosts after it. `@unchecked Sendable` is sound
+/// because every mutable field is only ever touched while ``cacheLock`` is held.
+public final class MobileRouteResolver: @unchecked Sendable {
     private static let tailscaleRouteCacheTTL: TimeInterval = 30
 
     private let cacheLock = NSLock()
@@ -24,7 +32,13 @@ final class MobileRouteResolver: @unchecked Sendable {
     /// captured when its refresh task was created.
     private var cacheGeneration = 0
 
-    func routes(
+    /// Create a resolver with an empty cache.
+    public init() {}
+
+    /// Build the route snapshot for `port`, serving the freshest cached Tailscale
+    /// hosts plus an immediate (DNS-skipping) interface scan, and kicking off a
+    /// background MagicDNS refresh for the next call.
+    public func routes(
         port: Int,
         now: Date = Date(),
         immediateHosts: () -> [String] = { MobileRouteResolver.tailscaleRouteHosts(resolveDNS: false) }
@@ -37,7 +51,9 @@ final class MobileRouteResolver: @unchecked Sendable {
         )
     }
 
-    func routesResolvingTailscaleDNS(
+    /// Build the route snapshot for `port`, awaiting a full MagicDNS resolution so
+    /// the Tailscale hosts carry `*.ts.net` names when available.
+    public func routesResolvingTailscaleDNS(
         port: Int,
         resolveHosts: @escaping @Sendable () -> [String] = { MobileRouteResolver.tailscaleRouteHosts(resolveDNS: true) },
         now: Date = Date()
@@ -55,7 +71,7 @@ final class MobileRouteResolver: @unchecked Sendable {
     /// or ``refreshTailscaleRoutes(resolveHosts:onResolvedHosts:)`` call starts
     /// a fresh resolution; an orphaned in-flight task's result is discarded by
     /// the generation guard in ``storeResolvedTailscaleHosts(_:now:generation:)``.
-    func invalidateResolvedTailscaleHostCache() {
+    public func invalidateResolvedTailscaleHostCache() {
         cacheLock.lock()
         cachedResolvedTailscaleHosts = []
         cachedResolvedTailscaleHostsUpdatedAt = nil
@@ -64,7 +80,9 @@ final class MobileRouteResolver: @unchecked Sendable {
         cacheLock.unlock()
     }
 
-    func routes(port: Int, tailscaleHosts: [String]) -> MobileHostRouteSnapshot {
+    /// Build the route snapshot for `port` from an explicit, already-resolved set
+    /// of Tailscale hosts (debug loopback first, then one route per host).
+    public func routes(port: Int, tailscaleHosts: [String]) -> MobileHostRouteSnapshot {
         var resolved: [CmxAttachRoute] = []
 
         if Self.includesDebugLoopbackRoute {
@@ -101,7 +119,9 @@ final class MobileRouteResolver: @unchecked Sendable {
         let dnsName: String?
     }
 
-    func refreshTailscaleRoutes(
+    /// Ensure a MagicDNS resolution is in flight (or serve the fresh cache), and
+    /// invoke `onResolvedHosts` once the hosts are known.
+    public func refreshTailscaleRoutes(
         resolveHosts: @escaping @Sendable () -> [String] = { MobileRouteResolver.tailscaleRouteHosts(resolveDNS: true) },
         onResolvedHosts: (@Sendable ([String]) -> Void)? = nil
     ) {

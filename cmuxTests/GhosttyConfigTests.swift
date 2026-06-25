@@ -1253,7 +1253,7 @@ final class WorkspaceChromeThemeTests: XCTestCase {
             return
         }
 
-        let colors = Workspace.resolvedChromeColors(from: backgroundColor)
+        let colors = BonsplitChromeColorResolver().resolvedChromeColors(from: backgroundColor)
         XCTAssertEqual(colors.backgroundHex, "#FDF6E3")
         XCTAssertEqual(colors.tabBarBackgroundHex, "#FDF6E3")
         XCTAssertEqual(colors.splitButtonBackdropHex, "#FDF6E3")
@@ -1267,7 +1267,7 @@ final class WorkspaceChromeThemeTests: XCTestCase {
             return
         }
 
-        let colors = Workspace.resolvedChromeColors(from: backgroundColor)
+        let colors = BonsplitChromeColorResolver().resolvedChromeColors(from: backgroundColor)
         XCTAssertEqual(colors.backgroundHex, "#272822")
         XCTAssertEqual(colors.tabBarBackgroundHex, "#272822")
         XCTAssertEqual(colors.splitButtonBackdropHex, "#272822")
@@ -1281,7 +1281,7 @@ final class WorkspaceChromeThemeTests: XCTestCase {
             return
         }
 
-        let colors = Workspace.resolvedChromeColors(
+        let colors = BonsplitChromeColorResolver().resolvedChromeColors(
             from: backgroundColor,
             sharesWindowBackdrop: true
         )
@@ -1298,7 +1298,7 @@ final class WorkspaceChromeThemeTests: XCTestCase {
             return
         }
 
-        let colors = Workspace.resolvedChromeColors(
+        let colors = BonsplitChromeColorResolver().resolvedChromeColors(
             from: backgroundColor,
             renderingMode: .ghosttyRendererOwnedBackgroundImage
         )
@@ -1362,7 +1362,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
             alpha: 1.0
         )
 
-        let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 0.5)
+        let hex = BonsplitChromeColorResolver().chromeHex(backgroundColor: color, backgroundOpacity: 0.5)
         XCTAssertEqual(hex, "#1122337F")
     }
 
@@ -1374,7 +1374,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
             alpha: 1.0
         )
 
-        let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 1.0)
+        let hex = BonsplitChromeColorResolver().chromeHex(backgroundColor: color, backgroundOpacity: 1.0)
         XCTAssertEqual(hex, "#112233")
     }
 
@@ -1386,7 +1386,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
             alpha: 1.0
         )
 
-        let hex = Workspace.bonsplitChromeHex(
+        let hex = BonsplitChromeColorResolver().chromeHex(
             backgroundColor: color,
             backgroundOpacity: 0.5,
             sharesWindowBackdrop: true
@@ -1402,7 +1402,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
             alpha: 1.0
         )
 
-        let colors = Workspace.bonsplitChromeColors(
+        let colors = BonsplitChromeColorResolver().chromeColors(
             backgroundColor: color,
             backgroundOpacity: 0.5,
             renderingMode: .windowHostBackdrop
@@ -1422,7 +1422,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
             alpha: 1.0
         )
 
-        let colors = Workspace.bonsplitChromeColors(
+        let colors = BonsplitChromeColorResolver().chromeColors(
             backgroundColor: color,
             backgroundOpacity: 0.5,
             sharesWindowBackdrop: true,

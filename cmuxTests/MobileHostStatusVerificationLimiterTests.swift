@@ -1,4 +1,5 @@
 import Testing
+import CMUXMobileCore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

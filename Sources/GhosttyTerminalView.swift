@@ -5223,7 +5223,7 @@ extension GhosttyNSView: TerminalSurfaceRenderHosting {
             usesHostLayerBackground: GhosttyApp.shared.engineRuntime.usesHostLayerBackground
         )
         let sharesWindowBackdrop = Workspace.usesWindowRootTerminalBackdrop()
-        let usesBonsplitPaneBackdrop = Workspace.usesBonsplitPaneTerminalBackdrop(
+        let usesBonsplitPaneBackdrop = BonsplitChromeColorResolver().usesPaneTerminalBackdrop(
             renderingMode: renderingMode,
             sharesWindowBackdrop: sharesWindowBackdrop
         )
