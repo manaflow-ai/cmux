@@ -11112,7 +11112,12 @@ class TerminalController {
         var newTabId: UUID?
         let focus = socketCommandAllowsInAppFocusMutations()
         v2MainSync {
-            let workspace = tabManager.addWorkspace(title: title, select: focus, eagerLoadTerminal: !focus)
+            let workspace = tabManager.addWorkspace(
+                title: title,
+                select: focus,
+                eagerLoadTerminal: !focus,
+                allowTextBoxFocusDefault: false
+            )
             newTabId = workspace.id
         }
         return "OK \(newTabId?.uuidString ?? "unknown")"
@@ -11174,7 +11179,8 @@ class TerminalController {
             switch tab.newTerminalSplitOutcome(
                 from: targetSurface,
                 orientation: direction.orientation,
-                insertFirst: direction.insertFirst
+                insertFirst: direction.insertFirst,
+                allowTextBoxFocusDefault: false
             ) {
             case .created(let panel):
                 result = "OK \(panel.id.uuidString)"
@@ -13280,7 +13286,8 @@ class TerminalController {
                 workspaceEnvironment: workspaceEnv,
                 select: shouldFocus,
                 eagerLoadTerminal: shouldEagerLoadTerminal,
-                autoRefreshMetadata: shouldAutoRefreshMetadata
+                autoRefreshMetadata: shouldAutoRefreshMetadata,
+                allowTextBoxFocusDefault: false
             )
             ws.setCustomDescription(description)
             if let layoutNode {
@@ -13348,7 +13355,9 @@ class TerminalController {
             inPane: paneId,
             focus: false,
             autoRefreshMetadata: false,
-            preserveFocusWhenUnfocused: false, inheritWorkingDirectoryFallback: true
+            preserveFocusWhenUnfocused: false,
+            inheritWorkingDirectoryFallback: true,
+            allowTextBoxFocusDefault: false
         ) else {
             return .err(code: "internal_error", message: "Failed to create terminal", data: nil)
         }

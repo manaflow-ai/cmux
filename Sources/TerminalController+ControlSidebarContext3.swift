@@ -209,7 +209,8 @@ extension TerminalController {
             from: focusedPanelId,
             orientation: orientation,
             insertFirst: insertFirst,
-            focus: focus
+            focus: focus,
+            allowTextBoxFocusDefault: false
         ) {
         case .created(let panel):
             return .created(panel.id)
@@ -263,7 +264,8 @@ extension TerminalController {
         switch tab.newTerminalSurfaceOutcome(
             inPane: targetPaneId,
             focus: focus,
-            inheritWorkingDirectoryFallback: true
+            inheritWorkingDirectoryFallback: true,
+            allowTextBoxFocusDefault: false
         ) {
         case .created(let panel):
             return .created(panel.id)

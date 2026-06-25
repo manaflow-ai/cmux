@@ -107,6 +107,10 @@ struct TextBoxSubmitActionTests {
             action.command(forPrompt: "ship user's fix"),
             "router --prompt 'ship user'\\''s fix'"
         )
+        XCTAssertEqual(
+            action.command(forPrompt: "line one\nline\t'two'"),
+            "router --prompt 'line one\nline\t'\\''two'\\'''"
+        )
     }
 
 

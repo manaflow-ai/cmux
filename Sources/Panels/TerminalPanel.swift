@@ -234,9 +234,10 @@ final class TerminalPanel: Panel, ObservableObject {
     func preferTextBoxInputWhenActivated() {
         isTextBoxActive = true
         textBoxInputFocusIntent = .textBox
-        shouldFocusTextBoxWhenAvailable = false
+        shouldFocusTextBoxWhenAvailable = true
         shouldOpenTextBoxFilePickerWhenAvailable = false
         shouldHideTextBoxOnNextEscape = false
+        focusTextBoxIfNeeded()
     }
 
     func showTextBoxInputWhenAvailable() {

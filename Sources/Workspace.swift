@@ -2985,6 +2985,7 @@ final class Workspace: Identifiable, ObservableObject {
         initialTerminalInput: String? = nil,
         initialTerminalEnvironment: [String: String] = [:],
         workspaceEnvironment: [String: String] = [:],
+        allowTextBoxFocusDefault: Bool = true,
         closeTabWarningDefaults: UserDefaults = .standard,
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
@@ -3101,7 +3102,10 @@ final class Workspace: Identifiable, ObservableObject {
                     overlaying: initialTerminalEnvironment
                 )
             )
-            configureNewTerminalPanel(terminalPanel)
+            configureNewTerminalPanel(
+                terminalPanel,
+                allowTextBoxFocusDefault: allowTextBoxFocusDefault
+            )
             panels[terminalPanel.id] = terminalPanel
             panelTitles[terminalPanel.id] = terminalPanel.displayTitle
             seedTerminalInheritanceFontPoints(panelId: terminalPanel.id, configTemplate: configTemplate)
@@ -3560,7 +3564,10 @@ final class Workspace: Identifiable, ObservableObject {
         paneTree.surfaceId(forPanelId: panelId)
     }
 
-    private func configureNewTerminalPanel(_ terminalPanel: TerminalPanel) {
+    private func configureNewTerminalPanel(
+        _ terminalPanel: TerminalPanel,
+        allowTextBoxFocusDefault: Bool = true
+    ) {
         // Record the workspace env this freshly-created panel inherited, so a later
         // respawn (which reuses this panel even after a move to another workspace)
         // can drop it and re-apply the current workspace's env instead of leaking
@@ -3568,8 +3575,10 @@ final class Workspace: Identifiable, ObservableObject {
         // uses configureTerminalPanel — so it keeps reflecting the workspace the
         // surface's env was built from until the panel is respawned.
         terminalPanel.seededWorkspaceEnvironment = workspaceEnvironment
-        if TerminalTextBoxInputSettings.focusOnNewTerminals() {
+        if TerminalTextBoxInputSettings.focusOnNewTerminals(), allowTextBoxFocusDefault {
             terminalPanel.preferTextBoxInputWhenActivated()
+        } else if TerminalTextBoxInputSettings.focusOnNewTerminals() {
+            terminalPanel.showTextBoxInputWhenAvailable()
         } else if TerminalTextBoxInputSettings.showOnNewTerminals() {
             terminalPanel.showTextBoxInputWhenAvailable()
         }
@@ -6904,7 +6913,8 @@ final class Workspace: Identifiable, ObservableObject {
         tmuxStartCommand: String? = nil,
         startupEnvironment: [String: String] = [:],
         initialDividerPosition: CGFloat? = nil,
-        remotePTYSessionID: String? = nil
+        remotePTYSessionID: String? = nil,
+        allowTextBoxFocusDefault: Bool = true
     ) -> TerminalPanel? {
         return newTerminalSplitOutcome(
             from: panelId,
@@ -6916,7 +6926,8 @@ final class Workspace: Identifiable, ObservableObject {
             tmuxStartCommand: tmuxStartCommand,
             startupEnvironment: startupEnvironment,
             initialDividerPosition: initialDividerPosition,
-            remotePTYSessionID: remotePTYSessionID
+            remotePTYSessionID: remotePTYSessionID,
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault
         ).panel
     }
 
@@ -6934,7 +6945,8 @@ final class Workspace: Identifiable, ObservableObject {
         tmuxStartCommand: String? = nil,
         startupEnvironment: [String: String] = [:],
         initialDividerPosition: CGFloat? = nil,
-        remotePTYSessionID: String? = nil
+        remotePTYSessionID: String? = nil,
+        allowTextBoxFocusDefault: Bool = true
     ) -> TerminalPanelCreationOutcome {
         // In a remote tmux mirror workspace a split means "split the mirrored
         // tmux pane": route it to the remote and let the resulting
@@ -7052,7 +7064,10 @@ final class Workspace: Identifiable, ObservableObject {
             tmuxStartCommand: tmuxStartCommand,
             additionalEnvironment: effectiveStartupEnvironment
         )
-        configureNewTerminalPanel(newPanel)
+        configureNewTerminalPanel(
+            newPanel,
+            allowTextBoxFocusDefault: focus && allowTextBoxFocusDefault
+        )
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
         let normalizedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
@@ -7169,7 +7184,8 @@ final class Workspace: Identifiable, ObservableObject {
         suppressWorkspaceRemoteStartupCommand: Bool = false,
         restoredSurfaceId: UUID? = nil,
         inheritWorkingDirectoryFallback: Bool = false,
-        workingDirectoryFallbackSourcePanelId: UUID? = nil
+        workingDirectoryFallbackSourcePanelId: UUID? = nil,
+        allowTextBoxFocusDefault: Bool = true
     ) -> TerminalPanel? {
         return newTerminalSurfaceOutcome(
             inPane: paneId,
@@ -7186,7 +7202,8 @@ final class Workspace: Identifiable, ObservableObject {
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
             restoredSurfaceId: restoredSurfaceId,
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
-            workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId
+            workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId,
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault
         ).panel
     }
 
@@ -7208,7 +7225,8 @@ final class Workspace: Identifiable, ObservableObject {
         suppressWorkspaceRemoteStartupCommand: Bool = false,
         restoredSurfaceId: UUID? = nil,
         inheritWorkingDirectoryFallback: Bool = false,
-        workingDirectoryFallbackSourcePanelId: UUID? = nil
+        workingDirectoryFallbackSourcePanelId: UUID? = nil,
+        allowTextBoxFocusDefault: Bool = true
     ) -> TerminalPanelCreationOutcome {
         // In a remote tmux mirror, a new tab means "create a tmux window"; never
         // create a local orphan the mirror can't reconcile. Dead mirrors are
@@ -7233,7 +7251,8 @@ final class Workspace: Identifiable, ObservableObject {
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
             restoredSurfaceId: restoredSurfaceId,
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
-            workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId
+            workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId,
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault
         ) else { return .failed }
         return .created(panel)
     }
@@ -7253,7 +7272,8 @@ final class Workspace: Identifiable, ObservableObject {
         suppressWorkspaceRemoteStartupCommand: Bool,
         restoredSurfaceId: UUID?,
         inheritWorkingDirectoryFallback: Bool,
-        workingDirectoryFallbackSourcePanelId: UUID?
+        workingDirectoryFallbackSourcePanelId: UUID?,
+        allowTextBoxFocusDefault: Bool
     ) -> TerminalPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
@@ -7303,7 +7323,10 @@ final class Workspace: Identifiable, ObservableObject {
             additionalEnvironment: effectiveStartupEnvironment,
             runtimeSpawnPolicy: runtimeSpawnPolicy
         )
-        configureNewTerminalPanel(newPanel)
+        configureNewTerminalPanel(
+            newPanel,
+            allowTextBoxFocusDefault: shouldFocusNewTab && allowTextBoxFocusDefault
+        )
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
         let normalizedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)

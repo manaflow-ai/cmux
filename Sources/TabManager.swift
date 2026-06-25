@@ -953,7 +953,8 @@ class TabManager: ObservableObject {
         initialTerminalCommand: String?,
         initialTerminalInput: String? = nil,
         initialTerminalEnvironment: [String: String],
-        workspaceEnvironment: [String: String] = [:]
+        workspaceEnvironment: [String: String] = [:],
+        allowTextBoxFocusDefault: Bool = true
     ) -> Workspace {
         Workspace(
             title: title,
@@ -965,6 +966,7 @@ class TabManager: ObservableObject {
             initialTerminalInput: initialTerminalInput,
             initialTerminalEnvironment: initialTerminalEnvironment,
             workspaceEnvironment: workspaceEnvironment,
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault,
             closeTabWarningDefaults: closeTabWarningDefaults
         )
     }
@@ -1049,7 +1051,8 @@ class TabManager: ObservableObject {
         placementOverride: WorkspacePlacement? = nil,
         autoWelcomeIfNeeded: Bool = true,
         autoRefreshMetadata: Bool = true,
-        normalizeWorkspaceGroupsAfterInsert: Bool = true
+        normalizeWorkspaceGroupsAfterInsert: Bool = true,
+        allowTextBoxFocusDefault: Bool = true
     ) -> Workspace {
         let sourceWorkspace = selectedWorkspace
         let capturedTabs = tabs
@@ -1107,7 +1110,8 @@ class TabManager: ObservableObject {
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalEnvironment: initialTerminalEnvironment,
-                workspaceEnvironment: workspaceEnvironment
+                workspaceEnvironment: workspaceEnvironment,
+                allowTextBoxFocusDefault: allowTextBoxFocusDefault
             )
             applyCreationChromeInheritance(
                 to: newWorkspace,
