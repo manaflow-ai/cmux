@@ -55,12 +55,15 @@ import Testing
     @Test func parserIgnoresVersionLikeShellBanners() {
         #expect(V.parse("Welcome to Ubuntu 20.04.6 LTS\ntmux 1.8") == V(major: 1, minor: 8, letterRank: 0))
         #expect(V.parse("tmux helper 20.04\ntmux 2.6") == V(major: 2, minor: 6, letterRank: 0))
+        #expect(V.parse("tmux 2.6\ntmux helper 20.04") == V(major: 2, minor: 6, letterRank: 0))
         #expect(V.parse("OpenSSH_9.6p1 LibreSSL 3.3.6") == nil)
     }
 
     @Test func parsesServerReportedVersionFormat() {
         #expect(V.parseServerFormat("3.1c\n") == V(major: 3, minor: 1, letterRank: 3))
         #expect(V.parseServerFormat("Welcome to Ubuntu 20.04.6 LTS\n3.2a\n") == V(major: 3, minor: 2, letterRank: 1))
+        #expect(V.parseServerFormat("3.2a\nhelper 20.04\n") == V(major: 3, minor: 2, letterRank: 1))
+        #expect(V.parseServerFormat("3.2a helper\n") == nil)
         #expect(V.parseServerFormat("Welcome to Ubuntu 20.04.6 LTS\n") == nil)
         #expect(V.parse("3.2a\n") == nil)
     }

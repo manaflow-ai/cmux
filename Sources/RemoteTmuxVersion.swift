@@ -57,7 +57,9 @@ struct RemoteTmuxVersion: Equatable, Comparable, Sendable {
             guard trimmed == "tmux" || trimmed.hasPrefix("tmux ") || trimmed.hasPrefix("tmux\t") else {
                 continue
             }
-            if let version = parseVersionToken(in: String(trimmed.dropFirst(4))) {
+            let suffix = String(trimmed.dropFirst(4)).trimmingCharacters(in: .whitespaces)
+            let versionToken = suffix.split(whereSeparator: \.isWhitespace).first.map(String.init) ?? ""
+            if let version = parseVersionToken(in: versionToken) {
                 return version
             }
         }
@@ -68,8 +70,9 @@ struct RemoteTmuxVersion: Equatable, Comparable, Sendable {
     static func parseServerFormat(_ output: String) -> RemoteTmuxVersion? {
         for line in output.split(whereSeparator: \.isNewline).reversed() {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard trimmed.first?.isNumber == true else { continue }
-            return parseVersionToken(in: trimmed)
+            let parts = trimmed.split(whereSeparator: \.isWhitespace)
+            guard parts.count == 1, parts[0].first?.isNumber == true else { continue }
+            return parseVersionToken(in: String(parts[0]))
         }
         return nil
     }
