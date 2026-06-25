@@ -151,6 +151,9 @@ public protocol ControlDebugContext: AnyObject {
         routing: ControlRoutingSelectors
     ) -> ControlCanvasActionResolution
 
+    /// Opens the debug spinner gallery window for `debug.spinner_gallery.show`.
+    func controlDebugShowSpinnerGallery()
+
     // MARK: - Live app/UI state
 
     /// Inserts text at the key window's first responder for `debug.type`

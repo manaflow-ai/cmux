@@ -577,6 +577,9 @@ struct cmuxApp: App {
                     Button("Feed Preview…") {
                         FeedPreviewWindowController.shared.show()
                     }
+                    Button("Spinner Gallery…") {
+                        SpinnerGalleryDebugWindowController.shared.show()
+                    }
                     Button(
                         String(
                             localized: "debug.menu.feedTextEditorDebug",
@@ -1420,6 +1423,7 @@ struct cmuxApp: App {
         TitlebarLayoutDebugWindowController.shared.show()
         SidebarDebugWindowController.shared.show()
         BackgroundDebugWindowController.shared.show()
+        SpinnerGalleryDebugWindowController.shared.show()
         StartupAppearanceDebugWindowController.shared.show()
         MenuBarExtraDebugWindowController.shared.show()
         PDFPreviewChromeDebugWindowController.shared.show()

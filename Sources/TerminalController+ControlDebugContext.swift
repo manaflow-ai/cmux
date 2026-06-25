@@ -127,6 +127,12 @@ extension TerminalController: ControlDebugContext {
         return .ok(mode: workspace.layoutMode.rawValue)
     }
 
+    // MARK: - debug.spinner_gallery.show
+
+    func controlDebugShowSpinnerGallery() {
+        SpinnerGalleryDebugWindowController.shared.show()
+    }
+
     // MARK: - debug.type
 
     func controlDebugTypeText(_ text: String) -> ControlDebugTypeResolution {
