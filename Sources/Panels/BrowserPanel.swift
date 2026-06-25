@@ -8715,6 +8715,7 @@ func browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
 
 private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     private static let subframeDownloadIntentLifetime: TimeInterval = 10
+    private static let maxSubframeDownloadIntentCount = 64
 
     private var recentSubframeDownloadIntentKeys: [(key: String, recordedAt: TimeInterval)] = []
     var didStartProvisionalNavigation: ((WKWebView) -> Void)?
@@ -9067,7 +9068,14 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             || browserNavigationHasSimpleUserActivation() else { return }
         let now = ProcessInfo.processInfo.systemUptime
         pruneSubframeDownloadIntents(now: now)
-        recentSubframeDownloadIntentKeys.append((Self.downloadIntentKey(for: url), now))
+        let key = Self.downloadIntentKey(for: url)
+        recentSubframeDownloadIntentKeys.removeAll { $0.key == key }
+        recentSubframeDownloadIntentKeys.append((key, now))
+        if recentSubframeDownloadIntentKeys.count > Self.maxSubframeDownloadIntentCount {
+            recentSubframeDownloadIntentKeys.removeFirst(
+                recentSubframeDownloadIntentKeys.count - Self.maxSubframeDownloadIntentCount
+            )
+        }
     }
 
     private func consumeRecentSubframeDownloadIntent(for responseURL: URL?) -> Bool {

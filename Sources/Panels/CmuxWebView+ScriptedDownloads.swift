@@ -19,9 +19,16 @@ extension CmuxWebView {
         const maxPayloadBytes = \(maxScriptedDownloadPayloadBytes);
         const maxDataURLCharacters = \(maxScriptedDownloadDataURLCharacters);
         const trustedActivationWindowMs = 2000;
+        let isMainFrame = false;
         let blobDownloadInFlight = false;
         let lastTrustedActivationMs = 0;
         let lastDownloadPostMs = 0;
+
+        try {
+          isMainFrame = window.top === window;
+        } catch (_) {
+          isMainFrame = false;
+        }
 
         const handler = (() => {
           try {
@@ -139,7 +146,7 @@ extension CmuxWebView {
           return false;
         };
 
-        if (typeof originalCreateObjectURL === "function") {
+        if (isMainFrame && typeof originalCreateObjectURL === "function") {
           URLCtor.createObjectURL = function(object) {
             const url = originalCreateObjectURL.apply(this, arguments);
             try {
@@ -151,7 +158,7 @@ extension CmuxWebView {
           };
         }
 
-        if (typeof originalRevokeObjectURL === "function") {
+        if (isMainFrame && typeof originalRevokeObjectURL === "function") {
           URLCtor.revokeObjectURL = function(url) {
             try {
               objectURLs.delete(String(url));
@@ -222,7 +229,7 @@ extension CmuxWebView {
 
         const anchorPrototype = window.HTMLAnchorElement?.prototype ?? null;
         const originalAnchorClick = anchorPrototype?.click ?? null;
-        if (typeof originalAnchorClick === "function") {
+        if (isMainFrame && typeof originalAnchorClick === "function") {
           anchorPrototype.click = function() {
             if (interceptAnchorDownload(this, null)) return;
             return originalAnchorClick.apply(this, arguments);

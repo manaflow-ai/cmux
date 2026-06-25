@@ -603,6 +603,7 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
 
 private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
     private static let subframeDownloadIntentLifetime: TimeInterval = 10
+    private static let maxSubframeDownloadIntentCount = 64
 
     weak var controller: BrowserPopupWindowController?
     var downloadDelegate: WKDownloadDelegate?
@@ -706,7 +707,14 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
             || browserNavigationHasSimpleUserActivation() else { return }
         let now = ProcessInfo.processInfo.systemUptime
         pruneSubframeDownloadIntents(now: now)
-        recentSubframeDownloadIntentKeys.append((Self.downloadIntentKey(for: url), now))
+        let key = Self.downloadIntentKey(for: url)
+        recentSubframeDownloadIntentKeys.removeAll { $0.key == key }
+        recentSubframeDownloadIntentKeys.append((key, now))
+        if recentSubframeDownloadIntentKeys.count > Self.maxSubframeDownloadIntentCount {
+            recentSubframeDownloadIntentKeys.removeFirst(
+                recentSubframeDownloadIntentKeys.count - Self.maxSubframeDownloadIntentCount
+            )
+        }
     }
 
     private func consumeRecentSubframeDownloadIntent(for responseURL: URL?) -> Bool {
