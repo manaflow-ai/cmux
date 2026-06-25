@@ -171,7 +171,12 @@ extension CMUXCLI {
                 "-c", "default_tools_enabled=false",
                 "-c", "tools={}",
                 "-c", "mcp_servers={}",
-                "-c", "web_search=false",
+                // NOTE: do NOT pass `-c web_search=false`. Current Codex rejects a
+                // bool here ("invalid type: unit variant, expected string only in
+                // web_search") and aborts `codex exec` before it runs, returning
+                // nil — which silently broke all Codex auto-naming. Tools are
+                // already disabled above (default_tools_enabled=false + tools={}),
+                // so web search cannot run regardless.
                 "-c", "approval_policy=never",
                 "-c", "shell_environment_policy.inherit=none",
                 "--skip-git-repo-check",

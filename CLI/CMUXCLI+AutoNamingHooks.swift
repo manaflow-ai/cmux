@@ -225,35 +225,49 @@ extension CMUXCLI {
         telemetry: CLISocketSentryTelemetry,
         env: [String: String]
     ) {
+        // `--app-driven`: the cmux app resolved this rollout itself (lsof'ing the
+        // surface's Codex PID for its open rollout) and invokes naming directly —
+        // no Codex hook. The app vouches for currency, so skip the hook-session
+        // `isCurrent` gate (only the Codex hooks populate it).
+        let appDriven = commandArgs.contains("--app-driven")
         guard let sessionId = optionValue(commandArgs, name: "--session"),
               let workspaceId = optionValue(commandArgs, name: "--workspace"),
               let surfaceId = optionValue(commandArgs, name: "--surface") else {
+            autoNameDebugLog("codex.missing-args")
             return
         }
+        autoNameDebugLog("codex.enter", ["app": "\(appDriven)", "session": String(sessionId.prefix(8)), "ws": workspaceId, "sf": surfaceId])
         guard let probe = try? client.sendV2(
             method: "workspace.set_auto_title",
             params: ["probe": true, "workspace_id": workspaceId]
         ), probe["enabled"] as? Bool == true else {
+            autoNameDebugLog("codex.probe-disabled", ["enabled": "\((try? client.sendV2(method: "workspace.set_auto_title", params: ["probe": true, "workspace_id": workspaceId]))?["enabled"] ?? "nil")"])
             telemetry.breadcrumb("codex-hook.auto-name.disabled")
             return
         }
         guard probe["workspace_user_owned"] as? Bool != true else {
+            autoNameDebugLog("codex.user-owned")
             telemetry.breadcrumb("codex-hook.auto-name.user-owned")
             return
         }
 
         let sessionStore = ClaudeHookSessionStore(processEnv: env)
-        guard (try? sessionStore.isCurrent(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId)) ?? false else {
-            telemetry.breadcrumb("codex-hook.auto-name.stale")
-            return
+        if !appDriven {
+            guard (try? sessionStore.isCurrent(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId)) ?? false else {
+                autoNameDebugLog("codex.stale")
+                telemetry.breadcrumb("codex-hook.auto-name.stale")
+                return
+            }
         }
         let transcriptPath = normalizedHookValue(optionValue(commandArgs, name: "--transcript"))
             ?? findCodexTranscriptPath(sessionId: sessionId, env: env)
         guard let transcriptPath,
               let lines = readRecentTextFileLines(path: transcriptPath, maxBytes: 512 * 1024),
               !lines.isEmpty else {
+            autoNameDebugLog("codex.no-transcript", ["path": transcriptPath ?? "nil"])
             return
         }
+        autoNameDebugLog("codex.reached-pass", ["lines": "\(lines.count)"])
         let resolution = resolvedSummarizerAgent(
             probe: probe, sessionAgent: "codex", env: env, telemetry: telemetry
         )

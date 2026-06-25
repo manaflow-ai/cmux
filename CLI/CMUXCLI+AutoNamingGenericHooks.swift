@@ -221,9 +221,11 @@ extension CMUXCLI {
             engine: engine
         ) else { return }
         guard case .proceed(let baseline) = outcome.decision else {
+            autoNameDebugLog("pass.throttled", ["key": telemetryKey, "decision": "\(outcome.decision)", "lines": "\(lineCount)"])
             telemetry.breadcrumb("\(telemetryKey).throttled")
             return
         }
+        autoNameDebugLog("pass.proceed", ["key": telemetryKey, "lines": "\(lineCount)"])
 
         var confirmedTitle: String?
         defer {
@@ -233,12 +235,17 @@ extension CMUXCLI {
                 baselineLineCount: confirmedTitle != nil ? baseline : nil,
                 now: Date()
             )
+            autoNameDebugLog("pass.finished", ["key": telemetryKey, "title": confirmedTitle ?? "<nil>"])
         }
         guard let rawResponse = rawResponse(engine, outcome) else {
+            autoNameDebugLog("pass.llm-failed", ["key": telemetryKey])
             telemetry.breadcrumb("\(telemetryKey).llm-failed")
             return
         }
-        guard let sanitized = engine.sanitizeResponse(rawResponse, currentTitle: nil) else { return }
+        guard let sanitized = engine.sanitizeResponse(rawResponse, currentTitle: nil) else {
+            autoNameDebugLog("pass.unusable", ["key": telemetryKey, "raw": String(rawResponse.prefix(40))])
+            return
+        }
         confirmedTitle = applyAutoNamingTitle(
             sanitized,
             workspaceId: workspaceId,
