@@ -92,4 +92,14 @@ struct WorkspaceSidebarObservationTests {
             "Agent lifecycle changes must refresh extension sidebar status dots even when no visible metadata text changes"
         )
     }
+
+    @Test
+    func sidebarStatusIndicatorPrioritizesNeedsInputOverRunning() {
+        #expect(
+            AgentHibernationLifecycleState.dominantForStatusIndicator(
+                in: [.running, .needsInput],
+                fallback: .unknown
+            ) == .needsInput
+        )
+    }
 }
