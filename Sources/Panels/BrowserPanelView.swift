@@ -1232,7 +1232,16 @@ struct BrowserPanelView: View {
         .buttonStyle(OmnibarAddressButtonStyle())
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         .popover(isPresented: $isBrowserThemeMenuPresented, arrowEdge: .bottom) {
-            browserThemeModePopover
+            BrowserThemeModePopoverView(
+                items: BrowserThemeMode.allCases.map {
+                    BrowserThemeModeItem(displayName: $0.displayName, mode: $0)
+                },
+                selectedMode: browserThemeMode,
+                onSelect: { mode in
+                    applyBrowserThemeModeSelection(mode)
+                    isBrowserThemeMenuPresented = false
+                }
+            )
         }
         .safeHelp(
             String(
@@ -1276,102 +1285,36 @@ struct BrowserPanelView: View {
     }
 
     private var browserProfilePopover: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(String(localized: "browser.profile.menu.title", defaultValue: "Profiles"))
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
-
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(browserProfileStore.profiles) { profile in
-                    Button {
-                        applyBrowserProfileSelection(profile.id)
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: profile.id == panel.profileID ? "checkmark" : "circle")
-                                .cmuxSymbolRasterSize(10, weight: .semibold)
-                                .opacity(profile.id == panel.profileID ? 1.0 : 0.0)
-                                .frame(width: 12, alignment: .center)
-                            Text(profile.displayName)
-                                .font(.system(size: 12))
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.horizontal, 8)
-                        .frame(height: 24)
-                        .contentShape(Rectangle())
-                        .background(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(profile.id == panel.profileID ? Color.primary.opacity(0.12) : Color.clear)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
-            Divider()
-
-            Button {
+        BrowserProfilePopoverView(
+            title: String(localized: "browser.profile.menu.title", defaultValue: "Profiles"),
+            items: browserProfileStore.profiles.map { profile in
+                BrowserProfileItem(
+                    id: profile.id,
+                    name: profile.displayName,
+                    isSelected: profile.id == panel.profileID
+                )
+            },
+            newProfileTitle: String(localized: "browser.profile.new", defaultValue: "New Profile..."),
+            importTitle: String(localized: "menu.view.importFromBrowser", defaultValue: "Import Browser Data…"),
+            renameTitle: String(localized: "browser.profile.rename", defaultValue: "Rename Current Profile..."),
+            canRename: browserProfileStore.canRenameProfile(id: panel.profileID),
+            horizontalPadding: browserProfilePopoverHorizontalPadding,
+            verticalPadding: browserProfilePopoverVerticalPadding,
+            onSelect: { profileID in
+                applyBrowserProfileSelection(profileID)
+            },
+            onCreate: {
                 isBrowserProfileMenuPresented = false
                 presentCreateBrowserProfilePrompt()
-            } label: {
-                Text(String(localized: "browser.profile.new", defaultValue: "New Profile..."))
-                    .font(.system(size: 12))
-            }
-            .buttonStyle(.plain)
-
-            Button {
+            },
+            onRename: {
+                isBrowserProfileMenuPresented = false
+                presentRenameBrowserProfilePrompt()
+            },
+            onImport: {
                 presentImportDialogFromProfileMenu()
-            } label: {
-                Text(String(localized: "menu.view.importFromBrowser", defaultValue: "Import Browser Data…"))
-                    .font(.system(size: 12))
             }
-            .buttonStyle(.plain)
-
-            if browserProfileStore.canRenameProfile(id: panel.profileID) {
-                Button {
-                    isBrowserProfileMenuPresented = false
-                    presentRenameBrowserProfilePrompt()
-                } label: {
-                    Text(String(localized: "browser.profile.rename", defaultValue: "Rename Current Profile..."))
-                        .font(.system(size: 12))
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, browserProfilePopoverHorizontalPadding)
-        .padding(.vertical, browserProfilePopoverVerticalPadding)
-        .frame(minWidth: 208)
-    }
-
-    private var browserThemeModePopover: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(BrowserThemeMode.allCases) { mode in
-                Button {
-                    applyBrowserThemeModeSelection(mode)
-                    isBrowserThemeMenuPresented = false
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: mode == browserThemeMode ? "checkmark" : "circle")
-                            .cmuxSymbolRasterSize(10, weight: .semibold)
-                            .opacity(mode == browserThemeMode ? 1.0 : 0.0)
-                            .frame(width: 12, alignment: .center)
-                        Text(mode.displayName)
-                            .font(.system(size: 12))
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 8)
-                    .frame(height: 24)
-                    .contentShape(Rectangle())
-                    .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(mode == browserThemeMode ? Color.primary.opacity(0.12) : Color.clear)
-                    )
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("BrowserThemeModeOption\(mode.rawValue.capitalized)")
-            }
-        }
-        .padding(8)
-        .frame(minWidth: 128)
+        )
     }
 
     private var browserThemeModeIconColor: Color {

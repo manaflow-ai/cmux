@@ -482,11 +482,11 @@ actor MobileHostConnection {
         case let .success(request):
             let tracksInteractiveActivity = Self.isInteractiveMobileRequest(request.method)
             if tracksInteractiveActivity {
-                MobileHostService.beginRequest()
+                MobileHostService.shared.requestActivity.beginRequest()
             }
             defer {
                 if tracksInteractiveActivity {
-                    MobileHostService.endRequest()
+                    MobileHostService.shared.requestActivity.endRequest()
                 }
             }
             if let error = await authorizeRequest(request) {

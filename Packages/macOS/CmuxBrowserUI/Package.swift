@@ -18,6 +18,13 @@ let package = Package(
         // CmuxBrowser owns OmnibarSuggestion, the omnibar suggestion domain type
         // the popup renders.
         .package(path: "../CmuxBrowser"),
+        // CmuxSettings owns BrowserThemeMode, the value the theme-mode popover
+        // renders and selects.
+        .package(path: "../CmuxSettings"),
+        // CmuxFoundation owns the shared `Image.cmuxSymbolRasterSize` helper the
+        // theme popover's checkmark glyph rasterizes through (one shared helper
+        // reused across UI packages instead of a per-package copy).
+        .package(path: "../CmuxFoundation"),
         // DEBUG-only suggestion-click telemetry routes through CMUXDebugLog
         // (#if DEBUG only), mirroring CmuxBrowser's ReactGrab logging.
         .package(path: "../CMUXDebugLog"),
@@ -30,6 +37,8 @@ let package = Package(
             name: "CmuxBrowserUI",
             dependencies: [
                 .product(name: "CmuxBrowser", package: "CmuxBrowser"),
+                .product(name: "CmuxSettings", package: "CmuxSettings"),
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
                 .product(name: "CmuxTestSupport", package: "CmuxTestSupport"),
             ],

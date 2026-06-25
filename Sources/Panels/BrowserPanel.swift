@@ -342,10 +342,33 @@ final class BrowserPanel: Panel, ObservableObject {
     private var activeDownloadCount: Int = 0
 
     // Avoid flickering the loading indicator for very fast navigations.
-    private let minLoadingIndicatorDuration: TimeInterval = 0.35
-    private var loadingStartedAt: Date?
-    private var loadingEndWorkItem: DispatchWorkItem?
-    private var loadingGeneration: Int = 0
+    /// Debounces the page-loading indicator so very fast navigations never flash it. Owns the
+    /// timing policy the panel used to inline as `handleWebViewLoadingChanged(_:)` plus its
+    /// `loadingStartedAt` / `loadingEndWorkItem` / `loadingGeneration` / `minLoadingIndicatorDuration`
+    /// state, lifted to `CmuxBrowser/Loading/BrowserLoadingIndicatorDebounceCoordinator.swift`. The
+    /// panel keeps the `@Published isLoading` mirror and every side effect; those flow through the
+    /// injected `onLoadingStarted` / `onLoadingEnded` callbacks, and the coordinator reads the live
+    /// `webView.isLoading` through the `isLoadingProvider` seam (no WebKit/AppKit in the package).
+    /// Timing delta: the legacy `DispatchWorkItem` + `asyncAfter` is now an injected-`Clock`
+    /// cancellable `Task`, cancellation wired to the generation bump.
+    private lazy var loadingIndicatorDebounceCoordinator = BrowserLoadingIndicatorDebounceCoordinator(
+        isLoadingProvider: { [weak self] in self?.webView.isLoading ?? false },
+        onLoadingStarted: { [weak self] in
+            guard let self else { return }
+            self.cancelHiddenWebViewDiscard()
+            // Any new load invalidates older favicon fetches, even for same-URL reloads.
+            self.faviconService.resetForNewLoad()
+            // Clear the previous page's favicon so it never persists across navigations.
+            // The loading spinner covers this gap; didFinish will fetch the new favicon.
+            self.faviconPNGData = nil
+            self.isLoading = true
+        },
+        onLoadingEnded: { [weak self] in
+            guard let self else { return }
+            self.isLoading = false
+            self.scheduleHiddenWebViewDiscardIfNeeded(reason: "load.finished")
+        }
+    )
 
     /// Favicon discovery, fetch, decode, and validation for this panel's tab/sidebar
     /// icon. Owns the in-flight refresh task, refresh generation, and last-fetched
@@ -595,10 +618,8 @@ final class BrowserPanel: Panel, ObservableObject {
         clearBrowserFocusMode(reason: "webViewDiscard")
         invalidateSearchFocusRequests(reason: "webViewDiscard")
         searchState = nil
-        loadingEndWorkItem?.cancel()
-        loadingEndWorkItem = nil
         faviconService.cancel()
-        loadingGeneration &+= 1
+        loadingIndicatorDebounceCoordinator.cancelPendingEnd()
         cancelPendingInteractiveBrowserPrompts(reason: "discardHiddenWebView")
 
         webViewObservers.removeAll()
@@ -2075,9 +2096,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewCancellables.removeAll()
         clearBrowserFocusMode(reason: reason)
         faviconService.cancel()
-        loadingGeneration &+= 1
-        loadingEndWorkItem?.cancel()
-        loadingEndWorkItem = nil
+        loadingIndicatorDebounceCoordinator.cancelPendingEnd()
         isLoading = false
         estimatedProgress = 0
         cancelPendingInteractiveBrowserPrompts(reason: reason)
@@ -2331,46 +2350,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func handleWebViewLoadingChanged(_ newValue: Bool) {
-        if newValue {
-            cancelHiddenWebViewDiscard()
-            // Any new load invalidates older favicon fetches, even for same-URL reloads.
-            faviconService.resetForNewLoad()
-            // Clear the previous page's favicon so it never persists across navigations.
-            // The loading spinner covers this gap; didFinish will fetch the new favicon.
-            faviconPNGData = nil
-            loadingGeneration &+= 1
-            loadingEndWorkItem?.cancel()
-            loadingEndWorkItem = nil
-            loadingStartedAt = Date()
-            isLoading = true
-            return
-        }
-
-        let genAtEnd = loadingGeneration
-        let startedAt = loadingStartedAt ?? Date()
-        let elapsed = Date().timeIntervalSince(startedAt)
-        let remaining = max(0, minLoadingIndicatorDuration - elapsed)
-
-        loadingEndWorkItem?.cancel()
-        loadingEndWorkItem = nil
-
-        if remaining <= 0.0001 {
-            isLoading = false
-            scheduleHiddenWebViewDiscardIfNeeded(reason: "load.finished")
-            return
-        }
-
-        let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            // If loading restarted, ignore this end.
-            guard self.loadingGeneration == genAtEnd else { return }
-            // If WebKit is still loading, ignore.
-            guard !self.webView.isLoading else { return }
-            self.isLoading = false
-            self.scheduleHiddenWebViewDiscardIfNeeded(reason: "load.finished")
-        }
-        loadingEndWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + remaining, execute: work)
+        loadingIndicatorDebounceCoordinator.loadingChanged(newValue)
     }
 
     // MARK: - Navigation
@@ -2735,10 +2715,8 @@ extension BrowserPanel {
         developerToolsCoordinator.resetForWorkspaceContextChange()
         clearWebContentTerminationRecovery()
 
-        loadingEndWorkItem?.cancel()
-        loadingEndWorkItem = nil
         faviconService.resetForNewLoad()
-        loadingGeneration &+= 1
+        loadingIndicatorDebounceCoordinator.cancelPendingEnd()
         activeDownloadCount = 0
         isDownloading = false
         isLoading = false

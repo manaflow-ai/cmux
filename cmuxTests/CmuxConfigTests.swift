@@ -26,7 +26,8 @@ final class CmuxConfigDecodingTests: XCTestCase {
                 CmuxResolvedConfigAction.fromDefinition(
                     id: id,
                     definition: definition,
-                    sourcePath: sourcePath
+                    sourcePath: sourcePath,
+                    strings: .appBundle
                 ).map { (id, $0) }
             }
         )

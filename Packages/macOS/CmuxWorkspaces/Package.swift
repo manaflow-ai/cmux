@@ -23,6 +23,10 @@ let package = Package(
         // WorkspaceGroupNewPlacement (the typed setting value for new
         // in-group workspace placement) is owned by CmuxSettings.
         .package(path: "../CmuxSettings"),
+        // CmuxShortcuts owns the `cmux.json` shortcut grammar
+        // (StoredShortcut.parseConfig / ShortcutStroke.configString) the
+        // CustomLayout/ action-definition wire schema decodes and encodes.
+        .package(path: "../CmuxShortcuts"),
         // Bonsplit drives the Window/ tmux pane-overlay geometry.
         .package(path: "../../../vendor/bonsplit"),
         // CmuxPanes owns the split-tree geometry recursions
@@ -53,6 +57,7 @@ let package = Package(
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CmuxCore", package: "CmuxCore"),
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
+                .product(name: "CmuxShortcuts", package: "CmuxShortcuts"),
                 .product(name: "Bonsplit", package: "bonsplit"),
                 .product(name: "CmuxPanes", package: "CmuxPanes"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),

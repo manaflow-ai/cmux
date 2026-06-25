@@ -561,7 +561,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     let remoteTmuxController = RemoteTmuxController()
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
 
-    private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
+    private static let cachedIsRunningUnderXCTest = ProcessInfo.processInfo.environment.indicatesXCTestHost
     private var isRunningUnderXCTestCached: Bool {
         Self.cachedIsRunningUnderXCTest
     }
@@ -579,22 +579,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     )
 
-    private static func detectRunningUnderXCTest(_ env: [String: String]) -> Bool {
-        if env["XCTestConfigurationFilePath"] != nil { return true }
-        if env["XCTestBundlePath"] != nil { return true }
-        if env["XCTestSessionIdentifier"] != nil { return true }
-        if env["XCInjectBundle"] != nil { return true }
-        if env["XCInjectBundleInto"] != nil { return true }
-        if env["DYLD_INSERT_LIBRARIES"]?.contains("libXCTest") == true { return true }
-        if env.keys.contains(where: { $0.hasPrefix("CMUX_UI_TEST_") }) { return true }
-        return false
-    }
-
     private func isRunningUnderXCTest(_ env: [String: String]) -> Bool {
         // On some macOS/Xcode setups, the app-under-test process doesn't get
-        // `XCTestConfigurationFilePath`. Use a broader set of signals so UI tests
-        // can reliably skip heavyweight startup work and bring up a window.
-        Self.detectRunningUnderXCTest(env)
+        // `XCTestConfigurationFilePath`. The broader set of signals (so UI tests
+        // can reliably skip heavyweight startup work and bring up a window) now
+        // lives in `CmuxFoundation` as `[String: String].indicatesXCTestHost`.
+        // TODO(refactor): retire the sibling consumers
+        // `MobileHostService.isRunningUnderXCTest` and
+        // `CmuxSettings.SocketControlSettings.isRunningUnderXCTest` onto
+        // `[String: String].indicatesXCTestHost` in a follow-on slice
+        // (MobileHostService is concurrently edited by another batch, so it is
+        // out of scope here).
+        env.indicatesXCTestHost
     }
 
     /// An ephemeral, resolved view of one registered main window.
