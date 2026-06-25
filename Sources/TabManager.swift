@@ -829,7 +829,7 @@ class TabManager: ObservableObject {
 
     func findNext() {
         if let panel = selectedTerminalPanel {
-            _ = panel.performBindingAction("search:next")
+            _ = panel.performBindingAction("navigate_search:next")
             return
         }
 
@@ -838,7 +838,7 @@ class TabManager: ObservableObject {
 
     func findPrevious() {
         if let panel = selectedTerminalPanel {
-            _ = panel.performBindingAction("search:previous")
+            _ = panel.performBindingAction("navigate_search:previous")
             return
         }
 
