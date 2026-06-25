@@ -2763,6 +2763,7 @@ struct CMUXCLI {
         var keys = Set(agentDefs.map(\.statusKey))
         keys.formUnion(AgentHibernationLifecycleStatusKeys.allowedStatusKeys)
         keys.insert(claudeCodeStatusKey)
+        keys.insert(AgentHibernationLifecycleStatusKeys.manualKey)
         return keys
     }
 
@@ -3524,6 +3525,14 @@ struct CMUXCLI {
 
         case "agent-hibernation":
             try runAgentHibernation(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
+
+        case "loading":
+            try runWorkspaceLoading(
+                commandArgs: commandArgs,
+                client: client,
+                windowId: windowId,
+                jsonOutput: jsonOutput
+            )
 
         case "auth", "login", "logout":
             let authArgs = command == "auth" ? commandArgs : [command] + commandArgs
@@ -14258,6 +14267,28 @@ struct CMUXCLI {
             Enable or disable Agent Hibernation.
             Configure idle and live-terminal limits from Settings or cmux settings JSON.
             """
+        case "loading":
+            return """
+            Usage: cmux loading <on|off> [--id <name>] [--workspace <id>] [--surface <id>] [--window <id>] [--json]
+
+            Toggle a workspace's loading indicator: the spinner + count shown on
+            the workspace row in the sidebar.
+
+            Defaults to the calling workspace ($CMUX_WORKSPACE_ID); pass
+            --workspace to target another. Each distinct --id is a separate
+            loader, so concurrent loaders stack into the count and `off` clears
+            just that one. Without --id, a single default loader is toggled.
+
+            This drives the same sidebar spinner the coding-agent hooks feed, so
+            it shows even while no agent is running.
+
+            Examples:
+              cmux loading on
+              cmux loading on --id build
+              cmux loading on --id tests
+              cmux loading off --id build
+              cmux loading off
+            """
         case "restore-session":
             return """
             Usage: cmux restore-session
@@ -23889,6 +23920,89 @@ struct CMUXCLI {
             print(jsonString(fallback))
         } else {
             print(response)
+        }
+    }
+
+    /// `cmux loading <on|off> [--id <name>]` — toggle a workspace's loading
+    /// indicator (the sidebar spinner + count). Each distinct `--id` is a
+    /// separate loader, so concurrent loaders stack into the count; `off` clears
+    /// that loader. Drives the same sidebar spinner the agent hooks feed, via a
+    /// reserved `manual` lifecycle key, so it never affects agent
+    /// hibernation/PID/status handling.
+    private func runWorkspaceLoading(
+        commandArgs: [String],
+        client: SocketClient,
+        windowId: String?,
+        jsonOutput: Bool
+    ) throws {
+        let usage = "Usage: cmux loading <on|off> [--id <name>] [--workspace <id>] [--surface <id>] [--window <id>] [--json]"
+        let (idArg, r0) = parseOption(commandArgs, name: "--id")
+        let (wsArg, r1) = parseOption(r0, name: "--workspace")
+        let (sfArg, r2) = parseOption(r1, name: "--surface")
+        let (winArg, r3) = parseOption(r2, name: "--window")
+
+        let positional = r3.filter { $0 != "--" && !$0.hasPrefix("--") }
+        guard let sub = positional.first?.lowercased() else {
+            throw CLIError(message: usage)
+        }
+        let lifecycle: AgentHibernationLifecycleState
+        switch sub {
+        case "on", "start", "show", "running", "busy":
+            lifecycle = .running
+        case "off", "stop", "hide", "done", "idle", "finished":
+            lifecycle = .idle
+        default:
+            throw CLIError(message: "Invalid state '\(sub)'. Expected on or off. \(usage)")
+        }
+
+        // Named loaders live under the reserved manual namespace so several can
+        // stack into the count without colliding with agent keys.
+        let manual = AgentHibernationLifecycleStatusKeys.manualKey
+        let key: String
+        if let rawId = idArg?.trimmingCharacters(in: .whitespacesAndNewlines), !rawId.isEmpty {
+            key = "\(manual):\(rawId)"
+        } else {
+            key = manual
+        }
+
+        let windowRaw = winArg ?? windowId
+        let workspaceArg = wsArg ?? Self.callerWorkspaceForSurfaceHandle(sfArg, windowRaw: windowRaw)
+        let surfaceArg = sfArg ?? (wsArg == nil && windowRaw == nil
+            ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
+            : nil)
+
+        let winId = try normalizeWindowHandle(windowRaw, client: client)
+        guard let wsId = try normalizeWorkspaceHandle(
+            workspaceArg,
+            client: client,
+            windowHandle: winId,
+            allowCurrent: true
+        ) else {
+            throw CLIError(message: "No workspace resolved. Run inside a cmux workspace or pass --workspace <id>.")
+        }
+        let sfId = try normalizeSurfaceHandle(
+            surfaceArg,
+            client: client,
+            workspaceHandle: wsId,
+            windowHandle: winId
+        )
+
+        _ = try sendV1Command(
+            "set_agent_lifecycle \(key) \(lifecycle.rawValue) --tab=\(wsId)\(socketPanelOption(sfId))",
+            client: client
+        )
+
+        if jsonOutput {
+            var payload: [String: Any] = [
+                "ok": true,
+                "loading": lifecycle == .running,
+                "id": idArg ?? "",
+                "workspace_id": wsId,
+            ]
+            if let sfId { payload["surface_id"] = sfId }
+            print(jsonString(payload))
+        } else {
+            print("OK")
         }
     }
 
@@ -34385,6 +34499,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           shortcuts
           disable-browser | enable-browser | browser-status
           agent-hibernation <on|off>
+          loading <on|off> [--id <name>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
           restore-session
           open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
           diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--unstaged|--staged|--branch|--last-turn] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>]

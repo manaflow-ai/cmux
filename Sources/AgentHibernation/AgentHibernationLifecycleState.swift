@@ -46,6 +46,19 @@ enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseI
 }
 
 enum AgentHibernationLifecycleStatusKeys {
+    /// Reserved key namespace for manual/CLI-driven loading state (the
+    /// `cmux loading` command). The bare key is `manual`; named loaders use
+    /// `manual:<id>` so several can stack into the sidebar count. These keys are
+    /// intentionally NOT part of `allowedStatusKeys`, so they only drive the
+    /// sidebar activity spinner and never participate in structured agent-hook
+    /// hibernation/PID/status handling, which keys off that set.
+    static let manualKey = "manual"
+
+    /// Whether `key` is the manual loading key or a `manual:<id>` named loader.
+    static func isManualKey(_ key: String) -> Bool {
+        key == manualKey || key.hasPrefix("\(manualKey):")
+    }
+
     static let allowedStatusKeys: Set<String> = [
         "amp",
         "antigravity",
@@ -66,6 +79,6 @@ enum AgentHibernationLifecycleStatusKeys {
     ]
 
     static func isAllowed(_ key: String) -> Bool {
-        allowedStatusKeys.contains(key)
+        isManualKey(key) || allowedStatusKeys.contains(key)
     }
 }
