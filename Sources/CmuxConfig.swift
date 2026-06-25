@@ -430,6 +430,10 @@ final class CmuxConfigStore {
     private var resolvedNewWorkspaceActionCache: CmuxResolvedConfigAction?
     @ObservationIgnored
     private var parsedConfigCache: [String: ParsedConfigCacheEntry] = [:]
+    /// Formats `cmux.json` schema-decoding failures into `CmuxConfigIssue`
+    /// diagnostics (lifted out of this store into `CmuxFoundation`).
+    @ObservationIgnored
+    private let schemaErrorFormatter = CmuxConfigSchemaErrorFormatter()
     @ObservationIgnored
     private var lifetimeCancellables = Set<AnyCancellable>()
     @ObservationIgnored
@@ -477,17 +481,11 @@ final class CmuxConfigStore {
     private static let maxReattachAttempts = 5
     private static let reattachDelay: TimeInterval = 0.5
 
-    private static func searchDirectoryForLocalConfigPath(_ path: String) -> String {
-        let configDirectory = (path as NSString).deletingLastPathComponent
-        if (configDirectory as NSString).lastPathComponent == ".cmux" {
-            return (configDirectory as NSString).deletingLastPathComponent
-        }
-        return configDirectory
-    }
-
-    private static func canonicalPath(_ path: String) -> String {
-        URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
-    }
+    /// Pure path discovery + canonicalization for the project-local `cmux.json`,
+    /// extracted to ``CmuxLocalConfigPathResolver`` in CmuxFoundation. The store
+    /// owns one instance and forwards through it so call sites stay byte-identical.
+    @ObservationIgnored
+    private let localConfigPathResolver = CmuxLocalConfigPathResolver()
 
     init(
         globalConfigPath: String = CmuxConfigStore.defaultGlobalConfigPath(),
@@ -497,7 +495,7 @@ final class CmuxConfigStore {
         self.globalConfigPath = globalConfigPath
         self.localConfigPath = localConfigPath
         self.fileWatchingEnabled = startFileWatchers
-        self.localConfigSearchDirectory = localConfigPath.map(Self.searchDirectoryForLocalConfigPath(_:))
+        self.localConfigSearchDirectory = localConfigPath.map(localConfigPathResolver.searchDirectory(forLocalConfigPath:))
         NotificationCenter.default.publisher(for: CmuxActionTrust.didChangeNotification)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
@@ -621,52 +619,11 @@ final class CmuxConfigStore {
     }
 
     private func resolvedLocalConfigPath(startingFrom directory: String) -> String {
-        findCmuxConfig(startingFrom: directory)
-            ?? defaultLocalConfigPath(startingFrom: directory)
-    }
-
-    private func defaultLocalConfigPath(startingFrom directory: String) -> String {
-        (((directory as NSString).appendingPathComponent(".cmux") as NSString)
-            .appendingPathComponent("cmux.json"))
-    }
-
-    private func findCmuxConfig(startingFrom directory: String) -> String? {
-        var current = directory
-        let fs = FileManager.default
-        while true {
-            let candidates = [
-                ((current as NSString).appendingPathComponent(".cmux") as NSString)
-                    .appendingPathComponent("cmux.json"),
-                (current as NSString).appendingPathComponent("cmux.json")
-            ]
-            for candidate in candidates where fs.fileExists(atPath: candidate) {
-                return candidate
-            }
-            let parent = (current as NSString).deletingLastPathComponent
-            if parent == current { break }
-            current = parent
-        }
-        return nil
+        localConfigPathResolver.resolvedLocalConfigPath(startingFrom: directory)
     }
 
     private func findCmuxConfigHierarchy(startingFrom directory: String) -> [String] {
-        var current = directory
-        let fs = FileManager.default
-        var paths: [String] = []
-        while true {
-            let candidates = [
-                ((current as NSString).appendingPathComponent(".cmux") as NSString)
-                    .appendingPathComponent("cmux.json"),
-                (current as NSString).appendingPathComponent("cmux.json")
-            ]
-            if let candidate = candidates.first(where: { fs.fileExists(atPath: $0) }) {
-                paths.append(candidate)
-            }
-            let parent = (current as NSString).deletingLastPathComponent
-            if parent == current { break }
-            current = parent
-        }
-        return paths.reversed()
+        localConfigPathResolver.findCmuxConfigHierarchy(startingFrom: directory)
     }
 
     func loadAll() {
@@ -905,8 +862,8 @@ final class CmuxConfigStore {
         sourcePath: String
     ) -> [CmuxResolvedNotificationHook] {
         let cwd = CmuxConfigImagePath(configSourcePath: sourcePath).projectRoot
-        let canonicalSourcePath = Self.canonicalPath(sourcePath)
-        let canonicalGlobalConfigPath = Self.canonicalPath(globalConfigPath)
+        let canonicalSourcePath = localConfigPathResolver.canonicalPath(sourcePath)
+        let canonicalGlobalConfigPath = localConfigPathResolver.canonicalPath(globalConfigPath)
         let isGlobalHook = canonicalSourcePath == canonicalGlobalConfigPath
         return definitions.compactMap { definition in
             guard definition.enabled else { return nil }
@@ -921,7 +878,7 @@ final class CmuxConfigStore {
                     target: "notificationPolicy",
                     workspaceCommand: nil,
                     configPath: canonicalSourcePath,
-                    projectRoot: Self.canonicalPath(cwd),
+                    projectRoot: localConfigPathResolver.canonicalPath(cwd),
                     iconFingerprint: nil
                 )
             }
@@ -948,22 +905,6 @@ final class CmuxConfigStore {
         fallback: [String: ActionEntry]
     ) -> [String: ActionEntry] {
         fallback.merging(primary) { _, primary in primary }
-    }
-
-    private func sanitizeConfigText(_ text: String) -> String {
-        let dangerous: Set<Unicode.Scalar> = [
-            "\u{200B}", "\u{200C}", "\u{200D}", "\u{200E}", "\u{200F}",
-            "\u{202A}", "\u{202B}", "\u{202C}", "\u{202D}", "\u{202E}",
-            "\u{2066}", "\u{2067}", "\u{2068}", "\u{2069}",
-            "\u{FEFF}",
-        ]
-        let filtered = String(text.unicodeScalars.filter { !dangerous.contains($0) })
-        return filtered.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func sanitizeConfigText(_ text: String, fallback: String) -> String {
-        let sanitized = sanitizeConfigText(text)
-        return sanitized.isEmpty ? fallback : sanitized
     }
 
     private func resolvedActionRegistry(
@@ -1007,9 +948,9 @@ final class CmuxConfigStore {
                 id: command.id,
                 title: String(
                     localized: "command.cmuxConfig.customTitle",
-                    defaultValue: "Custom: \(sanitizeConfigText(command.name))"
+                    defaultValue: "Custom: \(command.name.sanitizedCmuxConfigText)"
                 ),
-                subtitle: command.description.map { sanitizeConfigText($0) }
+                subtitle: command.description.map { $0.sanitizedCmuxConfigText }
                     ?? String(localized: "command.cmuxConfig.subtitle", defaultValue: "cmux.json"),
                 keywords: command.keywords ?? [],
                 palette: true,
@@ -1375,8 +1316,8 @@ final class CmuxConfigStore {
             originalKey: trimmed,
             normalizedKey: normalizedKey,
             isGlob: isGlob,
-            color: entry.color.map(sanitizeConfigText),
-            iconSymbol: entry.icon.map(sanitizeConfigText),
+            color: entry.color.map { $0.sanitizedCmuxConfigText },
+            iconSymbol: entry.icon.map { $0.sanitizedCmuxConfigText },
             contextMenuItems: menuResolution.items,
             newWorkspacePlacement: WorkspaceGroupNewPlacement(rawString: entry.newWorkspacePlacement)
         )
@@ -1439,10 +1380,10 @@ final class CmuxConfigStore {
                     .action(
                         CmuxResolvedConfigMenuAction(
                             id: "\(settingName).\(index).\(action.id)",
-                            title: sanitizeConfigText(item.title ?? action.title, fallback: action.id),
+                            title: (item.title ?? action.title).sanitizedCmuxConfigText(fallback: action.id),
                             icon: item.icon ?? action.icon,
                             iconSourcePath: item.icon == nil ? action.iconSourcePath : settingSourcePath,
-                            tooltip: (item.tooltip ?? action.tooltip).map(sanitizeConfigText),
+                            tooltip: (item.tooltip ?? action.tooltip).map { $0.sanitizedCmuxConfigText },
                             action: action
                         )
                     )
@@ -1557,7 +1498,7 @@ final class CmuxConfigStore {
 
         guard let data = fileManager.contents(atPath: path),
               !data.isEmpty else {
-            let issue = schemaIssue(path: path, message: "cmux.json is empty")
+            let issue = schemaErrorFormatter.schemaIssue(path: path, message: "cmux.json is empty")
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
@@ -1571,7 +1512,7 @@ final class CmuxConfigStore {
         do {
             sanitized = try JSONCParser.preprocess(data: data)
         } catch {
-            let issue = schemaIssue(path: path, message: "JSONC preprocessing failed: \(schemaErrorMessage(error))")
+            let issue = schemaErrorFormatter.schemaIssue(path: path, message: "JSONC preprocessing failed: \(schemaErrorFormatter.schemaErrorMessage(error))")
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
@@ -1603,7 +1544,7 @@ final class CmuxConfigStore {
             )
             return ParsedConfigResult(config: config, issue: nil)
         } catch {
-            let issue = schemaIssue(path: path, message: schemaErrorMessage(error))
+            let issue = schemaErrorFormatter.schemaIssue(path: path, message: schemaErrorFormatter.schemaErrorMessage(error))
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
@@ -1614,44 +1555,6 @@ final class CmuxConfigStore {
             NSLog("[CmuxConfig] parse error at %@: %@", path, String(describing: error))
             return ParsedConfigResult(config: nil, issue: issue)
         }
-    }
-
-    private func schemaIssue(path: String, message: String) -> CmuxConfigIssue {
-        CmuxConfigIssue(
-            kind: .schemaError,
-            settingName: (path as NSString).lastPathComponent,
-            sourcePath: path,
-            message: message
-        )
-    }
-
-    private func schemaErrorMessage(_ error: Error) -> String {
-        switch error {
-        case DecodingError.typeMismatch(_, let context):
-            return schemaErrorMessage(context)
-        case DecodingError.valueNotFound(_, let context):
-            return schemaErrorMessage(context)
-        case DecodingError.keyNotFound(let key, let context):
-            let path = schemaCodingPath(context.codingPath + [key])
-            let detail = sanitizeConfigText(context.debugDescription)
-            return "\(path): \(detail)"
-        case DecodingError.dataCorrupted(let context):
-            return schemaErrorMessage(context)
-        default:
-            let message = sanitizeConfigText(error.localizedDescription)
-            return message.isEmpty ? String(describing: error) : message
-        }
-    }
-
-    private func schemaErrorMessage(_ context: DecodingError.Context) -> String {
-        let path = schemaCodingPath(context.codingPath)
-        let detail = sanitizeConfigText(context.debugDescription)
-        return detail.isEmpty ? path : "\(path): \(detail)"
-    }
-
-    private func schemaCodingPath(_ codingPath: [CodingKey]) -> String {
-        let path = codingPath.map(\.stringValue).filter { !$0.isEmpty }.joined(separator: ".")
-        return path.isEmpty ? "root" : path
     }
 
     // MARK: - File watching (local)
