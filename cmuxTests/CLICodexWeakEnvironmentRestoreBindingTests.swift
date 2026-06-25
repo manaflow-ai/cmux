@@ -87,27 +87,23 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .appendingPathComponent("cmux-codex-weak-env-preserve-\(UUID().uuidString)", isDirectory: true)
         let repo = root.appendingPathComponent("cmuxterm-hq", isDirectory: true)
         let worktree = repo.appendingPathComponent("worktrees/task-shift-tab-submit-actions", isDirectory: true)
+        let transcript = root.appendingPathComponent("codex-transcript.jsonl", isDirectory: false)
         let workspaceId = "11111111-1111-1111-1111-111111111111"
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "codex-durable-mapped-session"
         let ttyName = "ttys306"
 
         try FileManager.default.createDirectory(at: worktree, withIntermediateDirectories: true)
+        try #"{"type":"event_msg","payload":{"type":"task_complete"}}"#
+            .write(to: transcript, atomically: true, encoding: .utf8)
         try writeCodexHookStore(
             root: root,
             sessionId: sessionId,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             cwd: repo.path,
-            launchCommand: [
-                "launcher": "codex",
-                "executablePath": "/usr/local/bin/codex",
-                "arguments": ["/usr/local/bin/codex", "--yolo"],
-                "workingDirectory": repo.path,
-                "environment": ["CODEX_HOME": root.appendingPathComponent(".codex-account/main").path],
-                "capturedAt": Date().timeIntervalSince1970,
-                "source": "environment",
-            ]
+            transcriptPath: transcript.path,
+            launchCommand: nil
         )
         defer {
             Darwin.close(listenerFD)
@@ -181,7 +177,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let resume = try XCTUnwrap(resumeRequests.last, "expected durable mapped resume binding, saw \(commands)")
         XCTAssertEqual(resume["checkpoint_id"] as? String, sessionId)
         XCTAssertEqual(resume["cwd"] as? String, repo.path)
-        XCTAssertTrue((resume["command"] as? String)?.contains("/usr/local/bin/codex") == true)
+        XCTAssertTrue((resume["command"] as? String)?.contains("codex") == true)
     }
 
     func testCodexPlainHookWithoutLaunchCapturePublishesDefaultResumeBinding() throws {
@@ -274,20 +270,23 @@ extension CLINotifyProcessIntegrationRegressionTests {
         workspaceId: String,
         surfaceId: String,
         cwd: String,
-        launchCommand: [String: Any]
+        transcriptPath: String? = nil,
+        launchCommand: [String: Any]?
     ) throws {
+        var session: [String: Any] = [
+            "sessionId": sessionId,
+            "workspaceId": workspaceId,
+            "surfaceId": surfaceId,
+            "cwd": cwd,
+            "startedAt": Date().timeIntervalSince1970,
+            "updatedAt": Date().timeIntervalSince1970,
+        ]
+        if let transcriptPath { session["transcriptPath"] = transcriptPath }
+        if let launchCommand { session["launchCommand"] = launchCommand }
         let store: [String: Any] = [
             "version": 1,
             "sessions": [
-                sessionId: [
-                    "sessionId": sessionId,
-                    "workspaceId": workspaceId,
-                    "surfaceId": surfaceId,
-                    "cwd": cwd,
-                    "startedAt": Date().timeIntervalSince1970,
-                    "updatedAt": Date().timeIntervalSince1970,
-                    "launchCommand": launchCommand,
-                ],
+                sessionId: session,
             ],
         ]
         let data = try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])

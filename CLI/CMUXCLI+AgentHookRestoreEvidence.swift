@@ -23,7 +23,7 @@ extension CMUXCLI {
     func preferredAgentHookResumeLaunchCommand(
         kind: String,
         current: AgentHookLaunchCommandRecord?,
-        mapped: AgentHookLaunchCommandRecord?
+        mapped: ClaudeHookSessionRecord?
     ) -> AgentHookLaunchCommandRecord? {
         if normalizedHookValue(current?.source)?.lowercased() == "rejected" {
             return current
@@ -31,10 +31,32 @@ extension CMUXCLI {
         if let current, agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: current) {
             return current
         }
-        if let mapped, agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: mapped) {
-            return mapped
+        if let launchCommand = mapped?.launchCommand,
+           agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand) {
+            return launchCommand
         }
-        return current ?? mapped
+        if agentHookMappedSessionHasDurableTargetEvidence(kind: kind, mapped: mapped) {
+            return nil
+        }
+        return current ?? mapped?.launchCommand
+    }
+
+    func preferredAgentHookResumeWorkingDirectory(
+        kind: String,
+        current: AgentHookLaunchCommandRecord?,
+        currentCwd: String?,
+        mapped: ClaudeHookSessionRecord?
+    ) -> String? {
+        if normalizedHookValue(current?.source)?.lowercased() == "rejected" {
+            return currentCwd ?? mapped?.cwd
+        }
+        if let current, agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: current) {
+            return currentCwd ?? mapped?.cwd
+        }
+        if agentHookMappedSessionHasDurableTargetEvidence(kind: kind, mapped: mapped) {
+            return mapped?.cwd ?? currentCwd
+        }
+        return currentCwd ?? mapped?.cwd
     }
 
     func agentHookMappedSessionHasDurableTargetEvidence(
