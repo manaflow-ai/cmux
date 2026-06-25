@@ -8,6 +8,16 @@ import UIKit
 
 private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.surface")
 
+public enum GhosttySurfaceScrollbackAuthority: Sendable {
+    /// The mounted Ghostty surface owns its own scrollback and may mutate it
+    /// directly for local-only previews or harnesses.
+    case localMirror
+    /// The mounted Ghostty surface is a renderer for a remote authoritative
+    /// terminal. Scroll gestures are intents only; render-grid replay supplies
+    /// the visible scrollback state.
+    case remoteReplay
+}
+
 // lint:allow namespace-enum — file-local DEBUG input-trace logger on the off-limits typing-latency render path; type reshape deferred to the GhosttySurfaceView UI-god-object split wave.
 enum TerminalInputDebugLog {
     private static let isEnabled = ProcessInfo.processInfo.environment["CMUX_INPUT_DEBUG"] == "1"
@@ -655,7 +665,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var scrollMechanicsIsRecentering = false
     private var lastScrollMechanicsOffsetY: CGFloat?
     private var lastScrollMechanicsTouchPoint: CGPoint = .zero
-    private var localScrollbackSuppressedUntil: CFTimeInterval = 0
+    public var scrollbackAuthority: GhosttySurfaceScrollbackAuthority = .localMirror
     private lazy var scrollMechanicsView: UIScrollView = {
         let view = UIScrollView()
         view.backgroundColor = .clear
@@ -813,10 +823,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// adding the old ~0.5s tail before the Mac reflows and re-sends. ~0.07s at
     /// 120Hz / 0.13s at 60Hz.
     private static let viewportReportSettleThreshold = 8
-    /// During geometry/zoom churn, the local iOS mirror and Mac surface can
-    /// briefly disagree about row count and scrollback coordinates. In that
-    /// window, let the Mac replay be the only scrollback authority.
-    private static let localScrollbackSuppressionDuration: CFTimeInterval = 0.75
     private static let snapshotFallbackZPosition: CGFloat = 900
     private static let disablesSnapshotFallback = ProcessInfo.processInfo.environment["CMUX_DISABLE_SNAPSHOT_FALLBACK"] == "1"
     /// Per-view throttle stamp for snapshot fallback text reads in `processOutput`.
@@ -1881,32 +1887,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let lines = pendingScrollLines
         let cell = pendingScrollCell
         pendingScrollLines = 0
-        if shouldApplyLocalScrollbackScroll {
+        switch scrollbackAuthority {
+        case .localMirror:
             applyLocalScrollbackScroll(lines: lines, col: cell.col, row: cell.row)
-        } else {
+        case .remoteReplay:
             MobileDebugLog.anchormux(
-                "scroll.local.skip lines=\(String(format: "%.2f", lines)) "
-                + "geom=\(geometrySyncInFlight || needsGeometrySync) "
-                + "zoom=\(zoomSettleFrames != nil || pendingFontSize != nil) "
-                + "viewport=\(pendingViewportReport != nil)"
+                "scroll.remote.intent lines=\(String(format: "%.2f", lines))"
             )
         }
         delegate?.ghosttySurfaceView(self, didScrollLines: lines, atCol: cell.col, row: cell.row)
-    }
-
-    private var shouldApplyLocalScrollbackScroll: Bool {
-        let now = CACurrentMediaTime()
-        guard now >= localScrollbackSuppressedUntil else { return false }
-        guard !geometrySyncInFlight, !needsGeometrySync else { return false }
-        guard pendingFontSize == nil, zoomSettleFrames == nil else { return false }
-        guard pendingViewportReport == nil else { return false }
-        return true
-    }
-
-    private func suppressLocalScrollbackScroll(reason: String) {
-        let until = CACurrentMediaTime() + Self.localScrollbackSuppressionDuration
-        localScrollbackSuppressedUntil = max(localScrollbackSuppressedUntil, until)
-        MobileDebugLog.anchormux("scroll.local.suppress reason=\(reason)")
     }
 
     /// A tap both raises the software keyboard (so the user can type) and
@@ -1989,7 +1978,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard surface != nil else { return false }
 
         pendingFontSize = target
-        suppressLocalScrollbackScroll(reason: "zoom_queue")
         MobileDebugLog.anchormux("zoom.queue dir=\(direction) \(base)->\(target) live=\(liveFontSize)")
         scheduleDisplayLinkWork()
         showZoomOverlay()
@@ -2019,7 +2007,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard target != liveFontSize else { return false }
         liveFontSize = target
         MobileDebugLog.anchormux("zoom.apply \(target) eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")")
-        suppressLocalScrollbackScroll(reason: "zoom_apply")
         // Absolute set: the prior `±1` binding action drove libghostty's own
         // font counter independently of our clamp, so a fast burst could push
         // it past `maximumSize` toward the 255pt ceiling and collapse the grid.
@@ -2062,7 +2049,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             MobileTerminalFontPreference.maximumSize
         )
         pendingFontSize = clamped
-        suppressLocalScrollbackScroll(reason: "zoom_absolute")
         MobileDebugLog.anchormux("zoom.absolute target=\(target) clamped=\(clamped) live=\(liveFontSize)")
         scheduleDisplayLinkWork()
     }
@@ -2824,7 +2810,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// must call this instead of `syncSurfaceGeometry` directly so rapid
     /// events coalesce into one apply per frame.
     private func setNeedsGeometrySync(reassertNaturalSize: Bool = true) {
-        suppressLocalScrollbackScroll(reason: "geometry")
         needsGeometrySync = true
         if reassertNaturalSize { pendingGeometryReassert = true }
         needsDraw = true
@@ -2976,7 +2961,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         viewportReportRetries = 0
         if effectiveGrid?.cols == cols && effectiveGrid?.rows == rows { return }
         MobileDebugLog.anchormux("zoom.applyViewSize eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->\(cols)x\(rows)")
-        suppressLocalScrollbackScroll(reason: "effective_grid")
         effectiveGrid = (cols, rows)
         // Mark dirty instead of recomputing synchronously. This breaks the
         // feedback loop (didResize → updateTerminalViewport RPC → applyViewSize
