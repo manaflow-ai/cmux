@@ -5,6 +5,10 @@ public enum SidebarExamples {
     public static let providers: [any CmuxSidebarProvider] = [
         ProjectWorktreeSidebar(),
         AttentionQueueSidebar(),
+        SmartSchedulerSidebar(strategy: .balanced),
+        SmartSchedulerSidebar(strategy: .blockedFirst),
+        SmartSchedulerSidebar(strategy: .smallWins),
+        SmartSchedulerSidebar(strategy: .roundRobin),
         DevServerSidebar(),
         LastPromptSidebar(),
         SuperCompactSidebar(),

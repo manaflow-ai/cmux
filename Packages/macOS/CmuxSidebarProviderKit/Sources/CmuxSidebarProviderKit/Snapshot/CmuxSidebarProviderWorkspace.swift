@@ -24,6 +24,10 @@ public struct CmuxSidebarProviderWorkspace: Identifiable, Codable, Equatable, Se
     public var unreadCount: Int
     /// Latest notification text.
     public var latestNotificationText: String?
+    /// Creation time of the latest notification, if any.
+    public var latestNotificationCreatedAt: Date?
+    /// Whether the latest notification is still unread.
+    public var latestNotificationIsUnread: Bool?
     /// Latest submitted prompt text.
     public var latestSubmittedMessage: String?
     /// Timestamp for the latest submitted prompt.
@@ -50,6 +54,8 @@ public struct CmuxSidebarProviderWorkspace: Identifiable, Codable, Equatable, Se
         remoteConnectionState: String?,
         unreadCount: Int,
         latestNotificationText: String?,
+        latestNotificationCreatedAt: Date? = nil,
+        latestNotificationIsUnread: Bool = false,
         latestSubmittedMessage: String? = nil,
         latestSubmittedAt: Date? = nil,
         listeningPorts: [Int],
@@ -68,6 +74,8 @@ public struct CmuxSidebarProviderWorkspace: Identifiable, Codable, Equatable, Se
         self.remoteConnectionState = remoteConnectionState
         self.unreadCount = unreadCount
         self.latestNotificationText = latestNotificationText
+        self.latestNotificationCreatedAt = latestNotificationCreatedAt
+        self.latestNotificationIsUnread = latestNotificationIsUnread
         self.latestSubmittedMessage = latestSubmittedMessage
         self.latestSubmittedAt = latestSubmittedAt
         self.listeningPorts = listeningPorts

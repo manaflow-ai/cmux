@@ -591,7 +591,8 @@ final class TerminalNotificationStore: ObservableObject {
     /// `unreadCount(forTabId:)` and `latestNotification(forTabId:)` so the
     /// coalesced model is a drop-in source for the sidebar's per-row reads.
     /// Only workspaces with a non-default summary are included; absent entries
-    /// resolve to `(0, nil)` via `SidebarUnreadModel.summary(forWorkspaceId:)`.
+    /// resolve to a zero-count, no-notification summary via
+    /// `SidebarUnreadModel.summary(forWorkspaceId:)`.
     private func buildSidebarUnreadSummaries() -> [UUID: SidebarWorkspaceUnreadSummary] {
         var ids = Set(indexes.unreadCountByTabId.keys)
         ids.formUnion(indexes.latestByTabId.keys)
@@ -606,9 +607,12 @@ final class TerminalNotificationStore: ObservableObject {
                 return trimmed.isEmpty ? nil : trimmed
             }
             if count == 0, latestText == nil { continue }
+            let latestNotification = indexes.latestByTabId[id]
             result[id] = SidebarWorkspaceUnreadSummary(
                 unreadCount: count,
-                latestNotificationText: latestText
+                latestNotificationText: latestText,
+                latestNotificationCreatedAt: latestNotification?.createdAt,
+                latestNotificationIsUnread: latestNotification.map { !$0.isRead } ?? false
             )
         }
         return result
@@ -2147,13 +2151,15 @@ final class TerminalNotificationStore: ObservableObject {
 
 /// Immutable per-workspace unread projection rendered by the sidebar. Equatable
 /// so the coalesced model only republishes when a workspace's badge or
-/// latest-message text actually changes. `latestNotificationText` is the
-/// trimmed body-or-title of the latest notification (read or unread) and is NOT
-/// gated by the `showsSidebarNotificationMessage` setting; the sidebar applies
-/// that gate at its read site.
+/// latest-message metadata actually changes. `latestNotificationText` is the
+/// trimmed body-or-title of the latest notification (read or unread) and is
+/// NOT gated by the `showsSidebarNotificationMessage` setting; the sidebar
+/// applies that gate at its read site.
 struct SidebarWorkspaceUnreadSummary: Equatable {
     var unreadCount: Int
     var latestNotificationText: String?
+    var latestNotificationCreatedAt: Date?
+    var latestNotificationIsUnread: Bool
 }
 
 /// Workspace + surface pair used to mirror the store's per-surface unread set.
@@ -2204,7 +2210,12 @@ final class SidebarUnreadModel: ObservableObject {
     }
 
     func summary(forWorkspaceId id: UUID) -> SidebarWorkspaceUnreadSummary {
-        summaryByWorkspaceId[id] ?? SidebarWorkspaceUnreadSummary(unreadCount: 0, latestNotificationText: nil)
+        summaryByWorkspaceId[id] ?? SidebarWorkspaceUnreadSummary(
+            unreadCount: 0,
+            latestNotificationText: nil,
+            latestNotificationCreatedAt: nil,
+            latestNotificationIsUnread: false
+        )
     }
 
     func unreadCount(forWorkspaceId id: UUID) -> Int {
@@ -2213,6 +2224,14 @@ final class SidebarUnreadModel: ObservableObject {
 
     func latestNotificationText(forWorkspaceId id: UUID) -> String? {
         summary(forWorkspaceId: id).latestNotificationText
+    }
+
+    func latestNotificationCreatedAt(forWorkspaceId id: UUID) -> Date? {
+        summary(forWorkspaceId: id).latestNotificationCreatedAt
+    }
+
+    func latestNotificationIsUnread(forWorkspaceId id: UUID) -> Bool {
+        summary(forWorkspaceId: id).latestNotificationIsUnread
     }
 
     func workspaceIsUnread(forWorkspaceId id: UUID) -> Bool {

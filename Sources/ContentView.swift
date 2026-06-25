@@ -11291,6 +11291,8 @@ struct VerticalTabsSidebar: View {
             remoteConnectionState: workspace.remoteConnectionState.rawValue,
             unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id),
             latestNotificationText: sidebarUnread.latestNotificationText(forWorkspaceId: workspace.id),
+            latestNotificationCreatedAt: sidebarUnread.latestNotificationCreatedAt(forWorkspaceId: workspace.id),
+            latestNotificationIsUnread: sidebarUnread.latestNotificationIsUnread(forWorkspaceId: workspace.id),
             latestSubmittedMessage: workspace.latestSubmittedMessage,
             latestSubmittedAt: workspace.latestSubmittedAt,
             listeningPorts: workspace.listeningPorts,
