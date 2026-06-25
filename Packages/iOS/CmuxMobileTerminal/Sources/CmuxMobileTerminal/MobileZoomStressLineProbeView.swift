@@ -19,7 +19,7 @@ final class MobileZoomStressLineProbeView: UIView {
 
     @available(*, unavailable, message: "Use init(frame:) for the DEBUG stress probe.")
     required init?(coder: NSCoder) {
-        nil
+        return nil
     }
 
     override var accessibilityValue: String? {
