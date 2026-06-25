@@ -38,6 +38,21 @@ enum CrashRecoverySettings {
         boolValue(forKey: resumeAgentsAfterUpdateKey, default: defaultResumeAgentsAfterUpdate, defaults: defaults)
     }
 
+    @MainActor
+    static func shouldDeliverSilentReentry(
+        launchState: CrashRecoveryLaunchState,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        guard injectResumeBreadcrumb(defaults: defaults) else { return false }
+        if launchState.restoreWasIntended {
+            return false
+        }
+        if launchState.priorRunCrashed {
+            return !offerResumeAfterCrash(defaults: defaults)
+        }
+        return false
+    }
+
     static func setOfferResumeAfterCrash(_ enabled: Bool, defaults: UserDefaults = .standard) {
         defaults.set(enabled, forKey: offerResumeAfterCrashKey)
     }

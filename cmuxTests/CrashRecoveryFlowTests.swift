@@ -105,6 +105,38 @@ import Testing
         #expect(!launch.shouldOfferResume(defaults: defaults))
     }
 
+    @Test func crashOfferTakesOwnershipOfBreadcrumbInjection() {
+        let home = makeTempHome()
+        UncleanShutdownSentinel.markRunning(homeDirectory: home, environment: [:])
+        let launch = CrashRecoveryLaunchState()
+        launch.captureAtLaunch(homeDirectory: home, environment: [:])
+
+        let defaults = makeDefaults()
+        CrashRecoverySettings.setInjectResumeBreadcrumb(true, defaults: defaults)
+        CrashRecoverySettings.setOfferResumeAfterCrash(true, defaults: defaults)
+
+        #expect(!CrashRecoverySettings.shouldDeliverSilentReentry(
+            launchState: launch,
+            defaults: defaults
+        ))
+    }
+
+    @Test func crashWithoutOfferCanUseSilentBreadcrumbInjection() {
+        let home = makeTempHome()
+        UncleanShutdownSentinel.markRunning(homeDirectory: home, environment: [:])
+        let launch = CrashRecoveryLaunchState()
+        launch.captureAtLaunch(homeDirectory: home, environment: [:])
+
+        let defaults = makeDefaults()
+        CrashRecoverySettings.setInjectResumeBreadcrumb(true, defaults: defaults)
+        CrashRecoverySettings.setOfferResumeAfterCrash(false, defaults: defaults)
+
+        #expect(CrashRecoverySettings.shouldDeliverSilentReentry(
+            launchState: launch,
+            defaults: defaults
+        ))
+    }
+
     @Test func updateRelaunchRestoresButDoesNotOffer() {
         // Intentional relaunch: forces restore, but is not a crash => no offer.
         let home = makeTempHome()
@@ -125,6 +157,27 @@ import Testing
         // And restore is forced even with launch args.
         #expect(SessionRestorePolicy.shouldAttemptRestore(
             arguments: ["cmux", "/path"], environment: [:], restoreIntended: launch.restoreWasIntended
+        ))
+    }
+
+    @Test func updateRelaunchUsesUpdateResumePathNotSilentReentry() {
+        let home = makeTempHome()
+        UncleanShutdownSentinel.markRunning(homeDirectory: home, environment: [:])
+        CrashRecoveryLaunchState().markIntentionalRelaunch(
+            reason: "sparkle-update",
+            homeDirectory: home,
+            environment: [:]
+        )
+        let launch = CrashRecoveryLaunchState()
+        launch.captureAtLaunch(homeDirectory: home, environment: [:])
+
+        let defaults = makeDefaults()
+        CrashRecoverySettings.setInjectResumeBreadcrumb(true, defaults: defaults)
+        CrashRecoverySettings.setResumeAgentsAfterUpdate(true, defaults: defaults)
+
+        #expect(!CrashRecoverySettings.shouldDeliverSilentReentry(
+            launchState: launch,
+            defaults: defaults
         ))
     }
 

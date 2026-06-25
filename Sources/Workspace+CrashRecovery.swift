@@ -93,8 +93,8 @@ extension Workspace: ResumableWorkspaceSurface {
     ///
     /// cmux already issues the native `claude --resume` during restore (PR #6741
     /// fixes the cwd it `cd`s into). This layers the re-entry message on top,
-    /// gated on a real crash / intentional-update relaunch and the opt-in
-    /// breadcrumb setting.
+    /// gated on a real crash, the opt-in breadcrumb setting, and the absence of
+    /// a launch-level crash offer taking ownership of the injected prompt.
     ///
     /// Per-panel by construction (facts built from the panel's own snapshot, not
     /// the focused-panel accessors), so a multi-window restore recovers each
@@ -105,9 +105,11 @@ extension Workspace: ResumableWorkspaceSurface {
         defaults: UserDefaults = .standard,
         launchState: CrashRecoveryLaunchState?
     ) {
-        guard CrashRecoverySettings.injectResumeBreadcrumb(defaults: defaults) else { return }
         guard let launchState else { return }
-        guard launchState.priorRunCrashed || launchState.restoreWasIntended else { return }
+        guard CrashRecoverySettings.shouldDeliverSilentReentry(
+            launchState: launchState,
+            defaults: defaults
+        ) else { return }
         guard ResumeBreadcrumbBuilder.isSupported(agent.kind) else { return }
 
         let panelId = panel.id
