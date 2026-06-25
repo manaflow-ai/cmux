@@ -267,7 +267,6 @@ final class VSCodeServeWebController {
                     finish(.failed(retryable: true))
                     return
                 }
-                clearOutputHandlers()
                 finish(.launched(process: process, url: url))
             }
         }
