@@ -13,7 +13,11 @@ extension CMUXCLI {
         }
         if normalizedHookValue(launchCommand.source)?.lowercased() == "default" { return true }
         guard !launchCommand.arguments.isEmpty else { return false }
-        switch normalizedHookValue(launchCommand.source)?.lowercased() {
+        let source = normalizedHookValue(launchCommand.source)?.lowercased()
+        if (source == "environment" || source == "process"), codexLaunchEnvironmentIsWeak(launchCommand.environment) {
+            return false
+        }
+        switch source {
         case nil, "environment", "process":
             return true
         default:
@@ -73,11 +77,21 @@ extension CMUXCLI {
         if normalizedHookValue(launchCommand.environment?["CODEX_HOME"]) != nil { return true }
         if normalizedHookValue(launchCommand.source)?.lowercased() == "default" { return true }
         guard !launchCommand.arguments.isEmpty else { return false }
-        switch normalizedHookValue(launchCommand.source)?.lowercased() {
+        let source = normalizedHookValue(launchCommand.source)?.lowercased()
+        if (source == "environment" || source == "process"), codexLaunchEnvironmentIsWeak(launchCommand.environment) {
+            return false
+        }
+        switch source {
         case nil, "environment", "process":
             return true
         default:
             return false
         }
+    }
+
+    private func codexLaunchEnvironmentIsWeak(_ environment: [String: String]?) -> Bool {
+        normalizedHookValue(environment?["CODEX_HOME"]) == nil
+            && (normalizedHookValue(environment?["ANTHROPIC_BASE_URL"]) != nil
+                || normalizedHookValue(environment?["CLAUDE_CONFIG_DIR"]) != nil)
     }
 }
