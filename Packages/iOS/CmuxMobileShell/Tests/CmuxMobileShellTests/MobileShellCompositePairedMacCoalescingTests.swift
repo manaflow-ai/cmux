@@ -472,6 +472,70 @@ import Testing
         #expect(await store.secondaryAggregationCandidateMacIDsForTesting() == ["mac-b"])
     }
 
+    @Test func forgettingMacSuppressesStaleStoreWriteAfterRelaunch() async throws {
+        let suiteName = "forgotten-mac-relaunch-\(UUID().uuidString)"
+        let forgottenStore = UserDefaultsPairedMacForgottenStore(suiteName: suiteName)
+        defer { UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName) }
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "mac-a",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: true
+                    ),
+                    try Self.pairedMac(
+                        id: "mac-b",
+                        displayName: "Laptop Mac",
+                        host: "100.82.214.113",
+                        lastSeenAt: Date(timeIntervalSince1970: 20),
+                        isActive: false
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let firstStore = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            forgottenMacStore: forgottenStore
+        )
+        await firstStore.loadPairedMacs()
+
+        await firstStore.forgetMac(macDeviceID: "mac-a")
+        try await pairedStore.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Desk Mac",
+            routes: [try CmxAttachRoute(
+                id: "stale",
+                kind: .tailscale,
+                endpoint: .hostPort(host: "100.82.214.112", port: 50922)
+            )],
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 30)
+        )
+
+        let relaunchedStore = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            forgottenMacStore: forgottenStore
+        )
+
+        await relaunchedStore.loadPairedMacs()
+
+        #expect(relaunchedStore.pairedMacs.map(\.macDeviceID) == ["mac-b"])
+        #expect(relaunchedStore.displayPairedMacs.map(\.macDeviceID) == ["mac-b"])
+        #expect(await relaunchedStore.secondaryAggregationCandidateMacIDsForTesting() == ["mac-b"])
+    }
+
     @Test func workspaceListReconnectPrefersSelectedUnavailableWorkspaceMac() async throws {
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [

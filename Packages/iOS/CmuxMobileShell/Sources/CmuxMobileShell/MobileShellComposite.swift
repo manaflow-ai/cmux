@@ -562,6 +562,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     let pendingDismissQueue: PendingNotificationDismissQueue
     private let pairingHintDefaults: UserDefaults
     private let multiMacAggregationDefaults: UserDefaults
+    private let forgottenMacStore: any PairedMacForgottenStoring
     let clientID: String
     /// Delivers the email path of Send Feedback (`/api/feedback`). `nil` when the
     /// web API base URL is unavailable; the email path then fails closed and the
@@ -809,6 +810,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pendingDismissQueue: PendingNotificationDismissQueue = PendingNotificationDismissQueue(),
         pairingHintDefaults: UserDefaults = .standard,
         multiMacAggregationDefaults: UserDefaults = .standard,
+        forgottenMacStore: any PairedMacForgottenStoring = InMemoryPairedMacForgottenStore(),
         analytics: any AnalyticsEmitting = NoopAnalytics(),
         diagnosticLog: DiagnosticLog? = nil,
         feedbackEmailSubmitter: (any MobileFeedbackEmailSubmitting)? = nil,
@@ -831,6 +833,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pendingDismissQueue = pendingDismissQueue
         self.pairingHintDefaults = pairingHintDefaults
         self.multiMacAggregationDefaults = multiMacAggregationDefaults
+        self.forgottenMacStore = forgottenMacStore
         self.analytics = analytics
         self.diagnosticLog = diagnosticLog
         self.feedbackEmailSubmitter = feedbackEmailSubmitter
@@ -1589,7 +1592,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             finishStoredMacReconnectAttempt(generation: generation)
             return false
         }
-        let forgottenIDs = forgottenMacDeviceIDs(scope: scope)
+        let forgottenIDs = await forgottenMacDeviceIDs(scope: scope)
         let activeMac = loadedActiveMac.flatMap { forgottenIDs.contains($0.macDeviceID) ? nil : $0 }
         let allMacs = loadedMacs.filter { !forgottenIDs.contains($0.macDeviceID) }
         // Auto-connect target: the explicitly active Mac when it is reachable,
@@ -1713,7 +1716,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // captured account/team scope through every store call so a team
             // switch cannot make this old-team refresh write into the new team.
             guard await self.isScopeCurrent(scope) else { return }
-            guard !self.isForgottenMacDeviceID(macDeviceID, scope: scope) else { return }
+            guard await !self.isForgottenMacDeviceID(macDeviceID, scope: scope) else { return }
             let activeMacID: String?
             do {
                 activeMacID = try await pairedMacStore.activeMac(
@@ -1850,34 +1853,44 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         Self.pairedMacScopeKey(userID: scope.userID, teamID: scope.teamID)
     }
 
-    private func forgottenMacDeviceIDs(scope: MobileShellScopeSnapshot) -> Set<String> {
-        forgottenMacDeviceIDsByScope[pairedMacScopeKey(scope)] ?? []
+    private func forgottenMacDeviceIDs(scope: MobileShellScopeSnapshot) async -> Set<String> {
+        let key = pairedMacScopeKey(scope)
+        if let cached = forgottenMacDeviceIDsByScope[key] { return cached }
+        let loaded = await forgottenMacStore.load(scope: key)
+        forgottenMacDeviceIDsByScope[key] = loaded
+        return loaded
     }
 
     private func visibleStoredPairedMacs(
         from loadedMacs: [MobilePairedMac],
         scope: MobileShellScopeSnapshot
-    ) -> [MobilePairedMac] {
-        let forgottenIDs = forgottenMacDeviceIDs(scope: scope)
+    ) async -> [MobilePairedMac] {
+        let forgottenIDs = await forgottenMacDeviceIDs(scope: scope)
         return loadedMacs.filter { !forgottenIDs.contains($0.macDeviceID) }
     }
 
-    private func isForgottenMacDeviceID(_ macDeviceID: String, scope: MobileShellScopeSnapshot) -> Bool {
-        forgottenMacDeviceIDs(scope: scope).contains(macDeviceID)
+    private func isForgottenMacDeviceID(_ macDeviceID: String, scope: MobileShellScopeSnapshot) async -> Bool {
+        await forgottenMacDeviceIDs(scope: scope).contains(macDeviceID)
     }
 
-    private func rememberForgottenMacDeviceID(_ macDeviceID: String, scope: MobileShellScopeSnapshot) {
+    private func rememberForgottenMacDeviceID(_ macDeviceID: String, scope: MobileShellScopeSnapshot) async {
         guard !macDeviceID.isEmpty else { return }
         let key = pairedMacScopeKey(scope)
-        forgottenMacDeviceIDsByScope[key, default: []].insert(macDeviceID)
+        var ids = await forgottenMacDeviceIDs(scope: scope)
+        ids.insert(macDeviceID)
+        forgottenMacDeviceIDsByScope[key] = ids
+        await forgottenMacStore.save(ids, scope: key)
         registryDevices.removeAll { $0.deviceId == macDeviceID }
     }
 
-    private func clearForgottenMacDeviceID(_ macDeviceID: String, scope: MobileShellScopeSnapshot?) {
+    private func clearForgottenMacDeviceID(_ macDeviceID: String, scope: MobileShellScopeSnapshot?) async {
         guard !macDeviceID.isEmpty, let scope else { return }
         let key = pairedMacScopeKey(scope)
-        forgottenMacDeviceIDsByScope[key]?.remove(macDeviceID)
-        if forgottenMacDeviceIDsByScope[key]?.isEmpty == true {
+        var ids = await forgottenMacDeviceIDs(scope: scope)
+        guard ids.remove(macDeviceID) != nil else { return }
+        forgottenMacDeviceIDsByScope[key] = ids
+        await forgottenMacStore.save(ids, scope: key)
+        if ids.isEmpty {
             forgottenMacDeviceIDsByScope[key] = nil
         }
     }
@@ -1939,7 +1952,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         let connectedID = connectedMacDeviceID
-        let forgottenIDs = forgottenMacDeviceIDs(scope: scope)
+        let forgottenIDs = await forgottenMacDeviceIDs(scope: scope)
         registryDevices = loaded.filter { !forgottenIDs.contains($0.deviceId) }.sorted { lhs, rhs in
             let lhsConnected = lhs.deviceId == connectedID
             let rhsConnected = rhs.deviceId == connectedID
@@ -2148,7 +2161,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let routes = instance.routes else { return }
         guard await isScopeCurrent(scope) else { return }
         let deviceId = instance.deviceId
-        guard !isForgottenMacDeviceID(deviceId, scope: scope) else { return }
+        guard await !isForgottenMacDeviceID(deviceId, scope: scope) else { return }
         let knownMacs = pairedMacsForIdentityMatching
         guard knownMacs.contains(where: { $0.macDeviceID == deviceId }) else {
             return
@@ -2276,7 +2289,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     teamID: scope?.teamID,
                     now: Date()
                 )
-                clearForgottenMacDeviceID(device.deviceId, scope: scope)
+                await clearForgottenMacDeviceID(device.deviceId, scope: scope)
                 hasKnownPairedMac = true
             } catch {
                 mobileShellLog.error(
@@ -2314,7 +2327,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard await isScopeCurrent(scope) else {
             return
         }
-        let visibleLoaded = visibleStoredPairedMacs(from: loaded, scope: scope)
+        let visibleLoaded = await visibleStoredPairedMacs(from: loaded, scope: scope)
         storedPairedMacs = visibleLoaded
         let coalesced = Self.coalescePairedMacsByDialEndpoint(visibleLoaded, supportedKinds: runtime?.supportedRouteKinds ?? [], preferNonLoopback: Self.prefersNonLoopbackRoutes)
         pairedMacAliasIDsByRepresentativeID = coalesced.reduce(into: [String: [String]]()) { result, mac in
@@ -2505,7 +2518,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let macDeviceIDs = Array(Set(pairedMacAliasIDs(for: macDeviceID))).sorted()
         guard !macDeviceIDs.isEmpty else { return }
         for id in macDeviceIDs {
-            rememberForgottenMacDeviceID(id, scope: scope)
+            await rememberForgottenMacDeviceID(id, scope: scope)
         }
         let targetIDSet = Set(macDeviceIDs)
         let isActiveMac = pairedMacsForIdentityMatching.contains {
@@ -2715,7 +2728,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     teamID: scope?.teamID,
                     now: Date()
                 )
-                self.clearForgottenMacDeviceID(ticket.macDeviceID, scope: scope)
+                await self.clearForgottenMacDeviceID(ticket.macDeviceID, scope: scope)
                 // A real, reconnectable Mac is now the active paired Mac: record
                 // the persisted hint so the next launch shows RestoringSessionView
                 // during the reconnect window instead of the empty add-device sheet.
@@ -2866,7 +2879,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     teamID: scope?.teamID,
                     now: Date()
                 )
-                self.clearForgottenMacDeviceID(ticket.macDeviceID, scope: scope)
+                await self.clearForgottenMacDeviceID(ticket.macDeviceID, scope: scope)
             } catch {
                 mobileShellLog.error("paired mac display-name upsert failed: \(String(describing: error), privacy: .public)")
             }
@@ -3256,7 +3269,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard await isAggregationScopeValid(scope) else { return }
         let loadedMacs = (try? await pairedMacStore.loadAll(stackUserID: scope.userID, teamID: scope.teamID)) ?? []
         guard await isAggregationScopeValid(scope) else { return }
-        let visibleLoadedMacs = visibleStoredPairedMacs(from: loadedMacs, scope: scope)
+        let visibleLoadedMacs = await visibleStoredPairedMacs(from: loadedMacs, scope: scope)
         let macs = Self.coalescePairedMacsByDialEndpoint(
             visibleLoadedMacs,
             supportedKinds: runtime?.supportedRouteKinds ?? [],
@@ -3319,7 +3332,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let pairedMacStore,
               let scope = await currentScopeSnapshot() else { return [] }
         let loadedMacs = (try? await pairedMacStore.loadAll(stackUserID: scope.userID, teamID: scope.teamID)) ?? []
-        let visibleLoadedMacs = visibleStoredPairedMacs(from: loadedMacs, scope: scope)
+        let visibleLoadedMacs = await visibleStoredPairedMacs(from: loadedMacs, scope: scope)
         let macs = Self.coalescePairedMacsByDialEndpoint(
             visibleLoadedMacs,
             supportedKinds: runtime?.supportedRouteKinds ?? [],
