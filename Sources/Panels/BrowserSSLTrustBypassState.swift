@@ -165,7 +165,7 @@ final class BrowserSSLTrustBypassState {
         }
     }
 
-    private func canRetainRequestForReplay(_ request: URLRequest) -> Bool {
+    func canRetainRequestForReplay(_ request: URLRequest) -> Bool {
         guard request.httpBodyStream == nil else {
             return false
         }

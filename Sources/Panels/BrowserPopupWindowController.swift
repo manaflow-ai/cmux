@@ -625,6 +625,7 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
     private let sslBypassState = BrowserSSLTrustBypassState()
     private var lastAttemptedURL: URL?
     private var lastAttemptedRequest: URLRequest?
+    private var lastAttemptedRequestWasDiscardedForReplay = false
     private var acceptsSSLTrustBypassMessages = false
     private var activeSSLTrustBypassErrorPageFailedURL: String?
 
@@ -636,8 +637,14 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         sslBypassState.clearPendingBypasses()
         acceptsSSLTrustBypassMessages = false
         activeSSLTrustBypassErrorPageFailedURL = nil
-        lastAttemptedRequest = request
         lastAttemptedURL = request.url
+        if sslBypassState.canRetainRequestForReplay(request) {
+            lastAttemptedRequest = request
+            lastAttemptedRequestWasDiscardedForReplay = false
+        } else {
+            lastAttemptedRequest = nil
+            lastAttemptedRequestWasDiscardedForReplay = true
+        }
     }
 
     private func clearAttemptedRequest(discardPendingBypasses: Bool = false) {
@@ -647,6 +654,7 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
             activeSSLTrustBypassErrorPageFailedURL = nil
         }
         lastAttemptedRequest = nil
+        lastAttemptedRequestWasDiscardedForReplay = false
         lastAttemptedURL = nil
     }
 
@@ -655,6 +663,11 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
            lastAttemptedRequest.url != nil,
            lastAttemptedRequest.browserMatchesFailedNavigationURLString(failedURL) {
             return lastAttemptedRequest
+        }
+        if lastAttemptedRequestWasDiscardedForReplay,
+           let lastAttemptedURL,
+           URLRequest(url: lastAttemptedURL).browserMatchesFailedNavigationURLString(failedURL) {
+            return nil
         }
         guard let url = URL(string: failedURL) else { return nil }
         return URLRequest(url: url)

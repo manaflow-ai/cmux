@@ -22,6 +22,7 @@ import WebKit
     private let basicAuthPromptCoordinator = BrowserHTTPBasicAuthPromptCoordinator()
     private let sslBypassState = BrowserSSLTrustBypassState()
     private var lastAttemptedRequest: URLRequest?
+    private var lastAttemptedRequestWasDiscardedForReplay = false
     private var acceptsSSLTrustBypassMessages = false
     private var activeSSLTrustBypassErrorPageFailedURL: String?
 
@@ -33,8 +34,14 @@ import WebKit
         sslBypassState.clearPendingBypasses()
         acceptsSSLTrustBypassMessages = false
         activeSSLTrustBypassErrorPageFailedURL = nil
-        lastAttemptedRequest = request
         lastAttemptedURL = displayURL ?? request.url
+        if sslBypassState.canRetainRequestForReplay(request) {
+            lastAttemptedRequest = request
+            lastAttemptedRequestWasDiscardedForReplay = false
+        } else {
+            lastAttemptedRequest = nil
+            lastAttemptedRequestWasDiscardedForReplay = true
+        }
     }
 
     func clearAttemptedRequest(discardPendingBypasses: Bool = false) {
@@ -44,6 +51,7 @@ import WebKit
             activeSSLTrustBypassErrorPageFailedURL = nil
         }
         lastAttemptedRequest = nil
+        lastAttemptedRequestWasDiscardedForReplay = false
         lastAttemptedURL = nil
     }
 
@@ -52,6 +60,7 @@ import WebKit
         acceptsSSLTrustBypassMessages = false
         activeSSLTrustBypassErrorPageFailedURL = nil
         lastAttemptedRequest = nil
+        lastAttemptedRequestWasDiscardedForReplay = false
         lastAttemptedURL = nil
     }
 
@@ -162,6 +171,11 @@ import WebKit
            lastAttemptedRequest.url != nil,
            lastAttemptedRequest.browserMatchesFailedNavigationURLString(failedURL) {
             return lastAttemptedRequest
+        }
+        if lastAttemptedRequestWasDiscardedForReplay,
+           let lastAttemptedURL,
+           URLRequest(url: lastAttemptedURL).browserMatchesFailedNavigationURLString(failedURL) {
+            return nil
         }
         guard let url = URL(string: failedURL) else { return nil }
         return URLRequest(url: url)

@@ -83,16 +83,19 @@ struct BrowserSSLTrustBypassStateTests {
         var oversizedRequest = URLRequest(url: url)
         oversizedRequest.httpMethod = "POST"
         oversizedRequest.httpBody = Data("12345".utf8)
+        #expect(!state.canRetainRequestForReplay(oversizedRequest))
         #expect(state.createPendingBypassAction(for: oversizedRequest) == nil)
 
         var streamedRequest = URLRequest(url: url)
         streamedRequest.httpMethod = "POST"
         streamedRequest.httpBodyStream = InputStream(data: Data("1234".utf8))
+        #expect(!state.canRetainRequestForReplay(streamedRequest))
         #expect(state.createPendingBypassAction(for: streamedRequest) == nil)
 
         var retainedRequest = URLRequest(url: url)
         retainedRequest.httpMethod = "POST"
         retainedRequest.httpBody = Data("1234".utf8)
+        #expect(state.canRetainRequestForReplay(retainedRequest))
         #expect(state.createPendingBypassAction(for: retainedRequest) != nil)
     }
 
