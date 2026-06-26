@@ -237,7 +237,7 @@ public struct FeedbackComposerClient {
         to body: inout Data,
         boundary: String
     ) {
-        let sanitizedFileName = attachment.fileName.replacingOccurrences(of: "\"", with: "")
+        let sanitizedFileName = Self.sanitizedMultipartFileName(attachment.fileName)
 
         body.append(Data("--\(boundary)\r\n".utf8))
         body.append(
@@ -248,5 +248,11 @@ public struct FeedbackComposerClient {
         body.append(Data("Content-Type: \(attachment.mimeType)\r\n\r\n".utf8))
         body.append(attachment.data)
         body.append(Data("\r\n".utf8))
+    }
+
+    private static func sanitizedMultipartFileName(_ fileName: String) -> String {
+        String(fileName.unicodeScalars.filter { scalar in
+            scalar != "\"" && CharacterSet.controlCharacters.contains(scalar) == false
+        })
     }
 }
