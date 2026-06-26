@@ -203,15 +203,26 @@ import WebKit
     }
 
     @MainActor
-    @Test func scriptedDownloadInterceptionRunsInSubframes() throws {
+    @Test func scriptedDownloadInterceptionKeepsFullHookOutOfSubframes() throws {
         let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let scripts = webView.configuration.userContentController.userScripts
 
-        let script = try #require(
-            webView.configuration.userContentController.userScripts.first {
-                $0.source.contains("cmuxScriptedDownload")
+        let mainFrameScript = try #require(
+            scripts.first {
+                $0.source.contains("__cmuxScriptedDownloadInstalled")
             }
         )
-        #expect(script.isForMainFrameOnly == false)
+        #expect(mainFrameScript.isForMainFrameOnly)
+
+        let subframeScript = try #require(
+            scripts.first {
+                $0.source.contains("subframeDownloadIntent")
+                    && !$0.source.contains("__cmuxScriptedDownloadInstalled")
+            }
+        )
+        #expect(!subframeScript.isForMainFrameOnly)
+        #expect(!subframeScript.source.contains("createObjectURL"))
+        #expect(!subframeScript.source.contains("revokeObjectURL"))
     }
 
     @Test func rejectsNonSuccessHTTPStatusBeforeSavePanelNaming() throws {

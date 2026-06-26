@@ -114,17 +114,6 @@ extension CmuxWebView {
             });
           } catch (_) {}
         };
-        const postSubframeDownloadIntent = (anchor, event) => {
-          try {
-            if (isMainFrame || !anchor || !event || !event.isTrusted) return;
-            const href = String(anchor.href || anchor.getAttribute("href") || "");
-            const scheme = href.split(":", 1)[0].toLowerCase();
-            if ((scheme === "http" || scheme === "https") && reserveDownloadPost()) {
-              postMessage({ kind: "subframeDownloadIntent", token: bridgeToken, url: href });
-            }
-          } catch (_) {}
-        };
-
         const readBlobForDownload = (blob, suggestedFilename, fallbackURL) => {
           try {
             if (!blob) return false;
@@ -253,7 +242,6 @@ extension CmuxWebView {
 
         document.addEventListener("click", (event) => {
           const anchor = anchorForEvent(event);
-          postSubframeDownloadIntent(anchor, event);
           if (anchor && handledAnchors?.has(anchor)) {
             event.preventDefault();
             event.stopPropagation();
@@ -365,8 +353,11 @@ extension CmuxWebView {
             WKUserScript(
                 source: Self.scriptedDownloadInterceptionBootstrapScriptSource(token: token),
                 injectionTime: .atDocumentStart,
-                forMainFrameOnly: false
+                forMainFrameOnly: true
             )
+        )
+        userContentController.addUserScript(
+            Self.subframeDownloadIntentScript(token: token, handlerName: Self.scriptedDownloadMessageHandlerName)
         )
         userContentController.add(
             Self.sharedScriptedDownloadMessageHandler,
