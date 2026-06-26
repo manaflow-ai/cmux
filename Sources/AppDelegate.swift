@@ -504,6 +504,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     nonisolated(unsafe) static var shared: AppDelegate?
     /// Stateless control-socket syscall layer (CmuxControlSocket); composition-root owned.
     nonisolated let socketTransport = SocketTransport()
+    /// Self-heal decision logic for a refused control-socket listener (#6406).
+    private let socketListenerActivationRecoveryPolicy = SocketListenerActivationRecoveryPolicy()
+    /// Last activation readiness check, used to throttle the ping probe (#6406).
+    private var lastSocketListenerActivationCheck: Date?
     /// Owns the About Titlebar Debug subsystem (CmuxAppKitSupportUI); composition-root
     /// owned and created lazily so the window-decoration seam can point back at `self`.
     lazy var debugWindowsCoordinator = DebugWindowsCoordinator(decorator: self)
@@ -1811,6 +1815,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             PostHogAnalytics.shared.trackActive(reason: "didBecomeActive")
         }
 
+        healControlSocketListenerOnActivationIfNeeded()
+
         guard let notificationStore else { return }
         notificationStore.handleApplicationDidBecomeActive()
         guard let tabManager else { return }
@@ -2945,8 +2951,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let pingResponse = health.isHealthy
                 ? socketTransport.probeCommand("ping", at: expectedPath, timeout: 1.0)
                 : nil
-            let isReady = health.isHealthy && pingResponse == "PONG"
-            if isReady {
+            // Same readiness decision the production activation self-heal uses
+            // (https://github.com/manaflow-ai/cmux/issues/6406).
+            let shouldRebind = self.socketListenerActivationRecoveryPolicy.shouldRebindListener(
+                health: health,
+                pingResponse: pingResponse
+            )
+            if !shouldRebind {
                 self.writeUITestDiagnosticsIfNeeded(stage: "socketSanityReady")
                 return
             }
@@ -3955,6 +3966,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ])
         TerminalController.shared.stop()
         TerminalController.shared.start(tabManager: manager, socketPath: restartPath, accessMode: config.mode)
+    }
+
+    /// Self-heals a refused control-socket listener on reactivation, so a dead
+    /// socket (issue #6406, errno 61) recovers without an app restart. The
+    /// authoritative `ping` probe blocks, so it runs off the main actor and
+    /// only a confirmed-not-serving listener is rebound; the check is throttled.
+    /// See ``SocketListenerActivationRecoveryPolicy`` for the decision logic.
+    private func healControlSocketListenerOnActivationIfNeeded() {
+        guard tabManager != nil,
+              let config = socketListenerConfigurationIfEnabled() else { return }
+
+        let now = Date()
+        let secondsSinceLastCheck = lastSocketListenerActivationCheck.map { now.timeIntervalSince($0) }
+        guard socketListenerActivationRecoveryPolicy.shouldRunReadinessCheck(
+            secondsSinceLastCheck: secondsSinceLastCheck
+        ) else { return }
+        lastSocketListenerActivationCheck = now
+
+        let controller = TerminalController.shared
+        let transport = socketTransport
+        let policy = socketListenerActivationRecoveryPolicy
+        let preferredPath = config.path
+        Task.detached { [weak self] in
+            let path = controller.activeSocketPath(preferredPath: preferredPath)
+            let health = controller.socketListenerHealth(expectedSocketPath: path)
+            let pingResponse = health.isHealthy
+                ? transport.probeCommand("ping", at: path, timeout: 1.0)
+                : nil
+            guard policy.shouldRebindListener(health: health, pingResponse: pingResponse) else { return }
+            await self?.rebindRefusedControlSocketListenerOnActivation(
+                path: path,
+                health: health,
+                pingResponse: pingResponse
+            )
+        }
+    }
+
+    /// Main-actor tail of ``healControlSocketListenerOnActivationIfNeeded()``:
+    /// records the heal breadcrumb and rebinds through the shared restart path.
+    @MainActor
+    private func rebindRefusedControlSocketListenerOnActivation(
+        path: String,
+        health: SocketListenerHealth,
+        pingResponse: String?
+    ) {
+        sentryBreadcrumb("socket.listener.heal", category: "socket", data: [
+            "source": "app.didBecomeActive",
+            "path": path,
+            "failureSignals": health.failureSignals.joined(separator: ","),
+            "pingResponse": pingResponse ?? ""
+        ])
+        restartSocketListenerIfEnabled(source: "app.didBecomeActive")
     }
 
     private func disableSuddenTerminationIfNeeded() {
