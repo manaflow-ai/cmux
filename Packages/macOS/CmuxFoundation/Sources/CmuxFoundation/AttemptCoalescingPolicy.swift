@@ -40,7 +40,22 @@ public struct AttemptCoalescingPolicy: Sendable, Equatable {
     ///     large value (first attempt, or a long idle) disables the throttle.
     /// - Returns: The non-negative delay to wait before the next attempt.
     public func delay(backoff: TimeInterval, sinceLastAttempt: TimeInterval) -> TimeInterval {
-        let throttle = max(0, minInterval - sinceLastAttempt)
-        return max(backoff, throttle)
+        max(backoff, remainingSpacing(sinceLastAttempt: sinceLastAttempt))
+    }
+
+    /// The remaining per-frame spacing before another attempt may run, ignoring
+    /// any caller backoff.
+    ///
+    /// Use this to re-check the floor at *execution* time (independent of the
+    /// stall backoff): an attempt scheduled with a stale `sinceLastAttempt`
+    /// can re-defer by exactly the spacing still owed since the previous attempt
+    /// completed. Because it never includes backoff, repeatedly re-deferring by
+    /// this value converges to zero as wall-clock time advances.
+    ///
+    /// - Parameter sinceLastAttempt: Seconds elapsed since the previous attempt
+    ///   completed.
+    /// - Returns: `max(0, minInterval - sinceLastAttempt)`.
+    public func remainingSpacing(sinceLastAttempt: TimeInterval) -> TimeInterval {
+        max(0, minInterval - sinceLastAttempt)
     }
 }

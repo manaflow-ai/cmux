@@ -10173,7 +10173,10 @@ final class Workspace: Identifiable, ObservableObject {
         guard !layoutFollowUpAttemptScheduled else { return }
 
         layoutFollowUpAttemptScheduled = true
-        let delay = layoutFollowUpAttemptDelay()
+        enqueueLayoutFollowUpAttempt(afterDelay: layoutFollowUpAttemptDelay())
+    }
+
+    private func enqueueLayoutFollowUpAttempt(afterDelay delay: TimeInterval) {
         let version = layoutFollowUpAttemptVersion
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self else { return }
@@ -10181,6 +10184,22 @@ final class Workspace: Identifiable, ObservableObject {
             guard self.portalRenderingEnabled else {
                 self.layoutFollowUpAttemptScheduled = false
                 self.clearLayoutFollowUp()
+                return
+            }
+            // Enforce the per-frame spacing at execution time, not only at
+            // schedule time. A reentrant observed notification can schedule this
+            // closure while an attempt is still running — before
+            // layoutFollowUpLastAttemptUptime is updated — yielding a stale delay
+            // of 0. Re-defer here for whatever spacing remains since the most
+            // recent attempt actually completed, so a slow layout pass cannot be
+            // followed by a back-to-back forced relayout. Only the frame spacing
+            // is re-checked (never the stall backoff), so this converges to zero
+            // as wall-clock time advances. See #6790.
+            let remaining = Self.layoutFollowUpCoalescing.remainingSpacing(
+                sinceLastAttempt: ProcessInfo.processInfo.systemUptime - self.layoutFollowUpLastAttemptUptime
+            )
+            if remaining > 0 {
+                self.enqueueLayoutFollowUpAttempt(afterDelay: remaining)
                 return
             }
             self.layoutFollowUpAttemptScheduled = false

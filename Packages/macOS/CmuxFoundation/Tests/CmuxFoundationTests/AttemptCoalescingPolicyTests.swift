@@ -45,4 +45,13 @@ import Testing
         let delay = policy.delay(backoff: backoff, sinceLastAttempt: 0)
         #expect(abs(delay - backoff) < 1e-9)
     }
+
+    /// `remainingSpacing` is the backoff-free floor used to re-check the throttle
+    /// at execution time: the full interval when no time has passed, and zero
+    /// once the interval is satisfied. Unlike `delay`, it never adds backoff.
+    @Test func remainingSpacingIgnoresBackoffAndFloorsAtZero() {
+        #expect(abs(policy.remainingSpacing(sinceLastAttempt: 0) - policy.minInterval) < 1e-9)
+        #expect(policy.remainingSpacing(sinceLastAttempt: policy.minInterval) == 0)
+        #expect(policy.remainingSpacing(sinceLastAttempt: 1.0) == 0)
+    }
 }
