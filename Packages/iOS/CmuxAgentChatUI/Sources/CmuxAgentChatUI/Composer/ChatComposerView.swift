@@ -504,6 +504,12 @@ private struct ChatComposerDebugAutofocusBridge: UIViewRepresentable {
                         try? await Task.sleep(nanoseconds: dismissNanoseconds)
                         guard !Task.isCancelled else { return }
                         input?.resignFirstResponder()
+                        if let autoRefocusDelay = Self.autoRefocusAfterDismissDelay {
+                            let refocusNanoseconds = UInt64(max(0, autoRefocusDelay) * 1_000_000_000)
+                            try? await Task.sleep(nanoseconds: refocusNanoseconds)
+                            guard !Task.isCancelled else { return }
+                            _ = input?.becomeFirstResponder()
+                        }
                     }
                 }
             }
@@ -511,6 +517,17 @@ private struct ChatComposerDebugAutofocusBridge: UIViewRepresentable {
 
         private static var autoDismissDelay: TimeInterval? {
             guard let raw = ProcessInfo.processInfo.environment["CMUX_UITEST_CHAT_AUTO_DISMISS_DELAY"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                !raw.isEmpty,
+                let value = Double(raw)
+            else {
+                return nil
+            }
+            return value
+        }
+
+        private static var autoRefocusAfterDismissDelay: TimeInterval? {
+            guard let raw = ProcessInfo.processInfo.environment["CMUX_UITEST_CHAT_AUTO_REFOCUS_AFTER_DISMISS_DELAY"]?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
                 !raw.isEmpty,
                 let value = Double(raw)
