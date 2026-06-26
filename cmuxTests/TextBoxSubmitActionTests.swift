@@ -602,6 +602,34 @@ struct TextBoxSubmitActionTests {
     }
 
     @Test
+    func testUnsupportedLaunchOnlyCustomActionFailsClosedAtPrompt() {
+        let router = TextBoxSubmitAction(
+            id: "router",
+            title: "Router",
+            kind: .commandTemplate,
+            commandTemplate: "agent-router --provider codex",
+            preservePromptAfterLaunch: true,
+            systemImage: "sparkle",
+            backgroundColorHex: "#FFFFFF"
+        )
+
+        XCTAssertTrue(
+            TextBoxInputContainer.shouldFailClosedForUnsupportedCommandTemplate(
+                action: router,
+                shouldForceTextEntrySubmit: false,
+                allowsCommandTemplateSubmit: true
+            )
+        )
+        XCTAssertFalse(
+            TextBoxInputContainer.shouldFailClosedForUnsupportedCommandTemplate(
+                action: router,
+                shouldForceTextEntrySubmit: false,
+                allowsCommandTemplateSubmit: false
+            )
+        )
+    }
+
+    @Test
     func testUnknownPromptCustomActionDoesNotEnterPendingProviderMode() {
         let router = TextBoxSubmitAction(
             id: "router",
@@ -628,6 +656,13 @@ struct TextBoxSubmitActionTests {
             TextBoxSubmit.dispatchEvents(
                 for: [.text("agent-router --plan 'keep working'")],
                 terminalAgentContext: ""
+            )
+        )
+        XCTAssertFalse(
+            TextBoxInputContainer.shouldFailClosedForUnsupportedCommandTemplate(
+                action: router,
+                shouldForceTextEntrySubmit: false,
+                allowsCommandTemplateSubmit: true
             )
         )
     }

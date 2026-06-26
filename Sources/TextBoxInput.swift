@@ -1095,7 +1095,7 @@ private struct TextBoxAttachmentPreviewPopoverView: View {
 }
 
 @MainActor
-private enum TextBoxAttachmentPreviewOpening {
+enum TextBoxAttachmentPreviewOpening {
     static func openInPreview(_ attachment: TextBoxAttachment) {
         guard let url = attachment.localURL else { return }
         if let previewURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Preview") {
@@ -2744,6 +2744,14 @@ struct TextBoxInputContainer: View {
             return
         }
         let launchAction = effectiveSubmitAction
+        if Self.shouldFailClosedForUnsupportedCommandTemplate(
+            action: launchAction,
+            shouldForceTextEntrySubmit: shouldForceTextEntrySubmit,
+            allowsCommandTemplateSubmit: allowsCommandTemplateSubmit
+        ) {
+            NSSound.beep()
+            return
+        }
         if let launchCommand = providerLaunchCommand(for: launchAction) {
             startPendingProviderLaunch(launchAction)
             onRecordLaunchCommand(launchAction.launchContextCommand() ?? launchCommand)
@@ -3476,7 +3484,7 @@ final class TextBoxInputTextView: NSTextView {
     )
     private var attachmentPreviewPopover: NSPopover?
     private var attachmentPreviewCharacterIndex: Int?
-    private var focusedAttachmentCharacterIndex: Int?
+    var focusedAttachmentCharacterIndex: Int?
     private var attachmentKeyDownMonitor: Any?
     private var preserveAttachmentFocusOnNextResign = false
     private var attachmentUploadInvalidationGeneration: UInt64 = 0
@@ -3493,7 +3501,7 @@ final class TextBoxInputTextView: NSTextView {
     private var pendingUndoableAttachmentFileCleanup: [String: TextBoxAttachment] = [:]
     private var pendingAutomaticAttachmentFileCleanup: [String: TextBoxAttachment] = [:]
     private var suppressAutomaticAttachmentFileCleanup = false
-    private var mentionCompletionController: TextBoxMentionCompletionController {
+    var mentionCompletionController: TextBoxMentionCompletionController {
         if let mentionCompletionControllerStorage {
             return mentionCompletionControllerStorage
         }
@@ -3505,7 +3513,7 @@ final class TextBoxInputTextView: NSTextView {
         return controller
     }
 
-    private var isAttachmentPreviewShown: Bool {
+    var isAttachmentPreviewShown: Bool {
         attachmentPreviewPopover?.isShown == true
     }
 
@@ -4013,131 +4021,6 @@ final class TextBoxInputTextView: NSTextView {
         onLayoutCompleted(self)
         isReportingLayoutCompletion = false
     }
-
-#if DEBUG
-    func installDebugInlineFixture(
-        _ attachment: TextBoxAttachment?,
-        beforeText: String,
-        afterText: String
-    ) {
-        let textAttributes = currentTextAttributes()
-        let attributed = NSMutableAttributedString(string: beforeText, attributes: textAttributes)
-        if let attachment {
-            attributed.append(inlineAttachmentAttributedString(for: attachment))
-        }
-        attributed.append(NSAttributedString(string: afterText, attributes: textAttributes))
-
-        setDebugAttributedText(attributed)
-    }
-
-    @discardableResult
-    func debugInteract(action: String) -> [String: Any] {
-        window?.makeFirstResponder(self)
-
-        switch action {
-        case "focus":
-            break
-        case "submit":
-            submitIfAllowed()
-        case let setTextAction where setTextAction.hasPrefix("set_text:"):
-            setDebugAttributedText(NSAttributedString(
-                string: String(setTextAction.dropFirst("set_text:".count)),
-                attributes: currentTextAttributes()
-            ))
-        case "select_first_attachment":
-            if let characterIndex = firstInlineAttachmentCharacterIndex() {
-                selectAttachment(at: characterIndex)
-            }
-        case "close_first_attachment":
-            if let characterIndex = firstInlineAttachmentCharacterIndex() {
-                deleteAttachment(at: characterIndex)
-            }
-        case "preview_first_attachment":
-            if let characterIndex = firstInlineAttachmentCharacterIndex(),
-               let attachment = attachment(at: characterIndex) {
-                showAttachmentPreview(attachment, characterIndex: characterIndex)
-            }
-        case "open_preview":
-            if let focused = focusedAttachment() {
-                TextBoxAttachmentPreviewOpening.openInPreview(focused.attachment)
-            }
-        case "space":
-            if let focused = focusedAttachment() {
-                toggleAttachmentPreview(focused.attachment, characterIndex: focused.characterIndex)
-            }
-        case "left":
-            moveInsertionPointLeft()
-        case "right":
-            moveInsertionPointRight()
-        case "escape":
-            if isAttachmentPreviewShown {
-                dismissAttachmentPreview()
-            } else {
-                clearAttachmentFocus(dismissPreview: true)
-                refreshInlineAttachmentFocus()
-            }
-        default:
-            break
-        }
-
-        needsDisplay = true
-        enclosingScrollView?.needsDisplay = true
-        window?.viewsNeedDisplay = true
-        window?.displayIfNeeded()
-        return debugInteractionState()
-    }
-
-    private func setDebugAttributedText(_ attributed: NSAttributedString) {
-        textStorage?.setAttributedString(attributed)
-        normalizeTextBaselineOffsets()
-        typingAttributes = currentTextAttributes()
-        setSelectedRange(NSRange(location: attributed.length, length: 0))
-        if let textContainer {
-            layoutManager?.ensureLayout(for: textContainer)
-        }
-        recenterSingleLineTextContainer()
-        scrollRangeToVisible(NSRange(location: attributed.length, length: 0))
-        needsDisplay = true
-        enclosingScrollView?.needsDisplay = true
-        window?.viewsNeedDisplay = true
-        window?.displayIfNeeded()
-        didChangeText()
-    }
-
-    func debugInteractionState() -> [String: Any] {
-        let selection = selectedRange()
-        let mentionQuery = mentionCompletionController.activeQuery
-        return [
-            "selected_location": selection.location,
-            "selected_length": selection.length,
-            "focused_attachment_index": focusedAttachmentCharacterIndex ?? -1,
-            "preview_shown": isAttachmentPreviewShown,
-            "attachment_count": inlineAttachments().count,
-            "plain_text": plainText(),
-            "mention_active": mentionCompletionController.isActive,
-            "mention_query": mentionQuery?.query ?? "",
-            "mention_trigger": mentionQuery.map { String($0.trigger) } ?? "",
-            "mention_loading": mentionCompletionController.isLoadingSuggestions,
-            "mention_should_show": mentionCompletionController.debugShouldShowPopover,
-            "mention_current": mentionCompletionController.debugHasCurrentSuggestions,
-            "mention_titles": mentionCompletionController.debugSuggestionTitles
-        ]
-    }
-
-    private func firstInlineAttachmentCharacterIndex() -> Int? {
-        var result: Int?
-        attributedString().enumerateAttribute(
-            .attachment,
-            in: NSRange(location: 0, length: attributedString().length),
-            options: []
-        ) { value, range, stop in
-            guard value is TextBoxInlineTextAttachment else { return }
-            result = range.location
-            stop.pointee = true
-        }
-        return result
-    }
-#endif
 
     override func mouseDown(with event: NSEvent) {
         dismissMentionCompletions()
@@ -4890,7 +4773,7 @@ final class TextBoxInputTextView: NSTextView {
         mentionCompletionPanelHost = nil
     }
 
-    private func moveInsertionPointLeft() {
+    func moveInsertionPointLeft() {
         if moveFocusedAttachmentSelection(toTrailingEdge: false) {
             return
         }
@@ -4921,7 +4804,7 @@ final class TextBoxInputTextView: NSTextView {
         attachmentUploadInvalidationGeneration &+= 1
     }
 
-    private func submitIfAllowed() {
+    func submitIfAllowed() {
         guard !hasPendingAttachmentUploadPlaceholder() else {
             NSSound.beep()
             return
@@ -5044,7 +4927,7 @@ final class TextBoxInputTextView: NSTextView {
         }
     }
 
-    private func deleteAttachment(at characterIndex: Int) {
+    func deleteAttachment(at characterIndex: Int) {
         deleteAttachmentSelection(in: NSRange(location: characterIndex, length: 1))
     }
 
@@ -5079,7 +4962,7 @@ final class TextBoxInputTextView: NSTextView {
         return true
     }
 
-    private func moveInsertionPointRight() {
+    func moveInsertionPointRight() {
         if moveFocusedAttachmentSelection(toTrailingEdge: true) {
             return
         }
@@ -5112,7 +4995,7 @@ final class TextBoxInputTextView: NSTextView {
         return NSMaxRange(nsText.rangeOfComposedCharacterSequence(at: clampedLocation))
     }
 
-    private func selectAttachment(at characterIndex: Int) {
+    func selectAttachment(at characterIndex: Int) {
         guard attachment(at: characterIndex) != nil else {
             clearAttachmentFocus(dismissPreview: true)
             return
@@ -5125,7 +5008,7 @@ final class TextBoxInputTextView: NSTextView {
         refreshInlineAttachmentFocus()
     }
 
-    private func focusedAttachment() -> (attachment: TextBoxAttachment, characterIndex: Int)? {
+    func focusedAttachment() -> (attachment: TextBoxAttachment, characterIndex: Int)? {
         let range = selectedRange()
         if let focusedAttachmentCharacterIndex,
            range.location == focusedAttachmentCharacterIndex,
@@ -5161,7 +5044,7 @@ final class TextBoxInputTextView: NSTextView {
         return attachment(at: focusedAttachmentCharacterIndex) != nil
     }
 
-    private func attachment(at characterIndex: Int) -> TextBoxAttachment? {
+    func attachment(at characterIndex: Int) -> TextBoxAttachment? {
         guard characterIndex >= 0,
               characterIndex < attributedString().length,
               let inlineAttachment = attributedString().attribute(
@@ -5183,7 +5066,7 @@ final class TextBoxInputTextView: NSTextView {
         return true
     }
 
-    private func toggleAttachmentPreview(
+    func toggleAttachmentPreview(
         _ attachment: TextBoxAttachment,
         characterIndex: Int
     ) {
@@ -5234,7 +5117,7 @@ final class TextBoxInputTextView: NSTextView {
         }
     }
 
-    private func showAttachmentPreview(
+    func showAttachmentPreview(
         _ attachment: TextBoxAttachment,
         characterIndex: Int
     ) {
@@ -5261,13 +5144,13 @@ final class TextBoxInputTextView: NSTextView {
         installAttachmentKeyDownMonitorIfNeeded()
     }
 
-    private func dismissAttachmentPreview() {
+    func dismissAttachmentPreview() {
         attachmentPreviewPopover?.performClose(nil)
         attachmentPreviewPopover = nil
         attachmentPreviewCharacterIndex = nil
     }
 
-    private func clearAttachmentFocus(dismissPreview shouldDismissPreview: Bool) {
+    func clearAttachmentFocus(dismissPreview shouldDismissPreview: Bool) {
         if shouldDismissPreview {
             dismissAttachmentPreview()
         }
@@ -5447,7 +5330,7 @@ final class TextBoxInputTextView: NSTextView {
 
     private static let attachmentReplacementCharacter = "\u{FFFC}"
 
-    private func currentTextAttributes(
+    func currentTextAttributes(
         font explicitFont: NSFont? = nil,
         foregroundColor explicitForegroundColor: NSColor? = nil
     ) -> [NSAttributedString.Key: Any] {
@@ -5458,7 +5341,7 @@ final class TextBoxInputTextView: NSTextView {
         ]
     }
 
-    private func inlineAttachmentAttributedString(for attachment: TextBoxAttachment) -> NSAttributedString {
+    func inlineAttachmentAttributedString(for attachment: TextBoxAttachment) -> NSAttributedString {
         let attributed = NSMutableAttributedString(
             attachment: TextBoxInlineTextAttachment(
                 attachment: attachment,

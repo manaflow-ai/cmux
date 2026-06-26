@@ -149,6 +149,26 @@ extension TextBoxInputContainer {
             action.kind == .commandTemplate
     }
 
+    static func shouldFailClosedForUnsupportedCommandTemplate(
+        action: TextBoxSubmitAction,
+        shouldForceTextEntrySubmit: Bool,
+        allowsCommandTemplateSubmit: Bool
+    ) -> Bool {
+        guard action.kind == .commandTemplate,
+              !shouldForceTextEntrySubmit,
+              allowsCommandTemplateSubmit else {
+            return false
+        }
+        if action.command(forPrompt: "") != nil {
+            return false
+        }
+        return providerLaunchCommand(
+            for: action,
+            shouldForceTextEntrySubmit: shouldForceTextEntrySubmit,
+            allowsCommandTemplateSubmit: allowsCommandTemplateSubmit
+        ) == nil
+    }
+
     static func isPendingProviderLaunchAwaitingAgent(
         pendingProviderLaunchAction: TextBoxSubmitAction?,
         terminalAgentContext: String
