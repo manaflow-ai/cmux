@@ -1464,6 +1464,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         SystemWideHotkeyController.shared.start()
         AgentHibernationController.shared.start()
         RendererRealizationController.shared.start()
+        if !isRunningUnderXCTest, RightSidebarBetaFeatureSettings.isNotesEnabled() {
+            // Start the offline-notes queue at launch (when the beta is enabled)
+            // so pending notes are delivered once connectivity is available even
+            // if the Notes sidebar is never opened this session.
+            OfflineNotesStore.shared.start()
+        }
         NSApp.servicesProvider = self
 
         StartupBreadcrumbLog.append("appDelegate.didFinish.bootstrap.begin")

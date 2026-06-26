@@ -148,6 +148,20 @@ struct OfflineNotesStoreTests {
         #expect(store.notes.first?.sentAt != nil)
     }
 
+    @Test
+    func captureWhileOnlineDispatchesImmediately() async throws {
+        let dispatcher = FakeDispatcher()
+        let reachability = FakeReachability(isOnline: false)
+        let store = makeStore(fileURL: nil, dispatcher: dispatcher, reachability: reachability)
+        reachability.setOnline(true) // store is now online with an empty queue
+
+        store.addNote("captured while online")
+
+        await waitUntil { store.notes.first?.status == .sent }
+        #expect(dispatcher.dispatched.count == 1)
+        #expect(store.notes.first?.status == .sent)
+    }
+
     // MARK: - Failure + retry
 
     @Test

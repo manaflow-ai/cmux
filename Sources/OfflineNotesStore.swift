@@ -248,6 +248,8 @@ final class OfflineNotesStore {
         let note = OfflineNote(text: capped, workspaceID: workspaceID)
         notes.append(note)
         persist()
+        // Already online → hand off now (the `isFlushing` guard prevents duplicates).
+        scheduleFlush()
         return note
     }
 
@@ -380,10 +382,8 @@ final class OfflineNotesStore {
         notes[index] = note
     }
 
-    /// Evicts the oldest already-sent notes beyond ``maxRetainedSentNotes`` so
-    /// the queue cannot grow without bound across the app's lifetime. Pending
-    /// and failed notes are preserved. Does not persist on its own — callers
-    /// persist after their mutation.
+    /// Evicts the oldest already-sent notes beyond ``maxRetainedSentNotes`` so the
+    /// queue stays bounded; pending/failed are preserved. Callers persist.
     private func pruneSentNotes() {
         let sentIDs = notes.filter { $0.status == .sent }.map(\.id)
         guard sentIDs.count > Self.maxRetainedSentNotes else { return }
