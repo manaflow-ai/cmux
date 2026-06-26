@@ -89,7 +89,7 @@ extension TextBoxInputContainer {
         allowsCommandTemplateSubmit: Bool,
         terminalAgentContext: String
     ) -> Bool {
-        !allowsCommandTemplateSubmit
+        !allowsCommandTemplateSubmit && TextBoxAgentDetection.supportsAgentPrefixes(context: terminalAgentContext)
     }
 
     static func textEntryTerminalAgentContext(
@@ -307,7 +307,7 @@ extension TextBoxInputContainer {
         _ parts: [TextBoxSubmissionPart],
         applying action: TextBoxSubmitAction
     ) -> SubmitDispatchPlan {
-        guard !shouldForceTextEntrySubmit else {
+        guard !shouldForceTextEntrySubmit, allowsCommandTemplateSubmit else {
             let textEntryContext = Self.textEntryTerminalAgentContext(
                 allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
                 terminalAgentContext: terminalAgentContext,
@@ -341,7 +341,7 @@ extension TextBoxInputContainer {
     }
 
     func providerLaunchCommand(for action: TextBoxSubmitAction) -> String? {
-        guard !shouldForceTextEntrySubmit else { return nil }
+        guard !shouldForceTextEntrySubmit, allowsCommandTemplateSubmit else { return nil }
         return action.launchCommand()
     }
 

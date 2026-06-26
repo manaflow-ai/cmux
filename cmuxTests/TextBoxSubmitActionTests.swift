@@ -267,7 +267,7 @@ struct TextBoxSubmitActionTests {
 
 
     @Test
-    func testTextBoxForceTextEntryRequiresCommandTemplateEligibility() {
+    func testTextBoxForceTextEntryRequiresDetectedActiveAgent() {
         XCTAssertFalse(
             TextBoxInputContainer.shouldForceTextEntrySubmit(
                 allowsCommandTemplateSubmit: true,
@@ -280,7 +280,7 @@ struct TextBoxSubmitActionTests {
                 terminalAgentContext: "restoredAgent:claude"
             )
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             TextBoxInputContainer.shouldForceTextEntrySubmit(
                 allowsCommandTemplateSubmit: false,
                 terminalAgentContext: ""
@@ -481,6 +481,25 @@ struct TextBoxSubmitActionTests {
                 defaultSubmitActionID: actions[0].id,
                 submitActions: actions,
                 shouldForceTextEntrySubmit: false
+            ),
+            actions[1].id
+        )
+    }
+
+    @Test
+    func testUnknownNonIdleTerminalStillCyclesSubmitAction() {
+        let actions = TextBoxSubmitAction.builtInActions
+        let shouldForceTextEntry = TextBoxInputContainer.shouldForceTextEntrySubmit(
+            allowsCommandTemplateSubmit: false,
+            terminalAgentContext: ""
+        )
+
+        XCTAssertFalse(shouldForceTextEntry)
+        XCTAssertEqual(
+            TextBoxInputContainer.nextCycledSubmitActionID(
+                defaultSubmitActionID: actions[0].id,
+                submitActions: actions,
+                shouldForceTextEntrySubmit: shouldForceTextEntry
             ),
             actions[1].id
         )
