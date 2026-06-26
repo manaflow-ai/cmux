@@ -5016,7 +5016,7 @@ final class BrowserSearchEngineTests: XCTestCase {
     }
 
     func testStaleRemoteSuggestionsSuppressedWhenProviderDoesNotSupportRemoteSuggestions() {
-        let suggestions = staleOmnibarRemoteSuggestionsForDisplay(
+        let suggestions = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { resolveBrowserNavigableURL($0) }).staleRemoteSuggestionsForDisplay(
             query: "swift",
             previousRemoteQuery: "swi",
             previousRemoteSuggestions: ["swift actors"],

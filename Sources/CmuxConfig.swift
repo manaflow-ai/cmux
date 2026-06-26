@@ -237,13 +237,6 @@ struct CmuxResolvedNotificationHook: Sendable, Hashable {
     }
 }
 
-enum CmuxConfigTerminalCommandTarget: String, Codable, Sendable, Hashable {
-    case currentTerminal
-    case newTabInCurrentPane
-
-    static let defaultForActions: CmuxConfigTerminalCommandTarget = .newTabInCurrentPane
-}
-
 extension CmuxSurfaceTabBarBuiltInAction {
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -263,60 +256,6 @@ extension CmuxSurfaceTabBarBuiltInAction {
     func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(configID)
-    }
-}
-
-enum CmuxConfigAgentKind: Sendable, Hashable {
-    case codex
-    case claudeCode
-
-    var commandName: String {
-        switch self {
-        case .codex:
-            return "codex"
-        case .claudeCode:
-            return "claude"
-        }
-    }
-
-    var defaultIcon: CmuxButtonIcon {
-        switch self {
-        case .codex:
-            return .symbol("sparkles")
-        case .claudeCode:
-            return .symbol("brain.head.profile")
-        }
-    }
-}
-
-extension CmuxConfigAgentKind: Codable {
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        let value = try container.decode(String.self)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        switch value {
-        case "codex":
-            self = .codex
-        case "claude", "claudeCode", "claude-code":
-            self = .claudeCode
-        default:
-            throw DecodingError.dataCorrupted(
-                DecodingError.Context(
-                    codingPath: decoder.codingPath,
-                    debugDescription: "Unknown agent '\(value)'"
-                )
-            )
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        switch self {
-        case .codex:
-            try container.encode("codex")
-        case .claudeCode:
-            try container.encode("claude")
-        }
     }
 }
 

@@ -228,7 +228,8 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     private func tmuxWorkspacePaneWindowOverlayState(for window: NSWindow) -> TmuxWorkspacePaneOverlayRenderState? {
         guard TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay,
               let workspace = tabManager.selectedWorkspace else { return nil }
-        let layoutSnapshot = WorkspaceContentView.effectiveTmuxLayoutSnapshot(
+        let overlayResolver = WorkspacePaneOverlayRectResolver()
+        let layoutSnapshot = overlayResolver.effectiveLayoutSnapshot(
             cachedSnapshot: workspace.tmuxLayoutSnapshot,
             liveSnapshot: workspace.bonsplitController.layoutSnapshot()
         )
@@ -258,7 +259,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
                 )
                 guard shouldShowUnread else { return nil }
 
-                let paneRect = WorkspaceContentView.tmuxWorkspacePaneWindowOverlayRect(
+                let paneRect = overlayResolver.paneWindowOverlayRect(
                     layoutSnapshot: layoutSnapshot,
                     paneId: workspace.paneId(forPanelId: panelId)
                 )
@@ -269,7 +270,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
                 )
             }
         } else {
-            unreadRects = WorkspaceContentView.tmuxWorkspacePaneWindowUnreadRects(
+            unreadRects = overlayResolver.paneWindowUnreadRects(
                 workspace: workspace,
                 notificationStore: notificationStore,
                 layoutSnapshot: layoutSnapshot
@@ -280,7 +281,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         if let panelId = workspace.tmuxWorkspaceFlashPanelId,
            let panel = workspace.panels[panelId],
            let contentView {
-            let paneRect = WorkspaceContentView.tmuxWorkspacePaneWindowOverlayRect(
+            let paneRect = overlayResolver.paneWindowOverlayRect(
                 layoutSnapshot: layoutSnapshot,
                 paneId: workspace.paneId(forPanelId: panelId)
             )
@@ -290,7 +291,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
                 paneRect: paneRect
             )
         } else {
-            flashRect = WorkspaceContentView.tmuxWorkspacePaneWindowOverlayRect(
+            flashRect = overlayResolver.paneWindowOverlayRect(
                 layoutSnapshot: layoutSnapshot,
                 paneId: workspace.tmuxWorkspaceFlashPanelId.flatMap { workspace.paneId(forPanelId: $0) }
             )
