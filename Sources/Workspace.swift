@@ -2775,10 +2775,17 @@ final class Workspace: Identifiable, ObservableObject {
         // When the workspace carries a custom color, paint the top tab bar with
         // it (Peacock-style) so the active project is identifiable from the top
         // chrome and not just the sidebar. `nil` leaves the default fill — and
-        // therefore every existing default-color workspace — untouched.
+        // therefore every existing default-color workspace — untouched. The
+        // light/dark brightness decision uses the *composited* chrome color
+        // (background + opacity) that bonsplit actually renders, so translucent
+        // themes pick the same tint as the rendered surface.
+        let compositedChromeColor = WindowAppearanceSnapshot.compositedTerminalColor(
+            backgroundColor: backgroundColor,
+            opacity: backgroundOpacity
+        )
         let tabBarTintHex = resolvedTopTabBarTintHex(
             fromCustomColorHex: topTabBarTintHex,
-            chromeBackgroundColor: backgroundColor
+            chromeBackgroundColor: compositedChromeColor
         )
 
         if sharesWindowBackdrop {
@@ -2813,6 +2820,10 @@ final class Workspace: Identifiable, ObservableObject {
     /// workspace color reads consistently in the sidebar and the top tab bar.
     /// Returns `nil` for a missing or malformed hex, which leaves the default
     /// tab-bar fill in place.
+    ///
+    /// - Parameter chromeBackgroundColor: the color the tab bar is actually
+    ///   rendered against — i.e. the terminal background already composited with
+    ///   its opacity — so the light/dark decision matches the rendered surface.
     nonisolated static func resolvedTopTabBarTintHex(
         fromCustomColorHex hex: String?,
         chromeBackgroundColor: NSColor

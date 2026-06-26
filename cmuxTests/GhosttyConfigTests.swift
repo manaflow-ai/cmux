@@ -1677,6 +1677,29 @@ final class WorkspaceChromeColorTests: XCTestCase {
         #expect(colors.tabBarBackgroundHex == "#00000000")
     }
 
+    @Test func tintBrightnessUsesCompositedChromeColorForTranslucentBackgrounds() {
+        // A translucent theme renders the tab bar against the composited
+        // background (color + opacity), so the light/dark tint decision must use
+        // that composited color rather than the raw background.
+        let opacity = 0.25
+        let customColorHex = "#1565C0"
+        let colors = Workspace.bonsplitChromeColors(
+            backgroundColor: darkChromeBackground,
+            backgroundOpacity: opacity,
+            sharesWindowBackdrop: true,
+            renderingMode: .windowHostBackdrop,
+            topTabBarTintHex: customColorHex
+        )
+        let compositedChromeColor = WindowAppearanceSnapshot.compositedTerminalColor(
+            backgroundColor: darkChromeBackground,
+            opacity: opacity
+        )
+        #expect(colors.tabBarBackgroundHex == Workspace.resolvedTopTabBarTintHex(
+            fromCustomColorHex: customColorHex,
+            chromeBackgroundColor: compositedChromeColor
+        ))
+    }
+
     @Test func resolvedTintMatchesWorkspaceDisplayColorAndBrightensForDarkChrome() {
         let customColorHex = "#1565C0"
         let lightExpected = WorkspaceTabColorSettings.displayNSColor(
