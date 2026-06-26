@@ -92,6 +92,11 @@ final class BrowserSSLTrustBypassState {
         return components.url
     }
 
+    func beginObservingServerTrustForNavigation() {
+        clearPendingBypasses()
+        clearObservedServerTrustFingerprints()
+    }
+
     func hasPendingBypassToken(_ token: String) -> Bool {
         purgeExpiredPendingBypasses(now: now())
         return pendingBypasses[token] != nil
@@ -133,10 +138,14 @@ final class BrowserSSLTrustBypassState {
 
     func clearAllTrustState() {
         clearPendingBypasses()
-        observedFingerprints.removeAll()
-        observedFingerprintOrder.removeAll()
+        clearObservedServerTrustFingerprints()
         bypassedTrusts.removeAll()
         bypassedTrustOrder.removeAll()
+    }
+
+    private func clearObservedServerTrustFingerprints() {
+        observedFingerprints.removeAll()
+        observedFingerprintOrder.removeAll()
     }
 
     private func purgeExpiredPendingBypasses(now currentDate: Date) {

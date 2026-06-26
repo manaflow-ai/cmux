@@ -191,6 +191,24 @@ struct BrowserSSLTrustBypassStateTests {
     }
 
     @Test
+    func newNavigationClearsObservedServerTrustBeforeMintingBypassTokens() throws {
+        let state = BrowserSSLTrustBypassState()
+        let url = try #require(URL(string: "https://example.internal/submit"))
+        let scope = try #require(BrowserSSLTrustScope(url: url))
+        let fingerprint = BrowserServerTrustFingerprint(sha256: Data("leaf-a".utf8))
+        let request = URLRequest(url: url)
+
+        state.recordObservedServerTrustFingerprint(fingerprint, for: scope)
+        #expect(state.createPendingBypassAction(for: request) != nil)
+
+        state.beginObservingServerTrustForNavigation()
+
+        #expect(state.createPendingBypassAction(for: request) == nil)
+        state.recordObservedServerTrustFingerprint(fingerprint, for: scope)
+        #expect(state.createPendingBypassAction(for: request) != nil)
+    }
+
+    @Test
     func pendingBypassReplaysOriginalRequestOnceAndMarksHostBypassed() throws {
         let state = BrowserSSLTrustBypassState()
         let url = try #require(URL(string: "https://example.internal:8443/submit"))

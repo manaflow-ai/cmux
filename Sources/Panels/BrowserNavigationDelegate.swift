@@ -34,7 +34,7 @@ import WebKit
     }
 
     func recordAttemptedRequest(_ request: URLRequest, displayURL: URL? = nil) {
-        sslBypassState.clearPendingBypasses()
+        sslBypassState.beginObservingServerTrustForNavigation()
         acceptsSSLTrustBypassMessages = false
         activeSSLTrustBypassErrorPageFailedURL = nil
         activeSSLTrustBypassReplayRequest = nil

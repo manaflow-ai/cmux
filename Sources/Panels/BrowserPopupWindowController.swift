@@ -637,7 +637,7 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
     }
 
     private func recordAttemptedRequest(_ request: URLRequest) {
-        sslBypassState.clearPendingBypasses()
+        sslBypassState.beginObservingServerTrustForNavigation()
         acceptsSSLTrustBypassMessages = false
         activeSSLTrustBypassErrorPageFailedURL = nil
         activeSSLTrustBypassReplayRequest = nil
