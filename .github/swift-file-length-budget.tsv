@@ -50,6 +50,7 @@
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
 1945	Sources/RestorableAgentSession.swift
 1900	cmuxTests/NotificationAndMenuBarTests.swift
+1816	cmuxTests/OmnibarAndToolsTests.swift
 1810	Sources/SessionIndexStore.swift
 1748	Sources/WindowDragHandleView.swift
 1732	cmuxTests/WorkspacePullRequestSidebarTests.swift
@@ -61,7 +62,6 @@
 1560	cmuxTests/TextBoxMentionCompletionTests.swift
 1547	cmuxTests/TerminalControllerSocketSecurityTests.swift
 1500	cmuxUITests/MultiWindowNotificationsUITests.swift
-1499	cmuxTests/OmnibarAndToolsTests.swift
 1452	Sources/RemoteTmuxControlConnection.swift
 1447	Sources/FileExplorerStore.swift
 1384	cmuxTests/KeyboardShortcutSettingsFileStoreStartupTests.swift
@@ -89,11 +89,11 @@
 1009	cmuxTests/CmuxTopSnapshotScopeTests.swift
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
 1002	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/PairedMacBackupTests.swift
-951	Sources/App/TerminalDirectoryOpenSupport.swift
 947	Sources/TerminalNotificationPolicy.swift
 945	Sources/SessionIndexRegisteredAgents.swift
 937	Sources/TextBoxMentionIndexStore.swift
 934	Sources/App/ShortcutRoutingSupport.swift
+932	Sources/App/VSCodeServeWebSupport.swift
 928	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
 926	Sources/DockPanelView.swift
 920	Sources/CommandPalette/CommandPaletteSettingsToggle.swift

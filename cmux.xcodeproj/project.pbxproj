@@ -1045,6 +1045,7 @@
 		ACE4FE1A8F1CC6C0B6A673AB /* VMClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CEC6EF35B71AE59FA45BA69 /* VMClient.swift */; };
 		ACE4FE2A8F1CC6C0B6A673AB /* VMClientSocketCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CEC6F0035B71AE59FA45BA7 /* VMClientSocketCommands.swift */; };
 		C37800000000000000000001 /* VMSSHCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C37800000000000000000002 /* VMSSHCommandTests.swift */; };
+		64CF86BD7D5F46F1943491B3 /* VSCodeServeWebSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AC40A5879054B53BED68A02 /* VSCodeServeWebSupport.swift */; };
 		A500120C /* WindowAccessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001222 /* WindowAccessor.swift */; };
 		063BC42CEE257D6213A2E30C /* WindowAndDragTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */; };
 		A59170000000000000000001 /* WindowAppearanceSnapshotPaneBackgroundTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A59170000000000000000002 /* WindowAppearanceSnapshotPaneBackgroundTests.swift */; };
@@ -2172,6 +2173,7 @@
 		9CEC6EF35B71AE59FA45BA69 /* VMClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VMClient.swift; sourceTree = "<group>"; };
 		9CEC6F0035B71AE59FA45BA7 /* VMClientSocketCommands.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VMClientSocketCommands.swift; sourceTree = "<group>"; };
 		C37800000000000000000002 /* VMSSHCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMSSHCommandTests.swift; sourceTree = "<group>"; };
+		8AC40A5879054B53BED68A02 /* VSCodeServeWebSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/VSCodeServeWebSupport.swift; sourceTree = "<group>"; };
 		A5001222 /* WindowAccessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAccessor.swift; sourceTree = "<group>"; };
 		BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAndDragTests.swift; sourceTree = "<group>"; };
 		A59170000000000000000002 /* WindowAppearanceSnapshotPaneBackgroundTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAppearanceSnapshotPaneBackgroundTests.swift; sourceTree = "<group>"; };
@@ -2611,6 +2613,7 @@
 				C0DEF4110000000000000002 /* CommandPaletteSettingsToggle.swift */,
 				9DAB808A8EC74C40B95F7672 /* GhosttySurfaceConfigurationRefresh.swift */,
 				6B8E2E03F4A64C61B729CF19 /* TerminalDirectoryOpenSupport.swift */,
+				8AC40A5879054B53BED68A02 /* VSCodeServeWebSupport.swift */,
 				8A4FE96C3F394FC6A6D4B018 /* CmuxCLIPathInstaller.swift */,
 				47D5AA7D29C94F5CA865B2BF /* ScreenIdentity.swift */,
 				C1713001C1713001C1713001 /* CommandPaletteShortcutRouting.swift */,
@@ -4542,6 +4545,7 @@
 				C9A57209C9A57209C9A57209 /* VerticalTabsSidebar+WorkspaceGroups.swift in Sources */,
 				ACE4FE1A8F1CC6C0B6A673AB /* VMClient.swift in Sources */,
 				ACE4FE2A8F1CC6C0B6A673AB /* VMClientSocketCommands.swift in Sources */,
+				64CF86BD7D5F46F1943491B3 /* VSCodeServeWebSupport.swift in Sources */,
 				A500120C /* WindowAccessor.swift in Sources */,
 				A5001900A1B2C3D4E5F60718 /* WindowBackgroundComposition.swift in Sources */,
 				B7F9A602B7F9A602B7F9A602 /* WindowChromeMetrics.swift in Sources */,

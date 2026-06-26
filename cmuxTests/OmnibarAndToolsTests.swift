@@ -219,12 +219,60 @@ final class VSCodeServeWebURLBuilderTests: XCTestCase {
 
 
 final class VSCodeCLILaunchConfigurationBuilderTests: XCTestCase {
-    func testLaunchConfigurationPrefersCachedCodeServerOverCodeTunnelWrapper() {
+    func testLaunchConfigurationPrefersCodeTunnelWrapperOverCachedCodeServer() {
+        // Regression for issue #6595: even when a cached code-server is present,
+        // the wrapper must win so VS Code Web auth/Settings Sync use the CLI keyring.
+        let appURL = URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true)
+        let codeTunnelPath = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel"
+        let cachedCodeServerPath = "/Users/tester/.vscode/cli/serve-web/server-new/bin/code-server"
+
+        let configuration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
+            vscodeApplicationURL: appURL,
+            homeDirectoryURL: URL(fileURLWithPath: "/Users/tester", isDirectory: true),
+            baseEnvironment: [:],
+            isExecutableAtPath: { $0 == codeTunnelPath || $0 == cachedCodeServerPath },
+            dataAtURL: { _ in
+                XCTFail("Expected the wrapper to short-circuit cached code-server discovery")
+                return nil
+            },
+            contentsOfDirectoryAtURL: { _ in
+                XCTFail("Expected the wrapper to short-circuit cached code-server discovery")
+                return []
+            },
+            contentModificationDateAtURL: { _ in nil }
+        )
+
+        XCTAssertEqual(configuration?.executableURL.path, codeTunnelPath)
+        XCTAssertEqual(configuration?.argumentsPrefix, ["serve-web"])
+        XCTAssertEqual(configuration?.environment["ELECTRON_RUN_AS_NODE"], "1")
+        XCTAssertEqual(configuration?.launcherKind, .codeTunnelWrapper)
+    }
+
+    func testLaunchConfigurationUsesCodeTunnelWrapperWhenOnlyWrapperAvailable() {
+        let appURL = URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true)
+        let expectedExecutablePath = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel"
+
+        let configuration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
+            vscodeApplicationURL: appURL,
+            homeDirectoryURL: URL(fileURLWithPath: "/Users/tester", isDirectory: true),
+            baseEnvironment: [:],
+            isExecutableAtPath: { $0 == expectedExecutablePath },
+            dataAtURL: { _ in nil },
+            contentsOfDirectoryAtURL: { _ in [] },
+            contentModificationDateAtURL: { _ in nil }
+        )
+
+        XCTAssertEqual(configuration?.executableURL.path, expectedExecutablePath)
+        XCTAssertEqual(configuration?.argumentsPrefix, ["serve-web"])
+        XCTAssertEqual(configuration?.environment["ELECTRON_RUN_AS_NODE"], "1")
+        XCTAssertEqual(configuration?.launcherKind, .codeTunnelWrapper)
+    }
+
+    func testLaunchConfigurationFallsBackToCachedCodeServerWhenWrapperMissing() {
         let appURL = URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true)
         let productURL = appURL.appendingPathComponent("Contents/Resources/app/product.json", isDirectory: false)
         let cacheURL = URL(fileURLWithPath: "/Users/tester/.vscode/cli/serve-web", isDirectory: true)
         let lruURL = cacheURL.appendingPathComponent("lru.json", isDirectory: false)
-        let codeTunnelPath = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel"
         let expectedExecutablePath = "/Users/tester/.vscode/cli/serve-web/server-new/bin/code-server"
 
         let configuration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
@@ -233,7 +281,8 @@ final class VSCodeCLILaunchConfigurationBuilderTests: XCTestCase {
             baseEnvironment: [
                 "ELECTRON_RUN_AS_NODE": "stale",
             ],
-            isExecutableAtPath: { $0 == codeTunnelPath || $0 == expectedExecutablePath },
+            // Wrapper binary is absent, so only the cached code-server is executable.
+            isExecutableAtPath: { $0 == expectedExecutablePath },
             dataAtURL: { url in
                 if url == productURL {
                     return Data(#"{"dataFolderName": ".vscode"}"#.utf8)
@@ -253,25 +302,7 @@ final class VSCodeCLILaunchConfigurationBuilderTests: XCTestCase {
         XCTAssertEqual(configuration?.executableURL.path, expectedExecutablePath)
         XCTAssertEqual(configuration?.argumentsPrefix, [])
         XCTAssertNil(configuration?.environment["ELECTRON_RUN_AS_NODE"])
-    }
-
-    func testLaunchConfigurationFallsBackToCodeTunnelBinary() {
-        let appURL = URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true)
-        let expectedExecutablePath = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel"
-
-        let configuration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
-            vscodeApplicationURL: appURL,
-            homeDirectoryURL: URL(fileURLWithPath: "/Users/tester", isDirectory: true),
-            baseEnvironment: [:],
-            isExecutableAtPath: { $0 == expectedExecutablePath },
-            dataAtURL: { _ in nil },
-            contentsOfDirectoryAtURL: { _ in [] },
-            contentModificationDateAtURL: { _ in nil }
-        )
-
-        XCTAssertEqual(configuration?.executableURL.path, expectedExecutablePath)
-        XCTAssertEqual(configuration?.argumentsPrefix, ["serve-web"])
-        XCTAssertEqual(configuration?.environment["ELECTRON_RUN_AS_NODE"], "1")
+        XCTAssertEqual(configuration?.launcherKind, .cachedCodeServer)
     }
 
     func testLaunchConfigurationMapsNodeEnvironmentVariables() {
@@ -306,6 +337,309 @@ final class VSCodeCLILaunchConfigurationBuilderTests: XCTestCase {
         XCTAssertEqual(configuration?.environment["PATH"], "/usr/bin:/bin")
         XCTAssertNil(configuration?.environment["VSCODE_NODE_OPTIONS"])
         XCTAssertNil(configuration?.environment["VSCODE_NODE_REPL_EXTERNAL_MODULE"])
+    }
+}
+
+
+final class VSCodeServeWebRuntimeLocatorTests: XCTestCase {
+    private let applicationSupportURL = URL(fileURLWithPath: "/Users/tester/Library/Application Support", isDirectory: true)
+
+    func testResolvesStableDataPathsUnderApplicationSupportByDefault() {
+        let location = VSCodeServeWebRuntimeLocator.resolve(
+            applicationSupportURL: applicationSupportURL,
+            bundleIdentifier: "com.cmuxterm.app",
+            environment: [:],
+            persistedPort: nil
+        )
+        let serverDataDir = "/Users/tester/Library/Application Support/com.cmuxterm.app/vscode-serve-web"
+
+        XCTAssertEqual(location.serverDataDirectoryURL.path, serverDataDir)
+        XCTAssertEqual(location.userDataDirectoryURL.path, serverDataDir + "/user-data")
+        XCTAssertEqual(location.cliDataDirectoryURL.path, serverDataDir + "/cli-data")
+        XCTAssertEqual(location.connectionTokenFileURL.path, serverDataDir + "/connection-token")
+    }
+
+    func testServerDataDirectoryHonorsEnvironmentOverride() {
+        let location = VSCodeServeWebRuntimeLocator.resolve(
+            applicationSupportURL: applicationSupportURL,
+            bundleIdentifier: "com.cmuxterm.app",
+            environment: [
+                VSCodeServeWebRuntimeLocator.serverDataDirectoryEnvironmentKey: "/tmp/custom-serve-web",
+            ],
+            persistedPort: nil
+        )
+
+        XCTAssertEqual(location.serverDataDirectoryURL.path, "/tmp/custom-serve-web")
+        XCTAssertEqual(location.userDataDirectoryURL.path, "/tmp/custom-serve-web/user-data")
+        XCTAssertEqual(location.connectionTokenFileURL.path, "/tmp/custom-serve-web/connection-token")
+    }
+
+    func testCLIDataDirectoryHonorsEnvironmentOverride() {
+        let location = VSCodeServeWebRuntimeLocator.resolve(
+            applicationSupportURL: applicationSupportURL,
+            bundleIdentifier: "com.cmuxterm.app",
+            environment: [
+                VSCodeServeWebRuntimeLocator.cliDataDirectoryEnvironmentKey: "/tmp/cli-data",
+            ],
+            persistedPort: nil
+        )
+
+        XCTAssertEqual(location.cliDataDirectoryURL.path, "/tmp/cli-data")
+    }
+
+    func testDerivedPortIsStableWhenNoOverrideOrPersistedValue() {
+        let first = VSCodeServeWebRuntimeLocator.resolve(
+            applicationSupportURL: applicationSupportURL,
+            bundleIdentifier: "com.cmuxterm.app",
+            environment: [:],
+            persistedPort: nil
+        )
+        let second = VSCodeServeWebRuntimeLocator.resolve(
+            applicationSupportURL: applicationSupportURL,
+            bundleIdentifier: "com.cmuxterm.app",
+            environment: [:],
+            persistedPort: nil
+        )
+
+        XCTAssertEqual(first.port, second.port)
+        XCTAssertEqual(first.port, VSCodeServeWebRuntimeLocator.derivePort(from: "com.cmuxterm.app"))
+        XCTAssertTrue((49152...65535).contains(first.port))
+    }
+
+    func testDifferentBundleIdentifiersDeriveDifferentPorts() {
+        let release = VSCodeServeWebRuntimeLocator.derivePort(from: "com.cmuxterm.app")
+        let tagged = VSCodeServeWebRuntimeLocator.derivePort(from: "com.cmuxterm.app.fix-6595")
+        XCTAssertNotEqual(release, tagged)
+    }
+
+    func testPersistedPortIsPreferredOverDerivedDefault() {
+        let location = VSCodeServeWebRuntimeLocator.resolve(
+            applicationSupportURL: applicationSupportURL,
+            bundleIdentifier: "com.cmuxterm.app",
+            environment: [:],
+            persistedPort: 50080
+        )
+
+        XCTAssertEqual(location.port, 50080)
+    }
+
+    func testEnvironmentPortOverrideWinsOverPersistedAndDerived() {
+        let location = VSCodeServeWebRuntimeLocator.resolve(
+            applicationSupportURL: applicationSupportURL,
+            bundleIdentifier: "com.cmuxterm.app",
+            environment: [
+                VSCodeServeWebRuntimeLocator.portEnvironmentKey: "51234",
+            ],
+            persistedPort: 50080
+        )
+
+        XCTAssertEqual(location.port, 51234)
+    }
+
+    func testInvalidPortValuesAreIgnoredInFavorOfDerivedDefault() {
+        let derived = VSCodeServeWebRuntimeLocator.derivePort(from: "com.cmuxterm.app")
+        let location = VSCodeServeWebRuntimeLocator.resolve(
+            applicationSupportURL: applicationSupportURL,
+            bundleIdentifier: "com.cmuxterm.app",
+            environment: [
+                VSCodeServeWebRuntimeLocator.portEnvironmentKey: "not-a-port",
+            ],
+            persistedPort: 80 // below the allowed range
+        )
+
+        XCTAssertEqual(location.port, derived)
+    }
+
+    func testCandidateStablePortsStartWithResolvedPortThenStableAlternates() {
+        let candidates = VSCodeServeWebRuntimeLocator.candidateStablePorts(resolvedPort: 50080, count: 5)
+
+        XCTAssertEqual(candidates.first, 50080, "The preferred port must be attempted first")
+        XCTAssertEqual(candidates.count, 5)
+        XCTAssertEqual(Set(candidates).count, 5, "Candidates must be distinct")
+        // Every candidate is a stable port in the dynamic/private range — never the
+        // ephemeral port 0 — so a collision still yields a fixed origin (#6595).
+        for port in candidates {
+            XCTAssertTrue((49152...65535).contains(port), "candidate \(port) out of dynamic range")
+        }
+    }
+
+    func testCandidateStablePortsAreDeterministic() {
+        let a = VSCodeServeWebRuntimeLocator.candidateStablePorts(resolvedPort: 51000)
+        let b = VSCodeServeWebRuntimeLocator.candidateStablePorts(resolvedPort: 51000)
+        XCTAssertEqual(a, b)
+    }
+
+    func testCandidateStablePortsKeepOutOfRangeOverrideFirstThenInRangeAlternates() {
+        // An out-of-range user override (e.g. 3000) is tried first, then the
+        // alternates fall back into the valid dynamic range.
+        let candidates = VSCodeServeWebRuntimeLocator.candidateStablePorts(resolvedPort: 3000, count: 4)
+        XCTAssertEqual(candidates.first, 3000)
+        for port in candidates.dropFirst() {
+            XCTAssertTrue((49152...65535).contains(port), "alternate \(port) out of dynamic range")
+        }
+    }
+}
+
+
+final class VSCodeConnectionTokenTests: XCTestCase {
+    func testValidatesThirtyTwoHexCharacterTokens() {
+        XCTAssertTrue(VSCodeConnectionToken.isValid("0123456789abcdef0123456789ABCDEF"))
+        XCTAssertFalse(VSCodeConnectionToken.isValid("short"))
+        XCTAssertFalse(VSCodeConnectionToken.isValid("0123456789abcdef0123456789abcde"))  // 31 chars
+        XCTAssertFalse(VSCodeConnectionToken.isValid("0123456789abcdef0123456789abcdeg")) // non-hex 'g'
+    }
+
+    func testGeneratedTokensAreValidAndUnique() {
+        let first = VSCodeConnectionToken.generate()
+        let second = VSCodeConnectionToken.generate()
+        XCTAssertTrue(VSCodeConnectionToken.isValid(first))
+        XCTAssertTrue(VSCodeConnectionToken.isValid(second))
+        XCTAssertNotEqual(first, second)
+    }
+
+    func testEnsureTokenCreatesValidTokenFileWithOwnerOnlyPermissions() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let tokenURL = directory.appendingPathComponent("connection-token", isDirectory: false)
+
+        let token = VSCodeConnectionTokenStore.ensureToken(at: tokenURL)
+        XCTAssertNotNil(token)
+        XCTAssertTrue(VSCodeConnectionToken.isValid(token ?? ""))
+
+        let attributes = try FileManager.default.attributesOfItem(atPath: tokenURL.path)
+        let permissions = (attributes[.posixPermissions] as? NSNumber)?.uint16Value ?? 0
+        XCTAssertEqual(permissions & 0o077, 0, "Token file must not be group/other readable")
+    }
+
+    func testEnsureTokenReusesExistingValidToken() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let tokenURL = directory.appendingPathComponent("connection-token", isDirectory: false)
+
+        let firstToken = VSCodeConnectionTokenStore.ensureToken(at: tokenURL)
+        let secondToken = VSCodeConnectionTokenStore.ensureToken(at: tokenURL)
+
+        XCTAssertNotNil(firstToken)
+        XCTAssertEqual(firstToken, secondToken, "A valid persisted token must be reused, keeping the server URL stable")
+    }
+
+    func testEnsureTokenReplacesInvalidTokenContents() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let tokenURL = directory.appendingPathComponent("connection-token", isDirectory: false)
+        try Data("not-a-valid-token".utf8).write(to: tokenURL)
+
+        let token = VSCodeConnectionTokenStore.ensureToken(at: tokenURL)
+        XCTAssertNotNil(token)
+        XCTAssertTrue(VSCodeConnectionToken.isValid(token ?? ""))
+        XCTAssertNotEqual(token, "not-a-valid-token")
+    }
+}
+
+
+final class VSCodeServeWebLaunchOptionsBuilderTests: XCTestCase {
+    private func makeLocation() -> VSCodeServeWebRuntimeLocation {
+        let serverDataDir = URL(fileURLWithPath: "/data/vscode-serve-web", isDirectory: true)
+        return VSCodeServeWebRuntimeLocation(
+            serverDataDirectoryURL: serverDataDir,
+            userDataDirectoryURL: serverDataDir.appendingPathComponent("user-data", isDirectory: true),
+            cliDataDirectoryURL: serverDataDir.appendingPathComponent("cli-data", isDirectory: true),
+            connectionTokenFileURL: serverDataDir.appendingPathComponent("connection-token", isDirectory: false),
+            port: 50080
+        )
+    }
+
+    func testWrapperOptionsEnableFileKeyringAndOmitUserDataDir() {
+        let configuration = VSCodeCLILaunchConfiguration(
+            executableURL: URL(fileURLWithPath: "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel"),
+            argumentsPrefix: ["serve-web"],
+            environment: ["ELECTRON_RUN_AS_NODE": "1"],
+            launcherKind: .codeTunnelWrapper
+        )
+        let location = makeLocation()
+
+        let options = VSCodeServeWebLaunchOptionsBuilder.launchOptions(
+            configuration: configuration,
+            location: location,
+            port: location.port
+        )
+
+        XCTAssertEqual(options.arguments, [
+            "serve-web",
+            "--accept-server-license-terms",
+            "--host", "127.0.0.1",
+            "--port", "50080",
+            "--connection-token-file", "/data/vscode-serve-web/connection-token",
+            "--server-data-dir", "/data/vscode-serve-web",
+        ])
+        XCTAssertFalse(options.arguments.contains("--user-data-dir"))
+        XCTAssertEqual(options.environment["VSCODE_CLI_USE_FILE_KEYRING"], "1")
+        XCTAssertEqual(options.environment["VSCODE_CLI_DATA_DIR"], "/data/vscode-serve-web/cli-data")
+    }
+
+    func testWrapperOptionsPreserveExistingCLIDataDirEnvironment() {
+        let configuration = VSCodeCLILaunchConfiguration(
+            executableURL: URL(fileURLWithPath: "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel"),
+            argumentsPrefix: ["serve-web"],
+            environment: ["VSCODE_CLI_DATA_DIR": "/custom/cli-data"],
+            launcherKind: .codeTunnelWrapper
+        )
+        let location = makeLocation()
+
+        let options = VSCodeServeWebLaunchOptionsBuilder.launchOptions(
+            configuration: configuration,
+            location: location,
+            port: location.port
+        )
+
+        XCTAssertEqual(options.environment["VSCODE_CLI_DATA_DIR"], "/custom/cli-data")
+    }
+
+    func testCachedCodeServerOptionsIncludeUserDataDirAndNoKeyringEnvironment() {
+        let configuration = VSCodeCLILaunchConfiguration(
+            executableURL: URL(fileURLWithPath: "/Users/tester/.vscode/cli/serve-web/server-new/bin/code-server"),
+            argumentsPrefix: [],
+            environment: [:],
+            launcherKind: .cachedCodeServer
+        )
+        let location = makeLocation()
+
+        let options = VSCodeServeWebLaunchOptionsBuilder.launchOptions(
+            configuration: configuration,
+            location: location,
+            port: location.port
+        )
+
+        XCTAssertEqual(options.arguments, [
+            "--accept-server-license-terms",
+            "--host", "127.0.0.1",
+            "--port", "50080",
+            "--connection-token-file", "/data/vscode-serve-web/connection-token",
+            "--server-data-dir", "/data/vscode-serve-web",
+            "--user-data-dir", "/data/vscode-serve-web/user-data",
+        ])
+        XCTAssertNil(options.environment["VSCODE_CLI_USE_FILE_KEYRING"])
+        XCTAssertNil(options.environment["VSCODE_CLI_DATA_DIR"])
+    }
+
+    func testEphemeralFallbackPortIsReflectedInArguments() {
+        let configuration = VSCodeCLILaunchConfiguration(
+            executableURL: URL(fileURLWithPath: "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel"),
+            argumentsPrefix: ["serve-web"],
+            environment: [:],
+            launcherKind: .codeTunnelWrapper
+        )
+
+        let options = VSCodeServeWebLaunchOptionsBuilder.launchOptions(
+            configuration: configuration,
+            location: makeLocation(),
+            port: 0
+        )
+
+        XCTAssertTrue(options.arguments.contains("--port"))
+        let portIndex = options.arguments.firstIndex(of: "--port")
+        XCTAssertEqual(portIndex.map { options.arguments[$0 + 1] }, "0")
     }
 }
 
@@ -363,7 +697,7 @@ final class VSCodeServeWebControllerTests: XCTestCase {
         let launchCallLock = NSLock()
         var launchCallCount = 0
 
-        let controller = VSCodeServeWebController.makeForTesting { _, _ in
+        let controller = VSCodeServeWebController(launchProcessOverride: { _, _ in
             launchCallLock.lock()
             launchCallCount += 1
             let callNumber = launchCallCount
@@ -374,7 +708,7 @@ final class VSCodeServeWebControllerTests: XCTestCase {
                 _ = launchGate.wait(timeout: .now() + 1)
             }
             return nil
-        }
+        })
 
         let callbackLock = NSLock()
         var firstGenerationCallbacks: [URL?] = []
@@ -419,23 +753,6 @@ final class VSCodeServeWebControllerTests: XCTestCase {
             XCTAssertNil(secondSnapshot[0])
         }
         XCTAssertEqual(launchCalls, 2)
-    }
-
-    func testStopRemovesOrphanedConnectionTokenFiles() throws {
-        let tokenFileURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: tokenFileURL) }
-        try Data("token".utf8).write(to: tokenFileURL)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: tokenFileURL.path))
-
-        let controller = VSCodeServeWebController.makeForTesting { _, _ in
-            XCTFail("Expected no launch")
-            return nil
-        }
-        controller.trackConnectionTokenFileForTesting(tokenFileURL)
-
-        controller.stop()
-
-        XCTAssertFalse(FileManager.default.fileExists(atPath: tokenFileURL.path))
     }
 }
 
