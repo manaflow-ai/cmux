@@ -1068,6 +1068,7 @@
       "closeWorkspaceDesc": "Zamknij workspace.",
       "splitCommands": "Polecenia podziału",
       "newSplitDesc": "Utwórz nowy dzielony panel. Kierunki: left, right, up, down.",
+      "listPanelsDesc": "Wyświetl wszystkie surface'y w bieżącym workspace.",
       "listPaneSurfacesDesc": "Wyświetl surface'y w aktywnym panelu.",
       "focusSurfaceDesc": "Ustaw fokus na konkretnym surface.",
       "inputCommands": "Polecenia wejścia",

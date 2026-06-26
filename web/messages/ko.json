@@ -1068,6 +1068,7 @@
       "closeWorkspaceDesc": "워크스페이스를 닫습니다.",
       "splitCommands": "분할 명령",
       "newSplitDesc": "새 분할 패널을 생성합니다. 방향: left, right, up, down.",
+      "listPanelsDesc": "현재 워크스페이스의 모든 서피스를 나열합니다.",
       "listPaneSurfacesDesc": "포커스된 패널의 서피스를 나열합니다.",
       "focusSurfaceDesc": "특정 서피스에 포커스합니다.",
       "inputCommands": "입력 명령",

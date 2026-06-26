@@ -1068,6 +1068,7 @@
       "closeWorkspaceDesc": "Chiudi un workspace.",
       "splitCommands": "Comandi di divisione",
       "newSplitDesc": "Crea un nuovo pannello diviso. Direzioni: left, right, up, down.",
+      "listPanelsDesc": "Elenca tutte le superfici nel workspace attuale.",
       "listPaneSurfacesDesc": "Elenca le superfici nel pannello attivo.",
       "focusSurfaceDesc": "Metti a fuoco una superficie specifica.",
       "inputCommands": "Comandi di input",

@@ -1068,6 +1068,7 @@
       "closeWorkspaceDesc": "Luk et workspace.",
       "splitCommands": "Opdelingskommandoer",
       "newSplitDesc": "Opret et nyt opdelt panel. Retninger: left, right, up, down.",
+      "listPanelsDesc": "List alle surfaces i det aktuelle workspace.",
       "listPaneSurfacesDesc": "List surfaces i det fokuserede panel.",
       "focusSurfaceDesc": "Fokusér en specifik surface.",
       "inputCommands": "Inputkommandoer",

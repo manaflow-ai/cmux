@@ -1068,6 +1068,7 @@
       "closeWorkspaceDesc": "關閉工作區。",
       "splitCommands": "分割指令",
       "newSplitDesc": "建立新的分割窗格。方向：left、right、up、down。",
+      "listPanelsDesc": "列出目前工作區中的所有 surface。",
       "listPaneSurfacesDesc": "列出目前聚焦窗格中的 surface。",
       "focusSurfaceDesc": "聚焦到指定的 surface。",
       "inputCommands": "輸入指令",

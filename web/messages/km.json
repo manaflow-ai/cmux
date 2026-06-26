@@ -1068,6 +1068,7 @@
       "closeWorkspaceDesc": "បិទ workspace។",
       "splitCommands": "ពាក្យបញ្ជាបំបែក",
       "newSplitDesc": "បង្កើតបន្ទះបំបែកថ្មី។ ទិសដៅ: ឆ្វេង, ស្ដាំ, លើ, ក្រោម។",
+      "listPanelsDesc": "រាយ surface ទាំងអស់ក្នុង workspace បច្ចុប្បន្ន។",
       "listPaneSurfacesDesc": "រាយ surface នៅក្នុងបន្ទះដែលកំពុងផ្ដោត។",
       "focusSurfaceDesc": "ផ្ដោតលើ surface ជាក់លាក់។",
       "inputCommands": "ពាក្យបញ្ជាបញ្ចូល",

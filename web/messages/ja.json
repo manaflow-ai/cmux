@@ -1228,6 +1228,7 @@
       "closeWorkspaceDesc": "ワークスペースを閉じる。",
       "splitCommands": "分割コマンド",
       "newSplitDesc": "新しい分割ペインを作成。方向：left、right、up、down。",
+      "listPanelsDesc": "現在のワークスペースのすべてのサーフェスを一覧表示。",
       "listPaneSurfacesDesc": "フォーカスされたペイン内のサーフェスを一覧表示。",
       "focusSurfaceDesc": "特定のサーフェスにフォーカス。",
       "inputCommands": "入力コマンド",

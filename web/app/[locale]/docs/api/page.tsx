@@ -217,6 +217,13 @@ cmux new-split down`}
         socket={`{"id":"split-new","method":"surface.split","params":{"direction":"right"}}`}
       />
       <Cmd
+        name="list-panels"
+        desc={t("listPanelsDesc")}
+        cli={`cmux list-panels
+cmux list-panels --json`}
+        socket={`{"id":"surface-list","method":"surface.list","params":{}}`}
+      />
+      <Cmd
         name="list-pane-surfaces"
         desc={t("listPaneSurfacesDesc")}
         cli={`cmux list-pane-surfaces
