@@ -283,6 +283,12 @@ complete -c cmux -n '__cmux_command_is close-surface' -l workspace
 complete -c cmux -n '__cmux_command_is close-window' -l window
 complete -c cmux -n '__cmux_command_is close-workspace' -l window
 complete -c cmux -n '__cmux_command_is close-workspace' -l workspace
+complete -c cmux -n '__cmux_command_is cloud' -f -a 'exec'
+complete -c cmux -n '__cmux_command_is cloud' -f -a 'ls'
+complete -c cmux -n '__cmux_command_is cloud' -f -a 'new'
+complete -c cmux -n '__cmux_command_is cloud' -f -a 'rm'
+complete -c cmux -n '__cmux_command_is cloud' -f -a 'shell'
+complete -c cmux -n '__cmux_command_is cloud' -f -a 'ssh'
 complete -c cmux -n '__cmux_command_is current-workspace' -l window
 complete -c cmux -n '__cmux_command_is diff' -l base
 complete -c cmux -n '__cmux_command_is diff' -l branch
@@ -460,6 +466,12 @@ complete -c cmux -n '__cmux_command_is read-screen' -l scrollback
 complete -c cmux -n '__cmux_command_is read-screen' -l surface
 complete -c cmux -n '__cmux_command_is read-screen' -l window
 complete -c cmux -n '__cmux_command_is read-screen' -l workspace
+complete -c cmux -n '__cmux_command_is remote' -f -a 'add'
+complete -c cmux -n '__cmux_command_is remote' -f -a 'list'
+complete -c cmux -n '__cmux_command_is remote' -f -a 'remove'
+complete -c cmux -n '__cmux_command_is remote' -l json
+complete -c cmux -n '__cmux_command_is remote' -l route
+complete -c cmux -n '__cmux_command_is remote' -l tag
 complete -c cmux -n '__cmux_command_is remote-daemon-status' -l arch -f -a 'arm64 amd64'
 complete -c cmux -n '__cmux_command_is remote-daemon-status' -l os -f -a 'darwin linux'
 complete -c cmux -n '__cmux_command_is remotes' -f -a 'add'

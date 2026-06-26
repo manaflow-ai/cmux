@@ -74,6 +74,11 @@ FLAG_VALUE_RE = re.compile(r"(--[a-z][a-z0-9-]*)\s+<([a-z][a-z0-9-]*(?:\|[a-z][a
 # sub|sub` subcommand group, which has no spaces around its pipes.
 LEAD_COMMAND_RE = re.compile(r"^[a-z][a-z0-9-]*(?:\s*\|\s*[a-z][a-z0-9-]*)*")
 
+# Parenthetical command alias, e.g. `vm ... (alias: cloud)` or `remotes ...
+# (alias: remote)`. The `alias:` colon form is required so descriptive
+# `(aliases for ...)` prose is not misread as a literal alias name.
+ALIAS_RE = re.compile(r"\(alias:\s*([a-z][a-z0-9-]*)\)")
+
 # Value-bearing global options parsed before the command word in
 # CLI/cmux.swift run() (each consumes the following token). The command scan in
 # each emitter skips these plus their values; boolean globals like `--json` need
@@ -282,7 +287,10 @@ def parse_help(help_text: str, known: set[str]) -> dict[str, CommandSpec]:
             if is_real_enum(vals.split("|"))
         }
 
-        for name in targets:
+        # A parenthetical `(alias: name)` shares the canonical command's spec,
+        # so `cmux cloud <Tab>` completes the same as `cmux vm <Tab>`.
+        aliases = [a for a in ALIAS_RE.findall(line) if a in known]
+        for name in list(targets) + aliases:
             spec = specs.setdefault(name, CommandSpec(name))
             spec.flags.update(f for f in flags if f.startswith("--"))
             spec.subcommands.update(sub)

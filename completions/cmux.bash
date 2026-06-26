@@ -61,6 +61,8 @@ _cmux() {
             COMPREPLY=( $(compgen -W "--window" -- "$cur") ); return ;;
         close-workspace)
             COMPREPLY=( $(compgen -W "--window --workspace" -- "$cur") ); return ;;
+        cloud)
+            COMPREPLY=( $(compgen -W "exec ls new rm shell ssh" -- "$cur") ); return ;;
         current-workspace)
             COMPREPLY=( $(compgen -W "--window" -- "$cur") ); return ;;
         diff)
@@ -201,6 +203,8 @@ _cmux() {
             COMPREPLY=( $(compgen -W "--window" -- "$cur") ); return ;;
         read-screen)
             COMPREPLY=( $(compgen -W "--lines --scrollback --surface --window --workspace" -- "$cur") ); return ;;
+        remote)
+            COMPREPLY=( $(compgen -W "add list remove --json --route --tag" -- "$cur") ); return ;;
         remote-daemon-status)
             if [[ $prev == --arch ]]; then
                 COMPREPLY=( $(compgen -W "arm64 amd64" -- "$cur") ); return

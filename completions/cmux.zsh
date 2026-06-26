@@ -204,6 +204,8 @@ _cmux() {
             compadd -- --window ;;
         close-workspace)
             compadd -- --window --workspace ;;
+        cloud)
+            compadd -- exec ls new rm shell ssh ;;
         current-workspace)
             compadd -- --window ;;
         diff)
@@ -344,6 +346,8 @@ _cmux() {
             compadd -- --window ;;
         read-screen)
             compadd -- --lines --scrollback --surface --window --workspace ;;
+        remote)
+            compadd -- add list remove --json --route --tag ;;
         remote-daemon-status)
             if [[ $prev == --arch ]]; then
                 compadd -- arm64 amd64; return
