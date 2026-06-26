@@ -60,6 +60,7 @@ let package = Package(
             dependencies: [
                 "CmuxMobileShellUI",
                 "CmuxMobileShell",
+                "CmuxMobileTerminalKit",
                 "CmuxMobileWorkspace",
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
             ],

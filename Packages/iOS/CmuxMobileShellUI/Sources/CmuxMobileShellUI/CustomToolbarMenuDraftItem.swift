@@ -5,19 +5,25 @@ import Foundation
 struct CustomToolbarMenuDraftItem: Identifiable {
     let id: UUID
     var title: String
+    var symbolName: String?
     var commandText: String
     var runAfterTyping: Bool
+    private var preservedPayload: ToolbarActionPayload?
 
     init(
         id: UUID = UUID(),
         title: String = "",
+        symbolName: String? = nil,
         commandText: String = "",
-        runAfterTyping: Bool = true
+        runAfterTyping: Bool = true,
+        preservedPayload: ToolbarActionPayload? = nil
     ) {
         self.id = id
         self.title = title
+        self.symbolName = symbolName
         self.commandText = commandText
         self.runAfterTyping = runAfterTyping
+        self.preservedPayload = preservedPayload
     }
 
     init(menuItem: ToolbarMenuItem) {
@@ -25,8 +31,10 @@ struct CustomToolbarMenuDraftItem: Identifiable {
             self.init(
                 id: menuItem.id,
                 title: menuItem.title,
+                symbolName: menuItem.symbolName,
                 commandText: "",
-                runAfterTyping: false
+                runAfterTyping: false,
+                preservedPayload: menuItem.payload
             )
             return
         }
@@ -34,6 +42,7 @@ struct CustomToolbarMenuDraftItem: Identifiable {
             self.init(
                 id: menuItem.id,
                 title: menuItem.title,
+                symbolName: menuItem.symbolName,
                 commandText: String(stored.dropLast()),
                 runAfterTyping: true
             )
@@ -41,6 +50,7 @@ struct CustomToolbarMenuDraftItem: Identifiable {
             self.init(
                 id: menuItem.id,
                 title: menuItem.title,
+                symbolName: menuItem.symbolName,
                 commandText: stored,
                 runAfterTyping: false
             )
@@ -52,16 +62,22 @@ struct CustomToolbarMenuDraftItem: Identifiable {
     }
 
     var isValid: Bool {
-        !trimmedTitle.isEmpty && !commandText.isEmpty
+        !trimmedTitle.isEmpty && (preservedPayload != nil || !commandText.isEmpty)
     }
 
     var toolbarMenuItem: ToolbarMenuItem {
-        let text = runAfterTyping ? commandText + "\n" : commandText
+        let payload: ToolbarActionPayload
+        if commandText.isEmpty, let preservedPayload {
+            payload = preservedPayload
+        } else {
+            let text = runAfterTyping ? commandText + "\n" : commandText
+            payload = .text(text)
+        }
         return ToolbarMenuItem(
             id: id,
             title: trimmedTitle,
-            symbolName: nil,
-            payload: .text(text)
+            symbolName: symbolName,
+            payload: payload
         )
     }
 }
