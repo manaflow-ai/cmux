@@ -1631,9 +1631,9 @@ final class CmuxWebView: WKWebView {
         failureFallbackReason: String?
     ) {
         let filenameResolver = BrowserDownloadFilenameResolver()
-        let completeWrite: (Result<URL, Error>) -> Void = { [weak self] result in
+        let handleWriteResult: (Result<URL, Error>, Bool) -> Void = { [weak self] result, shouldClearDownloadState in
             guard let self else { return }
-            self.notifyContextMenuDownloadState(false)
+            if shouldClearDownloadState { self.notifyContextMenuDownloadState(false) }
             switch result {
             case .success:
                 self.debugContextDownload(
@@ -1660,6 +1660,7 @@ final class CmuxWebView: WKWebView {
             savePanel.nameFieldStringValue = saveName
             savePanel.canCreateDirectories = true
             savePanel.directoryURL = filenameResolver.downloadsDirectory()
+            notifyContextMenuDownloadState(false)
             debugContextDownload(
                 "browser.ctxdl.\(logCategory) trace=\(traceID) stage=savePrompt shown=1 defaultName=<redacted>"
             )
@@ -1668,7 +1669,6 @@ final class CmuxWebView: WKWebView {
                     self.debugContextDownload(
                         "browser.ctxdl.\(logCategory) trace=\(traceID) stage=savePrompt result=cancel"
                     )
-                    self.notifyContextMenuDownloadState(false)
                     return
                 }
                 self.writeSessionDownloadDataInBackground(
@@ -1676,7 +1676,7 @@ final class CmuxWebView: WKWebView {
                     destinationURL: destURL,
                     sourceURL: sourceURL,
                     replaceExisting: true,
-                    completion: completeWrite
+                    completion: { result in handleWriteResult(result, false) }
                 )
             }
             if let parentWindow = window {
@@ -1694,7 +1694,7 @@ final class CmuxWebView: WKWebView {
             filenameResolver: filenameResolver,
             traceID: traceID,
             logCategory: logCategory,
-            completion: completeWrite
+            completion: { result in handleWriteResult(result, true) }
         )
     }
 
