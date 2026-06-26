@@ -7458,6 +7458,9 @@ extension Notification.Name {
     static let ghosttyConfigDidReload = Notification.Name("ghosttyConfigDidReload")
     static let ghosttyDefaultBackgroundDidChange = Notification.Name("ghosttyDefaultBackgroundDidChange")
     static let browserSearchFocus = Notification.Name("browserSearchFocus")
+    static let workspaceRemoteConnectionPresentationDidChange = Notification.Name(
+        "cmux.workspaceRemoteConnectionPresentationDidChange"
+    )
 }
 
 // MARK: - Scroll View Wrapper (Ghostty-style scrollbar)
@@ -7553,6 +7556,137 @@ private final class TerminalViewportBorderOverlayView: NSView {
     }
 }
 
+private final class CloudTerminalReconnectOverlayView: NSView {
+    var onReconnect: (() -> Void)?
+
+    private let cardView = NSVisualEffectView(frame: .zero)
+    private let iconView = NSImageView(frame: .zero)
+    private let spinner = NSProgressIndicator(frame: .zero)
+    private let titleLabel = NSTextField(labelWithString: "")
+    private let detailLabel = NSTextField(wrappingLabelWithString: "")
+    private let reconnectButton = NSButton(frame: .zero)
+    private var currentPresentation: CloudTerminalReconnectOverlayPolicy.Presentation?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.12).cgColor
+        autoresizingMask = [.width, .height]
+
+        cardView.translatesAutoresizingMaskIntoConstraints = false
+        cardView.material = .hudWindow
+        cardView.blendingMode = .withinWindow
+        cardView.state = .active
+        cardView.wantsLayer = true
+        cardView.layer?.cornerRadius = 12
+        cardView.layer?.masksToBounds = true
+        cardView.layer?.borderWidth = 1
+        cardView.layer?.borderColor = NSColor.white.withAlphaComponent(0.11).cgColor
+        addSubview(cardView)
+
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 24, weight: .medium)
+        iconView.contentTintColor = NSColor.secondaryLabelColor
+
+        spinner.translatesAutoresizingMaskIntoConstraints = false
+        spinner.style = .spinning
+        spinner.controlSize = .regular
+        spinner.isDisplayedWhenStopped = false
+
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.alignment = .center
+        titleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
+        titleLabel.textColor = .labelColor
+
+        detailLabel.translatesAutoresizingMaskIntoConstraints = false
+        detailLabel.alignment = .center
+        detailLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        detailLabel.textColor = .secondaryLabelColor
+        detailLabel.maximumNumberOfLines = 3
+
+        reconnectButton.translatesAutoresizingMaskIntoConstraints = false
+        reconnectButton.title = String(localized: "cloud.overlay.reconnect.button", defaultValue: "Reconnect")
+        reconnectButton.image = NSImage(
+            systemSymbolName: "arrow.clockwise",
+            accessibilityDescription: nil
+        )
+        reconnectButton.imagePosition = .imageLeading
+        reconnectButton.bezelStyle = .rounded
+        reconnectButton.controlSize = .regular
+        reconnectButton.target = self
+        reconnectButton.action = #selector(handleReconnect)
+
+        let stack = NSStackView(views: [iconView, spinner, titleLabel, detailLabel, reconnectButton])
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.orientation = .vertical
+        stack.alignment = .centerX
+        stack.spacing = 10
+        cardView.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            cardView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            cardView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            cardView.widthAnchor.constraint(lessThanOrEqualToConstant: 360),
+            cardView.widthAnchor.constraint(greaterThanOrEqualToConstant: 260),
+            stack.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 22),
+            stack.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -22),
+            stack.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -24),
+            iconView.widthAnchor.constraint(equalToConstant: 28),
+            iconView.heightAnchor.constraint(equalToConstant: 28),
+            spinner.widthAnchor.constraint(equalToConstant: 24),
+            spinner.heightAnchor.constraint(equalToConstant: 24),
+            detailLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 300),
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) not implemented")
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !isHidden, alphaValue > 0 else { return nil }
+        if let buttonHit = reconnectButton.hitTest(convert(point, to: reconnectButton)) {
+            return buttonHit
+        }
+        if cardView.frame.contains(point) {
+            return self
+        }
+        return nil
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let pointInButton = reconnectButton.convert(event.locationInWindow, from: nil)
+        if reconnectButton.isHidden == false,
+           reconnectButton.bounds.contains(pointInButton) {
+            onReconnect?()
+        }
+    }
+
+    func apply(_ presentation: CloudTerminalReconnectOverlayPolicy.Presentation) {
+        guard currentPresentation != presentation else { return }
+        currentPresentation = presentation
+        titleLabel.stringValue = presentation.title
+        detailLabel.stringValue = presentation.detail
+        reconnectButton.isHidden = !presentation.showsReconnectButton
+        spinner.isHidden = !presentation.showsProgress
+        iconView.isHidden = presentation.showsProgress
+        if presentation.showsProgress {
+            spinner.startAnimation(nil)
+        } else {
+            spinner.stopAnimation(nil)
+        }
+        iconView.image = NSImage(
+            systemSymbolName: presentation.showsReconnectButton ? "wifi.exclamationmark" : "arrow.triangle.2.circlepath",
+            accessibilityDescription: nil
+        )
+    }
+
+    @objc private func handleReconnect() {
+        onReconnect?()
+    }
+}
+
 final class GhosttySurfaceScrollView: NSView {
     enum FlashStyle {
         case navigation
@@ -7596,6 +7730,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let notificationRingLayer: CAShapeLayer
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
+    private var cloudTerminalReconnectOverlayView: CloudTerminalReconnectOverlayView?
     var isRightSidebarDockSurface: Bool {
         surfaceView.terminalSurface?.focusPlacement == .rightSidebarDock
     }
@@ -8124,6 +8259,14 @@ final class GhosttySurfaceScrollView: NSView {
         })
 
         observers.append(NotificationCenter.default.addObserver(
+            forName: .workspaceRemoteConnectionPresentationDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            self?.handleWorkspaceRemoteConnectionPresentationDidChange(notification)
+        })
+
+        observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidReceiveWheelScroll,
             object: surfaceView,
             queue: .main
@@ -8207,6 +8350,15 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if let overlay = cloudTerminalReconnectOverlayView,
+           overlay.superview === self,
+           let hit = overlay.hitTest(convert(point, to: overlay)) {
+            return hit
+        }
+        return super.hitTest(point)
+    }
 
     // Avoid stealing focus on scroll; focus is managed explicitly by the surface view.
     override var acceptsFirstResponder: Bool { false }
@@ -8337,6 +8489,10 @@ final class GhosttySurfaceScrollView: NSView {
         }
         _ = setFrameIfNeeded(notificationRingOverlayView, to: bounds)
         _ = setFrameIfNeeded(flashOverlayView, to: bounds)
+        if let cloudTerminalReconnectOverlayView {
+            _ = setFrameIfNeeded(cloudTerminalReconnectOverlayView, to: bounds)
+        }
+        synchronizeCloudTerminalReconnectOverlay()
         if let overlay = searchOverlayHostingView {
             _ = setFrameIfNeeded(overlay, to: bounds)
         }
@@ -8370,6 +8526,64 @@ final class GhosttySurfaceScrollView: NSView {
         guard !Self.rectApproximatelyEqual(view.frame, frame) else { return false }
         view.frame = frame
         return true
+    }
+
+    private func handleWorkspaceRemoteConnectionPresentationDidChange(_ notification: Notification) {
+        guard let terminalSurface = surfaceView.terminalSurface else {
+            synchronizeCloudTerminalReconnectOverlay()
+            return
+        }
+        if let workspace = notification.object as? Workspace,
+           workspace.id != terminalSurface.tabId {
+            return
+        }
+        synchronizeCloudTerminalReconnectOverlay()
+    }
+
+    private func currentCloudTerminalReconnectPresentation() -> CloudTerminalReconnectOverlayPolicy.Presentation? {
+        guard let terminalSurface = surfaceView.terminalSurface,
+              let workspace = terminalSurface.owningWorkspace() else {
+            return nil
+        }
+        return workspace.cloudTerminalReconnectOverlayPresentation(forSurfaceId: terminalSurface.id)
+    }
+
+    private func synchronizeCloudTerminalReconnectOverlay() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.synchronizeCloudTerminalReconnectOverlay()
+            }
+            return
+        }
+
+        guard let presentation = currentCloudTerminalReconnectPresentation() else {
+            cloudTerminalReconnectOverlayView?.removeFromSuperview()
+            cloudTerminalReconnectOverlayView = nil
+            return
+        }
+
+        let overlay: CloudTerminalReconnectOverlayView
+        if let existing = cloudTerminalReconnectOverlayView {
+            overlay = existing
+        } else {
+            overlay = CloudTerminalReconnectOverlayView(frame: bounds)
+            overlay.autoresizingMask = [.width, .height]
+            cloudTerminalReconnectOverlayView = overlay
+        }
+        overlay.apply(presentation)
+        overlay.onReconnect = { [weak self] in
+            guard let terminalSurface = self?.surfaceView.terminalSurface,
+                  let workspace = terminalSurface.owningWorkspace() else {
+                return
+            }
+            _ = workspace.reconnectCloudTerminalSurface(surfaceId: terminalSurface.id)
+        }
+        overlay.frame = bounds
+        if overlay.superview !== self {
+            addSubview(overlay, positioned: .above, relativeTo: nil)
+        }
+        updateKeyboardCopyModeBadgeZOrder(relativeTo: overlay)
+        updateImageTransferIndicatorZOrder(relativeTo: overlay)
     }
 
     private func sizeApproximatelyEqual(_ lhs: CGSize, _ rhs: CGSize, epsilon: CGFloat = 0.0001) -> Bool {
@@ -8549,6 +8763,7 @@ final class GhosttySurfaceScrollView: NSView {
         // has produced a real host size instead of a transient 1x1 placeholder.
         guard bounds.width > 1, bounds.height > 1 else { return }
         _ = synchronizeGeometryAndContent()
+        synchronizeCloudTerminalReconnectOverlay()
     }
 
     func setFocusHandler(_ handler: (() -> Void)?) {
