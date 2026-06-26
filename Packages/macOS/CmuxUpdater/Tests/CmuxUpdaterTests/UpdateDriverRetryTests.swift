@@ -72,26 +72,3 @@ import Testing
         )
     }
 }
-
-private struct ImmediateUpdateClock: UpdateClock {
-    func sleep(for duration: Duration) async throws {}
-}
-
-private struct NullUpdateLog: UpdateLogging {
-    func append(_ message: String) {}
-    func logPath() -> String { "/tmp/cmux-update-test.log" }
-}
-
-@MainActor
-private final class RecordingUpdateActionDelegate: UpdateActionDelegate {
-    private(set) var retryRequestCount = 0
-    private(set) var willRelaunchCount = 0
-
-    func updaterRequestsRetryCheckForUpdates() {
-        retryRequestCount += 1
-    }
-
-    func updaterWillRelaunchApplication() {
-        willRelaunchCount += 1
-    }
-}

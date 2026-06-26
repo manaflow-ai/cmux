@@ -17725,7 +17725,7 @@ private extension NSWindow {
 /// `checkForUpdatesInCustomUI()` is satisfied by the main `AppDelegate` declaration.
 extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
     func updaterRequestsRetryCheckForUpdates() {
-        checkForUpdates(nil)
+        updateController.retryAfterTransientFailure()
     }
 
     func updaterWillRelaunchApplication() {

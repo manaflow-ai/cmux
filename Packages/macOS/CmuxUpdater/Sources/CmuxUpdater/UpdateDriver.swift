@@ -14,6 +14,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     let model: UpdateStateModel
     let log: any UpdateLogging
     private let clock: any UpdateClock
+    private let retryPolicy: UpdateRetryPolicy
     /// Host actions the driver delegates upward. Held weak; set by ``UpdateController``.
     weak var actionDelegate: (any UpdateActionDelegate)?
 
@@ -22,18 +23,26 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     private var lastCheckStart: Date?
     private var pendingCheckTransitionTask: Task<Void, Never>?
     private var checkTimeoutTask: Task<Void, Never>?
+    private var transientErrorRetryTask: Task<Void, Never>?
+    private var transientErrorRetryFailureCount = 0
+    private var shouldPreserveRetryStateForNextCheck = false
     private(set) var lastFeedURLString: String?
 
-    init(model: UpdateStateModel, log: any UpdateLogging, clock: any UpdateClock) {
+    init(model: UpdateStateModel,
+         log: any UpdateLogging,
+         clock: any UpdateClock,
+         retryPolicy: UpdateRetryPolicy = UpdateRetryPolicy()) {
         self.model = model
         self.log = log
         self.clock = clock
+        self.retryPolicy = retryPolicy
         super.init()
     }
 
     deinit {
         pendingCheckTransitionTask?.cancel()
         checkTimeoutTask?.cancel()
+        transientErrorRetryTask?.cancel()
     }
 
     func show(_ request: SPUUpdatePermissionRequest,
@@ -74,6 +83,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     func showUpdateNotFoundWithError(_ error: any Error,
                                      acknowledgement: @escaping () -> Void) {
+        resetTransientErrorRetryState()
         log.append("show update not found: \(formatErrorForLog(error))")
         setStateAfterMinimumCheckDelay(.notFound(.init(acknowledgement: acknowledgement)))
     }
@@ -82,6 +92,10 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
                           acknowledgement: @escaping () -> Void) {
         let details = formatErrorForLog(error)
         log.append("show updater error: \(details)")
+        if scheduleTransientErrorRetryIfNeeded(for: error) {
+            acknowledgement()
+            return
+        }
         setState(.error(.init(
             error: error,
             retry: { [weak self] in
@@ -128,6 +142,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     }
 
     func showDownloadDidStartExtractingUpdate() {
+        resetTransientErrorRetryState()
         log.append("show extraction started")
         setState(.extracting(.init(progress: 0)))
     }
@@ -153,6 +168,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     }
 
     func showUpdateInstalledAndRelaunched(_ relaunched: Bool, acknowledgement: @escaping () -> Void) {
+        resetTransientErrorRetryState()
         log.append("show update installed (relaunched=\(relaunched))")
         setState(.idle)
         acknowledgement()
@@ -182,6 +198,13 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     // MARK: - State transition helpers
 
     private func beginChecking(cancel: @escaping () -> Void) {
+        transientErrorRetryTask?.cancel()
+        transientErrorRetryTask = nil
+        if shouldPreserveRetryStateForNextCheck {
+            shouldPreserveRetryStateForNextCheck = false
+        } else {
+            transientErrorRetryFailureCount = 0
+        }
         model.setOverrideState(nil)
         pendingCheckTransitionTask?.cancel()
         pendingCheckTransitionTask = nil
@@ -190,6 +213,52 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         lastCheckStart = Date()
         applyState(.checking(.init(cancel: cancel)))
         scheduleCheckTimeout()
+    }
+
+    private func scheduleTransientErrorRetryIfNeeded(for error: any Error) -> Bool {
+        guard actionDelegate != nil else { return false }
+        let nextFailureCount = transientErrorRetryFailureCount + 1
+        guard let retryDelay = retryPolicy.delay(afterFailureNumber: nextFailureCount, for: error) else {
+            if retryPolicy.isTransientDownloadError(error) {
+                log.append("transient update download error retries exhausted (\(transientErrorRetryFailureCount)/\(retryPolicy.maximumRetryCount))")
+            }
+            return false
+        }
+
+        transientErrorRetryFailureCount = nextFailureCount
+        transientErrorRetryTask?.cancel()
+        log.append("transient update download error; retry \(nextFailureCount)/\(retryPolicy.maximumRetryCount) in \(String(format: "%.0f", retryDelay))s")
+        setState(.checking(.init(cancel: { [weak self] in
+            self?.cancelPendingTransientErrorRetry()
+        })))
+
+        transientErrorRetryTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            // Bounded, cancellable retry backoff via the injected clock.
+            try? await self.clock.sleep(for: .seconds(retryDelay))
+            guard !Task.isCancelled else { return }
+            self.transientErrorRetryTask = nil
+            self.shouldPreserveRetryStateForNextCheck = true
+            self.actionDelegate?.updaterRequestsRetryCheckForUpdates()
+        }
+        return true
+    }
+
+    private func cancelPendingTransientErrorRetry() {
+        transientErrorRetryTask?.cancel()
+        transientErrorRetryTask = nil
+        guard !shouldPreserveRetryStateForNextCheck else { return }
+        transientErrorRetryFailureCount = 0
+        if case .checking = model.state {
+            model.setState(.idle)
+        }
+    }
+
+    private func resetTransientErrorRetryState() {
+        transientErrorRetryTask?.cancel()
+        transientErrorRetryTask = nil
+        transientErrorRetryFailureCount = 0
+        shouldPreserveRetryStateForNextCheck = false
     }
 
     private func setStateAfterMinimumCheckDelay(_ newState: UpdateState) {

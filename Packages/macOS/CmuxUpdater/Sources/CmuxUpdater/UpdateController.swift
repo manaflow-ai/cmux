@@ -218,12 +218,25 @@ public final class UpdateController {
         checkForUpdatesWhenReady()
     }
 
-    private func performCheckForUpdates() {
+    /// Retry after a transient Sparkle download failure. Unlike a user-started fresh check,
+    /// this preserves any in-progress install/attempt intent so a retried archive download can
+    /// continue silently after Sparkle finds the same update again.
+    public func retryAfterTransientFailure() {
+        let shouldPreserveInstallIntent = isForceInstalling || isAttemptingUpdate
+        log.append("retrying update after transient download failure (preserveInstallIntent=\(shouldPreserveInstallIntent))")
+        checkForUpdatesWhenReady(preservingInstallIntent: shouldPreserveInstallIntent)
+    }
+
+    private func performCheckForUpdates(preservingInstallIntent: Bool = false) {
         startUpdaterIfNeeded()
         ensureSparkleInstallationCache()
         // Cancel any pending deferred re-check on every path so a stale one can't fire a
         // duplicate checkForUpdates() after this new check starts.
         recheckTask?.cancel()
+        if preservingInstallIntent {
+            updater.checkForUpdates()
+            return
+        }
         if model.state == .idle {
             updater.checkForUpdates()
             return
@@ -245,29 +258,29 @@ public final class UpdateController {
     }
 
     /// Check for updates once the updater reports it can.
-    private func checkForUpdatesWhenReady() {
+    private func checkForUpdatesWhenReady(preservingInstallIntent: Bool = false) {
         cancelReadinessRetry()
         startUpdaterIfNeeded()
         ensureSparkleInstallationCache()
         let canCheck = updater.canCheckForUpdates
         log.append("checkForUpdatesWhenReady invoked (canCheck=\(canCheck))")
         if canCheck {
-            performCheckForUpdates()
+            performCheckForUpdates(preservingInstallIntent: preservingInstallIntent)
             return
         }
         if model.state.isIdle {
             model.setState(.checking(.init(cancel: {})))
         }
-        waitForReadinessThenCheck()
+        waitForReadinessThenCheck(preservingInstallIntent: preservingInstallIntent)
     }
 
-    private func waitForReadinessThenCheck() {
+    private func waitForReadinessThenCheck(preservingInstallIntent: Bool = false) {
         readyCheckTask = Task { @MainActor [weak self] in
             guard let self else { return }
             var remaining = self.readyRetryCount
             while remaining > 0 {
                 if self.updater.canCheckForUpdates {
-                    self.performCheckForUpdates()
+                    self.performCheckForUpdates(preservingInstallIntent: preservingInstallIntent)
                     return
                 }
                 remaining -= 1
