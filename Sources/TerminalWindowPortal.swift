@@ -2142,8 +2142,29 @@ enum TerminalWindowPortalRegistry {
 
     static func synchronizeForAnchor(_ anchorView: NSView, syncLayout: Bool = true) {
         guard let window = anchorView.window else { return }
+        // `portal(for:)` can install the window portal for the first time and
+        // `synchronizeHostedViewForAnchor` runs `ensureInstalled`, both of which `addSubview`
+        // and reorder portal views. That structural mutation is unsafe while a terminal host is
+        // mid `viewDidMoveToWindow` (AppKit's `_setWindow:` enumeration), so defer it to the next
+        // run-loop turn just like `bind`. See https://github.com/manaflow-ai/cmux/issues/5704.
+        if isHostWindowAttachmentInProgress {
+            scheduleDeferredHostWindowAttachmentSynchronize(anchorView, syncLayout: syncLayout)
+            return
+        }
         let portal = portal(for: window, syncLayout: syncLayout)
         portal.synchronizeHostedViewForAnchor(anchorView, syncLayout: syncLayout)
+    }
+
+    /// Re-issue an anchor geometry reconcile on the next main run-loop turn, after AppKit has
+    /// unwound the `_setWindow:` enumeration that delivered the host's `viewDidMoveToWindow`.
+    private static func scheduleDeferredHostWindowAttachmentSynchronize(
+        _ anchorView: NSView,
+        syncLayout: Bool
+    ) {
+        DispatchQueue.main.async { [weak anchorView] in
+            guard let anchorView, anchorView.window != nil else { return }
+            synchronizeForAnchor(anchorView, syncLayout: syncLayout)
+        }
     }
 
     static func scheduleExternalGeometrySynchronize(for window: NSWindow, forceImmediate: Bool = true) {

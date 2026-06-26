@@ -1,4 +1,4 @@
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -13,65 +13,63 @@ import XCTest
 /// hosted terminal surface synchronously from `HostContainerView.viewDidMoveToWindow()` —
 /// a callback AppKit delivers while it is still enumerating the view tree inside
 /// `-[NSView _setWindow:]`. Mutating the hierarchy mid-enumeration corrupts AppKit's internal
-/// subview bookkeeping. The portal must instead defer the structural bind while a host is
-/// mid window-attachment.
+/// subview bookkeeping. The portal must instead defer the structural bind (and the geometry
+/// reconcile, which can install/reorder portal views) while a host is mid window-attachment.
+///
+/// The suite is serialized because it exercises the registry's shared attachment-depth counter.
 @MainActor
-final class TerminalWindowPortalReentrancyGuardTests: XCTestCase {
-    override func tearDown() {
-        // Drain any depth left over from a failed assertion so tests stay independent.
+@Suite(.serialized)
+struct TerminalWindowPortalReentrancyGuardTests {
+    /// Drain any depth left over from a previous test so the shared counter starts clean.
+    private func resetDepth() {
         while TerminalWindowPortalRegistry.isHostWindowAttachmentInProgress {
             TerminalWindowPortalRegistry.endHostWindowAttachment()
         }
-        super.tearDown()
     }
 
-    func testBindDefersWhileHostWindowAttachmentInProgress() {
-        XCTAssertEqual(
+    @Test func bindDefersWhileHostWindowAttachmentInProgress() {
+        #expect(
             TerminalWindowPortalRegistry.hostWindowAttachmentBindAction(
                 hostWindowAttachmentInProgress: true
-            ),
-            .deferUntilHostWindowAttachmentCompletes,
-            "A portal bind requested during a host's viewDidMoveToWindow must defer its "
-                + "structural reparent until AppKit finishes its _setWindow: enumeration."
+            ) == .deferUntilHostWindowAttachmentCompletes
         )
     }
 
-    func testBindIsImmediateOutsideHostWindowAttachment() {
-        XCTAssertEqual(
+    @Test func bindIsImmediateOutsideHostWindowAttachment() {
+        #expect(
             TerminalWindowPortalRegistry.hostWindowAttachmentBindAction(
                 hostWindowAttachmentInProgress: false
-            ),
-            .bindImmediately,
-            "Outside a window-attachment callback the portal may reparent synchronously."
+            ) == .bindImmediately
         )
     }
 
-    func testHostWindowAttachmentDepthTracksNestedBeginEnd() {
-        XCTAssertFalse(TerminalWindowPortalRegistry.isHostWindowAttachmentInProgress)
+    @Test func hostWindowAttachmentDepthTracksNestedBeginEnd() {
+        resetDepth()
+        #expect(!TerminalWindowPortalRegistry.isHostWindowAttachmentInProgress)
 
         TerminalWindowPortalRegistry.beginHostWindowAttachment()
-        XCTAssertTrue(TerminalWindowPortalRegistry.isHostWindowAttachmentInProgress)
+        #expect(TerminalWindowPortalRegistry.isHostWindowAttachmentInProgress)
 
         // Nested split trees can re-enter viewDidMoveToWindow, so the depth must nest.
         TerminalWindowPortalRegistry.beginHostWindowAttachment()
-        XCTAssertTrue(TerminalWindowPortalRegistry.isHostWindowAttachmentInProgress)
+        #expect(TerminalWindowPortalRegistry.isHostWindowAttachmentInProgress)
 
         TerminalWindowPortalRegistry.endHostWindowAttachment()
-        XCTAssertTrue(TerminalWindowPortalRegistry.isHostWindowAttachmentInProgress)
+        #expect(TerminalWindowPortalRegistry.isHostWindowAttachmentInProgress)
 
         TerminalWindowPortalRegistry.endHostWindowAttachment()
-        XCTAssertFalse(TerminalWindowPortalRegistry.isHostWindowAttachmentInProgress)
+        #expect(!TerminalWindowPortalRegistry.isHostWindowAttachmentInProgress)
     }
 
-    func testEndWithoutBeginDoesNotUnderflow() {
-        XCTAssertFalse(TerminalWindowPortalRegistry.isHostWindowAttachmentInProgress)
+    @Test func endWithoutBeginDoesNotUnderflow() {
+        resetDepth()
         TerminalWindowPortalRegistry.endHostWindowAttachment()
-        XCTAssertFalse(TerminalWindowPortalRegistry.isHostWindowAttachmentInProgress)
+        #expect(!TerminalWindowPortalRegistry.isHostWindowAttachmentInProgress)
 
         // An unbalanced end must not drive the depth negative and leave the registry stuck.
         TerminalWindowPortalRegistry.beginHostWindowAttachment()
-        XCTAssertTrue(TerminalWindowPortalRegistry.isHostWindowAttachmentInProgress)
+        #expect(TerminalWindowPortalRegistry.isHostWindowAttachmentInProgress)
         TerminalWindowPortalRegistry.endHostWindowAttachment()
-        XCTAssertFalse(TerminalWindowPortalRegistry.isHostWindowAttachmentInProgress)
+        #expect(!TerminalWindowPortalRegistry.isHostWindowAttachmentInProgress)
     }
 }
