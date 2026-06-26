@@ -187,7 +187,7 @@ cask "cmux" do
     strategy :github_latest
   end
 
-  depends_on macos: ">= :ventura"
+  depends_on macos: :sonoma
 
   app "cmux.app"
   binary "#{appdir}/cmux.app/Contents/Resources/bin/cmux"
