@@ -681,10 +681,6 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
             isForMainFrame: navigationResponse.isForMainFrame,
             allowsSubframeDownload: allowsSubframeDownload
         ) {
-            if !navigationResponse.isForMainFrame,
-               (webView as? CmuxWebView)?.startSubframeResponseWebKitDownload(navigationResponse: navigationResponse, reason: reason) == true {
-                decisionHandler(.cancel); return
-            }
             decisionHandler(.download)
             return
         }

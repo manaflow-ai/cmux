@@ -360,10 +360,6 @@ import WebKit
             #if DEBUG
             cmuxDebugLog("download.policy=download reason=\(reason) mime=\(mime) mainFrame=\(navigationResponse.isForMainFrame ? 1 : 0)")
             #endif
-            if !navigationResponse.isForMainFrame,
-               (webView as? CmuxWebView)?.startSubframeResponseWebKitDownload(navigationResponse: navigationResponse, reason: reason) == true {
-                decisionHandler(.cancel); return
-            }
             decisionHandler(.download)
             return
         }

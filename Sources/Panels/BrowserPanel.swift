@@ -4030,7 +4030,8 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         dlDelegate.onDownloadSaved = { [weak self] filename, destinationURL, shouldEndActivity in
             guard let self else { return }
-            if shouldEndActivity { self.endDownloadActivity() }
+            guard shouldEndActivity else { return }
+            self.endDownloadActivity()
             NotificationCenter.default.post(
                 name: .browserDownloadEventDidArrive,
                 object: self,
@@ -4047,7 +4048,8 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         dlDelegate.onDownloadCancelled = { [weak self] filename, shouldEndActivity in
             guard let self else { return }
-            if shouldEndActivity { self.endDownloadActivity() }
+            guard shouldEndActivity else { return }
+            self.endDownloadActivity()
             NotificationCenter.default.post(
                 name: .browserDownloadEventDidArrive,
                 object: self,
@@ -4063,7 +4065,8 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         dlDelegate.onDownloadFailed = { [weak self] error, shouldEndActivity in
             guard let self else { return }
-            if shouldEndActivity { self.endDownloadActivity() }
+            guard shouldEndActivity else { return }
+            self.endDownloadActivity()
             NotificationCenter.default.post(
                 name: .browserDownloadEventDidArrive,
                 object: self,

@@ -77,31 +77,6 @@ final class BrowserSubframeDownloadIntentTracker {
     }
 }
 
-extension CmuxWebView {
-    @discardableResult
-    func startSubframeResponseWebKitDownload(
-        navigationResponse: WKNavigationResponse,
-        reason: String
-    ) -> Bool {
-        guard let url = navigationResponse.response.url,
-              ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
-              let downloadDelegate = cmuxDownloadDelegate else {
-            return false
-        }
-        let traceID = Self.makeContextDownloadTraceID(prefix: "subframe")
-#if DEBUG
-        debugContextDownload("download.subframeWebKit trace=\(traceID) reason=\(reason) host=\(url.host ?? "nil")")
-#endif
-        startDownload(using: URLRequest(url: url)) { download in
-            if let browserDownloadDelegate = downloadDelegate as? BrowserDownloadDelegate {
-                browserDownloadDelegate.setSuggestedFilenameOverride(navigationResponse.response.suggestedFilename, for: download)
-            }
-            download.delegate = downloadDelegate
-        }
-        return true
-    }
-}
-
 nonisolated struct BrowserDownloadFilenameResolver: Sendable {
     private static let maxFilenameCollisionAttempts = 100
 
