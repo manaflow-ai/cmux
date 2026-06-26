@@ -665,53 +665,36 @@ final class GotoSplitUITestRecorder: UITestRecording {
             let otherTerminal = workspace.panels.values.compactMap { $0 as? TerminalPanel }.first
             let browserSnapshot = browserPanel.flatMap { BrowserWindowPortalRegistry.debugSnapshot(for: $0.webView) }
 
-            var updates = self.findStateSnapshot(for: workspace)
-            updates["splitZoomedAfterToggle"] = workspace.bonsplitController.isSplitZoomed ? "true" : "false"
-            updates["zoomedPaneIdAfterToggle"] = workspace.bonsplitController.zoomedPaneId?.description ?? ""
-            updates["browserPanelIdAfterToggle"] = browserPanel?.id.uuidString ?? ""
-            updates["browserContainerHiddenAfterToggle"] = browserSnapshot.map { $0.containerHidden ? "true" : "false" } ?? ""
-            updates["browserVisibleFlagAfterToggle"] = browserSnapshot.map { $0.visibleInUI ? "true" : "false" } ?? ""
-            updates["browserFrameAfterToggle"] = browserSnapshot.map {
-                String(
-                    format: "%.1f,%.1f %.1fx%.1f",
-                    $0.frameInWindow.origin.x,
-                    $0.frameInWindow.origin.y,
-                    $0.frameInWindow.size.width,
-                    $0.frameInWindow.size.height
-                )
-            } ?? ""
-            updates["otherTerminalPanelIdAfterToggle"] = otherTerminal?.id.uuidString ?? ""
-            updates["otherTerminalHostHiddenAfterToggle"] = otherTerminal.map { $0.hostedView.isHidden ? "true" : "false" } ?? ""
-            updates["otherTerminalVisibleFlagAfterToggle"] = otherTerminal.map { $0.hostedView.debugPortalVisibleInUI ? "true" : "false" } ?? ""
-            updates["otherTerminalFrameAfterToggle"] = otherTerminal.map {
-                let frame = $0.hostedView.debugPortalFrameInWindow
-                return String(
-                    format: "%.1f,%.1f %.1fx%.1f",
-                    frame.origin.x,
-                    frame.origin.y,
-                    frame.size.width,
-                    frame.size.height
-                )
-            } ?? ""
-
-            let settled: Bool = {
-                if workspace.bonsplitController.isSplitZoomed {
-                    if let focusedPanelId = workspace.focusedPanelId,
-                       workspace.terminalPanel(for: focusedPanelId) != nil {
-                        guard let browserSnapshot else { return false }
-                        return browserSnapshot.containerHidden && !browserSnapshot.visibleInUI
-                    }
-                    guard let otherTerminal else { return true }
-                    return otherTerminal.hostedView.isHidden && !otherTerminal.hostedView.debugPortalVisibleInUI
-                }
-                let browserRestored = browserSnapshot.map { !$0.containerHidden && $0.visibleInUI } ?? true
-                let terminalRestored = otherTerminal.map {
-                    !$0.hostedView.isHidden && $0.hostedView.debugPortalVisibleInUI
-                } ?? true
-                return browserRestored && terminalRestored
+            let focusedPanelIsTerminal: Bool = {
+                guard let focusedPanelId = workspace.focusedPanelId else { return false }
+                return workspace.terminalPanel(for: focusedPanelId) != nil
             }()
 
-            return (updates, settled)
+            let zoomSnapshot = GotoSplitZoomSnapshot(
+                isSplitZoomed: workspace.bonsplitController.isSplitZoomed,
+                zoomedPaneId: workspace.bonsplitController.zoomedPaneId?.description,
+                focusedPanelIsTerminal: focusedPanelIsTerminal,
+                browserPanelId: browserPanel?.id.uuidString,
+                browserPortal: browserSnapshot.map {
+                    GotoSplitZoomSnapshot.PortalGeometry(
+                        isHidden: $0.containerHidden,
+                        isVisibleInUI: $0.visibleInUI,
+                        frameInWindow: $0.frameInWindow
+                    )
+                },
+                otherTerminalPanelId: otherTerminal?.id.uuidString,
+                otherTerminalPortal: otherTerminal.map {
+                    GotoSplitZoomSnapshot.PortalGeometry(
+                        isHidden: $0.hostedView.isHidden,
+                        isVisibleInUI: $0.hostedView.debugPortalVisibleInUI,
+                        frameInWindow: $0.hostedView.debugPortalFrameInWindow
+                    )
+                }
+            )
+
+            var updates = self.findStateSnapshot(for: workspace)
+            updates.merge(zoomSnapshot.captureFields) { _, new in new }
+            return (updates, zoomSnapshot.settled)
         }
 
         var resolved = false

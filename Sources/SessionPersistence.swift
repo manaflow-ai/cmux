@@ -828,92 +828,11 @@ struct SessionPanelSnapshot: Codable, Sendable {
 
 extension SessionPanelSnapshot: WorkspaceSessionRemoteRestorePanelSnapshot {}
 
-enum SessionSplitOrientation: String, Codable, Sendable {
-    case horizontal
-    case vertical
-
-    init(_ orientation: SplitOrientation) {
-        switch orientation {
-        case .horizontal:
-            self = .horizontal
-        case .vertical:
-            self = .vertical
-        }
-    }
-
-    var splitOrientation: SplitOrientation {
-        switch self {
-        case .horizontal:
-            return .horizontal
-        case .vertical:
-            return .vertical
-        }
-    }
-}
-
-struct SessionPaneLayoutSnapshot: Codable, Sendable {
-    var panelIds: [UUID]
-    var selectedPanelId: UUID?
-}
-
-struct SessionSplitLayoutSnapshot: Codable, Sendable {
-    var orientation: SessionSplitOrientation
-    var dividerPosition: Double
-    var first: SessionWorkspaceLayoutSnapshot
-    var second: SessionWorkspaceLayoutSnapshot
-}
-
-indirect enum SessionWorkspaceLayoutSnapshot: Codable, Sendable {
-    case pane(SessionPaneLayoutSnapshot)
-    case split(SessionSplitLayoutSnapshot)
-
-    private enum CodingKeys: String, CodingKey {
-        case type
-        case pane
-        case split
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let type = try container.decode(String.self, forKey: .type)
-        switch type {
-        case "pane":
-            self = .pane(try container.decode(SessionPaneLayoutSnapshot.self, forKey: .pane))
-        case "split":
-            self = .split(try container.decode(SessionSplitLayoutSnapshot.self, forKey: .split))
-        default:
-            throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "Unsupported layout node type: \(type)")
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        switch self {
-        case .pane(let pane):
-            try container.encode("pane", forKey: .type)
-            try container.encode(pane, forKey: .pane)
-        case .split(let split):
-            try container.encode("split", forKey: .type)
-            try container.encode(split, forKey: .split)
-        }
-    }
-}
-
-/// One canvas pane's persisted geometry, ordered back-to-front so restore
-/// reproduces the z-order.
-struct SessionCanvasPaneSnapshot: Codable, Equatable, Sendable {
-    /// The pane identity (its founding panel's UUID). Pre-tab snapshots
-    /// stored the single hosted panel here.
-    var panelId: UUID
-    var x: Double
-    var y: Double
-    var width: Double
-    var height: Double
-    /// Ordered tabs. Absent in pre-tab snapshots (treated as `[panelId]`).
-    var panelIds: [UUID]? = nil
-    /// Selected tab. Absent in pre-tab snapshots (treated as `panelId`).
-    var selectedPanelId: UUID? = nil
-}
+// The persisted layout DTOs (SessionSplitOrientation, SessionPaneLayoutSnapshot,
+// SessionSplitLayoutSnapshot, SessionWorkspaceLayoutSnapshot, and
+// SessionCanvasPaneSnapshot) now live in CmuxWorkspaces/Session/, alongside the
+// SessionLayoutPruning/SessionLayoutNodeBuilding seams and the session restore
+// coordinator that compute over them. They are imported via `import CmuxWorkspaces`.
 
 struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// Original workspace ID captured when the snapshot comes from a live workspace.

@@ -1,10 +1,12 @@
 import CmuxWorkspaces
 import Foundation
 
-/// Conforms the app-owned persisted layout enum to the package prune seam so
-/// the recursive prune algorithm lives in `CmuxWorkspaces` while the wire
-/// format and concrete pane/split DTOs stay in the app target.
-extension SessionWorkspaceLayoutSnapshot: SessionLayoutPruning {
+/// Conforms the persisted layout enum (now owned by `CmuxWorkspaces`) to the
+/// package prune seam. The recursive prune algorithm and the concrete
+/// pane/split DTOs both live in `CmuxWorkspaces`; this bridge stays in the app
+/// target, so the conformance is `@retroactive` (an imported type conforming to
+/// an imported protocol).
+extension SessionWorkspaceLayoutSnapshot: @retroactive SessionLayoutPruning {
     var sessionLayoutPruneCase: SessionLayoutPruneCase<SessionWorkspaceLayoutSnapshot> {
         switch self {
         case .pane(let pane):

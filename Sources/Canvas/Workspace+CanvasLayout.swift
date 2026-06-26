@@ -3,6 +3,7 @@ import AppKit
 import Bonsplit
 import CmuxCanvas
 import CmuxCanvasUI
+import CmuxWorkspaces
 
 extension Notification.Name {
     /// Posted (object = the `Workspace`) whenever its `layoutMode` changes,

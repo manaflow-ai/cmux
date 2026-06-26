@@ -1441,7 +1441,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         let bounds = NSRect(x: 0, y: 0, width: 400, height: 300)
 
         XCTAssertTrue(
-            shouldHandleMinimalModeTitlebarDoubleClick(
+            MinimalModeTitlebarBand.shouldHandleMinimalModeTitlebarDoubleClick(
                 isEnabled: true,
                 clickCount: 2,
                 point: NSPoint(x: 200, y: 292),
@@ -1450,7 +1450,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            shouldHandleMinimalModeTitlebarDoubleClick(
+            MinimalModeTitlebarBand.shouldHandleMinimalModeTitlebarDoubleClick(
                 isEnabled: true,
                 clickCount: 2,
                 point: NSPoint(x: 200, y: 240),
@@ -1459,7 +1459,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            shouldHandleMinimalModeTitlebarDoubleClick(
+            MinimalModeTitlebarBand.shouldHandleMinimalModeTitlebarDoubleClick(
                 isEnabled: false,
                 clickCount: 2,
                 point: NSPoint(x: 200, y: 292),
@@ -1468,7 +1468,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            shouldHandleMinimalModeTitlebarDoubleClick(
+            MinimalModeTitlebarBand.shouldHandleMinimalModeTitlebarDoubleClick(
                 isEnabled: true,
                 clickCount: 1,
                 point: NSPoint(x: 200, y: 292),
@@ -1482,7 +1482,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         let bounds = NSRect(x: 0, y: 0, width: 400, height: 300)
 
         XCTAssertTrue(
-            shouldHandleMinimalModeWindowTitlebarDoubleClick(
+            MinimalModeTitlebarBand.shouldHandleMinimalModeWindowTitlebarDoubleClick(
                 isMinimalMode: true,
                 isFullScreen: false,
                 isMainWindow: true,
@@ -1493,7 +1493,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            shouldHandleMinimalModeWindowTitlebarDoubleClick(
+            MinimalModeTitlebarBand.shouldHandleMinimalModeWindowTitlebarDoubleClick(
                 isMinimalMode: false,
                 isFullScreen: false,
                 isMainWindow: true,
@@ -1504,7 +1504,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            shouldHandleMinimalModeWindowTitlebarDoubleClick(
+            MinimalModeTitlebarBand.shouldHandleMinimalModeWindowTitlebarDoubleClick(
                 isMinimalMode: true,
                 isFullScreen: true,
                 isMainWindow: true,
@@ -1515,7 +1515,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            shouldHandleMinimalModeWindowTitlebarDoubleClick(
+            MinimalModeTitlebarBand.shouldHandleMinimalModeWindowTitlebarDoubleClick(
                 isMinimalMode: true,
                 isFullScreen: false,
                 isMainWindow: false,
@@ -1526,7 +1526,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            shouldHandleMinimalModeWindowTitlebarDoubleClick(
+            MinimalModeTitlebarBand.shouldHandleMinimalModeWindowTitlebarDoubleClick(
                 isMinimalMode: true,
                 isFullScreen: false,
                 isMainWindow: true,

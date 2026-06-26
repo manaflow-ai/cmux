@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import Foundation
 
 /// Identifies a remote host whose tmux server cmux mirrors over SSH.
