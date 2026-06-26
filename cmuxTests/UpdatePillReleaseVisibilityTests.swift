@@ -497,12 +497,12 @@ final class NotificationsPopoverAnchorPolicyTests: XCTestCase {
         fallback.addSubview(buttonAnchor)
 
         XCTAssertTrue(
-            preferredNotificationsPopoverAnchor(buttonAnchor: buttonAnchor, fallbackAnchor: fallback) === buttonAnchor
+            NSView.preferredNotificationsPopoverAnchor(buttonAnchor: buttonAnchor, fallbackAnchor: fallback) === buttonAnchor
         )
 
         buttonAnchor.isHidden = true
         XCTAssertTrue(
-            preferredNotificationsPopoverAnchor(buttonAnchor: buttonAnchor, fallbackAnchor: fallback) === fallback
+            NSView.preferredNotificationsPopoverAnchor(buttonAnchor: buttonAnchor, fallbackAnchor: fallback) === fallback
         )
     }
 
@@ -533,7 +533,7 @@ final class NotificationsPopoverAnchorPolicyTests: XCTestCase {
         otherContentView.addSubview(buttonAnchor)
 
         XCTAssertTrue(
-            preferredNotificationsPopoverAnchor(buttonAnchor: buttonAnchor, fallbackAnchor: fallback) === fallback
+            NSView.preferredNotificationsPopoverAnchor(buttonAnchor: buttonAnchor, fallbackAnchor: fallback) === fallback
         )
     }
 
