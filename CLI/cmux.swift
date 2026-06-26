@@ -7389,8 +7389,8 @@ struct CMUXCLI {
             method = "canvas.info"
         case "mode":
             guard let mode = positionals.first?.lowercased(),
-                  ["canvas", "splits", "toggle"].contains(mode) else {
-                throw CLIError(message: "Usage: cmux canvas mode <canvas|splits|toggle>")
+                  ["canvas", "niri", "splits", "toggle"].contains(mode) else {
+                throw CLIError(message: "Usage: cmux canvas mode <canvas|niri|splits|toggle>")
             }
             params["mode"] = mode
             method = "canvas.set_mode"
@@ -13467,11 +13467,11 @@ struct CMUXCLI {
             return """
             Usage: cmux canvas <subcommand> [args] [--workspace <id|ref>]
 
-            Control a workspace's freeform canvas layout.
+            Control a workspace's canvas layout.
 
             Subcommands:
               info                          Print layout mode and pane frames (z-order)
-              mode <canvas|splits|toggle>   Switch layout mode
+              mode <canvas|niri|splits|toggle> Switch layout mode; toggle cycles modes
               set-frame <surface> --x <n> --y <n> --width <n> --height <n>
                                             Place one pane at an explicit frame
               align <command>               tidy, align-left, align-right, align-top,

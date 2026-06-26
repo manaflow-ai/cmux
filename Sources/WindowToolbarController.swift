@@ -208,7 +208,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
             let segmented = NSSegmentedControl()
             segmented.segmentStyle = .texturedRounded
             segmented.trackingMode = .selectOne
-            segmented.segmentCount = 2
+            segmented.segmentCount = 3
             segmented.controlSize = .small
             segmented.setImage(
                 NSImage(systemSymbolName: "rectangle.split.2x1", accessibilityDescription: nil),
@@ -218,6 +218,10 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
                 NSImage(systemSymbolName: "square.on.square.dashed", accessibilityDescription: nil),
                 forSegment: LayoutModeSegment.canvas.rawValue
             )
+            segmented.setLabel(
+                String(localized: "toolbar.layout.pages", defaultValue: "Pages"),
+                forSegment: LayoutModeSegment.niri.rawValue
+            )
             segmented.setToolTip(
                 String(localized: "toolbar.layout.splits", defaultValue: "Split panes"),
                 forSegment: LayoutModeSegment.splits.rawValue
@@ -226,11 +230,18 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
                 String(localized: "toolbar.layout.canvas", defaultValue: "Canvas"),
                 forSegment: LayoutModeSegment.canvas.rawValue
             )
+            segmented.setToolTip(
+                String(
+                    localized: "toolbar.layout.pages.tooltip",
+                    defaultValue: "Niri-style horizontal surface pages"
+                ),
+                forSegment: LayoutModeSegment.niri.rawValue
+            )
             segmented.target = self
             segmented.action = #selector(layoutModeSegmentChanged(_:))
             item.view = segmented
             item.label = String(localized: "toolbar.layout.label", defaultValue: "Layout")
-            item.toolTip = String(localized: "shortcut.toggleCanvasLayout.label", defaultValue: "Toggle Canvas Layout")
+            item.toolTip = String(localized: "shortcut.toggleCanvasLayout.label", defaultValue: "Cycle Layout Mode")
             layoutModeControls[ObjectIdentifier(toolbar)] = segmented
             updateLayoutModeSelection()
             return item
@@ -244,17 +255,34 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
     private enum LayoutModeSegment: Int {
         case splits = 0
         case canvas = 1
+        case niri = 2
     }
 
     @objc private func layoutModeSegmentChanged(_ sender: NSSegmentedControl) {
         guard let workspace = tabManager?.selectedWorkspace else { return }
-        let target: WorkspaceLayoutMode = sender.selectedSegment == LayoutModeSegment.canvas.rawValue ? .canvas : .splits
+        let target: WorkspaceLayoutMode
+        switch sender.selectedSegment {
+        case LayoutModeSegment.canvas.rawValue:
+            target = .canvas
+        case LayoutModeSegment.niri.rawValue:
+            target = .niri
+        default:
+            target = .splits
+        }
         workspace.setLayoutMode(target)
     }
 
     private func updateLayoutModeSelection() {
         let mode = tabManager?.selectedWorkspace?.layoutMode ?? .splits
-        let segment = mode == .canvas ? LayoutModeSegment.canvas.rawValue : LayoutModeSegment.splits.rawValue
+        let segment: Int
+        switch mode {
+        case .splits:
+            segment = LayoutModeSegment.splits.rawValue
+        case .canvas:
+            segment = LayoutModeSegment.canvas.rawValue
+        case .niri:
+            segment = LayoutModeSegment.niri.rawValue
+        }
         for control in layoutModeControls.values where control.selectedSegment != segment {
             control.selectedSegment = segment
         }

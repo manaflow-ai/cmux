@@ -5,8 +5,10 @@ import Testing
 @MainActor
 @Suite("Canvas space pan")
 struct CanvasSpacePanTests {
+    private let behavior = CanvasSpacePanBehavior()
+
     @Test func dragMovesViewportAsIfGrabbingCanvas() {
-        let origin = canvasSpacePanClipOrigin(
+        let origin = behavior.clipOrigin(
             startClipOrigin: CGPoint(x: 100, y: 200),
             startWindowPoint: CGPoint(x: 40, y: 50),
             currentWindowPoint: CGPoint(x: 70, y: 90),
@@ -18,7 +20,7 @@ struct CanvasSpacePanTests {
     }
 
     @Test func dragDeltaScalesWithMagnification() {
-        let origin = canvasSpacePanClipOrigin(
+        let origin = behavior.clipOrigin(
             startClipOrigin: CGPoint(x: 100, y: 200),
             startWindowPoint: CGPoint(x: 40, y: 50),
             currentWindowPoint: CGPoint(x: 70, y: 90),
@@ -30,7 +32,7 @@ struct CanvasSpacePanTests {
     }
 
     @Test func spaceKeyDoesNotArmPanWhilePaneOwnsKeyboardFocus() {
-        #expect(!canvasSpacePanShouldConsumeSpaceKey(
+        #expect(!behavior.shouldConsumeSpaceKey(
             isPointerInsideCanvas: true,
             canInterceptKeyboardTarget: false,
             isPanning: false
@@ -38,7 +40,7 @@ struct CanvasSpacePanTests {
     }
 
     @Test func spaceKeyCanArmPanWhenCanvasOwnsKeyboardFocus() {
-        #expect(canvasSpacePanShouldConsumeSpaceKey(
+        #expect(behavior.shouldConsumeSpaceKey(
             isPointerInsideCanvas: true,
             canInterceptKeyboardTarget: true,
             isPanning: false
@@ -46,7 +48,7 @@ struct CanvasSpacePanTests {
     }
 
     @Test func activePanConsumesSpaceKeyUntilGestureEnds() {
-        #expect(canvasSpacePanShouldConsumeSpaceKey(
+        #expect(behavior.shouldConsumeSpaceKey(
             isPointerInsideCanvas: false,
             canInterceptKeyboardTarget: false,
             isPanning: true
@@ -54,18 +56,18 @@ struct CanvasSpacePanTests {
     }
 
     @Test func spaceKeyRepeatPreservesInitialConsumptionDecision() {
-        #expect(canvasSpacePanShouldConsumeSpaceKeyRepeat(
+        #expect(behavior.shouldConsumeSpaceKeyRepeat(
             didConsumeSpaceKey: true,
             isPanning: false
         ))
-        #expect(!canvasSpacePanShouldConsumeSpaceKeyRepeat(
+        #expect(!behavior.shouldConsumeSpaceKeyRepeat(
             didConsumeSpaceKey: false,
             isPanning: false
         ))
     }
 
     @Test func spaceKeyDoesNotArmPanWhileTextOrControlOwnsKeyboardFocus() {
-        #expect(!canvasSpacePanShouldConsumeSpaceKey(
+        #expect(!behavior.shouldConsumeSpaceKey(
             isPointerInsideCanvas: true,
             canInterceptKeyboardTarget: false,
             isPanning: false
@@ -73,7 +75,7 @@ struct CanvasSpacePanTests {
     }
 
     @Test func spaceKeyDoesNotArmPanWhileForeignViewOwnsKeyboardFocus() {
-        #expect(!canvasSpacePanShouldConsumeSpaceKey(
+        #expect(!behavior.shouldConsumeSpaceKey(
             isPointerInsideCanvas: true,
             canInterceptKeyboardTarget: false,
             isPanning: false
@@ -81,12 +83,12 @@ struct CanvasSpacePanTests {
     }
 
     @Test func panBeginsOnlyWhenConsumedSpaceIsStillPhysicallyHeld() {
-        #expect(canvasSpacePanCanBegin(
+        #expect(behavior.canBeginPan(
             didConsumeSpaceKey: true,
             isPhysicalSpaceKeyPressed: true,
             isPointerInsideCanvas: true
         ))
-        #expect(!canvasSpacePanCanBegin(
+        #expect(!behavior.canBeginPan(
             didConsumeSpaceKey: true,
             isPhysicalSpaceKeyPressed: false,
             isPointerInsideCanvas: true
@@ -94,7 +96,7 @@ struct CanvasSpacePanTests {
     }
 
     @Test func panDoesNotBeginFromSpaceDeliveredToPane() {
-        #expect(!canvasSpacePanCanBegin(
+        #expect(!behavior.canBeginPan(
             didConsumeSpaceKey: false,
             isPhysicalSpaceKeyPressed: true,
             isPointerInsideCanvas: true
@@ -102,7 +104,7 @@ struct CanvasSpacePanTests {
     }
 
     @Test func hiddenCanvasDoesNotHandleSpacePanEvents() {
-        #expect(canvasSpacePanShouldHandleEvents(isWorkspaceVisible: true))
-        #expect(!canvasSpacePanShouldHandleEvents(isWorkspaceVisible: false))
+        #expect(behavior.shouldHandleEvents(isWorkspaceVisible: true))
+        #expect(!behavior.shouldHandleEvents(isWorkspaceVisible: false))
     }
 }

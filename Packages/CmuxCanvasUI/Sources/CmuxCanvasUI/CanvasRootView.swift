@@ -30,6 +30,7 @@ public final class CanvasRootView: NSView {
     private var descriptorsByPanelId: [UUID: CanvasPaneDescriptor] = [:]
     private var renderingByPane: [CanvasPaneID: Bool] = [:]
     var isWorkspaceVisible = true
+    let spacePanBehavior = CanvasSpacePanBehavior()
     /// Canvas coordinates of the document view's (0,0).
     var documentOriginInCanvas: CGPoint = .zero
     var dragSession: DragSession?
@@ -43,6 +44,7 @@ public final class CanvasRootView: NSView {
     /// pinch, never fires `didEndLiveMagnify`), so portals re-anchor once the
     /// zoom gesture stops.
     var zoomSettleTask: Task<Void, Never>?
+    var latestFocusedPanelId: UUID?
     private var hasPlacedInitialViewport = false
     /// One-per-session throttle for the Command+scroll discovery hint.
     static var didShowCommandScrollHintThisSession = false
@@ -71,6 +73,13 @@ public final class CanvasRootView: NSView {
         var lastPoint: CGPoint = .zero
     }
 
+    /// Creates a canvas root view.
+    ///
+    /// - Parameters:
+    ///   - model: The durable canvas model owned by the host workspace.
+    ///   - commandScrollHintText: Localized text for the Command-scroll hint.
+    ///   - callbacks: Host callbacks for focus, layout, and viewport events.
+    ///   - themeProvider: Supplies current canvas and pane colors.
     public init(
         model: CanvasModel,
         commandScrollHintText: String,
@@ -203,6 +212,7 @@ public final class CanvasRootView: NSView {
         let becameVisible = isWorkspaceVisible && !self.isWorkspaceVisible
         self.isWorkspaceVisible = isWorkspaceVisible
         if !isWorkspaceVisible { cancelSpacePan() }
+        latestFocusedPanelId = focusedPanelId
         let added = model.syncPanes(
             panelIds: descriptors.map(\.id),
             focusedPanelId: focusedPanelId
@@ -276,6 +286,8 @@ public final class CanvasRootView: NSView {
                 documentView.addSubview(paneView)
                 paneViews[pane.id] = paneView
             }
+            paneView.allowsResize = true
+            paneView.allowsTitleBarDrag = true
             reconcileMount(for: pane, in: paneView)
             paneView.updateChrome(chrome(for: pane))
         }
@@ -482,18 +494,4 @@ public final class CanvasRootView: NSView {
         setClipOrigin(target, animated: animated)
     }
 
-    func setClipOrigin(_ origin: CGPoint, animated: Bool) {
-        if animated {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.28
-                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                context.allowsImplicitAnimation = true
-                scrollView.contentView.animator().setBoundsOrigin(origin)
-                scrollView.reflectScrolledClipView(scrollView.contentView)
-            }
-        } else {
-            scrollView.contentView.setBoundsOrigin(origin)
-            scrollView.reflectScrolledClipView(scrollView.contentView)
-        }
-    }
 }

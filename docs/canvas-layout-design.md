@@ -5,6 +5,11 @@ browser, markdown, file preview, agent session, ...) becomes a freely placed,
 individually resizable pane on an infinite scrollable canvas. Canvas layout
 coexists with the default bonsplit split layout; a workspace switches modes
 without losing panels, and switching back restores the previous split tree.
+The same pane/tab model also has a Niri-style Pages mode: each surface pane is
+available through a native AppKit page strip. Pages mode does not run inside
+the canvas `NSScrollView`: horizontal swipes are handled by `NSPageController`,
+vertical scroll remains with the surface, and canvas zoom/drag behaviors are
+inactive.
 
 ## Why
 
@@ -54,6 +59,9 @@ correct-but-not-perfect until they get direct hosting too.
 - splits → canvas: seed each pane's canvas frame from the bonsplit
   `LayoutSnapshot` pane frames, so the canvas initially looks identical to
   the split layout, then normalize to the canonical gap.
+- splits/canvas → niri: keep the same canvas pane/tab model, but render it in
+  `CanvasPagesRootView`, a native `NSPageController` host. The mode selects
+  one pane per page instead of scrolling a 2D canvas and snapping back.
 - canvas → splits: the workspace's previous bonsplit tree is kept while in
   canvas mode (panels are never removed from bonsplit bookkeeping); leaving
   canvas mode re-mounts the bonsplit view. Panels created while in canvas
@@ -103,10 +111,19 @@ shortcuts, command palette, View menu, and the `canvas.*` debug-socket verbs
 all call it. Spatial focus reuses the existing split-focus actions when the
 workspace is in canvas mode (same shortcut, mode-appropriate behavior).
 
-Actions: toggle canvas layout, focus left/right/up/down, focus previous,
+Actions: cycle layout mode, focus left/right/up/down, focus previous,
 reveal focused pane, overview (fit all), zoom to 100%, align
 lefts/rights/tops/bottoms, equalize widths/heights, distribute
 horizontally/vertically, tidy canvas.
+
+The hidden layout toggle path (`Cycle Layout Mode`, `canvas mode toggle`)
+cycles Splits → Canvas → Pages → Splits so existing keyboard, palette, menu,
+and socket entrypoints can reach Pages without requiring the toolbar selector.
+
+`canvas.set_mode` accepts `splits`, `canvas`, `niri`, and `toggle`. The Niri
+mode still reports through `canvas.info` and uses the same `canvas.*` control
+verbs because it shares the canvas pane/tab model, not because it is rendered
+by the canvas scroll view.
 
 All new shortcuts are registered in `KeyboardShortcutSettings`, editable in
 Settings, configurable in `~/.config/cmux/cmux.json`, and documented in the

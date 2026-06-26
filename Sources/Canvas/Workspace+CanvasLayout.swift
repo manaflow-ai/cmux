@@ -22,7 +22,8 @@ extension Workspace {
     /// split tree itself is left untouched, so switching back restores it.
     func setLayoutMode(_ mode: WorkspaceLayoutMode) {
         guard mode != layoutMode else { return }
-        if mode == .canvas {
+        let wasCanvasHosted = layoutMode.usesCanvasHost
+        if mode.usesCanvasHost && !wasCanvasHosted {
             canvasModel.seedFromSplitFrames(splitPaneFramesByPanelId())
         }
         layoutMode = mode
@@ -39,9 +40,9 @@ extension Workspace {
         // each visible pane's selected terminal via its portal-detach path.
         // Leaving canvas: reconcile to the split-mode rendered set so the
         // re-attached terminals show at the correct split frames.
-        if mode == .canvas {
+        if mode.usesCanvasHost && !wasCanvasHosted {
             hideAllTerminalPortalViews()
-        } else {
+        } else if !mode.usesCanvasHost && wasCanvasHosted {
             reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
         }
         reconcileBrowserPortalVisibilityForCurrentRenderedLayout(
@@ -52,9 +53,9 @@ extension Workspace {
         NotificationCenter.default.post(name: .workspaceLayoutModeDidChange, object: self)
     }
 
-    /// Toggles between split and canvas layout.
+    /// Cycles between split, canvas, and horizontal pages layout.
     func toggleCanvasLayout() {
-        setLayoutMode(layoutMode == .canvas ? .splits : .canvas)
+        setLayoutMode(layoutMode.nextCycledMode)
     }
 
     /// Canvas-mode directional focus: nearest pane spatially, then reveal it.
@@ -131,8 +132,10 @@ extension Workspace {
             }
             canvasModel.restorePanes(restored)
         }
-        if snapshot.layoutMode == WorkspaceLayoutMode.canvas.rawValue {
-            layoutMode = .canvas
+        if let rawLayoutMode = snapshot.layoutMode,
+           let restoredLayoutMode = WorkspaceLayoutMode(rawValue: rawLayoutMode),
+           restoredLayoutMode.usesCanvasHost {
+            layoutMode = restoredLayoutMode
         }
     }
 
@@ -206,7 +209,7 @@ extension Workspace {
     /// disabled). Must be called in canvas mode.
     @discardableResult
     func openNewCanvasPane(type: CanvasNewPaneType, focus: Bool = true) -> UUID? {
-        guard layoutMode == .canvas else { return nil }
+        guard layoutMode.usesCanvasHost else { return nil }
         guard let focusedPaneId = bonsplitController.focusedPaneId else { return nil }
         let newPanelId: UUID
         switch type {
@@ -235,7 +238,7 @@ extension Workspace {
     /// the canvas model first, since panel creation can run before the next
     /// descriptor sync.
     func joinNewPanelIntoCanvasPane(_ panelId: UUID, anchor: UUID) {
-        guard layoutMode == .canvas else { return }
+        guard layoutMode.usesCanvasHost else { return }
         canvasModel.syncPanes(
             panelIds: orderedPanelIds,
             focusedPanelId: anchor
@@ -250,9 +253,11 @@ extension Workspace {
 extension Workspace {
     /// Mirrors canvas pane z-order onto portal-hosted browser webviews so a
     /// front pane's webview stacks above a back pane's.
-    func syncCanvasBrowserPortalZOrder() {
-        guard layoutMode == .canvas else { return }
+    @discardableResult
+    func syncCanvasBrowserPortalZOrder() -> Bool {
+        guard layoutMode == .canvas else { return false }
         let zOrder = canvasModel.layout.paneIDs
+        var didUpdate = false
         for panel in panels.values {
             guard let browserPanel = panel as? BrowserPanel,
                   !browserPanel.canvasInlineHostingActive,
@@ -263,6 +268,8 @@ extension Workspace {
                 visibleInUI: true,
                 zPriority: 2 + z
             )
+            didUpdate = true
         }
+        return didUpdate
     }
 }

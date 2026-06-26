@@ -359,7 +359,7 @@ struct WorkspaceContentView: View {
         }
 
         Group {
-            if workspace.layoutMode == .canvas {
+            if workspace.layoutMode.usesCanvasHost {
                 WorkspaceCanvasHostView(
                     workspace: workspace,
                     isWorkspaceVisible: isWorkspaceVisible,

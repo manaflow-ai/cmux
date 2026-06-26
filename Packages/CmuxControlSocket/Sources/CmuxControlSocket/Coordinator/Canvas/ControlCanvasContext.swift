@@ -14,7 +14,7 @@ public protocol ControlCanvasContext: AnyObject {
     func controlCanvasInfo(routing: ControlRoutingSelectors) -> ControlCanvasInfoSnapshot?
 
     /// Sets the layout mode for `canvas.set_mode`. `mode` is `"canvas"`,
-    /// `"splits"`, or `"toggle"` (validated by the coordinator).
+    /// `"niri"`, `"splits"`, or `"toggle"` (validated by the coordinator).
     func controlCanvasSetMode(
         routing: ControlRoutingSelectors,
         mode: String

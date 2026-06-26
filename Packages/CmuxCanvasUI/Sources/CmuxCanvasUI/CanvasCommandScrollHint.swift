@@ -8,17 +8,12 @@ import SwiftUI
 struct CanvasCommandScrollHint: View {
     /// Pre-localized hint text, supplied by the host.
     let text: String
+    let style: CanvasScrollHintStyle
     @State private var shown = false
 
     var body: some View {
         HStack(spacing: 8) {
-            keycap("⌘")
-            Image(systemName: "plus")
-                .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(.secondary)
-            Image(systemName: "scroll")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
+            leadingGlyphs
             Text(text)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.primary)
@@ -38,6 +33,27 @@ struct CanvasCommandScrollHint: View {
         }
         .allowsHitTesting(false)
         .accessibilityLabel(text)
+    }
+
+    @ViewBuilder
+    private var leadingGlyphs: some View {
+        switch style {
+        case .commandPan:
+            keycap("⌘")
+            Image(systemName: "plus")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(.secondary)
+            Image(systemName: "scroll")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+        case .horizontalPages:
+            Image(systemName: "arrow.left.and.right")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+            Image(systemName: "scroll")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+        }
     }
 
     private func keycap(_ text: String) -> some View {
