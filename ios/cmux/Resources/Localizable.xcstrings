@@ -4863,6 +4863,23 @@
         }
       }
     },
+    "mobile.signIn.sentCodeGeneric": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter the code from the email."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メールに記載されたコードを入力してください。"
+          }
+        }
+      }
+    },
     "mobile.signIn.subtitle": {
       "extractionState": "manual",
       "localizations": {
