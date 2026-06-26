@@ -57,8 +57,8 @@ extension ControlCommandCoordinator {
             return surfacePortsKick(request.params)
         case "surface.clear_history":
             return surfaceClearHistory(request.params)
-        case "surface.read_text":
-            return surfaceReadText(request.params)
+        // `surface.read_text` runs on the socket-worker lane (issue #5757),
+        // dispatched app-side, not through this @MainActor coordinator.
         case "surface.trigger_flash":
             return surfaceTriggerFlash(request.params)
         case "debug.terminals":

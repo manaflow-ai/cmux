@@ -1108,6 +1108,8 @@ class TerminalController {
             return v2Result(id: request.id, v2SystemTop(params: request.params))
         case "system.memory":
             return v2Result(id: request.id, v2SystemMemory(params: request.params))
+        case "surface.read_text":
+            return v2Result(id: request.id, v2SurfaceReadText(params: request.params))
         case "workspace.env":
             return v2Result(id: request.id, v2WorkspaceEnv(params: request.params))
         case "workspace.remote.pty_sessions":
@@ -1920,7 +1922,8 @@ class TerminalController {
         // Markdown/files/projects: markdown.open, file.open (forwards to the
         // still-shared v2FileOpen), and project.* handled by ControlCommandCoordinator.
 
-        // surface.read_text handled by ControlCommandCoordinator.
+        // surface.read_text runs on the socket-worker lane (issue #5757), so it
+        // never reaches this main-actor switch; see v2SurfaceReadText.
 
 
         // Debug / test-only: the DEBUG-gated debug.* domain (shortcuts, typing,
@@ -4871,6 +4874,132 @@ class TerminalController {
             }
         }
         return (newlineCount + 1, byteCount)
+    }
+
+    private struct ReadTextCapture {
+        let rawSnapshot: TerminalTextRawSnapshot
+        let workspaceID: UUID
+        let surfaceID: UUID
+        let windowID: UUID?
+        let workspaceRef: Any
+        let surfaceRef: Any
+        let windowRef: Any
+    }
+
+    private enum ReadTextCaptureOutcome {
+        /// An error fully resolved on the main actor (its localized message and
+        /// `data` need no off-main formatting), returned verbatim.
+        case finished(V2CallResult)
+        /// The raw Ghostty text and identity; the caller formats it off-main.
+        case captured(ReadTextCapture)
+    }
+
+    /// `surface.read_text` worker body (issue #5757). The former
+    /// `ControlCommandCoordinator.surfaceReadText` ran the whole read — including
+    /// the full-scrollback line tailing, candidate scoring, and base64 encoding —
+    /// on the main actor, so under heavy agent load one large scrollback read
+    /// stalled the run loop and serialized every other client behind it.
+    ///
+    /// This splits the work: only the routing resolution and the Ghostty FFI
+    /// capture take a (minimal) `v2MainSync` hop; the expensive
+    /// `terminalTextPayload` formatting runs here on the socket-worker thread.
+    /// The response shape, error codes, and routing precedence are byte-faithful
+    /// to the coordinator witness this replaces.
+    private nonisolated func v2SurfaceReadText(params: [String: Any]) -> V2CallResult {
+        var includeScrollback = v2Bool(params, "scrollback") ?? false
+        let lineLimit = v2Int(params, "lines")
+        if lineLimit != nil {
+            includeScrollback = true
+        }
+
+        // Main-actor critical section: resolve the target and read the raw
+        // Ghostty text. Everything after this hop runs off the main actor.
+        let outcome: ReadTextCaptureOutcome = v2MainSync {
+            // Mint refs for current topology so caller-supplied `kind:N` refs
+            // resolve, exactly as the former main-actor dispatch did before
+            // handing off to the coordinator.
+            self.v2RefreshKnownRefs()
+            let routing = ControlRoutingSelectors(
+                hasWindowIDParam: self.v2HasNonNullParam(params, "window_id"),
+                windowID: self.v2UUID(params, "window_id"),
+                groupID: self.v2UUID(params, "group_id"),
+                workspaceID: self.v2UUID(params, "workspace_id"),
+                surfaceID: self.v2UUID(params, "surface_id")
+                    ?? self.v2UUID(params, "terminal_id")
+                    ?? self.v2UUID(params, "tab_id"),
+                paneID: self.v2UUID(params, "pane_id")
+            )
+            guard let tabManager = self.resolveTabManager(routing: routing) else {
+                return .finished(.err(code: "unavailable", message: "TabManager not available", data: nil))
+            }
+            if let lineLimit, lineLimit <= 0 {
+                return .finished(.err(code: "invalid_params", message: "lines must be greater than 0", data: nil))
+            }
+            guard let ws = self.resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
+                return .finished(.err(code: "not_found", message: "Workspace not found", data: nil))
+            }
+            let surfaceId: UUID
+            if params["surface_id"] != nil {
+                guard let id = self.v2UUID(params, "surface_id") else {
+                    return .finished(.err(code: "not_found", message: "Surface not found for the given surface_id", data: nil))
+                }
+                surfaceId = id
+            } else {
+                guard let focused = ws.focusedPanelId else {
+                    return .finished(.err(code: "not_found", message: "No focused surface", data: nil))
+                }
+                surfaceId = focused
+            }
+            guard let terminalPanel = ws.terminalPanel(for: surfaceId) else {
+                return .finished(.err(
+                    code: "invalid_params",
+                    message: "Surface is not a terminal",
+                    data: ["surface_id": surfaceId.uuidString]
+                ))
+            }
+            guard let rawSnapshot = self.readTerminalTextRawSnapshot(
+                terminalPanel: terminalPanel,
+                includeScrollback: includeScrollback
+            ) else {
+                return .finished(.err(code: "internal_error", message: "Failed to read terminal text", data: nil))
+            }
+            let windowID = self.v2ResolveWindowId(tabManager: tabManager)
+            return .captured(ReadTextCapture(
+                rawSnapshot: rawSnapshot,
+                workspaceID: ws.id,
+                surfaceID: surfaceId,
+                windowID: windowID,
+                workspaceRef: self.v2Ref(kind: .workspace, uuid: ws.id),
+                surfaceRef: self.v2Ref(kind: .surface, uuid: surfaceId),
+                windowRef: self.v2Ref(kind: .window, uuid: windowID)
+            ))
+        }
+
+        switch outcome {
+        case let .finished(result):
+            return result
+        case let .captured(capture):
+            // The full-scrollback formatting stays off the main actor.
+            switch Self.terminalTextPayload(
+                from: capture.rawSnapshot,
+                includeScrollback: includeScrollback,
+                lineLimit: lineLimit
+            ) {
+            case .success(let payload):
+                return .ok([
+                    "text": payload.text,
+                    "base64": payload.base64,
+                    "workspace_id": capture.workspaceID.uuidString,
+                    "workspace_ref": capture.workspaceRef,
+                    "surface_id": capture.surfaceID.uuidString,
+                    "surface_ref": capture.surfaceRef,
+                    "window_id": v2OrNull(capture.windowID?.uuidString),
+                    "window_ref": capture.windowRef,
+                ])
+            case .failure(let error):
+                return .err(code: "internal_error", message: error.message, data: nil)
+            }
+        }
     }
 
     private func readTerminalTextFromVTExportForSnapshot(
