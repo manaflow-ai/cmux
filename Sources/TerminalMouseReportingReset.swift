@@ -36,6 +36,7 @@ enum TerminalMouseReportingReset {
     /// command boundary (i.e. the just-finished program left it stuck), or `nil`
     /// when there is nothing to clear.
     static func sequenceToClearStuckMouseModes(mouseReportingActive: Bool) -> String? {
-        return nil
+        guard mouseReportingActive else { return nil }
+        return disableSequence
     }
 }

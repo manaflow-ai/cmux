@@ -2782,6 +2782,27 @@ class GhosttyApp {
                 self.ringBell()
             }
             return true
+        case GHOSTTY_ACTION_COMMAND_FINISHED:
+            // A shell command finished and the prompt has returned (OSC 133).
+            // Mouse reporting should be off at the prompt; if it is still
+            // active, the just-finished program (e.g. an SSH session or TUI
+            // killed while the Mac slept) left the mouse-tracking modes stuck,
+            // so the terminal prints mouse-movement escape sequences at the
+            // prompt (https://github.com/manaflow-ai/cmux/issues/6668). Feed the
+            // DECRST disable sequences back into the terminal parser (never the
+            // pty, so the shell prompt is undisturbed) to clear the stuck modes.
+            // ghostty_surface_process_output takes the renderer mutex, and
+            // command-finished is dispatched from the surface mailbox drain
+            // (mutex not held), so this is thread-safe and non-re-entrant.
+            if let runtimeSurface = callbackContext?.runtimeSurface,
+               let reset = TerminalMouseReportingReset.sequenceToClearStuckMouseModes(
+                   mouseReportingActive: ghostty_surface_mouse_captured(runtimeSurface)
+               ) {
+                reset.withCString { cString in
+                    ghostty_surface_process_output(runtimeSurface, cString, UInt(strlen(cString)))
+                }
+            }
+            return true
         case GHOSTTY_ACTION_GOTO_SPLIT:
             guard let tabId = surfaceView.tabId,
                   let surfaceId = surfaceView.terminalSurface?.id,
