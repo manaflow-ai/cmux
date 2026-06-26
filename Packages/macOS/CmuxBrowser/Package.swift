@@ -19,6 +19,9 @@ let package = Package(
         .package(path: "../CMUXDebugLog"),
         // CmuxSettings owns BrowserSearchEngine, consumed by the suggestion service.
         .package(path: "../CmuxSettings"),
+        // CmuxCore owns RemoteLoopbackProxyAlias, the host normalizer that
+        // BrowserInsecureHTTPSettings forwards to.
+        .package(path: "../CmuxCore"),
     ],
     targets: [
         .target(
@@ -27,6 +30,7 @@ let package = Package(
                 .product(name: "Bonsplit", package: "bonsplit"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
+                .product(name: "CmuxCore", package: "CmuxCore"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

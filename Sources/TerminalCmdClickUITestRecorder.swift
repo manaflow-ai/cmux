@@ -286,43 +286,7 @@ final class TerminalCmdClickUITestRecorder: UITestRecording {
             }
         }
 
-        func safeScreenshotLabel(_ label: String) -> String {
-            let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_."))
-            let scalars = label.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" }
-            let cleaned = String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: "-_."))
-            return cleaned.isEmpty ? "capture" : cleaned
-        }
-
-        @MainActor
-        func captureWindowSnapshotIfRequested(label: String, window: NSWindow) -> String? {
-            guard let screenshotDirectory,
-                  !screenshotDirectory.isEmpty,
-                  let contentView = window.contentView else {
-                return nil
-            }
-            let bounds = contentView.bounds
-            guard !bounds.isEmpty,
-                  let bitmap = contentView.bitmapImageRepForCachingDisplay(in: bounds) else {
-                return nil
-            }
-            contentView.cacheDisplay(in: bounds, to: bitmap)
-            guard let data = bitmap.representation(using: .png, properties: [:]) else {
-                return nil
-            }
-            do {
-                let directoryURL = URL(fileURLWithPath: screenshotDirectory, isDirectory: true)
-                try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-                let sequence = String(format: "%03d", screenshotSequence)
-                screenshotSequence += 1
-                let fileURL = directoryURL
-                    .appendingPathComponent("\(sequence)-\(safeScreenshotLabel(label)).png")
-                try data.write(to: fileURL, options: .atomic)
-                return fileURL.path
-            } catch {
-                cmuxDebugLog("cmdclick.ui.snapshot failed label=\(label) error=\(error.localizedDescription)")
-                return nil
-            }
-        }
+        let snapshotWriter = UITestWindowSnapshotWriter(directory: screenshotDirectory)
 
         func cmdClickUITestTerminalPanel(in workspace: Workspace?) -> TerminalPanel? {
             guard let workspace else { return nil }
@@ -463,9 +427,10 @@ final class TerminalCmdClickUITestRecorder: UITestRecording {
             case "capture_window":
                 let label = (command["label"] as? String)?
                     .trimmingCharacters(in: .whitespacesAndNewlines)
-                if let path = captureWindowSnapshotIfRequested(
+                if let path = snapshotWriter.capture(
                     label: label?.isEmpty == false ? label! : "capture",
-                    window: window
+                    window: window,
+                    sequence: &screenshotSequence
                 ) {
                     payload["lastCommandScreenshotPath"] = path
                     payload["lastCommandSucceeded"] = "1"

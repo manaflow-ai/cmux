@@ -303,7 +303,7 @@ enum BrowserScreenshotWebViewSnapshotter {
     }
 
     static func prepareForVisualCapture(_ webView: WKWebView, expectedURL: URL?) async throws {
-        try await waitForExpectedURLIfNeeded(webView, expectedURL: expectedURL)
+        try await BrowserScreenshotExpectedURLWaiter.waitForExpectedURLIfNeeded(webView, expectedURL: expectedURL)
 
         forceAppKitLayout(for: webView)
 
@@ -323,7 +323,7 @@ enum BrowserScreenshotWebViewSnapshotter {
         expectedURL: URL?,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
-        waitForExpectedURLIfNeeded(webView, expectedURL: expectedURL) { result in
+        BrowserScreenshotExpectedURLWaiter.waitForExpectedURLIfNeeded(webView, expectedURL: expectedURL) { result in
             switch result {
             case .success:
                 forceAppKitLayout(for: webView)
@@ -485,43 +485,6 @@ enum BrowserScreenshotWebViewSnapshotter {
         }
     }
 
-    private static func waitForExpectedURLIfNeeded(_ webView: WKWebView, expectedURL: URL?) async throws {
-        guard let expectedURL else { return }
-        let waiter = BrowserScreenshotExpectedURLWaiter(
-            webView: webView,
-            expectedAbsoluteString: expectedURL.absoluteString,
-            timeout: 5.0
-        )
-
-        try await withTaskCancellationHandler {
-            try await waiter.wait()
-        } onCancel: {
-            Task { @MainActor in
-                waiter.cancel()
-            }
-        }
-    }
-
-    private static func waitForExpectedURLIfNeeded(
-        _ webView: WKWebView,
-        expectedURL: URL?,
-        completion: @escaping (Result<Void, Error>) -> Void
-    ) {
-        guard let expectedURL else {
-            completion(.success(()))
-            return
-        }
-        let waiter = BrowserScreenshotExpectedURLWaiter(
-            webView: webView,
-            expectedAbsoluteString: expectedURL.absoluteString,
-            timeout: 5.0
-        )
-        waiter.wait { [waiter] result in
-            _ = waiter
-            completion(result)
-        }
-    }
-
     private static func normalizedViewportSize(_ viewportSize: NSSize) -> NSSize {
         let fallback = NSSize(width: 1280, height: 720)
         let width = viewportSize.width.isFinite && viewportSize.width > 1 ? viewportSize.width : fallback.width
@@ -603,136 +566,4 @@ enum BrowserScreenshotWebViewSnapshotter {
 private final class BrowserScreenshotOffscreenRenderPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
-}
-
-// Safety: BrowserScreenshotExpectedURLWaiter keeps WKWebView, KVO tokens, Timer, and CheckedContinuation main-actor-only and never sends them across threads.
-@MainActor
-private final class BrowserScreenshotExpectedURLWaiter: @unchecked Sendable {
-    private weak var webView: WKWebView?
-    private let expectedAbsoluteString: String
-    private let timeout: TimeInterval
-    private var continuation: CheckedContinuation<Void, Error>?
-    private var completion: ((Result<Void, Error>) -> Void)?
-    private var urlObservation: NSKeyValueObservation?
-    private var loadingObservation: NSKeyValueObservation?
-    private var timeoutTimer: Timer?
-    private var isCancelled = false
-
-    init(webView: WKWebView, expectedAbsoluteString: String, timeout: TimeInterval) {
-        self.webView = webView
-        self.expectedAbsoluteString = expectedAbsoluteString
-        self.timeout = timeout
-    }
-
-    func wait() async throws {
-        try Task.checkCancellation()
-        if isReady {
-            return
-        }
-
-        try await withCheckedThrowingContinuation { continuation in
-            self.continuation = continuation
-            installObservers()
-            if isCancelled {
-                finish(.failure(CancellationError()))
-                return
-            }
-            if isReady {
-                finish(.success(()))
-            }
-        }
-    }
-
-    func wait(completion: @escaping (Result<Void, Error>) -> Void) {
-        if isReady {
-            completion(.success(()))
-            return
-        }
-
-        self.completion = completion
-        installObservers()
-        if isCancelled {
-            finish(.failure(CancellationError()))
-            return
-        }
-        if isReady {
-            finish(.success(()))
-        }
-    }
-
-    func cancel() {
-        isCancelled = true
-        finish(.failure(CancellationError()))
-    }
-
-    private var isReady: Bool {
-        guard let webView,
-              let currentURL = webView.url,
-              ExpectedURLMatcher(expectedAbsoluteString: expectedAbsoluteString)
-                .matches(currentURL),
-              !webView.isLoading else {
-            return false
-        }
-        return true
-    }
-
-    private func installObservers() {
-        guard let webView else {
-            finish(.failure(BrowserScreenshotError.emptySnapshot))
-            return
-        }
-
-        urlObservation = webView.observe(\.url, options: [.new]) { [weak self] _, _ in
-            guard let self else { return }
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    self.finishIfReady()
-                }
-            }
-        }
-        loadingObservation = webView.observe(\.isLoading, options: [.new]) { [weak self] _, _ in
-            guard let self else { return }
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    self.finishIfReady()
-                }
-            }
-        }
-        timeoutTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { [weak self] _ in
-            guard let self else { return }
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    self.finish(.failure(BrowserScreenshotError.emptySnapshot))
-                }
-            }
-        }
-    }
-
-    private func finishIfReady() {
-        if isReady {
-            finish(.success(()))
-        }
-    }
-
-    private func finish(_ result: Result<Void, Error>) {
-        guard continuation != nil || completion != nil else { return }
-        let continuation = self.continuation
-        let completion = self.completion
-        self.continuation = nil
-        self.completion = nil
-        urlObservation = nil
-        loadingObservation = nil
-        timeoutTimer?.invalidate()
-        timeoutTimer = nil
-
-        if let continuation {
-            switch result {
-            case .success:
-                continuation.resume()
-            case .failure(let error):
-                continuation.resume(throwing: error)
-            }
-        }
-        completion?(result)
-    }
 }

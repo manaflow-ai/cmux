@@ -571,6 +571,7 @@
 		4C1A7E10B2D34F56A8C90023 /* MobileHostAccessTokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C1A7E10B2D34F56A8C90024 /* MobileHostAccessTokenStore.swift */; };
 		6AA2F2E8BEB19ED6B8E125DB /* MobileHostAuthorizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BD519CFE74530A46DF0925D /* MobileHostAuthorizationTests.swift */; };
 		C7A50B000000000000000016 /* MobileHostBuildIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000015 /* MobileHostBuildIdentity.swift */; };
+		5E5511000000000000000001 /* MobileHostConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5511000000000000000002 /* MobileHostConnection.swift */; };
 		DE71CE000000000000000008 /* MobileHostNetworkPathMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000007 /* MobileHostNetworkPathMonitor.swift */; };
 		DE71CE000000000000000006 /* MobileHostNetworkPathRefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000005 /* MobileHostNetworkPathRefreshTests.swift */; };
 		4E673EDE464BF3AB80E94C1D /* MobileHostRPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47BDC06F004C02A52B05E4A0 /* MobileHostRPC.swift */; };
@@ -752,6 +753,7 @@
 		A5001601 /* SentryHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001600 /* SentryHelper.swift */; };
 		FE003106 /* SessionAgentPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003006 /* SessionAgentPresentation.swift */; };
 		A9F200000000000000000008 /* SessionAgentSessionPanelSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000008 /* SessionAgentSessionPanelSnapshot.swift */; };
+		FE0032D1 /* SessionDragCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE0032D0 /* SessionDragCoordinator.swift */; };
 		B3575000000000000000000C /* SessionIndexModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3575000000000000000000B /* SessionIndexModels.swift */; };
 		B35750000000000000000008 /* SessionIndexRegisteredAgents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000007 /* SessionIndexRegisteredAgents.swift */; };
 		FE003104 /* SessionIndexStore+CodexSQL.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003004 /* SessionIndexStore+CodexSQL.swift */; };
@@ -853,6 +855,7 @@
 		E3B7A40000000000000000F0 /* TabManager+FocusedSurfaceHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A40000000000000000F1 /* TabManager+FocusedSurfaceHosting.swift */; };
 		E3B7A400000000000000000B /* TabManager+FocusHistoryHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000000C /* TabManager+FocusHistoryHosting.swift */; };
 		E3B7A4000000000000000009 /* TabManager+NotificationDismissalHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000000A /* TabManager+NotificationDismissalHosting.swift */; };
+		5E5510000000000000000001 /* TabManager+SessionEntryResume.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510000000000000000002 /* TabManager+SessionEntryResume.swift */; };
 		D7AB0000000000000000FF01 /* TabManager+SessionFingerprintHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB0000000000000000FF02 /* TabManager+SessionFingerprintHosting.swift */; };
 		C5B6A10000000000000000B1 /* TabManager+SidebarGitHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5B6A10000000000000000B2 /* TabManager+SidebarGitHosting.swift */; };
 		E3CF00000000000000000001 /* TabManager+SurfaceSplitHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3CF00000000000000000002 /* TabManager+SurfaceSplitHosting.swift */; };
@@ -1039,6 +1042,7 @@
 		A11EAD000000000000000000 /* WorkspaceAppearanceResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11EAD000000000000000001 /* WorkspaceAppearanceResolution.swift */; };
 		A5F0C0010000000000000002 /* WorkspaceAttentionFlashRingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F0C0010000000000000001 /* WorkspaceAttentionFlashRingView.swift */; };
 		CA52B0160000000000000000 /* WorkspaceCanvasHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0160000000000000000 /* WorkspaceCanvasHostView.swift */; };
+		C0DEC10F00000000000C0001 /* WorkspaceCloseConfirmationPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC10F00000000000C0002 /* WorkspaceCloseConfirmationPresenter.swift */; };
 		D7AB3605C10DEF0000000003 /* WorkspaceCloseTabsBatching.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB3605C10DEF0000000004 /* WorkspaceCloseTabsBatching.swift */; };
 		D7AB3605C10DEF0000000001 /* WorkspaceCloseTabsContextMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB3605C10DEF0000000002 /* WorkspaceCloseTabsContextMenuTests.swift */; };
 		A5001407 /* WorkspaceContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001417 /* WorkspaceContentView.swift */; };
@@ -1664,6 +1668,7 @@
 		4C1A7E10B2D34F56A8C90024 /* MobileHostAccessTokenStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostAccessTokenStore.swift; sourceTree = "<group>"; };
 		9BD519CFE74530A46DF0925D /* MobileHostAuthorizationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostAuthorizationTests.swift; sourceTree = "<group>"; };
 		C7A50B000000000000000015 /* MobileHostBuildIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostBuildIdentity.swift; sourceTree = "<group>"; };
+		5E5511000000000000000002 /* MobileHostConnection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostConnection.swift; sourceTree = "<group>"; };
 		DE71CE000000000000000007 /* MobileHostNetworkPathMonitor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostNetworkPathMonitor.swift; sourceTree = "<group>"; };
 		DE71CE000000000000000005 /* MobileHostNetworkPathRefreshTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostNetworkPathRefreshTests.swift; sourceTree = "<group>"; };
 		47BDC06F004C02A52B05E4A0 /* MobileHostRPC.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostRPC.swift; sourceTree = "<group>"; };
@@ -1838,6 +1843,7 @@
 		A5001600 /* SentryHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SentryHelper.swift; sourceTree = "<group>"; };
 		FE003006 /* SessionAgentPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAgentPresentation.swift; sourceTree = "<group>"; };
 		A9F100000000000000000008 /* SessionAgentSessionPanelSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAgentSessionPanelSnapshot.swift; sourceTree = "<group>"; };
+		FE0032D0 /* SessionDragCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDragCoordinator.swift; sourceTree = "<group>"; };
 		B3575000000000000000000B /* SessionIndexModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexModels.swift; sourceTree = "<group>"; };
 		B35750000000000000000007 /* SessionIndexRegisteredAgents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexRegisteredAgents.swift; sourceTree = "<group>"; };
 		FE003004 /* SessionIndexStore+CodexSQL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionIndexStore+CodexSQL.swift"; sourceTree = "<group>"; };
@@ -1937,6 +1943,7 @@
 		E3B7A40000000000000000F1 /* TabManager+FocusedSurfaceHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+FocusedSurfaceHosting.swift"; sourceTree = "<group>"; };
 		E3B7A400000000000000000C /* TabManager+FocusHistoryHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+FocusHistoryHosting.swift"; sourceTree = "<group>"; };
 		E3B7A400000000000000000A /* TabManager+NotificationDismissalHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+NotificationDismissalHosting.swift"; sourceTree = "<group>"; };
+		5E5510000000000000000002 /* TabManager+SessionEntryResume.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+SessionEntryResume.swift"; sourceTree = "<group>"; };
 		D7AB0000000000000000FF02 /* TabManager+SessionFingerprintHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+SessionFingerprintHosting.swift"; sourceTree = "<group>"; };
 		C5B6A10000000000000000B2 /* TabManager+SidebarGitHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+SidebarGitHosting.swift"; sourceTree = "<group>"; };
 		E3CF00000000000000000002 /* TabManager+SurfaceSplitHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+SurfaceSplitHosting.swift"; sourceTree = "<group>"; };
@@ -2123,6 +2130,7 @@
 		A11EAD000000000000000001 /* WorkspaceAppearanceResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceAppearanceResolution.swift; sourceTree = "<group>"; };
 		A5F0C0010000000000000001 /* WorkspaceAttentionFlashRingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/WorkspaceAttentionFlashRingView.swift; sourceTree = "<group>"; };
 		CA52C0160000000000000000 /* WorkspaceCanvasHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceCanvasHostView.swift"; sourceTree = "<group>"; };
+		C0DEC10F00000000000C0002 /* WorkspaceCloseConfirmationPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCloseConfirmationPresenter.swift; sourceTree = "<group>"; };
 		D7AB3605C10DEF0000000004 /* WorkspaceCloseTabsBatching.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCloseTabsBatching.swift; sourceTree = "<group>"; };
 		D7AB3605C10DEF0000000002 /* WorkspaceCloseTabsContextMenuTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCloseTabsContextMenuTests.swift; sourceTree = "<group>"; };
 		A5001417 /* WorkspaceContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentView.swift; sourceTree = "<group>"; };
@@ -2386,6 +2394,7 @@
 				8D6D2AC715764ECC1F6B26A2 /* MobileAttachTicketStore.swift */,
 				47BDC06F004C02A52B05E4A0 /* MobileHostRPC.swift */,
 				7ACA497A6831165EA879C642 /* MobileHostService.swift */,
+				5E5511000000000000000002 /* MobileHostConnection.swift */,
 				C7A50B000000000000000015 /* MobileHostBuildIdentity.swift */,
 				4C1A7E10B2D34F56A8C90012 /* MobileHostStatusVerificationLimiter.swift */,
 				4C1A7E10B2D34F56A8C90022 /* MobileHostStackAuthVerifier.swift */,
@@ -2588,6 +2597,7 @@
 				C0DEF0B10000000000000002 /* JSONCParser.swift */,
 				A50012F4 /* KeyboardLayout.swift */,
 				A5001013 /* TabManager.swift */,
+				C0DEC10F00000000000C0002 /* WorkspaceCloseConfirmationPresenter.swift */,
 				C5B6A10000000000000000B2 /* TabManager+SidebarGitHosting.swift */,
 				F0C05170000000000000001 /* FocusHistory.swift */,
 				C0DEFB100000000000000002 /* FocusSurfaceBroadcaster.swift */,
@@ -2609,6 +2619,7 @@
 				E3B7A400000000000000000A /* TabManager+NotificationDismissalHosting.swift */,
 				E3B7A400000000000000AD02 /* TabManager+AgentPIDLivenessSweepHosting.swift */,
 				E3B7A400000000000000000C /* TabManager+FocusHistoryHosting.swift */,
+				5E5510000000000000000002 /* TabManager+SessionEntryResume.swift */,
 				E3CA00000000000000000002 /* TabManager+WorkspaceCommandHosting.swift */,
 				E3CC00000000000000000002 /* TabManager+BrowserOpenHosting.swift */,
 				E3CD00000000000000000002 /* Workspace+BrowserOpenWorkspaceHandle.swift */,
@@ -3023,6 +3034,7 @@
 				FE0A1002FE0A1002FE0A1002 /* FileExplorerExternalOpenMenu.swift */,
 				FE0A1003FE0A1003FE0A1003 /* NSResponder+FileExplorerDebug.swift */,
 				FE003001 /* SessionIndexStore.swift */,
+				FE0032D0 /* SessionDragCoordinator.swift */,
 				C1A0DE01 /* ClaudeParsed.swift */,
 				C1A0DE03 /* ClaudeSessionRoot.swift */,
 				C1A0DE05 /* ClaudeSessionCandidate.swift */,
@@ -4139,6 +4151,7 @@
 				ACA7C4B000000000000000A1 /* MobileChatRPCHost.swift in Sources */,
 				4C1A7E10B2D34F56A8C90023 /* MobileHostAccessTokenStore.swift in Sources */,
 				C7A50B000000000000000016 /* MobileHostBuildIdentity.swift in Sources */,
+				5E5511000000000000000001 /* MobileHostConnection.swift in Sources */,
 				DE71CE000000000000000008 /* MobileHostNetworkPathMonitor.swift in Sources */,
 				4E673EDE464BF3AB80E94C1D /* MobileHostRPC.swift in Sources */,
 				C7A50B000000000000000014 /* MobileHostService+Capabilities.swift in Sources */,
@@ -4261,6 +4274,7 @@
 				A5001601 /* SentryHelper.swift in Sources */,
 				FE003106 /* SessionAgentPresentation.swift in Sources */,
 				A9F200000000000000000008 /* SessionAgentSessionPanelSnapshot.swift in Sources */,
+				FE0032D1 /* SessionDragCoordinator.swift in Sources */,
 				B3575000000000000000000C /* SessionIndexModels.swift in Sources */,
 				B35750000000000000000008 /* SessionIndexRegisteredAgents.swift in Sources */,
 				FE003104 /* SessionIndexStore+CodexSQL.swift in Sources */,
@@ -4320,6 +4334,7 @@
 				E3B7A40000000000000000F0 /* TabManager+FocusedSurfaceHosting.swift in Sources */,
 				E3B7A400000000000000000B /* TabManager+FocusHistoryHosting.swift in Sources */,
 				E3B7A4000000000000000009 /* TabManager+NotificationDismissalHosting.swift in Sources */,
+				5E5510000000000000000001 /* TabManager+SessionEntryResume.swift in Sources */,
 				D7AB0000000000000000FF01 /* TabManager+SessionFingerprintHosting.swift in Sources */,
 				C5B6A10000000000000000B1 /* TabManager+SidebarGitHosting.swift in Sources */,
 				E3CF00000000000000000001 /* TabManager+SurfaceSplitHosting.swift in Sources */,
@@ -4473,6 +4488,7 @@
 				A11EAD000000000000000000 /* WorkspaceAppearanceResolution.swift in Sources */,
 				A5F0C0010000000000000002 /* WorkspaceAttentionFlashRingView.swift in Sources */,
 				CA52B0160000000000000000 /* WorkspaceCanvasHostView.swift in Sources */,
+				C0DEC10F00000000000C0001 /* WorkspaceCloseConfirmationPresenter.swift in Sources */,
 				D7AB3605C10DEF0000000003 /* WorkspaceCloseTabsBatching.swift in Sources */,
 				A5001407 /* WorkspaceContentView.swift in Sources */,
 				D7C6F5050000000000000000 /* WorkspaceCurrentDirectorySubscription.swift in Sources */,

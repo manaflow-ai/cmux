@@ -123,6 +123,17 @@ extension OmnibarSuggestion {
         return preferred
     }
 
+    /// Whether a single-character `query` prefix-matches the candidate `url` (after
+    /// scheme/`www.` stripping) or `title`. Returns `false` for empty or
+    /// multi-character queries. Drives the single-letter omnibar suggestion filter.
+    public static func hasSingleCharacterPrefixMatch(query: String, url: String, title: String?) -> Bool {
+        guard let trimmedQuery = query.omnibarSingleCharacterQuery else { return false }
+
+        let normalizedURL = url.strippingHTTPSchemeAndWWWPrefix.lowercased()
+        let normalizedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        return normalizedURL.hasPrefix(trimmedQuery) || normalizedTitle.hasPrefix(trimmedQuery)
+    }
+
     private static func autocompletionDisplayText(forPrefixing completion: String, query: String) -> String {
         let typedIncludesScheme = query.hasPrefix("https://") || query.hasPrefix("http://")
         let typedIncludesWWWPrefix = query.hasPrefix("www.")

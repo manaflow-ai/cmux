@@ -8,11 +8,7 @@ import SwiftUI
 
 // MARK: - Models
 
-struct FileExplorerEntry: Sendable {
-    let name: String
-    let path: String
-    let isDirectory: Bool
-}
+// FileExplorerEntry moved to CmuxFoundation (Sources/CmuxFoundation/FileExplorer/FileExplorerEntry.swift).
 
 final class FileExplorerNode: Identifiable {
     let id: String
@@ -42,32 +38,8 @@ final class FileExplorerNode: Identifiable {
 
 // MARK: - Provider Protocol
 
-protocol FileExplorerProvider: AnyObject {
-    func listDirectory(path: String, showHidden: Bool) async throws -> [FileExplorerEntry]
-    var homePath: String { get }
-    var isAvailable: Bool { get }
-}
-
-struct SSHFileExplorerConnection: Equatable, Sendable {
-    let destination: String
-    let port: Int?
-    let identityFile: String?
-    let sshOptions: [String]
-}
-
-protocol SSHFileExplorerTransport: AnyObject {
-    nonisolated func resolveHomePath(connection: SSHFileExplorerConnection) async throws -> String
-    nonisolated func listDirectory(
-        path: String,
-        connection: SSHFileExplorerConnection,
-        showHidden: Bool
-    ) async throws -> [FileExplorerEntry]
-    nonisolated func downloadFile(
-        path: String,
-        connection: SSHFileExplorerConnection,
-        to localURL: URL
-    ) async throws
-}
+// FileExplorerProvider, SSHFileExplorerConnection, and SSHFileExplorerTransport
+// moved to CmuxFoundation (Sources/CmuxFoundation/FileExplorer/).
 
 enum FileExplorerWorkspaceRoot: Equatable {
     case none

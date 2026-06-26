@@ -1979,7 +1979,7 @@ final class MainWindowDragBehaviorTests: XCTestCase {
         )
         XCTAssertFalse(window.isMovableByWindowBackground)
 
-        let previous = withTemporaryWindowMovableEnabled(window: window) {
+        let previous = window.withTemporaryWindowMovableEnabled {
             XCTAssertTrue(window.isMovable)
         }
 
@@ -2135,10 +2135,10 @@ final class FolderWindowMoveSuppressionTests: XCTestCase {
         let window = makeWindow()
         window.isMovable = true
 
-        let depth = beginWindowDragSuppression(window: window)
+        let depth = window.beginWindowDragSuppression()
 
         XCTAssertEqual(depth, 1)
-        XCTAssertTrue(isWindowDragSuppressed(window: window))
+        XCTAssertTrue(window.isWindowDragSuppressed)
         XCTAssertTrue(window.isMovable)
     }
 
@@ -2146,10 +2146,10 @@ final class FolderWindowMoveSuppressionTests: XCTestCase {
         let window = makeWindow()
         window.isMovable = false
 
-        let depth = beginWindowDragSuppression(window: window)
+        let depth = window.beginWindowDragSuppression()
 
         XCTAssertEqual(depth, 1)
-        XCTAssertTrue(isWindowDragSuppressed(window: window))
+        XCTAssertTrue(window.isWindowDragSuppressed)
         XCTAssertFalse(window.isMovable)
     }
 
@@ -2157,13 +2157,13 @@ final class FolderWindowMoveSuppressionTests: XCTestCase {
         let window = makeWindow()
         window.isMovable = false
 
-        XCTAssertEqual(beginWindowDragSuppression(window: window), 1)
+        XCTAssertEqual(window.beginWindowDragSuppression(), 1)
         XCTAssertFalse(window.isMovable)
 
         window.isMovable = true
 
-        XCTAssertEqual(endWindowDragSuppression(window: window), 0)
-        XCTAssertFalse(isWindowDragSuppressed(window: window))
+        XCTAssertEqual(window.endWindowDragSuppression(), 0)
+        XCTAssertFalse(window.isWindowDragSuppressed)
         XCTAssertTrue(window.isMovable)
     }
 
@@ -2171,12 +2171,12 @@ final class FolderWindowMoveSuppressionTests: XCTestCase {
         let window = makeWindow()
         window.isMovable = false
 
-        XCTAssertEqual(beginWindowDragSuppression(window: window), 1)
-        XCTAssertEqual(beginWindowDragSuppression(window: window), 2)
-        XCTAssertEqual(windowDragSuppressionDepth(window: window), 2)
+        XCTAssertEqual(window.beginWindowDragSuppression(), 1)
+        XCTAssertEqual(window.beginWindowDragSuppression(), 2)
+        XCTAssertEqual(window.windowDragSuppressionDepth, 2)
 
-        XCTAssertEqual(clearWindowDragSuppression(window: window), 0)
-        XCTAssertEqual(windowDragSuppressionDepth(window: window), 0)
+        XCTAssertEqual(window.clearWindowDragSuppression(), 0)
+        XCTAssertEqual(window.windowDragSuppressionDepth, 0)
         XCTAssertFalse(window.isMovable)
     }
 
@@ -2185,55 +2185,55 @@ final class FolderWindowMoveSuppressionTests: XCTestCase {
         window.isMovable = true
 
         XCTAssertEqual(
-            beginWindowMoveSuppressionSequence(window: window, reason: .bonsplitPaneTabDrag),
+            window.beginWindowMoveSuppressionSequence(reason: .bonsplitPaneTabDrag),
             .bonsplitPaneTabDrag
         )
         XCTAssertFalse(window.isMovable)
-        XCTAssertEqual(activeWindowMoveSuppressionSequenceReason(window: window), .bonsplitPaneTabDrag)
+        XCTAssertEqual(window.activeWindowMoveSuppressionSequenceReason, .bonsplitPaneTabDrag)
 
-        XCTAssertEqual(clearWindowDragSuppression(window: window), 0)
+        XCTAssertEqual(window.clearWindowDragSuppression(), 0)
 
-        XCTAssertNil(activeWindowMoveSuppressionSequenceReason(window: window))
-        XCTAssertEqual(windowDragSuppressionDepth(window: window), 0)
-        XCTAssertFalse(isWindowDragSuppressed(window: window))
+        XCTAssertNil(window.activeWindowMoveSuppressionSequenceReason)
+        XCTAssertEqual(window.windowDragSuppressionDepth, 0)
+        XCTAssertFalse(window.isWindowDragSuppressed)
         XCTAssertTrue(window.isMovable)
     }
 
     func testWindowDragSuppressionDepthLifecycle() {
         let window = makeWindow()
-        XCTAssertEqual(windowDragSuppressionDepth(window: window), 0)
-        XCTAssertFalse(isWindowDragSuppressed(window: window))
+        XCTAssertEqual(window.windowDragSuppressionDepth, 0)
+        XCTAssertFalse(window.isWindowDragSuppressed)
 
-        XCTAssertEqual(beginWindowDragSuppression(window: window), 1)
-        XCTAssertEqual(windowDragSuppressionDepth(window: window), 1)
-        XCTAssertTrue(isWindowDragSuppressed(window: window))
+        XCTAssertEqual(window.beginWindowDragSuppression(), 1)
+        XCTAssertEqual(window.windowDragSuppressionDepth, 1)
+        XCTAssertTrue(window.isWindowDragSuppressed)
 
-        XCTAssertEqual(endWindowDragSuppression(window: window), 0)
-        XCTAssertEqual(windowDragSuppressionDepth(window: window), 0)
-        XCTAssertFalse(isWindowDragSuppressed(window: window))
+        XCTAssertEqual(window.endWindowDragSuppression(), 0)
+        XCTAssertEqual(window.windowDragSuppressionDepth, 0)
+        XCTAssertFalse(window.isWindowDragSuppressed)
     }
 
     func testWindowDragSuppressionIsReferenceCounted() {
         let window = makeWindow()
-        XCTAssertEqual(beginWindowDragSuppression(window: window), 1)
-        XCTAssertEqual(beginWindowDragSuppression(window: window), 2)
-        XCTAssertEqual(windowDragSuppressionDepth(window: window), 2)
-        XCTAssertTrue(isWindowDragSuppressed(window: window))
+        XCTAssertEqual(window.beginWindowDragSuppression(), 1)
+        XCTAssertEqual(window.beginWindowDragSuppression(), 2)
+        XCTAssertEqual(window.windowDragSuppressionDepth, 2)
+        XCTAssertTrue(window.isWindowDragSuppressed)
 
-        XCTAssertEqual(endWindowDragSuppression(window: window), 1)
-        XCTAssertEqual(windowDragSuppressionDepth(window: window), 1)
-        XCTAssertTrue(isWindowDragSuppressed(window: window))
+        XCTAssertEqual(window.endWindowDragSuppression(), 1)
+        XCTAssertEqual(window.windowDragSuppressionDepth, 1)
+        XCTAssertTrue(window.isWindowDragSuppressed)
 
-        XCTAssertEqual(endWindowDragSuppression(window: window), 0)
-        XCTAssertEqual(windowDragSuppressionDepth(window: window), 0)
-        XCTAssertFalse(isWindowDragSuppressed(window: window))
+        XCTAssertEqual(window.endWindowDragSuppression(), 0)
+        XCTAssertEqual(window.windowDragSuppressionDepth, 0)
+        XCTAssertFalse(window.isWindowDragSuppressed)
     }
 
     func testTemporaryWindowMovableEnableRestoresImmovableWindow() {
         let window = makeWindow()
         window.isMovable = false
 
-        let previous = withTemporaryWindowMovableEnabled(window: window) {
+        let previous = window.withTemporaryWindowMovableEnabled {
             XCTAssertTrue(window.isMovable)
         }
 
@@ -2245,7 +2245,7 @@ final class FolderWindowMoveSuppressionTests: XCTestCase {
         let window = makeWindow()
         window.isMovable = true
 
-        let previous = withTemporaryWindowMovableEnabled(window: window) {
+        let previous = window.withTemporaryWindowMovableEnabled {
             XCTAssertTrue(window.isMovable)
         }
 
@@ -2352,7 +2352,7 @@ final class WindowMoveSuppressionHitPathTests: XCTestCase {
         contentView.addSubview(tabRegion)
         BonsplitTabItemHitRegionRegistry.register(tabRegion)
         defer {
-            _ = finishWindowMoveSuppressionSequence(window: window)
+            _ = window.finishWindowMoveSuppressionSequence()
             BonsplitTabItemHitRegionRegistry.unregister(tabRegion)
         }
 
@@ -2361,8 +2361,8 @@ final class WindowMoveSuppressionHitPathTests: XCTestCase {
 
         XCTAssertEqual(beginOrContinueWindowMoveSuppressionSequenceForEvent(window: window, event: down), .bonsplitPaneTabDrag)
         XCTAssertFalse(window.isMovable)
-        XCTAssertTrue(isWindowDragSuppressed(window: window))
-        XCTAssertEqual(activeWindowMoveSuppressionSequenceReason(window: window), .bonsplitPaneTabDrag)
+        XCTAssertTrue(window.isWindowDragSuppressed)
+        XCTAssertEqual(window.activeWindowMoveSuppressionSequenceReason, .bonsplitPaneTabDrag)
 
         let draggedOutsideTab = makeMouseEvent(
             type: .leftMouseDragged,
@@ -2379,10 +2379,10 @@ final class WindowMoveSuppressionHitPathTests: XCTestCase {
         let up = makeMouseEvent(type: .leftMouseUp, location: tabPoint, window: window)
         XCTAssertEqual(beginOrContinueWindowMoveSuppressionSequenceForEvent(window: window, event: up), .bonsplitPaneTabDrag)
         XCTAssertTrue(shouldFinishWindowMoveSuppressionSequenceAfterDispatch(window: window, event: up))
-        XCTAssertEqual(finishWindowMoveSuppressionSequence(window: window), .bonsplitPaneTabDrag)
+        XCTAssertEqual(window.finishWindowMoveSuppressionSequence(), .bonsplitPaneTabDrag)
         XCTAssertTrue(window.isMovable)
-        XCTAssertFalse(isWindowDragSuppressed(window: window))
-        XCTAssertNil(activeWindowMoveSuppressionSequenceReason(window: window))
+        XCTAssertFalse(window.isWindowDragSuppressed)
+        XCTAssertNil(window.activeWindowMoveSuppressionSequenceReason)
     }
 
     func testBonsplitPaneTabSuppressionRestoresImmovableMainWindow() {
@@ -2393,7 +2393,7 @@ final class WindowMoveSuppressionHitPathTests: XCTestCase {
         contentView.addSubview(tabRegion)
         BonsplitTabItemHitRegionRegistry.register(tabRegion)
         defer {
-            _ = finishWindowMoveSuppressionSequence(window: window)
+            _ = window.finishWindowMoveSuppressionSequence()
             BonsplitTabItemHitRegionRegistry.unregister(tabRegion)
         }
 
@@ -2402,7 +2402,7 @@ final class WindowMoveSuppressionHitPathTests: XCTestCase {
 
         XCTAssertEqual(beginOrContinueWindowMoveSuppressionSequenceForEvent(window: window, event: down), .bonsplitPaneTabDrag)
         XCTAssertFalse(window.isMovable)
-        XCTAssertEqual(finishWindowMoveSuppressionSequence(window: window), .bonsplitPaneTabDrag)
+        XCTAssertEqual(window.finishWindowMoveSuppressionSequence(), .bonsplitPaneTabDrag)
         XCTAssertFalse(
             window.isMovable,
             "Tab-drag suppression must not restore native AppKit window dragging when the main window baseline is immovable"
@@ -2417,7 +2417,7 @@ final class WindowMoveSuppressionHitPathTests: XCTestCase {
         contentView.addSubview(tabRegion)
         BonsplitTabItemHitRegionRegistry.register(tabRegion)
         defer {
-            _ = finishWindowMoveSuppressionSequence(window: window)
+            _ = window.finishWindowMoveSuppressionSequence()
             BonsplitTabItemHitRegionRegistry.unregister(tabRegion)
         }
 
@@ -2437,8 +2437,8 @@ final class WindowMoveSuppressionHitPathTests: XCTestCase {
             "A fresh mouse-down must end stale tab suppression and re-check the actual hit target"
         )
         XCTAssertTrue(window.isMovable)
-        XCTAssertFalse(isWindowDragSuppressed(window: window))
-        XCTAssertNil(activeWindowMoveSuppressionSequenceReason(window: window))
+        XCTAssertFalse(window.isWindowDragSuppressed)
+        XCTAssertNil(window.activeWindowMoveSuppressionSequenceReason)
     }
 
     func testBonsplitPaneTabSuppressionLeavesEmptyTabChromeDraggable() {

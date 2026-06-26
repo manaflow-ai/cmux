@@ -602,83 +602,45 @@ extension TerminalController: ControlWorkspaceContext {
         // Parameter extraction and workspace/owner resolution stay app-side; the
         // pure ~40-param validation and `WorkspaceRemote*` assembly live in
         // `WorkspaceRemoteConfiguration.validated(...)` in CmuxCore. The typed
-        // `JSONValue` params are read through the shared `controlCommandCoordinator`
-        // param accessors (the byte-faithful coercions now live in the package
-        // alongside the other command param readers — the configure-specific
-        // numeric/boolean coercions are the `remoteConfigure*` accessors, which
-        // reproduce the legacy `NSNumber`-based path exactly).
-        guard let destination = controlCommandCoordinator.string(typedParams, "destination") else {
+        // `JSONValue` payload is parsed once into the Sendable
+        // `ControlConfigureWorkspaceRemoteParams` by the coordinator (the
+        // byte-faithful coercions, including the configure-specific
+        // `NSNumber`-based numeric/boolean readers, live in the package alongside
+        // the other command param accessors).
+        let parsed = controlCommandCoordinator.configureWorkspaceRemoteParams(typedParams)
+        guard let destination = parsed.destination else {
             return .err(code: "invalid_params", message: "Missing destination", data: nil)
-        }
-
-        let identityFile = controlCommandCoordinator.rawString(typedParams, "identity_file")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let sshOptions = controlCommandCoordinator.stringArray(typedParams, "ssh_options") ?? []
-        let transportRaw = controlCommandCoordinator.rawString(typedParams, "transport")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let autoConnect = controlCommandCoordinator.remoteConfigureBool(typedParams, "auto_connect") ?? true
-        let relayID = controlCommandCoordinator.rawString(typedParams, "relay_id")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let relayToken = controlCommandCoordinator.rawString(typedParams, "relay_token")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let foregroundAuthToken = controlCommandCoordinator.rawString(typedParams, "foreground_auth_token")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let localSocketPath = controlCommandCoordinator.rawString(typedParams, "local_socket_path")
-        let hasExplicitAgentSocketPath = controlCommandCoordinator.hasNonNull(typedParams, "ssh_auth_sock")
-        let agentSocketPath = controlCommandCoordinator.rawString(typedParams, "ssh_auth_sock")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let terminalStartupCommand = controlCommandCoordinator.rawString(typedParams, "terminal_startup_command")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let persistentDaemonSlotRaw = controlCommandCoordinator.rawString(typedParams, "persistent_daemon_slot")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let daemonWebSocketURL = controlCommandCoordinator.rawString(typedParams, "daemon_websocket_url")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let daemonWebSocketToken = controlCommandCoordinator.rawString(typedParams, "daemon_websocket_token")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let daemonWebSocketSessionID = controlCommandCoordinator.rawString(typedParams, "daemon_websocket_session_id")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let daemonWebSocketExpiresAtUnix = controlCommandCoordinator.remoteConfigureExpiresAtUnix(
-            typedParams, "daemon_websocket_expires_at_unix"
-        )
-        var daemonWebSocketHeaders: [String: String] = [:]
-        if case .object(let rawDaemonHeaders)? = typedParams["daemon_websocket_headers"] {
-            for (key, value) in rawDaemonHeaders {
-                if case .string(let stringValue) = value {
-                    daemonWebSocketHeaders[key] = stringValue
-                }
-            }
         }
 
         let config: WorkspaceRemoteConfiguration
         switch WorkspaceRemoteConfiguration.validated(
-            transportRaw: transportRaw,
+            transportRaw: parsed.transportRaw,
             destination: destination,
-            portPresent: controlCommandCoordinator.hasNonNull(typedParams, "port"),
-            portValue: controlCommandCoordinator.remoteConfigureStrictInt(typedParams, "port"),
-            localProxyPortPresent: controlCommandCoordinator.hasNonNull(typedParams, "local_proxy_port"),
-            localProxyPortValue: controlCommandCoordinator.remoteConfigureStrictInt(typedParams, "local_proxy_port"),
-            relayPortPresent: controlCommandCoordinator.hasNonNull(typedParams, "relay_port"),
-            relayPortValue: controlCommandCoordinator.remoteConfigureStrictInt(typedParams, "relay_port"),
-            identityFile: identityFile,
-            sshOptions: sshOptions,
-            relayID: relayID,
-            relayToken: relayToken,
-            foregroundAuthToken: foregroundAuthToken,
-            localSocketPath: localSocketPath,
-            hasExplicitAgentSocketPath: hasExplicitAgentSocketPath,
-            agentSocketPath: agentSocketPath,
-            terminalStartupCommand: terminalStartupCommand,
-            persistentDaemonSlotPresent: controlCommandCoordinator.hasNonNull(typedParams, "persistent_daemon_slot"),
-            persistentDaemonSlotValue: persistentDaemonSlotRaw,
-            daemonWebSocketURL: daemonWebSocketURL,
-            daemonWebSocketToken: daemonWebSocketToken,
-            daemonWebSocketSessionID: daemonWebSocketSessionID,
-            daemonWebSocketExpiresAtUnix: daemonWebSocketExpiresAtUnix,
-            daemonWebSocketHeaders: daemonWebSocketHeaders,
-            preservePresent: controlCommandCoordinator.hasNonNull(typedParams, "preserve_after_terminal_exit"),
-            preserveValue: controlCommandCoordinator.remoteConfigureBool(typedParams, "preserve_after_terminal_exit"),
-            skipDaemonBootstrap: controlCommandCoordinator.remoteConfigureBool(typedParams, "skip_daemon_bootstrap") ?? false,
+            portPresent: parsed.portPresent,
+            portValue: parsed.portValue,
+            localProxyPortPresent: parsed.localProxyPortPresent,
+            localProxyPortValue: parsed.localProxyPortValue,
+            relayPortPresent: parsed.relayPortPresent,
+            relayPortValue: parsed.relayPortValue,
+            identityFile: parsed.identityFile,
+            sshOptions: parsed.sshOptions,
+            relayID: parsed.relayID,
+            relayToken: parsed.relayToken,
+            foregroundAuthToken: parsed.foregroundAuthToken,
+            localSocketPath: parsed.localSocketPath,
+            hasExplicitAgentSocketPath: parsed.hasExplicitAgentSocketPath,
+            agentSocketPath: parsed.agentSocketPath,
+            terminalStartupCommand: parsed.terminalStartupCommand,
+            persistentDaemonSlotPresent: parsed.persistentDaemonSlotPresent,
+            persistentDaemonSlotValue: parsed.persistentDaemonSlotRaw,
+            daemonWebSocketURL: parsed.daemonWebSocketURL,
+            daemonWebSocketToken: parsed.daemonWebSocketToken,
+            daemonWebSocketSessionID: parsed.daemonWebSocketSessionID,
+            daemonWebSocketExpiresAtUnix: parsed.daemonWebSocketExpiresAtUnix,
+            daemonWebSocketHeaders: parsed.daemonWebSocketHeaders,
+            preservePresent: parsed.preservePresent,
+            preserveValue: parsed.preserveValue,
+            skipDaemonBootstrap: parsed.skipDaemonBootstrap,
             workspaceID: workspaceId
         ) {
         case .failure(let error):
@@ -691,10 +653,10 @@ extension TerminalController: ControlWorkspaceContext {
         cmuxDebugLog(
             "workspace.remote.configure.request workspace=\(workspaceId.uuidString.prefix(8)) " +
             "target=\(destination) transport=\(config.transport.rawValue) port=\(config.port.map(String.init) ?? "nil") " +
-            "autoConnect=\(autoConnect ? 1 : 0) relayPort=\(config.relayPort.map(String.init) ?? "nil") " +
+            "autoConnect=\(parsed.autoConnect ? 1 : 0) relayPort=\(config.relayPort.map(String.init) ?? "nil") " +
             "localSocket=\(config.localSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? config.localSocketPath! : "nil") " +
-            "sshAuthSock=\(agentSocketPath?.isEmpty == false ? 1 : 0) " +
-            "sshOptions=\(sshOptions.joined(separator: "|"))"
+            "sshAuthSock=\(parsed.agentSocketPath?.isEmpty == false ? 1 : 0) " +
+            "sshOptions=\(parsed.sshOptions.joined(separator: "|"))"
         )
 #endif
 
@@ -702,19 +664,19 @@ extension TerminalController: ControlWorkspaceContext {
               let workspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
             return .err(code: "not_found", message: "Workspace not found", data: .object([
                 "workspace_id": .string(workspaceId.uuidString),
-                "workspace_ref": controlWorkspaceRefValue(workspaceId),
+                "workspace_ref": controlCommandCoordinator.workspaceRefValue(workspaceId),
             ]))
         }
 
-        workspace.configureRemoteConnection(config, autoConnect: autoConnect)
+        workspace.configureRemoteConnection(config, autoConnect: parsed.autoConnect)
         notifyRemotePTYControllerAvailabilityChanged()
 
         let windowId = AppDelegate.shared?.windowId(for: owner)
         return .ok(.object([
-            "window_id": controlWindowOrNull(windowId),
-            "window_ref": controlWindowRefValue(windowId),
+            "window_id": controlCommandCoordinator.windowIDValue(windowId),
+            "window_ref": controlCommandCoordinator.windowRefValue(windowId),
             "workspace_id": .string(workspace.id.uuidString),
-            "workspace_ref": controlWorkspaceRefValue(workspace.id),
+            "workspace_ref": controlCommandCoordinator.workspaceRefValue(workspace.id),
             "remote": JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:]),
         ]))
     }
@@ -761,27 +723,6 @@ extension TerminalController: ControlWorkspaceContext {
             workspaceID: workspace.id,
             remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:])
         )
-    }
-
-    // MARK: - Ref helpers (mint through the shared registry the coordinator owns)
-
-    /// The `workspace:N` ref JSON value for the configure result, minted through
-    /// the same handle registry the coordinator uses so refs stay consistent.
-    private func controlWorkspaceRefValue(_ uuid: UUID) -> JSONValue {
-        .string(controlCommandCoordinator.ensureRef(kind: .workspace, uuid: uuid))
-    }
-
-    /// The `window:N` ref JSON value (or `null` when absent) for the configure
-    /// result.
-    private func controlWindowRefValue(_ uuid: UUID?) -> JSONValue {
-        guard let uuid else { return .null }
-        return .string(controlCommandCoordinator.ensureRef(kind: .window, uuid: uuid))
-    }
-
-    /// The window id JSON value (or `null` when absent).
-    private func controlWindowOrNull(_ uuid: UUID?) -> JSONValue {
-        guard let uuid else { return .null }
-        return .string(uuid.uuidString)
     }
 
     // MARK: - v1 line-protocol witnesses

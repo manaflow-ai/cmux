@@ -11959,7 +11959,7 @@ private extension NSWindow {
         }
 
         let suppressionReason = beginOrContinueWindowMoveSuppressionSequenceForEvent(window: self, event: event)
-        let hasActiveSuppressionSequence = activeWindowMoveSuppressionSequenceReason(window: self) != nil
+        let hasActiveSuppressionSequence = self.activeWindowMoveSuppressionSequenceReason != nil
         guard suppressionReason != nil || hasActiveSuppressionSequence else {
 #if DEBUG
             if event.type == .keyDown {
@@ -11989,7 +11989,7 @@ private extension NSWindow {
         defer {
             let finishedReason: WindowMoveSuppressionReason?
             if shouldFinishSuppression {
-                finishedReason = finishWindowMoveSuppressionSequence(window: self)
+                finishedReason = self.finishWindowMoveSuppressionSequence()
             } else {
                 finishedReason = nil
             }
@@ -12005,7 +12005,7 @@ private extension NSWindow {
 
         #if DEBUG
         let hitDesc = hitView.map { String(describing: type(of: $0)) } ?? "nil"
-        let depth = windowDragSuppressionDepth(window: self)
+        let depth = self.windowDragSuppressionDepth
         let reasonDescription = suppressionReason?.rawValue ?? "activeSequence"
         cmuxDebugLog("window.sendEvent.\(reasonDescription) suppress=1 hit=\(hitDesc) movable=\(isMovable) depth=\(depth)")
         #endif

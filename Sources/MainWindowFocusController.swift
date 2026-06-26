@@ -11,30 +11,6 @@ final class MainWindowFocusController {
         case unknown
     }
 
-    private enum RightSidebarFocusState: Equatable {
-        case inactive
-        case requested(RightSidebarFocusRequest)
-        case focused(mode: RightSidebarMode, target: RightSidebarFocusTarget)
-
-        var mode: RightSidebarMode? {
-            switch self {
-            case .inactive:
-                return nil
-            case .requested(let request):
-                return request.mode
-            case .focused(let mode, _):
-                return mode
-            }
-        }
-
-        var request: RightSidebarFocusRequest? {
-            if case .requested(let request) = self {
-                return request
-            }
-            return nil
-        }
-    }
-
     let windowId: UUID
 
     private weak var window: NSWindow?
