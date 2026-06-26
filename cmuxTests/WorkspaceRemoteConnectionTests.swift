@@ -2060,6 +2060,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let uploadInvoked = DispatchSemaphore(value: 0)
         let lock = NSLock()
         var uploadCommand: String?
+        var uploadArgs: [String]?
         var uploadStdin: Data?
         var usedScp = false
         let remoteProcessScript: RemoteProcessScript = { executable, arguments, stdin, _ in
@@ -2083,6 +2084,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 if command.contains("cat >") {
                     lock.lock()
                     uploadCommand = command
+                    uploadArgs = arguments
                     uploadStdin = stdin
                     lock.unlock()
                     uploadInvoked.signal()
@@ -2123,6 +2125,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(uploadInvoked.wait(timeout: .now() + 2), .success)
         lock.lock()
         let capturedCommand = uploadCommand
+        let capturedArgs = uploadArgs
         let capturedStdin = uploadStdin
         let capturedUsedScp = usedScp
         lock.unlock()
@@ -2135,6 +2138,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(
             command.contains("cat > "),
             "expected the binary to be piped via cat, got \(command)"
+        )
+        XCTAssertEqual(
+            (capturedArgs ?? []).filter { $0 == "-T" }.count, 1,
+            "expected ssh upload to disable pseudo-terminal allocation with -T so the binary stream is not mangled (#6207), got \(capturedArgs ?? [])"
         )
         XCTAssertTrue(
             command.contains("/home/test/.cmux/bin/cmuxd-remote/"),
@@ -2191,6 +2198,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let uploadInvoked = DispatchSemaphore(value: 0)
         let lock = NSLock()
         var uploadCommand: String?
+        var uploadArgs: [String]?
         var usedScp = false
         var uploadCount = 0
         let remoteProcessScript: RemoteProcessScript = { executable, arguments, _, _ in
@@ -2226,6 +2234,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                     let isReinstallUpload = uploadCount >= 2
                     if isReinstallUpload {
                         uploadCommand = command
+                        uploadArgs = arguments
                     }
                     lock.unlock()
                     if isReinstallUpload {
@@ -2272,6 +2281,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(uploadInvoked.wait(timeout: .now() + 5), .success)
         lock.lock()
         let capturedCommand = uploadCommand
+        let capturedArgs = uploadArgs
         let capturedUsedScp = usedScp
         lock.unlock()
         XCTAssertFalse(
@@ -2286,6 +2296,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(
             command.contains("/home/test/.cmux/bin/cmuxd-remote/"),
             "expected missing pty.session to reinstall the old daemon over ssh, got \(command)"
+        )
+        XCTAssertEqual(
+            (capturedArgs ?? []).filter { $0 == "-T" }.count, 1,
+            "expected ssh reinstall upload to disable pseudo-terminal allocation with -T (#6207), got \(capturedArgs ?? [])"
         )
     }
 

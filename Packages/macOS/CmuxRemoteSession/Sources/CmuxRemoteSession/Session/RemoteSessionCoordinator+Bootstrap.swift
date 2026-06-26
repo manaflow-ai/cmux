@@ -331,14 +331,11 @@ extension RemoteSessionCoordinator {
         // transport guarantees identical path semantics. `-T` suppresses any
         // forced pseudo-terminal so tty line-ending translation cannot corrupt
         // the binary stream.
-        let binaryData: Data
-        do {
-            binaryData = try Data(contentsOf: localBinary)
-        } catch {
-            throw NSError(domain: "cmux.remote.daemon", code: 31, userInfo: [
-                NSLocalizedDescriptionKey: "failed to read cmuxd-remote for upload: \(error.localizedDescription)",
-            ])
-        }
+        // Read the freshly built/validated binary. A failure here is a local
+        // Cocoa file error (already system-localized); let it propagate rather
+        // than reusing the remote-upload error code, so the two conditions stay
+        // distinct and no new hand-rolled English diagnostic is introduced.
+        let binaryData = try Data(contentsOf: localBinary)
         let uploadScript = "cat > \(remoteTempPath.shellSingleQuoted)"
         let uploadCommand = "sh -c \(uploadScript.shellSingleQuoted)"
         let uploadResult = try sshExec(
