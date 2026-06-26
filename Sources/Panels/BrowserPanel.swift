@@ -7086,7 +7086,10 @@ extension BrowserPanel {
             switch result {
             case .success(let image):
                 completion(image)
-            case .failure:
+            case .failure(let error):
+#if DEBUG
+                cmuxDebugLog("browser.snapshot.error \(error.localizedDescription)")
+#endif
                 completion(nil)
             }
         }
