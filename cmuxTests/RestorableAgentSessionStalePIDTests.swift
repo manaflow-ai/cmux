@@ -55,6 +55,74 @@ struct RestorableAgentSessionStalePIDTests {
         #expect(fork.contains("'fork' '\(sid)'"), "codex fork command expected; got: \(fork)")
     }
 
+    @Test func newerStalePIDHookRecordDoesNotReplaceLivePanelRecord() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-live-pid-preserved-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let dir = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let ws = UUID()
+        let panel = UUID()
+        let livePID = 12_345
+        let liveSID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        let staleSID = "ffffffff-1111-2222-3333-444444444444"
+        var liveRecord = driftedAgentHookRecord(
+            launcher: "codex",
+            sessionId: liveSID,
+            workspaceId: ws,
+            panelId: panel,
+            recordedCwd: dir.path,
+            launchCwd: dir.path,
+            updatedAt: 10
+        )
+        liveRecord["pid"] = livePID
+        var staleRecord = driftedAgentHookRecord(
+            launcher: "codex",
+            sessionId: staleSID,
+            workspaceId: ws,
+            panelId: panel,
+            recordedCwd: dir.path,
+            launchCwd: dir.path,
+            updatedAt: 20
+        )
+        staleRecord["pid"] = 987_654_321
+        try writeHookStore(
+            root: root,
+            storeFilename: "codex-hook-sessions.json",
+            sessions: [
+                liveSID: liveRecord,
+                staleSID: staleRecord,
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [:],
+            processArgumentsProvider: { pid in
+                guard pid == livePID else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: ["/usr/local/bin/codex"],
+                    environment: [
+                        "CMUX_WORKSPACE_ID": ws.uuidString,
+                        "CMUX_SURFACE_ID": panel.uuidString,
+                    ]
+                )
+            }
+        )
+        let snapshot = try #require(
+            index.snapshot(workspaceId: ws, panelId: panel),
+            "A newer dead hook record must not overwrite scoped live process evidence."
+        )
+
+        #expect(snapshot.sessionId == liveSID)
+        #expect(index.processIDs(workspaceId: ws, panelId: panel) == [livePID])
+        #expect(index.hasLiveProcess(workspaceId: ws, panelId: panel))
+    }
+
     private func driftedAgentHookRecord(
         launcher: String,
         sessionId: String,

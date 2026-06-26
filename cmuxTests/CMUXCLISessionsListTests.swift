@@ -146,7 +146,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(session["fork_supported"] as? Bool == true)
         #expect(session["fork_unavailable_reason"] as? String == "available")
         #expect(session["fork_startup_input_available"] as? Bool == true)
-        #expect(session["stored_pid_alive"] as? Bool == false)
+        #expect(session["stored_pid_exists"] as? Bool == false)
         #expect(session["stale_pid_blocks_restore_in_0_64_17"] as? Bool == true)
     }
 
@@ -282,7 +282,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         let session = try #require(sessions.first)
         #expect(session["session_id"] as? String == sessionId)
         #expect(session["fork_supported"] as? Bool == true)
-        #expect(session["stored_pid_alive"] is NSNull)
+        #expect(session["stored_pid_exists"] is NSNull)
     }
 
     @Test func testSessionsListForkDiagnosticsUseForkCommandBuilder() throws {
@@ -306,6 +306,7 @@ extension CMUXCLIErrorOutputRegressionTests {
                     "workspaceId": workspaceId,
                     "surfaceId": surfaceId,
                     "cwd": "/tmp/cmux/debug",
+                    "pid": 987_654_321,
                     "startedAt": 1_781_996_800.0,
                     "updatedAt": 1_781_996_867.0,
                     "launchCommand": [
@@ -350,6 +351,6 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(session["fork_supported"] as? Bool == false)
         #expect(session["fork_unavailable_reason"] as? String == "agent_has_no_fork_command")
         #expect(session["fork_startup_input_available"] as? Bool == false)
-        #expect(session["stale_pid_blocks_restore_in_0_64_17"] as? Bool == false)
+        #expect(session["stale_pid_blocks_restore_in_0_64_17"] as? Bool == true)
     }
 }
