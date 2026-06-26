@@ -219,6 +219,18 @@ actor RemoteTmuxSSHTransport {
     ) async throws -> Bool {
         try? host.ensureControlSocketDirectory()
         if try await masterIsRunning() { return true }
+        // Open the shared master exactly once. `run` connects with
+        // `ControlMaster=auto`, so this single connection becomes the master (or
+        // attaches to discovery's still-settling one) — it cannot lose the multi
+        // session creation race the way the concurrent attach burst does.
+        do {
+            _ = try await run(["true"])
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            // Couldn't open it cleanly; still poll below in case discovery's master
+            // is mid-hand-off and about to start accepting sessions.
+        }
         return try await pollMasterReady(attempts: pollAttempts, interval: pollInterval)
     }
 
