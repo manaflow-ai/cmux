@@ -48,7 +48,7 @@ struct ManagedCustomSettings: Equatable {
     var managedIdentifiers: Set<String> {
         var identifiers: Set<String> = []
         if socketPassword != nil {
-            identifiers.insert(CmuxSettingsFileStore.socketPasswordBackupIdentifier)
+            identifiers.insert(ManagedDefaultBackupValue.socketPasswordBackupIdentifier)
         }
         return identifiers
     }

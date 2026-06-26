@@ -560,6 +560,7 @@
 		F5168A060000000000000001 /* MarkdownTypographyDefaults.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5168A060000000000000002 /* MarkdownTypographyDefaults.swift */; };
 		A5001290 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = A5001291 /* MarkdownUI */; };
 		A50014F3 /* MarkdownViewerAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F1 /* MarkdownViewerAssets.swift */; };
+		B10014F5 /* MarkdownWebRecoveryPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10014F4 /* MarkdownWebRecoveryPolicy.swift */; };
 		A50014F5 /* MarkdownWebRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F4 /* MarkdownWebRenderer.swift */; };
 		A50014F9 /* MarkdownWebSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F8 /* MarkdownWebSupport.swift */; };
 		1A8BEE693C9E4C3190CB7F20 /* MenuBarExtraController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7934BB35B66491B1BCA8064 /* MenuBarExtraController.swift */; };
@@ -1664,6 +1665,7 @@
 		F5168A020000000000000002 /* MarkdownTypographyControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownTypographyControl.swift; sourceTree = "<group>"; };
 		F5168A060000000000000002 /* MarkdownTypographyDefaults.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownTypographyDefaults.swift; sourceTree = "<group>"; };
 		A50014F1 /* MarkdownViewerAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownViewerAssets.swift; sourceTree = "<group>"; };
+		B10014F4 /* MarkdownWebRecoveryPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownWebRecoveryPolicy.swift; sourceTree = "<group>"; };
 		A50014F4 /* MarkdownWebRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownWebRenderer.swift; sourceTree = "<group>"; };
 		A50014F8 /* MarkdownWebSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownWebSupport.swift; sourceTree = "<group>"; };
 		C7934BB35B66491B1BCA8064 /* MenuBarExtraController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MenuBarExtraController.swift; sourceTree = "<group>"; };
@@ -2943,6 +2945,7 @@
 				A5001419 /* MarkdownPanelView.swift */,
 				A5000D02 /* MarkdownRenderScript.swift */,
 				A50014F4 /* MarkdownWebRenderer.swift */,
+				B10014F4 /* MarkdownWebRecoveryPolicy.swift */,
 				F5168A080000000000000002 /* MarkdownImageSchemeHandler.swift */,
 				A50014F6 /* MarkdownRemoteImageLoader.swift */,
 				A50014F8 /* MarkdownWebSupport.swift */,
@@ -4164,6 +4167,7 @@
 				F5168A020000000000000001 /* MarkdownTypographyControl.swift in Sources */,
 				F5168A060000000000000001 /* MarkdownTypographyDefaults.swift in Sources */,
 				A50014F3 /* MarkdownViewerAssets.swift in Sources */,
+				B10014F5 /* MarkdownWebRecoveryPolicy.swift in Sources */,
 				A50014F5 /* MarkdownWebRenderer.swift in Sources */,
 				A50014F9 /* MarkdownWebSupport.swift in Sources */,
 				1A8BEE693C9E4C3190CB7F20 /* MenuBarExtraController.swift in Sources */,

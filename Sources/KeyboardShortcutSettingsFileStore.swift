@@ -91,12 +91,6 @@ final class CmuxSettingsFileStore {
         compositionRootInstance = instance
     }
 
-    static let currentSchemaVersion = 1
-    static let schemaURLString = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json"
-    private static let legacySchemaURLString = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json"
-    private static let releaseBundleIdentifier = "com.cmuxterm.app"
-    static let socketPasswordBackupIdentifier = "automation.socketPassword"
-
     static var defaultPrimaryPath: String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         return (home as NSString).appendingPathComponent(".config/cmux/cmux.json")
@@ -115,7 +109,7 @@ final class CmuxSettingsFileStore {
             return nil
         }
         return appSupport
-            .appendingPathComponent(releaseBundleIdentifier, isDirectory: true)
+            .appendingPathComponent(CmuxGhosttyConfigPathResolver.releaseBundleIdentifier, isDirectory: true)
             .appendingPathComponent("settings.json", isDirectory: false)
             .path
     }
@@ -313,7 +307,7 @@ final class CmuxSettingsFileStore {
             guard let source = String(data: data, encoding: .utf8) else {
                 return data
             }
-            let updated = source.replacingOccurrences(of: Self.legacySchemaURLString, with: Self.schemaURLString)
+            let updated = source.replacingOccurrences(of: CmuxSettingsFileSchema.current.legacySchemaURLString, with: CmuxSettingsFileSchema.current.schemaURLString)
             return Data(updated.utf8)
         }
         return nil
@@ -391,8 +385,8 @@ final class CmuxSettingsFileStore {
                 backups[defaultsKey] = backupValueForUserDefaultsKey(defaultsKey, managedValue: value)
             }
             if snapshot.managedCustomSettings.socketPassword != nil,
-               backups[Self.socketPasswordBackupIdentifier] == nil {
-                backups[Self.socketPasswordBackupIdentifier] = currentSocketPasswordBackupValue()
+               backups[ManagedDefaultBackupValue.socketPasswordBackupIdentifier] == nil {
+                backups[ManagedDefaultBackupValue.socketPasswordBackupIdentifier] = currentSocketPasswordBackupValue()
             }
         }
 
@@ -496,7 +490,7 @@ final class CmuxSettingsFileStore {
         synchronizeManagedAppearanceTerminalTheme: Bool
     ) -> ManagedDefaultBatchSideEffects {
         switch identifier {
-        case Self.socketPasswordBackupIdentifier:
+        case ManagedDefaultBackupValue.socketPasswordBackupIdentifier:
             switch backup {
             case .string(let value):
                 try? passwordStore.savePassword(value)

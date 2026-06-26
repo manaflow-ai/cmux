@@ -557,7 +557,21 @@ private extension FeedCoordinator {
             let body: String
             switch event.hookEventName {
             case .permissionRequest:
-                categoryId = Self.permissionNotificationCategoryId(for: event)
+                let permissionSource = WorkstreamSource(wireName: event.source) ?? .claude
+                categoryId = NotificationFeedPermissionCapabilities(
+                    supportsOnce: FeedPermissionActionPolicy.supportsOncePermissionMode(
+                        source: permissionSource,
+                        toolInputJSON: event.toolInputJSON
+                    ),
+                    supportsAlways: FeedPermissionActionPolicy.supportsAlwaysPermissionMode(
+                        source: permissionSource,
+                        toolInputJSON: event.toolInputJSON
+                    ),
+                    supportsAll: FeedPermissionActionPolicy.supportsAllPermissionMode(
+                        source: permissionSource,
+                        toolInputJSON: event.toolInputJSON
+                    )
+                ).notificationCategoryIdentifier
                 title = String(
                     localized: "feed.notification.permission.title",
                     defaultValue: "\(event.source.capitalized) permission"
@@ -649,27 +663,6 @@ private extension FeedCoordinator {
                 TerminalNotificationStore.shared.reportNotificationHookFailure(failure)
             }
         }
-    }
-
-    private static func permissionNotificationCategoryId(for event: WorkstreamEvent) -> String {
-        let source = WorkstreamSource(wireName: event.source) ?? .claude
-        let supportsOnce = FeedPermissionActionPolicy.supportsOncePermissionMode(
-            source: source,
-            toolInputJSON: event.toolInputJSON
-        )
-        let supportsAlways = FeedPermissionActionPolicy.supportsAlwaysPermissionMode(
-            source: source,
-            toolInputJSON: event.toolInputJSON
-        )
-        let supportsAll = FeedPermissionActionPolicy.supportsAllPermissionMode(
-            source: source,
-            toolInputJSON: event.toolInputJSON
-        )
-        var suffix = ""
-        if supportsOnce { suffix += "Once" }
-        if supportsAlways { suffix += "Always" }
-        if supportsAll { suffix += "All" }
-        return suffix.isEmpty ? "CMUXFeedPermissionDeny" : "CMUXFeedPermission\(suffix)"
     }
 
     @MainActor

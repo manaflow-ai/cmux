@@ -419,28 +419,28 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     func testRestorePolicySkipsWhenLaunchHasExplicitArguments() {
-        let shouldRestore = SessionRestorePolicy.shouldAttemptRestore(
+        let shouldRestore = SessionRestorePolicy(
             arguments: ["/Applications/cmux.app/Contents/MacOS/cmux", "--window", "window:1"],
             environment: [:]
-        )
+        ).shouldAttemptRestore
 
         XCTAssertFalse(shouldRestore)
     }
 
     func testRestorePolicyAllowsFinderStyleLaunchArgumentsOnly() {
-        let shouldRestore = SessionRestorePolicy.shouldAttemptRestore(
+        let shouldRestore = SessionRestorePolicy(
             arguments: ["/Applications/cmux.app/Contents/MacOS/cmux", "-psn_0_12345"],
             environment: [:]
-        )
+        ).shouldAttemptRestore
 
         XCTAssertTrue(shouldRestore)
     }
 
     func testRestorePolicySkipsWhenRunningUnderXCTest() {
-        let shouldRestore = SessionRestorePolicy.shouldAttemptRestore(
+        let shouldRestore = SessionRestorePolicy(
             arguments: ["/Applications/cmux.app/Contents/MacOS/cmux"],
             environment: ["XCTestConfigurationFilePath": "/tmp/xctest.xctestconfiguration"]
-        )
+        ).shouldAttemptRestore
 
         XCTAssertFalse(shouldRestore)
     }
