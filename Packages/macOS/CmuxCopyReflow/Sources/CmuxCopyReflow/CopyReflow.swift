@@ -1,0 +1,262 @@
+import Foundation
+
+/// Reflow text copied from a terminal so that lines an application
+/// *hard-wrapped* to fit the viewport are rejoined into continuous paragraphs,
+/// while structured content (code fences, tables, blockquotes, nested lists,
+/// headings, URLs, and blank lines) is preserved.
+///
+/// The input is expected to be the selection text as ghostty already produces
+/// it — soft-wrap (autowrap) continuations are already joined upstream, so this
+/// only addresses the residual application-emitted hard wrapping.
+///
+/// The transform is intentionally conservative (see ``ReflowOptions``): when
+/// there is no clear wrap signal it leaves lines alone. A wrap signal is either
+/// a continuation indent (a line indented past its paragraph's first line) or a
+/// "full" previous line (one whose length reached the block's wrap width). It
+/// never joins across a line ending in sentence punctuation, and never
+/// width-joins a block narrower than ``ReflowOptions/minWrapWidth``.
+public nonisolated func reflowCopiedText(
+    _ text: String,
+    options: ReflowOptions = .default
+) -> String {
+    if text.isEmpty { return text }
+
+    let hadTrailingNewline = text.hasSuffix("\n")
+    // Split on "\n"; normalise CRLF by dropping a trailing "\r" per line.
+    let rawLines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        .map { $0.hasSuffix("\r") ? $0.dropLast() : $0 }
+
+    // Pass 1: fence state per line + common indent over eligible lines.
+    var insideFenceFlags = [Bool](repeating: false, count: rawLines.count)
+    var isFenceLine = [Bool](repeating: false, count: rawLines.count)
+    do {
+        var inside = false
+        for (i, line) in rawLines.enumerated() {
+            let kind = LineClassifier.classify(line, insideFence: inside)
+            insideFenceFlags[i] = inside
+            if kind == .fenceDelimiter {
+                isFenceLine[i] = true
+                inside.toggle()
+            } else if inside {
+                isFenceLine[i] = true
+            }
+        }
+    }
+
+    let commonIndent = computeCommonIndent(rawLines, isFenceLine: isFenceLine)
+
+    // Stripped view of each line (common indent removed, relative indent kept).
+    let stripped = rawLines.map { stripColumns($0, commonIndent) }
+
+    // Pass 2: block max width. A block is a run of consecutive lines that are
+    // neither blank nor part of a fence.
+    let blockMaxWidth = computeBlockMaxWidths(
+        stripped: stripped,
+        rawLines: rawLines,
+        isFenceLine: isFenceLine,
+        insideFenceFlags: insideFenceFlags
+    )
+
+    // Pass 3: emit.
+    var output: [String] = []
+    var para: Paragraph?
+
+    func flush() {
+        if let p = para {
+            output.append(p.text)
+            para = nil
+        }
+    }
+
+    for i in rawLines.indices {
+        let raw = rawLines[i]
+        let line = stripped[i]
+        let kind = LineClassifier.classify(raw, insideFence: insideFenceFlags[i])
+
+        switch kind {
+        case .fenceDelimiter, .insideFence:
+            flush()
+            output.append(String(line))
+
+        case .blank:
+            flush()
+            output.append("")
+
+        case .heading, .blockquote, .tableRow:
+            // Structural lines are hard breaks and never absorb a continuation.
+            flush()
+            output.append(String(line))
+
+        case .listItem:
+            // A list item starts a new output line but opens a paragraph so its
+            // own wrapped continuation can rejoin onto it.
+            flush()
+            para = Paragraph(
+                text: String(line),
+                baseIndent: LineClassifier.indentWidth(of: line),
+                isURL: false,
+                prevVisibleLength: LineClassifier.visibleLength(of: line),
+                prevEndsTerminator: lastNonSpaceIsTerminator(line, options: options),
+                prevHasSpace: line.contains(" ")
+            )
+
+        case .prose, .urlLine:
+            let indent = LineClassifier.indentWidth(of: line)
+            let content = stripDecoration(line, options: options)
+            let visLen = LineClassifier.visibleLength(of: line)
+            let endsTerminator = lastNonSpaceIsTerminator(line, options: options)
+            let hasSpace = line.contains(" ")
+
+            func openParagraph() {
+                para = Paragraph(
+                    text: content,
+                    baseIndent: indent,
+                    isURL: kind == .urlLine,
+                    prevVisibleLength: visLen,
+                    prevEndsTerminator: endsTerminator,
+                    prevHasSpace: hasSpace
+                )
+            }
+
+            if var p = para {
+                // s1: an explicit continuation indent (line indented past the
+                //     paragraph's first line).
+                let s1 = indent > p.baseIndent
+                // s2: the previous physical line was "full" (reached the block's
+                //     wrap width) AND was prose-like (contained a space). The
+                //     space guard keeps columns of long paths/URLs/hashes — which
+                //     are single tokens — from being treated as wrapped prose.
+                let s2 = p.prevHasSpace
+                    && blockMaxWidth[i] >= options.minWrapWidth
+                    && p.prevVisibleLength >= blockMaxWidth[i] - options.widthTolerance
+                // s3: a wrapped bare URL continues as a spaceless path fragment.
+                let s3 = p.isURL && !content.contains(" ")
+                let canJoin = !p.prevEndsTerminator && (s1 || s2 || s3)
+
+                if canJoin {
+                    let joiner = p.isURL ? "" : " "
+                    p.text += joiner + content.trimmingLeadingWhitespace()
+                    p.prevVisibleLength = visLen
+                    p.prevEndsTerminator = endsTerminator
+                    p.prevHasSpace = hasSpace
+                    para = p
+                } else {
+                    flush()
+                    openParagraph()
+                }
+            } else {
+                openParagraph()
+            }
+        }
+    }
+    flush()
+
+    var result = output.joined(separator: "\n")
+    if hadTrailingNewline && !result.hasSuffix("\n") {
+        result += "\n"
+    }
+    return result
+}
+
+// MARK: - Internals
+
+private struct Paragraph {
+    /// Accumulated, emitted text of the paragraph so far.
+    var text: String
+    /// Indent (in columns, post common-indent strip) of the paragraph's first
+    /// line. Continuation lines indented past this signal a wrap.
+    var baseIndent: Int
+    /// Whether the paragraph's first line is a bare URL (joins with no space).
+    var isURL: Bool
+    /// Visible length of the most recently appended physical line.
+    var prevVisibleLength: Int
+    /// Whether the most recently appended physical line ends with sentence
+    /// punctuation (a hard boundary — never join past it).
+    var prevEndsTerminator: Bool
+    /// Whether the most recently appended physical line contained a space
+    /// (prose-like). Gates the width signal so single-token columns (paths,
+    /// URLs, hashes) are not width-joined.
+    var prevHasSpace: Bool
+}
+
+/// Minimum leading-whitespace column count across blank-excluded, fence-excluded
+/// lines. Tabs and spaces each count as one column.
+private func computeCommonIndent(_ lines: [Substring], isFenceLine: [Bool]) -> Int {
+    var minIndent: Int?
+    for (i, line) in lines.enumerated() {
+        if isFenceLine[i] { continue }
+        let trimmed = line.drop { $0 == " " || $0 == "\t" }
+        if trimmed.isEmpty { continue } // blank
+        let indent = LineClassifier.indentWidth(of: line)
+        minIndent = min(minIndent ?? indent, indent)
+    }
+    return minIndent ?? 0
+}
+
+/// Drop up to `n` leading space/tab columns.
+private func stripColumns(_ line: Substring, _ n: Int) -> Substring {
+    var dropped = 0
+    var idx = line.startIndex
+    while dropped < n, idx < line.endIndex, line[idx] == " " || line[idx] == "\t" {
+        idx = line.index(after: idx)
+        dropped += 1
+    }
+    return line[idx...]
+}
+
+/// For each line index, the widest line in the block it belongs to (a block is a
+/// run of consecutive non-blank, non-fence lines). Blank/fence lines get 0.
+private func computeBlockMaxWidths(
+    stripped: [Substring],
+    rawLines: [Substring],
+    isFenceLine: [Bool],
+    insideFenceFlags: [Bool]
+) -> [Int] {
+    var widths = [Int](repeating: 0, count: stripped.count)
+    var i = 0
+    while i < stripped.count {
+        let isBlank = rawLines[i].allSatisfy { $0 == " " || $0 == "\t" }
+        if isBlank || isFenceLine[i] {
+            i += 1
+            continue
+        }
+        var j = i
+        var maxW = 0
+        while j < stripped.count {
+            let blankJ = rawLines[j].allSatisfy { $0 == " " || $0 == "\t" }
+            if blankJ || isFenceLine[j] { break }
+            maxW = max(maxW, LineClassifier.visibleLength(of: stripped[j]))
+            j += 1
+        }
+        for k in i..<j { widths[k] = maxW }
+        i = j
+    }
+    return widths
+}
+
+/// Strip a single leading decoration glyph (and following spaces) if present.
+private func stripDecoration(_ line: Substring, options: ReflowOptions) -> String {
+    guard let first = line.first, options.decorationCharacters.contains(first) else {
+        return String(line)
+    }
+    let rest = line.dropFirst()
+    // Only treat it as decoration when followed by a space or end-of-line, so a
+    // glyph that is part of a word is left alone.
+    if rest.isEmpty || rest.first == " " {
+        return String(rest.drop { $0 == " " })
+    }
+    return String(line)
+}
+
+private func lastNonSpaceIsTerminator(_ line: Substring, options: ReflowOptions) -> Bool {
+    guard let last = line.reversed().first(where: { $0 != " " && $0 != "\t" }) else {
+        return false
+    }
+    return options.sentenceTerminators.contains(last)
+}
+
+private extension String {
+    func trimmingLeadingWhitespace() -> String {
+        String(drop { $0 == " " || $0 == "\t" })
+    }
+}
