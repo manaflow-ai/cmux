@@ -1095,6 +1095,7 @@
 		E3B7A4000000000000000007 /* WorkspaceIndicatorStyle+Display.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000008 /* WorkspaceIndicatorStyle+Display.swift */; };
 		CA52B0180000000000000000 /* WorkspaceLayoutMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0180000000000000000 /* WorkspaceLayoutMode.swift */; };
 		0F2C25F9170130F8DC09DD1B /* WorkspaceManualUnreadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D301919B10F22B8708E8883 /* WorkspaceManualUnreadTests.swift */; };
+		C55880010000000000000001 /* WorkspaceNumberShortcutMenuRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C55880010000000000000002 /* WorkspaceNumberShortcutMenuRoutingTests.swift */; };
 		E3B7A4000000000000000005 /* WorkspacePlacement+Resolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000006 /* WorkspacePlacement+Resolution.swift */; };
 		D0B10004A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10005A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift */; };
 		1A1B2C3D4E5F607180000001 /* WorkspacePromptSubmit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A1B2C3D4E5F607180000002 /* WorkspacePromptSubmit.swift */; };
@@ -2222,6 +2223,7 @@
 		E3B7A4000000000000000008 /* WorkspaceIndicatorStyle+Display.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceIndicatorStyle+Display.swift"; sourceTree = "<group>"; };
 		CA52C0180000000000000000 /* WorkspaceLayoutMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceLayoutMode.swift"; sourceTree = "<group>"; };
 		1D301919B10F22B8708E8883 /* WorkspaceManualUnreadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceManualUnreadTests.swift; sourceTree = "<group>"; };
+		C55880010000000000000002 /* WorkspaceNumberShortcutMenuRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceNumberShortcutMenuRoutingTests.swift; sourceTree = "<group>"; };
 		E3B7A4000000000000000006 /* WorkspacePlacement+Resolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspacePlacement+Resolution.swift"; sourceTree = "<group>"; };
 		D0B10005A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePortalPaneDrop.swift; sourceTree = "<group>"; };
 		1A1B2C3D4E5F607180000002 /* WorkspacePromptSubmit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePromptSubmit.swift; sourceTree = "<group>"; };
@@ -3351,6 +3353,7 @@
 				C0DEF0B30000000000000002 /* KeyboardShortcutSettingsFileStoreMigrationTests.swift */,
 				E3337002E3337002E3337002 /* KeyboardShortcutSettingsFileStoreStartupTests.swift */,
 				C34670020000000000000002 /* KeyboardShortcutContextTests.swift */,
+				C55880010000000000000002 /* WorkspaceNumberShortcutMenuRoutingTests.swift */,
 				F5996002A1B2C3D4E5F60002 /* FileExplorerShortcutSettingsTests.swift */,
 				6042B0026042B0026042B002 /* KeyboardShortcutModifierHoldHintsSettingsFileTests.swift */,
 				D5671102D5671102D5671102 /* TerminalScrollSpeedSettingsFileStoreTests.swift */,
@@ -4990,6 +4993,7 @@
 				C9A57401C9A57401C9A57401 /* WorkspaceGroupMoveToMenuStateTests.swift in Sources */,
 				C9A57001C9A57001C9A57001 /* WorkspaceGroupTests.swift in Sources */,
 				0F2C25F9170130F8DC09DD1B /* WorkspaceManualUnreadTests.swift in Sources */,
+				C55880010000000000000001 /* WorkspaceNumberShortcutMenuRoutingTests.swift in Sources */,
 				1A1B2C3D4E5F607180000003 /* WorkspacePromptSubmitTests.swift in Sources */,
 				DCC935C5F55C1DCB33E25521 /* WorkspacePullRequestSidebarTests.swift in Sources */,
 				F6100000A1B2C3D4E5F60718 /* WorkspaceRemoteConnectionTests.swift in Sources */,
