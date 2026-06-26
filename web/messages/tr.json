@@ -837,6 +837,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "leftMinWidth": "Sol kenar çubuğunun (çalışma alanları) sürüklenebileceği en küçük genişlik (puan cinsinden). Kenar çubuğunu gizlemeden terminale alan kazandırmak için azaltın. 100–260 ile sınırlıdır; varsayılan 216’dır.",
           "rightMaxWidth": "Sağ kenar çubuğu için puan cinsinden en fazla genişlik. Atlanırsa yerleşik dinamik sınır uygulanır."
         },
         "fileExplorer": {

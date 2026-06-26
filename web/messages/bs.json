@@ -837,6 +837,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "leftMinWidth": "Minimalna širina u tačkama do koje se lijeva bočna traka (radni prostori) može povući. Smanjite je da oslobodite prostor za terminal bez skrivanja bočne trake. Ograničeno na 100–260; zadano je 216.",
           "rightMaxWidth": "Maksimalna širina desne bočne trake u tačkama. Ako se izostavi, primjenjuje se ugrađeno dinamičko ograničenje."
         },
         "fileExplorer": {

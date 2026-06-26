@@ -837,6 +837,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "leftMinWidth": "Minimalna szerokość w punktach, do której można przeciągnąć lewy pasek boczny (obszary robocze). Zmniejsz ją, aby odzyskać miejsce dla terminala bez ukrywania paska bocznego. Ograniczone do 100–260; wartość domyślna to 216.",
           "rightMaxWidth": "Maksymalna szerokość prawego paska bocznego w punktach. Jeśli pominięta, obowiązuje wbudowany limit dynamiczny."
         },
         "fileExplorer": {

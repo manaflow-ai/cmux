@@ -837,6 +837,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "leftMinWidth": "Mindestbreite in Punkten, auf die die linke Seitenleiste (Arbeitsbereiche) gezogen werden kann. Verringere sie, um Platz für das Terminal zu gewinnen, ohne die Seitenleiste auszublenden. Begrenzt auf 100–260; Standard ist 216.",
           "rightMaxWidth": "Maximale Breite der rechten Seitenleiste in Punkten. Wenn weggelassen, gilt die integrierte dynamische Obergrenze."
         },
         "fileExplorer": {

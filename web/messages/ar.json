@@ -837,6 +837,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "leftMinWidth": "أدنى عرض بالنقاط يمكن سحب الشريط الجانبي الأيسر (مساحات العمل) إليه. قلّله لاستعادة مساحة للطرفية دون إخفاء الشريط الجانبي. مُقيّد بين 100 و260؛ والقيمة الافتراضية 216.",
           "rightMaxWidth": "أقصى عرض بالنقاط للشريط الجانبي الأيمن. عند تركه فارغًا، يُطبّق الحد الديناميكي المضمن."
         },
         "fileExplorer": {
