@@ -1,3 +1,4 @@
+import CmuxWorkspaces
 import Foundation
 import Observation
 import Bonsplit
@@ -535,7 +536,7 @@ final class ClosedItemHistoryStore {
     nonisolated private static func defaultHistoryFileURL(
         bundleIdentifier: String? = Bundle.main.bundleIdentifier,
         appSupportDirectory: URL? = nil,
-        isRunningUnderAutomatedTests: Bool = SessionRestorePolicy.isRunningUnderAutomatedTests()
+        isRunningUnderAutomatedTests: Bool = SessionRestorePolicy().isRunningUnderAutomatedTests
     ) -> URL? {
         guard !isRunningUnderAutomatedTests else { return nil }
         let resolvedAppSupport: URL

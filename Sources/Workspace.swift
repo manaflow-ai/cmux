@@ -752,7 +752,7 @@ extension Workspace {
     nonisolated static func shouldAutoConnectRestoredRemote(
         foregroundAuthToken: String?,
         snapshot: SessionWorkspaceSnapshot,
-        isRunningUnderAutomatedTests: Bool = SessionRestorePolicy.isRunningUnderAutomatedTests()
+        isRunningUnderAutomatedTests: Bool = SessionRestorePolicy().isRunningUnderAutomatedTests
     ) -> Bool {
         makeSessionRestorePolicyService().shouldAutoConnectRestoredRemote(
             foregroundAuthToken: foregroundAuthToken,
@@ -2466,7 +2466,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
                 Self.shouldRunPromptedSurfaceResume(binding)
             },
             isRunningUnderAutomatedTests: {
-                SessionRestorePolicy.isRunningUnderAutomatedTests()
+                SessionRestorePolicy().isRunningUnderAutomatedTests
             },
             truncateScrollback: { text in
                 ScrollbackTruncation().truncated(text)
