@@ -184,7 +184,7 @@ public struct TerminalSection: View {
                 controlWidth: 220
             ) {
                 TextField(
-                    TerminalBadge.defaultTemplate,
+                    TerminalBadgeConfiguration.defaultTemplate,
                     text: $badgeTemplateDraft,
                     onCommit: { badgeTemplate.set(badgeTemplateDraft) }
                 )
@@ -221,7 +221,7 @@ public struct TerminalSection: View {
                 HStack(spacing: 8) {
                     Slider(
                         value: Binding(get: { displayedBadgeOpacity }, set: { activeBadgeOpacityDragValue = $0 }),
-                        in: TerminalBadge.minOpacity...TerminalBadge.maxOpacity,
+                        in: TerminalBadgeConfiguration.opacityRange,
                         step: 0.05
                     ) { editing in
                         if !editing { commitBadgeOpacityDrag() }
@@ -246,7 +246,7 @@ public struct TerminalSection: View {
                 HStack(spacing: 8) {
                     Slider(
                         value: Binding(get: { displayedBadgeFontSize }, set: { activeBadgeFontSizeDragValue = $0 }),
-                        in: TerminalBadge.minFontSize...TerminalBadge.maxFontSize,
+                        in: TerminalBadgeConfiguration.fontSizeRange,
                         step: 1
                     ) { editing in
                         if !editing { commitBadgeFontSizeDrag() }

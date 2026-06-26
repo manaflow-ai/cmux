@@ -3,21 +3,13 @@ import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
-/// Visual style for the scroll-fixed terminal badge overlay. Value type so it
-/// can be diffed (``Equatable``) cheaply before touching AppKit on the hot
-/// `updateNSView` path.
-struct TerminalBadgeStyle: Equatable {
-    var position: TerminalBadgePosition
-    var opacity: Double
-    var fontSize: Double
-    var colorHex: String
-}
-
 /// Fully resolved badge to draw on one terminal surface: the substituted text
-/// plus its style. `nil` (absence of this value) means "draw no badge".
+/// plus its validated configuration. Value type so it can be diffed
+/// (``Equatable``) cheaply before touching AppKit on the hot `updateNSView`
+/// path. Absence of this value means "draw no badge".
 struct TerminalBadgeContent: Equatable {
     var text: String
-    var style: TerminalBadgeStyle
+    var configuration: TerminalBadgeConfiguration
 }
 
 /// Bridges the ``TerminalCatalogSection`` badge keys into the macOS app:
@@ -57,17 +49,16 @@ enum TerminalBadgeSettings {
         colorHex: String
     ) -> TerminalBadgeContent? {
         guard enabled else { return nil }
-        let text = TerminalBadge.resolveText(template: template, workspace: workspace, tab: tab)
-        guard !text.isEmpty else { return nil }
-        return TerminalBadgeContent(
-            text: text,
-            style: TerminalBadgeStyle(
-                position: position,
-                opacity: TerminalBadge.clampOpacity(opacity),
-                fontSize: TerminalBadge.clampFontSize(fontSize),
-                colorHex: colorHex
-            )
+        let configuration = TerminalBadgeConfiguration(
+            template: template,
+            position: position,
+            opacity: opacity,
+            fontSize: fontSize,
+            colorHex: colorHex
         )
+        let text = configuration.resolvedText(workspace: workspace, tab: tab)
+        guard !text.isEmpty else { return nil }
+        return TerminalBadgeContent(text: text, configuration: configuration)
     }
 }
 
@@ -99,19 +90,19 @@ struct TerminalBadgeOverlayView: View {
     let content: TerminalBadgeContent
 
     var body: some View {
-        let style = content.style
-        let color = Color(nsColor: NSColor(hex: style.colorHex) ?? .white)
+        let configuration = content.configuration
+        let color = Color(nsColor: NSColor(hex: configuration.colorHex) ?? .white)
         Text(content.text)
-            .font(.system(size: style.fontSize, weight: .semibold, design: .rounded))
+            .font(.system(size: configuration.fontSize, weight: .semibold, design: .rounded))
             .foregroundStyle(color)
-            .opacity(style.opacity)
+            .opacity(configuration.opacity)
             .lineLimit(2)
-            .multilineTextAlignment(style.position.isTrailing ? .trailing : .leading)
+            .multilineTextAlignment(configuration.position.isTrailing ? .trailing : .leading)
             .shadow(color: Color.black.opacity(0.35), radius: 2, x: 0, y: 1)
             .frame(
                 maxWidth: .infinity,
                 maxHeight: .infinity,
-                alignment: style.position.swiftUIAlignment
+                alignment: configuration.position.swiftUIAlignment
             )
             .padding(14)
             .allowsHitTesting(false)

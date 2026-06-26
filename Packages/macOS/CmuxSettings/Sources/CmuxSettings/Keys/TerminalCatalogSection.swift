@@ -156,7 +156,7 @@ public struct TerminalCatalogSection: SettingCatalogSection {
     /// are substituted with the workspace and surface titles.
     public let badgeTemplate = DefaultsKey<String>(
         id: "terminal.badge.template",
-        defaultValue: TerminalBadge.defaultTemplate,
+        defaultValue: TerminalBadgeConfiguration.defaultTemplate,
         userDefaultsKey: "terminal.badge.template"
     )
 
@@ -167,25 +167,24 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.badge.position"
     )
 
-    /// Badge text opacity (``TerminalBadge/minOpacity``...``TerminalBadge/maxOpacity``).
+    /// Badge text opacity (clamped to ``TerminalBadgeConfiguration/opacityRange``).
     public let badgeOpacity = DefaultsKey<Double>(
         id: "terminal.badge.opacity",
-        defaultValue: TerminalBadge.defaultOpacity,
+        defaultValue: TerminalBadgeConfiguration.defaultOpacity,
         userDefaultsKey: "terminal.badge.opacity"
     )
 
-    /// Badge text size in points
-    /// (``TerminalBadge/minFontSize``...``TerminalBadge/maxFontSize``).
+    /// Badge text size in points (clamped to ``TerminalBadgeConfiguration/fontSizeRange``).
     public let badgeFontSize = DefaultsKey<Double>(
         id: "terminal.badge.fontSize",
-        defaultValue: TerminalBadge.defaultFontSize,
+        defaultValue: TerminalBadgeConfiguration.defaultFontSize,
         userDefaultsKey: "terminal.badge.fontSize"
     )
 
     /// Badge text color as a `#RRGGBB` hex string.
     public let badgeColorHex = DefaultsKey<String>(
         id: "terminal.badge.colorHex",
-        defaultValue: TerminalBadge.defaultColorHex,
+        defaultValue: TerminalBadgeConfiguration.defaultColorHex,
         userDefaultsKey: "terminal.badge.colorHex"
     )
 
