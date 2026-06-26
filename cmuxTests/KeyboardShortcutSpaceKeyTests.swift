@@ -1,13 +1,18 @@
 import AppKit
+import CmuxSettings
 import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
+private typealias StoredShortcut = cmux_DEV.StoredShortcut
 #elseif canImport(cmux)
 @testable import cmux
+private typealias StoredShortcut = cmux.StoredShortcut
 #endif
 
-@Suite struct KeyboardShortcutSpaceKeyTests {
+private typealias SettingsShortcutStroke = CmuxSettings.ShortcutStroke
+
+@Suite(.serialized) struct KeyboardShortcutSpaceKeyTests {
     @Test func shortcutConfigParsingRoundTripsReturnKey() throws {
         let shortcut = try #require(StoredShortcut.parseConfig("return", allowBareFirstStroke: true))
 
@@ -99,5 +104,95 @@ import Testing
             store.override(for: .toggleSplitZoom) ==
             StoredShortcut(key: "space", command: true, shift: true, option: false, control: false)
         )
+    }
+
+    @Test func paneFocusCommandBracketDefaultsAreScopedToSplitWorkspacesAndPriorityRouted() {
+        let focusLeft = KeyboardShortcutSettings.Action.focusLeft.defaultShortcut
+        let focusRight = KeyboardShortcutSettings.Action.focusRight.defaultShortcut
+
+        #expect(focusLeft == KeyboardShortcutSettings.Action.focusHistoryBack.defaultShortcut)
+        #expect(focusRight == KeyboardShortcutSettings.Action.focusHistoryForward.defaultShortcut)
+        #expect(focusLeft == KeyboardShortcutSettings.Action.browserBack.defaultShortcut)
+        #expect(focusRight == KeyboardShortcutSettings.Action.browserForward.defaultShortcut)
+        #expect(ShortcutAction.focusLeft.defaultStroke == SettingsShortcutStroke(key: "[", command: true))
+        #expect(ShortcutAction.focusRight.defaultStroke == SettingsShortcutStroke(key: "]", command: true))
+
+        #expect(KeyboardShortcutSettings.Action.focusLeft.hasPriorityShortcutRouting)
+        #expect(KeyboardShortcutSettings.Action.focusRight.hasPriorityShortcutRouting)
+
+        var splitContext = ShortcutContext()
+        splitContext.setInt(ShortcutContextKnownKey.paneCount.rawValue, 2)
+        #expect(KeyboardShortcutSettings.Action.focusLeft.shortcutContext.defaultWhenClause.evaluate(splitContext))
+        #expect(KeyboardShortcutSettings.Action.focusRight.shortcutContext.defaultWhenClause.evaluate(splitContext))
+
+        var singlePaneContext = ShortcutContext()
+        singlePaneContext.setInt(ShortcutContextKnownKey.paneCount.rawValue, 1)
+        #expect(!KeyboardShortcutSettings.Action.focusLeft.shortcutContext.defaultWhenClause.evaluate(singlePaneContext))
+        #expect(!KeyboardShortcutSettings.Action.focusRight.shortcutContext.defaultWhenClause.evaluate(singlePaneContext))
+
+        var sidebarSplitContext = ShortcutContext()
+        sidebarSplitContext.setInt(ShortcutContextKnownKey.paneCount.rawValue, 2)
+        sidebarSplitContext.setBool(ShortcutContextKnownKey.sidebarFocus.rawValue, true)
+        #expect(!KeyboardShortcutSettings.Action.focusLeft.shortcutContext.defaultWhenClause.evaluate(sidebarSplitContext))
+        #expect(!KeyboardShortcutSettings.Action.focusRight.shortcutContext.defaultWhenClause.evaluate(sidebarSplitContext))
+
+        #expect(
+            !ShortcutWhenClause.bindingsCollide(
+                KeyboardShortcutSettings.Action.focusHistoryBack.shortcutContext.defaultWhenClause,
+                lhsHasPriority: KeyboardShortcutSettings.Action.focusHistoryBack.hasPriorityShortcutRouting,
+                KeyboardShortcutSettings.Action.focusLeft.shortcutContext.defaultWhenClause,
+                rhsHasPriority: KeyboardShortcutSettings.Action.focusLeft.hasPriorityShortcutRouting
+            )
+        )
+        #expect(
+            !ShortcutWhenClause.bindingsCollide(
+                KeyboardShortcutSettings.Action.browserBack.shortcutContext.defaultWhenClause,
+                lhsHasPriority: KeyboardShortcutSettings.Action.browserBack.hasPriorityShortcutRouting,
+                KeyboardShortcutSettings.Action.focusLeft.shortcutContext.defaultWhenClause,
+                rhsHasPriority: KeyboardShortcutSettings.Action.focusLeft.hasPriorityShortcutRouting
+            )
+        )
+    }
+
+    @Test func paneFocusMenuShortcutsSuppressDuplicateHistoryKeys() throws {
+        let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer {
+            KeyboardShortcutSettings.resetAll()
+            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try "{}".write(to: settingsFileURL, atomically: true, encoding: .utf8)
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+        KeyboardShortcutSettings.resetAll()
+
+        let focusBack = KeyboardShortcutSettings.shortcut(for: .focusHistoryBack)
+        let focusForward = KeyboardShortcutSettings.shortcut(for: .focusHistoryForward)
+
+        #expect(focusBack == KeyboardShortcutSettings.shortcut(for: .focusLeft))
+        #expect(focusForward == KeyboardShortcutSettings.shortcut(for: .focusRight))
+        #expect(focusBack == KeyboardShortcutSettings.shortcut(for: .browserBack))
+        #expect(focusForward == KeyboardShortcutSettings.shortcut(for: .browserForward))
+        #expect(KeyboardShortcutSettings.menuShortcut(for: .focusHistoryBack) == .unbound)
+        #expect(KeyboardShortcutSettings.menuShortcut(for: .focusHistoryForward) == .unbound)
+        #expect(KeyboardShortcutSettings.menuShortcut(for: .browserBack) == .unbound)
+        #expect(KeyboardShortcutSettings.menuShortcut(for: .browserForward) == .unbound)
+
+        KeyboardShortcutSettings.clearShortcut(for: .focusLeft)
+        KeyboardShortcutSettings.clearShortcut(for: .focusRight)
+
+        #expect(KeyboardShortcutSettings.menuShortcut(for: .focusHistoryBack) == focusBack)
+        #expect(KeyboardShortcutSettings.menuShortcut(for: .focusHistoryForward) == focusForward)
+        #expect(KeyboardShortcutSettings.menuShortcut(for: .browserBack) == .unbound)
+        #expect(KeyboardShortcutSettings.menuShortcut(for: .browserForward) == .unbound)
     }
 }
