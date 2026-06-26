@@ -129,87 +129,6 @@ extension RestorableAgentSessionIndex {
         return resolved
     }
 
-    static func processLooksLikeOpenCode(
-        processName: String,
-        processPath: String?,
-        arguments: [String]
-    ) -> Bool {
-        VaultObservedAgentProcess(
-            processName: processName,
-            processPath: processPath,
-            arguments: arguments,
-            environment: [:]
-        ).isOpenCodeProcess
-    }
-
-    static func openCodeExecutablePathForProcess(
-        arguments: [String],
-        environment: [String: String]
-    ) -> String {
-        let observed = VaultObservedAgentProcess(
-            processName: "",
-            processPath: nil,
-            arguments: arguments,
-            environment: environment
-        )
-        return OpenCodeProcessResolver().executablePath(observed: observed, environment: environment)
-    }
-
-    static func openCodeLaunchArgumentsForProcess(
-        arguments: [String],
-        environment: [String: String]
-    ) -> [String]? {
-        let observed = VaultObservedAgentProcess(
-            processName: "",
-            processPath: nil,
-            arguments: arguments,
-            environment: environment
-        )
-        let resolver = OpenCodeProcessResolver()
-        let executablePath = resolver.executablePath(observed: observed, environment: environment)
-        return resolver.launchArguments(observed: observed, executablePath: executablePath)
-    }
-
-    static func openCodeWorkingDirectoryForProcess(
-        arguments: [String],
-        environment: [String: String]
-    ) -> String? {
-        let observed = VaultObservedAgentProcess(
-            processName: "",
-            processPath: nil,
-            arguments: arguments,
-            environment: environment
-        )
-        return OpenCodeProcessResolver().workingDirectory(observed: observed)
-    }
-
-    static func openCodeFallbackSessionIdForProcess(
-        arguments: [String],
-        latestSessionIdForSolePanel: String?,
-        sameWorkingDirectoryPanelCount: Int
-    ) -> String? {
-        let argvParser = AgentResumeArgvParser()
-        if argvParser.hasOpenCodeForkFlag(in: arguments) {
-            let explicitSessionId = argvParser.value(in: arguments, afterOption: "--session") ?? argvParser.value(in: arguments, afterOption: "-s")
-            let assignedForkParentSessionId = argvParser.openCodeForkParentSessionId(in: arguments)
-            if let explicitSessionId,
-               let assignedForkParentSessionId,
-               explicitSessionId != assignedForkParentSessionId {
-                return explicitSessionId
-            }
-            guard sameWorkingDirectoryPanelCount == 1 else { return nil }
-            guard let latestSessionIdForSolePanel else { return nil }
-            let forkParentSessionId = assignedForkParentSessionId ?? explicitSessionId
-            guard let forkParentSessionId else { return nil }
-            guard forkParentSessionId != latestSessionIdForSolePanel else { return nil }
-            return latestSessionIdForSolePanel
-        }
-        if let explicitSessionId = argvParser.value(in: arguments, afterOption: "--session") ?? argvParser.value(in: arguments, afterOption: "-s") {
-            return explicitSessionId
-        }
-        return nil
-    }
-
     // MARK: - Built-in claude/codex live-process detection
 
     /// Detects CMUX-scoped live `claude`/`codex` processes that cmux never
@@ -464,7 +383,7 @@ extension RestorableAgentSessionIndex {
                     sessionMissesByWorkingDirectoryAndParent.insert(sessionCacheKey)
                 }
             }
-            guard let sessionId = openCodeFallbackSessionIdForProcess(
+            guard let sessionId = openCodeResolver.fallbackSessionId(
                 arguments: process.observed.arguments,
                 latestSessionIdForSolePanel: latestSessionId,
                 sameWorkingDirectoryPanelCount: sameWorkingDirectoryPanelCount

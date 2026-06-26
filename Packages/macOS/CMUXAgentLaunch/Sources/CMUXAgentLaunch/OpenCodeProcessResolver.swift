@@ -235,3 +235,106 @@ public struct OpenCodeProcessResolver: Sendable {
         return rawValue
     }
 }
+
+extension OpenCodeProcessResolver {
+    /// True when a process named `processName` (executable `processPath`, argv
+    /// `arguments`) is an OpenCode invocation. Builds an environment-free
+    /// ``VaultObservedAgentProcess`` and applies its `isOpenCodeProcess`
+    /// classification; a convenience entry from a raw process snapshot.
+    public func processLooksLikeOpenCode(
+        processName: String,
+        processPath: String?,
+        arguments: [String]
+    ) -> Bool {
+        VaultObservedAgentProcess(
+            processName: processName,
+            processPath: processPath,
+            arguments: arguments,
+            environment: [:]
+        ).isOpenCodeProcess
+    }
+
+    /// The executable path to relaunch an OpenCode process captured as raw argv
+    /// `arguments` plus `environment`, resolving the same way as
+    /// ``executablePath(observed:environment:)``.
+    public func executablePath(
+        arguments: [String],
+        environment: [String: String]
+    ) -> String {
+        let observed = VaultObservedAgentProcess(
+            processName: "",
+            processPath: nil,
+            arguments: arguments,
+            environment: environment
+        )
+        return executablePath(observed: observed, environment: environment)
+    }
+
+    /// The relaunch argv for an OpenCode process captured as raw argv
+    /// `arguments` plus `environment` (resolved executable plus the
+    /// OpenCode-preserved tail), or `nil` when the tail cannot be sanitized.
+    public func launchArguments(
+        arguments: [String],
+        environment: [String: String]
+    ) -> [String]? {
+        let observed = VaultObservedAgentProcess(
+            processName: "",
+            processPath: nil,
+            arguments: arguments,
+            environment: environment
+        )
+        let executablePath = executablePath(observed: observed, environment: environment)
+        return launchArguments(observed: observed, executablePath: executablePath)
+    }
+
+    /// The effective working directory for an OpenCode process captured as raw
+    /// argv `arguments` plus `environment`, resolved the same way as
+    /// ``workingDirectory(observed:)``.
+    public func workingDirectory(
+        arguments: [String],
+        environment: [String: String]
+    ) -> String? {
+        let observed = VaultObservedAgentProcess(
+            processName: "",
+            processPath: nil,
+            arguments: arguments,
+            environment: environment
+        )
+        return workingDirectory(observed: observed)
+    }
+
+    /// The fallback OpenCode session id to attribute to a detected process.
+    ///
+    /// With a fork flag present, an explicit `--session`/`-s` that differs from
+    /// the assigned fork parent wins; otherwise the latest session for the sole
+    /// same-directory panel is used, guarded so an ambiguous cwd (more than one
+    /// panel) or a session equal to the fork parent never forks the wrong
+    /// session. Without a fork flag, an explicit `--session`/`-s` is returned
+    /// directly, else `nil`.
+    public func fallbackSessionId(
+        arguments: [String],
+        latestSessionIdForSolePanel: String?,
+        sameWorkingDirectoryPanelCount: Int
+    ) -> String? {
+        let argvParser = AgentResumeArgvParser()
+        if argvParser.hasOpenCodeForkFlag(in: arguments) {
+            let explicitSessionId = argvParser.value(in: arguments, afterOption: "--session") ?? argvParser.value(in: arguments, afterOption: "-s")
+            let assignedForkParentSessionId = argvParser.openCodeForkParentSessionId(in: arguments)
+            if let explicitSessionId,
+               let assignedForkParentSessionId,
+               explicitSessionId != assignedForkParentSessionId {
+                return explicitSessionId
+            }
+            guard sameWorkingDirectoryPanelCount == 1 else { return nil }
+            guard let latestSessionIdForSolePanel else { return nil }
+            let forkParentSessionId = assignedForkParentSessionId ?? explicitSessionId
+            guard let forkParentSessionId else { return nil }
+            guard forkParentSessionId != latestSessionIdForSolePanel else { return nil }
+            return latestSessionIdForSolePanel
+        }
+        if let explicitSessionId = argvParser.value(in: arguments, afterOption: "--session") ?? argvParser.value(in: arguments, afterOption: "-s") {
+            return explicitSessionId
+        }
+        return nil
+    }
+}

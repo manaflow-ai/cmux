@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import CmuxFeedUI
 import SwiftUI
 
 private struct FeedButtonDebugPresetSection: Identifiable {

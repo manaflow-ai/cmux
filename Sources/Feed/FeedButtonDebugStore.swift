@@ -1,244 +1,131 @@
 #if DEBUG
-import AppKit
-import CmuxFoundation
-import SwiftUI
+import CmuxFeedUI
+import Foundation
 
-/// DEBUG-only live store backing the Feed button style playground
-/// (`FeedButtonStyleDebugView`) and the `FeedButton` render path.
-///
-/// Replaces the former `FeedButtonDebugSettings` caseless-enum
-/// namespace: the persisted `UserDefaults` keys stay as compile-time
-/// constants, but every read and write now goes through an injected
-/// `UserDefaults` instead of a hardcoded `UserDefaults.standard`
-/// singleton. The store is threaded into the view tree through
-/// `EnvironmentValues.feedButtonDebugStore`, whose default value is
-/// the single composition point that names `.standard`, so the
-/// playground and every `FeedButton` share one constructor-injected
-/// store.
-struct FeedButtonDebugStore {
-    static let styleKey = "feed.button.debug.style"
-    static let paletteKey = "feed.button.debug.palette"
-    static let compactCornerRadiusKey = "feed.button.debug.compactCornerRadius"
-    static let mediumCornerRadiusKey = "feed.button.debug.mediumCornerRadius"
-    static let compactHorizontalPaddingKey = "feed.button.debug.compactHorizontalPadding"
-    static let mediumHorizontalPaddingKey = "feed.button.debug.mediumHorizontalPadding"
-    static let compactVerticalPaddingKey = "feed.button.debug.compactVerticalPadding"
-    static let mediumVerticalPaddingKey = "feed.button.debug.mediumVerticalPadding"
-    static let glassTintOpacityKey = "feed.button.debug.glassTintOpacity"
-    static let borderWidthKey = "feed.button.debug.borderWidth"
-    static let generationKey = "feed.button.debug.generation"
+// App-side localized display labels for the Feed button style playground.
+//
+// The `FeedButton` primitive, its `FeedButtonDebugStore`, and the backing
+// debug enums live in `CmuxFeedUI`. Their human-readable labels stay here
+// in the app target: `String(localized:)` must resolve against the app
+// bundle (which carries the `feed.buttonDebug.*` translations), so these
+// extensions cannot move into the package without silently dropping the
+// non-English (Japanese) strings.
 
-    private let defaults: UserDefaults
-
-    init(defaults: UserDefaults) {
-        self.defaults = defaults
-    }
-
-    var visualStyle: FeedButtonDebugVisualStyle {
-        FeedButtonDebugVisualStyle(
-            rawValue: defaults.string(forKey: Self.styleKey) ?? FeedButtonDebugVisualStyle.solid.rawValue
-        ) ?? .solid
-    }
-
-    var palettePreset: FeedButtonDebugPalettePreset {
-        FeedButtonDebugPalettePreset(
-            rawValue: defaults.string(forKey: Self.paletteKey) ?? FeedButtonDebugPalettePreset.system.rawValue
-        ) ?? .system
-    }
-
-    var compactCornerRadius: Double {
-        double(forKey: Self.compactCornerRadiusKey, defaultValue: 5)
-    }
-
-    var mediumCornerRadius: Double {
-        double(forKey: Self.mediumCornerRadiusKey, defaultValue: 6)
-    }
-
-    var compactHorizontalPadding: Double {
-        double(forKey: Self.compactHorizontalPaddingKey, defaultValue: 8)
-    }
-
-    var mediumHorizontalPadding: Double {
-        double(forKey: Self.mediumHorizontalPaddingKey, defaultValue: 12)
-    }
-
-    var compactVerticalPadding: Double {
-        double(forKey: Self.compactVerticalPaddingKey, defaultValue: 4)
-    }
-
-    var mediumVerticalPadding: Double {
-        double(forKey: Self.mediumVerticalPaddingKey, defaultValue: 5)
-    }
-
-    var glassTintOpacity: Double {
-        double(forKey: Self.glassTintOpacityKey, defaultValue: 0.42)
-    }
-
-    var borderWidth: Double {
-        double(forKey: Self.borderWidthKey, defaultValue: 0.9)
-    }
-
-    func color(
-        for kind: FeedButton.Kind,
-        role: FeedButtonDebugColorRole,
-        colorScheme: ColorScheme
-    ) -> Color? {
-        guard let raw = defaults.string(forKey: colorKey(kind: kind, role: role)),
-              let nsColor = NSColor(hex: raw)
-        else {
-            return palettePreset.color(for: kind, role: role, colorScheme: colorScheme)
-        }
-        return Color(nsColor: nsColor)
-    }
-
-    func setColor(
-        _ color: Color,
-        for kind: FeedButton.Kind,
-        role: FeedButtonDebugColorRole
-    ) {
-        defaults.set(NSColor(color).hexString(), forKey: colorKey(kind: kind, role: role))
-        bumpGeneration()
-    }
-
-    func defaultColor(
-        for kind: FeedButton.Kind,
-        role: FeedButtonDebugColorRole,
-        colorScheme: ColorScheme
-    ) -> Color {
-        palettePreset.color(for: kind, role: role, colorScheme: colorScheme)
-            ?? fallbackColor(for: kind, role: role, colorScheme: colorScheme)
-    }
-
-    func applyRaycastGlassPreset() {
-        apply(.raycastGlass)
-    }
-
-    func applyPalette(_ palette: FeedButtonDebugPalettePreset) {
-        defaults.set(palette.rawValue, forKey: Self.paletteKey)
-        clearCustomColors()
-        bumpGeneration()
-    }
-
-    func apply(_ preset: FeedButtonDebugPreset) {
-        defaults.set(preset.style.rawValue, forKey: Self.styleKey)
-        defaults.set(preset.compactCornerRadius, forKey: Self.compactCornerRadiusKey)
-        defaults.set(preset.mediumCornerRadius, forKey: Self.mediumCornerRadiusKey)
-        defaults.set(preset.compactHorizontalPadding, forKey: Self.compactHorizontalPaddingKey)
-        defaults.set(preset.mediumHorizontalPadding, forKey: Self.mediumHorizontalPaddingKey)
-        defaults.set(preset.compactVerticalPadding, forKey: Self.compactVerticalPaddingKey)
-        defaults.set(preset.mediumVerticalPadding, forKey: Self.mediumVerticalPaddingKey)
-        defaults.set(preset.glassTintOpacity, forKey: Self.glassTintOpacityKey)
-        defaults.set(preset.borderWidth, forKey: Self.borderWidthKey)
-        if let palette = preset.palette {
-            defaults.set(palette.rawValue, forKey: Self.paletteKey)
-            clearCustomColors()
-        }
-        bumpGeneration()
-    }
-
-    func reset() {
-        let keys = [
-            Self.styleKey,
-            Self.paletteKey,
-            Self.compactCornerRadiusKey,
-            Self.mediumCornerRadiusKey,
-            Self.compactHorizontalPaddingKey,
-            Self.mediumHorizontalPaddingKey,
-            Self.compactVerticalPaddingKey,
-            Self.mediumVerticalPaddingKey,
-            Self.glassTintOpacityKey,
-            Self.borderWidthKey,
-        ]
-        for key in keys {
-            defaults.removeObject(forKey: key)
-        }
-        clearCustomColors()
-        bumpGeneration()
-    }
-
-    func bumpGeneration() {
-        defaults.set(defaults.integer(forKey: Self.generationKey) + 1, forKey: Self.generationKey)
-    }
-
-    private func double(forKey key: String, defaultValue: Double) -> Double {
-        guard defaults.object(forKey: key) != nil else { return defaultValue }
-        return defaults.double(forKey: key)
-    }
-
-    private func colorKey(kind: FeedButton.Kind, role: FeedButtonDebugColorRole) -> String {
-        "feed.button.debug.color.\(kind.rawValue).\(role.rawValue)"
-    }
-
-    private func clearCustomColors() {
-        for kind in FeedButton.Kind.allCases {
-            for role in [
-                FeedButtonDebugColorRole.background,
-                .hoverBackground,
-                .foreground,
-            ] {
-                defaults.removeObject(forKey: colorKey(kind: kind, role: role))
-            }
-        }
-    }
-
-    func fallbackColor(
-        for kind: FeedButton.Kind,
-        role: FeedButtonDebugColorRole,
-        colorScheme: ColorScheme
-    ) -> Color {
-        Color(nsColor: NSColor(hex: defaultHex(kind: kind, role: role, colorScheme: colorScheme)) ?? .systemBlue)
-    }
-
-    private func defaultHex(
-        kind: FeedButton.Kind,
-        role: FeedButtonDebugColorRole,
-        colorScheme: ColorScheme
-    ) -> String {
-        switch role {
-        case .background:
-            switch kind {
-            case .ghost: return colorScheme == .dark ? "#1F2933" : "#E7ECF2"
-            case .soft: return colorScheme == .dark ? "#3D4148" : "#E5E7EB"
-            case .dark: return colorScheme == .dark ? "#1F1F1F" : "#374151"
-            case .light: return colorScheme == .dark ? "#F3F4F6" : "#FFFFFF"
-            case .primary: return "#3D7AE0"
-            case .success: return "#2E9E59"
-            case .warning: return colorScheme == .dark ? "#EA894A" : "#B95A00"
-            case .destructive: return "#BF3838"
-            }
-        case .hoverBackground:
-            switch kind {
-            case .ghost: return colorScheme == .dark ? "#2E3744" : "#F3F4F6"
-            case .soft: return colorScheme == .dark ? "#4B515A" : "#EEF0F3"
-            case .dark: return colorScheme == .dark ? "#2B2B2B" : "#4B5563"
-            case .light: return colorScheme == .dark ? "#FFFFFF" : "#F9FAFB"
-            case .primary: return "#478CF2"
-            case .success: return "#38B86B"
-            case .warning: return colorScheme == .dark ? "#F28C2E" : "#D96C00"
-            case .destructive: return "#D94747"
-            }
-        case .foreground:
-            switch kind {
-            case .light: return "#111111"
-            case .ghost, .soft: return colorScheme == .dark ? "#EDEDED" : "#111827"
-            default: return "#FFFFFF"
-            }
+extension FeedButtonDebugVisualStyle {
+    var label: String {
+        switch self {
+        case .solid:
+            return String(localized: "feed.buttonDebug.style.solid", defaultValue: "Solid")
+        case .glass:
+            return String(localized: "feed.buttonDebug.style.glass", defaultValue: "Raycast Glass")
+        case .standardGlass:
+            return String(localized: "feed.buttonDebug.style.standardGlass", defaultValue: "Standard Glass")
+        case .standardTintedGlass:
+            return String(localized: "feed.buttonDebug.style.standardTintedGlass", defaultValue: "Standard Tinted Glass")
+        case .nativeGlass:
+            return String(localized: "feed.buttonDebug.style.nativeGlass", defaultValue: "Native Glass")
+        case .nativeProminentGlass:
+            return String(localized: "feed.buttonDebug.style.nativeProminentGlass", defaultValue: "Prominent Glass")
+        case .liquid:
+            return String(localized: "feed.buttonDebug.style.liquid", defaultValue: "Liquid")
+        case .halo:
+            return String(localized: "feed.buttonDebug.style.halo", defaultValue: "Halo")
+        case .command:
+            return String(localized: "feed.buttonDebug.style.command", defaultValue: "Command")
+        case .commandLight:
+            return String(localized: "feed.buttonDebug.style.commandLight", defaultValue: "Command Light")
+        case .outline:
+            return String(localized: "feed.buttonDebug.style.outline", defaultValue: "Outline")
+        case .flat:
+            return String(localized: "feed.buttonDebug.style.flat", defaultValue: "Flat")
         }
     }
 }
 
-private struct FeedButtonDebugStoreEnvironmentKey: EnvironmentKey {
-    /// Composition point for the DEBUG playground: the one place that
-    /// names `UserDefaults.standard`. Override via
-    /// `.environment(\.feedButtonDebugStore, …)` to inject a scoped
-    /// `UserDefaults(suiteName:)` in tests.
-    static let defaultValue = FeedButtonDebugStore(defaults: .standard)
+extension FeedButtonDebugPalettePreset {
+    var label: String {
+        switch self {
+        case .system:
+            return String(localized: "feed.buttonDebug.palette.system", defaultValue: "System")
+        case .glassNeutral:
+            return String(localized: "feed.buttonDebug.palette.glassNeutral", defaultValue: "Glass Neutral")
+        case .graphite:
+            return String(localized: "feed.buttonDebug.palette.graphite", defaultValue: "Graphite")
+        case .aqua:
+            return String(localized: "feed.buttonDebug.palette.aqua", defaultValue: "Aqua")
+        case .orchard:
+            return String(localized: "feed.buttonDebug.palette.orchard", defaultValue: "Orchard")
+        case .ember:
+            return String(localized: "feed.buttonDebug.palette.ember", defaultValue: "Ember")
+        case .contrast:
+            return String(localized: "feed.buttonDebug.palette.contrast", defaultValue: "Contrast")
+        }
+    }
 }
 
-extension EnvironmentValues {
-    var feedButtonDebugStore: FeedButtonDebugStore {
-        get { self[FeedButtonDebugStoreEnvironmentKey.self] }
-        set { self[FeedButtonDebugStoreEnvironmentKey.self] = newValue }
+extension FeedButtonDebugPreset {
+    var label: String {
+        switch self {
+        case .solidClassic:
+            return String(localized: "feed.buttonDebug.preset.solidClassic", defaultValue: "Solid Classic")
+        case .raycastGlass:
+            return String(localized: "feed.buttonDebug.preset.raycastGlass", defaultValue: "Raycast Glass")
+        case .standardLiquidGlass:
+            return String(localized: "feed.buttonDebug.preset.standardLiquidGlass", defaultValue: "Standard Liquid Glass")
+        case .tintedLiquidGlass:
+            return String(localized: "feed.buttonDebug.preset.tintedLiquidGlass", defaultValue: "Tinted Liquid Glass")
+        case .nativeGlass:
+            return String(localized: "feed.buttonDebug.preset.nativeGlass", defaultValue: "Native Glass")
+        case .nativeProminentGlass:
+            return String(localized: "feed.buttonDebug.preset.nativeProminentGlass", defaultValue: "Prominent Glass")
+        case .liquidCapsule:
+            return String(localized: "feed.buttonDebug.preset.liquidCapsule", defaultValue: "Liquid Capsule")
+        case .frostedOutline:
+            return String(localized: "feed.buttonDebug.preset.frostedOutline", defaultValue: "Frosted Outline")
+        case .haloGlow:
+            return String(localized: "feed.buttonDebug.preset.haloGlow", defaultValue: "Halo Glow")
+        case .commandDark:
+            return String(localized: "feed.buttonDebug.preset.commandDark", defaultValue: "Command Dark")
+        case .commandLight:
+            return String(localized: "feed.buttonDebug.preset.commandLight", defaultValue: "Command Light")
+        case .clearGlass:
+            return String(localized: "feed.buttonDebug.preset.clearGlass", defaultValue: "Clear Glass")
+        case .compactGlass:
+            return String(localized: "feed.buttonDebug.preset.compactGlass", defaultValue: "Compact Glass")
+        case .nativeBlue:
+            return String(localized: "feed.buttonDebug.preset.nativeBlue", defaultValue: "Native Blue")
+        case .liquidMono:
+            return String(localized: "feed.buttonDebug.preset.liquidMono", defaultValue: "Liquid Mono")
+        case .softHalo:
+            return String(localized: "feed.buttonDebug.preset.softHalo", defaultValue: "Soft Halo")
+        case .hairlineGlass:
+            return String(localized: "feed.buttonDebug.preset.hairlineGlass", defaultValue: "Hairline Glass")
+        case .minimalFlat:
+            return String(localized: "feed.buttonDebug.preset.minimalFlat", defaultValue: "Minimal Flat")
+        }
+    }
+}
+
+extension FeedButton.Kind {
+    var debugLabel: String {
+        switch self {
+        case .ghost:
+            return String(localized: "feed.buttonDebug.kind.ghost", defaultValue: "Ghost")
+        case .soft:
+            return String(localized: "feed.buttonDebug.kind.soft", defaultValue: "Soft")
+        case .dark:
+            return String(localized: "feed.buttonDebug.kind.dark", defaultValue: "Dark")
+        case .light:
+            return String(localized: "feed.buttonDebug.kind.light", defaultValue: "Light")
+        case .primary:
+            return String(localized: "feed.buttonDebug.kind.primary", defaultValue: "Primary")
+        case .success:
+            return String(localized: "feed.buttonDebug.kind.success", defaultValue: "Success")
+        case .warning:
+            return String(localized: "feed.buttonDebug.kind.warning", defaultValue: "Warning")
+        case .destructive:
+            return String(localized: "feed.buttonDebug.kind.destructive", defaultValue: "Destructive")
+        }
     }
 }
 #endif
