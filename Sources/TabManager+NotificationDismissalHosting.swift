@@ -29,9 +29,15 @@ extension TabManager: NotificationDismissalHosting {
         focusedSurfaceId(for: workspaceId)
     }
 
+    // Cache the catalog section so reading the flag does not re-init every
+    // `SettingCatalog` section on each call (the read is gated to the
+    // workspace-visibility dismiss path, never per-keystroke, but caching keeps
+    // it allocation-free anyway — same pattern as `NotificationSettingsFileMapping`).
+    private static let notificationsSettings = NotificationsCatalogSection()
+
     var suppressOnlyFocusedSurface: Bool {
         UserDefaultsSettingsClient(defaults: .standard)
-            .value(for: SettingCatalog().notifications.suppressOnlyFocusedSurface)
+            .value(for: Self.notificationsSettings.suppressOnlyFocusedSurface)
     }
 
     func panelId(forSurfaceOrPanelId surfaceId: UUID, in workspaceId: UUID) -> UUID? {
