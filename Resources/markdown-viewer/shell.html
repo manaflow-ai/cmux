@@ -148,7 +148,22 @@ body {
   max-width: 100%;
   height: auto;
 }
-.cmux-mermaid .cmux-source, .cmux-vega .cmux-source { display: none; }
+.cmux-mermaid .cmux-source, .cmux-vega .cmux-source, .cmux-math .cmux-source { display: none; }
+/* KaTeX math. ```math fences and $$...$$ render as centered display blocks;
+   $...$ renders inline. The raw LaTeX lives in a hidden .cmux-source child
+   until KaTeX (lazy-loaded) swaps it for rendered output. */
+.cmux-math-display {
+  display: block;
+  text-align: center;
+  margin: 0.6em 0 0.9em 0;
+  overflow-x: auto;
+}
+.cmux-math-error {
+  color: var(--fgColor-danger, #cf222e);
+  font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  white-space: pre-wrap;
+}
 .markdown-body code[data-cmux-file] {
   cursor: default;
   border-bottom: 1px dotted var(--fgColor-muted);
@@ -980,6 +995,14 @@ html { scroll-behavior: smooth; }
           return '<div class="cmux-vega" data-vega-mode="' + vegaMode + '">'
             + '<pre class="cmux-source">' + escapeHtml(raw) + '</pre></div>\n';
         }
+        // KaTeX display math: ```math ... ``` -> centered block the lib renders.
+        // Raw LaTeX is carried in a hidden .cmux-source child (escaped as text
+        // content, never an attribute) so it round-trips regardless of quotes.
+        if (langName === 'math') {
+          return '<div class="cmux-math cmux-math-display"><pre class="cmux-source">'
+            + escapeHtml(raw)
+            + '</pre></div>\n';
+        }
 
         var highlighted;
         try {
@@ -999,6 +1022,72 @@ html { scroll-behavior: smooth; }
         return '<h' + level + ' id="' + slug + '">' + text + '</h' + level + '>\n';
       }
     }
+  });
+
+  // KaTeX math. Two extensions emit placeholder elements the lazy-loaded
+  // library swaps for rendered math in renderKaTeXBlocks(). Raw LaTeX is
+  // carried in a hidden .cmux-source child (escaped as element text, never an
+  // attribute) so quotes/backslashes round-trip safely.
+  //
+  // - cmuxMathBlock (block level): a $$...$$ that stands alone on its own
+  //   line(s) emits a bare <div>, matching the ```math fence. Without this,
+  //   an inline-level $$ token is wrapped by marked in a <p>, which adds an
+  //   extra paragraph margin the fence path never gets.
+  // - cmuxMath (inline level): $...$ and any $$ embedded mid-text.
+  marked.use({
+    extensions: [
+      {
+        name: 'cmuxMathBlock',
+        level: 'block',
+        start(src) {
+          var i = src.indexOf('$$');
+          return i < 0 ? undefined : i;
+        },
+        tokenizer(src) {
+          // Only a $$...$$ run that ends its line (followed by newline(s) or
+          // end-of-input) is a display block; mid-line $$ is left to the
+          // inline extension.
+          var m = src.match(/^\$\$([\s\S]+?)\$\$(?:\n+|$)/);
+          if (m) {
+            return { type: 'cmuxMathBlock', raw: m[0], math: m[1].trim() };
+          }
+          return undefined;
+        },
+        renderer(token) {
+          return '<div class="cmux-math cmux-math-display"><span class="cmux-source">'
+            + escapeHtml(token.math) + '</span></div>\n';
+        }
+      },
+      {
+        name: 'cmuxMath',
+        level: 'inline',
+        start(src) {
+          var i = src.indexOf('$');
+          return i < 0 ? undefined : i;
+        },
+        tokenizer(src) {
+          // $$...$$ display math (checked first so it wins over $...$).
+          var m = src.match(/^\$\$([\s\S]+?)\$\$/);
+          if (m) {
+            return { type: 'cmuxMath', raw: m[0], math: m[1].trim(), display: true };
+          }
+          // $...$ inline math. The leading (?!\s) / trailing (?<!\s) guards and
+          // the "no bare $ inside" body keep prose dollar amounts ("$5 and $3",
+          // "$1,000") from being mistaken for math: a closing $ preceded by a
+          // space is rejected, and currency runs never pair up cleanly.
+          m = src.match(/^\$(?!\$)(?!\s)((?:[^$\n\\]|\\.)+?)(?<!\s)\$/);
+          if (m) {
+            return { type: 'cmuxMath', raw: m[0], math: m[1], display: false };
+          }
+          return undefined;
+        },
+        renderer(token) {
+          var cls = token.display ? 'cmux-math cmux-math-display' : 'cmux-math cmux-math-inline';
+          return '<span class="' + cls + '"><span class="cmux-source">'
+            + escapeHtml(token.math) + '</span></span>';
+        }
+      }
+    ]
   });
 
   // Lazy-loader: ask Swift to ship a library only when a document
@@ -1025,8 +1114,13 @@ html { scroll-behavior: smooth; }
     q.forEach(function(cb) { try { cb(); } catch (e) { /* ignore */ } });
   };
 
+  var libErrorSelectors = {
+    mermaid: '.cmux-mermaid',
+    'vega-lite': '.cmux-vega',
+    katex: '.cmux-math'
+  };
   function renderLibError(libName, msg) {
-    var sel = libName === 'mermaid' ? '.cmux-mermaid' : '.cmux-vega';
+    var sel = libErrorSelectors[libName] || ('.cmux-' + libName);
     contentEl.querySelectorAll(sel + ':not([data-rendered])').forEach(function(el) {
       el.setAttribute('data-rendered', '1');
       el.innerHTML = '<div class="cmux-render-error">' + libName + ': ' + escapeHtml(msg) + '</div>';
@@ -1428,12 +1522,52 @@ html { scroll-behavior: smooth; }
     });
   }
 
+  function renderKaTeXBlocks() {
+    if (typeof katex === 'undefined') { renderLibError('katex', 'library missing'); return; }
+    var blocks = contentEl.querySelectorAll(
+      '.cmux-math-display:not([data-rendered]), .cmux-math-inline:not([data-rendered])'
+    );
+    Array.prototype.forEach.call(blocks, function(el) {
+      el.setAttribute('data-rendered', '1');
+      var srcEl = el.querySelector('.cmux-source');
+      var src = srcEl ? srcEl.textContent : el.textContent;
+      var displayMode = el.classList.contains('cmux-math-display');
+      try {
+        // output:'html' emits only <span> trees (no <math> MathML); trust is
+        // left at its default (false) so \href/\includegraphics are inert.
+        // throwOnError:false renders KaTeX's own inline error for malformed
+        // math, so this catch only fires on an unexpected JS exception.
+        // maxSize/maxExpand bound \rule/\kern sizes and macro expansion so a
+        // hostile document can't blow up the DOM from the math path.
+        el.innerHTML = katex.renderToString(src, {
+          throwOnError: false,
+          output: 'html',
+          displayMode: displayMode,
+          maxSize: 100,
+          maxExpand: 1000
+        });
+      } catch (e) {
+        // Build via DOM with a generic message — never surface raw upstream
+        // exception text in the document. cmuxString keys are the bare dict
+        // keys from MarkdownViewerAssets.localizedStringsJSON, not catalog keys.
+        var errorEl = document.createElement('span');
+        errorEl.className = 'cmux-math-error';
+        errorEl.textContent = cmuxString('mathRenderFailed', 'Unable to render math');
+        el.textContent = '';
+        el.appendChild(errorEl);
+      }
+    });
+  }
+
   function postProcessSpecialBlocks() {
     if (contentEl.querySelector('.cmux-mermaid:not([data-rendered])')) {
       loadLib('mermaid', renderMermaidBlocks);
     }
     if (contentEl.querySelector('.cmux-vega:not([data-rendered])')) {
       loadLib('vega-lite', renderVegaBlocks);
+    }
+    if (contentEl.querySelector('.cmux-math-display:not([data-rendered]), .cmux-math-inline:not([data-rendered])')) {
+      loadLib('katex', renderKaTeXBlocks);
     }
     addCodeCopyButtons();
     markMarkdownFileLinks();

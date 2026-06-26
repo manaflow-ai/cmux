@@ -121,6 +121,10 @@ final class MarkdownViewerAssets {
             "remoteImageURL": String(
                 localized: "markdown.web.remoteImageURL",
                 defaultValue: "Image URL: {url}"
+            ),
+            "mathRenderFailed": String(
+                localized: "markdown.web.mathRenderFailed",
+                defaultValue: "Unable to render math"
             )
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: strings),
