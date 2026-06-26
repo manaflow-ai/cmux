@@ -14,18 +14,6 @@ extension CMUXCLI {
     ) {
         guard let sessionId = parsedInput.sessionId else { return }
         let env = ProcessInfo.processInfo.environment
-        guard let probe = try? client.sendV2(
-            method: "workspace.set_auto_title",
-            params: ["probe": true, "workspace_id": workspaceId]
-        ), probe["enabled"] as? Bool == true else {
-            telemetry.breadcrumb("claude-hook.auto-name.disabled")
-            return
-        }
-        guard probe["workspace_user_owned"] as? Bool != true else {
-            telemetry.breadcrumb("claude-hook.auto-name.user-owned")
-            return
-        }
-
         let claudePid = mappedSession?.pid ?? claudeAgentPID(from: env)
         guard !shouldSuppressNestedAgentVisibleMutations(currentAgentPID: claudePid, env: env) else {
             telemetry.breadcrumb("claude-hook.auto-name.nested-suppressed")
@@ -48,6 +36,32 @@ extension CMUXCLI {
         }
         let lineCount = textFileGrowthMetric(path: transcriptPath, fallbackLineCount: lines.count)
         let engine = AutoNamingEngine()
+        let autoTitleProbe = try? client.sendV2(
+            method: "workspace.set_auto_title",
+            params: ["probe": true, "workspace_id": workspaceId]
+        )
+        if let claudeTitle = engine.latestClaudeConversationTitle(fromTranscriptLines: lines) {
+            applyClaudeConversationTitleIfNeeded(
+                claudeTitle,
+                sessionId: sessionId,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                allowWorkspaceRename: (autoTitleProbe?["workspace_user_owned"] as? Bool) == false,
+                sessionStore: sessionStore,
+                client: client,
+                telemetry: telemetry
+            )
+        }
+
+        guard let probe = autoTitleProbe, probe["enabled"] as? Bool == true else {
+            telemetry.breadcrumb("claude-hook.auto-name.disabled")
+            return
+        }
+        guard probe["workspace_user_owned"] as? Bool != true else {
+            telemetry.breadcrumb("claude-hook.auto-name.user-owned")
+            return
+        }
+
         guard let outcome = try? sessionStore.beginAutoNaming(
             sessionId: sessionId,
             workspaceId: workspaceId,
@@ -105,6 +119,68 @@ extension CMUXCLI {
         if confirmedTitle != nil, let missing = resolution.missingOverride {
             reportAutoNamingProblem("not_installed", agent: missing, workspaceId: workspaceId, client: client)
         }
+    }
+
+    func applyClaudeConversationTitleIfNeeded(
+        _ title: String,
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        allowWorkspaceRename: Bool,
+        sessionStore: ClaudeHookSessionStore,
+        client: SocketClient,
+        telemetry: CLISocketSentryTelemetry
+    ) {
+        guard let decision = try? sessionStore.beginClaudeConversationTitleApply(
+            sessionId: sessionId,
+            title: title,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            allowWorkspaceRename: allowWorkspaceRename,
+            now: Date()
+        ), decision.shouldApply else {
+            telemetry.breadcrumb("claude-hook.conversation-title.unchanged")
+            return
+        }
+
+        var workspaceApplied = false
+        var tabApplied = false
+        if decision.shouldRenameWorkspace {
+            if let payload = try? client.sendV2(method: "workspace.action", params: [
+                "action": "rename",
+                "workspace_id": workspaceId,
+                "title": title
+            ]), payload["title"] as? String == title {
+                workspaceApplied = true
+            } else {
+                telemetry.breadcrumb("claude-hook.conversation-title.workspace-failed")
+            }
+        } else {
+            telemetry.breadcrumb("claude-hook.conversation-title.workspace-skipped")
+        }
+
+        if decision.shouldRenameTab {
+            if let payload = try? client.sendV2(method: "tab.action", params: [
+                "action": "rename",
+                "workspace_id": workspaceId,
+                "surface_id": surfaceId,
+                "title": title
+            ]), payload["title"] as? String == title {
+                tabApplied = true
+            } else {
+                telemetry.breadcrumb("claude-hook.conversation-title.tab-failed")
+            }
+        }
+
+        guard workspaceApplied || tabApplied else { return }
+        try? sessionStore.recordClaudeConversationTitleApplied(
+            sessionId: sessionId,
+            title: title,
+            workspaceApplied: workspaceApplied,
+            tabApplied: tabApplied,
+            now: Date()
+        )
+        telemetry.breadcrumb("claude-hook.conversation-title.applied")
     }
 
     /// Spawns a detached generic-agent auto-name pass via a bounded shell wrapper.

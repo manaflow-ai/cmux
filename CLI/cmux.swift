@@ -172,6 +172,16 @@ struct ClaudeHookSessionRecord: Codable {
     var autoNameLastAttemptAt: TimeInterval?
     var autoNameRecentMessages: [AutoNamingTranscriptMessage]?
     var autoNameMessageSequence: Int?
+    /// Legacy combined marker from the first Claude conversation-title rollout.
+    var claudeConversationLastAppliedTitle: String?
+    /// Last Claude transcript `ai-title` cmux applied as a user-owned workspace
+    /// rename. Tracked separately from tab application so partial socket
+    /// failures retry only the missing half.
+    var claudeConversationLastAppliedWorkspaceTitle: String?
+    /// Last Claude transcript `ai-title` cmux applied as a user-owned tab
+    /// rename. Tracked separately from workspace application so partial socket
+    /// failures retry only the missing half.
+    var claudeConversationLastAppliedTabTitle: String?
 }
 
 struct ClaudeHookActiveSessionRecord: Codable {
@@ -304,6 +314,15 @@ final class ClaudeHookSessionStore {
         var lastTitle: String?
     }
 
+    struct ClaudeConversationTitleApplyDecision {
+        var shouldRenameWorkspace: Bool
+        var shouldRenameTab: Bool
+
+        var shouldApply: Bool {
+            shouldRenameWorkspace || shouldRenameTab
+        }
+    }
+
     /// Atomically evaluates the auto-naming throttle for a session and, when
     /// the decision is to proceed, records the in-flight marker inside the
     /// same locked transaction so a concurrent Stop hook sees it and skips.
@@ -379,6 +398,69 @@ final class ClaudeHookSessionStore {
                 record.autoNameLastNamedAt = now.timeIntervalSince1970
             }
             record.updatedAt = Date().timeIntervalSince1970
+            state.sessions[normalized] = record
+        }
+    }
+
+    func beginClaudeConversationTitleApply(
+        sessionId: String,
+        title: String,
+        workspaceId: String,
+        surfaceId: String,
+        allowWorkspaceRename: Bool,
+        now: Date
+    ) throws -> ClaudeConversationTitleApplyDecision {
+        let normalized = normalizeSessionId(sessionId)
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty, !trimmed.isEmpty else {
+            return ClaudeConversationTitleApplyDecision(shouldRenameWorkspace: false, shouldRenameTab: false)
+        }
+        return try withLockedState { state in
+            let nowInterval = now.timeIntervalSince1970
+            let record = makeSessionRecord(
+                state: state,
+                sessionId: normalized,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                now: nowInterval
+            )
+            let legacyTitle = record.claudeConversationLastAppliedTitle
+            let workspaceTitle = record.claudeConversationLastAppliedWorkspaceTitle ?? legacyTitle
+            let tabTitle = record.claudeConversationLastAppliedTabTitle ?? legacyTitle
+            let decision = ClaudeConversationTitleApplyDecision(
+                shouldRenameWorkspace: allowWorkspaceRename && workspaceTitle != trimmed,
+                shouldRenameTab: tabTitle != trimmed
+            )
+            guard decision.shouldApply else { return decision }
+            if state.sessions[normalized] == nil {
+                state.sessions[normalized] = record
+            }
+            return decision
+        }
+    }
+
+    func recordClaudeConversationTitleApplied(
+        sessionId: String,
+        title: String,
+        workspaceApplied: Bool,
+        tabApplied: Bool,
+        now: Date
+    ) throws {
+        let normalized = normalizeSessionId(sessionId)
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty, !trimmed.isEmpty, workspaceApplied || tabApplied else { return }
+        try withLockedState { state in
+            guard var record = state.sessions[normalized] else { return }
+            if workspaceApplied {
+                record.claudeConversationLastAppliedWorkspaceTitle = trimmed
+            }
+            if tabApplied {
+                record.claudeConversationLastAppliedTabTitle = trimmed
+            }
+            if workspaceApplied && tabApplied {
+                record.claudeConversationLastAppliedTitle = trimmed
+            }
+            record.updatedAt = now.timeIntervalSince1970
             state.sessions[normalized] = record
         }
     }

@@ -229,6 +229,32 @@ struct AutoNamingEngine: Sendable {
         return messages
     }
 
+    /// Returns the latest Claude Code conversation title recorded in the
+    /// transcript (`type: ai-title`), if one is usable.
+    func latestClaudeConversationTitle(fromTranscriptLines lines: [String]) -> String? {
+        for line in lines.reversed() {
+            guard let data = line.data(using: .utf8),
+                  let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  object["type"] as? String == "ai-title" else {
+                continue
+            }
+            let rawTitle = firstString(in: object, keys: ["aiTitle", "title"])
+            guard var title = sanitizeResponse(rawTitle, currentTitle: nil) else { continue }
+            while let first = title.first, !first.isLetter && !first.isNumber {
+                title.removeFirst()
+                title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            let normalized = title.lowercased()
+            guard !normalized.isEmpty,
+                  normalized != "claude code",
+                  !normalized.hasPrefix("claude ·") else {
+                continue
+            }
+            return title
+        }
+        return nil
+    }
+
     /// Builds the summarization context: the first user messages anchor the
     /// session's purpose, the trailing messages capture the current topic.
     func buildContext(from messages: [AutoNamingTranscriptMessage]) -> String? {
