@@ -57,9 +57,18 @@ public final class AccessibilityWindowCache: AccessibilityWindowCaching, @unchec
     public struct Snapshot {
         let windows: [NSWindow]
 
-        /// Builds a snapshot from a window list.
+        /// Builds a snapshot from a window list, keeping only windows that
+        /// expose a valid CoreGraphics window id to AX clients.
+        @MainActor
         public init(windows: [NSWindow]) {
-            self.windows = windows
+            self.windows = windows.filter(Self.isExposedInAXWindows)
+        }
+
+        @MainActor
+        private static func isExposedInAXWindows(_ window: NSWindow) -> Bool {
+            // A zero window number is not targetable by tiling window managers
+            // and is how AppKit reports status-item backing windows such as Item-0.
+            window.windowNumber > 0
         }
     }
 
