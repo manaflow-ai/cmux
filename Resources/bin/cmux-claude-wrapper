@@ -204,7 +204,7 @@ normalize_claude_config_dir() {
 cmux_claude_find_session_transcript() {
     local root="$1" sid="$2"
     [[ -n "$root" && -d "$root/projects" ]] || return 1
-    local transcript
+    local transcript fallback_transcript=""
     for transcript in \
         "$root"/projects/*/"$sid".jsonl \
         "$root"/projects/*/*/"$sid".jsonl \
@@ -212,10 +212,17 @@ cmux_claude_find_session_transcript() {
         "$root"/projects/*/*/*/*/"$sid".jsonl \
         "$root"/projects/*/*/*/*/*/"$sid".jsonl; do
         if [[ -f "$transcript" && -s "$transcript" ]]; then
-            printf '%s' "$transcript"
-            return 0
+            [[ -n "$fallback_transcript" ]] || fallback_transcript="$transcript"
+            if [[ -d "$(dirname "$transcript")/$sid" ]]; then
+                printf '%s' "$transcript"
+                return 0
+            fi
         fi
     done
+    if [[ -n "$fallback_transcript" ]]; then
+        printf '%s' "$fallback_transcript"
+        return 0
+    fi
     return 1
 }
 
@@ -292,6 +299,9 @@ cmux_claude_seed_resume_session_for_current_cwd() {
             fi
             if [[ -f "$target_transcript" && -s "$target_transcript" ]]; then
                 seeded=true
+                if [[ -d "$source_sidecar" && ! -e "$target_sidecar" ]]; then
+                    cp -Rp "$source_sidecar" "$target_sidecar" 2>/dev/null || true
+                fi
                 continue
             fi
             mkdir -p "$target_project_dir" 2>/dev/null || continue

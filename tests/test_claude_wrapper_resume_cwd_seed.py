@@ -228,10 +228,105 @@ cat "$transcript" > {str(real_seen_transcript)!r}
             failures.append("real claude did not run from the fallback config root")
 
 
+def test_existing_target_transcript_retries_missing_sidecar(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-resume-cwd-sidecar-") as td:
+        root = Path(td)
+        wrapper_bin = root / "wrapper-bin"
+        real_bin = root / "real-bin"
+        config = root / "claude-config"
+        origin_cwd = root / "repo-main"
+        target_cwd = root / "worktrees" / "feature"
+        sid = "39c1eb84-9999-aaaa-bbbb-cccccccccccc"
+        for directory in (wrapper_bin, real_bin, origin_cwd, target_cwd):
+            directory.mkdir(parents=True, exist_ok=True)
+
+        wrapper = wrapper_bin / "cmux-claude-wrapper"
+        shutil.copy2(WRAPPER, wrapper)
+        wrapper.chmod(0o755)
+
+        origin_project = config / "projects" / claude_project_dir_name(origin_cwd)
+        origin_sidecar = origin_project / sid
+        origin_sidecar.mkdir(parents=True, exist_ok=True)
+        (origin_project / f"{sid}.jsonl").write_text("origin transcript\n", encoding="utf-8")
+        (origin_sidecar / "attachment.txt").write_text("sidecar payload\n", encoding="utf-8")
+        target_projects = [
+            config / "projects" / project_dir_name
+            for project_dir_name in cwd_project_dir_names(target_cwd)
+        ]
+        for target_project in target_projects:
+            target_project.mkdir(parents=True, exist_ok=True)
+            (target_project / f"{sid}.jsonl").write_text("existing target transcript\n", encoding="utf-8")
+
+        real_seen_transcript = root / "real-seen-transcript.log"
+        write_executable(
+            real_bin / "claude",
+            f"""#!/usr/bin/env bash
+set -euo pipefail
+sid=""
+while (($#)); do
+  case "$1" in
+    --resume|-r)
+      shift
+      sid="${{1:-}}"
+      ;;
+    --resume=*)
+      sid="${{1#--resume=}}"
+      ;;
+  esac
+  shift || true
+done
+project="$(printf '%s' "$PWD" | sed 's#[/.]#-#g')"
+transcript="${{CLAUDE_CONFIG_DIR}}/projects/${{project}}/${{sid}}.jsonl"
+if [[ ! -f "$transcript" ]]; then
+  echo "No conversation found with session ID: $sid" >&2
+  exit 42
+fi
+cat "$transcript" > {str(real_seen_transcript)!r}
+""",
+        )
+
+        env = dict(os.environ)
+        env["PATH"] = f"{wrapper_bin}:{real_bin}:/usr/bin:/bin"
+        env["HOME"] = str(root)
+        env["CLAUDE_CONFIG_DIR"] = str(config)
+        env["CMUX_SURFACE_ID"] = "surface:test"
+        env["CMUX_CLAUDE_HOOKS_DISABLED"] = "1"
+        env.pop("CMUX_SOCKET_PATH", None)
+
+        result = subprocess.run(
+            [str(wrapper), "--resume", sid, "--fork-session"],
+            cwd=target_cwd,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+
+        if result.returncode != 0:
+            failures.append(
+                f"sidecar retry wrapper exited {result.returncode}: stdout={result.stdout!r} stderr={result.stderr!r}"
+            )
+        for target_project in target_projects:
+            target_sidecar_file = target_project / sid / "attachment.txt"
+            target_transcript = target_project / f"{sid}.jsonl"
+            if not target_sidecar_file.exists():
+                failures.append("existing target transcript did not retry missing sidecar copy")
+            elif target_sidecar_file.read_text(encoding="utf-8") != "sidecar payload\n":
+                failures.append("retried target sidecar did not preserve origin content")
+            if target_transcript.read_text(encoding="utf-8") != "existing target transcript\n":
+                failures.append("existing target transcript should not be overwritten")
+        if not real_seen_transcript.exists():
+            failures.append("real claude did not observe existing target transcript")
+        elif real_seen_transcript.read_text(encoding="utf-8") != "existing target transcript\n":
+            failures.append("real claude observed unexpected existing target transcript content")
+
+
 def main() -> int:
     failures: list[str] = []
     test_resume_from_different_cwd_seeds_transcript_copy(failures)
     test_copy_failure_in_current_root_allows_fallback_root(failures)
+    test_existing_target_transcript_retries_missing_sidecar(failures)
     if failures:
         print("FAIL: claude wrapper resume cwd seeding checks failed")
         for failure in failures:
