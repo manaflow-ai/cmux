@@ -46,6 +46,7 @@
     "blog": "Blog",
     "changelog": "Changelog",
     "community": "Community",
+    "pricing": "Pricing",
     "github": "GitHub"
   },
   "footer": {
@@ -55,6 +56,7 @@
     "social": "Social",
     "blog": "Blog",
     "community": "Community",
+    "pricing": "Pricing",
     "docs": "Docs",
     "changelog": "Changelog",
     "privacy": "Privacy",
@@ -70,6 +72,231 @@
     "assets": "Assets",
     "openSource": "Open source",
     "guides": "Guides"
+  },
+  "pricing": {
+    "metaTitle": "Pricing — cmux",
+    "metaDescription": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for Cloud VMs, cmux Vault session backup, and a model gateway. Enterprise adds SSO and self-hosting.",
+    "title": "Pricing",
+    "perMonth": "/month",
+    "free": {
+      "name": "Free",
+      "price": "$0",
+      "cta": "Download for Mac",
+      "featuresLead": "Includes:",
+      "features": [
+        "Native macOS terminal built on Ghostty, fully open source",
+        "Run Claude Code, Codex, Gemini, and any CLI agent with your own keys",
+        "Vertical tabs, workspaces, split panes, and completion notifications",
+        "Browser panels, a scriptable socket API, and custom skills",
+        "Local session history and a one-time Cloud VM trial",
+        "Community support on Discord and GitHub"
+      ]
+    },
+    "pro": {
+      "name": "Pro",
+      "price": "$30",
+      "cta": "Get Pro",
+      "featuresLead": "Everything in Free, plus:",
+      "features": [
+        "Cloud agents on Cloud VMs in isolated remote sandboxes",
+        "20 active compute-hours per month on a 4 vCPU / 16 GB VM, then usage-based",
+        "cmux Vault: every session backed up to the cloud and searchable",
+        "Unlimited session history across all your machines",
+        "Model gateway: route across providers with usage and cost analytics",
+        "Hosted networking to reach your Mac from the iOS app, no Tailscale setup",
+        "The cmux iOS app and email support"
+      ]
+    },
+    "enterprise": {
+      "name": "Enterprise",
+      "price": "Custom",
+      "cta": "Contact sales",
+      "featuresLead": "Everything in Pro, plus:",
+      "features": [
+        "Self-hosted Cloud execution and networking, so nothing leaves your network",
+        "Self-hosted model gateway with org-wide usage and cost analytics",
+        "SSO and SAML sign-in",
+        "Centralized admin and shared team rules",
+        "Audit logs for terminal sessions, network requests, and browser activity",
+        "Committed cloud usage and volume pricing",
+        "SOC 2 and an SLA, with dedicated support"
+      ]
+    },
+    "compare": {
+      "title": "Compare plans",
+      "rows": [
+        {
+          "label": "Native macOS terminal, open source",
+          "free": "true",
+          "pro": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "Local CLI agents with your own keys",
+          "free": "true",
+          "pro": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "Vertical tabs, splits, notifications, socket API",
+          "free": "true",
+          "pro": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "Session history",
+          "free": "Local",
+          "pro": "Unlimited",
+          "enterprise": "Unlimited"
+        },
+        {
+          "label": "cmux Vault: cloud session backup",
+          "free": "false",
+          "pro": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "Search across all your sessions",
+          "free": "false",
+          "pro": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "Cloud agents on Cloud VMs",
+          "free": "1 VM trial",
+          "pro": "20 hrs/mo, then usage-based",
+          "enterprise": "Committed usage"
+        },
+        {
+          "label": "Concurrent Cloud VMs",
+          "free": "1",
+          "pro": "Usage-based",
+          "enterprise": "Custom"
+        },
+        {
+          "label": "Model gateway: routing and usage analytics",
+          "free": "false",
+          "pro": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "iOS app",
+          "free": "false",
+          "pro": "true",
+          "enterprise": "true"
+        },
+        {
+          "label": "Networking to reach your Mac",
+          "free": "Bring your own",
+          "pro": "Hosted",
+          "enterprise": "Self-hosted"
+        },
+        {
+          "label": "SSO and SAML sign-in",
+          "free": "false",
+          "pro": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "Self-hosted and air-gapped execution",
+          "free": "false",
+          "pro": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "Centralized admin and shared team rules",
+          "free": "false",
+          "pro": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "Audit logs: sessions, network, browser",
+          "free": "false",
+          "pro": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "Committed usage and volume pricing",
+          "free": "false",
+          "pro": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "SOC 2 and an SLA",
+          "free": "false",
+          "pro": "false",
+          "enterprise": "true"
+        },
+        {
+          "label": "Support",
+          "free": "Community",
+          "pro": "Email",
+          "enterprise": "Dedicated"
+        }
+      ]
+    },
+    "sizes": {
+      "title": "Cloud VM sizes",
+      "body": "Pick a VM size per agent. You are billed per active compute-hour, and idle VMs suspend automatically. Pro includes 20 hours per month on the 4 vCPU / 16 GB size.",
+      "colSize": "Size",
+      "colUse": "Best for",
+      "colRate": "Per active hour",
+      "rows": [
+        {
+          "size": "2 vCPU / 8 GB",
+          "use": "Light agents and quick tasks",
+          "rate": "$0.20"
+        },
+        {
+          "size": "4 vCPU / 16 GB",
+          "use": "Standard development",
+          "rate": "$0.40"
+        },
+        {
+          "size": "8 vCPU / 32 GB",
+          "use": "Heavy builds and parallel agents",
+          "rate": "$0.80"
+        }
+      ]
+    },
+    "help": "Questions? Join our <discord>Discord</discord>, open a <github>GitHub issue</github>, or <email>email us</email>.",
+    "faq": {
+      "title": "FAQ",
+      "items": [
+        {
+          "q": "Is the terminal really free?",
+          "a": "Yes. The macOS app is open source and free forever. Local agents run with your own API keys at no cost to you. You only pay when you run agents on Cloud VMs."
+        },
+        {
+          "q": "What are Cloud VMs?",
+          "a": "Remote Linux sandboxes where agents clone repositories, run commands, and open pull requests in the cloud, without touching your machine. They cover parallel work, background jobs, and PR review. Idle VMs suspend automatically, so you are only billed for active compute-hours."
+        },
+        {
+          "q": "What is cmux Vault?",
+          "a": "Vault backs up every terminal session to the cloud and lets you search across all of them, with unlimited history across your machines. Free keeps history locally on each machine; Pro adds cloud backup and search."
+        },
+        {
+          "q": "What is the model gateway?",
+          "a": "A hosted gateway that routes each request to a strong model across providers and gives you usage and cost analytics in one place. Bring your own provider keys. Enterprise can self-host the gateway for org-wide control."
+        },
+        {
+          "q": "Do I still need Tailscale for the iOS app?",
+          "a": "You can bring your own networking, like Tailscale, on any plan. Pro adds hosted networking so the iOS app reaches your Mac with no setup, and Enterprise can self-host it."
+        },
+        {
+          "q": "How does billing work?",
+          "a": "Pro is $30 per month and includes 20 active compute-hours per month on the 4 vCPU / 16 GB Cloud VM. Beyond that, cloud usage is billed per active compute-hour by VM size (see Cloud VM sizes above). Idle VMs suspend automatically, and running agents in parallel just uses more hours. The terminal and local agents stay free."
+        },
+        {
+          "q": "Can I self-host the cloud?",
+          "a": "Yes, on Enterprise. Run agent execution on your own infrastructure or fully air-gapped, so source code never leaves your network."
+        },
+        {
+          "q": "Do you have a team plan?",
+          "a": "Not yet. Pro covers individuals today, and Enterprise covers organizations that need SSO, admin controls, and self-hosting. Reach out if you have team needs."
+        }
+      ]
+    }
   },
   "home": {
     "taglinePrefix": "The terminal built for ",

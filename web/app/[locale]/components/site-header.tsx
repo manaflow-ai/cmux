@@ -137,6 +137,13 @@ export function SiteHeader({
           >
             {t("community")}
           </Link>
+          <Link
+            href="/pricing"
+            onClick={close}
+            className="hover:text-foreground transition-colors py-1"
+          >
+            {t("pricing")}
+          </Link>
           <GitHubStarsBadge location="mobile_drawer" />
           <div className="pt-2">
             <DownloadButton size="sm" location="mobile_drawer" />
