@@ -271,27 +271,22 @@ struct TerminalComposerView: View {
             }
 
             HStack(alignment: .bottom, spacing: 8) {
-                Button {
+                MobileComposerIconButton(
+                    systemImage: "paperclip",
+                    foregroundStyle: AnyShapeStyle(TerminalPalette.foreground.opacity(0.7)),
+                    size: controlHeight,
+                    accessibilityIdentifier: "MobileComposerAttach",
+                    accessibilityLabel: L10n.string("mobile.composer.attach", defaultValue: "Attach Photo")
+                ) {
                     isPickerPresented = true
-                } label: {
-                    Image(systemName: "paperclip")
-                        .font(.system(size: 15, weight: .semibold))
-                        .frame(width: controlHeight, height: controlHeight)
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(TerminalPalette.foreground.opacity(0.7))
-                .mobileGlassCircle()
-                .accessibilityIdentifier("MobileComposerAttach")
-                .accessibilityLabel(L10n.string("mobile.composer.attach", defaultValue: "Attach Photo"))
 
                 micButton
 
-                // The field and its send button share ONE rounded glass container —
-                // iMessage's layout, where the circular up-arrow lives INSIDE the
-                // field at the trailing edge. `.bottom` alignment pins the button to
-                // the field's last line as it grows, so a multi-line draft keeps the
-                // send affordance at the natural "end of message" spot.
-                HStack(alignment: .bottom, spacing: 8) {
+                // The field and its send button share ONE rounded glass container,
+                // rendered through the same support component as GUI chat. `.bottom`
+                // alignment pins the button to the field's last line as it grows.
+                MobileComposerFieldContainer(minHeight: composerFieldMinHeight) {
                     TextField(
                         L10n.string("mobile.composer.placeholder", defaultValue: "Message"),
                         text: $store.terminalInputText,
@@ -325,6 +320,7 @@ struct TerminalComposerView: View {
                     .padding(.vertical, 3)
                     .accessibilityIdentifier("MobileComposerField")
 
+                } trailing: {
                     Button {
                         send()
                     } label: {
@@ -345,11 +341,6 @@ struct TerminalComposerView: View {
                     .accessibilityIdentifier("MobileComposerSend")
                     .accessibilityLabel(L10n.string("mobile.composer.send", defaultValue: "Send"))
                 }
-                .padding(.leading, 14)
-                .padding(.trailing, 6)
-                .padding(.vertical, 6)
-                .frame(minHeight: composerFieldMinHeight, alignment: .top)
-                .mobileGlassField(cornerRadius: 20)
             }
         }
         .padding(.horizontal, 12)
@@ -376,24 +367,21 @@ struct TerminalComposerView: View {
     /// denied so the user is never left tapping a dead control.
     private var micButton: some View {
         let listening = dictation.state.isListening
-        return Button {
+        return MobileComposerIconButton(
+            systemImage: "mic",
+            activeSystemImage: "mic.fill",
+            isActive: listening,
+            foregroundStyle: listening ? AnyShapeStyle(Color.red) : AnyShapeStyle(TerminalPalette.foreground.opacity(0.7)),
+            size: controlHeight,
+            pulsesWhenActive: true,
+            isDisabled: !dictation.isAvailable,
+            accessibilityIdentifier: "MobileComposerMic",
+            accessibilityLabel: listening
+                ? L10n.string("mobile.composer.mic.stop", defaultValue: "Stop dictation")
+                : L10n.string("mobile.composer.mic.start", defaultValue: "Start dictation")
+        ) {
             toggleDictation()
-        } label: {
-            Image(systemName: listening ? "mic.fill" : "mic")
-                .font(.system(size: 15, weight: .semibold))
-                .frame(width: controlHeight, height: controlHeight)
-                .symbolEffect(.pulse, isActive: listening)
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(listening ? AnyShapeStyle(Color.red) : AnyShapeStyle(TerminalPalette.foreground.opacity(0.7)))
-        .mobileGlassCircle()
-        .disabled(!dictation.isAvailable)
-        .accessibilityIdentifier("MobileComposerMic")
-        .accessibilityLabel(
-            listening
-                ? L10n.string("mobile.composer.mic.stop", defaultValue: "Stop Dictation")
-                : L10n.string("mobile.composer.mic.start", defaultValue: "Dictate Message")
-        )
     }
 
     /// Toggle voice dictation. On start the current text is captured as the merge
