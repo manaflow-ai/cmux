@@ -12,11 +12,6 @@ import Foundation
 /// unreachable registry can only *add* candidates, never remove the locally
 /// cached ones that let pairing survive offline.
 public struct CmxRouteCandidateSet: Equatable, Sendable {
-    /// Default upper bound on the merged candidate count, matching the server's
-    /// per-instance route cap. Ranking runs first, so any truncation drops only
-    /// the worst-ranked (stalest / farthest) candidates.
-    public static let defaultMaxCandidates = 16
-
     /// The gathered candidates, in arbitrary order (deduped/ranked by ``merged``).
     public let candidates: [CmxRouteCandidate]
 
@@ -60,10 +55,15 @@ public struct CmxRouteCandidateSet: Equatable, Sendable {
     ///   - preferLoopback: When `true` (e.g. the simulator, where `127.0.0.1`
     ///     reaches the Mac), loopback routes rank first; when `false` (a
     ///     physical phone, where loopback can only reach itself) they rank last.
-    ///   - maxCandidates: Upper bound on the result count after ranking.
+    ///   - maxCandidates: Optional upper bound on the result count after ranking.
+    ///     `nil` (the default) is **unbounded** so the merge stays additive — it
+    ///     never silently evicts a lower-ranked offline-cache fallback. A caller
+    ///     that genuinely needs a cap opts in; the lowest-ranked candidates are
+    ///     dropped first, so a cap can drop offline-cache routes (rank them
+    ///     before capping if they must survive). `0` yields an empty result.
     public func merged(
         preferLoopback: Bool = false,
-        maxCandidates: Int = CmxRouteCandidateSet.defaultMaxCandidates
+        maxCandidates: Int? = nil
     ) -> [CmxRouteCandidate] {
         guard !candidates.isEmpty else { return [] }
 
@@ -83,10 +83,10 @@ public struct CmxRouteCandidateSet: Equatable, Sendable {
 
         let deduped = keyOrder.compactMap { bestByKey[$0] }
         let ranked = deduped.sorted { Self.sortsBefore($0, $1, preferLoopback: preferLoopback) }
-        // A negative cap means "no cap"; a zero cap yields an empty result (a
-        // zero upper bound); a positive cap truncates after ranking, dropping the
-        // worst-ranked candidates.
-        guard maxCandidates >= 0 else { return ranked }
+        // No cap requested (nil) or a negative cap: return the full additive set.
+        // A zero cap yields an empty result; a positive cap truncates after
+        // ranking, dropping the worst-ranked candidates.
+        guard let maxCandidates, maxCandidates >= 0 else { return ranked }
         guard ranked.count > maxCandidates else { return ranked }
         return Array(ranked.prefix(maxCandidates))
     }
@@ -95,7 +95,7 @@ public struct CmxRouteCandidateSet: Equatable, Sendable {
     /// plain routes in tried order, dropping the candidate metadata.
     public func mergedRoutes(
         preferLoopback: Bool = false,
-        maxCandidates: Int = CmxRouteCandidateSet.defaultMaxCandidates
+        maxCandidates: Int? = nil
     ) -> [CmxAttachRoute] {
         merged(preferLoopback: preferLoopback, maxCandidates: maxCandidates).map(\.route)
     }
