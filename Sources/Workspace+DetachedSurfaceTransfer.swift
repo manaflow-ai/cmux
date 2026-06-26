@@ -1,5 +1,6 @@
 import Foundation
 import CmuxCore
+import CmuxWorkspaces
 import Darwin
 import CmuxNotifications
 import CmuxSidebar

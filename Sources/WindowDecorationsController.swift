@@ -57,7 +57,7 @@ final class WindowDecorationsController {
         }
         observers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main, using: handler))
         observers.append(center.addObserver(forName: NSWindow.didBecomeMainNotification, object: nil, queue: .main, using: handler))
-        for name in TitlebarWindowGeometryNotifications.names {
+        for name in [Notification.Name].titlebarWindowGeometry {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main, using: handler))
         }
         observers.append(center.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in

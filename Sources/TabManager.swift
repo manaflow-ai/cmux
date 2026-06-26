@@ -6,6 +6,7 @@ import Foundation
 import Observation
 import Bonsplit
 import CmuxBrowser
+import CmuxCommandPalette
 import CmuxGit
 import CmuxNotifications
 import CmuxPanes
@@ -4555,17 +4556,23 @@ extension Workspace: WorkspaceTabRepresenting {}
 extension Notification.Name {
     // The sidebar multi-selection sync events moved to CmuxSidebar as typed
     // SidebarMultiSelectionShouldCollapseEvent / DidHideEvent (same names).
-    static let commandPaletteToggleRequested = Notification.Name("cmux.commandPaletteToggleRequested")
-    static let commandPaletteRequested = Notification.Name("cmux.commandPaletteRequested")
-    static let commandPaletteSwitcherRequested = Notification.Name("cmux.commandPaletteSwitcherRequested")
-    static let commandPaletteSubmitRequested = Notification.Name("cmux.commandPaletteSubmitRequested")
-    static let commandPaletteDismissRequested = Notification.Name("cmux.commandPaletteDismissRequested")
-    static let commandPaletteRenameTabRequested = Notification.Name("cmux.commandPaletteRenameTabRequested")
-    static let commandPaletteRenameWorkspaceRequested = Notification.Name("cmux.commandPaletteRenameWorkspaceRequested")
-    static let commandPaletteEditWorkspaceDescriptionRequested = Notification.Name("cmux.commandPaletteEditWorkspaceDescriptionRequested")
-    static let commandPaletteMoveSelection = Notification.Name("cmux.commandPaletteMoveSelection")
-    static let commandPaletteRenameInputInteractionRequested = Notification.Name("cmux.commandPaletteRenameInputInteractionRequested")
-    static let commandPaletteRenameInputDeleteBackwardRequested = Notification.Name("cmux.commandPaletteRenameInputDeleteBackwardRequested")
+    //
+    // The command-palette names are owned by CmuxCommandPalette: the open-request
+    // names by CommandPaletteRequestKind, the interaction/lifecycle signals by
+    // CommandPaletteSignal. These accessors forward to those typed events so each
+    // wire string lives in one place (mirrors the browser omnibar/first-responder
+    // events below). The resulting Notification.Name strings are byte-identical.
+    static let commandPaletteToggleRequested = CommandPaletteSignal.toggle.notificationName
+    static let commandPaletteRequested = Notification.Name(CommandPaletteRequestKind.commands.notificationName)
+    static let commandPaletteSwitcherRequested = Notification.Name(CommandPaletteRequestKind.switcher.notificationName)
+    static let commandPaletteSubmitRequested = CommandPaletteSignal.submit.notificationName
+    static let commandPaletteDismissRequested = CommandPaletteSignal.dismiss.notificationName
+    static let commandPaletteRenameTabRequested = Notification.Name(CommandPaletteRequestKind.renameTab.notificationName)
+    static let commandPaletteRenameWorkspaceRequested = Notification.Name(CommandPaletteRequestKind.renameWorkspace.notificationName)
+    static let commandPaletteEditWorkspaceDescriptionRequested = Notification.Name(CommandPaletteRequestKind.editWorkspaceDescription.notificationName)
+    static let commandPaletteMoveSelection = CommandPaletteSignal.moveSelection.notificationName
+    static let commandPaletteRenameInputInteractionRequested = CommandPaletteSignal.renameInputInteraction.notificationName
+    static let commandPaletteRenameInputDeleteBackwardRequested = CommandPaletteSignal.renameInputDeleteBackward.notificationName
     static let feedbackComposerRequested = Notification.Name("cmux.feedbackComposerRequested")
     static let ghosttyDidSetTitle = Notification.Name("ghosttyDidSetTitle")
     static let ghosttyDidFocusTab = Notification.Name("ghosttyDidFocusTab")

@@ -19,4 +19,8 @@ struct WorkspaceTabColorPaletteSeam: ManagedDefaultsPaletteSeam {
     func persistPaletteMap(_ map: [String: String], defaults: UserDefaults) {
         WorkspaceTabColorSettings.persistPaletteMap(map, defaults: defaults)
     }
+
+    func resolvedPaletteMap(defaults: UserDefaults) -> [String: String] {
+        WorkspaceTabColorSettings.resolvedPaletteMap(defaults: defaults)
+    }
 }

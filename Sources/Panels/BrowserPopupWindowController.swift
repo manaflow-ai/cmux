@@ -537,13 +537,18 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
-        guard let url = navigationAction.request.url else {
+        // Branch classification lives in the package; the delegate executes the
+        // resolved case (external routing, insecure-HTTP prompt, allow/download).
+        switch PopupNavigationActionDecision.resolve(
+            url: navigationAction.request.url,
+            isMainFrame: navigationAction.targetFrame?.isMainFrame != false,
+            shouldPerformDownload: navigationAction.shouldPerformDownload
+        ) {
+        case .allow:
             decisionHandler(.allow)
-            return
-        }
 
-        // External URL schemes → hand off to macOS
-        if BrowserExternalNavigationAction.shouldRoute(url) {
+        case .routeExternally(let url):
+            // External URL schemes → hand off to macOS
             browserHandleExternalNavigation(
                 url,
                 source: "popupNavDelegate",
@@ -553,30 +558,17 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
                 }
             )
             decisionHandler(.cancel)
-            return
-        }
 
-        // Only guard main-frame navigations
-        guard navigationAction.targetFrame?.isMainFrame != false else {
-            decisionHandler(.allow)
-            return
-        }
-
-        // Insecure HTTP → show same prompt as main browser
-        if BrowserInsecureHTTPSettings.shouldBlock(url) {
+        case .promptInsecureHTTP(let url):
+            // Insecure HTTP → show same prompt as main browser
             #if DEBUG
             cmuxDebugLog("popup.nav.insecureHTTP url=\(url.absoluteString)")
             #endif
             controller?.presentInsecureHTTPAlert(for: url, in: webView, decisionHandler: decisionHandler)
-            return
-        }
 
-        if navigationAction.shouldPerformDownload {
+        case .download:
             decisionHandler(.download)
-            return
         }
-
-        decisionHandler(.allow)
     }
 
     func webView(

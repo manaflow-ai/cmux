@@ -1,3 +1,4 @@
+import CmuxSidebar
 import Testing
 
 #if canImport(cmux_DEV)
@@ -12,9 +13,8 @@ struct FileExplorerRootSyncPolicyTests {
     func hiddenRightSidebarKeepsFileExplorerRootLazy() {
         for mode in RightSidebarMode.allCases {
             #expect(
-                FileExplorerRootSyncPolicy.shouldSyncFileExplorerStore(
-                    isRightSidebarVisible: false,
-                    mode: mode
+                mode.shouldSyncFileExplorerStore(
+                    isRightSidebarVisible: false
                 ) == false
             )
         }
@@ -24,9 +24,8 @@ struct FileExplorerRootSyncPolicyTests {
     func visibleFileModesMaySyncFileExplorerRoot() {
         for mode in [RightSidebarMode.files, .find] {
             #expect(
-                FileExplorerRootSyncPolicy.shouldSyncFileExplorerStore(
-                    isRightSidebarVisible: true,
-                    mode: mode
+                mode.shouldSyncFileExplorerStore(
+                    isRightSidebarVisible: true
                 )
             )
         }
@@ -37,9 +36,8 @@ struct FileExplorerRootSyncPolicyTests {
         let fileModes = Set([RightSidebarMode.files, .find])
         for mode in RightSidebarMode.allCases.filter({ !fileModes.contains($0) }) {
             #expect(
-                FileExplorerRootSyncPolicy.shouldSyncFileExplorerStore(
-                    isRightSidebarVisible: true,
-                    mode: mode
+                mode.shouldSyncFileExplorerStore(
+                    isRightSidebarVisible: true
                 ) == false
             )
         }
@@ -51,7 +49,7 @@ struct RightSidebarDirectoryContextTests {
     @Test("Dock root prefers selected workspace directory")
     func dockRootPrefersSelectedWorkspaceDirectory() {
         #expect(
-            RightSidebarDirectoryContext.dockRootDirectory(
+            RightSidebarMode.dockRootDirectory(
                 workspaceDirectory: " /remote/project ",
                 fallbackDirectory: "/local/session"
             ) == "/remote/project"
@@ -61,7 +59,7 @@ struct RightSidebarDirectoryContextTests {
     @Test("Dock root falls back to session index directory")
     func dockRootFallsBackToSessionIndexDirectory() {
         #expect(
-            RightSidebarDirectoryContext.dockRootDirectory(
+            RightSidebarMode.dockRootDirectory(
                 workspaceDirectory: " ",
                 fallbackDirectory: "/local/session"
             ) == "/local/session"

@@ -1,6 +1,7 @@
 import Foundation
 import CMUXAgentLaunch
 import CmuxCommandPalette
+import CmuxWorkspaces
 
 struct SessionRestorableAgentSnapshot: Codable, Sendable {
     static let maxInlineStartupInputBytes = 900

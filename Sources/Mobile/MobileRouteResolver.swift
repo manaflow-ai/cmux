@@ -95,6 +95,40 @@ final class MobileRouteResolver: @unchecked Sendable {
         return MobileHostRouteSnapshot(routes: resolved)
     }
 
+    /// Select the subset of `routes` matching an optional route id and/or kind.
+    ///
+    /// An empty/whitespace id and kind both mean "no filter", so the full list
+    /// is returned unchanged. When either is set, routes must match every set
+    /// criterion; if the filter selects nothing,
+    /// ``MobileAttachTicketStoreError/routeUnavailable`` is thrown.
+    func filteredRoutes(
+        _ routes: [CmxAttachRoute],
+        routeID: String?,
+        routeKind: String?
+    ) throws -> [CmxAttachRoute] {
+        let normalizedRouteID = routeID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedRouteKind = routeKind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let hasRouteID = normalizedRouteID?.isEmpty == false
+        let hasRouteKind = normalizedRouteKind?.isEmpty == false
+        guard hasRouteID || hasRouteKind else {
+            return routes
+        }
+
+        let filtered = routes.filter { route in
+            if hasRouteID, route.id != normalizedRouteID {
+                return false
+            }
+            if hasRouteKind, route.kind.rawValue != normalizedRouteKind {
+                return false
+            }
+            return true
+        }
+        guard !filtered.isEmpty else {
+            throw MobileAttachTicketStoreError.routeUnavailable
+        }
+        return filtered
+    }
+
     private struct TailscaleAddressCandidate {
         let interfaceName: String
         let address: String

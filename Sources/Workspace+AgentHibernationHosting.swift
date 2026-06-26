@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import CmuxWorkspaces
 import Foundation
 
 /// `Workspace` is the live host for its `AgentHibernationCoordinator`. The

@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import AppKit
+import SwiftUI
 import CmuxCore
 import CmuxTerminalCore
 import CmuxWorkspaces
@@ -252,6 +253,18 @@ enum WorkspaceAttentionCoordinator {
 enum FocusFlashCurve: Equatable {
     case easeIn
     case easeOut
+}
+
+extension FocusFlashCurve {
+    /// The SwiftUI `Animation` this focus-flash curve maps to for one segment's duration.
+    func animation(duration: TimeInterval) -> Animation {
+        switch self {
+        case .easeIn:
+            return .easeIn(duration: duration)
+        case .easeOut:
+            return .easeOut(duration: duration)
+        }
+    }
 }
 
 enum PanelOverlayRingMetrics {

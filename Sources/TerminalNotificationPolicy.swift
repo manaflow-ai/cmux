@@ -89,51 +89,6 @@ enum TerminalNotificationPolicyEngine {
     }
 }
 
-private enum NotificationHookOutputStream {
-    case stdout
-    case stderr
-}
-
-private final class NotificationHookPipeBuffer: @unchecked Sendable {
-    private let lock = NSLock()
-    private var stdoutData = Data()
-    private var stderrData = Data()
-    private var stdoutExceededLimit = false
-    private let maxStderrBytes = 65_536
-
-    func append(
-        _ bytes: UnsafeBufferPointer<UInt8>,
-        stream: NotificationHookOutputStream,
-        maxOutputBytes: Int
-    ) {
-        guard let baseAddress = bytes.baseAddress, bytes.count > 0 else { return }
-        lock.lock()
-        defer { lock.unlock() }
-
-        switch stream {
-        case .stdout:
-            let remaining = max(0, maxOutputBytes - stdoutData.count)
-            if bytes.count > remaining {
-                stdoutExceededLimit = true
-            }
-            if remaining > 0 {
-                stdoutData.append(baseAddress, count: min(bytes.count, remaining))
-            }
-        case .stderr:
-            let remaining = max(0, maxStderrBytes - stderrData.count)
-            if remaining > 0 {
-                stderrData.append(baseAddress, count: min(bytes.count, remaining))
-            }
-        }
-    }
-
-    func snapshot() -> (stdout: Data, stderr: Data, stdoutExceededLimit: Bool) {
-        lock.lock()
-        defer { lock.unlock() }
-        return (stdoutData, stderrData, stdoutExceededLimit)
-    }
-}
-
 private final class NotificationHookProcessRun: @unchecked Sendable {
     private let hook: CmuxResolvedNotificationHook
     private let envelope: TerminalNotificationPolicyEnvelope

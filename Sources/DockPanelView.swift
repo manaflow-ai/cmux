@@ -1,6 +1,7 @@
 import AppKit
 import CmuxFoundation
 import CmuxSidebar
+import CmuxSidebarUI
 import CmuxTerminal
 import Bonsplit
 import Observation
@@ -352,7 +353,10 @@ struct DockPanelView: View {
                 store.trustAndReload()
             }
         } else if let error = store.errorMessage {
-            DockErrorView(message: error)
+            DockErrorView(
+                title: String(localized: "dock.error.title", defaultValue: "Dock Config Error"),
+                message: error
+            )
         } else if store.controls.isEmpty {
             DockEmptyView()
         } else {
@@ -388,6 +392,8 @@ private struct DockControlsLayoutView: View {
                             snapshot: snapshot,
                             ordinal: index + 1,
                             terminalHeight: heights[index],
+                            focusControlLabel: String(localized: "dock.action.focusControl", defaultValue: "Focus Control"),
+                            restartControlLabel: String(localized: "dock.action.restartControl", defaultValue: "Restart Control"),
                             onFocus: { onFocus(snapshot.id) },
                             onRestart: { onRestart(snapshot.id) },
                             terminalContent: {
@@ -412,67 +418,6 @@ private struct DockControlsLayoutView: View {
             }
             .dockZeroScrollContentMargins()
         }
-    }
-}
-
-private struct DockControlSectionView<TerminalContent: View>: View {
-    let snapshot: DockControlSnapshot
-    let ordinal: Int
-    let terminalHeight: CGFloat
-    let onFocus: () -> Void
-    let onRestart: () -> Void
-    @ViewBuilder let terminalContent: () -> TerminalContent
-
-    var body: some View {
-        VStack(spacing: 0) {
-            header
-            terminalContent()
-                .frame(height: terminalHeight)
-                .clipped()
-        }
-        .accessibilityIdentifier("DockControl.\(snapshot.id)")
-    }
-
-    private var header: some View {
-        HStack(spacing: 6) {
-            Text("\(ordinal)")
-                .font(.system(size: 10, weight: .semibold).monospacedDigit())
-                .foregroundStyle(.secondary)
-                .frame(width: 18, alignment: .center)
-            Text(snapshot.title)
-                .font(.system(size: 12, weight: .semibold))
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Text(snapshot.command)
-                .font(.system(size: 10, weight: .regular, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer(minLength: 4)
-            Button {
-                onFocus()
-            } label: {
-                Image(systemName: "keyboard")
-                    .font(.system(size: 10, weight: .medium))
-            }
-            .buttonStyle(.plain)
-            .help(String(localized: "dock.action.focusControl", defaultValue: "Focus Control"))
-            .accessibilityLabel(String(localized: "dock.action.focusControl", defaultValue: "Focus Control"))
-
-            Button {
-                onRestart()
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 10, weight: .medium))
-            }
-            .buttonStyle(.plain)
-            .help(String(localized: "dock.action.restartControl", defaultValue: "Restart Control"))
-            .accessibilityLabel(String(localized: "dock.action.restartControl", defaultValue: "Restart Control"))
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
-        .frame(height: 30)
-        .background(Color.primary.opacity(0.035))
     }
 }
 
@@ -530,26 +475,6 @@ private struct DockTrustView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-private struct DockErrorView: View {
-    let message: String
-
-    var body: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 24))
-                .foregroundStyle(.orange)
-            Text(String(localized: "dock.error.title", defaultValue: "Dock Config Error"))
-                .font(.system(size: 13, weight: .semibold))
-            Text(message)
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
         }
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
