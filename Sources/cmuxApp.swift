@@ -435,7 +435,7 @@ struct cmuxApp: App {
                             defaultValue: "Bonsplit Tab Bar Debug…"
                         )
                     ) {
-                        BonsplitTabBarDebugWindowController.shared.show()
+                        AppDelegate.shared?.debugWindowsCoordinator.showBonsplitTabBarDebug()
                     }
                     Button("Browser Import Hint Debug…") {
                         AppDelegate.shared?.debugWindowsCoordinator.showBrowserImportHintDebug()
@@ -457,10 +457,10 @@ struct cmuxApp: App {
                             defaultValue: "Dev Window Display…"
                         )
                     ) {
-                        DevWindowDisplayDebugWindowController.shared.show()
+                        AppDelegate.shared?.debugWindowsCoordinator.showDevWindowDisplayDebug()
                     }
                     Button("Feed Preview…") {
-                        FeedPreviewWindowController.shared.show()
+                        AppDelegate.shared?.debugWindowsCoordinator.showFeedPreview()
                     }
                     Button(
                         String(
@@ -468,7 +468,7 @@ struct cmuxApp: App {
                             defaultValue: "Feed Text Editor Lab…"
                         )
                     ) {
-                        FeedTextEditorDebugWindowController.shared.show()
+                        AppDelegate.shared?.debugWindowsCoordinator.showFeedTextEditorDebug()
                     }
                     Button(
                         String(
@@ -476,7 +476,7 @@ struct cmuxApp: App {
                             defaultValue: "Feed Button Style Debug…"
                         )
                     ) {
-                        FeedButtonStyleDebugWindowController.shared.show()
+                        AppDelegate.shared?.debugWindowsCoordinator.showFeedButtonStyleDebug()
                     }
                     Button(
                         String(
@@ -503,7 +503,7 @@ struct cmuxApp: App {
                             defaultValue: "Titlebar Layout Debug..."
                         )
                     ) {
-                        TitlebarLayoutDebugWindowController.shared.show()
+                        AppDelegate.shared?.debugWindowsCoordinator.showTitlebarLayoutDebug()
                     }
                     Button("Sidebar Debug…") {
                         AppDelegate.shared?.debugWindowsCoordinator.showSidebarDebug()
@@ -528,7 +528,7 @@ struct cmuxApp: App {
                             defaultValue: "PDF Preview Chrome Debug…"
                         )
                     ) {
-                        PDFPreviewChromeDebugWindowController.shared.show()
+                        AppDelegate.shared?.debugWindowsCoordinator.showPDFPreviewChromeDebug()
                     }
                     Button("Open All Debug Windows") {
                         openAllDebugWindows()
@@ -1214,16 +1214,16 @@ struct cmuxApp: App {
         AppDelegate.shared?.debugWindowsCoordinator.showBrowserImportHintDebug()
         AppDelegate.shared?.debugWindowsCoordinator.showBrowserProfilePopoverDebug()
         AppDelegate.shared?.debugWindowsCoordinator.showAboutTitlebarDebugWindow()
-        TitlebarLayoutDebugWindowController.shared.show()
+        AppDelegate.shared?.debugWindowsCoordinator.showTitlebarLayoutDebug()
         AppDelegate.shared?.debugWindowsCoordinator.showSidebarDebug()
         AppDelegate.shared?.debugWindowsCoordinator.showBackgroundDebug()
         AppDelegate.shared?.debugWindowsCoordinator.showStartupAppearanceDebug()
         AppDelegate.shared?.debugWindowsCoordinator.showMenuBarExtraDebug()
-        PDFPreviewChromeDebugWindowController.shared.show()
-        FeedPreviewWindowController.shared.show()
-        FeedTextEditorDebugWindowController.shared.show()
-        FeedButtonStyleDebugWindowController.shared.show()
-        BonsplitTabBarDebugWindowController.shared.show()
+        AppDelegate.shared?.debugWindowsCoordinator.showPDFPreviewChromeDebug()
+        AppDelegate.shared?.debugWindowsCoordinator.showFeedPreview()
+        AppDelegate.shared?.debugWindowsCoordinator.showFeedTextEditorDebug()
+        AppDelegate.shared?.debugWindowsCoordinator.showFeedButtonStyleDebug()
+        AppDelegate.shared?.debugWindowsCoordinator.showBonsplitTabBarDebug()
     }
 #endif
 }

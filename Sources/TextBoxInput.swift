@@ -1179,7 +1179,7 @@ private struct TextBoxMentionCompletionPopoverView: View {
         var attributed = AttributedString(title)
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedQuery.isEmpty else { return attributed }
-        let ranges = subsequenceMatchRanges(query: trimmedQuery, in: title)
+        let ranges = title.subsequenceMatchRanges(matching: trimmedQuery)
         guard !ranges.isEmpty else { return attributed }
         for range in ranges {
             guard let attrLower = AttributedString.Index(range.lowerBound, within: attributed),
@@ -1190,31 +1190,6 @@ private struct TextBoxMentionCompletionPopoverView: View {
             attributed[attrLower..<attrUpper].inlinePresentationIntent = .stronglyEmphasized
         }
         return attributed
-    }
-
-    private static func subsequenceMatchRanges(query: String, in text: String) -> [Range<String.Index>] {
-        guard !query.isEmpty, !text.isEmpty else { return [] }
-        var ranges: [Range<String.Index>] = []
-        var queryIndex = query.startIndex
-        var textIndex = text.startIndex
-
-        while queryIndex < query.endIndex, textIndex < text.endIndex {
-            let nextTextIndex = text.index(after: textIndex)
-            let nextQueryIndex = query.index(after: queryIndex)
-            let textCharacter = String(text[textIndex..<nextTextIndex])
-            let queryCharacter = String(query[queryIndex..<nextQueryIndex])
-            if textCharacter.compare(
-                queryCharacter,
-                options: [.caseInsensitive, .diacriticInsensitive],
-                locale: nil
-            ) == .orderedSame {
-                ranges.append(textIndex..<nextTextIndex)
-                queryIndex = nextQueryIndex
-            }
-            textIndex = nextTextIndex
-        }
-
-        return queryIndex == query.endIndex ? ranges : []
     }
 }
 

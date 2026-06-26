@@ -169,7 +169,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 reloading: StartupAppearanceDebugReloader(),
                 strings: self.debugWindowControlsContentProvider.startupAppearanceDebugStrings
             ))
-        }
+        },
+        openBonsplitTabBarDebug: { BonsplitTabBarDebugWindowController.shared.show() },
+        openDevWindowDisplayDebug: { DevWindowDisplayDebugWindowController.shared.show() },
+        openFeedPreview: { FeedPreviewWindowController.shared.show() },
+        openFeedTextEditorDebug: { FeedTextEditorDebugWindowController.shared.show() },
+        openFeedButtonStyleDebug: { FeedButtonStyleDebugWindowController.shared.show() },
+        openTitlebarLayoutDebug: { TitlebarLayoutDebugWindowController.shared.show() },
+        openPDFPreviewChromeDebug: { PDFPreviewChromeDebugWindowController.shared.show() }
     )
     #else
     lazy var debugWindowsCoordinator = DebugWindowsCoordinator(
