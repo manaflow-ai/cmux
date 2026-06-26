@@ -121,13 +121,6 @@ public struct SidebarSection: View {
         rightMaxWidth.current.isFinite && rightMaxWidth.current > 0
     }
 
-    private var workspaceStatusDotsBinding: Binding<Bool> {
-        Binding(
-            get: { workspaceStatusStyle.current == .dot },
-            set: { workspaceStatusStyle.set($0 ? .dot : .sentence) }
-        )
-    }
-
     private var rightMaxWidthOverrideBinding: Binding<Bool> {
         Binding(
             get: { rightMaxWidthOverrideEnabled },
@@ -243,7 +236,7 @@ public struct SidebarSection: View {
                 String(localized: "settings.sidebar.workspaceStatusStyle", defaultValue: "Compact Agent Status Dots"),
                 subtitle: workspaceStatusStyle.current.rowDescription
             ) {
-                Toggle("", isOn: workspaceStatusDotsBinding)
+                Toggle("", isOn: Binding(get: { workspaceStatusStyle.current == .dot }, set: { workspaceStatusStyle.set($0 ? .dot : .sentence) }))
                 .labelsHidden()
                 .toggleStyle(.switch)
                 .controlSize(.small)
