@@ -3394,6 +3394,13 @@ final class Workspace: Identifiable, ObservableObject {
     private var layoutFollowUpAttemptScheduled = false
     private var layoutFollowUpAttemptVersion: Int = 0
     private var layoutFollowUpStalledAttemptCount = 0
+    /// Monotonic timestamp (`systemUptime`) of the most recent
+    /// `attemptEventDrivenLayoutFollowUp()` execution. Used to coalesce
+    /// high-frequency follow-up drivers — chiefly `NSWindow.didUpdateNotification`,
+    /// which AppKit posts on every scroll tick — so a burst cannot force
+    /// `flushWorkspaceWindowLayouts()` (a synchronous full-window
+    /// `layoutSubtreeIfNeeded()`) back-to-back during scroll. See issue #6790.
+    private var layoutFollowUpLastAttemptUptime: TimeInterval = 0
     private var pendingReparentFocusSuppressionViews: [ObjectIdentifier: GhosttySurfaceScrollView] = [:]
     private var portalRenderingEnabled = true
     private var agentHibernationAutoResumePresentationVisible = true
@@ -10166,7 +10173,10 @@ final class Workspace: Identifiable, ObservableObject {
         guard !layoutFollowUpAttemptScheduled else { return }
 
         layoutFollowUpAttemptScheduled = true
-        let delay = layoutFollowUpBackoffDelay()
+        enqueueLayoutFollowUpAttempt(afterDelay: layoutFollowUpAttemptDelay())
+    }
+
+    private func enqueueLayoutFollowUpAttempt(afterDelay delay: TimeInterval) {
         let version = layoutFollowUpAttemptVersion
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self else { return }
@@ -10176,9 +10186,48 @@ final class Workspace: Identifiable, ObservableObject {
                 self.clearLayoutFollowUp()
                 return
             }
+            // Enforce the per-frame spacing at execution time, not only at
+            // schedule time. A reentrant observed notification can schedule this
+            // closure while an attempt is still running — before
+            // layoutFollowUpLastAttemptUptime is updated — yielding a stale delay
+            // of 0. Re-defer here for whatever spacing remains since the most
+            // recent attempt actually completed, so a slow layout pass cannot be
+            // followed by a back-to-back forced relayout. Only the frame spacing
+            // is re-checked (never the stall backoff), so this converges to zero
+            // as wall-clock time advances. See #6790.
+            let remaining = Self.layoutFollowUpCoalescing.remainingSpacing(
+                sinceLastAttempt: ProcessInfo.processInfo.systemUptime - self.layoutFollowUpLastAttemptUptime
+            )
+            if remaining > 0 {
+                self.enqueueLayoutFollowUpAttempt(afterDelay: remaining)
+                return
+            }
             self.layoutFollowUpAttemptScheduled = false
             self.attemptEventDrivenLayoutFollowUp()
         }
+    }
+
+    /// Coalescing policy for event-driven layout follow-up attempts. The minimum
+    /// spacing is chosen to exceed a single 60 Hz display frame so AppKit's own
+    /// display-cycle layout pass can interleave between attempts. See #6790.
+    private static let layoutFollowUpCoalescing = AttemptCoalescingPolicy(minInterval: 1.0 / 30.0)
+
+    private func layoutFollowUpAttemptDelay() -> TimeInterval {
+        // Coalesce high-frequency follow-up drivers so consecutive attempts are
+        // spaced at least one frame apart. NSWindow.didUpdateNotification fires
+        // on every scroll tick; without this floor, a follow-up loop that
+        // overlaps an active scroll re-runs flushWorkspaceWindowLayouts() — a
+        // synchronous full-window layoutSubtreeIfNeeded() — back-to-back,
+        // producing the 254–512 ms main-thread microhangs reported in #6790.
+        // Spacing attempts by a frame lets AppKit's own display-cycle layout
+        // pass absorb the SwiftUI invalidation between attempts, so each forced
+        // flush finds settled layout. Genuine convergence is preserved: progress
+        // still reschedules within this floor, the specific structural-change
+        // notifications still fire, and the 2 s timeout bounds the loop.
+        Self.layoutFollowUpCoalescing.delay(
+            backoff: layoutFollowUpBackoffDelay(),
+            sinceLastAttempt: ProcessInfo.processInfo.systemUptime - layoutFollowUpLastAttemptUptime
+        )
     }
 
     private func layoutFollowUpBackoffDelay() -> TimeInterval {
@@ -10319,6 +10368,14 @@ final class Workspace: Identifiable, ObservableObject {
                 layoutFollowUpBrowserExitFocusPanelId = nil
             }
         }
+
+        // Record when this attempt finished its (potentially expensive, e.g.
+        // 254–512 ms) layout work, so the next attempt is spaced at least one
+        // frame from completion. Anchoring before flushWorkspaceWindowLayouts()
+        // or the geometry pass would let a slow pass make `sinceLastAttempt`
+        // exceed the floor, scheduling the next forced layout with delay 0 and
+        // defeating the throttle in exactly the slow case it targets. See #6790.
+        layoutFollowUpLastAttemptUptime = ProcessInfo.processInfo.systemUptime
 
         let terminalFocusPending = terminalFocusNeedsFollowUp()
         let browserPanelPending = browserPanelNeedsFollowUp()
