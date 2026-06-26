@@ -6172,6 +6172,57 @@
         }
       }
     },
+    "mobile.toolbar.editor.iconFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional SF Symbol shown instead of the label. The label remains the accessibility name."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ラベルの代わりに表示する任意の SF Symbol です。ラベルはアクセシビリティ名として使われます。"
+          }
+        }
+      }
+    },
+    "mobile.toolbar.editor.iconHeader": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icon"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイコン"
+          }
+        }
+      }
+    },
+    "mobile.toolbar.editor.iconPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SF Symbol name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SF Symbol 名"
+          }
+        }
+      }
+    },
     "mobile.toolbar.editor.runAfterTyping": {
       "extractionState": "manual",
       "localizations": {

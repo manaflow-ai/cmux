@@ -52,6 +52,40 @@ struct TerminalAccessoryConfigurationTests {
         #expect(config.isEnabled(id(.shift)))
     }
 
+    @Test("default toolbar icon-backed built-ins are shown and have accessibility labels")
+    func defaultToolbarIconPresentationIsAccessible() throws {
+        let config = TerminalAccessoryConfiguration(defaults: freshDefaults())
+        let enabledBuiltins: [TerminalInputAccessoryAction] = config.enabledItems.compactMap { item in
+            if case let .builtin(action) = item { return action }
+            return nil
+        }
+        let compactIconActions: [TerminalInputAccessoryAction] = [
+            .paste,
+            .tab,
+            .escape,
+            .returnKey,
+            .upArrow,
+            .downArrow,
+            .leftArrow,
+            .rightArrow,
+            .home,
+            .end,
+            .pageUp,
+            .pageDown,
+            .zoomOut,
+            .zoomIn,
+        ]
+
+        for action in compactIconActions {
+            #expect(enabledBuiltins.contains(action))
+            #expect(action.symbolName?.isEmpty == false)
+            let label = try #require(action.accessibilityLabel)
+            #expect(!label.isEmpty)
+        }
+        #expect(TerminalInputAccessoryAction.claude.symbolName == nil)
+        #expect(TerminalInputAccessoryAction.codex.symbolName == nil)
+    }
+
     // MARK: - Return key
 
     @Test("Return is shown by default, adjacent to Tab/Esc, and sends CR")
@@ -114,6 +148,27 @@ struct TerminalAccessoryConfigurationTests {
         let reloaded = TerminalAccessoryConfiguration(defaults: defaults)
         #expect(!reloaded.isEnabled(id(.command)))
         #expect(reloaded.displayOrder.contains(id(.command)))
+    }
+
+    @Test("custom action icon metadata persists through toolbar configuration")
+    func customActionIconPersists() throws {
+        let defaults = freshDefaults()
+        let action = CustomToolbarAction(
+            title: "Run",
+            symbolName: "sparkles",
+            payload: .text("echo ok\n")
+        )
+        let config = TerminalAccessoryConfiguration(defaults: defaults)
+
+        config.addCustomAction(action)
+        let shown = try #require(config.enabledItems.compactMap(\.customAction).first { $0.id == action.id })
+        #expect(shown.symbolName == "sparkles")
+        #expect(shown.title == "Run")
+
+        let reloaded = TerminalAccessoryConfiguration(defaults: defaults)
+        let restored = try #require(reloaded.enabledItems.compactMap(\.customAction).first { $0.id == action.id })
+        #expect(restored.symbolName == "sparkles")
+        #expect(restored.title == "Run")
     }
 
     // MARK: - Gating test #2: v2 → v3 widening migration

@@ -328,6 +328,10 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     /// VoiceOver label for icon-only accessory actions.
     public var accessibilityLabel: String? {
         switch self {
+        case .escape, .tab, .returnKey,
+             .upArrow, .downArrow, .leftArrow, .rightArrow,
+             .home, .end, .pageUp, .pageDown:
+            return settingsDisplayName
         case .zoomOut:
             return String(localized: "terminal.input_accessory.zoom_out", defaultValue: "Zoom Out")
         case .zoomIn:
@@ -344,6 +348,28 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     /// SF Symbol name for icon-only accessory actions.
     public var symbolName: String? {
         switch self {
+        case .escape:
+            return "escape"
+        case .tab:
+            return "increase.indent"
+        case .returnKey:
+            return "return"
+        case .upArrow:
+            return "arrow.up"
+        case .downArrow:
+            return "arrow.down"
+        case .leftArrow:
+            return "arrow.left"
+        case .rightArrow:
+            return "arrow.right"
+        case .home:
+            return "arrow.left.to.line"
+        case .end:
+            return "arrow.right.to.line"
+        case .pageUp:
+            return "arrow.up.to.line"
+        case .pageDown:
+            return "arrow.down.to.line"
         case .zoomOut:
             return "minus.magnifyingglass"
         case .zoomIn:
