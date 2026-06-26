@@ -53,8 +53,11 @@ struct CustomToolbarMenuEditorView: View {
                 }
 
                 Section {
-                    ForEach(items.indices, id: \.self) { index in
-                        itemEditor(at: index)
+                    ForEach($items) { item in
+                        itemEditor(
+                            item,
+                            ordinal: itemOrdinal(id: item.wrappedValue.id)
+                        )
                     }
 
                     Button {
@@ -110,14 +113,17 @@ struct CustomToolbarMenuEditorView: View {
     }
 
     @ViewBuilder
-    private func itemEditor(at index: Int) -> some View {
+    private func itemEditor(
+        _ item: Binding<CustomToolbarMenuDraftItem>,
+        ordinal: Int
+    ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(String(
                 format: L10n.string(
                     "mobile.toolbar.menuEditor.itemHeaderFormat",
                     defaultValue: "Item %d"
                 ),
-                index + 1
+                ordinal
             ))
             .font(.footnote.weight(.semibold))
             .foregroundStyle(.secondary)
@@ -127,38 +133,45 @@ struct CustomToolbarMenuEditorView: View {
                     "mobile.toolbar.menuEditor.itemTitlePlaceholder",
                     defaultValue: "Item label"
                 ),
-                text: $items[index].title
+                text: item.title
             )
             .autocorrectionDisabled()
-            .accessibilityIdentifier("CustomMenuItemTitleField.\(items[index].id.uuidString)")
+            .accessibilityIdentifier("CustomMenuItemTitleField.\(item.wrappedValue.id.uuidString)")
 
             TextField(
                 L10n.string("mobile.toolbar.menuEditor.itemCommandPlaceholder", defaultValue: "npm test"),
-                text: $items[index].commandText,
+                text: item.commandText,
                 axis: .vertical
             )
             .lineLimit(1...5)
             .autocorrectionDisabled()
             .textInputAutocapitalization(.never)
             .font(.system(.body, design: .monospaced))
-            .accessibilityIdentifier("CustomMenuItemCommandField.\(items[index].id.uuidString)")
+            .accessibilityIdentifier("CustomMenuItemCommandField.\(item.wrappedValue.id.uuidString)")
 
-            Toggle(isOn: $items[index].runAfterTyping) {
+            Toggle(isOn: item.runAfterTyping) {
                 Text(L10n.string("mobile.toolbar.editor.runAfterTyping", defaultValue: "Run after typing"))
             }
-            .accessibilityIdentifier("CustomMenuItemRunToggle.\(items[index].id.uuidString)")
+            .accessibilityIdentifier("CustomMenuItemRunToggle.\(item.wrappedValue.id.uuidString)")
 
             Button(role: .destructive) {
-                removeItem(id: items[index].id)
+                removeItem(id: item.wrappedValue.id)
             } label: {
                 Label(
                     L10n.string("mobile.toolbar.menuEditor.removeItem", defaultValue: "Remove Item"),
                     systemImage: "trash"
                 )
             }
-            .accessibilityIdentifier("CustomMenuItemRemoveButton.\(items[index].id.uuidString)")
+            .accessibilityIdentifier("CustomMenuItemRemoveButton.\(item.wrappedValue.id.uuidString)")
         }
         .padding(.vertical, 4)
+    }
+
+    private func itemOrdinal(id: UUID) -> Int {
+        guard let index = items.firstIndex(where: { $0.id == id }) else {
+            return 1
+        }
+        return index + 1
     }
 
     private func removeItem(id: UUID) {
