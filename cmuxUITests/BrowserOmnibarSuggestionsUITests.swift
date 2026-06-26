@@ -120,12 +120,12 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
         XCTAssertTrue(
-            focusOmnibarWithCmdL(app: app, omnibar: omnibar, timeout: 4.0),
+            focusOmnibarWithCmdL(app: app, omnibar: omnibar, timeout: 10.0),
             "Expected Cmd+L to place keyboard focus in omnibar before typing"
         )
 
         // Focus omnibar and navigate to example.com via autocompletion (row 0).
-        omnibar.typeText("exam")
+        app.typeText("exam")
 
         let suggestionsElement = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarSuggestions").firstMatch
         XCTAssertTrue(suggestionsElement.waitForExistence(timeout: 6.0))
@@ -547,13 +547,20 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_DISABLE_REMOTE_SUGGESTIONS"] = "1"
         launchAndEnsureForeground(app)
 
-        app.typeKey("l", modifierFlags: [.command])
-
         let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
-        omnibar.typeText("exam")
+        XCTAssertTrue(
+            focusOmnibarWithCmdL(app: app, omnibar: omnibar, timeout: 10.0),
+            "Expected Cmd+L to place keyboard focus in omnibar before typing"
+        )
+        app.typeText("exam")
 
-        let valueAfterTyping = (omnibar.value as? String) ?? ""
+        let valueAfterTyping = waitForInlineCompletion(
+            in: omnibar,
+            typedPrefix: "exam",
+            expectedSubstring: "example.com",
+            timeout: 6.0
+        ) ?? ((omnibar.value as? String) ?? "")
         XCTAssertTrue(
             valueAfterTyping.contains("example.com"),
             "Expected inline completion to display a URL for typed prefix. value=\(valueAfterTyping)"
@@ -566,7 +573,15 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
         app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
 
-        let valueAfterDeleteAndEscape = (omnibar.value as? String) ?? ""
+        var valueAfterDeleteAndEscape = ""
+        let revertedToTypedPrefix = waitForCondition(timeout: 3.0) {
+            valueAfterDeleteAndEscape = (omnibar.value as? String) ?? ""
+            return valueAfterDeleteAndEscape == "exa"
+        }
+        XCTAssertTrue(
+            revertedToTypedPrefix,
+            "Expected Backspace with inline suffix selected to remove one typed prefix character. value=\(valueAfterDeleteAndEscape)"
+        )
         XCTAssertEqual(
             valueAfterDeleteAndEscape,
             "exa",
@@ -741,27 +756,58 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         return suggestions.exists
     }
 
+    private func waitForInlineCompletion(
+        in omnibar: XCUIElement,
+        typedPrefix: String,
+        expectedSubstring: String,
+        timeout: TimeInterval
+    ) -> String? {
+        let normalizedPrefix = typedPrefix.lowercased()
+        let normalizedSubstring = expectedSubstring.lowercased()
+        var observedValue = ""
+        let matched = waitForCondition(timeout: timeout) {
+            observedValue = (omnibar.value as? String) ?? ""
+            let normalized = observedValue.lowercased()
+            return normalized.hasPrefix(normalizedPrefix) &&
+                normalized.contains(normalizedSubstring) &&
+                observedValue.utf16.count > typedPrefix.utf16.count
+        }
+        return matched ? observedValue : nil
+    }
+
     private func focusOmnibarWithCmdL(app: XCUIApplication, omnibar: XCUIElement, timeout: TimeInterval) -> Bool {
-        let attempts = max(1, Int(ceil(timeout)))
-        for _ in 0..<attempts {
+        let deadline = Date().addingTimeInterval(timeout)
+        var attempt = 0
+        repeat {
+            attempt += 1
+            if app.state != .runningForeground {
+                app.activate()
+                _ = app.wait(for: .runningForeground, timeout: 2.0)
+            }
+
             app.typeKey("l", modifierFlags: [.command])
             guard omnibar.waitForExistence(timeout: 1.0) else { continue }
 
             let before = (omnibar.value as? String) ?? ""
-            omnibar.typeText("z")
+            let probe = "z\(attempt)"
+            app.typeText(probe)
 
-            if waitForCondition(timeout: 0.5, predicate: {
+            if waitForCondition(timeout: 1.0, predicate: {
                 let value = (omnibar.value as? String) ?? ""
-                return value != before
+                return value != before && value.localizedCaseInsensitiveContains(probe)
             }) {
                 app.typeKey("a", modifierFlags: [.command])
                 app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
-                return true
+                if waitForCondition(timeout: 1.0, predicate: {
+                    ((omnibar.value as? String) ?? "").isEmpty
+                }) {
+                    return true
+                }
             }
 
             app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
-            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
-        }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        } while Date() < deadline
         return false
     }
 

@@ -1816,6 +1816,26 @@ jobs:
           echo "Persistent virtual display ready: ID=$(tr -d '\n' < "$VDISPLAY_ID_PATH")"
           cat "$VDISPLAY_LOG"
 
+      - name: Run browser omnibar suggestions UI regressions
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          if [ -n "${VDISPLAY_PERSISTENT_PID:-}" ] && ! kill -0 "$VDISPLAY_PERSISTENT_PID" 2>/dev/null; then
+            echo "Persistent virtual display exited before browser omnibar suggestions UI regressions" >&2
+            cat "${VDISPLAY_PERSISTENT_LOG:-/dev/null}" >&2 || true
+            exit 1
+          fi
+
+          xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            -maximum-test-execution-time-allowance 180 \
+            -only-testing:cmuxUITests/BrowserOmnibarSuggestionsUITests/testInlineAutocompleteBackspaceDeletesTypedPrefixCharacter \
+            -only-testing:cmuxUITests/BrowserOmnibarSuggestionsUITests/testOmnibarEscapeAndClickOutsideBehaveLikeChrome \
+            test-without-building
+
       - name: Run browser find focus UI regression
         run: |
           set -euo pipefail
