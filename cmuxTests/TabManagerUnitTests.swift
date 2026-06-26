@@ -690,6 +690,56 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertNotNil(workspace.panels[initialPanelId], "Expected sibling panel to remain")
     }
 
+    /// Regression for https://github.com/manaflow-ai/cmux/issues/6244.
+    ///
+    /// A split created with an initial command (e.g. an agent/subtask pane spawned via
+    /// the `surface.split` socket method's `initial_command`) is configured to wait
+    /// after its command exits so the user can read its output. When that foreground
+    /// command finishes (the real work having detached to the background), the child
+    /// exit must NOT collapse the split out from under the user — otherwise the pane
+    /// "disappears the instant it is clicked while the task is still running."
+    func testChildExitKeepsWaitAfterCommandSplitOpen() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let initialPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        guard let splitPanel = workspace.newTerminalSplit(
+            from: initialPanelId,
+            orientation: .horizontal,
+            focus: false,
+            initialCommand: "echo subagent"
+        ) else {
+            XCTFail("Expected split terminal panel to be created")
+            return
+        }
+
+        // A split with an initial command requests wait-after-command, and the local
+        // split must not be treated as a remote surface.
+        XCTAssertTrue(
+            splitPanel.surface.waitAfterCommand,
+            "A split with an initial command should wait after its command exits"
+        )
+        XCTAssertFalse(workspace.isRemoteTerminalSurface(splitPanel.id))
+
+        let panelCountBefore = workspace.panels.count
+        manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: splitPanel.id)
+
+        XCTAssertEqual(manager.tabs.count, 1)
+        XCTAssertEqual(
+            workspace.panels.count,
+            panelCountBefore,
+            "Wait-after-command split must survive its child process exiting"
+        )
+        XCTAssertNotNil(
+            workspace.panels[splitPanel.id],
+            "Expected the wait-after-command split to remain open after child exit"
+        )
+        XCTAssertNotNil(workspace.panels[initialPanelId], "Expected sibling panel to remain")
+    }
+
     func testChildExitWindowCloseRequestsNoClosedWindowHistory() throws {
         let originalAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
