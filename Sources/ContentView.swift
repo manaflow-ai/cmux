@@ -6274,11 +6274,11 @@ struct ContentView: View {
 
     /// All built-in Command Palette command contributions — pure metadata
     /// (ids, context-derived titles/subtitles/keywords, `when`/`enablement`
-    /// gates) with no dependency on live window state. This is the single
-    /// source of truth shared by the live palette command builder
+    /// gates) with no dependency on live window state. Single source of truth
+    /// shared by the live palette command builder
     /// (``commandPaletteCommandContributions()``) and the Settings "Custom
-    /// Commands" shortcut catalog (``CommandShortcutCatalog``), so a command
-    /// bindable to a shortcut and a command shown in the palette never drift.
+    /// Commands" catalog (``HostSettingsActions/commandShortcutCatalog()``), so
+    /// the bindable command set and the palette never drift.
     static func builtInCommandPaletteCommandContributions() -> [CommandPaletteCommandContribution] {
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
             { _ in value }

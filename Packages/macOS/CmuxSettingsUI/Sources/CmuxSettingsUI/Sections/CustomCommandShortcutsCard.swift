@@ -22,7 +22,10 @@ struct CustomCommandShortcutsCard: View {
     private let errorLog: SettingsErrorLog
     private let hostActions: SettingsHostActions
 
-    /// Bound command shortcuts streamed from `shortcuts.commands`.
+    /// Bound command shortcuts, read through the host's lenient config parser
+    /// (see ``SettingsHostActions/commandShortcuts()``) so a binding written in
+    /// string form `"cmd+n"` is resolved rather than dropped. Updated
+    /// optimistically on each edit; the per-entry write is lossless regardless.
     @State private var commandShortcuts: [String: StoredShortcut] = [:]
     /// Built-in action overrides streamed from `shortcuts.bindings`, used (with
     /// each action's default) for conflict detection against built-in actions.
@@ -30,7 +33,6 @@ struct CustomCommandShortcutsCard: View {
     /// The full command catalog (id → title/subtitle/keywords), loaded once from
     /// the host so bound rows can resolve a command id back to a title.
     @State private var catalogEntries: [CommandShortcutCatalogEntry] = []
-    @State private var commandStreamTask: Task<Void, Never>?
     @State private var bindingStreamTask: Task<Void, Never>?
 
     @State private var isPickerPresented = false
@@ -83,11 +85,12 @@ struct CustomCommandShortcutsCard: View {
             .padding(.leading, 2)
             .accessibilityIdentifier("CustomCommandShortcutsHint")
         }
-        .task { await streamCommandShortcuts() }
         .task { await streamActionBindings() }
-        .onAppear { reloadCatalogIfNeeded() }
+        .onAppear {
+            reloadCatalogIfNeeded()
+            seedCommandShortcuts()
+        }
         .onDisappear {
-            commandStreamTask?.cancel()
             bindingStreamTask?.cancel()
         }
         .sheet(isPresented: $isPickerPresented) {
@@ -223,19 +226,12 @@ struct CustomCommandShortcutsCard: View {
         }
     }
 
-    private func streamCommandShortcuts() async {
-        commandStreamTask?.cancel()
-        let task = Task {
-            for await dictionary in jsonStore.values(for: catalog.shortcuts.commands) {
-                if Task.isCancelled { break }
-                commandShortcuts = dictionary
-                // An external cmux.json edit that resolves a row cleanly should
-                // dismiss any stale banner for that command.
-                pruneStaleRejections()
-            }
-        }
-        commandStreamTask = task
-        await task.value
+    /// Loads the current bound shortcuts from the host's lenient parser. Done on
+    /// appear (and after each edit completes) rather than streamed through the
+    /// package's typed decode, which would drop string-form bindings.
+    private func seedCommandShortcuts() {
+        commandShortcuts = hostActions.commandShortcuts()
+        pruneStaleRejections()
     }
 
     private func streamActionBindings() async {
@@ -280,20 +276,26 @@ struct CustomCommandShortcutsCard: View {
     }
 
     private func assign(_ shortcut: StoredShortcut, to commandId: String) async {
-        var updated = commandShortcuts
-        updated[commandId] = shortcut
-        await write(updated)
+        // Per-entry write preserves every sibling's raw on-disk form (including
+        // string-form bindings the package can't type-decode) instead of
+        // replacing the whole map. Update local state optimistically; the host
+        // re-seed on the next appear reconciles with the authoritative parse.
+        do {
+            try await jsonStore.setMapEntry(
+                shortcut.encodeForJSON(),
+                forKey: commandId,
+                in: catalog.shortcuts.commands
+            )
+            commandShortcuts[commandId] = shortcut
+        } catch {
+            errorLog.record(error, keyID: catalog.shortcuts.commands.id)
+        }
     }
 
     private func remove(_ commandId: String) async {
-        var updated = commandShortcuts
-        updated.removeValue(forKey: commandId)
-        await write(updated)
-    }
-
-    private func write(_ updated: [String: StoredShortcut]) async {
         do {
-            try await jsonStore.set(updated, for: catalog.shortcuts.commands)
+            try await jsonStore.setMapEntry(nil, forKey: commandId, in: catalog.shortcuts.commands)
+            commandShortcuts.removeValue(forKey: commandId)
         } catch {
             errorLog.record(error, keyID: catalog.shortcuts.commands.id)
         }

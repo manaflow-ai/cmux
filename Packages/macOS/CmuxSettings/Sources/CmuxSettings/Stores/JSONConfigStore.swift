@@ -111,6 +111,37 @@ public actor JSONConfigStore {
         }
     }
 
+    /// Sets or removes a single entry in a string-keyed map at `key`, preserving
+    /// every *other* entry's raw on-disk form.
+    ///
+    /// Unlike ``set(_:for:)`` — which replaces the whole map with a typed,
+    /// re-encoded value and therefore drops any sibling this process cannot
+    /// decode (e.g. a shortcut written in string form `"cmd+n"` when the typed
+    /// value is the object form) — this reads the map as raw JSON, mutates only
+    /// `entryKey`, and writes it back. Pass `rawValue: nil` to remove the entry.
+    /// The map (and its parents) are pruned when the last entry is removed.
+    ///
+    /// - Throws: Errors from `FileManager` or `JSONSerialization` writing the file.
+    public func setMapEntry<Value>(
+        _ rawValue: Any?,
+        forKey entryKey: String,
+        in key: JSONKey<[String: Value]>
+    ) throws {
+        try mutateRoot { root in
+            var map = (key.path.lookup(in: root) as? [String: Any]) ?? [:]
+            if let rawValue {
+                map[entryKey] = rawValue
+            } else {
+                map.removeValue(forKey: entryKey)
+            }
+            if map.isEmpty {
+                key.path.remove(in: &root)
+            } else {
+                key.path.assign(map, in: &root)
+            }
+        }
+    }
+
     /// Returns an `AsyncStream` that yields the current value and every later change.
     ///
     /// - First element is yielded as soon as the consumer starts iterating.

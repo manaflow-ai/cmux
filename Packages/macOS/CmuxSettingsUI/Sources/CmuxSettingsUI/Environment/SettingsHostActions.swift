@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 
 /// Host-supplied callbacks the package's section views invoke for
@@ -161,6 +162,16 @@ public protocol SettingsHostActions: AnyObject {
     /// `limit`). Returns an empty array for hosts without a live palette.
     func searchCommandShortcutCatalog(query: String, limit: Int) -> [CommandShortcutCatalogEntry]
 
+    /// The user's currently-bound command shortcuts (`shortcuts.commands`),
+    /// keyed by command id, parsed by the **host's** lenient config reader so a
+    /// value written in *any* documented form (string `"cmd+n"`, object, or an
+    /// unbind marker) resolves correctly. The Settings **Custom Commands**
+    /// section uses this for the bound list and conflict detection rather than
+    /// the package's object-only typed decode, which would silently drop a
+    /// string-form binding. Returns an empty map for hosts without a config
+    /// reader (previews/tests).
+    func commandShortcuts() -> [String: StoredShortcut]
+
     /// Shows the Sleepy Mode screensaver as a non-locking preview (any key/click
     /// exits, no Touch ID). The host owns the overlay window.
     func sleepyModePreview()
@@ -208,6 +219,9 @@ public extension SettingsHostActions {
 
     /// Default: empty catalog, for hosts without a live Command Palette.
     func commandShortcutCatalog() -> [CommandShortcutCatalogEntry] { [] }
+
+    /// Default: no bound command shortcuts, for hosts without a config reader.
+    func commandShortcuts() -> [String: StoredShortcut] { [:] }
 
     /// Default: a simple case-insensitive substring filter over the catalog so
     /// preview/test hosts still render a usable picker without the app's engine.

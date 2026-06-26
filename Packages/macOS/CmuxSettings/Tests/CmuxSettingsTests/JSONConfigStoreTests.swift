@@ -41,6 +41,40 @@ struct JSONConfigStoreTests {
         #expect(parsed?["automation"] == nil)
     }
 
+    @Test func setMapEntryPreservesSiblingRawEntries() async throws {
+        let (store, fileURL, catalog) = makeStore()
+        // A user hand-wrote a string-form command shortcut (the documented
+        // format), which the typed `[String: StoredShortcut]` decode cannot
+        // read. A full `set(_:)` of the map would drop it; `setMapEntry` must
+        // preserve it while adding a different command's binding.
+        let json = #"{"shortcuts":{"commands":{"palette.newWindow":"cmd+ctrl+n"}}}"#
+        try Data(json.utf8).write(to: fileURL)
+
+        let objectForm: [String: Any] = [
+            "first": ["key": "y", "command": true, "control": true, "option": true],
+        ]
+        try await store.setMapEntry(objectForm, forKey: "palette.openFolder", in: catalog.shortcuts.commands)
+
+        let data = try Data(contentsOf: fileURL)
+        let parsed = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let commands = (parsed?["shortcuts"] as? [String: Any])?["commands"] as? [String: Any]
+        #expect(commands?["palette.newWindow"] as? String == "cmd+ctrl+n")
+        #expect(commands?["palette.openFolder"] is [String: Any])
+    }
+
+    @Test func setMapEntryRemovesEntryAndPrunesEmptyMap() async throws {
+        let (store, fileURL, catalog) = makeStore()
+        let json = #"{"shortcuts":{"commands":{"palette.newWindow":"cmd+ctrl+n"}}}"#
+        try Data(json.utf8).write(to: fileURL)
+
+        try await store.setMapEntry(nil, forKey: "palette.newWindow", in: catalog.shortcuts.commands)
+
+        let data = try Data(contentsOf: fileURL)
+        let parsed = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let shortcuts = parsed?["shortcuts"] as? [String: Any]
+        #expect(shortcuts?["commands"] == nil)
+    }
+
     @Test func toleratesJSONCComments() async throws {
         let (store, fileURL, _) = makeStore()
         let json = """

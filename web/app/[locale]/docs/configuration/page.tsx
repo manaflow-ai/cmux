@@ -505,17 +505,10 @@ working-directory = ~/code`}</CodeBlock>
         <code>shortcuts.commands</code>
       </DocsHeading>
       <p>
-        Assign your own keyboard shortcut to any Command Palette command &mdash; including
-        commands that ship without a built-in shortcut, such as opening the current directory in
-        your editor. Keys are command ids (the same ids shown in the palette, for example{" "}
-        <code>palette.openFolderInVSCodeInline</code>); values are a single-stroke shortcut. Chords
-        are not supported here &mdash; use a single keystroke that includes a modifier. The shortcut
-        fires the command on the focused window; a command unavailable in the current context does
-        nothing. Use <code>null</code> (or <code>&quot;&quot;</code>, <code>none</code>,{" "}
-        <code>clear</code>, <code>unbound</code>, <code>disabled</code>) to clear a binding. The
-        easiest way to manage these is{" "}
-        <strong>Settings &rarr; Keyboard Shortcuts &rarr; Custom Commands</strong>, which fuzzy-finds
-        commands and blocks a keystroke that already belongs to a built-in action or another command.
+        {t.rich("shortcutsCommandsIntro", {
+          code: (chunks) => <code>{chunks}</code>,
+          settings: (chunks) => <strong>{chunks}</strong>,
+        })}
       </p>
       <pre className="not-prose overflow-x-auto rounded-xl border border-border/70 bg-background/40 p-4 text-sm">
         <code>{`"shortcuts": {

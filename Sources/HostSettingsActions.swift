@@ -1,6 +1,7 @@
 import AppKit
 import CMUXMobileCore
 import CmuxCommandPalette
+import CmuxSettings
 import CmuxWorkspaces
 import CmuxSettingsUI
 import CmuxFoundation
@@ -315,12 +316,67 @@ final class HostSettingsActions: SettingsHostActions {
         }
     }
 
+    /// All built-in palette commands a custom shortcut can target, in a stable
+    /// display order (deduplicated by command id, keeping the first occurrence).
+    ///
+    /// Derived from ``ContentView/builtInCommandPaletteCommandContributions()`` —
+    /// the same single source of truth the live palette uses — evaluated against
+    /// a neutral context so every bindable command appears with a generic title
+    /// regardless of the current window's focus. Config-derived `actions` are
+    /// intentionally excluded: those already support a `shortcut` field directly
+    /// in cmux.json, so surfacing them here would offer two ways to bind one thing.
     func commandShortcutCatalog() -> [CommandShortcutCatalogEntry] {
-        CommandShortcutCatalog.entries()
+        let neutralContext = CommandPaletteContextSnapshot()
+        var seen = Set<String>()
+        var entries: [CommandShortcutCatalogEntry] = []
+        for contribution in ContentView.builtInCommandPaletteCommandContributions() {
+            guard seen.insert(contribution.commandId).inserted else { continue }
+            let title = contribution.title(neutralContext)
+            guard !title.isEmpty else { continue }
+            entries.append(
+                CommandShortcutCatalogEntry(
+                    commandId: contribution.commandId,
+                    title: title,
+                    subtitle: contribution.subtitle(neutralContext),
+                    keywords: contribution.keywords
+                )
+            )
+        }
+        return entries
     }
 
+    /// The user's bound command shortcuts, parsed by the app's lenient settings
+    /// reader (``KeyboardShortcutSettings/commandShortcuts()``) so a binding
+    /// written in any documented form — `"cmd+n"`, the package's object form, or
+    /// an unbind marker — resolves the same way the runtime dispatcher sees it.
+    func commandShortcuts() -> [String: StoredShortcut] {
+        KeyboardShortcutSettings.commandShortcuts()
+    }
+
+    /// Ranks ``commandShortcutCatalog()`` for `query` with the Command Palette's
+    /// own ``CommandPaletteSearchEngine`` so the Settings picker matches palette
+    /// search exactly. An empty query yields the default order capped to `limit`.
     func searchCommandShortcutCatalog(query: String, limit: Int) -> [CommandShortcutCatalogEntry] {
-        CommandShortcutCatalog.search(query: query, limit: limit)
+        let entries = commandShortcutCatalog()
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return limit >= 0 ? Array(entries.prefix(limit)) : entries
+        }
+        let corpus = entries.enumerated().map { index, entry in
+            CommandPaletteSearchCorpusEntry(
+                payload: entry,
+                rank: index,
+                title: entry.title,
+                searchableTexts: [entry.title, entry.subtitle] + entry.keywords
+            )
+        }
+        let engine = CommandPaletteSearchEngine(entries: corpus)
+        let results = engine.search(
+            query: trimmed,
+            resultLimit: limit >= 0 ? limit : nil,
+            historyBoost: { _, _ in 0 }
+        )
+        return results.map(\.payload)
     }
 
     /// Localized transport label for a pairing route shown in diagnostics.
@@ -357,70 +413,6 @@ final class HostSettingsActions: SettingsHostActions {
         return true
     }
 
-}
-
-/// Bridges the app's built-in Command Palette command metadata into the
-/// Foundation-only ``CommandShortcutCatalogEntry`` values the Settings
-/// **Custom Commands** section consumes, and ranks them with the Command
-/// Palette's own search engine.
-///
-/// The catalog is derived from
-/// ``ContentView/builtInCommandPaletteCommandContributions()`` — the same
-/// single source of truth the live palette uses — evaluated against a neutral
-/// context so every bindable command appears with a generic title regardless of
-/// the current window's focus. Config-derived `actions` are intentionally
-/// excluded: those already support a `shortcut` field directly in cmux.json, so
-/// surfacing them here would offer two ways to bind the same thing.
-@MainActor
-enum CommandShortcutCatalog {
-    /// All built-in palette commands a custom shortcut can target, in a stable
-    /// display order (deduplicated by command id, keeping the first occurrence).
-    static func entries() -> [CommandShortcutCatalogEntry] {
-        let neutralContext = CommandPaletteContextSnapshot()
-        var seen = Set<String>()
-        var entries: [CommandShortcutCatalogEntry] = []
-        for contribution in ContentView.builtInCommandPaletteCommandContributions() {
-            guard seen.insert(contribution.commandId).inserted else { continue }
-            let title = contribution.title(neutralContext)
-            guard !title.isEmpty else { continue }
-            entries.append(
-                CommandShortcutCatalogEntry(
-                    commandId: contribution.commandId,
-                    title: title,
-                    subtitle: contribution.subtitle(neutralContext),
-                    keywords: contribution.keywords
-                )
-            )
-        }
-        return entries
-    }
-
-    /// Ranks ``entries()`` for `query` using ``CommandPaletteSearchEngine`` — the
-    /// exact ranking engine the Command Palette uses — returning at most `limit`
-    /// entries best-first. An empty query yields the default order capped to
-    /// `limit`.
-    static func search(query: String, limit: Int) -> [CommandShortcutCatalogEntry] {
-        let entries = entries()
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            return limit >= 0 ? Array(entries.prefix(limit)) : entries
-        }
-        let corpus = entries.enumerated().map { index, entry in
-            CommandPaletteSearchCorpusEntry(
-                payload: entry,
-                rank: index,
-                title: entry.title,
-                searchableTexts: [entry.title, entry.subtitle] + entry.keywords
-            )
-        }
-        let engine = CommandPaletteSearchEngine(entries: corpus)
-        let results = engine.search(
-            query: trimmed,
-            resultLimit: limit >= 0 ? limit : nil,
-            historyBoost: { _, _ in 0 }
-        )
-        return results.map(\.payload)
-    }
 }
 
 /// Wraps the opaque observer returned by `NotificationCenter.addObserver` so the
