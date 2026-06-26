@@ -109,7 +109,7 @@ final class TerminalOutputCollector {
         callbackState: "state-123"
     )
     let magicComponents = try #require(URLComponents(url: magicURL, resolvingAgainstBaseURL: false))
-    #expect(magicComponents.path == "/handler/mobile-magic-link-callback")
+    #expect(magicComponents.path == "/handler/magic-link-callback")
     #expect(
         magicComponents.queryItems?.first(where: { $0.name == "native_app_return_to" })?.value
             == "cmux-ios-beta://auth-callback?cmux_auth_state=state-123"

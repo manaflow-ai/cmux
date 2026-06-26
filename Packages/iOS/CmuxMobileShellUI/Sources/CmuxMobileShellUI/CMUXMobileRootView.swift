@@ -21,7 +21,6 @@ struct CMUXMobileRootView: View {
     /// onboarding screen gates ahead of the never-paired add-device state.
     private let onboardingStore: MobileOnboardingStore
     let authCallbackRouter: AuthCallbackRouter?
-    let authCallbackHandler: HostBrowserSignInFlow?
     /// Mirrors ``MobileOnboardingStore/hasSeenOnboarding`` so completing
     /// onboarding (which calls `markSeen()` in the button action) re-renders the
     /// root and falls through to the pairing flow. Seeded synchronously from the
@@ -49,13 +48,11 @@ struct CMUXMobileRootView: View {
     init(
         store: CMUXMobileShellStore,
         onboardingStore: MobileOnboardingStore,
-        authCallbackRouter: AuthCallbackRouter? = nil,
-        authCallbackHandler: HostBrowserSignInFlow? = nil
+        authCallbackRouter: AuthCallbackRouter? = nil
     ) {
         self.store = store
         self.onboardingStore = onboardingStore
         self.authCallbackRouter = authCallbackRouter
-        self.authCallbackHandler = authCallbackHandler
         _hasSeenOnboarding = State(initialValue: onboardingStore.hasSeenOnboarding)
     }
     #else

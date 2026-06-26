@@ -20,7 +20,6 @@ public struct CMUXMobileAppView: View {
     #if os(iOS)
     private let onboardingStore: MobileOnboardingStore
     private let authCallbackRouter: AuthCallbackRouter?
-    private let authCallbackHandler: HostBrowserSignInFlow?
     #endif
 
     #if os(iOS)
@@ -36,14 +35,12 @@ public struct CMUXMobileAppView: View {
         store: CMUXMobileShellStore = .preview(),
         browserStore: BrowserSurfaceStore = BrowserSurfaceStore(),
         onboardingStore: MobileOnboardingStore = MobileOnboardingStore(defaults: .standard, forceSeen: true),
-        authCallbackRouter: AuthCallbackRouter? = nil,
-        authCallbackHandler: HostBrowserSignInFlow? = nil
+        authCallbackRouter: AuthCallbackRouter? = nil
     ) {
         _store = State(initialValue: store)
         _browserStore = State(initialValue: browserStore)
         self.onboardingStore = onboardingStore
         self.authCallbackRouter = authCallbackRouter
-        self.authCallbackHandler = authCallbackHandler
     }
     #else
     public init(
@@ -60,8 +57,7 @@ public struct CMUXMobileAppView: View {
         CMUXMobileRootView(
             store: store,
             onboardingStore: onboardingStore,
-            authCallbackRouter: authCallbackRouter,
-            authCallbackHandler: authCallbackHandler
+            authCallbackRouter: authCallbackRouter
         )
             .environment(browserStore)
         #else

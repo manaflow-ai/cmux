@@ -26,9 +26,6 @@ public struct MobileAuthComposition {
     public let config: AuthConfig
     /// Recognizes/parses native auth callback URLs delivered back from Safari.
     public let callbackRouter: AuthCallbackRouter
-    /// iOS does not use desktop-style browser token seeding; callbacks are
-    /// routed only to surface safe mobile magic-link guidance.
-    public let browserSignIn: HostBrowserSignInFlow?
 
     /// A reachability monitor used to fail sign-in flows fast when offline.
     private let reachability: any ReachabilityProviding
@@ -116,7 +113,6 @@ public struct MobileAuthComposition {
         )
         let callbackRouter = AuthCallbackRouter(extraAllowedScheme: authCallbackScheme)
         self.callbackRouter = callbackRouter
-        self.browserSignIn = nil
         magicLinkCallbackURLProvider.set {
             guard canUseNativeMagicLinkCallback else { return nil }
             return Self.nativeMagicLinkCallbackURL(
@@ -204,7 +200,7 @@ public struct MobileAuthComposition {
         callbackState: String
     ) -> URL {
         let origin = URL(string: websiteOrigin) ?? URL(string: "https://cmux.com")!
-        let magicLink = origin.appendingPathComponent("handler/mobile-magic-link-callback", isDirectory: false)
+        let magicLink = AuthCallbackURLResolver(origin: origin).magicLinkCallbackURL()
         var magicComponents = URLComponents(url: magicLink, resolvingAgainstBaseURL: false)!
         magicComponents.queryItems = [
             URLQueryItem(name: "native_app_return_to", value: "\(callbackScheme)://auth-callback?cmux_auth_state=\(callbackState)"),

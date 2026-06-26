@@ -241,16 +241,14 @@ public struct CMUXMobileRootScene: View {
             CMUXMobileAppView(
                 store: makeStore(),
                 onboardingStore: onboardingStore,
-                authCallbackRouter: auth.callbackRouter,
-                authCallbackHandler: auth.browserSignIn
+                authCallbackRouter: auth.callbackRouter
             )
         }
         #else
         CMUXMobileAppView(
             store: makeStore(),
             onboardingStore: onboardingStore,
-            authCallbackRouter: auth.callbackRouter,
-            authCallbackHandler: auth.browserSignIn
+            authCallbackRouter: auth.callbackRouter
         )
         #endif
         #else

@@ -56,7 +56,9 @@ public struct AuthConfig: Equatable, Sendable {
             callbackURL = "http://localhost:3000/auth/callback"
             defaultAPIBaseURL = "http://localhost:3000"
         case .production:
-            callbackURL = "https://cmux.com/handler/magic-link-callback"
+            callbackURL = AuthCallbackURLResolver(origin: URL(string: "https://cmux.com")!)
+                .magicLinkCallbackURL()
+                .absoluteString
             defaultAPIBaseURL = "https://cmux.com"
         }
 

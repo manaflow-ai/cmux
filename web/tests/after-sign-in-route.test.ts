@@ -14,6 +14,9 @@ const getUser = mock(async () => null);
 
 const { makeAfterSignInHandler } = await import("../app/handler/after-sign-in/handler");
 const nativeReturn = await import("../app/handler/after-sign-in/native-return");
+const { mobileMagicLinkCallbackModel } = await import(
+  "../app/handler/mobile-magic-link-callback/handler"
+);
 const mobileMagicLink = await import("../app/handler/mobile-magic-link-callback/route");
 
 const GET = makeAfterSignInHandler({
@@ -206,9 +209,30 @@ describe("after sign in native return allowlist", () => {
   });
 });
 
-describe("mobile magic-link callback", () => {
-  test("returns a safe app callback without consuming or forwarding Stack code", async () => {
+describe("magic-link callback", () => {
+  test("returns a safe app callback for mobile without consuming or forwarding Stack code", async () => {
     const nativeReturnTo = encodeURIComponent("cmux-ios-beta://auth-callback?cmux_auth_state=state-123");
+    const request = new NextRequest(
+      `https://cmux.com/handler/magic-link-callback?native_app_return_to=${nativeReturnTo}&code=stack-code`
+    );
+
+    const model = await mobileMagicLinkCallbackModel(request);
+
+    expect(model).not.toBeNull();
+    expect(model?.messages.title).toBe("Open cmux to finish sign in");
+    expect(model?.label).toBe("Return to cmux TestFlight");
+    const href = model!.href;
+    expect(href).not.toContain("stack-code");
+    const url = new URL(href);
+    expect(url.protocol).toBe("cmux-ios-beta:");
+    expect(url.searchParams.get("cmux_auth_state")).toBe("state-123");
+    expect(url.searchParams.get("cmux_auth_error")).toBe("mobile_web_sign_in_requires_code");
+    expect(url.searchParams.get("stack_refresh")).toBeNull();
+    expect(url.searchParams.get("stack_access")).toBeNull();
+  });
+
+  test("keeps the old mobile callback path as a safe alias", async () => {
+    const nativeReturnTo = encodeURIComponent("cmux-ios://auth-callback?cmux_auth_state=state-123");
     const request = new NextRequest(
       `https://cmux.com/handler/mobile-magic-link-callback?native_app_return_to=${nativeReturnTo}&code=stack-code`
     );
@@ -216,17 +240,7 @@ describe("mobile magic-link callback", () => {
     const response = await mobileMagicLink.GET(request);
 
     expect(response.status).toBe(200);
-    const html = await response.text();
-    expect(html).toContain("Open cmux to finish sign in");
-    expect(html).toContain("Return to cmux TestFlight");
-    expect(html).not.toContain("Signed in to cmux");
-    expect(html).not.toContain("stack-code");
-    const href = returnHref(html);
-    const url = new URL(href);
-    expect(url.protocol).toBe("cmux-ios-beta:");
-    expect(url.searchParams.get("cmux_auth_state")).toBe("state-123");
-    expect(url.searchParams.get("cmux_auth_error")).toBe("mobile_web_sign_in_requires_code");
-    expect(url.searchParams.get("stack_refresh")).toBeNull();
-    expect(url.searchParams.get("stack_access")).toBeNull();
+    const href = returnHref(await response.text());
+    expect(new URL(href).protocol).toBe("cmux-ios:");
   });
 });

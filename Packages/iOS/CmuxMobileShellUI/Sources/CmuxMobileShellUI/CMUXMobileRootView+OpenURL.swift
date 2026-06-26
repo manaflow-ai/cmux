@@ -14,15 +14,8 @@ extension CMUXMobileRootView {
                 )
                 return
             }
-            Task {
-                let signedIn = await authCallbackHandler?.handleCallbackURL(url) ?? false
-                if signedIn {
-                    authCallbackError = nil
-                } else {
-                    authCallbackError = SignInErrorPresentation()
-                        .message(for: authCallbackHandler?.lastFailure ?? AuthError.invalidCallback)
-                }
-            }
+            authCallbackError = SignInErrorPresentation()
+                .message(for: AuthError.invalidCallback)
             return
         }
         if isRawAttachURL(rawURL) {
