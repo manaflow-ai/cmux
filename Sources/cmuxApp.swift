@@ -183,6 +183,9 @@ struct cmuxApp: App {
         Self.applyAppearance(startupAppearance, duringLaunch: true)
         StartupBreadcrumbLog.append("app.init.appearance.applied", fields: ["mode": startupAppearance.rawValue])
         let defaults = UserDefaults.standard
+        // Make held keys repeat into the terminal instead of opening the macOS
+        // accent-character popup (see PressAndHoldDefaults / issue #5457).
+        PressAndHoldDefaults(defaults: defaults).registerDisabled()
         AppBundleIconPersistencePolicy.updateDisableDefault(
             defaults: defaults,
             launchArguments: ProcessInfo.processInfo.arguments

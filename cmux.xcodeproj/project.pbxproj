@@ -682,6 +682,8 @@
 		D1F0A00100000000000000B1 /* PresenceHeartbeatClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00100000000000000B2 /* PresenceHeartbeatClient.swift */; };
 		DE71CE00000000000000000A /* PresenceHeartbeatClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000009 /* PresenceHeartbeatClientTests.swift */; };
 		D1F0A00100000000000000B3 /* PresenceSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00100000000000000B4 /* PresenceSettings.swift */; };
+		C5457A0E0000000000000001 /* PressAndHoldDefaults.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5457A0E0000000000000002 /* PressAndHoldDefaults.swift */; };
+		C5457A0D0000000000000001 /* PressAndHoldDefaultsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5457A0D0000000000000002 /* PressAndHoldDefaultsTests.swift */; };
 		C47110010000000000000001 /* ProcessPipeReadCrashRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47110010000000000000002 /* ProcessPipeReadCrashRegressionTests.swift */; };
 		A5C0DE0000000000000000BA /* ProjectBuildSettingsTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000B9 /* ProjectBuildSettingsTabView.swift */; };
 		A5C0DE0000000000000000B6 /* ProjectFilesTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000B5 /* ProjectFilesTabView.swift */; };
@@ -1821,6 +1823,8 @@
 		D1F0A00100000000000000B2 /* PresenceHeartbeatClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PresenceHeartbeatClient.swift; sourceTree = "<group>"; };
 		DE71CE000000000000000009 /* PresenceHeartbeatClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresenceHeartbeatClientTests.swift; sourceTree = "<group>"; };
 		D1F0A00100000000000000B4 /* PresenceSettings.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PresenceSettings.swift; sourceTree = "<group>"; };
+		C5457A0E0000000000000002 /* PressAndHoldDefaults.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PressAndHoldDefaults.swift; sourceTree = "<group>"; };
+		C5457A0D0000000000000002 /* PressAndHoldDefaultsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PressAndHoldDefaultsTests.swift; sourceTree = "<group>"; };
 		C47110010000000000000002 /* ProcessPipeReadCrashRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessPipeReadCrashRegressionTests.swift; sourceTree = "<group>"; };
 		A5C0DE0000000000000000B9 /* ProjectBuildSettingsTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectBuildSettingsTabView.swift; sourceTree = "<group>"; };
 		A5C0DE0000000000000000B5 /* ProjectFilesTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectFilesTabView.swift; sourceTree = "<group>"; };
@@ -2814,6 +2818,7 @@
 				C7B0FACE0000000000000019 /* SleepyStatusProviding.swift */,
 				C7B0FACE000000000000001B /* SleepyStatusProvider.swift */,
 				C7B0FACE000000000000001D /* SleepyPalette.swift */,
+				C5457A0E0000000000000002 /* PressAndHoldDefaults.swift */,
 				C7B0FACE000000000000001F /* SleepyArt.swift */,
 				C7A506000000000000000001 /* TaskManagerView.swift */,
 				C7A503000000000000000001 /* TaskManagerSnapshot.swift */,
@@ -3415,6 +3420,7 @@
 				C06552030000000000000002 /* TabManagerTitleUpdateStalenessTests.swift */,
 				C06552020000000000000002 /* TabManagerTitleUpdateTests.swift */,
 				42092CDB2109E250F7F2A76E /* TabManagerUnitTests.swift */,
+				C5457A0D0000000000000002 /* PressAndHoldDefaultsTests.swift */,
 				5C0011AA0000000000000002 /* GhosttyScrollPreciseBoostTests.swift */,
 				C0793DC7D7B61CF54886EC36 /* RemoteTmuxControlParserTests.swift */,
 				B0555302B0555302B0555302 /* RemoteTmuxControlStreamParserBudgetTests.swift */,
@@ -4303,6 +4309,7 @@
 				A5001521 /* PostHogAnalytics.swift in Sources */,
 				D1F0A00100000000000000B1 /* PresenceHeartbeatClient.swift in Sources */,
 				D1F0A00100000000000000B3 /* PresenceSettings.swift in Sources */,
+				C5457A0E0000000000000001 /* PressAndHoldDefaults.swift in Sources */,
 					A5C0DE0000000000000000BA /* ProjectBuildSettingsTabView.swift in Sources */,
 					A5C0DE0000000000000000B6 /* ProjectFilesTabView.swift in Sources */,
 					A5C0DE0000000000000000B2 /* ProjectPanel.swift in Sources */,
@@ -4882,6 +4889,7 @@
 					F4100000A1B2C3D4E5F60718 /* PortScannerTests.swift in Sources */,
 				B8E9500A0000000000000001 /* PostHogAnalyticsPropertiesTests.swift in Sources */,
 				DE71CE00000000000000000A /* PresenceHeartbeatClientTests.swift in Sources */,
+				C5457A0D0000000000000001 /* PressAndHoldDefaultsTests.swift in Sources */,
 				C47110010000000000000001 /* ProcessPipeReadCrashRegressionTests.swift in Sources */,
 				A64610020000000000000001 /* QuitConfirmationAlertPresenterTests.swift in Sources */,
 				A6D1F0400000000000000002 /* ReleasingWindowControllerTests.swift in Sources */,
