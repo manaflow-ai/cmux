@@ -15,9 +15,9 @@ extension SidebarWorkspaceStatusStyle {
     var rowDescription: String {
         switch self {
         case .sentence:
-            return String(localized: "sidebarWorkspaceStatusStyle.sentence.description", defaultValue: "Agent status appears as a subtitle under each workspace title.")
+            return String(localized: "sidebarWorkspaceStatusStyle.sentence.description", defaultValue: "Show agent status as subtitle text under each workspace title.")
         case .dot:
-            return String(localized: "sidebarWorkspaceStatusStyle.dot.description", defaultValue: "Agent status appears as a colored dot beside each workspace title.")
+            return String(localized: "sidebarWorkspaceStatusStyle.dot.description", defaultValue: "Show agent status as a colored dot beside the title. Provider subtitles stay visible.")
         }
     }
 }

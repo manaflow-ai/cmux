@@ -121,6 +121,13 @@ public struct SidebarSection: View {
         rightMaxWidth.current.isFinite && rightMaxWidth.current > 0
     }
 
+    private var workspaceStatusDotsBinding: Binding<Bool> {
+        Binding(
+            get: { workspaceStatusStyle.current == .dot },
+            set: { workspaceStatusStyle.set($0 ? .dot : .sentence) }
+        )
+    }
+
     private var rightMaxWidthOverrideBinding: Binding<Bool> {
         Binding(
             get: { rightMaxWidthOverrideEnabled },
@@ -233,17 +240,14 @@ public struct SidebarSection: View {
 
             SettingsCardRow(
                 configurationReview: .json("sidebar.workspaceStatusStyle"),
-                String(localized: "settings.sidebar.workspaceStatusStyle", defaultValue: "Workspace Status Style"),
-                subtitle: workspaceStatusStyle.current.rowDescription,
-                controlWidth: 150
+                String(localized: "settings.sidebar.workspaceStatusStyle", defaultValue: "Compact Agent Status Dots"),
+                subtitle: workspaceStatusStyle.current.rowDescription
             ) {
-                Picker("", selection: Binding(get: { workspaceStatusStyle.current }, set: { workspaceStatusStyle.set($0) })) {
-                    ForEach(SidebarWorkspaceStatusStyle.allCases, id: \.self) { style in
-                        Text(style.displayName).tag(style)
-                    }
-                }
+                Toggle("", isOn: workspaceStatusDotsBinding)
                 .labelsHidden()
-                .pickerStyle(.menu)
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .accessibilityLabel(String(localized: "settings.sidebar.workspaceStatusStyle", defaultValue: "Compact Agent Status Dots"))
             }
             SettingsCardDivider()
 
