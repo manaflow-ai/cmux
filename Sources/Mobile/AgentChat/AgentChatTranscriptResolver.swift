@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxFoundation
 import Foundation
 
 /// Resolves the transcript JSONL path for an agent session.
@@ -176,7 +177,7 @@ struct AgentChatTranscriptResolver: Sendable {
     /// the session id.
     private func codexFallbackPath(sessionID: String) -> String? {
         let fileManager = FileManager.default
-        let normalizedSessionID = sessionID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedSessionID = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedSessionID.isEmpty else { return nil }
         let root = homeDirectory
             .appendingPathComponent(".codex", isDirectory: true)
@@ -188,45 +189,11 @@ struct AgentChatTranscriptResolver: Sendable {
         ) else { return nil }
         for case let url as URL in enumerator {
             guard url.pathExtension == "jsonl" else { continue }
-            if Self.codexRollout(url, matchesSessionID: normalizedSessionID) {
+            if CodexTranscriptIdentityMatcher().transcript(at: url, matchesSessionID: normalizedSessionID) {
                 return url.path
             }
         }
         return nil
-    }
-
-    private static func codexRollout(_ url: URL, matchesSessionID normalizedSessionID: String) -> Bool {
-        if let sessionMetaID = codexSessionMetaID(at: url) {
-            return sessionMetaID.lowercased() == normalizedSessionID
-        }
-        let filename = url.lastPathComponent.lowercased()
-        return filename == "\(normalizedSessionID).jsonl"
-            || filename.hasSuffix("-\(normalizedSessionID).jsonl")
-    }
-
-    private static func codexSessionMetaID(at url: URL) -> String? {
-        guard let handle = try? FileHandle(forReadingFrom: url) else {
-            return nil
-        }
-        defer { try? handle.close() }
-        guard let data = try? handle.read(upToCount: 64 * 1024),
-              !data.isEmpty else {
-            return nil
-        }
-        let lineData: Data
-        if let newline = data.firstIndex(of: 0x0A) {
-            lineData = Data(data[..<newline])
-        } else {
-            lineData = data
-        }
-        guard let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
-              object["type"] as? String == "session_meta",
-              let payload = object["payload"] as? [String: Any],
-              let id = payload["id"] as? String else {
-            return nil
-        }
-        let normalized = id.trimmingCharacters(in: .whitespacesAndNewlines)
-        return normalized.isEmpty ? nil : normalized
     }
 
     private static func normalizedClaudeTitle(_ title: String?) -> String? {
