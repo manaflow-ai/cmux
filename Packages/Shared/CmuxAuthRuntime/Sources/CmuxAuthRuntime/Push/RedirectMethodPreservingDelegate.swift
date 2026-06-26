@@ -19,17 +19,18 @@ private let redirectLog = Logger(subsystem: "ai.manaflow.cmux", category: "push"
 /// class.
 ///
 /// Scope is deliberately narrow:
-/// - **Only 301/302** are restored. A **303** ("See Other") is by spec a GET
-///   follow-up, so replaying the body would be a second mutating call — it is
-///   left as Foundation proposed. (307/308 already preserve the method, so the
-///   method never changes and nothing is restored.)
-/// - **Cross-origin redirects are refused** (`completionHandler(nil)`), not
-///   followed. These requests carry sensitive custom headers
-///   (`X-Stack-Refresh-Token`, `X-Cmux-Team-Id`) that Foundation does NOT strip
-///   on a cross-origin hop (it only strips `Authorization`), and the
-///   `PhonePushClient` body is a notification payload. Refusing means nothing —
-///   body or headers — leaves the app toward another origin; the task completes
-///   with the 3xx (a visible non-2xx) instead.
+/// - **Cross-origin redirects are refused** (`completionHandler(nil)`),
+///   regardless of status — including method-preserving 307/308. These requests
+///   carry sensitive custom headers (`X-Stack-Refresh-Token`, `X-Cmux-Team-Id`)
+///   that Foundation does NOT strip on a cross-origin hop (it only strips
+///   `Authorization`), and the `PhonePushClient` body is a notification payload;
+///   they only ever target our own API, so any redirect to another origin is
+///   refused. Nothing — body or headers — leaves the app toward another origin;
+///   the task completes with the 3xx (a visible non-2xx) instead.
+/// - Of the **same-origin** redirects, only a method-changing **301/302** is
+///   restored. A **303** ("See Other") is by spec a GET follow-up, so replaying
+///   the body would be a second mutating call — it is left as Foundation
+///   proposed; 307/308 already preserve the method, so nothing is restored.
 /// - A body that cannot be replayed (`httpBodyStream`) is also left as proposed
 ///   (no current caller streams a body).
 ///
@@ -44,11 +45,11 @@ public final class RedirectMethodPreservingDelegate: NSObject, URLSessionTaskDel
     public override init() { super.init() }
 
     /// `URLSessionTaskDelegate` hook (dispatched by URLSession, not called from
-    /// Swift): on a method-changing **same-origin 301/302** redirect, restores
-    /// the original method + `httpBody` so a `POST`/`DELETE` is not silently
-    /// followed as a body-less `GET`. 303 keeps Foundation's GET; cross-origin
-    /// redirects are refused. Public only to satisfy the public protocol
-    /// requirement.
+    /// Swift): refuses every cross-origin redirect (any status), and on a
+    /// method-changing **same-origin 301/302** restores the original method +
+    /// `httpBody` so a `POST`/`DELETE` is not silently followed as a body-less
+    /// `GET`. 303 keeps Foundation's GET; 307/308 already preserve the method.
+    /// Public only to satisfy the public protocol requirement.
     public func urlSession(
         _ session: URLSession,
         task: URLSessionTask,
@@ -56,32 +57,32 @@ public final class RedirectMethodPreservingDelegate: NSObject, URLSessionTaskDel
         newRequest request: URLRequest,
         completionHandler: @escaping (URLRequest?) -> Void
     ) {
-        // Only intervene when Foundation actually changed the method (the
-        // 301/302/303 downgrade); 307/308 already preserve it, so follow as-is.
-        guard let original = task.originalRequest,
-              let originalMethod = original.httpMethod,
-              request.httpMethod != originalMethod else {
+        guard let original = task.originalRequest else {
             completionHandler(request)
             return
         }
-        // Restore only the accidental-downgrade statuses. A 303 ("See Other") is
-        // by spec a GET follow-up to a different resource, so replaying the body
-        // would be a second mutating call — leave it as Foundation proposed.
-        guard response.statusCode == 301 || response.statusCode == 302 else {
-            completionHandler(request)
-            return
-        }
-        // Refuse cross-origin redirects outright. Following Foundation's proposed
-        // request would still forward sensitive custom headers
-        // (X-Stack-Refresh-Token, X-Cmux-Team-Id) to the new origin — Foundation
-        // only strips Authorization — and the body in the PhonePushClient path is
-        // a notification payload. Refusing (nil) sends nothing to the other
-        // origin; the task completes with the 3xx (a visible non-2xx).
+        // Refuse cross-origin redirects FIRST, before any method check, so a
+        // method-preserving 307/308 cannot slip through. Following Foundation's
+        // proposed request would forward sensitive custom headers
+        // (X-Stack-Refresh-Token, X-Cmux-Team-Id) and the body to the new origin —
+        // Foundation only strips Authorization — and these requests only ever
+        // target our own API. Refusing (nil) sends nothing to the other origin;
+        // the task completes with the 3xx (a visible non-2xx).
         guard sameOrigin(original.url, request.url) else {
             redirectLog.info(
-                "Refusing a cross-origin HTTP \(response.statusCode, privacy: .public) redirect of \(originalMethod, privacy: .public) (fail closed)"
+                "Refusing a cross-origin HTTP \(response.statusCode, privacy: .public) redirect (fail closed)"
             )
             completionHandler(nil)
+            return
+        }
+        // Same-origin: restore only the accidental method downgrade (301/302). A
+        // 303 ("See Other") is by spec a GET follow-up, so replaying the body
+        // would be a second mutating call; 307/308 preserve the method already
+        // (nothing changed). Either way, follow Foundation's proposed request.
+        guard let originalMethod = original.httpMethod,
+              request.httpMethod != originalMethod,
+              response.statusCode == 301 || response.statusCode == 302 else {
+            completionHandler(request)
             return
         }
         // Restore the verb only when the body can come with it. Every push

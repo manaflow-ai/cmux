@@ -227,6 +227,32 @@ struct FakeTokenProvider: TokenProviding {
         #expect(RedirectingURLProtocol.recorder.targetMethod() == nil)
     }
 
+    @Test func deviceTokenRegistrationRefusesCrossOrigin308() async {
+        // A method-preserving 307/308 cross-origin redirect must ALSO be refused —
+        // it keeps the POST and would forward the payload + custom credential
+        // headers to the other origin. Origin is checked before the method, so a
+        // 308 cannot slip past; the target is never reached.
+        RedirectingURLProtocol.recorder.reset()
+        let suite = "push-xorigin308-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RedirectingURLProtocol.self]
+        let service = PushRegistrationService(
+            tokenProvider: FakeTokenProvider(),
+            apiBaseURL: "https://\(RedirectingURLProtocol.crossOrigin308StartHost)",
+            bundleID: "dev.cmux.app.beta",
+            apnsEnvironment: "production",
+            suiteName: suite,
+            session: URLSession(configuration: configuration)
+        )
+
+        await service.register(deviceToken: Data([0xAB, 0xCD]))
+        await service.setEnabled(true)
+
+        #expect(RedirectingURLProtocol.recorder.targetMethod() == nil)
+    }
+
     @Test func deviceTokenRegistrationLeavesSeeOtherAsGET() async {
         // A 303 ("See Other") is by spec a GET follow-up to a different resource,
         // so the delegate must NOT replay the POST body onto it (that would be a

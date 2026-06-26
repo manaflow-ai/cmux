@@ -8,6 +8,8 @@ import Foundation
 ///     delegate restores method+body (the realistic recurrence).
 ///   - `xorigin-start.test` 301s to a DIFFERENT host, so the delegate must
 ///     refuse the redirect entirely (the target is never reached).
+///   - `xorigin-308-start.test` 308s (method-preserving) to a DIFFERENT host,
+///     which the delegate must also refuse (origin is checked before method).
 ///   - `see-other-start.test` 303s to a distinct path on the SAME host, which
 ///     the delegate must leave as Foundation's GET (303 = GET follow-up by spec).
 /// A distinct canonical path (not a trailing-slash variant, whose slash URL
@@ -19,6 +21,7 @@ final class RedirectingURLProtocol: URLProtocol, @unchecked Sendable {
     static let canonicalPath = "/api/device-tokens-canonical"
     static let sameOriginHost = "same-origin-start.test"
     static let crossOriginStartHost = "xorigin-start.test"
+    static let crossOrigin308StartHost = "xorigin-308-start.test"
     static let crossOriginEndHost = "xorigin-end.test"
     static let seeOtherHost = "see-other-start.test"
 
@@ -40,6 +43,10 @@ final class RedirectingURLProtocol: URLProtocol, @unchecked Sendable {
         }
         if host == Self.crossOriginStartHost {
             redirect(from: url, to: URL(string: "https://\(Self.crossOriginEndHost)\(Self.canonicalPath)")!, status: 301)
+            return
+        }
+        if host == Self.crossOrigin308StartHost {
+            redirect(from: url, to: URL(string: "https://\(Self.crossOriginEndHost)\(Self.canonicalPath)")!, status: 308)
             return
         }
         // The redirect target (same host canonical path, or the cross-origin
@@ -71,7 +78,8 @@ final class RedirectingURLProtocol: URLProtocol, @unchecked Sendable {
             headerFields: ["Location": target.absoluteString]
         )!
         var proposed = URLRequest(url: target)
-        proposed.httpMethod = "GET"
+        // 301/302/303 downgrade to GET; 307/308 preserve the original method.
+        proposed.httpMethod = (status == 307 || status == 308) ? (request.httpMethod ?? "GET") : "GET"
         client?.urlProtocol(self, wasRedirectedTo: proposed, redirectResponse: response)
         // Finish the original load so a REFUSED redirect (delegate returns nil)
         // completes the task promptly with this 3xx instead of hanging until the
