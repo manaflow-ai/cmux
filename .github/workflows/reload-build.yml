@@ -325,7 +325,12 @@ jobs:
           cleanup_recording
           trap - EXIT
           [ -s "$video_path" ] || { echo "recording missing or empty: $video_path" >&2; cat "$record_log" >&2 || true; exit 1; }
-          ffprobe -v error -show_entries format=duration,size -of json "$video_path" > "artifact/video-metadata.json" || true
+          if command -v ffprobe >/dev/null 2>&1; then
+            ffprobe -v error -show_entries format=duration,size -of json "$video_path" > artifact/video-metadata.json || true
+          else
+            size_bytes="$(stat -f %z "$video_path" 2>/dev/null || wc -c < "$video_path" | tr -d ' ')"
+            printf '{ "size": %s }\n' "$size_bytes" > artifact/video-metadata.json
+          fi
           {
             echo "tag=$BUILD_TAG"
             echo "platform=$VIDEO_PLATFORM"
