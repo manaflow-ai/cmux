@@ -191,13 +191,22 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
             // instead of scp (issue #6207); the legacy synchronous
             // `FileHandle.write` was safe only for the tiny stdin payloads in
             // use before.
-            let writeDescriptor = Darwin.dup(pipe.fileHandleForWriting.fileDescriptor)
-            try? pipe.fileHandleForWriting.close()
+            let writeHandle = pipe.fileHandleForWriting
+            let writeDescriptor = Darwin.dup(writeHandle.fileDescriptor)
             if writeDescriptor >= 0 {
+                try? writeHandle.close()
                 _ = Darwin.fcntl(writeDescriptor, F_SETNOSIGPIPE, 1)
                 DispatchQueue.global(qos: .utility).async {
                     writeStdinAndClose(stdin, to: writeDescriptor)
                 }
+            } else {
+                // dup failed (e.g. fd exhaustion). Fall back to a synchronous
+                // write on the original handle rather than closing it and
+                // letting the child read an empty stream — a silently-empty
+                // stdin would let `cat > tmp` succeed and install a 0-byte
+                // daemon binary. This rare path blocks the calling thread like
+                // the legacy writer did.
+                writeStdinSynchronouslyAndClose(stdin, to: writeHandle)
             }
         }
 
@@ -287,4 +296,16 @@ private func writeStdinAndClose(_ data: Data, to fileDescriptor: Int32) {
         }
     }
     _ = Darwin.close(fileDescriptor)
+}
+
+/// Synchronous fallback for the rare case where `dup` of the stdin pipe write
+/// end fails: writes `data` on the calling thread and closes the handle, so
+/// required stdin is never silently dropped (an empty stream would let the
+/// remote `cat > tmp` succeed and install a 0-byte daemon). SIGPIPE is
+/// suppressed and the throwing write tolerates an early remote close, which
+/// then surfaces as a nonzero exit status.
+private func writeStdinSynchronouslyAndClose(_ data: Data, to handle: FileHandle) {
+    _ = Darwin.fcntl(handle.fileDescriptor, F_SETNOSIGPIPE, 1)
+    try? handle.write(contentsOf: data)
+    try? handle.close()
 }
