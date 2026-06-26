@@ -27,9 +27,6 @@ struct CustomCommandShortcutsCard: View {
     /// string form `"cmd+n"` is resolved rather than dropped. Updated
     /// optimistically on each edit; the per-entry write is lossless regardless.
     @State private var commandShortcuts: [String: StoredShortcut] = [:]
-    /// Effective built-in action bindings (override-or-default), read through the
-    /// host's lenient resolver for conflict detection against built-in actions.
-    @State private var actionBindings: [String: StoredShortcut] = [:]
     /// The full command catalog (id → title/subtitle/keywords), loaded once from
     /// the host so bound rows can resolve a command id back to a title.
     @State private var catalogEntries: [CommandShortcutCatalogEntry] = []
@@ -210,8 +207,13 @@ struct CustomCommandShortcutsCard: View {
     }
 
     private func conflictChecker() -> CommandShortcutConflictChecker {
+        // Read the built-in action bindings *fresh* at conflict-check time (only
+        // on a record attempt, so cheap) rather than from a snapshot: the
+        // per-action recorder rows on this same Settings page can rebind a
+        // built-in mid-session, and a stale snapshot would let a command shadow
+        // a just-rebound built-in (or keep blocking a just-freed key).
         CommandShortcutConflictChecker(
-            actionBindings: actionBindings,
+            actionBindings: hostActions.effectiveActionShortcuts(),
             commandShortcuts: commandShortcuts,
             title: title(for:)
         )
@@ -223,14 +225,13 @@ struct CustomCommandShortcutsCard: View {
         }
     }
 
-    /// Loads the bound command shortcuts and the effective built-in action
-    /// bindings from the host's lenient parser. Both go through the host rather
+    /// Loads the bound command shortcuts from the host's lenient parser (rather
     /// than the package's object-only typed decode, which is all-or-nothing and
-    /// would drop a single string-form binding (blanking the whole map and
-    /// bypassing conflict detection).
+    /// would drop a single string-form binding). Built-in action bindings, used
+    /// only for conflict detection, are read fresh per check in
+    /// ``conflictChecker()`` so a same-session rebind is never stale.
     private func seedFromHost() {
         commandShortcuts = hostActions.commandShortcuts()
-        actionBindings = hostActions.effectiveActionShortcuts()
         pruneStaleRejections()
     }
 
