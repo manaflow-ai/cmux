@@ -262,7 +262,7 @@ function highlightRenderedCodeBlocks(root: ParentNode): void {
   for (const codeElement of Array.from(root.querySelectorAll("pre > code"))) {
     const language = highlightLanguageFromCodeClassName(codeElement.className);
     const highlighted = highlightCodeHTML(codeElement.textContent ?? "", language);
-    if (!highlighted || !isSafeHighlightHTML(highlighted, codeElement.ownerDocument)) {
+    if (!highlighted || !isSafeHighlightHTML(highlighted)) {
       continue;
     }
     codeElement.innerHTML = highlighted;
@@ -308,29 +308,19 @@ export function highlightCodeHTML(code: string, language: string | null | undefi
   }
 }
 
-export function isSafeHighlightHTML(html: string, ownerDocument?: Document): boolean {
-  const parserDocument = ownerDocument ?? (typeof document === "undefined" ? undefined : document);
-  if (!parserDocument) {
-    return false;
-  }
-  const template = parserDocument.createElement("template");
-  template.innerHTML = html;
-
-  for (const element of Array.from(template.content.querySelectorAll("*"))) {
-    if (element.localName !== "span") {
+export function isSafeHighlightHTML(html: string): boolean {
+  let index = 0;
+  while ((index = html.indexOf("<", index)) !== -1) {
+    if (html.startsWith("</span>", index)) {
+      index += "</span>".length;
+      continue;
+    }
+    const openSpan = /^<span class="[ A-Za-z0-9_-]*">/.exec(html.slice(index));
+    if (!openSpan) {
       return false;
     }
-    for (const attribute of Array.from(element.attributes)) {
-      if (attribute.name.toLowerCase() !== "class") {
-        return false;
-      }
-      const classNames = attribute.value.trim().split(/\s+/).filter(Boolean);
-      if (classNames.some((className) => !/^[A-Za-z0-9_-]+$/.test(className))) {
-        return false;
-      }
-    }
+    index += openSpan[0].length;
   }
-
   return true;
 }
 

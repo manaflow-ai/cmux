@@ -1,5 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
-import { JSDOM } from "jsdom";
+import { expect, test } from "bun:test";
 import {
   escapeMarkdownRawHTML,
   highlightCodeHTML,
@@ -9,16 +8,6 @@ import {
   renderPlainTextHTML,
   sanitizedMarkdownURLAttribute,
 } from "./markdown";
-
-const originalDocument = (globalThis as any).document;
-
-afterEach(() => {
-  if (originalDocument === undefined) {
-    delete (globalThis as any).document;
-  } else {
-    (globalThis as any).document = originalDocument;
-  }
-});
 
 test("markdown raw HTML is escaped before parsing", () => {
   expect(escapeMarkdownRawHTML("<script>alert(1)</script> & text")).toBe(
@@ -57,9 +46,6 @@ test("markdown code highlighting leaves unknown languages plain", () => {
 });
 
 test("markdown code highlighting only allows span class markup", () => {
-  const dom = new JSDOM("<!doctype html><html><body></body></html>");
-  (globalThis as any).document = dom.window.document;
-
   expect(isSafeHighlightHTML('<span class="hljs-keyword">const</span>')).toBe(true);
   expect(isSafeHighlightHTML('<span class="hljs-title function_">main</span>')).toBe(true);
   expect(isSafeHighlightHTML('<span class="hljs-keyword" onclick="alert(1)">const</span>')).toBe(false);
