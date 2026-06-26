@@ -8568,7 +8568,18 @@ struct ContentView: View {
     /// palette is presented first so the flow's UI is visible; self-contained
     /// commands run directly without showing any palette UI.
     private func runCommandPaletteCommandById(_ commandId: String) {
-        let commands = commandPaletteEntries(for: .commands)
+        // Resolve the command list against a freshly-built context (refreshing
+        // terminal open-target availability) rather than the cached palette
+        // context, which only updates on a palette search refresh. Otherwise a
+        // context-gated command (e.g. the VS Code serve-web stop/restart entries)
+        // could be wrongly treated as unavailable until the palette was opened.
+        let terminalOpenTargets = resolveCommandPaletteTerminalOpenTargets(for: .commands)
+        let commandsContext = commandPaletteCommandsContext(terminalOpenTargets: terminalOpenTargets)
+        let commands = commandPaletteEntries(
+            for: .commands,
+            includeSurfaces: false,
+            commandsContext: commandsContext
+        )
         guard let command = commands.first(where: { $0.id == commandId }) else {
 #if DEBUG
             cmuxDebugLog("palette.runById commandId=\(commandId) result=noop(unavailable)")

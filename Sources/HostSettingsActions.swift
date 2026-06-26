@@ -402,26 +402,37 @@ final class HostSettingsActions: SettingsHostActions {
     /// cmux.json is global, so any live window's config store carries the same
     /// `actions`; the first available one is used.
     func configuredActionShortcuts() -> [(label: String, shortcut: CmuxSettings.StoredShortcut)] {
-        let store: CmuxConfigStore
-        if let windowStore = AppDelegate.shared?.mainWindowContexts.values
-            .lazy.compactMap({ $0.cmuxConfigStore }).first {
-            store = windowStore
-        } else {
+        let liveStores = AppDelegate.shared?.mainWindowContexts.values
+            .compactMap { $0.cmuxConfigStore } ?? []
+        let stores: [CmuxConfigStore]
+        if liveStores.isEmpty {
             // No live window (e.g. Settings opened after the last window closed):
             // load the global config standalone so configured-action conflicts are
-            // still checked rather than silently skipped. `actions` come from the
-            // global cmux.json, so a transient store without directory tracking
-            // resolves them.
+            // still checked rather than silently skipped.
             let transient = CmuxConfigStore()
             transient.loadAll()
-            store = transient
+            stores = [transient]
+        } else {
+            // Each window's store merges its local config with the global one, and
+            // runtime dispatch checks the focused window's store. Aggregate across
+            // every live window so a configured action defined in another project
+            // window is still treated as a conflict.
+            stores = liveStores
         }
         // A list, not a title-keyed map: action titles are free-form and may
-        // collide, and dropping a duplicate would hide a real conflict.
-        return store.shortcutActions().compactMap { action in
-            guard let shortcut = action.shortcut, !shortcut.isUnbound else { return nil }
-            return (label: action.title, shortcut: Self.packageStoredShortcut(from: shortcut))
+        // collide, and dropping a duplicate would hide a real conflict. Dedup by
+        // (id, keystroke) so the global actions shared across windows collapse
+        // while distinct per-window overrides are all kept.
+        var seen = Set<String>()
+        var result: [(label: String, shortcut: CmuxSettings.StoredShortcut)] = []
+        for store in stores {
+            for action in store.shortcutActions() {
+                guard let shortcut = action.shortcut, !shortcut.isUnbound else { continue }
+                guard seen.insert("\(action.id)\u{0}\(shortcut.configIdentifier)").inserted else { continue }
+                result.append((label: action.title, shortcut: Self.packageStoredShortcut(from: shortcut)))
+            }
         }
+        return result
     }
 
     /// Bridges the app's flat ``StoredShortcut`` to the package

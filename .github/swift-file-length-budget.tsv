@@ -3,7 +3,7 @@
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 34629	CLI/cmux.swift
 17900	Sources/AppDelegate.swift
-16172	Sources/ContentView.swift
+16183	Sources/ContentView.swift
 13913	Sources/TerminalController.swift
 12838	Sources/Workspace.swift
 12237	Sources/GhosttyTerminalView.swift
@@ -179,12 +179,12 @@
 586	Sources/JSONCParser.swift
 585	Sources/Cloud/VMClient.swift
 583	cmuxTests/GhosttyTerminalStartupEnvironmentTests.swift
+581	Sources/HostSettingsActions.swift
 580	Packages/macOS/CmuxExtensionKit/Tests/CmuxExtensionKitTests/CmuxExtensionKitTests.swift
 580	cmuxTests/CLIHookNoResponseTests.swift
 578	Sources/RightSidebarPanelView.swift
 577	cmuxTests/AppearanceSettingsTests.swift
 572	Sources/Feed/FeedTextEditorDebugWindowController.swift
-570	Sources/HostSettingsActions.swift
 568	Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/MobileTerminalRenderGrid.swift
 567	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/ConfigDiscovery/GhosttyConfigDiscovery.swift
 562	cmuxTests/AgentExecutableResolverTests.swift
