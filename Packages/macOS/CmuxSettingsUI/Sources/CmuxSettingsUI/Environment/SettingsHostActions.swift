@@ -181,6 +181,15 @@ public protocol SettingsHostActions: AnyObject {
     /// config reader (previews/tests).
     func effectiveActionShortcuts() -> [String: StoredShortcut]
 
+    /// The shortcuts of user-defined cmux config actions (cmux.json `actions`
+    /// with a `shortcut`), keyed by the action's display label. The runtime key
+    /// router dispatches these *before* custom command shortcuts, so the Custom
+    /// Commands conflict check must include them — otherwise a command could be
+    /// bound to a keystroke a configured action already owns and never fire. The
+    /// stored shortcut's first stroke is compared, which also catches chord
+    /// prefixes. Empty for hosts without a config store (previews/tests).
+    func configuredActionShortcuts() -> [String: StoredShortcut]
+
     /// Shows the Sleepy Mode screensaver as a non-locking preview (any key/click
     /// exits, no Touch ID). The host owns the overlay window.
     func sleepyModePreview()
@@ -234,6 +243,9 @@ public extension SettingsHostActions {
 
     /// Default: no built-in action shortcuts, for hosts without a config reader.
     func effectiveActionShortcuts() -> [String: StoredShortcut] { [:] }
+
+    /// Default: no configured action shortcuts, for hosts without a config store.
+    func configuredActionShortcuts() -> [String: StoredShortcut] { [:] }
 
     /// Default: a simple case-insensitive substring filter over the catalog so
     /// preview/test hosts still render a usable picker without the app's engine.

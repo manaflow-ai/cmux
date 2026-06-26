@@ -214,6 +214,7 @@ struct CustomCommandShortcutsCard: View {
         // a just-rebound built-in (or keep blocking a just-freed key).
         CommandShortcutConflictChecker(
             actionBindings: hostActions.effectiveActionShortcuts(),
+            configuredActionShortcuts: hostActions.configuredActionShortcuts(),
             commandShortcuts: commandShortcuts,
             title: title(for:)
         )
@@ -333,15 +334,22 @@ struct ShortcutValidationBanner: View {
 struct CommandShortcutConflictChecker {
     /// Built-in action overrides from `shortcuts.bindings`.
     let actionBindings: [String: StoredShortcut]
+    /// User-defined cmux config action shortcuts (cmux.json `actions`), keyed by
+    /// display label. Dispatched before custom command shortcuts at runtime, so
+    /// a command must not be allowed to bind a keystroke one of these owns.
+    let configuredActionShortcuts: [String: StoredShortcut]
     /// Other commands' bindings from `shortcuts.commands`.
     let commandShortcuts: [String: StoredShortcut]
     /// Resolves a command id to its display title for the banner.
     let title: (String) -> String
 
     /// The display label of the first conflicting binding — a built-in action's
-    /// display name or another command's title — or `nil` when `stroke` is free.
-    /// Pass the command id being rebound as `excludingCommandId` so a command's
-    /// own existing binding is not treated as a self-conflict.
+    /// display name, a configured action's label, or another command's title —
+    /// or `nil` when `stroke` is free. Pass the command id being rebound as
+    /// `excludingCommandId` so a command's own existing binding is not treated
+    /// as a self-conflict. Comparisons use the first stroke, which also catches a
+    /// chord prefix (binding a command to a chord's first stroke would arm the
+    /// chord and swallow the key).
     func conflictLabel(stroke: StoredShortcut, excludingCommandId: String?) -> String? {
         for action in ShortcutAction.allCases {
             let effective = actionBindings[action.rawValue] ?? action.defaultShortcut
@@ -353,6 +361,12 @@ struct CommandShortcutConflictChecker {
                 numbered: action.usesNumberedDigitMatching
             ) {
                 return action.displayName
+            }
+        }
+        for (label, existing) in configuredActionShortcuts {
+            guard !existing.isUnbound else { continue }
+            if numberedAwareStrokesConflict(stroke.first, numbered: false, existing.first, numbered: false) {
+                return label
             }
         }
         for (commandId, existing) in commandShortcuts where commandId != excludingCommandId {

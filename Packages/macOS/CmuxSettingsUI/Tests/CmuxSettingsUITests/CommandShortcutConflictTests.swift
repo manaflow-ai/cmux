@@ -23,11 +23,13 @@ struct CommandShortcutConflictTests {
 
     private func checker(
         actionBindings: [String: StoredShortcut] = [:],
+        configuredActionShortcuts: [String: StoredShortcut] = [:],
         commandShortcuts: [String: StoredShortcut] = [:],
         title: @escaping (String) -> String = { $0 }
     ) -> CommandShortcutConflictChecker {
         CommandShortcutConflictChecker(
             actionBindings: actionBindings,
+            configuredActionShortcuts: configuredActionShortcuts,
             commandShortcuts: commandShortcuts,
             title: title
         )
@@ -77,6 +79,35 @@ struct CommandShortcutConflictTests {
             excludingCommandId: nil
         )
         #expect(label != nil)
+    }
+
+    @Test func conflictsWithConfiguredAction() {
+        // A user cmux.json action that already owns ⌘⌥⌃Y must block a command on
+        // the same keystroke (the key router runs configured actions first).
+        let existing = single("y", command: true, option: true, control: true)
+        let label = checker(
+            configuredActionShortcuts: ["Run tests": existing]
+        ).conflictLabel(
+            stroke: single("y", command: true, option: true, control: true),
+            excludingCommandId: nil
+        )
+        #expect(label == "Run tests")
+    }
+
+    @Test func conflictsWithConfiguredActionChordPrefix() {
+        // A configured chord ⌃B,N: binding a command to its ⌃B prefix would arm
+        // the chord and swallow the key, so it must conflict.
+        let chord = StoredShortcut(
+            first: ShortcutStroke(key: "b", control: true),
+            second: ShortcutStroke(key: "n")
+        )
+        let label = checker(
+            configuredActionShortcuts: ["Chord action": chord]
+        ).conflictLabel(
+            stroke: single("b", control: true),
+            excludingCommandId: nil
+        )
+        #expect(label == "Chord action")
     }
 
     @Test func conflictsWithOverriddenBuiltInAction() {

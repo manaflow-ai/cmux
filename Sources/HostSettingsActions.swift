@@ -393,6 +393,27 @@ final class HostSettingsActions: SettingsHostActions {
         return result
     }
 
+    /// The shortcuts of user-defined cmux config actions (cmux.json `actions`
+    /// with a `shortcut`), keyed by display label, for the Custom Commands
+    /// conflict check. These are dispatched by the key router *before* custom
+    /// command shortcuts, so a command bound to a keystroke an action already
+    /// owns would never fire — the conflict check must see them.
+    ///
+    /// cmux.json is global, so any live window's config store carries the same
+    /// `actions`; the first available one is used.
+    func configuredActionShortcuts() -> [String: CmuxSettings.StoredShortcut] {
+        guard let store = AppDelegate.shared?.mainWindowContexts.values
+            .lazy.compactMap({ $0.cmuxConfigStore }).first else {
+            return [:]
+        }
+        var result: [String: CmuxSettings.StoredShortcut] = [:]
+        for action in store.shortcutActions() {
+            guard let shortcut = action.shortcut, !shortcut.isUnbound else { continue }
+            result[action.title] = Self.packageStoredShortcut(from: shortcut)
+        }
+        return result
+    }
+
     /// Bridges the app's flat ``StoredShortcut`` to the package
     /// ``CmuxSettings/StoredShortcut`` (first/second strokes) the Settings
     /// package speaks. Field-by-field — the two Codable shapes differ (flat vs
