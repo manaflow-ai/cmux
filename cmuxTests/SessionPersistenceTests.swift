@@ -5465,9 +5465,9 @@ extension SessionPersistenceTests {
             autoResumeAgentSessions: true,
             promptForApproval: false
         ))
-
-        XCTAssertTrue(input.contains("'/opt/homebrew/bin/hermes' config set model.provider"))
-        XCTAssertTrue(input.contains("'/opt/homebrew/bin/hermes' config set model.base_url"))
+        let payload = try portableShellCommandPayload(from: loginShellCommandPayload(from: input))
+        XCTAssertTrue(payload.contains("'/opt/homebrew/bin/hermes' config set model.provider"), payload)
+        XCTAssertTrue(payload.contains("'/opt/homebrew/bin/hermes' config set model.base_url"), payload)
     }
 
     func testHermesAgentHookSurfaceResumeBootstrapStaysInsideCwdGuard() throws {
@@ -5558,9 +5558,9 @@ extension SessionPersistenceTests {
             autoResumeAgentSessions: true,
             promptForApproval: false
         ))
-
-        XCTAssertFalse(input.contains("config set model.provider"))
-        XCTAssertTrue(input.contains("'--provider' '\\''anthropic'\\'''") || input.contains("'--provider' 'anthropic'"))
+        let payload = try portableShellCommandPayload(from: loginShellCommandPayload(from: input))
+        XCTAssertFalse(payload.contains("config set model.provider"), payload)
+        XCTAssertTrue(payload.contains("'--provider' 'anthropic'"), payload)
     }
 
     private func makeSurfaceResumeApprovalStoreURL() throws -> URL {

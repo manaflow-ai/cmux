@@ -43,7 +43,9 @@ struct WorkspaceHermesAgentCommandBootstrapper {
                 baseURL: baseURL,
                 environment: environment
             )
-            return "\(portableCommand.shell) \(portableCommand.option) \(shellQuote(innerCommand))"
+            var result = command
+            result.replaceSubrange(portableCommand.innerCommandRange, with: shellQuote(innerCommand))
+            return result
         }
         return commandByPreparingPlainHermesStartup(command, baseURL: baseURL, environment: environment)
     }
@@ -255,17 +257,18 @@ struct WorkspaceHermesAgentCommandBootstrapper {
         let range: Range<String.Index>
     }
 
-    private func portableShellCommand(_ command: String) -> (shell: String, option: String, innerCommand: String)? {
+    private func portableShellCommand(_ command: String) -> (innerCommand: String, innerCommandRange: Range<String.Index>)? {
         let words = shellWords(in: command)
-        guard words.count == 3,
-              words[0].value == "/bin/sh",
-              words[1].value == "-c" || words[1].value == "-lc" else {
+        let commandStartIndex = commandStartIndexAfterCwdGuard(words)
+        guard commandStartIndex + 2 < words.count,
+              words.count == commandStartIndex + 3,
+              words[commandStartIndex].value == "/bin/sh",
+              words[commandStartIndex + 1].value == "-c" || words[commandStartIndex + 1].value == "-lc" else {
             return nil
         }
         return (
-            shell: words[0].value,
-            option: words[1].value,
-            innerCommand: words[2].value
+            innerCommand: words[commandStartIndex + 2].value,
+            innerCommandRange: words[commandStartIndex + 2].range
         )
     }
 

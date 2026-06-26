@@ -223,7 +223,7 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         let binding = FakeBinding(
             source: "agent-hook",
             kind: "hermes-agent",
-            command: "/bin/sh -c '{ cd -- '\\''/repo with space'\\'' 2>/dev/null || [ ! -d '\\''/repo with space'\\'' ]; } && hermes --provider openai-codex run'",
+            command: "cd -- '/repo with space' 2>/dev/null || [ ! -d '/repo with space' ] && /bin/sh -c 'hermes --provider openai-codex run'",
             isAgentHookBinding: true,
             allowsAutomaticResume: true
         )
@@ -241,7 +241,8 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         let cdRange = try #require(command.range(of: "cd --"))
         let bootstrapRange = try #require(command.range(of: "config set model.provider"))
         let resumeRange = try #require(command.range(of: "run"))
-        #expect(command.hasPrefix("command:/bin/sh -c "))
+        #expect(command.hasPrefix("command:cd -- '/repo with space'"))
+        #expect(command.contains("] && /bin/sh -c "))
         #expect(cdRange.lowerBound < bootstrapRange.lowerBound)
         #expect(bootstrapRange.lowerBound < resumeRange.lowerBound)
         #expect(command.contains("config set model.base_url"))
