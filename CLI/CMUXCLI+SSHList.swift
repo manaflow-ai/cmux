@@ -124,35 +124,33 @@ extension CMUXCLI {
         // include, rather than re-derived per included file. For the default
         // `~/.ssh/config` this base is exactly `~/.ssh`.
         let baseDirectory = (configPath as NSString).deletingLastPathComponent
-        let resolver: (String) -> [String] = { argument in
-            Self.sshIncludeFileContents(argument: argument, baseDirectory: baseDirectory)
+        let resolver: (String) -> [String] = { path in
+            Self.sshIncludeFile(path: path, baseDirectory: baseDirectory)
         }
         return SSHConfigParser().hosts(configText: contents, includeResolver: resolver)
     }
 
-    /// Expand an `Include` directive argument into the contents of each matched
-    /// file. Mirrors OpenSSH: whitespace separates multiple patterns, `~`
-    /// expands to home, and a relative path resolves against `baseDirectory`
-    /// (the directory of the config file being listed — `~/.ssh` for the
-    /// default config), which is the same fixed base at every nesting depth per
-    /// ssh_config(5). Glob wildcards in any path component are expanded (via
-    /// `glob(3)`) and matches are read in sorted order.
-    private static func sshIncludeFileContents(argument: String, baseDirectory: String) -> [String] {
+    /// Expand a single `Include` path into the contents of each file it matches.
+    /// Mirrors OpenSSH: `~` expands to home, and a relative path resolves
+    /// against `baseDirectory` (the directory of the config file being listed —
+    /// `~/.ssh` for the default config), the same fixed base at every nesting
+    /// depth per ssh_config(5). Glob wildcards in any path component are expanded
+    /// (via `glob(3)`) and matches are read in sorted order. The parser has
+    /// already tokenized multi-path / quoted `Include` arguments, so this
+    /// receives exactly one path.
+    private static func sshIncludeFile(path: String, baseDirectory: String) -> [String] {
+        let expanded: String
+        if path.hasPrefix("~") {
+            expanded = (path as NSString).expandingTildeInPath
+        } else if path.hasPrefix("/") {
+            expanded = path
+        } else {
+            expanded = (baseDirectory as NSString).appendingPathComponent(path)
+        }
         var results: [String] = []
-        let patterns = argument.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
-        for pattern in patterns {
-            let expanded: String
-            if pattern.hasPrefix("~") {
-                expanded = (pattern as NSString).expandingTildeInPath
-            } else if pattern.hasPrefix("/") {
-                expanded = pattern
-            } else {
-                expanded = (baseDirectory as NSString).appendingPathComponent(pattern)
-            }
-            for path in Self.expandIncludeGlob(expanded) {
-                if let text = try? String(contentsOfFile: path, encoding: .utf8) {
-                    results.append(text)
-                }
+        for filePath in Self.expandIncludeGlob(expanded) {
+            if let text = try? String(contentsOfFile: filePath, encoding: .utf8) {
+                results.append(text)
             }
         }
         return results

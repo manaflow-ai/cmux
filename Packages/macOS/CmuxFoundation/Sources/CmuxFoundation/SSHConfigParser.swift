@@ -24,22 +24,23 @@ public struct SSHConfigParser: Sendable {
     ///
     /// - Parameters:
     ///   - configText: the contents of an `ssh_config` file.
-    ///   - includeResolver: expands an `Include` argument into the contents of
-    ///     each matched file, in the order ssh would read them. The default
-    ///     ignores includes (useful for callers that only have one file).
+    ///   - includeResolver: expands a single `Include` *path* into the contents
+    ///     of each file it matches, in the order ssh would read them. The parser
+    ///     tokenizes a multi-path / quoted `Include` argument and calls this
+    ///     once per path. The default ignores includes.
     /// - Returns: hosts in first-seen order. Pure-wildcard `Host` patterns
     ///   (`*`, `db-*`, negations) still configure matching hosts but are never
     ///   returned as entries themselves.
     public func hosts(
         configText: String,
-        includeResolver: (_ argument: String) -> [String] = { _ in [] }
+        includeResolver: (_ path: String) -> [String] = { _ in [] }
     ) -> [SSHConfigHost] {
         var aliases: [String] = []
         var seenAliases = Set<String>()
         var directives: [ScopedDirective] = []
         collect(
             configText: configText,
-            scope: .global,
+            enclosingScope: .global,
             depth: 0,
             includeResolver: includeResolver,
             aliases: &aliases,
@@ -75,16 +76,19 @@ public struct SSHConfigParser: Sendable {
         let value: String
     }
 
+    /// Collect aliases and scoped directives from one config file's text.
+    /// `enclosingScope` is the scope this file was reached under (`.global` for
+    /// the top-level config, the enclosing `Host` scope for an included file).
     private func collect(
         configText: String,
-        scope: Scope,
+        enclosingScope: Scope,
         depth: Int,
-        includeResolver: (_ argument: String) -> [String],
+        includeResolver: (_ path: String) -> [String],
         aliases: inout [String],
         seenAliases: inout Set<String>,
         directives: inout [ScopedDirective]
     ) {
-        var currentScope = scope
+        var currentScope = enclosingScope
         // `isNewline` covers LF, CR, and the CRLF grapheme cluster (Swift treats
         // "\r\n" as one Character, so splitting on "\n" alone would miss it).
         for rawLine in configText.split(omittingEmptySubsequences: false, whereSeparator: { $0.isNewline }) {
@@ -94,6 +98,12 @@ public struct SSHConfigParser: Sendable {
                 let patterns = Self.parsePatterns(value)
                 currentScope = .host(patterns)
                 for pattern in patterns where !pattern.negated && !Self.isWildcard(pattern.glob) {
+                    // Only list an alias that is actually reachable. A `Host`
+                    // line inside a file `Include`d under an enclosing `Host X`
+                    // is conditional on X (verified against `ssh -G`), so the
+                    // alias must match that enclosing scope to be a standalone
+                    // host. At the top level (`.global`) every alias is reachable.
+                    guard Self.scope(enclosingScope, matches: pattern.glob) else { continue }
                     if seenAliases.insert(pattern.glob).inserted {
                         aliases.append(pattern.glob)
                     }
@@ -104,20 +114,24 @@ public struct SSHConfigParser: Sendable {
                 guard depth < Self.maxIncludeDepth else { continue }
                 // An `Include` inside a `Match` block we cannot evaluate is
                 // itself conditional; skip it (and the whole included file)
-                // rather than leaking its `Host` entries into the static
-                // listing — a `Host` line in the included text would otherwise
-                // switch the recursive scope back to `.host(...)`.
+                // rather than leaking its `Host` entries into the static listing.
                 if case .ignored = currentScope { continue }
-                for includedText in includeResolver(value) {
-                    collect(
-                        configText: includedText,
-                        scope: currentScope,
-                        depth: depth + 1,
-                        includeResolver: includeResolver,
-                        aliases: &aliases,
-                        seenAliases: &seenAliases,
-                        directives: &directives
-                    )
+                // ssh reads an `Include` only when its enclosing scope matches
+                // the target, so the included file inherits `currentScope`.
+                // Multiple whitespace-separated paths are allowed and a path
+                // with spaces may be double-quoted, so tokenize and resolve each.
+                for path in Self.tokenize(value) {
+                    for includedText in includeResolver(path) {
+                        collect(
+                            configText: includedText,
+                            enclosingScope: currentScope,
+                            depth: depth + 1,
+                            includeResolver: includeResolver,
+                            aliases: &aliases,
+                            seenAliases: &seenAliases,
+                            directives: &directives
+                        )
+                    }
                 }
             default:
                 directives.append(ScopedDirective(scope: currentScope, key: key, value: value))
@@ -132,15 +146,15 @@ public struct SSHConfigParser: Sendable {
         for directive in directives where Self.scope(directive.scope, matches: alias) {
             switch directive.key {
             case "hostname":
-                if host.hostName == nil { host.hostName = directive.value }
+                if host.hostName == nil { host.hostName = Self.unquote(directive.value) }
             case "user":
-                if host.user == nil { host.user = directive.value }
+                if host.user == nil { host.user = Self.unquote(directive.value) }
             case "port":
-                if host.port == nil { host.port = Int(directive.value) }
+                if host.port == nil { host.port = Int(Self.unquote(directive.value)) }
             case "identityfile":
-                if host.identityFile == nil { host.identityFile = directive.value }
+                if host.identityFile == nil { host.identityFile = Self.unquote(directive.value) }
             case "proxyjump":
-                if host.proxyJump == nil { host.proxyJump = directive.value }
+                if host.proxyJump == nil { host.proxyJump = Self.unquote(directive.value) }
             case "localforward":
                 host.localForwards.append(directive.value)
             case "remoteforward":
@@ -204,8 +218,10 @@ public struct SSHConfigParser: Sendable {
     /// Split a config line into a lowercased keyword and its raw argument
     /// string. Returns nil for blank lines, comments, and keyword-only lines.
     /// Keyword/argument may be separated by whitespace, by `=`, or by both
-    /// (OpenSSH allows all three); inline `#` comments and surrounding quotes on
-    /// the argument are stripped.
+    /// (OpenSSH allows all three); inline `#` comments are stripped. The
+    /// argument is returned verbatim (quotes intact) because multi-token
+    /// arguments (`Host`, `Include`) must be tokenized quote-aware before any
+    /// unquoting; single-valued consumers unquote in `resolve`.
     static func parseLine(_ raw: String) -> (key: String, value: String)? {
         var line = Substring(stripInlineComment(raw))
         line = line.drop(while: { $0.isWhitespace })
@@ -220,16 +236,48 @@ public struct SSHConfigParser: Sendable {
             rest = rest.dropFirst()
             rest = rest.drop(while: { $0.isWhitespace })
         }
-        let value = Self.unquote(String(rest).trimmingCharacters(in: .whitespacesAndNewlines))
+        let value = String(rest).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return nil }
         return (key, value)
     }
 
+    /// Split an argument string into whitespace-separated tokens, honoring
+    /// double quotes so a single token may contain spaces. OpenSSH allows
+    /// quoting `Host` patterns and `Include` paths that contain whitespace.
+    /// Surrounding quotes are removed from each token.
+    static func tokenize(_ value: String) -> [String] {
+        var tokens: [String] = []
+        var current = ""
+        var inQuotes = false
+        var hasToken = false
+        for character in value {
+            if character == "\"" {
+                inQuotes.toggle()
+                hasToken = true
+                continue
+            }
+            if character.isWhitespace, !inQuotes {
+                if hasToken {
+                    tokens.append(current)
+                    current = ""
+                    hasToken = false
+                }
+                continue
+            }
+            current.append(character)
+            hasToken = true
+        }
+        if hasToken {
+            tokens.append(current)
+        }
+        return tokens
+    }
+
     /// Parse a `Host` line's patterns, honoring `!` negation and per-pattern
-    /// surrounding quotes.
+    /// quoting.
     static func parsePatterns(_ value: String) -> [HostPattern] {
-        value.split(whereSeparator: { $0.isWhitespace }).compactMap { token in
-            var text = Self.unquote(String(token))
+        tokenize(value).compactMap { token in
+            var text = token
             var negated = false
             if text.hasPrefix("!") {
                 negated = true
@@ -240,6 +288,8 @@ public struct SSHConfigParser: Sendable {
         }
     }
 
+    /// Strip one pair of surrounding double quotes from a single-valued
+    /// argument (multi-token arguments are handled by `tokenize`).
     static func unquote(_ value: String) -> String {
         guard value.count >= 2, value.hasPrefix("\""), value.hasSuffix("\"") else { return value }
         return String(value.dropFirst().dropLast())

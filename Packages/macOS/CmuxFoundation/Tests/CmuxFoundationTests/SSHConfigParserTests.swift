@@ -224,23 +224,74 @@ import Testing
         #expect(hosts.map(\.alias) == ["normal"])
     }
 
-    @Test func includeDirectiveExpandsThroughResolver() {
+    @Test func globalIncludeExpandsThroughResolver() {
+        // An Include before any Host is read unconditionally, so its hosts list.
         let main = """
+        Include extra
         Host main
             HostName main.example.com
-        Include extra
         """
         let extra = """
         Host included
             HostName included.example.com
             LocalForward 3000 localhost:3000
         """
-        let hosts = parser.hosts(configText: main) { argument in
-            argument == "extra" ? [extra] : []
+        let hosts = parser.hosts(configText: main) { path in
+            path == "extra" ? [extra] : []
         }
-        #expect(hosts.map(\.alias) == ["main", "included"])
-        #expect(hosts[1].hostName == "included.example.com")
-        #expect(hosts[1].localForwards == ["3000 localhost:3000"])
+        #expect(hosts.map(\.alias) == ["included", "main"])
+        let included = hosts.first { $0.alias == "included" }
+        #expect(included?.hostName == "included.example.com")
+        #expect(included?.localForwards == ["3000 localhost:3000"])
+    }
+
+    @Test func hostScopedIncludeWithHostLineDoesNotLeak() {
+        // `Include` after `Host work` is conditional on work; a `Host db` inside
+        // it is unreachable for a standalone `ssh db`, so it is not listed
+        // (verified against `ssh -G`).
+        let main = """
+        Host work
+            HostName work.example.com
+            Include snippets
+        """
+        let snippets = "Host db\n    HostName db.example.com\n"
+        let hosts = parser.hosts(configText: main) { path in
+            path == "snippets" ? [snippets] : []
+        }
+        #expect(hosts.map(\.alias) == ["work"])
+    }
+
+    @Test func wildcardHostScopedIncludeListsReachableAliases() {
+        // `Host *` matches every target, so its Include is effectively global
+        // and the included host is reachable and listed.
+        let main = """
+        Host *
+            Include common
+        """
+        let common = "Host shared\n    HostName shared.example.com\n"
+        let hosts = parser.hosts(configText: main) { path in
+            path == "common" ? [common] : []
+        }
+        #expect(hosts.map(\.alias) == ["shared"])
+    }
+
+    @Test func includeTokenizationHonorsQuotesAndMultiplePaths() {
+        // A quoted path may contain spaces; multiple paths are whitespace
+        // separated. The resolver is called once per path token.
+        let main = "Include \"space dir/a\" b\n"
+        let fileA = "Host alpha\n    HostName alpha.example.com\n"
+        let fileB = "Host beta\n    HostName beta.example.com\n"
+        var requestedPaths: [String] = []
+        let hosts = parser.hosts(configText: main) { path in
+            requestedPaths.append(path)
+            switch path {
+            case "space dir/a": return [fileA]
+            case "b": return [fileB]
+            default: return []
+            }
+        }
+        #expect(requestedPaths == ["space dir/a", "b"])
+        #expect(hosts.map(\.alias) == ["alpha", "beta"])
     }
 
     @Test func includeInheritsEnclosingHostScope() {
