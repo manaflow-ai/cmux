@@ -168,6 +168,14 @@ final class AgentChatSessionRegistry {
     private func applyObservedSessions(_ observed: [ObservedAgentSession]) {
         let now = Date()
         for session in observed {
+            #if DEBUG
+            cmuxDebugLog(
+                "agentChat.detect session=\(session.sessionID.prefix(8)) kind=\(session.agentKind.sourceName) "
+                + "surface=\(session.surfaceID.prefix(8)) pid=\(session.pid) "
+                + "transcript=\(session.transcriptPath != nil ? "fd" : "argv-only") "
+                + "\(records[session.sessionID] == nil ? "new" : "bind-existing")"
+            )
+            #endif
             if records[session.sessionID] == nil {
                 var record = AgentChatSessionRecord(
                     sessionID: session.sessionID,
@@ -412,10 +420,26 @@ final class AgentChatSessionRegistry {
         mutate(&record)
         stampVersion(&record)
         records[sessionID] = record
+        #if DEBUG
+        if previous.state != record.state {
+            cmuxDebugLog(
+                "agentChat.state session=\(sessionID.prefix(8)) "
+                + "\(Self.stateLabel(previous.state))->\(Self.stateLabel(record.state)) v\(record.version)"
+            )
+        }
+        #endif
         syncProcessExitWatch(for: record)
         updateLiveSessionIndex(previous: previous, current: record)
         onRecordChanged?(record, previous)
     }
+
+    #if DEBUG
+    /// Compact state label for the debug trace (`idle`/`working`/`needsInput`/
+    /// `ended`), stripping any associated value.
+    private static func stateLabel(_ state: ChatAgentState) -> String {
+        String(describing: state).split(separator: "(").first.map(String.init) ?? "?"
+    }
+    #endif
 
     /// A transcript tail can observe a completed assistant turn even when
     /// the agent hook stream never emits Stop (Claude weekly-limit replies
@@ -478,6 +502,15 @@ final class AgentChatSessionRegistry {
     func noteHookEvent(_ event: WorkstreamEvent) -> AgentChatSessionRecord {
         let sessionID = Self.normalizedSessionID(event.sessionId, source: event.source)
         let kind = ChatAgentKind(source: event.source)
+        #if DEBUG
+        cmuxDebugLog(
+            "agentChat.hook session=\(sessionID.prefix(8)) event=\(event.hookEventName.rawValue) "
+            + "source=\(event.source) tool=\(event.toolName ?? "-") "
+            + "toolInput=\(event.toolInputJSON != nil ? "yes" : "no") "
+            + "surface=\((event.surfaceId ?? "nil").prefix(8)) "
+            + "transcript=\(event.transcriptPath != nil ? "yes" : "no")"
+        )
+        #endif
         var record = records[sessionID] ?? AgentChatSessionRecord(
             sessionID: sessionID,
             agentKind: kind,

@@ -269,8 +269,20 @@ final class AgentChatTranscriptService {
         guard !failedResolutions.contains(record.sessionID) else { return nil }
         guard let path = resolver.transcriptPath(for: record) else {
             failedResolutions.insert(record.sessionID)
+            #if DEBUG
+            cmuxDebugLog(
+                "agentChat.transcript.resolve session=\(record.sessionID.prefix(8)) "
+                + "kind=\(record.agentKind.sourceName) cwd=\(record.workingDirectory ?? "nil") UNRESOLVED"
+            )
+            #endif
             return nil
         }
+        #if DEBUG
+        cmuxDebugLog(
+            "agentChat.transcript.resolve session=\(record.sessionID.prefix(8)) "
+            + "file=\((path as NSString).lastPathComponent)"
+        )
+        #endif
         if record.transcriptPath != path {
             registry.update(sessionID: record.sessionID) { $0.transcriptPath = path }
         }
@@ -289,6 +301,13 @@ final class AgentChatTranscriptService {
     }
 
     private func publishBatch(_ batch: AgentChatTranscriptTailer.Batch, sessionID: String) {
+        #if DEBUG
+        cmuxDebugLog(
+            "agentChat.transcript.batch session=\(sessionID.prefix(8)) "
+            + "appended=\(batch.appended.count) updated=\(batch.updated.count) "
+            + "reset=\(batch.didReset ? 1 : 0) title=\(batch.discoveredTitle != nil ? 1 : 0)"
+        )
+        #endif
         if batch.didReset {
             emit(frame: ChatSessionEventFrame(sessionID: sessionID, event: .reset))
         }
