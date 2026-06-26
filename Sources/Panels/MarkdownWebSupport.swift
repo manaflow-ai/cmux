@@ -131,6 +131,10 @@ struct MarkdownWebTheme: Equatable {
 final class MarkdownRendererSession {
     private let ownedCoordinator = MarkdownWebRenderer.Coordinator()
 
+    var webView: WKWebView? {
+        ownedCoordinator.webView
+    }
+
     func coordinator(
         panelId: UUID,
         workspaceId: UUID,

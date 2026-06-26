@@ -807,6 +807,9 @@ class TabManager: ObservableObject {
 #endif
             return handled
         }
+        if let markdownPanel = focusedMarkdownPanelForFind {
+            return markdownPanel.startFind()
+        }
         guard let browserPanel = focusedBrowserPanel else { return false }
         browserPanel.startFind()
         return browserPanel.searchState != nil
@@ -833,12 +836,20 @@ class TabManager: ObservableObject {
             return
         }
 
+        if focusedMarkdownPanelForFind?.findNext() == true {
+            return
+        }
+
         focusedBrowserPanel?.findNext()
     }
 
     func findPrevious() {
         if let panel = selectedTerminalPanel {
             _ = panel.performBindingAction("search:previous")
+            return
+        }
+
+        if focusedMarkdownPanelForFind?.findPrevious() == true {
             return
         }
 
@@ -2916,6 +2927,15 @@ class TabManager: ObservableObject {
               let panel = tab.panels[panelId] as? MarkdownPanel,
               panel.displayMode == .preview else { return nil }
         return panel
+    }
+
+    /// Returns the focused Markdown panel for native find actions. Unlike
+    /// preview zoom, Find is valid in both the rendered preview and raw text
+    /// editor modes.
+    private var focusedMarkdownPanelForFind: MarkdownPanel? {
+        guard let tab = selectedWorkspace,
+              let panelId = tab.focusedPanelId else { return nil }
+        return tab.panels[panelId] as? MarkdownPanel
     }
 
     @discardableResult
