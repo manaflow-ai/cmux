@@ -703,7 +703,7 @@ private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) 
     }
     if let cwd = entry.cwd, !cwd.isEmpty {
         Button {
-            SessionIndexWorkingDirectoryOpener.open(cwd: cwd)
+            WorkspaceFinderDirectoryOpener.openInFinder(path: cwd)
         } label: {
             Text(String(localized: "sessionIndex.row.openCwd", defaultValue: "Open Working Directory"))
         }

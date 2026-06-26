@@ -7,7 +7,7 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite struct SessionIndexWorkingDirectoryOpenerTests {
+@Suite struct WorkspaceFinderDirectoryOpenerTests {
     @MainActor
     @Test func routesWorkingDirectoryThroughSharedFinderOpener() async {
         let cwd = FileManager.default.temporaryDirectory
@@ -15,8 +15,8 @@ import Testing
             .path
         var finderOpenedPaths: [String?] = []
 
-        let task = SessionIndexWorkingDirectoryOpener.open(
-            cwd: cwd,
+        let task = WorkspaceFinderDirectoryOpener.openInFinder(
+            path: cwd,
             openInFinder: { finderOpenedPaths.append($0?.path) }
         )
         await task.value
