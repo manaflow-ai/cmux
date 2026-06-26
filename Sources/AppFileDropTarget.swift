@@ -66,3 +66,29 @@ final class AppFileDropTarget: FileDropTarget {
         }
     }
 }
+
+extension AppFileDropTarget {
+    /// Installs the window-level Finder file-drop overlay. The installer body and
+    /// AppKit positioning algorithm live in `CmuxWorkspaces.FileDropOverlayInstaller`;
+    /// `AppFileDropTarget` provides the app-target overlay/chrome/`TabManager` steps.
+    @discardableResult
+    static func installFileDropOverlay(on window: NSWindow, tabManager: TabManager) -> Bool {
+        FileDropOverlayInstaller(target: AppFileDropTarget())
+            .installFileDropOverlay(on: window, tabManager: tabManager)
+    }
+
+    /// Installs the file-drop overlay, retrying on the next main-loop turn until
+    /// the window's theme frame is ready (up to `remainingAttempts` times).
+    static func installFileDropOverlayWhenReady(
+        on window: NSWindow,
+        tabManager: TabManager,
+        remainingAttempts: Int = 16
+    ) {
+        FileDropOverlayInstaller(target: AppFileDropTarget())
+            .installFileDropOverlayWhenReady(
+                on: window,
+                tabManager: tabManager,
+                remainingAttempts: remainingAttempts
+            )
+    }
+}

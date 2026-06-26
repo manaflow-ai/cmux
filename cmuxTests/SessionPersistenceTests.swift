@@ -4849,20 +4849,20 @@ extension SessionPersistenceTests {
             environment: ["PATH": "/usr/bin:/bin"]
         )
 
-        let record = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
-            binding: binding,
-            policy: .auto,
-            commandPrefix: ["tmux", "attach"],
+        let record = try XCTUnwrap(SurfaceResumeApprovalStore(
             fileURL: storeURL,
             signingSecret: secret
+        ).approve(
+            binding: binding,
+            policy: .auto,
+            commandPrefix: ["tmux", "attach"]
         ))
         XCTAssertTrue(record.hasValidSignature(secret: secret))
 
-        let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
-            to: binding,
+        let effectiveBinding = SurfaceResumeApprovalStore(
             fileURL: storeURL,
             signingSecret: secret
-        )
+        ).applyingStoredApproval(to: binding)
         XCTAssertEqual(effectiveBinding.approvalPolicy, .auto)
         XCTAssertEqual(effectiveBinding.approvalRecordId, record.id)
         XCTAssertTrue(effectiveBinding.allowsAutomaticResume)
@@ -4875,11 +4875,10 @@ extension SessionPersistenceTests {
             source: "cli",
             environment: ["PATH": "/tmp/bin"]
         )
-        let changedEnvironmentEffectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
-            to: changedEnvironmentBinding,
+        let changedEnvironmentEffectiveBinding = SurfaceResumeApprovalStore(
             fileURL: storeURL,
             signingSecret: secret
-        )
+        ).applyingStoredApproval(to: changedEnvironmentBinding)
         XCTAssertEqual(changedEnvironmentEffectiveBinding.approvalPolicy, .manual)
         XCTAssertFalse(changedEnvironmentEffectiveBinding.allowsAutomaticResume)
     }
@@ -4893,22 +4892,22 @@ extension SessionPersistenceTests {
             source: "cli"
         )
 
-        var record = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
-            binding: binding,
-            policy: .manual,
+        var record = try XCTUnwrap(SurfaceResumeApprovalStore(
             fileURL: storeURL,
             signingSecret: secret
+        ).approve(
+            binding: binding,
+            policy: .manual
         ))
         record.policy = .auto
         let encoder = JSONEncoder()
         let data = try encoder.encode(SurfaceResumeApprovalStore.StoredFile(version: 1, records: [record]))
         try data.write(to: storeURL, options: [.atomic])
 
-        let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
-            to: binding,
+        let effectiveBinding = SurfaceResumeApprovalStore(
             fileURL: storeURL,
             signingSecret: secret
-        )
+        ).applyingStoredApproval(to: binding)
         XCTAssertEqual(effectiveBinding.approvalPolicy, .manual)
         XCTAssertNil(effectiveBinding.approvalRecordId)
         XCTAssertFalse(effectiveBinding.allowsAutomaticResume)
@@ -4924,11 +4923,10 @@ extension SessionPersistenceTests {
             approvalRecordId: "deleted-record"
         )
 
-        let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
-            to: binding,
+        let effectiveBinding = SurfaceResumeApprovalStore(
             fileURL: URL(fileURLWithPath: "/tmp/cmux-missing-\(UUID().uuidString).json"),
             signingSecret: Data("approval-secret".utf8)
-        )
+        ).applyingStoredApproval(to: binding)
         XCTAssertEqual(effectiveBinding.approvalPolicy, .manual)
         XCTAssertNil(effectiveBinding.approvalRecordId)
         XCTAssertFalse(effectiveBinding.allowsAutomaticResume)
@@ -4961,20 +4959,21 @@ extension SessionPersistenceTests {
             environment: ["PATH": "/usr/bin:/bin"]
         )
 
-        let effectiveBinding = try XCTUnwrap(SurfaceResumeApprovalStore.applyingPromptlessCLIManualApprovalIfNeeded(
-            to: binding,
-            existingRecord: nil,
+        let effectiveBinding = try XCTUnwrap(SurfaceResumeApprovalStore(
             fileURL: storeURL,
             signingSecret: secret
+        ).applyingPromptlessCLIManualApprovalIfNeeded(
+            to: binding,
+            existingRecord: nil
         ))
         XCTAssertEqual(effectiveBinding.approvalPolicy, .manual)
         XCTAssertFalse(effectiveBinding.allowsAutomaticResume)
         XCTAssertNotNil(effectiveBinding.approvalRecordId)
 
-        let records = SurfaceResumeApprovalStore.validRecords(
+        let records = SurfaceResumeApprovalStore(
             fileURL: storeURL,
             signingSecret: secret
-        )
+        ).validRecords()
         let record = try XCTUnwrap(records.first)
         XCTAssertEqual(records.count, 1)
         XCTAssertEqual(record.policy, .manual)
@@ -4982,11 +4981,12 @@ extension SessionPersistenceTests {
         XCTAssertEqual(record.commandPrefixText, "tmux attach -t work")
         XCTAssertEqual(effectiveBinding.approvalRecordId, record.id)
 
-        XCTAssertNil(SurfaceResumeApprovalStore.applyingPromptlessCLIManualApprovalIfNeeded(
-            to: binding,
-            existingRecord: record,
+        XCTAssertNil(SurfaceResumeApprovalStore(
             fileURL: storeURL,
             signingSecret: secret
+        ).applyingPromptlessCLIManualApprovalIfNeeded(
+            to: binding,
+            existingRecord: record
         ))
     }
 
@@ -5015,12 +5015,13 @@ extension SessionPersistenceTests {
             environment: ["PATH": "/usr/bin:/bin"]
         )
 
-        let record = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
-            binding: binding,
-            policy: .auto,
-            commandPrefix: ["tmux", "attach"],
+        let record = try XCTUnwrap(SurfaceResumeApprovalStore(
             fileURL: settingsURL,
             signingSecret: secret
+        ).approve(
+            binding: binding,
+            policy: .auto,
+            commandPrefix: ["tmux", "attach"]
         ))
 
         let root = try jsonObject(at: settingsURL)
@@ -5034,10 +5035,10 @@ extension SessionPersistenceTests {
         XCTAssertTrue(updatedSettings.contains("// keep terminal comment"))
         XCTAssertTrue(updatedSettings.contains("\r\n    \"resumeCommands\""))
 
-        let validRecords = SurfaceResumeApprovalStore.validRecords(
+        let validRecords = SurfaceResumeApprovalStore(
             fileURL: settingsURL,
             signingSecret: secret
-        )
+        ).validRecords()
         XCTAssertEqual(validRecords.map(\.id), [record.id])
         XCTAssertEqual(validRecords.first?.policy, .auto)
     }
@@ -5067,12 +5068,13 @@ extension SessionPersistenceTests {
             environment: ["PATH": "/usr/bin:/bin"]
         )
 
-        let record = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
-            binding: binding,
-            policy: .auto,
-            commandPrefix: ["tmux", "attach"],
+        let record = try XCTUnwrap(SurfaceResumeApprovalStore(
             fileURL: settingsURL,
             signingSecret: secret
+        ).approve(
+            binding: binding,
+            policy: .auto,
+            commandPrefix: ["tmux", "attach"]
         ))
 
         let updatedData = try Data(contentsOf: settingsURL)
@@ -5110,17 +5112,19 @@ extension SessionPersistenceTests {
             environment: ["PATH": "/usr/bin:/bin"]
         )
 
-        let record = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
-            binding: binding,
-            policy: .auto,
-            commandPrefix: ["tmux", "attach"],
+        let record = try XCTUnwrap(SurfaceResumeApprovalStore(
             fileURL: legacyURL,
             signingSecret: secret
+        ).approve(
+            binding: binding,
+            policy: .auto,
+            commandPrefix: ["tmux", "attach"]
         ))
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: legacyURL.path))
-        XCTAssertTrue(SurfaceResumeApprovalStore.migrateLegacyRecordsIfNeeded(
-            fileURL: settingsURL,
+        XCTAssertTrue(SurfaceResumeApprovalStore(
+            fileURL: settingsURL
+        ).migrateLegacyRecordsIfNeeded(
             legacyFileURL: legacyURL
         ))
 
@@ -5134,15 +5138,16 @@ extension SessionPersistenceTests {
         let updatedSettings = try String(contentsOf: settingsURL, encoding: .utf8)
         XCTAssertTrue(updatedSettings.contains("// keep migration comment"))
 
-        let validRecords = SurfaceResumeApprovalStore.validRecords(
+        let validRecords = SurfaceResumeApprovalStore(
             fileURL: settingsURL,
             signingSecret: secret
-        )
+        ).validRecords()
         XCTAssertEqual(validRecords.map(\.id), [record.id])
         XCTAssertTrue(FileManager.default.fileExists(atPath: legacyURL.path))
 
-        XCTAssertFalse(SurfaceResumeApprovalStore.migrateLegacyRecordsIfNeeded(
-            fileURL: settingsURL,
+        XCTAssertFalse(SurfaceResumeApprovalStore(
+            fileURL: settingsURL
+        ).migrateLegacyRecordsIfNeeded(
             legacyFileURL: legacyURL
         ))
         let rootAfterSecondMigration = try jsonObject(at: settingsURL)
@@ -5168,42 +5173,45 @@ extension SessionPersistenceTests {
             environment: ["PATH": "/usr/bin:/bin"]
         )
 
-        let legacyRecord = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
-            binding: binding,
-            policy: .auto,
-            commandPrefix: ["tmux", "attach"],
+        let legacyRecord = try XCTUnwrap(SurfaceResumeApprovalStore(
             fileURL: legacyURL,
             signingSecret: secret
+        ).approve(
+            binding: binding,
+            policy: .auto,
+            commandPrefix: ["tmux", "attach"]
         ))
 
-        XCTAssertEqual(SurfaceResumeApprovalStore.loadRecords(
+        XCTAssertEqual(SurfaceResumeApprovalStore(
             fileURL: settingsURL,
             defaultSettingsURL: settingsURL
-        ).map(\.id), [legacyRecord.id])
+        ).loadRecords().map(\.id), [legacyRecord.id])
         XCTAssertEqual(try Data(contentsOf: settingsURL), invalidSettingsData)
 
-        XCTAssertFalse(SurfaceResumeApprovalStore.migrateLegacyRecordsIfNeeded(
-            fileURL: settingsURL,
+        XCTAssertFalse(SurfaceResumeApprovalStore(
+            fileURL: settingsURL
+        ).migrateLegacyRecordsIfNeeded(
             legacyFileURL: legacyURL
         ))
         XCTAssertEqual(try Data(contentsOf: settingsURL), invalidSettingsData)
 
-        XCTAssertNotNil(SurfaceResumeApprovalStore.approve(
+        XCTAssertNotNil(SurfaceResumeApprovalStore(
+            fileURL: settingsURL,
+            signingSecret: secret
+        ).approve(
             binding: binding,
             policy: .auto,
-            commandPrefix: ["tmux", "attach"],
-            fileURL: settingsURL,
-            signingSecret: secret
+            commandPrefix: ["tmux", "attach"]
         ))
         XCTAssertEqual(try Data(contentsOf: settingsURL), invalidSettingsData)
-        XCTAssertTrue(SurfaceResumeApprovalStore.validRecords(
+        XCTAssertTrue(SurfaceResumeApprovalStore(
             fileURL: settingsURL,
             signingSecret: secret
-        ).isEmpty)
-        XCTAssertEqual(SurfaceResumeApprovalStore.validRecords(
+        ).validRecords().isEmpty)
+        XCTAssertEqual(SurfaceResumeApprovalStore(
             fileURL: legacyURL,
             signingSecret: secret
-        ).map(\.id), [legacyRecord.id])
+        ).validRecords().map(\.id), [legacyRecord.id])
     }
 
     func testSurfaceResumeApprovalPromptsForUnknownManualProposal() throws {
@@ -5230,11 +5238,12 @@ extension SessionPersistenceTests {
             source: "cli"
         )
 
-        XCTAssertNotNil(SurfaceResumeApprovalStore.approve(
-            binding: binding,
-            policy: .prompt,
+        XCTAssertNotNil(SurfaceResumeApprovalStore(
             fileURL: storeURL,
             signingSecret: secret
+        ).approve(
+            binding: binding,
+            policy: .prompt
         ))
 
         let input = Workspace.surfaceResumeStartupInput(
@@ -5255,11 +5264,12 @@ extension SessionPersistenceTests {
             source: "cli"
         )
 
-        XCTAssertNotNil(SurfaceResumeApprovalStore.approve(
-            binding: binding,
-            policy: .prompt,
+        XCTAssertNotNil(SurfaceResumeApprovalStore(
             fileURL: storeURL,
             signingSecret: secret
+        ).approve(
+            binding: binding,
+            policy: .prompt
         ))
 
         let input = Workspace.surfaceResumeStartupInput(
@@ -5279,11 +5289,10 @@ extension SessionPersistenceTests {
             source: "process-detected"
         )
 
-        let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
-            to: binding,
+        let effectiveBinding = SurfaceResumeApprovalStore(
             fileURL: URL(fileURLWithPath: "/tmp/cmux-missing-\(UUID().uuidString).json"),
             signingSecret: Data("approval-secret".utf8)
-        )
+        ).applyingStoredApproval(to: binding)
         XCTAssertEqual(effectiveBinding.approvalPolicy, .auto)
         XCTAssertTrue(effectiveBinding.allowsAutomaticResume)
     }
@@ -5296,11 +5305,10 @@ extension SessionPersistenceTests {
             autoResume: true
         )
 
-        let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
-            to: binding,
+        let effectiveBinding = SurfaceResumeApprovalStore(
             fileURL: URL(fileURLWithPath: "/tmp/cmux-missing-\(UUID().uuidString).json"),
             signingSecret: Data("approval-secret".utf8)
-        )
+        ).applyingStoredApproval(to: binding)
         XCTAssertEqual(effectiveBinding.approvalPolicy, .auto)
         XCTAssertTrue(effectiveBinding.allowsAutomaticResume)
     }

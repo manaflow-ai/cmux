@@ -844,6 +844,7 @@
 		A1577A00DEB60000000000A0 /* StartupAppearanceDebugReloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1577A00DEB60000000000A1 /* StartupAppearanceDebugReloader.swift */; };
 		D35B71010000000000000001 /* StartupBreadcrumbLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B71010000000000000002 /* StartupBreadcrumbLog.swift */; };
 		D7AB00000000000000B041 /* SupersededPhoneDismissBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000B040 /* SupersededPhoneDismissBuffer.swift */; };
+		A50016AA /* SurfaceResumeApprovalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50016AB /* SurfaceResumeApprovalStore.swift */; };
 		A5001303 /* SurfaceSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001301 /* SurfaceSearchOverlay.swift */; };
 		C9A5720BC9A5720BC9A5720B /* TabItemView+WorkspaceGroups.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A5720CC9A5720CC9A5720C /* TabItemView+WorkspaceGroups.swift */; };
 		E3B7A400000000000000AD01 /* TabManager+AgentPIDLivenessSweepHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000AD02 /* TabManager+AgentPIDLivenessSweepHosting.swift */; };
@@ -1928,6 +1929,7 @@
 		A1577A00DEB60000000000A1 /* StartupAppearanceDebugReloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartupAppearanceDebugReloader.swift; sourceTree = "<group>"; };
 		D35B71010000000000000002 /* StartupBreadcrumbLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/StartupBreadcrumbLog.swift; sourceTree = "<group>"; };
 		D7AB00000000000000B040 /* SupersededPhoneDismissBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupersededPhoneDismissBuffer.swift; sourceTree = "<group>"; };
+		A50016AB /* SurfaceResumeApprovalStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeApprovalStore.swift; sourceTree = "<group>"; };
 		A5001301 /* SurfaceSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/SurfaceSearchOverlay.swift; sourceTree = "<group>"; };
 		C9A5720CC9A5720CC9A5720C /* TabItemView+WorkspaceGroups.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabItemView+WorkspaceGroups.swift"; sourceTree = "<group>"; };
 		E3B7A400000000000000AD02 /* TabManager+AgentPIDLivenessSweepHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+AgentPIDLivenessSweepHosting.swift"; sourceTree = "<group>"; };
@@ -2953,6 +2955,7 @@
 				A5001241 /* WindowDecorationsController.swift */,
 				CD0CFE6300000000CD0CFE63 /* HostSettingsActions.swift */,
 				A5001611 /* SessionPersistence.swift */,
+				A50016AB /* SurfaceResumeApprovalStore.swift */,
 				E30791000000000000000001 /* SessionWorkspaceLayoutSnapshot+Pruning.swift */,
 				E30798000000000000000001 /* SessionWorkspaceLayoutSnapshot+NodeBuilding.swift */,
 				E30798000000000000000003 /* Workspace+SessionRestoreHosting.swift */,
@@ -4311,6 +4314,7 @@
 				A1577A00DEB60000000000A0 /* StartupAppearanceDebugReloader.swift in Sources */,
 				D35B71010000000000000001 /* StartupBreadcrumbLog.swift in Sources */,
 				D7AB00000000000000B041 /* SupersededPhoneDismissBuffer.swift in Sources */,
+				A50016AA /* SurfaceResumeApprovalStore.swift in Sources */,
 				A5001303 /* SurfaceSearchOverlay.swift in Sources */,
 				C9A5720BC9A5720BC9A5720B /* TabItemView+WorkspaceGroups.swift in Sources */,
 				E3B7A400000000000000AD01 /* TabManager+AgentPIDLivenessSweepHosting.swift in Sources */,

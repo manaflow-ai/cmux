@@ -93,9 +93,10 @@ extension TerminalController {
     private func surfaceResumeBindingWithApproval(
         _ binding: SurfaceResumeBindingSnapshot
     ) -> SurfaceResumeBindingSnapshot {
-        let existingRecord = SurfaceResumeApprovalStore.matchingRecord(for: binding)
-        var effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(to: binding)
-        if let promptlessCLIManualBinding = SurfaceResumeApprovalStore.applyingPromptlessCLIManualApprovalIfNeeded(
+        let approvalStore = SurfaceResumeApprovalStore()
+        let existingRecord = approvalStore.matchingRecord(for: binding)
+        var effectiveBinding = approvalStore.applyingStoredApproval(to: binding)
+        if let promptlessCLIManualBinding = approvalStore.applyingPromptlessCLIManualApprovalIfNeeded(
             to: binding,
             existingRecord: existingRecord
         ) {
@@ -110,10 +111,10 @@ extension TerminalController {
             return effectiveBinding
         }
         let policy = surfacePromptForResumeApproval(binding: effectiveBinding)
-        guard let record = SurfaceResumeApprovalStore.approve(binding: binding, policy: policy) else {
+        guard let record = approvalStore.approve(binding: binding, policy: policy) else {
             return effectiveBinding
         }
-        effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(to: binding)
+        effectiveBinding = approvalStore.applyingStoredApproval(to: binding)
         effectiveBinding.approvalPolicy = record.policy
         effectiveBinding.approvalRecordId = record.id
         effectiveBinding.autoResume = record.policy == .auto

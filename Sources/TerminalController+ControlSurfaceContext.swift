@@ -50,7 +50,7 @@ extension TerminalController: ControlSurfaceContext {
         from binding: SurfaceResumeBindingSnapshot?
     ) -> ControlSurfaceResumeBinding? {
         guard let binding else { return nil }
-        let effective = SurfaceResumeApprovalStore.applyingStoredApproval(to: binding)
+        let effective = SurfaceResumeApprovalStore().applyingStoredApproval(to: binding)
         return ControlSurfaceResumeBinding(
             name: effective.name,
             kind: effective.kind,

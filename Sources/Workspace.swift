@@ -2457,11 +2457,10 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     ) -> WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot> {
         WorkspaceSessionRestorePolicyService(
             applyStoredApproval: { binding, fileURL, signingSecret in
-                SurfaceResumeApprovalStore.applyingStoredApproval(
-                    to: binding,
+                SurfaceResumeApprovalStore(
                     fileURL: fileURL,
                     signingSecret: signingSecret
-                )
+                ).applyingStoredApproval(to: binding)
             },
             shouldRunPromptedSurfaceResume: { binding in
                 Self.shouldRunPromptedSurfaceResume(binding)

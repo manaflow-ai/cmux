@@ -566,15 +566,13 @@ struct RestorableAgentSessionIndex: Sendable {
 
     /// The directory cmux must `cd` into to resume or fork this session.
     ///
-    /// Many agents store their session under a directory derived from the cwd the session was
-    /// *launched* in (Claude `projects/<encode(cwd)>/`, plus the Grok/Pi/Gemini/Cursor/Qoder
-    /// cwd-keyed buckets), and `--resume` / `--fork` only locate it from that same directory. The
-    /// hook-reported `cwd` drifts when the agent `cd`s elsewhere mid-session (e.g. starting in a
-    /// repo root, then moving into a worktree), so trusting it makes resume fail with "No
-    /// conversation found". For directory-namespaced kinds, prefer the stable launch cwd (it matches
-    /// the namespace and never drifts); for Claude, first verify which candidate actually holds the
-    /// transcript. For kinds that key sessions by id and record the cwd inside the session file
-    /// (Codex, OpenCode, Amp, …), keep the recorded cwd so the resumed agent reopens where it was.
+    /// The cross-kind namespacing policy (directory-namespaced kinds pin the stable launch cwd,
+    /// which matches their session-store namespace and never drifts; id-keyed kinds keep the runtime
+    /// cwd so the agent reopens where it was working) is the single source of truth in
+    /// ``AgentResumeWorkingDirectory/resolve(kind:runtimeCwd:launchWorkingDirectory:)``, shared with
+    /// the standalone `cmux-cli` resume-binding publisher. Two branches stay app-side because they
+    /// read app-target state the package cannot: the Vault `registration` cwd policy, and Claude's
+    /// transcript-verified candidate (which needs this record's `claudeTranscriptQuery` and `lookup`).
     private static func restorableWorkingDirectory(
         for record: RestorableAgentHookSessionRecord,
         kind: RestorableAgentKind,
@@ -589,30 +587,29 @@ struct RestorableAgentSessionIndex: Sendable {
         // a `.preserve` cwd policy, so keep the runtime cwd the agent was working in rather than the
         // launch dir. `.ignore` agents resume from the current directory, so the snapshot must carry
         // no saved cwd at all (downstream restore consumers read `workingDirectory` directly, not just
-        // the command builder). The by-directory namespace below is only for built-in agents.
+        // the command builder). The shared namespacing policy below is only for built-in agents.
         if let registration {
             return registration.cwd == .ignore ? nil : (recordedCwd ?? launchCwd)
         }
 
-        switch kind.cwdNamespacing {
-        case .cwdInFile:
-            // Resume is addressed by id and the cwd lives inside the record, so the runtime cwd is
-            // fine — keeping it preserves the directory the agent was working in.
-            return recordedCwd ?? launchCwd
-        case .byDirectory:
-            if kind == .claude,
-               let verified = ClaudeTranscriptResolver(fileManager: fileManager).verifiedRestorableWorkingDirectory(
-                   query: record.claudeTranscriptQuery,
-                   recordedCwd: recordedCwd,
-                   launchCwd: launchCwd,
-                   lookup: lookup
-               ) {
-                return verified
-            }
-            // The launch cwd matches the session namespace and never drifts; fall back to the
-            // recorded cwd only when no launch cwd was captured.
-            return launchCwd ?? recordedCwd
+        // Claude is directory-namespaced, but its launch and recorded cwds can both look plausible;
+        // verify which one actually holds the transcript before deferring to the shared launch-cwd
+        // policy below.
+        if kind == .claude,
+           let verified = ClaudeTranscriptResolver(fileManager: fileManager).verifiedRestorableWorkingDirectory(
+               query: record.claudeTranscriptQuery,
+               recordedCwd: recordedCwd,
+               launchCwd: launchCwd,
+               lookup: lookup
+           ) {
+            return verified
         }
+
+        return AgentResumeWorkingDirectory().resolve(
+            kind: kind.rawValue,
+            runtimeCwd: recordedCwd,
+            launchWorkingDirectory: launchCwd
+        )
     }
 
     static func encodeClaudeProjectDir(_ path: String) -> String {

@@ -225,7 +225,7 @@ final class FeedCoordinator: @unchecked Sendable {
             MainActor.assumeIsolated {
                 let store = FeedCoordinator.shared.store
                 guard let store else { return }
-                if let itemId = Self.findItemId(for: requestId, in: store.items) {
+                if let itemId = store.items.mostRecentActionableItemID(forRequestID: requestId) {
                     store.markResolved(itemId, decision: decision)
                 }
             }
@@ -244,25 +244,6 @@ final class FeedCoordinator: @unchecked Sendable {
         defer { waiterLock.unlock() }
         guard let waiter = waiters[requestId] else { return false }
         return waiter.decision == nil
-    }
-
-    private static func findItemId(
-        for requestId: String,
-        in items: [WorkstreamItem]
-    ) -> UUID? {
-        for item in items.reversed() {
-            switch item.payload {
-            case .permissionRequest(let rid, _, _, _) where rid == requestId:
-                return item.id
-            case .exitPlan(let rid, _, _) where rid == requestId:
-                return item.id
-            case .question(let rid, _) where rid == requestId:
-                return item.id
-            default:
-                continue
-            }
-        }
-        return nil
     }
 
     private func expireTimedOutItem(_ itemId: UUID?) {
