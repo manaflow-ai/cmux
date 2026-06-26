@@ -1537,17 +1537,22 @@ html { scroll-behavior: smooth; }
         // left at its default (false) so \href/\includegraphics are inert.
         // throwOnError:false renders KaTeX's own inline error for malformed
         // math, so this catch only fires on an unexpected JS exception.
+        // maxSize/maxExpand bound \rule/\kern sizes and macro expansion so a
+        // hostile document can't blow up the DOM from the math path.
         el.innerHTML = katex.renderToString(src, {
           throwOnError: false,
           output: 'html',
-          displayMode: displayMode
+          displayMode: displayMode,
+          maxSize: 100,
+          maxExpand: 1000
         });
       } catch (e) {
         // Build via DOM with a generic message — never surface raw upstream
-        // exception text in the document.
+        // exception text in the document. cmuxString keys are the bare dict
+        // keys from MarkdownViewerAssets.localizedStringsJSON, not catalog keys.
         var errorEl = document.createElement('span');
         errorEl.className = 'cmux-math-error';
-        errorEl.textContent = cmuxString('markdown.web.mathRenderFailed', 'Unable to render math');
+        errorEl.textContent = cmuxString('mathRenderFailed', 'Unable to render math');
         el.textContent = '';
         el.appendChild(errorEl);
       }
