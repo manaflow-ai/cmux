@@ -149,6 +149,111 @@ final class CmuxMainWindow: NSWindow {
         }
         return false
     }
+
+    /// After the app has been inactive and a display sleep/wake or screen
+    /// reconfiguration occurred, a main window can come back genuinely
+    /// *resized* to a small frame — a native-fullscreen exit, an un-zoom
+    /// revert, or a display-mode resize. ``constrainFrameRect(_:to:)`` cannot
+    /// undo that: it only vetoes AppKit's re-constrain of an already-good
+    /// frame, not a real resize applied through another path, so the shrunken
+    /// frame sticks. This is issue #5492 — "goes from full screen to 2/3 of
+    /// the screen after the terminal has lost focus for some time" (≈ the
+    /// 1000×700 default window on a built-in MacBook display).
+    ///
+    /// A frame change while the app is inactive is never user-driven (the user
+    /// is in another app), so reverting the window to the frame it had when the
+    /// user last left it is safe. Returns the frame to restore (clamped to the
+    /// screen it overlaps most), or `nil` when no restore is warranted: the
+    /// window did not shrink meaningfully, or the pre-deactivation frame is no
+    /// longer *substantially* on any current screen — its display was unplugged,
+    /// or the display woke at a smaller mode — in which case the OS-adjusted
+    /// on-screen frame is kept rather than restoring stale geometry.
+    ///
+    /// The containment bar is deliberately stricter than the 60pt reachability
+    /// used by ``shouldPreserveFrameDuringConstrain(_:visibleFrames:)``: that
+    /// bar is right for *not stranding* a window during a constrain pass, but a
+    /// topology/resolution change while inactive can leave the old frame mostly
+    /// off-screen (or larger than the current display) while still clearing
+    /// 60pt, and restoring it then would push the window back off-screen.
+    nonisolated static func restoredFrameAfterInactiveDisplayTransition(
+        current: NSRect,
+        beforeDeactivation: NSRect,
+        visibleFrames: [NSRect],
+        minimumShrink: CGFloat = 40,
+        minimumOnScreenFraction: CGFloat = 0.75
+    ) -> NSRect? {
+        // Require a meaningful shrink in at least one dimension. A frame that
+        // is the same size or larger than before is left untouched.
+        let shrankWidth = beforeDeactivation.width - current.width >= minimumShrink
+        let shrankHeight = beforeDeactivation.height - current.height >= minimumShrink
+        guard shrankWidth || shrankHeight else { return nil }
+
+        let area = beforeDeactivation.width * beforeDeactivation.height
+        guard area > 0 else { return nil }
+
+        // Pick the screen the previous frame overlaps most and require it to be
+        // substantially on that screen, so a display topology/resolution change
+        // while inactive can't restore a stale frame mostly off-screen.
+        var bestVisible: NSRect?
+        var bestArea: CGFloat = 0
+        for visible in visibleFrames {
+            let intersection = beforeDeactivation.intersection(visible)
+            let intersectionArea = intersection.isNull ? 0 : intersection.width * intersection.height
+            if intersectionArea > bestArea {
+                bestArea = intersectionArea
+                bestVisible = visible
+            }
+        }
+        guard let target = bestVisible, bestArea >= area * minimumOnScreenFraction else {
+            return nil
+        }
+
+        // Clamp to that screen so a small overhang past the visible area (e.g.
+        // a titlebar that sat under the menu bar) doesn't leave part of the
+        // window off-screen after restoring.
+        let restored = clampedToVisibleFrame(beforeDeactivation, target)
+
+        // Only restore when the clamped result still meaningfully un-shrinks the
+        // window; if clamping collapsed it back to ~the current size, leave it.
+        guard restored.width - current.width >= minimumShrink
+            || restored.height - current.height >= minimumShrink else {
+            return nil
+        }
+        return restored
+    }
+
+    /// Fits `frame` inside `visibleFrame`: shrinks it to the visible size when
+    /// larger, then nudges it fully on-screen.
+    private nonisolated static func clampedToVisibleFrame(_ frame: NSRect, _ visibleFrame: NSRect) -> NSRect {
+        guard visibleFrame.width > 0, visibleFrame.height > 0 else { return frame }
+        let width = min(frame.width, visibleFrame.width)
+        let height = min(frame.height, visibleFrame.height)
+        let x = min(max(frame.minX, visibleFrame.minX), visibleFrame.maxX - width)
+        let y = min(max(frame.minY, visibleFrame.minY), visibleFrame.maxY - height)
+        return NSRect(x: x, y: y, width: width, height: height)
+    }
+
+    /// Restores `window` to `frameBeforeDeactivation` when
+    /// ``restoredFrameAfterInactiveDisplayTransition(current:beforeDeactivation:visibleFrames:minimumShrink:)``
+    /// decides the window shrank while the app was inactive. Windows still in
+    /// native fullscreen are skipped — macOS owns their frame. Returns whether
+    /// a restore was applied.
+    @MainActor
+    @discardableResult
+    static func applyRestoredFrameAfterInactiveDisplayTransition(
+        to window: NSWindow,
+        frameBeforeDeactivation: NSRect,
+        visibleFrames: [NSRect]
+    ) -> Bool {
+        guard !window.styleMask.contains(.fullScreen) else { return false }
+        guard let restored = restoredFrameAfterInactiveDisplayTransition(
+            current: window.frame,
+            beforeDeactivation: frameBeforeDeactivation,
+            visibleFrames: visibleFrames
+        ) else { return false }
+        window.setFrame(restored, display: true)
+        return true
+    }
 }
 
 extension CmuxMainWindow {
