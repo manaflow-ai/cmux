@@ -14,7 +14,7 @@ import AppKit
 struct CMUXMobileRootView: View {
     @Bindable var store: CMUXMobileShellStore
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(AuthCoordinator.self) private var authManager
+    @Environment(AuthCoordinator.self) var authManager
     #if os(iOS)
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     /// The persisted first-run onboarding "seen" flag store. The one-time
@@ -76,10 +76,6 @@ struct CMUXMobileRootView: View {
         #else
         return false
         #endif
-    }
-
-    var canShowAuthCodeEntry: Bool {
-        authManager.hasPendingMagicLinkCode
     }
 
     @ViewBuilder private var terminalLayoutPreview: some View {

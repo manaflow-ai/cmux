@@ -12,7 +12,7 @@ extension CMUXMobileRootView {
                     "auth.error.mobileWebSignInRequiresCode",
                     defaultValue: "For security, enter the code from this email in cmux."
                 )
-                shouldShowAuthCodeEntry = canShowAuthCodeEntry
+                shouldShowAuthCodeEntry = authManager.hasPendingMagicLinkCode
                 return
             }
             authCallbackError = SignInErrorPresentation()
