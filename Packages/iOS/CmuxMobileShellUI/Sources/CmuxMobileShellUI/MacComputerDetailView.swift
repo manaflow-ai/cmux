@@ -83,7 +83,11 @@ struct MacComputerDetailView: View {
         }
         .navigationTitle(pairedMac?.resolvedName ?? macDeviceID)
         .navigationBarTitleDisplayMode(.inline)
-        .task(id: isForeground) { await loadPowerStatus() }
+        // Key on both gates: capabilities arrive asynchronously from the host
+        // handshake, so a load keyed to `isForeground` alone would miss the case
+        // where `supportsMacPowerControl` flips to true while this view is open
+        // (the section would render but stay stuck on "Checking…").
+        .task(id: powerLoadKey) { await loadPowerStatus() }
         .confirmationDialog(
             L10n.string("mobile.computers.power.sleepConfirmTitle", defaultValue: "Sleep this Mac?"),
             isPresented: $pendingSleep,
@@ -423,6 +427,12 @@ struct MacComputerDetailView: View {
             names.append(name)
         }
         return names
+    }
+
+    /// `.task` identity for the auto-load: reruns when either gate flips, so the
+    /// first status fetch fires whenever the section actually becomes available.
+    private var powerLoadKey: String {
+        "\(isForeground)-\(store.supportsMacPowerControl)"
     }
 
     private func loadPowerStatus() async {
