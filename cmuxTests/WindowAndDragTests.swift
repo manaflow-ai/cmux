@@ -28,6 +28,8 @@ import struct CmuxWindowing.MinimalModeTitlebarClickRecord
 // the moved type to avoid shadowing app-target names with a blanket import.
 import struct CmuxWorkspaces.TmuxPaneOverlayGeometry
 import class CmuxWorkspaces.TmuxWorkspacePaneOverlayModel
+import struct CmuxWorkspaces.FilePreviewDragEntry
+import class CmuxWorkspaces.FilePreviewDragRegistry
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
