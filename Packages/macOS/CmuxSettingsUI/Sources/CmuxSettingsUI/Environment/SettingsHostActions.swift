@@ -82,6 +82,29 @@ public protocol SettingsHostActions: AnyObject {
     /// `UserDefaults`, so it comes from the host rather than the catalog.
     func sidebarFontSize() -> SettingsFontSize
 
+    /// The current terminal font family from Ghostty config.
+    func terminalFontFamily() -> String
+
+    /// Persists a new terminal font family to Ghostty config and live-reloads
+    /// open windows.
+    ///
+    /// - Returns: `true` if the value was written and reloaded, `false` if
+    ///   persistence failed.
+    @discardableResult
+    func setTerminalFontFamily(_ family: String) async -> Bool
+
+    /// The current terminal font size with the range + default Settings should
+    /// offer. Backed by Ghostty config.
+    func terminalFontSize() -> SettingsFontSize
+
+    /// Persists a new terminal font size to Ghostty config and live-reloads open
+    /// windows. The host clamps to the valid range.
+    ///
+    /// - Returns: `true` if the value was written and reloaded, `false` if
+    ///   persistence failed.
+    @discardableResult
+    func setTerminalFontSize(_ points: Double) async -> Bool
+
     /// Persists a new left-sidebar font size (in points) to the Ghostty
     /// config and live-reloads open windows. The host clamps to the valid
     /// range, so callers may pass any finite value.
@@ -195,6 +218,18 @@ public extension SettingsHostActions {
     func sidebarFontSize() -> SettingsFontSize {
         SettingsFontSize(points: 12.5, minimum: 10, maximum: 20, defaultValue: 12.5)
     }
+
+    func terminalFontFamily() -> String {
+        "Menlo"
+    }
+
+    func setTerminalFontFamily(_ family: String) async -> Bool { true }
+
+    func terminalFontSize() -> SettingsFontSize {
+        SettingsFontSize(points: 12, minimum: 6, maximum: 72, defaultValue: 12)
+    }
+
+    func setTerminalFontSize(_ points: Double) async -> Bool { true }
 
     func setSidebarFontSize(_ points: Double) async -> Bool { true }
 

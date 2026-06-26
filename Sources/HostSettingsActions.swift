@@ -18,7 +18,7 @@ private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category:
 final class HostSettingsActions: SettingsHostActions {
     private let configFileURL: URL
 
-    /// Serializes font-size config writes so rapid slider saves persist in order.
+    /// Serializes font config writes so rapid control changes persist in order.
     private let fontConfigWriter = FontConfigWriter()
 
     /// AppKit window identifier the dedicated terminal-config window carries.
@@ -204,6 +204,41 @@ final class HostSettingsActions: SettingsHostActions {
         )
     }
 
+    func terminalFontFamily() -> String {
+        // See ``sidebarFontSize()`` — uses the cached config to avoid main-actor disk I/O.
+        let family = GhosttyConfig.load().fontFamily.trimmingCharacters(in: .whitespacesAndNewlines)
+        return family.isEmpty ? CmuxGhosttyConfigSettingEditor.defaultTerminalFontFamily : family
+    }
+
+    func setTerminalFontFamily(_ family: String) async -> Bool {
+        let trimmed = family.trimmingCharacters(in: .whitespacesAndNewlines)
+        let value = trimmed.isEmpty ? CmuxGhosttyConfigSettingEditor.defaultTerminalFontFamily : trimmed
+        return await persistFontSetting(
+            key: CmuxGhosttyConfigSettingEditor.terminalFontFamilyKey,
+            value: value,
+            reloadSource: "settings.appearance.terminalFontFamily"
+        )
+    }
+
+    func terminalFontSize() -> SettingsFontSize {
+        // See ``sidebarFontSize()`` — uses the cached config to avoid main-actor disk I/O.
+        let editor = CmuxGhosttyConfigSettingEditor()
+        return SettingsFontSize(
+            points: editor.clampedTerminalFontSize(Double(GhosttyConfig.load().fontSize)),
+            minimum: CmuxGhosttyConfigSettingEditor.minTerminalFontSize,
+            maximum: CmuxGhosttyConfigSettingEditor.maxTerminalFontSize,
+            defaultValue: CmuxGhosttyConfigSettingEditor.defaultTerminalFontSize
+        )
+    }
+
+    func setTerminalFontSize(_ points: Double) async -> Bool {
+        await persistFontSize(
+            key: CmuxGhosttyConfigSettingEditor.terminalFontSizeKey,
+            points: CmuxGhosttyConfigSettingEditor().clampedTerminalFontSize(points),
+            reloadSource: "settings.appearance.terminalFontSize"
+        )
+    }
+
     func setSidebarFontSize(_ points: Double) async -> Bool {
         await persistFontSize(
             key: CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey,
@@ -340,7 +375,11 @@ final class HostSettingsActions: SettingsHostActions {
     ///   warning is logged here; the Settings UI surfaces a save-failed message).
     private func persistFontSize(key: String, points: Double, reloadSource: String) async -> Bool {
         let formatted = CmuxGhosttyConfigSettingEditor().formattedFontSize(points)
-        guard await fontConfigWriter.write(key: key, value: formatted) else {
+        return await persistFontSetting(key: key, value: formatted, reloadSource: reloadSource)
+    }
+
+    private func persistFontSetting(key: String, value: String, reloadSource: String) async -> Bool {
+        guard await fontConfigWriter.write(key: key, value: value) else {
             hostSettingsLogger.warning("failed to persist \(key, privacy: .public)")
             return false
         }
@@ -367,13 +406,14 @@ final class MobileHostStatusObserverToken: @unchecked Sendable {
     }
 }
 
-/// Serializes cmux Ghostty config writes for the font-size settings so rapid
+/// Serializes cmux Ghostty config writes for font settings so rapid
 /// successive saves apply in submission order instead of racing.
 ///
-/// The Settings sliders fire a save on every release and Reset tap. Routed
-/// through this single actor, the writes run one-at-a-time in arrival order —
-/// each write is a full overwrite of the key, so the most recently submitted
-/// value is always the one left on disk. The work runs off the main actor.
+/// Settings controls fire saves from slider releases, picker changes, and Reset
+/// taps. Routed through this single actor, the writes run one-at-a-time in
+/// arrival order — each write is a full overwrite of the key, so the most
+/// recently submitted value is always the one left on disk. The work runs off
+/// the main actor.
 private actor FontConfigWriter {
     /// Writes a single cmux-editable Ghostty config setting to disk.
     ///

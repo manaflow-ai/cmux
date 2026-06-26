@@ -27,9 +27,16 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .automation, id: "cursor", title: "Cursor Integration", synonyms: "automation.cursorIntegration cursor ide agent hooks notifications"),
             .init(section: .automation, id: "gemini", title: "Gemini CLI Integration", synonyms: "automation.geminiIntegration gemini cli google agent hooks notifications"),
 
+            // Appearance
+            .init(section: .appearance, id: "appearance", title: String(localized: "settings.app.appearance", defaultValue: "Appearance"), paths: ["app.appearance"], synonyms: "app.appearance theme color scheme light mode dark mode system mode app appearance"),
+            .init(section: .appearance, id: "terminal-font", title: String(localized: "settings.appearance.terminalFont", defaultValue: "Terminal Font"), synonyms: "font-family font-size terminal font monospace typeface family size points ghostty config text bigger smaller"),
+            .init(section: .appearance, id: "global-font-magnification", title: String(localized: "settings.app.globalFontMagnification", defaultValue: "Global Font Magnification"), paths: ["app.globalFontMagnification"], synonyms: "app.globalFontMagnification global font magnification scale text zoom terminals tabs chrome sidebar workspace bigger smaller accessibility ui scale"),
+            .init(section: .appearance, id: "sidebar-font-size", title: String(localized: "settings.sidebarAppearance.fontSize", defaultValue: "Sidebar Font Size"), synonyms: "sidebar-font-size sidebar font size text scale workspace title badge metadata shortcut hint"),
+            .init(section: .appearance, id: "tab-bar-font-size", title: String(localized: "settings.terminal.tabBarFontSize", defaultValue: "Tab Bar Font Size"), synonyms: "surface-tab-bar-font-size tab bar font size text scale terminal browser pane tab title workspace title"),
+            .init(section: .appearance, id: "match-terminal", title: String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"), paths: ["sidebarAppearance.matchTerminalBackground"], synonyms: "sidebarAppearance.matchTerminalBackground transparent background material terminal background sync"),
+
             // App
             .init(section: .app, id: "language", title: "Language", synonyms: "app.language locale l10n localization translation japanese english ja en nihongo restart"),
-            .init(section: .app, id: "appearance", title: "Appearance", synonyms: "app.appearance theme color scheme light mode dark mode system mode"),
             .init(section: .app, id: "app-icon", title: "App Icon", synonyms: "app.appIcon dock icon application icon app switcher alternate icon"),
             .init(section: .app, id: "new-workspace-placement", title: "New Workspace Placement", synonyms: "app.newWorkspacePlacement new tab insert position order top bottom end"),
             .init(section: .app, id: "workspace-inherit-working-directory", title: "Inherit Workspace Working Directory", synonyms: "app.workspaceInheritWorkingDirectory workspace cwd directory inherit current focused working-directory"),
@@ -42,7 +49,6 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "markdown-viewer", title: "Open Markdown in cmux Viewer", synonyms: "app.openMarkdownInCmuxViewer md markdown mdx viewer preview readme"),
             .init(section: .app, id: "file-editor-word-wrap", title: "File Editor Word Wrap", synonyms: "fileEditor.wordWrap file editor word wrap soft wrap reflow lines text horizontal scroll preview"),
             .init(section: .app, id: "terminal-config", title: "Terminal Config", synonyms: "ghostty config merged generated preview terminal configuration window open config macos-option-as-alt option as alt left option right option alt key meta"),
-            .init(section: .app, id: "global-font-magnification", title: String(localized: "settings.app.globalFontMagnification", defaultValue: "Global Font Magnification"), synonyms: "app.globalFontMagnification global font magnification scale text zoom terminals tabs chrome bigger smaller accessibility"),
             .init(section: .app, id: "imessage-mode", title: "iMessage Mode", synonyms: "app.iMessageMode imessage message messages chat prompt prompts submitted texting reorder move workspace top agent send"),
             .init(section: .app, id: "reorder-notification", title: "Reorder on Notification", synonyms: "app.reorderOnNotification notification reorder move workspace top unread sort"),
             .init(section: .app, id: "menu-bar-only", title: "Menu Bar Only", synonyms: "app.menuBarOnly menubar menu bar dockless hide dock app switcher cmd-tab command-tab"),
@@ -118,7 +124,6 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .textBox, id: "textbox-max-lines", title: "TextBox Max Lines", synonyms: "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll beta"),
 
             // Sidebar appearance + sidebar workspace row details
-            .init(section: .sidebarAppearance, id: "match-terminal", title: "Match Terminal Background", synonyms: "sidebarAppearance.matchTerminalBackground transparent background material terminal background sync"),
             .init(section: .sidebarAppearance, id: "hide-sidebar-details", title: "Hide All Sidebar Details", synonyms: "sidebar.hideAllDetails compact sidebar hide details only title minimal left rail"),
             .init(section: .sidebarAppearance, id: "wrap-workspace-titles", title: "Wrap Workspace Titles in Sidebar", synonyms: "sidebar.wrapWorkspaceTitles workspace title wrap multiline pr pull request"),
             .init(section: .sidebarAppearance, id: "show-workspace-description", title: "Show Workspace Description in Sidebar", synonyms: "sidebar.showWorkspaceDescription workspace description notes markdown sidebar"),
@@ -216,9 +221,9 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .keyboardShortcuts, id: "reset-defaults", title: "Reset Default Shortcuts", synonyms: "reset restore default defaults built in builtin shortcuts hotkeys keybindings commands"),
 
             // Workspace colors
-            .init(section: .workspaceColors, id: "indicator", title: "Workspace Color Indicator", synonyms: "workspaceColors.indicatorStyle tab indicator active workspace style color stripe dot"),
-            .init(section: .workspaceColors, id: "selection", title: "Selection Highlight", synonyms: "workspaceColors.selectionColor selected workspace color highlight background active tab"),
-            .init(section: .workspaceColors, id: "badge", title: "Notification Badge", synonyms: "workspaceColors.notificationBadgeColor unread notification badge color dot count"),
+            .init(section: .appearance, id: "workspace-color-indicator", title: String(localized: "settings.workspaceColors.indicator", defaultValue: "Workspace Color Indicator"), paths: ["workspaceColors.indicatorStyle"], synonyms: "workspaceColors.indicatorStyle tab indicator active workspace style color stripe dot"),
+            .init(section: .appearance, id: "workspace-selection-highlight", title: String(localized: "settings.workspaceColors.selectionColor", defaultValue: "Selection Highlight"), paths: ["workspaceColors.selectionColor"], synonyms: "workspaceColors.selectionColor selected workspace color highlight background active tab"),
+            .init(section: .appearance, id: "workspace-notification-badge", title: String(localized: "settings.workspaceColors.notificationBadgeColor", defaultValue: "Notification Badge"), paths: ["workspaceColors.notificationBadgeColor"], synonyms: "workspaceColors.notificationBadgeColor unread notification badge color dot count"),
             .init(section: .workspaceColors, id: "palette", title: "Reset Palette", synonyms: "reset palette named colors restore built-in custom remove default"),
 
             // cmux.json

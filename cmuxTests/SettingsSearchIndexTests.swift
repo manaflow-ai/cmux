@@ -46,6 +46,9 @@ struct SettingsSearchIndexTests {
         assertSearch("canvas", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "canvas-pane-gap"))
         assertSearch("canvas", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "canvas-snapping"))
         assertSearch("canvas", contains: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcuts"))
+        assertSearch("terminal font", contains: SettingsSearchIndex.settingID(for: .appearance, idSuffix: "terminal-font"))
+        assertSearch("sidebar font size", contains: SettingsSearchIndex.settingID(for: .appearance, idSuffix: "sidebar-font-size"))
+        assertSearch("tab bar font", contains: SettingsSearchIndex.settingID(for: .appearance, idSuffix: "tab-bar-font-size"))
     }
 
     @Test func exactAndSubstringMatchesRankAheadOfFuzzyFallbacks() {
@@ -63,6 +66,33 @@ struct SettingsSearchIndexTests {
         #expect(
             SettingsSearchIndex.anchorID(forSettingsPath: "browser.enabled")
                 == SettingsSearchIndex.settingID(for: .browser, idSuffix: "enable-browser")
+        )
+    }
+
+    @Test func settingsPathAnchorIncludesAppearanceRows() {
+        #expect(
+            SettingsSearchIndex.anchorID(forSettingsPath: "app.appearance")
+                == SettingsSearchIndex.settingID(for: .appearance, idSuffix: "appearance")
+        )
+        #expect(
+            SettingsSearchIndex.anchorID(forSettingsPath: "app.globalFontMagnification")
+                == SettingsSearchIndex.settingID(for: .appearance, idSuffix: "global-font-magnification")
+        )
+        #expect(
+            SettingsSearchIndex.anchorID(forSettingsPath: "sidebarAppearance.matchTerminalBackground")
+                == SettingsSearchIndex.settingID(for: .appearance, idSuffix: "match-terminal")
+        )
+        #expect(
+            SettingsSearchIndex.anchorID(forSettingsPath: "workspaceColors.indicatorStyle")
+                == SettingsSearchIndex.settingID(for: .appearance, idSuffix: "workspace-color-indicator")
+        )
+        #expect(
+            SettingsSearchIndex.anchorID(forSettingsPath: "workspaceColors.selectionColor")
+                == SettingsSearchIndex.settingID(for: .appearance, idSuffix: "workspace-selection-highlight")
+        )
+        #expect(
+            SettingsSearchIndex.anchorID(forSettingsPath: "workspaceColors.notificationBadgeColor")
+                == SettingsSearchIndex.settingID(for: .appearance, idSuffix: "workspace-notification-badge")
         )
     }
 

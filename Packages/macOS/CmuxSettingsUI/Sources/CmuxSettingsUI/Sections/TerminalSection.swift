@@ -8,13 +8,8 @@ import SwiftUI
 /// the JSON-backed Resume Commands editor.
 @MainActor
 public struct TerminalSection: View {
-    private let jsonStore: JSONConfigStore
-    private let catalog: SettingCatalog
     private let hostActions: SettingsHostActions
 
-    @State private var surfaceTabBarFont: SettingsFontSize
-    @State private var fontSaveFailed = false
-    @State private var fontSaveTask: Task<Void, Never>?
     @State private var scrollSpeed: DefaultsValueModel<Double>
     @State private var activeScrollSpeedDragValue: Double?
     @State private var scrollBar: DefaultsValueModel<Bool>
@@ -35,10 +30,7 @@ public struct TerminalSection: View {
         catalog: SettingCatalog,
         hostActions: SettingsHostActions
     ) {
-        self.jsonStore = jsonStore
-        self.catalog = catalog
         self.hostActions = hostActions
-        _surfaceTabBarFont = State(initialValue: hostActions.surfaceTabBarFontSize())
         _scrollSpeed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.scrollSpeed))
         _scrollBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar))
         _copyOnSelect = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect))
@@ -80,17 +72,6 @@ public struct TerminalSection: View {
         models.forEach { $0.startObserving() }
     }
 
-    /// Persists a new tab-bar font size, cancelling any in-flight save so a
-    /// rapid sequence of slider releases only reflects the latest value (the
-    /// host serializes the underlying writes; this keeps the UI state in step).
-    private func saveSurfaceTabBarFontSize(_ points: Double) {
-        fontSaveTask?.cancel()
-        fontSaveTask = Task {
-            let saved = await hostActions.setSurfaceTabBarFontSize(points)
-            if !Task.isCancelled { fontSaveFailed = !saved }
-        }
-    }
-
     private var displayedScrollSpeed: Double {
         activeScrollSpeedDragValue ?? scrollSpeed.current
     }
@@ -129,48 +110,6 @@ public struct TerminalSection: View {
     @ViewBuilder
     private var mainCard: some View {
         SettingsCard {
-            SettingsCardRow(
-                configurationReview: .settingsOnly,
-                String(localized: "settings.terminal.tabBarFontSize", defaultValue: "Tab Bar Font Size"),
-                subtitle: String(localized: "settings.terminal.tabBarFontSize.subtitle", defaultValue: "Controls the font size of the terminal and browser tab titles at the top of each pane."),
-                controlWidth: 250
-            ) {
-                VStack(alignment: .trailing, spacing: 4) {
-                    HStack(spacing: 8) {
-                        Slider(
-                            value: Binding(get: { surfaceTabBarFont.points }, set: { surfaceTabBarFont.points = $0 }),
-                            in: surfaceTabBarFont.minimum...surfaceTabBarFont.maximum,
-                            step: 0.5
-                        ) { editing in
-                            if !editing { saveSurfaceTabBarFontSize(surfaceTabBarFont.points) }
-                        }
-                        .frame(width: 130)
-                        .accessibilityIdentifier("SettingsTabBarFontSizeSlider")
-
-                        Text(String.localizedStringWithFormat(String(localized: "settings.fontSize.valuePoints", defaultValue: "%@ pt"), hostActions.formattedFontSize(surfaceTabBarFont.points)))
-                            .cmuxFont(size: 12, weight: .medium, design: .rounded)
-                            .monospacedDigit()
-                            .frame(width: 44, alignment: .trailing)
-
-                        Button(String(localized: "settings.terminal.tabBarFontSize.reset", defaultValue: "Reset")) {
-                            surfaceTabBarFont.points = surfaceTabBarFont.defaultValue
-                            saveSurfaceTabBarFontSize(surfaceTabBarFont.points)
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .disabled(surfaceTabBarFont.isDefault)
-                    }
-
-                    if fontSaveFailed {
-                        Text(String(localized: "settings.terminal.tabBarFontSize.saveFailed", defaultValue: "Couldn't save tab bar font size. Please try again."))
-                            .cmuxFont(.caption)
-                            .foregroundStyle(.red)
-                            .multilineTextAlignment(.trailing)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-            }
-            SettingsCardDivider()
             SettingsCardRow(
                 configurationReview: .json("terminal.scrollSpeed"),
                 String(localized: "settings.terminal.scrollSpeed", defaultValue: "Scroll Speed"),

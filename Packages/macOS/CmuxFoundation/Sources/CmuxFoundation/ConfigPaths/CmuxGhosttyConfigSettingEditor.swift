@@ -1,14 +1,26 @@
 public import Foundation
 
-/// Reads and writes cmux's numeric Ghostty config settings (sidebar and
-/// surface-tab-bar font sizes), including range clamping, display formatting,
-/// and symlink-aware writes.
+/// Reads and writes cmux's editable Ghostty config settings, including range
+/// clamping, display formatting, and symlink-aware writes for font controls.
 ///
 /// TRANSITIONAL: faithful lift of the app-target config-setting-editor namespace
 /// that ``GhosttyConfig`` and the settings UI share. Stateless config-body
 /// transforms over `String`/`URL` with no single natural receiver; modernization
 /// into an instantiated editor is deferred to the engine lift.
 public struct CmuxGhosttyConfigSettingEditor {
+    /// The config key for the terminal font family.
+    public static let terminalFontFamilyKey = "font-family"
+    /// The default terminal font family.
+    public static let defaultTerminalFontFamily = "Menlo"
+    /// The config key for the terminal font size.
+    public static let terminalFontSizeKey = "font-size"
+    /// The default terminal font size in points.
+    public static let defaultTerminalFontSize = 12.0
+    /// The smallest terminal font size cmux allows from Settings.
+    public static let minTerminalFontSize = 6.0
+    /// The largest terminal font size cmux allows from Settings.
+    public static let maxTerminalFontSize = 72.0
+
     /// The config key for the sidebar font size.
     public static let sidebarFontSizeKey = "sidebar-font-size"
     /// The default sidebar font size in points.
@@ -28,6 +40,31 @@ public struct CmuxGhosttyConfigSettingEditor {
     public static let maxSurfaceTabBarFontSize = 14.0
 
     public init() {}
+
+    /// Clamps a terminal font size to its allowed range, substituting the default
+    /// for non-finite input.
+    public func clampedTerminalFontSize(_ value: Double) -> Double {
+        guard value.isFinite else { return Self.defaultTerminalFontSize }
+        return min(max(value, Self.minTerminalFontSize), Self.maxTerminalFontSize)
+    }
+
+    /// The clamped terminal font size formatted for display.
+    public func formattedTerminalFontSize(_ value: Double) -> String {
+        formattedFontSize(clampedTerminalFontSize(value))
+    }
+
+    /// The clamped terminal font size parsed from a Ghostty config body, or
+    /// `nil` when absent.
+    public func parsedTerminalFontSize(in contents: String) -> Double? {
+        parsedFontSize(in: contents, key: Self.terminalFontSizeKey, clamp: clampedTerminalFontSize)
+    }
+
+    /// The last configured terminal font family in a Ghostty config body, or
+    /// `nil` when absent.
+    public func parsedTerminalFontFamily(in contents: String) -> String? {
+        parsedValue(for: Self.terminalFontFamilyKey, in: contents)?
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+    }
 
     /// Clamps a sidebar font size to its allowed range, substituting the default
     /// for non-finite input.

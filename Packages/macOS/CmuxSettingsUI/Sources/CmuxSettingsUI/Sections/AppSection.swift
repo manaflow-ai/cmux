@@ -4,7 +4,7 @@ import CmuxSettings
 import SwiftUI
 
 /// **App** section — mirrors the legacy in-app section row-for-row
-/// inside a single `SettingsCard`: Language, Appearance, App Icon,
+/// inside a single `SettingsCard`: Language, App Icon,
 /// New Workspace Placement, Inherit Working Directory, Minimal Mode,
 /// Keep Workspace Open When Closing Last Surface, Focus Pane on
 /// First Click, File Drops, Open Files With, Open Supported Files in
@@ -17,14 +17,12 @@ import SwiftUI
 /// Command Palette Searches All Surfaces.
 @MainActor
 public struct AppSection: View {
-    private let catalog: SettingCatalog
     private let hostActions: SettingsHostActions
 
     // Every bound value-model lives here as view state, constructed once
     // and persisted across renders so the @Observable change tracking
     // actually drives invalidation.
     @State private var language: DefaultsValueModel<AppLanguage>
-    @State private var appearance: DefaultsValueModel<AppearanceMode>
     @State private var appIcon: DefaultsValueModel<AppIconMode>
     @State private var placement: DefaultsValueModel<WorkspacePlacement>
     @State private var inheritDir: DefaultsValueModel<Bool>
@@ -35,7 +33,6 @@ public struct AppSection: View {
     @State private var preferredEditor: DefaultsValueModel<String>
     @State private var openSupported: DefaultsValueModel<Bool>
     @State private var openMarkdown: DefaultsValueModel<Bool>
-    @State private var globalFontMagnification: DefaultsValueModel<Int>
     @State private var markdownFontSize: DefaultsValueModel<Int>
     @State private var markdownFontFamily: DefaultsValueModel<String>
     @State private var markdownMaxWidth: DefaultsValueModel<Int>
@@ -68,10 +65,8 @@ public struct AppSection: View {
         catalog: SettingCatalog,
         hostActions: SettingsHostActions
     ) {
-        self.catalog = catalog
         self.hostActions = hostActions
         _language = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.language))
-        _appearance = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.appearance))
         _appIcon = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.appIcon))
         _placement = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.newWorkspacePlacement))
         _inheritDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.workspaceInheritWorkingDirectory))
@@ -82,7 +77,6 @@ public struct AppSection: View {
         _preferredEditor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.preferredEditor))
         _openSupported = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openSupportedFilesInCmux))
         _openMarkdown = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openMarkdownInCmuxViewer))
-        _globalFontMagnification = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.globalFontMagnification))
         _markdownFontSize = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontSize))
         _markdownFontFamily = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontFamily))
         _markdownMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.maxWidth))
@@ -128,27 +122,9 @@ public struct AppSection: View {
             mainCard
         }
         .task {
-            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, soundName, soundCommand, customSoundFile, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, fileDrop, preferredEditor, openSupported, openMarkdown, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, soundName, soundCommand, customSoundFile, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
-    }
-
-    private var globalFontMagnificationSubtitle: String {
-        if globalFontMagnification.current != GlobalFontMagnification.defaultPercent {
-            return String(
-                localized: "settings.app.globalFontMagnification.subtitleOn",
-                defaultValue: "Terminals, tabs, and chrome all render at this magnification. Per-pane zoom (Cmd= / Cmd-) still overrides for the focused pane."
-            )
-        }
-        return String(
-            localized: "settings.app.globalFontMagnification.subtitleOff",
-            defaultValue: "Scale every font in cmux by the same percentage. 100% = design size."
-        )
-    }
-
-    private func setGlobalFontMagnification(_ percent: Int) {
-        let clamped = GlobalFontMagnification.clamp(percent)
-        globalFontMagnification.set(clamped) { NotificationCenter.default.post(name: GlobalFontMagnification.didChangeNotification, object: nil) }
     }
 
     @ViewBuilder
@@ -171,14 +147,6 @@ public struct AppSection: View {
                 .labelsHidden()
                 .pickerStyle(.menu)
             }
-            SettingsCardDivider()
-
-            // Theme — three-up visual picker mirroring legacy
-            ThemePickerRow(
-                selectedMode: appearance.current,
-                onSelect: { appearance.set($0) }
-            )
-            .settingsSearchAnchors(["setting:app:appearance"])
             SettingsCardDivider()
 
             // App Icon — three-up visual picker mirroring legacy
@@ -328,19 +296,6 @@ public struct AppSection: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-            }
-            SettingsCardDivider()
-
-            // Global Font Magnification
-            SettingsCardRow(
-                configurationReview: .json("app.globalFontMagnification"),
-                String(localized: "settings.app.globalFontMagnification", defaultValue: "Global Font Magnification"),
-                subtitle: globalFontMagnificationSubtitle
-            ) {
-                GlobalFontMagnificationControl(
-                    percent: globalFontMagnification.current,
-                    onChange: setGlobalFontMagnification
-                )
             }
             SettingsCardDivider()
 
