@@ -638,11 +638,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// grid under the surface lock; running it per frame would load the
     /// typing-latency render path.
     private var gridDivergenceChecker = MobileTerminalRenderGridDivergenceChecker()
-    /// Dark-launch gate for the divergence-triggered resync. OFF by default: the
-    /// repair currently goes through the full-snapshot replay, which resets the
-    /// scroll position, so enabling it before the keyframe is made viewport-only
-    /// and scroll-aware would yank a scrolled-up reader. Flip on for dogfood.
-    public static var gridDivergenceResyncEnabled = false
+    /// Gate for the divergence-triggered resync. Enabled now that the repair
+    /// routes through the in-place viewport repaint (post-cold-attach full frames
+    /// apply via `viewportRepaintBytes`, no `ESC c`), so a repair no longer
+    /// resets the scroll position of a reader who is scrolled up into history.
+    public static var gridDivergenceResyncEnabled = true
     /// Serial background queue for `ghostty_surface_process_output`, which
     /// blocks on libghostty's internal renderer/IO futex. Running it on the
     /// main thread hangs the app until the scene-update watchdog kills it.

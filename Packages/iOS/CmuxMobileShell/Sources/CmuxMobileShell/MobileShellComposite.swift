@@ -683,6 +683,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
     private var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
     private var terminalReplaySurfaceIDsInFlight: Set<String>
+    /// Surfaces that have already received their first full render-grid frame, so
+    /// the next full frame is treated as an in-place viewport repaint (scroll
+    /// safe) rather than a cold-attach reset. Cleared when a surface unregisters
+    /// so a fresh mount cold-attaches again.
+    var terminalSurfaceIDsWithFullFrame: Set<String> = []
     private var terminalOutputTransport: TerminalOutputTransport
     var terminalByteContinuationsBySurfaceID: [String: AsyncStream<MobileTerminalOutputChunk>.Continuation]
     var terminalOutputStreamTokensBySurfaceID: [String: UUID]
@@ -6246,6 +6251,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalByteContinuationsBySurfaceID.removeValue(forKey: surfaceID)
         terminalOutputStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalOutputQueuesBySurfaceID.removeValue(forKey: surfaceID)
+        terminalSurfaceIDsWithFullFrame.remove(surfaceID)
         terminalScrollQueueTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalScrollQueuesBySurfaceID.removeValue(forKey: surfaceID)
         terminalScrollbackPrefetchStatesBySurfaceID.removeValue(forKey: surfaceID)
