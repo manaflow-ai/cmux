@@ -279,6 +279,8 @@ jobs:
         if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
         run: |
           set -euo pipefail
+          ./scripts/verify-no-bundled-agent-runtimes.sh \
+            build-universal/Build/Products/Release/cmux.app
           CMUX_APP_PATH="build-universal/Build/Products/Release/cmux.app" \
             ./tests/test_bundled_ghostty_theme_picker_helper.sh
 

@@ -1377,6 +1377,8 @@ jobs:
       - name: Validate Release artifact slices
         run: |
           set -euo pipefail
+          ./scripts/verify-no-bundled-agent-runtimes.sh \
+            build-universal/Build/Products/Release/cmux.app
           APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
           HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
