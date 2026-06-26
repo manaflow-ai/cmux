@@ -748,6 +748,7 @@
 		A5001670 /* SessionRestoredTerminalCommandStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001671 /* SessionRestoredTerminalCommandStore.swift */; };
 		A50016B1A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */; };
 		A5001672 /* SessionTranscriptLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001673 /* SessionTranscriptLoader.swift */; };
+		FE0031A0 /* SessionTranscriptPreviewLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE0030A0 /* SessionTranscriptPreviewLayout.swift */; };
 		F5320002A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5320003A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift */; };
 		E30798000000000000000002 /* SessionWorkspaceLayoutSnapshot+NodeBuilding.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30798000000000000000001 /* SessionWorkspaceLayoutSnapshot+NodeBuilding.swift */; };
 		E30791000000000000000002 /* SessionWorkspaceLayoutSnapshot+Pruning.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30791000000000000000001 /* SessionWorkspaceLayoutSnapshot+Pruning.swift */; };
@@ -1811,6 +1812,7 @@
 		A5001671 /* SessionRestoredTerminalCommandStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRestoredTerminalCommandStore.swift; sourceTree = "<group>"; };
 		A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/SessionSnapshotDebugBenchmark.swift; sourceTree = "<group>"; };
 		A5001673 /* SessionTranscriptLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptLoader.swift; sourceTree = "<group>"; };
+		FE0030A0 /* SessionTranscriptPreviewLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptPreviewLayout.swift; sourceTree = "<group>"; };
 		F5320003A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptTypes.swift; sourceTree = "<group>"; };
 		E30798000000000000000001 /* SessionWorkspaceLayoutSnapshot+NodeBuilding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionWorkspaceLayoutSnapshot+NodeBuilding.swift"; sourceTree = "<group>"; };
 		E30791000000000000000001 /* SessionWorkspaceLayoutSnapshot+Pruning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionWorkspaceLayoutSnapshot+Pruning.swift"; sourceTree = "<group>"; };
@@ -2971,6 +2973,7 @@
 				FE003007 /* RovoDevTranscriptPreview.swift */,
 				F5320003A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift */,
 				FE003002 /* SessionIndexView.swift */,
+				FE0030A0 /* SessionTranscriptPreviewLayout.swift */,
 				B7F9A601B7F9A601B7F9A601 /* RightSidebarChromeGeometryReporting.swift */,
 				B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */,
 				B7F9A603B7F9A603B7F9A603 /* WindowChromeMetrics.swift */,
@@ -4186,6 +4189,7 @@
 				A5001670 /* SessionRestoredTerminalCommandStore.swift in Sources */,
 				A50016B1A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift in Sources */,
 				A5001672 /* SessionTranscriptLoader.swift in Sources */,
+				FE0031A0 /* SessionTranscriptPreviewLayout.swift in Sources */,
 				F5320002A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift in Sources */,
 				E30798000000000000000002 /* SessionWorkspaceLayoutSnapshot+NodeBuilding.swift in Sources */,
 				E30791000000000000000002 /* SessionWorkspaceLayoutSnapshot+Pruning.swift in Sources */,

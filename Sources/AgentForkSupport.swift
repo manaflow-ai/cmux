@@ -306,7 +306,7 @@ enum AgentForkSupport {
         if isRemoteContext {
             return true
         }
-        guard let probe = AgentResumeCommandBuilder.openCodeVersionProbe(
+        guard let probe = AgentResumeCommandBuilder().openCodeVersionProbe(
             launchCommand: snapshot.launchCommand
         ) else {
             return false

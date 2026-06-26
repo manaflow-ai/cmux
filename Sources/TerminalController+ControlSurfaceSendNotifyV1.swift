@@ -56,56 +56,6 @@ extension TerminalController {
 
     func controlHelpTextV1() -> String { helpText() }
 
-    private struct ReadScreenOptions {
-        let surfaceArg: String
-        let includeScrollback: Bool
-        let lineLimit: Int?
-    }
-
-    private struct ReadScreenParseError: Error {
-        let message: String
-    }
-
-    private func parseReadScreenArgs(_ args: String) -> Result<ReadScreenOptions, ReadScreenParseError> {
-        let tokens = args
-            .split(whereSeparator: { $0.isWhitespace })
-            .map(String.init)
-        var surfaceArg: String?
-        var includeScrollback = false
-        var lineLimit: Int?
-        var idx = 0
-
-        while idx < tokens.count {
-            let token = tokens[idx]
-            switch token {
-            case "--scrollback":
-                includeScrollback = true
-                idx += 1
-            case "--lines":
-                guard idx + 1 < tokens.count, let parsed = Int(tokens[idx + 1]), parsed > 0 else {
-                    return .failure(ReadScreenParseError(message: "ERROR: --lines must be greater than 0"))
-                }
-                lineLimit = parsed
-                includeScrollback = true
-                idx += 2
-            default:
-                guard surfaceArg == nil else {
-                    return .failure(ReadScreenParseError(message: "ERROR: Usage: read_screen [id|idx] [--scrollback] [--lines <n>]"))
-                }
-                surfaceArg = token
-                idx += 1
-            }
-        }
-
-        return .success(
-            ReadScreenOptions(
-                surfaceArg: surfaceArg ?? "",
-                includeScrollback: includeScrollback,
-                lineLimit: lineLimit
-            )
-        )
-    }
-
     // `internal` (not `private`): the relocated `readTerminalText` witness in
     // `TerminalController+ControlDebugContext.swift` calls this surface-arg
     // reader, so it must be visible across the conformance files.
@@ -143,8 +93,8 @@ extension TerminalController {
     }
 
     func readScreenText(_ args: String) -> String {
-        let options: ReadScreenOptions
-        switch parseReadScreenArgs(args) {
+        let options: ControlReadScreenOptions
+        switch ControlReadScreenOptions.parse(args) {
         case .success(let parsed):
             options = parsed
         case .failure(let error):

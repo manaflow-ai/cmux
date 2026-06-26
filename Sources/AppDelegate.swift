@@ -3379,14 +3379,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// `AppDelegate.MainWindowSummary` references stay source-identical.
     typealias MainWindowSummary = CmuxWindowing.MainWindowSummary
 
-    struct WindowMoveTarget: Identifiable {
-        let windowId: UUID
-        let label: String
-        let tabManager: TabManager
-        let isCurrentWindow: Bool
-
-        var id: UUID { windowId }
-    }
+    /// Lifted to ``CmuxWorkspaces/WorkspaceCommandWindowTarget``; aliased so
+    /// existing `AppDelegate.WindowMoveTarget` references stay source-identical.
+    /// The package value type drops the legacy `tabManager` handle (no consumer
+    /// read it; window membership is still gated by `tabManagerFor(windowId:)`
+    /// below, the manager value was simply never surfaced).
+    typealias WindowMoveTarget = CmuxWorkspaces.WorkspaceCommandWindowTarget
 
     /// Lifted to ``CmuxWorkspaces/WorkspaceMoveTarget``; aliased so existing
     /// `AppDelegate.WorkspaceMoveTarget` references stay source-identical. The
@@ -3398,12 +3396,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let orderedSummaries = orderedMainWindowSummaries(referenceWindowId: referenceWindowId)
         let labels = windowLabelsById(orderedSummaries: orderedSummaries, referenceWindowId: referenceWindowId)
         return orderedSummaries.compactMap { summary in
-            guard let manager = tabManagerFor(windowId: summary.windowId) else { return nil }
+            guard tabManagerFor(windowId: summary.windowId) != nil else { return nil }
             let label = labels[summary.windowId] ?? "Window"
             return WindowMoveTarget(
                 windowId: summary.windowId,
                 label: label,
-                tabManager: manager,
                 isCurrentWindow: summary.windowId == referenceWindowId
             )
         }
@@ -5709,8 +5706,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         VSCodeServeWebController.shared.ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
             guard let serveWebURL,
-                  let openFolderURL = VSCodeServeWebURLBuilder.openFolderURL(
-                      baseWebUIURL: serveWebURL,
+                  let openFolderURL = serveWebURL.vscodeServeWebFolderURL(
                       directoryPath: normalizedDirectoryURL.path
                   ) else {
                 NSSound.beep()

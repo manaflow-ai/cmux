@@ -81,13 +81,6 @@ final class TerminalCmdClickUITestRecorder: UITestRecording {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let screenshotDirectory = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_SCREENSHOT_DIR"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let displayMode = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_DISPLAY_MODE"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let lineFormat = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_LINE_FORMAT"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let linePrefix = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_LINE_PREFIX"] ?? ""
-        let displaySuffix = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_DISPLAY_SUFFIX"] ?? ""
-        let displayAsAbsolutePath = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_DISPLAY_AS_ABSOLUTE_PATH"] == "1"
         if let rawOpenSupportedFiles = env["CMUX_UI_TEST_OPEN_SUPPORTED_FILES_IN_CMUX"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !rawOpenSupportedFiles.isEmpty {
@@ -101,9 +94,8 @@ final class TerminalCmdClickUITestRecorder: UITestRecording {
         let extraFileNamesJSON = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_EXTRA_FILE_NAMES_JSON"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let fileName = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_FILE_NAME"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolvedFileName = (fileName?.isEmpty == false) ? fileName! : "Cmd Click Fixture.txt"
+        let scenario = TerminalCmdClickScenario(environment: env)
+        let resolvedFileName = scenario.resolvedFileName
         let fixtureDirectoryURL = URL(fileURLWithPath: fixtureDirectory, isDirectory: true)
         let expectedFileURL = fixtureDirectoryURL.appendingPathComponent(resolvedFileName)
         let siblingFileURL = fixtureDirectoryURL.appendingPathComponent("OtherFile")
@@ -115,61 +107,17 @@ final class TerminalCmdClickUITestRecorder: UITestRecording {
         } else {
             extraFileNames = []
         }
-        let escapedToken = resolvedFileName.replacingOccurrences(of: " ", with: "\\ ")
-        let baseDisplayToken = displayAsAbsolutePath ? expectedFileURL.path : resolvedFileName
-        let resolvedDisplayMode = (displayMode == "raw") ? "raw" : "escaped"
-        let resolvedLineFormat: String
-        switch lineFormat {
-        case "log":
-            resolvedLineFormat = "log"
-        case "alt_screen_log":
-            resolvedLineFormat = "alt_screen_log"
-        case "osc8":
-            resolvedLineFormat = "osc8"
-        default:
-            resolvedLineFormat = "grid"
-        }
+        let escapedToken = scenario.escapedToken
+        let resolvedDisplayMode = scenario.resolvedDisplayMode
+        let resolvedLineFormat = scenario.resolvedLineFormat
         cmuxDebugLog(
             "cmdclick.ui.setup start manifest=\(manifestPath) fixture=\(fixtureDirectory) " +
                 "command=\(commandPath ?? "nil") display=\(resolvedDisplayMode) " +
                 "lineFormat=\(resolvedLineFormat) " +
                 "file=\(resolvedFileName)"
         )
-        func singleQuotedShellLiteral(_ text: String) -> String {
-            text.replacingOccurrences(of: "'", with: "'\"'\"'")
-        }
-        let displayToken: String
-        let shellCommand: String
-        switch resolvedLineFormat {
-        case "osc8":
-            displayToken = resolvedFileName
-            let escapedDisplayToken = singleQuotedShellLiteral(displayToken)
-            let escapedURL = singleQuotedShellLiteral(expectedFileURL.absoluteString)
-            shellCommand = "clear\rfor i in $(seq 1 48); do printf '\\033]8;;%s\\033\\\\%s\\033]8;;\\033\\\\\\n' '\(escapedURL)' '\(escapedDisplayToken)'; done\r"
-        case "log":
-            displayToken = "\(baseDisplayToken)\(displaySuffix)"
-            let blockLine = "\(linePrefix)\(displayToken)"
-            let shellBlockLine = singleQuotedShellLiteral(blockLine)
-            shellCommand = "clear\rfor i in $(seq 1 48); do printf '%s\\n' '\(shellBlockLine)'; done\r"
-        case "alt_screen_log":
-            displayToken = "\(baseDisplayToken)\(displaySuffix)"
-            let blockLine = "\(linePrefix)\(displayToken)"
-            let shellBlockLine = singleQuotedShellLiteral(blockLine)
-            shellCommand = "clear\rprintf '\\033[?1049h\\033[H\\033[2J'; for i in $(seq 1 48); do printf '%s\\n' '\(shellBlockLine)'; done\r"
-        default:
-            switch resolvedDisplayMode {
-            case "raw":
-                displayToken = "\(baseDisplayToken)\(displaySuffix)"
-                let blockLine = "\(displayToken)    OtherFile"
-                let shellBlockLine = singleQuotedShellLiteral(blockLine)
-                shellCommand = "clear\rfor i in $(seq 1 48); do printf '%s\\n' '\(shellBlockLine)'; done\r"
-            default:
-                displayToken = "\(escapedToken)\(displaySuffix)"
-                let blockLine = Array(repeating: displayToken, count: 3).joined(separator: " ")
-                let shellBlockLine = singleQuotedShellLiteral(blockLine)
-                shellCommand = "clear\rfor i in $(seq 1 48); do printf '%s\\n' '\(shellBlockLine)'; done\r"
-            }
-        }
+        let displayToken = scenario.displayToken
+        let shellCommand = scenario.shellCommand
         let deadline = Date().addingTimeInterval((commandPath?.isEmpty == false) ? 60.0 : 20.0)
         var seeded = false
         var resolved = false

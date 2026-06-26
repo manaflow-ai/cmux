@@ -865,23 +865,10 @@ private struct SessionTranscriptPreviewView: View {
     }
 }
 
-private enum SessionTranscriptPreviewLayout {
-    static let defaultSize = CGSize(width: 520, height: 500)
-    static let minSize = CGSize(width: 420, height: 320)
-    static let maxSize = CGSize(width: 920, height: 820)
-
-    static func clamped(_ size: CGSize) -> CGSize {
-        CGSize(
-            width: min(max(size.width, minSize.width), maxSize.width),
-            height: min(max(size.height, minSize.height), maxSize.height)
-        )
-    }
-}
-
 private final class SessionTranscriptPopoverSizeModel: ObservableObject {
     @Published var size: CGSize
 
-    init(size: CGSize = SessionTranscriptPreviewLayout.defaultSize) {
+    init(size: CGSize = SessionTranscriptPreviewLayout.standard.defaultSize) {
         self.size = size
     }
 }
@@ -1183,7 +1170,7 @@ private struct SessionTranscriptPopoverHost: NSViewRepresentable {
         }
 
         private func resize(to proposedSize: CGSize) {
-            sizeModel.size = SessionTranscriptPreviewLayout.clamped(proposedSize)
+            sizeModel.size = SessionTranscriptPreviewLayout.standard.clamped(proposedSize)
             updatePopoverSize()
         }
 

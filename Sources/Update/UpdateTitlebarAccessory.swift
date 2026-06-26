@@ -7,6 +7,7 @@ import CmuxSettings
 import CmuxSettingsUI
 import CmuxSidebar
 import CmuxTestSupport
+import CmuxWindowing
 import SwiftUI
 
 enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
@@ -1270,7 +1271,7 @@ private struct TitlebarControlsGapDragView: NSViewRepresentable {
 
         override func mouseDown(with event: NSEvent) {
             if event.clickCount >= 2 {
-                let action = performStandardTitlebarDoubleClick(window: window)
+                let action = StandardTitlebarDoubleClickAction.performStandard(window: window)
                 if action != nil {
                     return
                 }

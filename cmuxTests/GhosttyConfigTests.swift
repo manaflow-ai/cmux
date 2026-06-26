@@ -7,6 +7,7 @@ import CmuxRemoteDaemon
 import CmuxRemoteSession
 import CmuxRemoteWorkspace
 import CmuxFoundation
+import CmuxWindowing
 import AppKit
 import Combine
 import CoreText
@@ -2670,7 +2671,7 @@ final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
 final class TitlebarDoubleClickPreferenceTests: XCTestCase {
     func testResolvesZoomForFillPreference() {
         XCTAssertEqual(
-            resolvedStandardTitlebarDoubleClickAction(globalDefaults: [
+            StandardTitlebarDoubleClickAction.resolved(globalDefaults: [
                 "AppleActionOnDoubleClick": "Fill",
             ]),
             .zoom
@@ -2679,7 +2680,7 @@ final class TitlebarDoubleClickPreferenceTests: XCTestCase {
 
     func testResolvesMiniaturizeForExplicitMinimizePreference() {
         XCTAssertEqual(
-            resolvedStandardTitlebarDoubleClickAction(globalDefaults: [
+            StandardTitlebarDoubleClickAction.resolved(globalDefaults: [
                 "AppleActionOnDoubleClick": "Minimize",
             ]),
             .miniaturize
@@ -2688,7 +2689,7 @@ final class TitlebarDoubleClickPreferenceTests: XCTestCase {
 
     func testResolvesNoneForNoActionPreference() {
         XCTAssertEqual(
-            resolvedStandardTitlebarDoubleClickAction(globalDefaults: [
+            StandardTitlebarDoubleClickAction.resolved(globalDefaults: [
                 "AppleActionOnDoubleClick": "No Action",
             ]),
             .none
@@ -2697,7 +2698,7 @@ final class TitlebarDoubleClickPreferenceTests: XCTestCase {
 
     func testFallsBackToLegacyMiniaturizePreference() {
         XCTAssertEqual(
-            resolvedStandardTitlebarDoubleClickAction(globalDefaults: [
+            StandardTitlebarDoubleClickAction.resolved(globalDefaults: [
                 "AppleMiniaturizeOnDoubleClick": true,
             ]),
             .miniaturize
@@ -2706,7 +2707,7 @@ final class TitlebarDoubleClickPreferenceTests: XCTestCase {
 
     func testDefaultsToZoomWhenPreferenceIsMissing() {
         XCTAssertEqual(
-            resolvedStandardTitlebarDoubleClickAction(globalDefaults: [:]),
+            StandardTitlebarDoubleClickAction.resolved(globalDefaults: [:]),
             .zoom
         )
     }
