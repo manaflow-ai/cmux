@@ -17,21 +17,33 @@ extension TextBoxInputContainer {
     }
 
     var submitActionImageCacheKeys: [String] {
-        let keys = submitActions.compactMap { action -> String? in
+        Self.submitActionImageCacheKeys(for: submitActions)
+    }
+
+    static func submitActionImageCacheKeys(
+        for actions: [TextBoxSubmitAction],
+        expandPath: (String) -> String = { NSString(string: $0).expandingTildeInPath }
+    ) -> [String] {
+        var seenKeys = Set<String>()
+        var keys: [String] = []
+        for action in actions.prefix(TextBoxSubmitActionImageSupport.maximumCachedImageCount) {
             guard let path = action.imagePath?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !path.isEmpty else {
                 if let assetName = action.assetName?.trimmingCharacters(in: .whitespacesAndNewlines),
                    !assetName.isEmpty {
-                    return submitActionAssetImageCacheKey(assetName)
+                    let key = "asset:\(assetName)"
+                    if seenKeys.insert(key).inserted {
+                        keys.append(key)
+                    }
                 }
-                return nil
+                continue
             }
-            return submitActionPathImageCacheKey(expandedSubmitActionImagePath(path))
+            let key = "path:\(expandPath(path))"
+            if seenKeys.insert(key).inserted {
+                keys.append(key)
+            }
         }
-        return Array(Set(keys))
-            .sorted()
-            .prefix(TextBoxSubmitActionImageSupport.maximumCachedImageCount)
-            .map { $0 }
+        return keys.sorted()
     }
 
     var submitActionImageCacheTaskKey: String {

@@ -579,7 +579,7 @@ final class TerminalPanel: Panel, ObservableObject {
         }
         textBoxContent = fixture.beforeText + fixture.afterText
         textBoxAttachments = attachment.map { [$0] } ?? []
-        textBoxInputView.installDebugInlineFixture(
+        textBoxInputView.installInlineControlFixture(
             attachment,
             beforeText: fixture.beforeText,
             afterText: fixture.afterText

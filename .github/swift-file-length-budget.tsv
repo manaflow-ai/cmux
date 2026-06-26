@@ -77,7 +77,7 @@
 1209	Packages/macOS/CmuxCommandPalette/Tests/CmuxCommandPaletteTests/CommandPaletteSearchEngineTests.swift
 1204	cmuxTests/FileExplorerStoreTests.swift
 1197	cmuxTests/CodexAppServerSessionTests.swift
-1178	cmuxTests/TextBoxSubmitActionTests.swift
+1185	cmuxTests/TextBoxSubmitActionTests.swift
 1166	Sources/VaultAgentProcessScanner.swift
 1161	cmuxTests/SidebarOrderingTests.swift
 1144	cmuxTests/PiVaultAgentPersistenceTests.swift
@@ -201,6 +201,7 @@
 534	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Surface/ControlCommandCoordinator+Surface.swift
 530	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttyRuntime.swift
 529	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Scene/SettingsWindowScene.swift
+529	Sources/TextBoxSubmitActions.swift
 528	cmuxTests/CLINotifyProcessTestSupport.swift
 528	cmuxUITests/AutomationSocketUITests.swift
 527	CLI/CLISocketPathResolver.swift
@@ -213,7 +214,6 @@
 519	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/Corpus/stress-two-column-cockpit-sidebar.swift
 519	Sources/CmuxConfigExecutor.swift
 518	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/Corpus/stress-git-review-queue-command-deck.swift
-517	Sources/TextBoxSubmitActions.swift
 516	Sources/TerminalImageTransfer.swift
 514	Packages/macOS/CmuxSwiftRender/Sources/CmuxSwiftRender/ExpressionEvaluator.swift
 514	cmuxUITests/UpdatePillUITests.swift

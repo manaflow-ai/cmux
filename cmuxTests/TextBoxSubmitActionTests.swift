@@ -278,17 +278,24 @@ struct TextBoxSubmitActionTests {
 
     @Test
     func testSubmitActionImageCacheKeyListIsBounded() {
-        let keys = (0..<(TextBoxSubmitActionImageSupport.maximumCachedImageCount + 8)).map { index in
-            "path:/tmp/custom-\(index).png"
+        let actions = (0..<(TextBoxSubmitActionImageSupport.maximumCachedImageCount + 8)).map { index in
+            TextBoxSubmitAction(
+                id: "custom-\(index)",
+                title: "Custom \(index)",
+                kind: .textEntry,
+                systemImage: "arrow.up",
+                imagePath: "/tmp/custom-\(index).png",
+                backgroundColorHex: "#FFFFFF"
+            )
         }
+        let keys = TextBoxInputContainer.submitActionImageCacheKeys(for: actions, expandPath: { $0 })
 
         XCTAssertEqual(
-            Array(Set(keys))
-                .sorted()
-                .prefix(TextBoxSubmitActionImageSupport.maximumCachedImageCount)
-                .count,
+            keys.count,
             TextBoxSubmitActionImageSupport.maximumCachedImageCount
         )
+        XCTAssertTrue(keys.contains("path:/tmp/custom-0.png"))
+        XCTAssertFalse(keys.contains("path:/tmp/custom-\(TextBoxSubmitActionImageSupport.maximumCachedImageCount).png"))
     }
 
 

@@ -2,7 +2,7 @@ import AppKit
 
 #if DEBUG
 extension TextBoxInputTextView {
-    func installDebugInlineFixture(
+    func installInlineControlFixture(
         _ attachment: TextBoxAttachment?,
         beforeText: String,
         afterText: String
@@ -14,11 +14,11 @@ extension TextBoxInputTextView {
         }
         attributed.append(NSAttributedString(string: afterText, attributes: textAttributes))
 
-        setDebugAttributedText(attributed)
+        setControlAttributedText(attributed)
     }
 
     @discardableResult
-    func debugInteract(action: String) -> [String: Any] {
+    func performControlInteraction(action: String) -> [String: Any] {
         window?.makeFirstResponder(self)
 
         switch action {
@@ -27,7 +27,7 @@ extension TextBoxInputTextView {
         case "submit":
             submitIfAllowed()
         case let setTextAction where setTextAction.hasPrefix("set_text:"):
-            setDebugAttributedText(NSAttributedString(
+            setControlAttributedText(NSAttributedString(
                 string: String(setTextAction.dropFirst("set_text:".count)),
                 attributes: currentTextAttributes()
             ))
@@ -71,10 +71,10 @@ extension TextBoxInputTextView {
         enclosingScrollView?.needsDisplay = true
         window?.viewsNeedDisplay = true
         window?.displayIfNeeded()
-        return debugInteractionState()
+        return controlInteractionState()
     }
 
-    private func setDebugAttributedText(_ attributed: NSAttributedString) {
+    private func setControlAttributedText(_ attributed: NSAttributedString) {
         textStorage?.setAttributedString(attributed)
         normalizeTextBaselineOffsets()
         typingAttributes = currentTextAttributes()
@@ -91,7 +91,7 @@ extension TextBoxInputTextView {
         didChangeText()
     }
 
-    func debugInteractionState() -> [String: Any] {
+    func controlInteractionState() -> [String: Any] {
         let selection = selectedRange()
         let mentionQuery = mentionCompletionController.activeQuery
         return [
