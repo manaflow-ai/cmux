@@ -382,6 +382,20 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func maximumReachableMinimumViewportSizeRequiresGeometry() throws {
+        let panel = BrowserPanel(workspaceId: UUID(), renderInitialNavigation: false)
+        defer { panel.close() }
+        panel.webView.frame = .zero
+
+        #expect(panel.maximumReachableMinimumViewportSize() == nil)
+
+        panel.webView.frame = NSRect(x: 0, y: 0, width: 700, height: 600)
+        let maximum = try #require(panel.maximumReachableMinimumViewportSize())
+        #expect(abs(maximum.width - 7000) < 0.001)
+        #expect(abs(maximum.height - 6000) < 0.001)
+    }
+
+    @Test
     func floatingPopupInheritsOpenerWebsiteDataStore() throws {
         let panel = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
         defer { panel.close() }

@@ -7132,20 +7132,11 @@ extension BrowserPanel {
         return max(minimumMagnification, min(1.0, scale))
     }
 
-    func maximumReachableMinimumViewportSize() -> CGSize {
+    func maximumReachableMinimumViewportSize() -> CGSize? {
         let pageZoom = webView.pageZoom.isFinite && webView.pageZoom > 0 ? webView.pageZoom : 1.0
-        let maxWidth: CGFloat
-        if webView.bounds.width > 1 {
-            maxWidth = webView.bounds.width / (minViewportMagnification * pageZoom)
-        } else {
-            maxWidth = Self.maximumMinimumViewportDimension
-        }
-        let maxHeight: CGFloat
-        if webView.bounds.height > 1 {
-            maxHeight = webView.bounds.height / (minViewportMagnification * pageZoom)
-        } else {
-            maxHeight = Self.maximumMinimumViewportDimension
-        }
+        guard webView.bounds.width > 1, webView.bounds.height > 1 else { return nil }
+        let maxWidth = webView.bounds.width / (minViewportMagnification * pageZoom)
+        let maxHeight = webView.bounds.height / (minViewportMagnification * pageZoom)
         return CGSize(
             width: min(Self.maximumMinimumViewportDimension, max(0, maxWidth)),
             height: min(Self.maximumMinimumViewportDimension, max(0, maxHeight))

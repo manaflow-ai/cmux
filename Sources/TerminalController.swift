@@ -9555,20 +9555,31 @@ class TerminalController {
         return v2BrowserWithPanel(params: params) { tabManager, workspace, surfaceId, browserPanel in
             let requestedWidth = CGFloat(width)
             let requestedHeight = CGFloat(height)
-            let maximumReachable = browserPanel.maximumReachableMinimumViewportSize()
-            if (requestedWidth > 0 && requestedWidth > maximumReachable.width) ||
-                (requestedHeight > 0 && requestedHeight > maximumReachable.height) {
-                return .err(
-                    code: "invalid_params",
-                    message: String(
-                        localized: "browser.viewport.automation.error.exceedsPaneLimit",
-                        defaultValue: "browser.viewport.set exceeds the current pane's maximum emulated viewport size"
-                    ),
-                    data: [
-                        "max_width": Int(maximumReachable.width.rounded(.down)),
-                        "max_height": Int(maximumReachable.height.rounded(.down))
-                    ]
-                )
+            if requestedWidth > 0 || requestedHeight > 0 {
+                guard let maximumReachable = browserPanel.maximumReachableMinimumViewportSize() else {
+                    return .err(
+                        code: "invalid_params",
+                        message: String(
+                            localized: "browser.viewport.automation.error.exceedsPaneLimit",
+                            defaultValue: "browser.viewport.set exceeds the current pane's maximum emulated viewport size"
+                        ),
+                        data: ["max_width": 0, "max_height": 0]
+                    )
+                }
+                if (requestedWidth > 0 && requestedWidth > maximumReachable.width) ||
+                    (requestedHeight > 0 && requestedHeight > maximumReachable.height) {
+                    return .err(
+                        code: "invalid_params",
+                        message: String(
+                            localized: "browser.viewport.automation.error.exceedsPaneLimit",
+                            defaultValue: "browser.viewport.set exceeds the current pane's maximum emulated viewport size"
+                        ),
+                        data: [
+                            "max_width": Int(maximumReachable.width.rounded(.down)),
+                            "max_height": Int(maximumReachable.height.rounded(.down))
+                        ]
+                    )
+                }
             }
 
             let handled = browserPanel.setMinimumViewportSize(
