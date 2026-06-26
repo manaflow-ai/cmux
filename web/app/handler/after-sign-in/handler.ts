@@ -210,17 +210,13 @@ async function afterSignInMessages(request: NextRequest): Promise<LocalizedAfter
 function nativeReturnResponse(
   href: string,
   localized: LocalizedAfterSignInMessages,
-  autoOpen: boolean
+  clearHandoffCookie: boolean
 ): NextResponse {
   const { locale, messages } = localized;
   const escapedHref = escapeHtml(href);
-  const scriptHref = JSON.stringify(href).replaceAll("<", "\\u003c");
   const escapedTitle = escapeHtml(messages.title);
   const escapedBody = escapeHtml(messages.body);
   const escapedButton = escapeHtml(messages.button);
-  const autoOpenScript = autoOpen
-    ? `  <script>\n    window.location.replace(${scriptHref});\n  </script>\n`
-    : "";
   const response = new NextResponse(
     `<!doctype html>
 <html lang="${escapeHtml(locale)}">
@@ -272,7 +268,6 @@ function nativeReturnResponse(
     <p>${escapedBody}</p>
     <a href="${escapedHref}">${escapedButton}</a>
   </main>
-${autoOpenScript}
 </body>
 </html>`,
     {
@@ -282,7 +277,7 @@ ${autoOpenScript}
       },
     }
   );
-  if (autoOpen) {
+  if (clearHandoffCookie) {
     response.cookies.set(NATIVE_HANDOFF_COOKIE, "", {
       httpOnly: true,
       maxAge: 0,
@@ -340,9 +335,9 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
     ) {
       if (isAllowedNativeReturnTo(nativeReturnTo, request)) {
         const href = buildNativeHref(nativeReturnTo, refreshToken, accessCookie);
-        const autoOpen = verifiedAutoOpen(request, stackCookies, nativeReturnTo);
+        const shouldClearHandoffCookie = verifiedAutoOpen(request, stackCookies, nativeReturnTo);
         if (href) {
-          return nativeReturnResponse(href, localizedMessages, autoOpen);
+          return nativeReturnResponse(href, localizedMessages, shouldClearHandoffCookie);
         }
       }
       return NextResponse.redirect(new URL("/", request.url));
