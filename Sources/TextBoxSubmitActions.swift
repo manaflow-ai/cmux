@@ -28,7 +28,10 @@ extension TextBoxInputContainer {
             }
             return submitActionPathImageCacheKey(expandedSubmitActionImagePath(path))
         }
-        return Array(Set(keys)).sorted()
+        return Array(Set(keys))
+            .sorted()
+            .prefix(TextBoxSubmitActionImageSupport.maximumCachedImageCount)
+            .map { $0 }
     }
 
     var submitActionImageCacheTaskKey: String {

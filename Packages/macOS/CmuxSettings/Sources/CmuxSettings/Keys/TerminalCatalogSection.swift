@@ -114,7 +114,7 @@ public struct TerminalCatalogSection: SettingCatalogSection {
     /// Default TextBox submit action used when a terminal is eligible to launch a new agent session.
     public let textBoxDefaultSubmitAction = DefaultsKey<String>(
         id: "terminal.textBoxDefaultSubmitAction",
-        defaultValue: "claude",
+        defaultValue: "text-entry",
         userDefaultsKey: "terminal.textBoxDefaultSubmitAction"
     )
 

@@ -97,10 +97,10 @@
 926	Sources/DockPanelView.swift
 920	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 918	cmuxTests/WorkspaceGroupTests.swift
+910	cmuxTests/TextBoxSubmitActionTests.swift
 905	Sources/CmuxSSHURLRequest.swift
 904	Sources/Panels/TerminalPanel.swift
 899	Sources/Panels/MarkdownWebRenderer.swift
-895	cmuxTests/TextBoxSubmitActionTests.swift
 877	Packages/Shared/CmuxAgentChat/Tests/CmuxAgentChatTests/ChatConversationStoreTests.swift
 871	cmuxTests/ClaudeHookSurfaceResolutionSwiftTests.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift

@@ -31,7 +31,7 @@ final class TerminalPanelTextBoxState {
             observedCommandRunningSinceLaunch = true
             return
         }
-        if state == .promptIdle && observedCommandRunningSinceLaunch {
+        if state == .promptIdle {
             clearLaunchCommand()
         }
     }

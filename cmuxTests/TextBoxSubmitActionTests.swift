@@ -254,6 +254,21 @@ struct TextBoxSubmitActionTests {
         )
     }
 
+    @Test
+    func testSubmitActionImageCacheKeyListIsBounded() {
+        let keys = (0..<(TextBoxSubmitActionImageSupport.maximumCachedImageCount + 8)).map { index in
+            "path:/tmp/custom-\(index).png"
+        }
+
+        XCTAssertEqual(
+            Array(Set(keys))
+                .sorted()
+                .prefix(TextBoxSubmitActionImageSupport.maximumCachedImageCount)
+                .count,
+            TextBoxSubmitActionImageSupport.maximumCachedImageCount
+        )
+    }
+
 
     @Test
     func testCustomTextBoxSubmitActionCatalogKeepsTextEntrySelectable() throws {
@@ -413,7 +428,7 @@ struct TextBoxSubmitActionTests {
     }
 
     @Test
-    func testTextBoxLaunchCommandContextSurvivesRepeatedPromptIdleBeforeRunning() throws {
+    func testTextBoxLaunchCommandContextClearsOnPromptIdleBeforeRunning() throws {
         let panel = TerminalPanel(workspaceId: UUID())
 
         panel.updateShellActivityState(.promptIdle)
@@ -421,7 +436,7 @@ struct TextBoxSubmitActionTests {
         #expect(panel.textBoxState.launchCommand != nil)
 
         panel.updateShellActivityState(.promptIdle)
-        #expect(panel.textBoxState.launchCommand != nil)
+        #expect(panel.textBoxState.launchCommand == nil)
     }
 
 

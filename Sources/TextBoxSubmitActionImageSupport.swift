@@ -3,6 +3,7 @@ import Foundation
 
 enum TextBoxSubmitActionImageSupport {
     static let iconSize: CGFloat = 16
+    static let maximumCachedImageCount = 32
 
     private static let maximumImageBytes = 2 * 1024 * 1024
 
