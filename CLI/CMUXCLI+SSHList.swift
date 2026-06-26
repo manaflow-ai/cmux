@@ -136,11 +136,12 @@ extension CMUXCLI {
             // The path is a regular file (the guard above passed), so a read
             // failure here is a permission or decoding problem, not a missing
             // config — surface it for the default config too instead of silently
-            // reporting no hosts.
+            // reporting no hosts. Keep the message stable (no raw OS error text
+            // in user-facing copy).
             let label = requireReadable ? "--config \(configPath)" : configPath
             throw CLIError(message: String(
                 localized: "cli.sshlist.configReadError",
-                defaultValue: "ssh list: cannot read \(label): \(String(describing: error))"
+                defaultValue: "ssh list: cannot read \(label)."
             ))
         }
         // OpenSSH resolves every relative `Include` in a user configuration
