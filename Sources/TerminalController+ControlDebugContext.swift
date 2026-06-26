@@ -67,7 +67,9 @@ extension TerminalController: ControlDebugContext {
 
     // MARK: - v1-shared forwards (bodies stay in TerminalController.swift)
 
-    func controlDebugSetShortcut(arguments: String) -> String { setShortcut(arguments) }
+    func controlDebugSetShortcut(arguments: String) -> String {
+        KeyboardShortcutSettings.applyDebugSetShortcutCommand(arguments)
+    }
 
     func controlDebugSimulateShortcut(combo: String) -> String { simulateShortcut(combo) }
 
@@ -737,73 +739,6 @@ extension TerminalController: ControlDebugContext {
             result = chain.joined(separator: "->")
         }
         return result
-    }
-
-    func setShortcut(_ args: String) -> String {
-        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
-        let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
-        guard parts.count == 2 else {
-            return "ERROR: Usage: set_shortcut <name> <combo|clear>"
-        }
-
-        let name = parts[0].lowercased()
-        let combo = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-
-        let action: KeyboardShortcutSettings.Action?
-        switch name {
-        case "focus_left", "focusleft":
-            action = .focusLeft
-        case "focus_right", "focusright":
-            action = .focusRight
-        case "focus_up", "focusup":
-            action = .focusUp
-        case "focus_down", "focusdown":
-            action = .focusDown
-        case "split_right", "splitright":
-            action = .splitRight
-        case "split_down", "splitdown":
-            action = .splitDown
-        case "workspace_digits", "workspace_number", "select_workspace_by_number":
-            action = .selectWorkspaceByNumber
-        case "surface_digits", "surface_number", "select_surface_by_number":
-            action = .selectSurfaceByNumber
-        default:
-            action = nil
-        }
-
-        guard let action else {
-            return "ERROR: Unknown shortcut name. Supported: focus_left, focus_right, focus_up, focus_down, split_right, split_down, workspace_digits, surface_digits"
-        }
-
-        if combo.lowercased() == "clear" || combo.lowercased() == "unbound" || combo.lowercased() == "none" {
-            KeyboardShortcutSettings.clearShortcut(for: action)
-            return "OK"
-        }
-
-        if combo.lowercased() == "default" || combo.lowercased() == "reset" {
-            KeyboardShortcutSettings.resetShortcut(for: action)
-            return "OK"
-        }
-
-        guard let parsed = ParsedShortcutCombo(combo: combo) else {
-            return "ERROR: Invalid combo. Example: cmd+ctrl+h"
-        }
-
-        let shortcut = StoredShortcut(
-            key: parsed.storedKey,
-            command: parsed.modifierFlags.contains(.command),
-            shift: parsed.modifierFlags.contains(.shift),
-            option: parsed.modifierFlags.contains(.option),
-            control: parsed.modifierFlags.contains(.control)
-        )
-        if action.usesNumberedDigitMatching,
-           action.normalizedRecordedShortcut(shortcut) == nil {
-            return "ERROR: Numbered shortcuts must use a digit key (1-9). Example: ctrl+1"
-        }
-
-        let storedShortcut = action.normalizedRecordedShortcut(shortcut) ?? shortcut
-        KeyboardShortcutSettings.setShortcut(storedShortcut, for: action)
-        return "OK"
     }
 
     func simulateShortcut(_ args: String) -> String {
