@@ -238,6 +238,14 @@ struct SignInView: View {
         }
     }
 
+    // While this is true the card dims (opacity 0.6) and inputs disable. There
+    // is intentionally no in-app "cancel sign-in" affordance: during the only
+    // long phase (the Apple/Google system sheet, generous on purpose for
+    // password + 2FA) the system sheet sits above this view and carries its own
+    // Cancel, and every coordinator phase is raced against a deadline
+    // (AuthTimeouts), so a wedged flow always ends in a localized, retryable
+    // AuthError and re-enables the card for retry. Do not reintroduce a manual
+    // cancel button here; it was occluded during the system sheet anyway.
     private var isInteractiveAuthInProgress: Bool {
         authManager.isLoading || isAppleSigningIn || isGoogleSigningIn
     }
