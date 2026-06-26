@@ -357,6 +357,53 @@ import Testing
         #expect(!restoredInput.contains(staleExecutablePath), "\(restoredInput)")
     }
 
+    // Regression coverage for https://github.com/manaflow-ai/cmux/issues/6597:
+    // `app.persistTerminalScrollback` opts out of writing terminal scrollback
+    // into the on-disk session snapshot. cmux carries scrollback across
+    // restarts by re-persisting whatever a prior launch restored
+    // (`restoredTerminalScrollbackByPanelId`), so seed that fallback and verify
+    // the next snapshot drops it when the setting is off — proving sensitive
+    // output never reaches disk — while still keeping it when the setting is on.
+    @Test @MainActor func sessionSnapshotOmitsRestoredScrollbackWhenPersistenceDisabled() throws {
+        let suiteName = "cmux-persist-scrollback-off-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(false, forKey: SessionScrollbackPersistenceSettings.persistScrollbackKey)
+
+        let workspace = Workspace(sessionScrollbackPersistenceDefaults: defaults)
+        let panelId = try #require(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first { $0.terminal != nil }?.id
+        )
+        workspace.restoredTerminalScrollbackByPanelId[panelId] = "SENSITIVE_TOKEN_OUTPUT"
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: true)
+        let panel = try #require(snapshot.panels.first { $0.id == panelId })
+
+        // Tabs/layout/working directory still restore; only scrollback is withheld.
+        #expect(panel.terminal != nil)
+        #expect(panel.terminal?.scrollback == nil)
+        // The in-memory restored copy is purged so it can't leak into later saves.
+        #expect(workspace.restoredTerminalScrollbackByPanelId[panelId] == nil)
+    }
+
+    @Test @MainActor func sessionSnapshotKeepsRestoredScrollbackWhenPersistenceEnabled() throws {
+        let suiteName = "cmux-persist-scrollback-on-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: SessionScrollbackPersistenceSettings.persistScrollbackKey)
+
+        let workspace = Workspace(sessionScrollbackPersistenceDefaults: defaults)
+        let panelId = try #require(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first { $0.terminal != nil }?.id
+        )
+        workspace.restoredTerminalScrollbackByPanelId[panelId] = "SENSITIVE_TOKEN_OUTPUT"
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: true)
+        let panel = try #require(snapshot.panels.first { $0.id == panelId })
+
+        #expect(panel.terminal?.scrollback == "SENSITIVE_TOKEN_OUTPUT")
+    }
+
     @Test func agentHookSurfaceResumeStartupInputPreservesExistingPATHManagedAgentExecutable() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory

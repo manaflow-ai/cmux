@@ -2211,6 +2211,9 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var surfaceTabBarDirectory: String?
     private(set) var preferredBrowserProfileID: UUID?
     let closeTabWarningDefaults, agentSessionAutoResumeDefaults: UserDefaults
+    /// Backing store for `app.persistTerminalScrollback`. Read when building a
+    /// session snapshot to decide whether terminal scrollback is captured.
+    let sessionScrollbackPersistenceDefaults: UserDefaults
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
     var portOrdinal: Int = 0
 
@@ -2991,6 +2994,7 @@ final class Workspace: Identifiable, ObservableObject {
         workspaceEnvironment: [String: String] = [:],
         closeTabWarningDefaults: UserDefaults = .standard,
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
+        sessionScrollbackPersistenceDefaults: UserDefaults = .standard,
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
         sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil
     ) {
@@ -2998,6 +3002,7 @@ final class Workspace: Identifiable, ObservableObject {
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
+        self.sessionScrollbackPersistenceDefaults = sessionScrollbackPersistenceDefaults
         let sanitizedWorkspaceEnvironment = Self.sanitizedWorkspaceEnvironment(workspaceEnvironment)
         self.workspaceEnvironment = sanitizedWorkspaceEnvironment
         self.portOrdinal = portOrdinal
