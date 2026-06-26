@@ -100,6 +100,18 @@ import Testing
         #expect(prompt.contains("/tmp/a.png"))
     }
 
+    @Test func sanitizerStripsShellMetacharactersFromAttackerLabel() {
+        // The captured (attacker-influenceable) window/app label is the security
+        // boundary: it is sanitized so it can't inject a command if the staged
+        // line is run in a plain shell.
+        let sanitized = AppshotCapture.singleLine("$(rm -rf ~) `whoami` a;b|c&d>e<f{g}h\\i", max: 500)
+        for metacharacter in ["`", "$", ";", "|", "&", "<", ">", "(", ")", "{", "}", "\\"] {
+            #expect(!sanitized.contains(metacharacter), "shell metacharacter \(metacharacter) survived sanitization")
+        }
+        #expect(!sanitized.contains("\n"))
+        #expect(sanitized.contains("rm -rf"), "non-metacharacter words should be preserved as context")
+    }
+
     // MARK: - routing
 
     @Test func routesToLastRouteWithinWindowWhenSurfaceExists() {
