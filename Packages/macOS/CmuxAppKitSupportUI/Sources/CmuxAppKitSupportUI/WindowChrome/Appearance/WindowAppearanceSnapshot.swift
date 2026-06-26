@@ -126,10 +126,17 @@ public struct WindowAppearanceSnapshot {
     }
 
     /// Returns the AppKit window mutation plan for this snapshot.
+    ///
+    /// - Parameters:
+    ///   - glassEffectAvailable: Whether native `NSGlassEffectView` is available.
+    ///   - windowBackgroundPolicy: Window background settings used for non-terminal glass.
+    ///   - suppressNativeTerminalGlassTint: Whether native Ghostty glass styles should omit terminal tint.
     public func backdropPlan(
         glassEffectAvailable: Bool,
         windowBackgroundPolicy: WindowBackgroundPolicy,
-        suppressNativeTerminalGlassTint: Bool = false
+        suppressNativeTerminalGlassTint: Bool = ProcessInfo.processInfo.isOperatingSystemAtLeast(
+            OperatingSystemVersion(majorVersion: 27, minorVersion: 0, patchVersion: 0)
+        )
     ) -> WindowBackdropPlan {
         let rootPolicy = terminalBackdropPolicy()
         if windowGlassSettings.shouldApply(
@@ -142,7 +149,10 @@ public struct WindowAppearanceSnapshot {
                 windowIsOpaque: false,
                 rootPolicy: rootPolicy,
                 glass: WindowBackdropGlassPlan(
-                    tintColor: windowGlassSettings.tintColor,
+                    tintColor: windowGlassSettings.resolvedTintColor(
+                        glassEffectAvailable: glassEffectAvailable,
+                        suppressNativeTerminalGlassTint: suppressNativeTerminalGlassTint
+                    ),
                     style: windowGlassSettings.style
                 ),
                 shouldApplyGhosttyCompositorBlur: false

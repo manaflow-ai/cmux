@@ -72,7 +72,7 @@ import Testing
             windowBackgroundPolicy: makeWindowBackgroundPolicy()
         )
         #expect(plan.hostingPhase == .windowGlass)
-        #expect(plan.glass?.tintColor.hexString(includeAlpha: true) == "#272822FF")
+        #expect(plan.glass?.tintColor?.hexString(includeAlpha: true) == "#272822FF")
     }
 
     @Test func ghosttyMacOSGlassStyleSuppressesNativeTerminalTintOnMacOS27() {
@@ -97,6 +97,7 @@ import Testing
             suppressNativeTerminalGlassTint: true
         )
         #expect(plan.hostingPhase == .windowGlass)
+        #expect(plan.glass != nil)
         #expect(plan.glass?.tintColor == nil)
     }
 
@@ -122,7 +123,7 @@ import Testing
             suppressNativeTerminalGlassTint: true
         )
         #expect(plan.hostingPhase == .windowGlass)
-        #expect(plan.glass?.tintColor.hexString(includeAlpha: true) == "#272822FF")
+        #expect(plan.glass?.tintColor?.hexString(includeAlpha: true) == "#272822FF")
     }
 
     private func makeSettings(

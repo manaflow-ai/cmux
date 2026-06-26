@@ -47,6 +47,24 @@ public struct WindowGlassSettingsSnapshot {
         return (NSColor(hex: tintHex) ?? .black).withAlphaComponent(tintOpacity)
     }
 
+    /// Resolved tint color for the AppKit glass effect.
+    ///
+    /// - Parameters:
+    ///   - glassEffectAvailable: Whether the native `NSGlassEffectView` path is available.
+    ///   - suppressNativeTerminalGlassTint: Whether native Ghostty glass styles should omit terminal tint.
+    /// - Returns: The color to pass to AppKit, or `nil` to leave native glass untinted.
+    public func resolvedTintColor(
+        glassEffectAvailable: Bool,
+        suppressNativeTerminalGlassTint: Bool
+    ) -> NSColor? {
+        if glassEffectAvailable,
+           suppressNativeTerminalGlassTint,
+           terminalBackgroundBlur.isMacOSGlassStyle {
+            return nil
+        }
+        return tintColor
+    }
+
     /// Native glass style for the current settings.
     public var style: WindowGlassEffectStyle {
         terminalBackgroundBlur.windowGlassStyle ?? .regular
