@@ -4240,13 +4240,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose which compatible terminal buttons also appear on the chat keyboard bar, and drag to reorder them. Terminal-only controls stay available in terminal mode."
+            "value": "Choose which compatible terminal buttons appear on both the chat and terminal keyboard bars. Changes here also update the terminal keyboard bar."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チャットのキーボードバーにも表示する互換性のあるターミナルボタンを選び、ドラッグして並べ替えできます。ターミナル専用のコントロールはターミナルモードで引き続き使えます。"
+            "value": "チャットとターミナル両方のキーボードバーに表示する互換性のあるターミナルボタンを選びます。ここでの変更はターミナルのキーボードバーにも反映されます。"
           }
         }
       }
@@ -4257,13 +4257,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chat Shortcuts"
+            "value": "Shared Shortcuts"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チャットショートカット"
+            "value": "共有ショートカット"
           }
         }
       }

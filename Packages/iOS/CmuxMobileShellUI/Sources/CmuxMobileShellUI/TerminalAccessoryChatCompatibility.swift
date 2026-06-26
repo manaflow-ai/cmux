@@ -21,7 +21,7 @@ enum TerminalShortcutsSettingsScope: Equatable {
         case .terminal:
             L10n.string("mobile.shortcuts.title", defaultValue: "Terminal Shortcuts")
         case .agentChat:
-            L10n.string("mobile.shortcuts.chat.title", defaultValue: "Chat Shortcuts")
+            L10n.string("mobile.shortcuts.chat.title", defaultValue: "Shared Shortcuts")
         }
     }
 
@@ -35,7 +35,7 @@ enum TerminalShortcutsSettingsScope: Equatable {
         case .agentChat:
             L10n.string(
                 "mobile.shortcuts.chat.footer",
-                defaultValue: "Choose which compatible terminal buttons also appear on the chat keyboard bar, and drag to reorder them. Terminal-only controls stay available in terminal mode."
+                defaultValue: "Choose which compatible terminal buttons appear on both the chat and terminal keyboard bars. Changes here also update the terminal keyboard bar."
             )
         }
     }
