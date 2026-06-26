@@ -154,6 +154,24 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
         launchCommand().map { "initialCommand:\($0)" }
     }
 
+    func launchContextCommand() -> String? {
+        if let launchCommand = launchCommand() {
+            return launchCommand
+        }
+        guard kind == .commandTemplate,
+              let commandTemplate,
+              commandTemplate.contains(Self.promptPlaceholder),
+              Self.promptPlaceholdersAreUnquoted(in: commandTemplate) else {
+            return nil
+        }
+        let command = commandTemplate.replacingOccurrences(
+            of: Self.promptPlaceholder,
+            with: ""
+        )
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        return command.isEmpty ? nil : command
+    }
+
     func command(forPrompt prompt: String) -> String? {
         guard kind == .commandTemplate,
               let commandTemplate,

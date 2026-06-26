@@ -2749,7 +2749,7 @@ struct TextBoxInputContainer: View {
         let launchAction = effectiveSubmitAction
         if let launchCommand = providerLaunchCommand(for: launchAction) {
             startPendingProviderLaunch(launchAction)
-            onRecordLaunchCommand(launchCommand)
+            onRecordLaunchCommand(launchAction.launchContextCommand() ?? launchCommand)
             TextBoxSubmit.sendEvents(
                 TextBoxSubmit.launchDispatchEvents(launchCommand: launchCommand),
                 via: surface
@@ -2786,15 +2786,15 @@ struct TextBoxInputContainer: View {
             attachmentCount: 0
         )
         let submitPlan = dispatchPlan(partsToSend, applying: effectiveSubmitAction)
-        if let launchCommand = submitPlan.launchCommand {
-            onRecordLaunchCommand(launchCommand)
+        if let launchContextCommand = submitPlan.launchContextCommand {
+            onRecordLaunchCommand(launchContextCommand)
         }
         TextBoxSubmit.sendEvents(
             submitPlan.events,
             via: surface,
         ) { completionContext in
             guard completionContext.didSubmit else {
-                if submitPlan.launchCommand != nil {
+                if submitPlan.launchContextCommand != nil {
                     onClearLaunchCommand()
                 }
                 if let poolWorkspaceId, !pendingComments.isEmpty {

@@ -330,6 +330,7 @@ extension TextBoxInputContainer {
         let events: [TextBoxSubmit.DispatchEvent]
         let cleanupTerminalAgentContext: String
         let launchCommand: String?
+        let launchContextCommand: String?
     }
 
     func dispatchPlan(
@@ -363,7 +364,8 @@ extension TextBoxInputContainer {
             return SubmitDispatchPlan(
                 events: TextBoxSubmit.dispatchEvents(for: parts, terminalAgentContext: textEntryContext),
                 cleanupTerminalAgentContext: textEntryContext,
-                launchCommand: nil
+                launchCommand: nil,
+                launchContextCommand: nil
             )
         }
 
@@ -376,7 +378,8 @@ extension TextBoxInputContainer {
             return SubmitDispatchPlan(
                 events: TextBoxSubmit.dispatchEvents(for: parts, terminalAgentContext: textEntryContext),
                 cleanupTerminalAgentContext: textEntryContext,
-                launchCommand: nil
+                launchCommand: nil,
+                launchContextCommand: nil
             )
         }
         return SubmitDispatchPlan(
@@ -386,7 +389,8 @@ extension TextBoxInputContainer {
                 terminalAgentContext: terminalAgentContext,
                 pendingProviderLaunchAction: pendingProviderLaunchAction
             ),
-            launchCommand: command
+            launchCommand: command,
+            launchContextCommand: action.launchContextCommand()
         )
     }
 

@@ -199,7 +199,24 @@ struct TextBoxSubmitActionTests {
 
         let expectedCommand = "codex --dangerously-bypass-approvals-and-sandbox 'ship user'\\''s fix\nwith\ttabs'"
         XCTAssertEqual(plan.launchCommand, expectedCommand)
+        XCTAssertEqual(plan.launchContextCommand, "codex --dangerously-bypass-approvals-and-sandbox")
         XCTAssertEqual(plan.events, TextBoxSubmit.dispatchEvents(for: [.text(expectedCommand)], terminalAgentContext: ""))
+    }
+
+    @Test
+    func testRecordedTextBoxLaunchContextDoesNotStoreSubmittedPrompt() throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let prompt = String(repeating: "large prompt ", count: 200)
+        panel.recordTextBoxLaunchCommand("codex --dangerously-bypass-approvals-and-sandbox '\(prompt)'")
+
+        XCTAssertEqual(panel.textBoxState.launchCommand, "codex")
+        XCTAssertFalse(panel.textBoxState.launchCommand?.contains(prompt) ?? true)
+        XCTAssertTrue(
+            TextBoxAgentDetection.supportsActiveAgentPrefixes(
+                context: WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
+            )
+        )
     }
 
 

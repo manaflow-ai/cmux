@@ -54,6 +54,26 @@ enum TextBoxAgentDetection: CaseIterable {
         claudeCode.matches(context: context)
     }
 
+    static func boundedLaunchCommandContext(from rawCommand: String) -> String? {
+        let command = rawCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !command.isEmpty else { return nil }
+        let context = "textBoxLaunchCommand:\(command)"
+        return allCases.first { $0.matches(context: context) }?.boundedActiveContextCommand
+    }
+
+    private var boundedActiveContextCommand: String {
+        switch self {
+        case .claudeCode:
+            return "claude"
+        case .codex:
+            return "codex"
+        case .opencode:
+            return "opencode"
+        case .pi:
+            return "pi"
+        }
+    }
+
     private func matches(metadataLine rawLine: String) -> Bool {
         let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !line.isEmpty else { return false }
