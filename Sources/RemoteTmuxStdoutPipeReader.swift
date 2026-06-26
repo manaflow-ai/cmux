@@ -12,6 +12,7 @@ final class RemoteTmuxStdoutPipeReader: @unchecked Sendable {
     private let maxPendingBytes: Int
     private let maxReadChunkBytes: Int
     private let onOverflow: @MainActor @Sendable () -> Void
+    private var handle: FileHandle?
     private var source: DispatchSourceRead?
     private var pendingBytes = 0
     private var closed = false
@@ -40,6 +41,7 @@ final class RemoteTmuxStdoutPipeReader: @unchecked Sendable {
         let fileDescriptor = handle.fileDescriptor
         queue.async { [weak self] in
             guard let self, !self.closed, self.source == nil else { return }
+            self.handle = handle
             let source = DispatchSource.makeReadSource(fileDescriptor: fileDescriptor, queue: self.queue)
             source.setEventHandler { [weak self] in
                 self?.readAvailable(from: fileDescriptor)
@@ -54,8 +56,8 @@ final class RemoteTmuxStdoutPipeReader: @unchecked Sendable {
     }
 
     func close() {
-        queue.async { [weak self] in
-            self?.finishOnQueue()
+        queue.async {
+            self.finishOnQueue()
         }
     }
 
@@ -135,6 +137,7 @@ final class RemoteTmuxStdoutPipeReader: @unchecked Sendable {
         let sourceToCancel = source
         self.source = nil
         sourceToCancel?.cancel()
+        handle = nil
         continuation.finish()
     }
 }

@@ -919,11 +919,11 @@ final class RemoteTmuxControlConnection {
         process?.terminationHandler = nil
         // Tear down the readers deterministically rather than waiting for EOF (the
         // consumers are already cancelled).
-        stdoutReader = nil
         stderrReader?.readabilityHandler = nil
         stderrReader = nil
         stdoutPipeReader?.close()
         stdoutPipeReader = nil
+        stdoutReader = nil
         stderrContinuation?.finish()
         stderrContinuation = nil
         stdinWriter?.close()
