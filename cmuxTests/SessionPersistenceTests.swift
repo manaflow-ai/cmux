@@ -703,19 +703,19 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
-    // The last-user-message marker matches even when the captured row has the
-    // message split by interleaved SGR color escapes, and only the most recent
-    // occurrence is marked.
-    func testScrollbackReplayMarksMostRecentMessageRowThroughInterleavedSGR() {
+    // Matching survives SGR color escapes interleaved through the prompt message
+    // text, and when the same text anchors multiple rows the FIRST (the user's
+    // actual prompt, which precedes any later echo) is marked — exactly once.
+    func testScrollbackReplayMarksFirstPromptRowThroughInterleavedSGR() {
         let esc = "\u{001B}"
         let reset = "\(esc)[0m"
         let message = "fix the flaky test"
-        // First (older) echo, then agent output, then the most recent echo with
-        // SGR sequences interleaved through the message text.
         let lines = [
-            "> \(message)",
-            "\(esc)[33mthinking…\(reset)",
+            // The user's prompt row, with SGR interleaved through the message.
             "> \(esc)[1mfix\(reset) the \(esc)[4mflaky\(reset) test",
+            "\(esc)[33mthinking…\(reset)",
+            // A later row that also anchors the same text (e.g. an agent quote).
+            "> \(message)",
         ]
         let scrollback = lines.joined(separator: "\n")
 
@@ -726,11 +726,11 @@ final class SessionPersistenceTests: XCTestCase {
         let markedLines = marked.components(separatedBy: "\n")
 
         XCTAssertEqual(markedLines.count, 3)
-        XCTAssertFalse(markedLines[0].contains("\(esc)]133;A"), "older echo must stay unmarked")
         XCTAssertTrue(
-            markedLines[2].hasPrefix(SessionScrollbackReplayStore.semanticPromptStartMark),
-            "most recent message row must be marked, got: \(markedLines[2])"
+            markedLines[0].hasPrefix(SessionScrollbackReplayStore.semanticPromptStartMark),
+            "the first (prompt) row must be marked, got: \(markedLines[0])"
         )
+        XCTAssertFalse(markedLines[2].contains("\(esc)]133;A"), "the later echo row must stay unmarked")
         // Exactly one marker is injected.
         XCTAssertEqual(
             marked.components(separatedBy: "\(esc)]133;A").count - 1, 1

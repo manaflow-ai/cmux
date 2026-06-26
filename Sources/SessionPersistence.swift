@@ -2102,10 +2102,13 @@ enum SessionScrollbackReplayStore {
         // prompt sigil ("> ", "❯ ", "│ > ", "$ "). Anchoring to the row start —
         // rather than an unconstrained substring scan — keeps us off agent output
         // that merely echoes the user's words mid-sentence ("I'll refactor the
-        // login flow"). Keep the bottom-most anchored match: the most recent
-        // prompt. The match may continue into following rows for wrapped prompts.
+        // login flow"). Take the FIRST anchored match top-to-bottom: the user's
+        // prompt always precedes the agent's response (and any quote/echo of the
+        // prompt) for that turn, so the earliest anchored row is the prompt, never
+        // a later agent line. The match may continue into following rows for
+        // wrapped prompts.
         var targetIndex: Int?
-        for index in compactRows.indices where !compactRows[index].isEmpty {
+        search: for index in compactRows.indices where !compactRows[index].isEmpty {
             // Leading run of up to 4 non-alphanumeric sigil characters.
             var sigil = 0
             let row = compactRows[index]
@@ -2119,7 +2122,7 @@ enum SessionScrollbackReplayStore {
                 startOffset: offset
             ) {
                 targetIndex = index
-                break
+                break search
             }
         }
         guard let targetIndex else { return scrollback }
