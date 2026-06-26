@@ -26508,7 +26508,7 @@ struct CMUXCLI {
     }
 
     private func nativeProcessDescribesKnownAgent(for pid: pid_t) -> Bool {
-        AgentLaunchCaptureTrust.nativeProcessDescribesKnownAgent(
+        AgentLaunchCaptureTrust().nativeProcessDescribesKnownAgent(
             processName: processName(for: pid),
             arguments: processArguments(for: pid) ?? []
         )
@@ -26669,7 +26669,8 @@ struct CMUXCLI {
         // capture only when its launcher describes this hook's agent kind; otherwise
         // fall back to the agent's own process argv and kind.
         let envLauncher = normalizedHookValue(env["CMUX_AGENT_LAUNCH_KIND"])
-        let envCaptureIsTrusted = AgentLaunchCaptureTrust.launcherDescribesKind(
+        let launchCaptureTrust = AgentLaunchCaptureTrust()
+        let envCaptureIsTrusted = launchCaptureTrust.launcherDescribesKind(
             envLauncher,
             kind: fallbackKind
         )
@@ -26679,7 +26680,7 @@ struct CMUXCLI {
         var processArguments = fallbackPID.flatMap { fallbackPID -> [String]? in
             let pid = pid_t(fallbackPID)
             let candidate = self.processArguments(for: pid)
-            guard AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+            guard launchCaptureTrust.nativeProcessDescribesKind(
                 processName: processName(for: pid),
                 arguments: candidate,
                 kind: fallbackKind
@@ -26687,7 +26688,7 @@ struct CMUXCLI {
             return candidate
         }
         if let candidate = processArguments,
-           AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(candidate) {
+           launchCaptureTrust.argvLooksLikeShellWrapper(candidate) {
             // The PID fallback resolved to a shell dispatcher (e.g. the hook's own
             // `sh -c …` wrapper), not the agent. That argv is not a launch.
             processArguments = nil
