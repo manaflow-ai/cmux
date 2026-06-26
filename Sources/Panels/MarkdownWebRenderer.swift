@@ -196,7 +196,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             let zoom = MarkdownFontSizeSettings.pageZoom(forPointSize: lastFontSize)
             let shouldSyncShell = forceShellSync || abs(webView.pageZoom - zoom) > 0.0001
             if abs(webView.pageZoom - zoom) > 0.0001 { webView.pageZoom = zoom }
-            if shouldSyncShell { webView.evaluateJavaScript("window.__cmuxSetMarkdownZoom && window.__cmuxSetMarkdownZoom(\(Double(zoom)));", completionHandler: nil) }
+            if shouldSyncShell { webView.evaluateJavaScript(MarkdownRenderScript.setMarkdownZoom(zoom).source, completionHandler: nil) }
         }
 
         /// Records the desired body prose font and applies it as an inline
@@ -210,17 +210,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
         private func applyFontFamily() {
             guard let webView else { return }
-            // JSON-encode the CSS value (empty string clears the override).
             let css = MarkdownFontFamily.cssValue(for: lastFontFamily) ?? ""
-            let encoded = (try? JSONSerialization.data(withJSONObject: [css]))
-                .flatMap { String(data: $0, encoding: .utf8) } ?? "[\"\"]"
-            let js = """
-            (function(arr) {
-              var content = document.getElementById('content');
-              if (content) { content.style.fontFamily = arr[0]; }
-            })(\(encoded));
-            """
-            webView.evaluateJavaScript(js, completionHandler: nil)
+            webView.evaluateJavaScript(MarkdownRenderScript.setContentFontFamily(css: css).source, completionHandler: nil)
         }
 
         /// Records the desired content column max width. This DOM style is lost
@@ -233,13 +224,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private func applyMaxContentWidth() {
             guard let webView else { return }
             let width = Int(MarkdownMaxWidthSettings.clamp(lastMaxContentWidth).rounded())
-            let js = """
-            (function(width) {
-              var content = document.getElementById('content');
-              if (content) { content.style.maxWidth = width + 'px'; }
-            })(\(width));
-            """
-            webView.evaluateJavaScript(js, completionHandler: nil)
+            webView.evaluateJavaScript(MarkdownRenderScript.setContentMaxWidth(width).source, completionHandler: nil)
         }
 
         func close() {
@@ -349,20 +334,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 "--borderColor-muted": theme.mutedBorder,
                 "--borderColor-neutral-muted": theme.mutedBorder
             ]
-            guard let data = try? JSONSerialization.data(withJSONObject: payload),
-                  let json = String(data: data, encoding: .utf8) else { return }
-            let js = """
-            (function(vars) {
-              var content = document.getElementById('content');
-              if (!content) { return; }
-              Object.keys(vars).forEach(function(name) {
-                content.style.setProperty(name, vars[name]);
-              });
-              content.style.background = 'transparent';
-              if (window.__cmuxApplyTheme) { window.__cmuxApplyTheme(); }
-            })(\(json));
-            """
-            webView.evaluateJavaScript(js, completionHandler: nil)
+            guard let script = MarkdownRenderScript.applyThemeVariables(payload) else { return }
+            webView.evaluateJavaScript(script.source, completionHandler: nil)
         }
 
         // MARK: Bridge
@@ -372,7 +345,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 #if DEBUG
             NSLog("MarkdownPanel.pushMarkdown bytes=\(markdown.utf8.count)")
 #endif
-            guard let js = Self.renderMarkdownScript(markdown) else { return }
+            guard let js = MarkdownRenderScript.renderMarkdown(markdown)?.source else { return }
             webView.evaluateJavaScript(js) { _, error in
 #if DEBUG
                 if let error {
@@ -384,7 +357,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
         private func renderMarkdownForExport(_ markdown: String) async -> Bool {
             guard let webView, isLoaded else { return false }
-            guard let js = Self.renderMarkdownScript(markdown) else { return false }
+            guard let js = MarkdownRenderScript.renderMarkdown(markdown)?.source else { return false }
             do {
                 _ = try await webView.evaluateJavaScript(js)
                 lastMarkdown = markdown
@@ -396,28 +369,6 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 #endif
                 return false
             }
-        }
-
-        private static func renderMarkdownScript(_ markdown: String) -> String? {
-            // Send the raw markdown through a JSON literal so we don't have
-            // to hand-escape backticks/backslashes/quotes for JS.
-            guard let data = try? JSONSerialization.data(withJSONObject: [markdown]),
-                  let arrayLiteral = String(data: data, encoding: .utf8) else { return nil }
-            return """
-            (function(md) {
-              if (window.__cmuxRenderMarkdown) {
-                window.__cmuxRenderMarkdown(md);
-                return;
-              }
-              var el = document.getElementById('content') || document.body;
-              function esc(s) {
-                var div = document.createElement('div');
-                div.textContent = String(s == null ? '' : s);
-                return div.innerHTML;
-              }
-              el.innerHTML = '<pre style=\"color:#f85149;white-space:pre-wrap\">Markdown renderer failed to initialize. Showing raw source.\\n\\n' + esc(md) + '</pre>';
-            })(\(arrayLiteral)[0]);
-            """
         }
 
         // MARK: WKScriptMessageHandler
@@ -542,19 +493,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 return
             }
 
-            // Concatenate the bundled sources into a single evaluateJavaScript
-            // call, then notify the page that the lib is ready. Any parse or
-            // throw in the bundle surfaces through the completion handler.
-            var injection = ""
-            for src in sources where !src.isEmpty {
-                injection += src
-                injection += "\n;"
-            }
-            // JSON-encode the lib name to safely splice into JS.
-            let libLiteral = (try? JSONSerialization.data(withJSONObject: [lib]))
-                .flatMap { String(data: $0, encoding: .utf8) } ?? "[\"\"]"
-            let suffix = "\nwindow.__cmuxLibLoaded && window.__cmuxLibLoaded(\(libLiteral)[0]);"
-            webView.evaluateJavaScript(injection + suffix) { [weak self] _, error in
+            let script = MarkdownRenderScript.loadLibrary(named: lib, sources: sources)
+            webView.evaluateJavaScript(script.source) { [weak self] _, error in
                 if let error {
                     // Allow retry on next render if this attempt failed.
                     self?.requestedLibs.remove(lib)

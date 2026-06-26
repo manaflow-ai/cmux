@@ -9,7 +9,6 @@ import WebKit
 private var cmuxWindowBrowserPortalKey: UInt8 = 0
 private var cmuxWindowBrowserPortalCloseObserverKey: UInt8 = 0
 private var cmuxBrowserSearchOverlayPanelIdAssociationKey: UInt8 = 0
-private var cmuxBrowserPortalNeedsRenderingStateReattachKey: UInt8 = 0
 private var cmuxWindowInteractiveSplitDividerDragKey: UInt8 = 0
 
 #if DEBUG
@@ -23,18 +22,6 @@ private func browserPortalDebugFrame(_ rect: NSRect) -> String {
     String(format: "%.1f,%.1f %.1fx%.1f", rect.origin.x, rect.origin.y, rect.size.width, rect.size.height)
 }
 #endif
-
-private extension NSObject {
-    @discardableResult
-    func browserPortalCallVoidIfAvailable(_ rawSelector: String) -> Bool {
-        let selector = NSSelectorFromString(rawSelector)
-        guard responds(to: selector) else { return false }
-        typealias Fn = @convention(c) (AnyObject, Selector) -> Void
-        let fn = unsafeBitCast(method(for: selector), to: Fn.self)
-        fn(self, selector)
-        return true
-    }
-}
 
 private extension NSResponder {
     var browserPortalOwningView: NSView? {
@@ -73,78 +60,6 @@ private extension NSWindow {
                 .OBJC_ASSOCIATION_RETAIN_NONATOMIC
             )
         }
-    }
-}
-
-private extension WKWebView {
-    private var browserPortalNeedsRenderingStateReattach: Bool {
-        get {
-            (objc_getAssociatedObject(self, &cmuxBrowserPortalNeedsRenderingStateReattachKey) as? NSNumber)?
-                .boolValue ?? false
-        }
-        set {
-            objc_setAssociatedObject(
-                self,
-                &cmuxBrowserPortalNeedsRenderingStateReattachKey,
-                NSNumber(value: newValue),
-                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
-            )
-        }
-    }
-
-    var browserPortalRequiresRenderingStateReattach: Bool {
-        browserPortalNeedsRenderingStateReattach
-    }
-
-    func browserPortalNotifyHidden(reason: String) {
-        browserPortalNeedsRenderingStateReattach = true
-        let firedSelectors = ["viewDidHide", "_exitInWindow"].filter {
-            browserPortalCallVoidIfAvailable($0)
-        }
-#if DEBUG
-        if !firedSelectors.isEmpty {
-            cmuxDebugLog(
-                "browser.portal.webview.hidden web=\(browserPortalDebugToken(self)) " +
-                "reason=\(reason) selectors=\(firedSelectors.joined(separator: ","))"
-            )
-        }
-#endif
-    }
-
-    func browserPortalReattachRenderingState(reason: String) {
-        guard browserPortalNeedsRenderingStateReattach else { return }
-        guard window != nil else { return }
-        browserPortalNeedsRenderingStateReattach = false
-
-        let firedSelectors = [
-            "viewDidUnhide",
-            "_enterInWindow",
-            "_endDeferringViewInWindowChangesSync",
-        ].filter {
-            browserPortalCallVoidIfAvailable($0)
-        }
-
-        if let scrollView = enclosingScrollView {
-            scrollView.needsLayout = true
-            scrollView.needsDisplay = true
-            scrollView.setNeedsDisplay(scrollView.bounds)
-            scrollView.contentView.needsLayout = true
-            scrollView.contentView.needsDisplay = true
-        }
-
-        needsLayout = true
-        needsDisplay = true
-        setNeedsDisplay(bounds)
-
-#if DEBUG
-        if !firedSelectors.isEmpty {
-            cmuxDebugLog(
-                "browser.portal.webview.reattach web=\(browserPortalDebugToken(self)) " +
-                "reason=\(reason) selectors=\(firedSelectors.joined(separator: ",")) " +
-                "frame=\(browserPortalDebugFrame(frame))"
-            )
-        }
-#endif
     }
 }
 

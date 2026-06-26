@@ -970,7 +970,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             minimalModeSidebarControlActionSlot(
                 window: window,
                 locationInWindow: NSPoint(
-                    x: CGFloat(MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset) + firstButtonX,
+                    x: CGFloat(MinimalModeTitlebarDebugSnapshot.defaultLeftControlsLeadingInset) + firstButtonX,
                     y: titlebarY
                 ),
                 defaults: defaults
@@ -1039,45 +1039,45 @@ final class WindowDragHandleHitTests: XCTestCase {
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        let snapshot = MinimalModeTitlebarDebugSettings.snapshot(defaults: defaults)
+        let snapshot = MinimalModeTitlebarDebugSnapshot.snapshot(defaults: defaults)
         XCTAssertEqual(
             snapshot.leftControlsLeadingInset,
-            MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset,
+            MinimalModeTitlebarDebugSnapshot.defaultLeftControlsLeadingInset,
             accuracy: 0.001
         )
         XCTAssertEqual(
             snapshot.leftControlsTopInset,
-            MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset,
+            MinimalModeTitlebarDebugSnapshot.defaultLeftControlsTopInset,
             accuracy: 0.001
         )
         XCTAssertEqual(
-            MinimalModeTitlebarDebugSettings.leftControlsLeadingInset(defaults: defaults),
-            CGFloat(MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset),
+            MinimalModeTitlebarDebugSnapshot.leftControlsLeadingInset(defaults: defaults),
+            CGFloat(MinimalModeTitlebarDebugSnapshot.defaultLeftControlsLeadingInset),
             accuracy: 0.001
         )
         XCTAssertEqual(
             MinimalModeSidebarTitlebarControlsMetrics.topInset(defaults: defaults),
-            CGFloat(MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset),
+            CGFloat(MinimalModeTitlebarDebugSnapshot.defaultLeftControlsTopInset),
             accuracy: 0.001
         )
 
-        defaults.set(44.5, forKey: MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
-        defaults.set(6.5, forKey: MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey)
+        defaults.set(44.5, forKey: MinimalModeTitlebarDebugSnapshot.leftControlsLeadingInsetKey)
+        defaults.set(6.5, forKey: MinimalModeTitlebarDebugSnapshot.leftControlsTopInsetKey)
         defaults.set(12.0, forKey: "titlebarDebug.trafficLightsXOffset")
         defaults.set(-3.0, forKey: "titlebarDebug.trafficLightsYOffset")
-        defaults.set(88.0, forKey: MinimalModeTitlebarDebugSettings.trafficLightTabBarInsetKey)
-        defaults.set(92.0, forKey: MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInsetKey)
+        defaults.set(88.0, forKey: MinimalModeTitlebarDebugSnapshot.trafficLightTabBarInsetKey)
+        defaults.set(92.0, forKey: MinimalModeTitlebarDebugSnapshot.trafficLightTitlebarLeadingInsetKey)
 
-        let storedSnapshot = MinimalModeTitlebarDebugSettings.snapshot(defaults: defaults)
+        let storedSnapshot = MinimalModeTitlebarDebugSnapshot.snapshot(defaults: defaults)
         XCTAssertEqual(storedSnapshot.leftControlsLeadingInset, 44.5, accuracy: 0.001)
         XCTAssertEqual(storedSnapshot.leftControlsTopInset, 6.5, accuracy: 0.001)
         XCTAssertEqual(storedSnapshot.trafficLightTabBarLeadingInset, 88.0, accuracy: 0.001)
         XCTAssertEqual(storedSnapshot.trafficLightTitlebarLeadingInset, 92.0, accuracy: 0.001)
 
-        defaults.set(999.0, forKey: MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
+        defaults.set(999.0, forKey: MinimalModeTitlebarDebugSnapshot.leftControlsLeadingInsetKey)
         XCTAssertEqual(
-            MinimalModeTitlebarDebugSettings.leftControlsLeadingInset(defaults: defaults),
-            CGFloat(MinimalModeTitlebarDebugSettings.horizontalInsetRange.upperBound),
+            MinimalModeTitlebarDebugSnapshot.leftControlsLeadingInset(defaults: defaults),
+            CGFloat(MinimalModeTitlebarDebugSnapshot.horizontalInsetRange.upperBound),
             accuracy: 0.001
         )
     }
@@ -1090,14 +1090,14 @@ final class WindowDragHandleHitTests: XCTestCase {
         defaults.set(44.0, forKey: "titlebarDebug.trafficLightsXOffset")
         defaults.set(-12.0, forKey: "titlebarDebug.trafficLightsYOffset")
 
-        let snapshot = MinimalModeTitlebarDebugSettings.snapshot(defaults: defaults)
+        let snapshot = MinimalModeTitlebarDebugSnapshot.snapshot(defaults: defaults)
         XCTAssertEqual(
             snapshot,
             MinimalModeTitlebarDebugSnapshot(
-                leftControlsLeadingInset: MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset,
-                leftControlsTopInset: MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset,
-                trafficLightTabBarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset,
-                trafficLightTitlebarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
+                leftControlsLeadingInset: MinimalModeTitlebarDebugSnapshot.defaultLeftControlsLeadingInset,
+                leftControlsTopInset: MinimalModeTitlebarDebugSnapshot.defaultLeftControlsTopInset,
+                trafficLightTabBarLeadingInset: MinimalModeTitlebarDebugSnapshot.defaultTrafficLightTabBarInset,
+                trafficLightTitlebarLeadingInset: MinimalModeTitlebarDebugSnapshot.defaultTrafficLightTitlebarLeadingInset
             )
         )
     }
