@@ -185,7 +185,7 @@ struct cmuxApp: App {
         let defaults = UserDefaults.standard
         // Make held keys repeat into the terminal instead of opening the macOS
         // accent-character popup (see PressAndHoldDefaults / issue #5457).
-        PressAndHoldDefaults.registerDisabled(defaults: defaults)
+        PressAndHoldDefaults(defaults: defaults).registerDisabled()
         AppBundleIconPersistencePolicy.updateDisableDefault(
             defaults: defaults,
             launchArguments: ProcessInfo.processInfo.arguments

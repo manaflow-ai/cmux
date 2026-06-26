@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -12,47 +13,44 @@ import XCTest
 /// cmux disables the press-and-hold accent popup at launch by registering
 /// `ApplePressAndHoldEnabled = false` in its registration domain (matching
 /// Ghostty), so held keys repeat.
-final class PressAndHoldDefaultsTests: XCTestCase {
+@Suite(.serialized) struct PressAndHoldDefaultsTests {
     private func makeScratchDefaults(
         function: String = #function
     ) throws -> (UserDefaults, String) {
         let suiteName = "PressAndHoldDefaultsTests.\(function)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         return (defaults, suiteName)
     }
 
-    func testRegistersPressAndHoldDisabledByDefault() throws {
+    @Test func registersPressAndHoldDisabledByDefault() throws {
         let (defaults, suiteName) = try makeScratchDefaults()
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        PressAndHoldDefaults.registerDisabled(defaults: defaults)
+        PressAndHoldDefaults(defaults: defaults).registerDisabled()
 
         // With no explicit user preference, the registration domain must resolve
         // the key to a concrete `false` so held keys repeat into the terminal
         // instead of opening the macOS alternate-character picker. Without the
         // fix the key is absent entirely (object == nil) — the exact state in
-        // which macOS shows the popup — so this assertion is red without the fix.
-        XCTAssertNotNil(
-            defaults.object(forKey: PressAndHoldDefaults.pressAndHoldEnabledKey),
+        // which macOS shows the popup — so this is red without the fix.
+        #expect(
+            defaults.object(forKey: PressAndHoldDefaults.pressAndHoldEnabledKey) != nil,
             "Expected cmux to register a value for ApplePressAndHoldEnabled at launch"
         )
-        XCTAssertFalse(
-            defaults.bool(forKey: PressAndHoldDefaults.pressAndHoldEnabledKey),
+        #expect(
+            defaults.bool(forKey: PressAndHoldDefaults.pressAndHoldEnabledKey) == false,
             "Expected the press-and-hold accent popup to be disabled"
         )
     }
 
-    func testUsesTheKeyMacOSReadsForPressAndHold() {
+    @Test func usesTheKeyMacOSReadsForPressAndHold() {
         // Guard against a typo silently re-enabling the popup: macOS only honors
         // this exact key name.
-        XCTAssertEqual(
-            PressAndHoldDefaults.pressAndHoldEnabledKey,
-            "ApplePressAndHoldEnabled"
-        )
+        #expect(PressAndHoldDefaults.pressAndHoldEnabledKey == "ApplePressAndHoldEnabled")
     }
 
-    func testDoesNotOverrideAnExplicitUserPreference() throws {
+    @Test func doesNotOverrideAnExplicitUserPreference() throws {
         let (defaults, suiteName) = try makeScratchDefaults()
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
@@ -62,10 +60,10 @@ final class PressAndHoldDefaultsTests: XCTestCase {
         // explicit value takes precedence over our registered fallback.
         defaults.set(true, forKey: PressAndHoldDefaults.pressAndHoldEnabledKey)
 
-        PressAndHoldDefaults.registerDisabled(defaults: defaults)
+        PressAndHoldDefaults(defaults: defaults).registerDisabled()
 
-        XCTAssertTrue(
-            defaults.bool(forKey: PressAndHoldDefaults.pressAndHoldEnabledKey),
+        #expect(
+            defaults.bool(forKey: PressAndHoldDefaults.pressAndHoldEnabledKey) == true,
             "An explicit user preference must take precedence over the registered default"
         )
     }
