@@ -92,12 +92,7 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
         _ command: String,
         workingDirectory: String
     ) -> String {
-        let needsShell = portableShellCommandPayload(from: command) == nil &&
-            (command.contains("$(") || command.contains("${") || command.contains("`"))
-        let sh = TerminalStartupShellQuoting.shellToken("/bin/sh", allowingBareASCII: true)
-        let option = TerminalStartupShellQuoting.shellToken("-c", allowingBareASCII: true)
-        let payload = needsShell ? "\(sh) \(option) \(literalSingleQuoted(command))" : command
-        return portableParentChangeDirectoryPrefix(TerminalStartupShellQuoting.singleQuoted(workingDirectory)) + payload
+        portableParentChangeDirectoryPrefix(TerminalStartupShellQuoting.singleQuoted(workingDirectory)) + command
     }
 
     private static func strippedPortableChangeDirectoryCommand(from command: String, workingDirectory: String) -> String? {
@@ -133,8 +128,6 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
     private static func portableParentChangeDirectoryPrefix(_ quoted: String) -> String {
         "cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ] && "
     }
-
-    private static func portableShellCommandPayload(from command: String) -> String? { portableShellCommandParts(from: command)?.payload }
 
     private static func portableShellCommandParts(from command: String) -> (option: String, payload: String)? {
         let words = shellWordRanges(command)
