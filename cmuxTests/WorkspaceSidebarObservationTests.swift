@@ -1,5 +1,5 @@
 import Foundation
-import XCTest
+import Testing
 
 import CmuxSidebar
 
@@ -10,8 +10,8 @@ import CmuxSidebar
 #endif
 
 @MainActor
-final class WorkspaceSidebarObservationTests: XCTestCase {
-    func testSidebarObservationPublisherEmitsForLateStatusSubscriber() {
+struct WorkspaceSidebarObservationTests {
+    @Test func sidebarObservationPublisherEmitsForLateStatusSubscriber() {
         let workspace = Workspace()
         workspace.statusEntries["test_probe"] = SidebarStatusEntry(
             key: "test_probe",
@@ -27,24 +27,23 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
         }
         defer { cancellable.cancel() }
 
-        XCTAssertGreaterThan(
-            publishCount,
-            0,
+        #expect(
+            publishCount > 0,
             "A sidebar row that subscribes after status metadata already exists must still refresh from the current workspace state."
         )
     }
 
-    func testSidebarObservationPublisherEmitsWhenAgentPIDMakesExistingStatusVisible() throws {
+    @Test func sidebarObservationPublisherEmitsWhenAgentPIDMakesExistingStatusVisible() throws {
         let workspace = Workspace()
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let panelId = try #require(workspace.focusedPanelId)
         workspace.statusEntries["codex"] = SidebarStatusEntry(
             key: "codex",
             value: "Running",
             icon: "bolt.fill",
             color: "#4C8DFF"
         )
-        XCTAssertFalse(
-            workspace.sidebarStatusEntriesInDisplayOrder().contains { $0.key == "codex" },
+        #expect(
+            !workspace.sidebarStatusEntriesInDisplayOrder().contains { $0.key == "codex" },
             "Structured agent statuses stay hidden until a live agent runtime owns the status key."
         )
 
@@ -62,18 +61,17 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
             refreshPorts: false
         )
 
-        XCTAssertTrue(
+        #expect(
             workspace.sidebarStatusEntriesInDisplayOrder().contains { $0.key == "codex" },
             "Recording the agent PID makes the existing Running status visible."
         )
-        XCTAssertGreaterThan(
-            publishCount,
-            0,
+        #expect(
+            publishCount > 0,
             "A sidebar row must refresh when agent PID ownership changes status visibility."
         )
     }
 
-    func testSidebarImmediateObservationPublisherEmitsForLateTitleSubscriber() {
+    @Test func sidebarImmediateObservationPublisherEmitsForLateTitleSubscriber() {
         let workspace = Workspace()
         workspace.title = "Restored Workspace"
 
@@ -83,14 +81,13 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
         }
         defer { cancellable.cancel() }
 
-        XCTAssertGreaterThan(
-            publishCount,
-            0,
+        #expect(
+            publishCount > 0,
             "A sidebar row that subscribes after immediate workspace fields already exist must still refresh from the current workspace state."
         )
     }
 
-    func testSidebarObservationPublisherIgnoresRemoteHeartbeatOnlyChanges() {
+    @Test func sidebarObservationPublisherIgnoresRemoteHeartbeatOnlyChanges() {
         let workspace = Workspace()
 
         var publishCount = 0
@@ -103,9 +100,8 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
         workspace.remoteHeartbeatCount = 1
         workspace.remoteLastHeartbeatAt = Date()
 
-        XCTAssertEqual(
-            publishCount,
-            0,
+        #expect(
+            publishCount == 0,
             "Expected non-visible remote heartbeat updates to avoid invalidating sidebar rows"
         )
     }

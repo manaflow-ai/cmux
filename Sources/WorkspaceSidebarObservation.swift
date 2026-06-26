@@ -40,15 +40,11 @@ private struct SidebarObservationState: Equatable {
     let remoteConnectionDetail: String?
     let activeRemoteTerminalSessionCount: Int
     let listeningPorts: [Int]
-    let agentRuntime: SidebarAgentRuntimeObservationState
-    let browserMediaActivity: BrowserMediaActivity
-}
-
-private struct SidebarAgentRuntimeObservationState: Equatable {
     let agentPIDs: [String: pid_t]
     let agentPIDPanelIdsByKey: [String: UUID]
     let agentPIDKeysByPanelId: [UUID: Set<String>]
     let agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]]
+    let browserMediaActivity: BrowserMediaActivity
 }
 
 extension Workspace {
@@ -108,23 +104,14 @@ extension Workspace {
             $remoteConnectionDetail,
             $activeRemoteTerminalSessionCount
         )
-        let agentRuntimeFields = Publishers.CombineLatest4(
-            $agentPIDs,
-            $agentPIDPanelIdsByKey,
-            $agentPIDKeysByPanelId,
-            $agentLifecycleStatesByPanelId
-        )
-            .map { agentPIDs, agentPIDPanelIdsByKey, agentPIDKeysByPanelId, agentLifecycleStatesByPanelId in
-                SidebarAgentRuntimeObservationState(
-                    agentPIDs: agentPIDs,
-                    agentPIDPanelIdsByKey: agentPIDPanelIdsByKey,
-                    agentPIDKeysByPanelId: agentPIDKeysByPanelId,
-                    agentLifecycleStatesByPanelId: agentLifecycleStatesByPanelId
-                )
-            }
         let presentationInvalidationFields = Publishers.CombineLatest(
             $listeningPorts,
-            agentRuntimeFields
+            Publishers.CombineLatest4(
+                $agentPIDs,
+                $agentPIDPanelIdsByKey,
+                $agentPIDKeysByPanelId,
+                $agentLifecycleStatesByPanelId
+            )
         )
 
         return Publishers.CombineLatest4(
@@ -141,7 +128,7 @@ extension Workspace {
                 let gitFields = groupedFields.2
                 let remoteFields = groupedFields.3
                 let listeningPorts = presentationInvalidationFields.0
-                let agentRuntime = presentationInvalidationFields.1
+                let agentRuntimeFields = presentationInvalidationFields.1
                 return SidebarObservationState(
                     currentDirectory: workspaceFields.0,
                     extensionSidebarProjectRootPath: workspaceFields.1,
@@ -160,7 +147,10 @@ extension Workspace {
                     remoteConnectionDetail: remoteFields.2,
                     activeRemoteTerminalSessionCount: remoteFields.3,
                     listeningPorts: listeningPorts,
-                    agentRuntime: agentRuntime,
+                    agentPIDs: agentRuntimeFields.0,
+                    agentPIDPanelIdsByKey: agentRuntimeFields.1,
+                    agentPIDKeysByPanelId: agentRuntimeFields.2,
+                    agentLifecycleStatesByPanelId: agentRuntimeFields.3,
                     browserMediaActivity: self.browserMediaActivity
                 )
             }
