@@ -649,6 +649,54 @@ import Testing
         #expect(await relaunchedStore.secondaryAggregationCandidateMacIDsForTesting() == ["mac-b"])
     }
 
+    @Test func forgettingTeamlessMacSuppressesItAfterTeamSwitch() async throws {
+        let team = MutableTeamID("team-a")
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "": [
+                    try Self.pairedMac(
+                        id: "mac-legacy",
+                        displayName: "Legacy Mac",
+                        host: "100.82.214.112",
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: true,
+                        teamID: nil
+                    ),
+                ],
+                "team-b": [
+                    try Self.pairedMac(
+                        id: "mac-b",
+                        displayName: "Team B Mac",
+                        host: "100.82.214.113",
+                        lastSeenAt: Date(timeIntervalSince1970: 20),
+                        isActive: false,
+                        teamID: "team-b"
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { await team.value },
+            forgottenMacStore: InMemoryPairedMacForgottenStore()
+        )
+        await store.loadPairedMacs()
+        #expect(store.displayPairedMacs.map(\.macDeviceID) == ["mac-legacy"])
+
+        await store.forgetMac(macDeviceID: "mac-legacy")
+        #expect(store.displayPairedMacs.isEmpty)
+
+        await team.set("team-b")
+        store.currentTeamDidChange()
+        await store.loadPairedMacs()
+
+        #expect(store.pairedMacs.map(\.macDeviceID) == ["mac-b"])
+        #expect(store.displayPairedMacs.map(\.macDeviceID) == ["mac-b"])
+    }
+
     @Test func workspaceListReconnectPrefersSelectedUnavailableWorkspaceMac() async throws {
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [
@@ -922,7 +970,8 @@ import Testing
         customName: String? = nil,
         customColor: String? = nil,
         customIcon: String? = nil,
-        routes: [CmxAttachRoute]? = nil
+        routes: [CmxAttachRoute]? = nil,
+        teamID: String? = "team-a"
     ) throws -> MobilePairedMac {
         MobilePairedMac(
             macDeviceID: id,
@@ -932,7 +981,7 @@ import Testing
             lastSeenAt: lastSeenAt,
             isActive: isActive,
             stackUserID: "user-1",
-            teamID: "team-a",
+            teamID: teamID,
             customName: customName,
             customColor: customColor,
             customIcon: customIcon

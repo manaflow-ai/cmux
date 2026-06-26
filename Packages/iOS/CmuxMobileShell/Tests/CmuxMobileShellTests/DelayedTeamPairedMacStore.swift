@@ -63,7 +63,12 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
                 blockers[key] = continuation
             }
         }
-        return recordsByTeam[key] ?? []
+        let scoped = recordsByTeam[key] ?? []
+        guard key != "" else { return scoped }
+        let legacyTeamless = (recordsByTeam[""] ?? []).filter { mac in
+            mac.stackUserID == nil || mac.stackUserID == stackUserID
+        }
+        return scoped + legacyTeamless
     }
 
     func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? { nil }
