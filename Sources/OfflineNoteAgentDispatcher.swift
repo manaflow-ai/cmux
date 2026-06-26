@@ -4,11 +4,14 @@ import Foundation
 /// Default ``OfflineNoteDispatching`` used by the running app.
 ///
 /// When connectivity returns, each queued note is handed off to an agent by
-/// staging its text into the active workspace's agent composer (the macOS
-/// TextBox). Staging is **non-destructive**: any text the user already has in
-/// the composer is preserved and successive notes accumulate, so flushing a
-/// backlog drops the whole queue in front of the agent for the user to review
-/// and send.
+/// staging its text into the **workspace it was captured in** (the macOS
+/// TextBox composer of that workspace's focused terminal). Binding to the
+/// capture workspace — rather than whatever workspace happens to be active at
+/// flush time — keeps a note from landing in an unrelated workspace's composer
+/// minutes later. Staging is **non-destructive** and made visible (the composer
+/// shows the text, without stealing focus) so the user actually sees it; if the
+/// capture workspace or its terminal is gone, dispatch fails closed and the note
+/// stays queued for retry.
 ///
 /// Staging into the composer is the cleanest hand-off cmux supports natively —
 /// directly injecting a first prompt into a freshly-created agent session
@@ -17,24 +20,17 @@ import Foundation
 /// delivery can be upgraded later without touching the queue.
 @MainActor
 final class OfflineNoteAgentDispatcher: OfflineNoteDispatching {
-    /// Resolves the workspace that should receive notes. Injectable for tests.
-    private let resolveWorkspace: @MainActor () -> Workspace?
+    /// Resolves the workspace a note should be delivered to. Injectable for tests.
+    private let resolveWorkspace: @MainActor (UUID?) -> Workspace?
 
-    init(resolveWorkspace: @escaping @MainActor () -> Workspace? = {
-        AppDelegate.shared?.activeTabManagerForCommands()?.selectedWorkspace
-    }) {
+    init(resolveWorkspace: @escaping @MainActor (UUID?) -> Workspace? = OfflineNoteAgentDispatcher.defaultResolveWorkspace) {
         self.resolveWorkspace = resolveWorkspace
     }
 
     func dispatch(_ note: OfflineNote) async throws {
-        guard let workspace = resolveWorkspace() else {
+        guard let workspace = resolveWorkspace(note.workspaceID) else {
             throw OfflineNoteDispatchError.noActiveWorkspace
         }
-        // Use the workspace's focused terminal as the single, deterministic
-        // target. We deliberately do not fall back to an arbitrary terminal from
-        // `workspace.panels` (collection order is not a reliable active-terminal
-        // signal and could stage the note into the wrong pane). If there is no
-        // focused terminal, fail closed — the note stays queued and retryable.
         guard let terminal = workspace.focusedTerminalPanel else {
             throw OfflineNoteDispatchError.noComposerTarget
         }
@@ -46,11 +42,27 @@ final class OfflineNoteAgentDispatcher: OfflineNoteDispatching {
         }
         parts.append(.text(note.text))
 
-        // Preserve the composer's current visibility — staging a backlog should
-        // not steal focus or pop the TextBox open behind the user's back.
-        let isActive = existing?.isActive ?? false
+        // Show the composer so the staged note is visible (restoreSessionTextBoxDraft
+        // marks it active without stealing first-responder focus).
         terminal.restoreSessionTextBoxDraft(
-            SessionTextBoxInputDraftSnapshot(isActive: isActive, parts: parts)
+            SessionTextBoxInputDraftSnapshot(isActive: true, parts: parts)
         )
+    }
+
+    /// Default resolver: deliver only to the workspace the note was captured in.
+    /// Searches every open window for that workspace; returns `nil` (fail closed)
+    /// when it no longer exists. Legacy notes without a binding fall back to the
+    /// active workspace.
+    private static func defaultResolveWorkspace(_ workspaceID: UUID?) -> Workspace? {
+        guard let appDelegate = AppDelegate.shared else { return nil }
+        guard let workspaceID else {
+            return appDelegate.activeTabManagerForCommands()?.selectedWorkspace
+        }
+        for context in appDelegate.mainWindowContexts.values {
+            if let workspace = context.tabManager.tabs.first(where: { $0.id == workspaceID }) {
+                return workspace
+            }
+        }
+        return nil
     }
 }

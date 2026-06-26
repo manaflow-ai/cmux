@@ -431,7 +431,7 @@ struct RightSidebarPanelView: View {
             case .dock:
                 DockPanelView(rootDirectory: dockRootDirectory, workspaceId: workspaceId, store: dockStore)
             case .notes:
-                OfflineNotesPanelView()
+                OfflineNotesPanelView(workspaceID: tabManager.selectedWorkspace?.id)
             case .customSidebar:
                 EmptyView()
             }

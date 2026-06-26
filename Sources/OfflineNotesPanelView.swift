@@ -7,6 +7,10 @@ import SwiftUI
 /// Rows receive immutable ``OfflineNote`` snapshots plus closure action bundles
 /// only — no view below the list holds the store (snapshot-boundary rule).
 struct OfflineNotesPanelView: View {
+    /// The workspace a captured note is bound to, so it is later delivered back
+    /// to this workspace's agent rather than whatever is active at flush time.
+    let workspaceID: UUID?
+
     /// The app-wide `@Observable` store; SwiftUI tracks the properties read in
     /// `body`. Held as a plain reference (not owned) since it outlives the view.
     private let store = OfflineNotesStore.shared
@@ -101,7 +105,7 @@ struct OfflineNotesPanelView: View {
     }
 
     private func submitDraft() {
-        guard store.addNote(draft) != nil else { return }
+        guard store.addNote(draft, workspaceID: workspaceID) != nil else { return }
         draft = ""
     }
 

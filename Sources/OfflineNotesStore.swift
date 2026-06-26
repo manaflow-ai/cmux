@@ -29,6 +29,9 @@ enum OfflineNoteStatus: String, Codable, Sendable, CaseIterable {
 struct OfflineNote: Codable, Equatable, Identifiable, Sendable {
     var id: UUID
     var text: String
+    /// Workspace this note was captured in; delivery targets it (not whatever is
+    /// active at flush time), so a note never lands in an unrelated workspace.
+    var workspaceID: UUID?
     var status: OfflineNoteStatus
     var createdAt: Date
     var updatedAt: Date
@@ -42,6 +45,7 @@ struct OfflineNote: Codable, Equatable, Identifiable, Sendable {
     init(
         id: UUID = UUID(),
         text: String,
+        workspaceID: UUID? = nil,
         status: OfflineNoteStatus = .pending,
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
@@ -51,6 +55,7 @@ struct OfflineNote: Codable, Equatable, Identifiable, Sendable {
     ) {
         self.id = id
         self.text = text
+        self.workspaceID = workspaceID
         self.status = status
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -231,7 +236,7 @@ final class OfflineNotesStore {
     /// Captures a new note. Whitespace-only input is ignored. Returns the stored
     /// note, or `nil` if nothing was captured.
     @discardableResult
-    func addNote(_ text: String) -> OfflineNote? {
+    func addNote(_ text: String, workspaceID: UUID? = nil) -> OfflineNote? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         // Reclaim space from old sent notes first, then apply backpressure:
@@ -240,7 +245,7 @@ final class OfflineNotesStore {
         pruneSentNotes()
         guard notes.count < Self.maxTotalNotes else { return nil }
         let capped = String(trimmed.prefix(Self.maxNoteLength))
-        let note = OfflineNote(text: capped)
+        let note = OfflineNote(text: capped, workspaceID: workspaceID)
         notes.append(note)
         persist()
         return note
@@ -307,12 +312,11 @@ final class OfflineNotesStore {
     /// notes are left in the ``OfflineNoteStatus/failed`` state (not retried in
     /// the same pass) so a persistently-failing dispatcher cannot spin.
     ///
-    /// Status transitions are applied in memory and persisted **once** when the
-    /// pass finishes, so reconnecting with a large backlog performs a single
-    /// coalesced write (off the main actor) rather than two writes per note. A
-    /// status held only in memory if the app is killed mid-flush is recovered as
-    /// ``OfflineNoteStatus/pending`` on next launch (see ``normalizedForLoad(_:)``),
-    /// so the note is retried rather than lost.
+    /// Each note's terminal state is persisted (off the main actor, awaited via
+    /// ``persistAndWait()``) before the next note is dispatched, so a crash
+    /// mid-flush can't replay a note that was already staged. The transient
+    /// ``OfflineNoteStatus/sending`` state is not persisted; it is recovered as
+    /// ``OfflineNoteStatus/pending`` on next launch (see ``normalizedForLoad(_:)``).
     func flush() async {
         guard isOnline else { return }
         guard !isFlushing else { return }
@@ -357,8 +361,7 @@ final class OfflineNotesStore {
         }
     }
 
-    /// Persists the current queue and awaits the off-main write. Used inside
-    /// ``flush()`` so each successful hand-off is durable before the next runs.
+    /// Persists the queue and awaits the off-main write, so each flushed hand-off is durable before the next.
     private func persistAndWait() async {
         persist()
         await waitForPendingPersist()
@@ -390,10 +393,9 @@ final class OfflineNotesStore {
         notes.removeAll { evicted.contains($0.id) }
     }
 
-    /// Maps a dispatch failure to a fixed, localized message. Only our own
-    /// ``OfflineNoteDispatchError`` text is surfaced; any other error (network,
-    /// provider, etc.) is reduced to a generic message so raw upstream/internal
-    /// strings never reach the notes UI. Detail stays in DEBUG diagnostics.
+    /// Maps a failure to a fixed message: only our own ``OfflineNoteDispatchError``
+    /// text is surfaced; any other error collapses to a generic one (no raw upstream
+    /// text reaches the UI). Detail stays in DEBUG diagnostics.
     private static func userFacingFailureMessage(for error: Error) -> String {
         if let dispatchError = error as? OfflineNoteDispatchError,
            let description = dispatchError.errorDescription {

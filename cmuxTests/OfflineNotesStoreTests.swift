@@ -228,6 +228,14 @@ struct OfflineNotesStoreTests {
     }
 
     @Test
+    func captureRecordsWorkspaceBinding() {
+        let store = makeStore(fileURL: nil, reachability: FakeReachability(isOnline: false))
+        let workspaceID = UUID()
+        let note = store.addNote("bound note", workspaceID: workspaceID)
+        #expect(note?.workspaceID == workspaceID)
+    }
+
+    @Test
     func queueAppliesBackpressureWhenFull() {
         let store = makeStore(fileURL: nil, reachability: FakeReachability(isOnline: false))
         for index in 0..<OfflineNotesStore.maxTotalNotes {
