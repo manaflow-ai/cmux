@@ -7396,7 +7396,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         var x = event.scrollingDeltaX
         var y = event.scrollingDeltaY
         let precision = event.hasPreciseScrollingDeltas
-        if precision {
+        if Self.shouldDoublePreciseScrollDelta(for: event) {
             x *= 2
             y *= 2
         }

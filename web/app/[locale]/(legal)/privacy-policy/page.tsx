@@ -73,7 +73,8 @@ export default function PrivacyPolicyPage() {
         If you contact us via email or our contact page, we collect the
         information you provide such as your name and email address. If you join
         a platform waitlist, we collect the email address you submit so we can
-        email you when that platform launches.
+        email you when that platform launches, and we send a notification of the
+        signup (including that email address) to our internal Slack workspace.
       </p>
 
       <h3>3. Children&rsquo;s Privacy</h3>
@@ -112,6 +113,12 @@ export default function PrivacyPolicyPage() {
           <strong>Resend</strong> &mdash; transactional email delivery. Used to
           deliver feedback submissions from the Application. Your email address
           is transmitted to Resend only if you voluntarily submit feedback.
+        </li>
+        <li>
+          <strong>Slack</strong> &mdash; internal team notifications. If you join
+          a platform waitlist, the email address and platforms you submit are
+          sent to our private Slack workspace so the team is notified of the
+          signup.
         </li>
       </ul>
       <p>

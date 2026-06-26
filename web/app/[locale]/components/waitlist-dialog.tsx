@@ -22,6 +22,12 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // submit rather than an instant flash. The real wait is the capture POST below.
 const SUBMIT_DELAY_MS = 600;
 
+// Hard cap on the server-side deliverability check. If the route is slow, hung,
+// or rate-limiting, abort and let the signup through rather than stall the user
+// on "Joining…". Sits above the server's own ~2.5s DNS timeout so the server's
+// verdict usually wins; this is the backstop for a hung route.
+const VALIDATE_TIMEOUT_MS = 4000;
+
 /**
  * Records a waitlist signup by POSTing the event straight to PostHog's capture
  * endpoint and awaiting delivery, so the UI shows success only when the record
@@ -69,6 +75,63 @@ async function recordWaitlistSignup(
     return res.ok;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Asks the server whether the email's domain can receive mail (MX + disposable
+ * check) before we record the signup. Returns `"invalid"` only on a definitive
+ * rejection; network errors, server errors, rate limits, and timeouts all return
+ * `"ok"` so a degraded backend never blocks a real signup (the server itself
+ * also fails open on DNS hiccups). Bounded by an abort timeout so a hung route
+ * can't stall the signup either.
+ */
+async function verifyWaitlistEmail(
+  email: string,
+  platforms: WaitlistPlatform[],
+  location: string,
+): Promise<"ok" | "invalid"> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), VALIDATE_TIMEOUT_MS);
+  try {
+    const res = await fetch("/api/waitlist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, platforms, location, notify: false }),
+      signal: controller.signal,
+    });
+    if (!res.ok) return "ok";
+    const data = (await res.json().catch(() => null)) as {
+      valid?: boolean;
+    } | null;
+    return data?.valid === false ? "invalid" : "ok";
+  } catch {
+    // Network error or abort timeout: fail open.
+    return "ok";
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Pings our Slack channel about a signup via the `/api/waitlist` route.
+ * Best-effort: the durable record is the PostHog capture above, so a failed
+ * notification never blocks or fails the signup.
+ */
+async function notifyWaitlistSlack(
+  email: string,
+  platforms: WaitlistPlatform[],
+  location: string,
+): Promise<void> {
+  try {
+    await fetch("/api/waitlist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      keepalive: true,
+      body: JSON.stringify({ email, platforms, location, notify: true }),
+    });
+  } catch {
+    // Notification only; ignore failures.
   }
 }
 
@@ -158,6 +221,19 @@ function WaitlistBody({
     }
     setStatus("submitting");
     const platforms = chosen;
+    // Start the pleasant-spinner clock now so the server round trips overlap it
+    // rather than stacking on top.
+    const minSpinner = new Promise<void>((resolve) => {
+      timerRef.current = setTimeout(resolve, SUBMIT_DELAY_MS);
+    });
+    // Gate on server-side deliverability (MX + disposable) before recording, so
+    // bogus addresses never enter the waitlist. Fails open on transient errors.
+    const verdict = await verifyWaitlistEmail(trimmed, platforms, location);
+    if (verdict === "invalid") {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      setStatus("error");
+      return;
+    }
     // Record the signup with an awaited POST to PostHog's capture endpoint
     // (success only shows on confirmed delivery). The event carries
     // `distinct_id: email` and `$set`s the email + Early Access enrollment, so
@@ -168,10 +244,13 @@ function WaitlistBody({
     // spinner pleasant when the request is fast.
     const [ok] = await Promise.all([
       recordWaitlistSignup(trimmed, platforms, location),
-      new Promise<void>((resolve) => {
-        timerRef.current = setTimeout(resolve, SUBMIT_DELAY_MS);
-      }),
+      minSpinner,
     ]);
+    // Ping Slack only after the signup was durably recorded, so the channel
+    // never reports a signup that actually failed. Best-effort, not awaited.
+    if (ok) {
+      void notifyWaitlistSlack(trimmed, platforms, location);
+    }
     setStatus(ok ? "done" : "sendError");
   };
 

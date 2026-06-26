@@ -462,11 +462,10 @@ extension ControlSurfaceContext {
     func controlSurfaceParseShellActivityState(_ rawState: String) -> String? { nil }
     func controlSurfaceParsePortScanKickReason(_ rawReason: String) -> String? { nil }
 
-    func controlSurfaceReportTTY(
-        workspaceID: UUID,
-        requestedSurfaceID: UUID?,
-        ttyName: String
-    ) -> ControlSurfaceReportTTYResolution { .workspaceNotFound }
+    func controlSurfaceReportTTY(workspaceID: UUID, requestedSurfaceID: UUID?, ttyName: String)
+        -> ControlSurfaceReportTTYResolution { .workspaceNotFound }
+    func controlSurfaceReportPWD(workspaceID: UUID, requestedSurfaceID: UUID?, path: String)
+        -> ControlSurfaceReportPWDResolution { .workspaceNotFound }
 
     func controlSurfaceReportShellState(
         workspaceID: UUID,
