@@ -12052,7 +12052,10 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     zPriority: coordinator.desiredPortalZPriority,
                     expectedSurfaceId: portalExpectedSurfaceId,
                     expectedGeneration: portalExpectedGeneration,
-                    deferLayoutSynchronization: true
+                    deferLayoutSynchronization: true,
+                    deferredBindStillCurrent: { [weak coordinator] in
+                        coordinator?.attachGeneration == generation
+                    }
                 )
                 coordinator.lastBoundHostId = ObjectIdentifier(host)
                 coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
@@ -12090,7 +12093,10 @@ struct GhosttyTerminalView: NSViewRepresentable {
                         zPriority: coordinator.desiredPortalZPriority,
                         expectedSurfaceId: portalExpectedSurfaceId,
                         expectedGeneration: portalExpectedGeneration,
-                        deferLayoutSynchronization: true
+                        deferLayoutSynchronization: true,
+                        deferredBindStillCurrent: { [weak coordinator] in
+                            coordinator?.attachGeneration == generation
+                        }
                     )
                     coordinator.lastBoundHostId = hostId
                     hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)

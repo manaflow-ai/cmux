@@ -2033,7 +2033,8 @@ enum TerminalWindowPortalRegistry {
         zPriority: Int = 0,
         expectedSurfaceId: UUID? = nil,
         expectedGeneration: UInt64? = nil,
-        deferLayoutSynchronization: Bool = false
+        deferLayoutSynchronization: Bool = false,
+        deferredBindStillCurrent: (() -> Bool)? = nil
     ) {
         // A bind issued while a terminal host is mid `viewDidMoveToWindow` (AppKit's
         // `_setWindow:` enumeration) would reparent the surface and corrupt the in-flight
@@ -2052,7 +2053,8 @@ enum TerminalWindowPortalRegistry {
                 zPriority: zPriority,
                 expectedSurfaceId: expectedSurfaceId,
                 expectedGeneration: expectedGeneration,
-                deferLayoutSynchronization: deferLayoutSynchronization
+                deferLayoutSynchronization: deferLayoutSynchronization,
+                deferredBindStillCurrent: deferredBindStillCurrent
             )
             return
         }
@@ -2111,6 +2113,10 @@ enum TerminalWindowPortalRegistry {
     /// `_setWindow:` enumeration that delivered the host's `viewDidMoveToWindow`. The hosted
     /// and anchor views are captured weakly and the bind is re-validated (anchor still in a
     /// window, surface still accepts the binding) before it runs.
+    ///
+    /// `visibleInUI`/`zPriority` are captured by value at schedule time. `deferredBindStillCurrent`
+    /// lets the caller invalidate this block if a newer `updateNSView` generation has already
+    /// (re)bound the host with fresh presentation params, so a stale defer cannot overwrite them.
     private static func scheduleDeferredHostWindowAttachmentBind(
         hostedView: GhosttySurfaceScrollView,
         to anchorView: NSView,
@@ -2118,7 +2124,8 @@ enum TerminalWindowPortalRegistry {
         zPriority: Int,
         expectedSurfaceId: UUID?,
         expectedGeneration: UInt64?,
-        deferLayoutSynchronization: Bool
+        deferLayoutSynchronization: Bool,
+        deferredBindStillCurrent: (() -> Bool)?
     ) {
 #if DEBUG
         cmuxDebugLog(
@@ -2128,6 +2135,9 @@ enum TerminalWindowPortalRegistry {
 #endif
         DispatchQueue.main.async { [weak hostedView, weak anchorView] in
             guard let hostedView, let anchorView, anchorView.window != nil else { return }
+            // Bail if a newer SwiftUI update generation has superseded this deferred bind; its
+            // captured presentation params would otherwise clobber the fresh ones. See #5704.
+            if let deferredBindStillCurrent, !deferredBindStillCurrent() { return }
             bind(
                 hostedView: hostedView,
                 to: anchorView,
