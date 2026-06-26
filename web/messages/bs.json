@@ -1590,7 +1590,9 @@
   "afterSignIn": {
     "title": "Prijavljeni ste u cmux",
     "body": "Ako se cmux nije automatski otvorio, koristite dugme ispod.",
-    "button": "Vrati se u cmux"
+    "button": "Vrati se u cmux",
+    "iphoneButton": "Vrati se u cmux na iPhoneu",
+    "testFlightButton": "Vrati se u cmux TestFlight"
   },
   "landing": {
     "bestTerminal": {
@@ -1896,5 +1898,12 @@
     "successBody": "Poslat ćemo ti email kada {platform} verzija bude spremna.",
     "successBodyAny": "Poslat ćemo ti email kada cmux bude spreman za tvoju platformu.",
     "done": "Gotovo"
+  },
+  "mobileMagicLinkCallback": {
+    "title": "Otvorite cmux da završite prijavu",
+    "body": "Radi sigurnosti, unesite kod iz ovog emaila u cmux. Ovaj link nije iskorišten.",
+    "button": "Vrati se u cmux",
+    "iphoneButton": "Vrati se u cmux na iPhoneu",
+    "testFlightButton": "Vrati se u cmux TestFlight"
   }
 }

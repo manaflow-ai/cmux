@@ -14,6 +14,7 @@ struct HostBrowserSignInFlowHarness {
         user: CMUXAuthUser? = nil,
         browserAttemptTimeout: TimeInterval = 5 * 60,
         slowSignInThreshold: TimeInterval = 30,
+        allowsStatelessExternalCallbacks: Bool = true,
         clock: (any Clock<Duration>)? = nil
     ) {
         let store = FakeKeyValueStore()
@@ -40,7 +41,8 @@ struct HostBrowserSignInFlowHarness {
             callbackScheme: { "cmux-dev" },
             clock: clock ?? ContinuousClock(),
             browserAttemptTimeout: browserAttemptTimeout,
-            slowSignInThreshold: slowSignInThreshold
+            slowSignInThreshold: slowSignInThreshold,
+            allowsStatelessExternalCallbacks: allowsStatelessExternalCallbacks
         )
         self.coordinator = coordinator
         self.client = client

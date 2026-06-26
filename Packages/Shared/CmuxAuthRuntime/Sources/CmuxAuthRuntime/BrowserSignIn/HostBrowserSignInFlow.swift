@@ -27,6 +27,7 @@ public final class HostBrowserSignInFlow {
     private let clock: any Clock<Duration>
     private let browserAttemptTimeout: TimeInterval
     private let slowSignInThreshold: TimeInterval
+    private let allowsStatelessExternalCallbacks: Bool
     private let log = AuthDebugLog()
 
     @ObservationIgnored private var activeSession: (any HostBrowserAuthSession)?
@@ -51,7 +52,8 @@ public final class HostBrowserSignInFlow {
         callbackScheme: @escaping @MainActor () -> String,
         clock: any Clock<Duration> = ContinuousClock(),
         browserAttemptTimeout: TimeInterval = 10 * 60,
-        slowSignInThreshold: TimeInterval = 30
+        slowSignInThreshold: TimeInterval = 30,
+        allowsStatelessExternalCallbacks: Bool = true
     ) {
         self.coordinator = coordinator
         self.tokenStore = tokenStore
@@ -62,25 +64,23 @@ public final class HostBrowserSignInFlow {
         self.clock = clock
         self.browserAttemptTimeout = browserAttemptTimeout
         self.slowSignInThreshold = slowSignInThreshold
+        self.allowsStatelessExternalCallbacks = allowsStatelessExternalCallbacks
     }
 
-    /// Start a browser sign-in without awaiting the result (Settings button).
-    /// Cancels any previous attempt's popup first.
+    /// Start a browser sign-in without awaiting the result.
     public func beginSignIn() {
         log.log("auth.browser.beginSignIn signedIn=\(coordinator.isAuthenticated) signingIn=\(isSigningIn)")
         _ = startAttempt()
     }
 
-    /// The hosted sign-in URL for manual fallback when the browser handoff does
-    /// not return to the native app.
+    /// The hosted sign-in URL for manual fallback.
     public var manualSignInURL: URL {
         let state = makeCallbackState()
         pendingManualCallbackState = state
         return makeSignInURL(state)
     }
 
-    /// Sign-in URL for the active attempt, reused by the default-browser fallback
-    /// so the callback still routes to this in-flight attempt.
+    /// Sign-in URL for the active attempt's default-browser fallback.
     public var activeAttemptSignInURL: URL? {
         guard let activeCallbackState else { return nil }
         pendingFallbackCallbackState = activeCallbackState
@@ -99,9 +99,7 @@ public final class HostBrowserSignInFlow {
         return result
     }
 
-    /// Handle an auth callback URL delivered through the app's URL scheme
-    /// (e.g. the hosted page redirected in the user's real browser instead of
-    /// the popup). Returns whether the app ended signed in.
+    /// Handle an auth callback URL delivered through the app's URL scheme.
     @discardableResult
     public func handleCallbackURL(_ url: URL) async -> Bool {
         log.log("auth.callback.external.received \(authCallbackSummary(url))")
@@ -125,13 +123,18 @@ public final class HostBrowserSignInFlow {
             return signedIn
         }
         if callbackRouter.isAuthCallbackURL(url), authCallbackState(from: url) == nil {
+            guard allowsStatelessExternalCallbacks else {
+                log.log("auth.callback.external.reject reason=statelessExternalDisabled")
+                lastFailure = .invalidCallback
+                return false
+            }
             log.log("auth.callback.external.routeToFallback")
             return await completeCallback(url: url, attemptID: nil)
         }
         if callbackRouter.isAuthCallbackURL(url),
            let state = authCallbackState(from: url),
            state == pendingFallbackCallbackState {
-            log.log("auth.callback.external.routeToIssuedFallback")
+            log.log("auth.callback.external.routeToIssuedState")
             return await completeCallback(url: url, attemptID: nil, acceptedExternalState: state)
         }
         log.log("auth.callback.external.reject reason=noActiveAttempt")

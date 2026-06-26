@@ -303,6 +303,7 @@ enum AuthEnvironment {
                 name: "native_app_return_to",
                 value: nativeCallbackComponents.url!.absoluteString
             ),
+            URLQueryItem(name: "cmux_native_platform", value: "desktop"),
         ]
 
         // Enter through cmux's native sign-in wrapper, which sets a short-lived

@@ -22,6 +22,11 @@ Device signing uses the local Xcode account, or App Store Connect API
 credentials from ASC_API_KEY_ID, ASC_API_ISSUER_ID, ASC_API_KEY_PATH, or
 ios/Config/AppStoreConnect.local.plist. Set IOS_DEVELOPMENT_TEAM or pass
 --team when the project cannot infer a team.
+
+Use --auth-environment production to build a DEBUG dogfood app against the
+production Stack project and production auth callbacks. Production auth dogfood
+defaults to the TestFlight callback scheme (cmux-ios-beta); override with
+--auth-callback-scheme cmux-ios when intentionally testing the App Store scheme.
 EOF
 }
 
@@ -56,6 +61,8 @@ ALLOW_DEVICE_REGISTRATION=0
 NO_SIGN_IN=0
 NO_ATTACH=0
 NO_SETUP=0
+AUTH_ENVIRONMENT="${CMUX_AUTH_ENVIRONMENT:-}"
+AUTH_CALLBACK_SCHEME="${CMUX_IOS_RELOAD_AUTH_CALLBACK_SCHEME:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -119,6 +126,16 @@ while [[ $# -gt 0 ]]; do
       NO_SETUP=1
       shift
       ;;
+    --auth-environment)
+      require_option_value "$1" "${2:-}"
+      AUTH_ENVIRONMENT="${2:-}"
+      shift 2
+      ;;
+    --auth-callback-scheme)
+      require_option_value "$1" "${2:-}"
+      AUTH_CALLBACK_SCHEME="${2:-}"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -147,6 +164,34 @@ if [[ "$ALLOW_DEVICE_REGISTRATION" -eq 1 && "$ALLOW_PROVISIONING_UPDATES" -eq 0 
   echo "error: --allow-device-registration requires provisioning updates" >&2
   usage >&2
   exit 1
+fi
+
+if [[ -n "$AUTH_ENVIRONMENT" ]]; then
+  case "$AUTH_ENVIRONMENT" in
+    development|production) ;;
+    *)
+      echo "error: --auth-environment must be development or production" >&2
+      exit 2
+      ;;
+  esac
+fi
+
+if [[ "$AUTH_ENVIRONMENT" == "production" && -z "$AUTH_CALLBACK_SCHEME" ]]; then
+  AUTH_CALLBACK_SCHEME="cmux-ios-beta"
+fi
+
+if [[ -n "$AUTH_CALLBACK_SCHEME" ]]; then
+  case "$AUTH_CALLBACK_SCHEME" in
+    cmux-ios|cmux-ios-beta|cmux-ios-dev) ;;
+    *)
+      echo "error: --auth-callback-scheme must be cmux-ios, cmux-ios-beta, or cmux-ios-dev" >&2
+      exit 2
+      ;;
+  esac
+  if [[ "$AUTH_ENVIRONMENT" == "production" && "$AUTH_CALLBACK_SCHEME" == "cmux-ios-dev" ]]; then
+    echo "error: production auth dogfood cannot use cmux-ios-dev; production web rejects dev callback schemes" >&2
+    exit 2
+  fi
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -467,7 +512,9 @@ reload_simulator() {
     PRODUCT_DISPLAY_NAME="$DISPLAY_NAME" \
     CMUX_GIT_SHA="$GIT_SHA" \
     CMUX_DEV_TAG="$TAG" \
+    CMUX_AUTH_ENVIRONMENT="${AUTH_ENVIRONMENT:-}" \
     CMUX_PRESENCE_BASE_URL="${CMUX_PRESENCE_BASE_URL:-}" \
+    CMUX_IOS_AUTH_CALLBACK_SCHEME="${AUTH_CALLBACK_SCHEME:-cmux-ios-dev}" \
     EXCLUDED_SOURCE_FILE_NAMES=Info.plist \
     CODE_SIGNING_ALLOWED=NO \
     SWIFT_OPTIMIZATION_LEVEL=-O \
@@ -574,7 +621,9 @@ reload_device() {
     PRODUCT_DISPLAY_NAME="$DISPLAY_NAME"
     CMUX_GIT_SHA="$GIT_SHA"
     CMUX_DEV_TAG="$TAG"
+    CMUX_AUTH_ENVIRONMENT="${AUTH_ENVIRONMENT:-}"
     CMUX_PRESENCE_BASE_URL="${CMUX_PRESENCE_BASE_URL:-}"
+    CMUX_IOS_AUTH_CALLBACK_SCHEME="${AUTH_CALLBACK_SCHEME:-cmux-ios-dev}"
     EXCLUDED_SOURCE_FILE_NAMES=Info.plist
     CODE_SIGNING_ALLOWED=YES
     CODE_SIGN_STYLE=Automatic

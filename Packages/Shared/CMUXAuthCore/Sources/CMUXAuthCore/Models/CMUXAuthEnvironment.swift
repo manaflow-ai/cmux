@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Decided by the composition root (development for DEBUG builds, production
 /// otherwise) and injected; this package never reads build flags itself.
-public enum CMUXAuthEnvironment: Sendable {
+public enum CMUXAuthEnvironment: String, Sendable {
     /// The development Stack project (DEBUG builds, local web stack).
     case development
     /// The production Stack project (Release/nightly builds).

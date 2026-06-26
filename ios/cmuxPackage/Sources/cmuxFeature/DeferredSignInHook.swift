@@ -20,3 +20,18 @@ final class DeferredSignInHook {
         await action?()
     }
 }
+
+/// Settable magic-link callback URL provider used to break the
+/// AuthCoordinator <-> HostBrowserSignInFlow construction cycle.
+@MainActor
+final class DeferredMagicLinkCallbackURLProvider {
+    private var makeURL: (() -> URL?)?
+
+    func set(_ makeURL: @escaping () -> URL?) {
+        self.makeURL = makeURL
+    }
+
+    func urlString() -> String? {
+        makeURL?()?.absoluteString
+    }
+}

@@ -9,6 +9,7 @@ import Testing
         client: FakeAuthClient,
         launch: AuthLaunchOptions = .plain(),
         clock: any Clock<Duration> = ContinuousClock(),
+        magicLinkCallbackURLProvider: (() -> String?)? = nil,
         isOnline: @escaping @Sendable () async -> Bool = { true }
     ) -> (AuthCoordinator, FakeKeyValueStore) {
         let store = FakeKeyValueStore()
@@ -19,6 +20,7 @@ import Testing
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
             anchor: FakeAnchor(),
             config: .test,
+            magicLinkCallbackURLProvider: magicLinkCallbackURLProvider,
             launch: launch,
             clock: clock,
             isOnline: isOnline
@@ -64,6 +66,20 @@ import Testing
         #expect(coordinator.isAuthenticated)
         let didMagicLink = await client.signedInWithMagicLink
         #expect(didMagicLink)
+    }
+
+    @Test func sendCodeUsesDynamicMagicLinkCallbackURLWhenProvided() async throws {
+        let client = FakeAuthClient()
+        let (coordinator, _) = makeCoordinator(
+            client: client,
+            magicLinkCallbackURLProvider: {
+                "https://cmux.com/handler/native-sign-in?after_auth_return_to=stateful"
+            }
+        )
+
+        try await coordinator.sendCode(to: "a@b.com")
+
+        #expect(await client.lastMagicLinkCallbackURL == "https://cmux.com/handler/native-sign-in?after_auth_return_to=stateful")
     }
 
     @Test func sendCodeThenVerifySubmitsLowercaseDisplayedOtpWithNonce() async throws {

@@ -1942,7 +1942,9 @@
   "afterSignIn": {
     "title": "cmux にサインインしました",
     "body": "cmux が自動的に開かない場合は、下のボタンを使用してください。",
-    "button": "cmux に戻る"
+    "button": "cmux に戻る",
+    "iphoneButton": "iPhone の cmux に戻る",
+    "testFlightButton": "cmux TestFlight に戻る"
   },
   "landing": {
     "bestTerminal": {
@@ -2221,5 +2223,12 @@
       "faqQ4": "Cursor CLI と一緒に使う cmux は無料ですか？",
       "faqA4": "はい。cmux は macOS 向けの無料のオープンソースです。"
     }
+  },
+  "mobileMagicLinkCallback": {
+    "title": "cmux でサインインを完了してください",
+    "body": "セキュリティ保護のため、このメールのコードを cmux に入力してください。このリンクは使用されていません。",
+    "button": "cmux に戻る",
+    "iphoneButton": "iPhone の cmux に戻る",
+    "testFlightButton": "cmux TestFlight に戻る"
   }
 }

@@ -238,10 +238,20 @@ public struct CMUXMobileRootScene: View {
         } else if ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS"] == "1" {
             MobileZoomStressView()
         } else {
-            CMUXMobileAppView(store: makeStore(), onboardingStore: onboardingStore)
+            CMUXMobileAppView(
+                store: makeStore(),
+                onboardingStore: onboardingStore,
+                authCallbackRouter: auth.callbackRouter,
+                authCallbackHandler: auth.browserSignIn
+            )
         }
         #else
-        CMUXMobileAppView(store: makeStore(), onboardingStore: onboardingStore)
+        CMUXMobileAppView(
+            store: makeStore(),
+            onboardingStore: onboardingStore,
+            authCallbackRouter: auth.callbackRouter,
+            authCallbackHandler: auth.browserSignIn
+        )
         #endif
         #else
         CMUXMobileAppView(store: makeStore())

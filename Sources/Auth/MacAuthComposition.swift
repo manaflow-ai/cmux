@@ -73,7 +73,7 @@ struct MacAuthComposition {
                 publishableClientKey: AuthEnvironment.stackPublishableClientKey
             ),
             magicLinkCallbackURL: AuthEnvironment.websiteOrigin
-                .appendingPathComponent("auth/callback", isDirectory: false)
+                .appendingPathComponent("handler/magic-link-callback", isDirectory: false)
                 .absoluteString,
             apiBaseURL: AuthEnvironment.apiBaseURL.absoluteString
         )

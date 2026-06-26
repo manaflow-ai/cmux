@@ -13,6 +13,7 @@ import AppKit
 struct SignInView: View {
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(\.analytics) private var analytics
+    @Binding private var externalError: String?
     @State private var email = ""
     @State private var code = ""
     @State private var showCodeEntry = false
@@ -24,6 +25,11 @@ struct SignInView: View {
     private let errorPresentation = SignInErrorPresentation()
     @FocusState private var isEmailFocused: Bool
     @FocusState private var isCodeFocused: Bool
+
+    init(externalError: Binding<String?> = .constant(nil)) {
+        _externalError = externalError
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -145,8 +151,8 @@ struct SignInView: View {
                     .accessibilityIdentifier("signin.emailCode")
                 }
 
-                if let error {
-                    errorText(error)
+                if let displayedError {
+                    errorText(displayedError)
                 }
             }
         }
@@ -203,8 +209,8 @@ struct SignInView: View {
                     shouldAutofocusCode = false
                 }
 
-                if let error {
-                    errorText(error)
+                if let displayedError {
+                    errorText(displayedError)
                 }
 
                 Button {
@@ -227,7 +233,7 @@ struct SignInView: View {
                         shouldAutofocusEmail = autofocusEmailOnReturn
                         showCodeEntry = false
                         code = ""
-                        error = nil
+                        clearErrors()
                     }
                 } label: {
                     Text(L10n.string("mobile.signIn.useDifferentEmail", defaultValue: "Use a different email"))
@@ -238,14 +244,6 @@ struct SignInView: View {
         }
     }
 
-    // While this is true the card dims (opacity 0.6) and inputs disable. There
-    // is intentionally no in-app "cancel sign-in" affordance: during the only
-    // long phase (the Apple/Google system sheet, generous on purpose for
-    // password + 2FA) the system sheet sits above this view and carries its own
-    // Cancel, and every coordinator phase is raced against a deadline
-    // (AuthTimeouts), so a wedged flow always ends in a localized, retryable
-    // AuthError and re-enables the card for retry. Do not reintroduce a manual
-    // cancel button here; it was occluded during the system sheet anyway.
     private var isInteractiveAuthInProgress: Bool {
         authManager.isLoading || isAppleSigningIn || isGoogleSigningIn
     }
@@ -254,8 +252,19 @@ struct SignInView: View {
         isInteractiveAuthInProgress || authManager.isRestoringSession
     }
 
-    private func sendCode(autofocusCodeOnSuccess: Bool) async {
+    private var displayedError: String? {
+        if let error { return error }
+        if let externalError { return externalError }
+        return nil
+    }
+
+    private func clearErrors() {
         error = nil
+        externalError = nil
+    }
+
+    private func sendCode(autofocusCodeOnSuccess: Bool) async {
+        clearErrors()
         analytics.capture("ios_sign_in_started", ["method": .string("email_code")])
         do {
             try await authManager.sendCode(to: email)
@@ -281,7 +290,7 @@ struct SignInView: View {
     }
 
     private func verifyCode() async {
-        error = nil
+        clearErrors()
         do {
             try await authManager.verifyCode(code)
         } catch {
@@ -299,7 +308,7 @@ struct SignInView: View {
     }
 
     private func signInWithApple() async {
-        error = nil
+        clearErrors()
         isAppleSigningIn = true
         defer { isAppleSigningIn = false }
         analytics.capture("ios_sign_in_started", ["method": .string("apple")])
@@ -323,7 +332,7 @@ struct SignInView: View {
     }
 
     private func signInWithGoogle() async {
-        error = nil
+        clearErrors()
         isGoogleSigningIn = true
         defer { isGoogleSigningIn = false }
         analytics.capture("ios_sign_in_started", ["method": .string("google")])

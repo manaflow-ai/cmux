@@ -1,17 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { Locale } from "../../../i18n/routing";
 import { locales, routing } from "../../../i18n/routing";
-
-const NATIVE_SCHEME = "cmux://";
-const NATIVE_SCHEMES = new Set(["cmux", "cmux-nightly"]);
-const NATIVE_HANDOFF_COOKIE = "cmux-native-auth-handoff";
-const NATIVE_HANDOFF_PARAM = "cmux_auth_handoff";
-
-type AfterSignInMessages = {
-  title: string;
-  body: string;
-  button: string;
-};
+import {
+  NATIVE_HANDOFF_COOKIE,
+  NATIVE_HANDOFF_PARAM,
+  NATIVE_PLATFORM_PARAM,
+  type AfterSignInMessages,
+  type NativeReturnLink,
+  buildMobileNativeErrorHref,
+  buildNativeHref,
+  fallbackNativeLinks,
+  isAllowedNativeReturnTo,
+  isMobileNativeReturnTo,
+  nativePlatformFromValue,
+  nativeReturnLabel,
+} from "./native-return";
 
 type LocalizedAfterSignInMessages = {
   locale: Locale;
@@ -43,42 +46,6 @@ type AfterSignInHandlerDependencies = {
   stackServerApp: StackServerAppLike;
   getCookieStore: () => Promise<CookieStore>;
 };
-
-function isLocalRequest(request: NextRequest): boolean {
-  const hostHeader = request.headers.get("host");
-  const host = (hostHeader?.split(":")[0] ?? request.nextUrl.hostname).toLowerCase();
-  return host === "localhost" || host === "127.0.0.1" || host === "::1";
-}
-
-function localAllowedNativeSchemes(): Set<string> {
-  const values = [
-    process.env.CMUX_AUTH_CALLBACK_SCHEME,
-    process.env.CMUX_ALLOWED_NATIVE_CALLBACK_SCHEMES,
-    process.env.CMUX_DEV_NATIVE_CALLBACK_SCHEMES,
-  ];
-  const schemes = new Set<string>();
-  for (const value of values) {
-    for (const raw of value?.split(/[\s,]+/) ?? []) {
-      const scheme = raw.trim().replace(/:\/\/.*$/, "").replace(/:$/, "");
-      if (/^cmux-dev-[a-z0-9-]+$/.test(scheme)) schemes.add(scheme);
-    }
-  }
-  return schemes;
-}
-
-function isAllowedNativeReturnTo(href: string, request: NextRequest): boolean {
-  try {
-    const url = new URL(href);
-    if (url.hostname !== "auth-callback") return false;
-    if (url.pathname !== "" && url.pathname !== "/") return false;
-    const scheme = url.protocol.replace(":", "");
-    if (NATIVE_SCHEMES.has(scheme)) return true;
-    if (scheme === "cmux-dev") return isLocalRequest(request);
-    return isLocalRequest(request) && localAllowedNativeSchemes().has(scheme);
-  } catch {
-    return false;
-  }
-}
 
 function findStackCookie(
   cookieStore: { getAll: () => { name: string; value: string }[] },
@@ -130,23 +97,6 @@ function decodeRefreshCookie(value: string | undefined): string | undefined {
     if (typeof obj.refresh_token === "string") return obj.refresh_token;
   } catch {}
   return undefined;
-}
-
-function buildNativeHref(
-  baseHref: string | null,
-  refreshToken: string | undefined,
-  accessCookie: string | undefined
-): string | null {
-  if (!refreshToken || !accessCookie) return baseHref;
-  const href = baseHref ?? `${NATIVE_SCHEME}auth-callback`;
-  try {
-    const url = new URL(href);
-    url.searchParams.set("stack_refresh", refreshToken);
-    url.searchParams.set("stack_access", accessCookie);
-    return url.toString();
-  } catch {
-    return `${NATIVE_SCHEME}auth-callback?stack_refresh=${encodeURIComponent(refreshToken)}&stack_access=${encodeURIComponent(accessCookie)}`;
-  }
 }
 
 function hasAuthState(href: string): boolean {
@@ -210,15 +160,26 @@ async function afterSignInMessages(request: NextRequest): Promise<LocalizedAfter
 function nativeReturnResponse(
   href: string,
   localized: LocalizedAfterSignInMessages,
-  autoOpen: boolean
+  autoOpen: boolean,
+  label: string = localized.messages.button
+): NextResponse {
+  return nativeReturnLinksResponse([{ href, label }], localized, autoOpen, href);
+}
+
+function nativeReturnLinksResponse(
+  links: NativeReturnLink[],
+  localized: LocalizedAfterSignInMessages,
+  autoOpen: boolean,
+  autoOpenHref: string | null = links[0]?.href ?? null
 ): NextResponse {
   const { locale, messages } = localized;
-  const escapedHref = escapeHtml(href);
-  const scriptHref = JSON.stringify(href).replaceAll("<", "\\u003c");
+  const scriptHref = autoOpenHref ? JSON.stringify(autoOpenHref).replaceAll("<", "\\u003c") : "null";
   const escapedTitle = escapeHtml(messages.title);
   const escapedBody = escapeHtml(messages.body);
-  const escapedButton = escapeHtml(messages.button);
-  const autoOpenScript = autoOpen
+  const escapedLinks = links
+    .map((link) => `<a href="${escapeHtml(link.href)}">${escapeHtml(link.label)}</a>`)
+    .join("\n    ");
+  const autoOpenScript = autoOpen && autoOpenHref
     ? `  <script>\n    window.location.replace(${scriptHref});\n  </script>\n`
     : "";
   const response = new NextResponse(
@@ -261,6 +222,7 @@ function nativeReturnResponse(
       display: inline-block;
       font-size: 14px;
       font-weight: 500;
+      margin: 4px;
       padding: 10px 18px;
       text-decoration: none;
     }
@@ -270,7 +232,7 @@ function nativeReturnResponse(
   <main>
     <h1>${escapedTitle}</h1>
     <p>${escapedBody}</p>
-    <a href="${escapedHref}">${escapedButton}</a>
+    ${escapedLinks}
   </main>
 ${autoOpenScript}
 </body>
@@ -339,10 +301,17 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
       nativeReturnTo !== null
     ) {
       if (isAllowedNativeReturnTo(nativeReturnTo, request)) {
-        const href = buildNativeHref(nativeReturnTo, refreshToken, accessCookie);
         const autoOpen = verifiedAutoOpen(request, stackCookies, nativeReturnTo);
+        if (isMobileNativeReturnTo(nativeReturnTo)) {
+          const href = buildMobileNativeErrorHref(nativeReturnTo);
+          if (href) {
+            return nativeReturnResponse(href, localizedMessages, autoOpen, nativeReturnLabel(nativeReturnTo, localizedMessages.messages));
+          }
+          return NextResponse.redirect(new URL("/", request.url));
+        }
+        const href = buildNativeHref(nativeReturnTo, refreshToken, accessCookie);
         if (href) {
-          return nativeReturnResponse(href, localizedMessages, autoOpen);
+          return nativeReturnResponse(href, localizedMessages, autoOpen, nativeReturnLabel(nativeReturnTo, localizedMessages.messages));
         }
       }
       return NextResponse.redirect(new URL("/", request.url));
@@ -354,8 +323,9 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
     }
 
     if (refreshToken && accessCookie) {
-      const fallback = buildNativeHref(null, refreshToken, accessCookie);
-      if (fallback) return nativeReturnResponse(fallback, localizedMessages, false);
+      const platform = nativePlatformFromValue(request.nextUrl.searchParams.get(NATIVE_PLATFORM_PARAM));
+      const links = fallbackNativeLinks(refreshToken, accessCookie, localizedMessages.messages, platform);
+      if (links.length > 0) return nativeReturnLinksResponse(links, localizedMessages, false);
     }
 
     return NextResponse.redirect(new URL("/", request.url));

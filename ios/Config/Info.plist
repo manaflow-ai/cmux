@@ -16,8 +16,12 @@
 	<string>$(CMUX_DEV_TAG)</string>
 	<key>CMUXGitSHA</key>
 	<string>$(CMUX_GIT_SHA)</string>
+	<key>CMUXAuthEnvironment</key>
+	<string>$(CMUX_AUTH_ENVIRONMENT)</string>
 	<key>CMUXPresenceBaseURL</key>
 	<string>$(CMUX_PRESENCE_BASE_URL)</string>
+	<key>CMUXIOSAuthCallbackScheme</key>
+	<string>$(CMUX_IOS_AUTH_CALLBACK_SCHEME)</string>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
@@ -39,6 +43,16 @@
 				     so a beta/prod QR scanned with the Camera app can never open a
 				     dev build. Keep the values in sync with CmxPairingURLScheme. -->
 				<string>$(CMUX_IOS_URL_SCHEME)</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLName</key>
+			<string>dev.cmux.ios.auth-callback</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>$(CMUX_IOS_AUTH_CALLBACK_SCHEME)</string>
 			</array>
 		</dict>
 		<dict>

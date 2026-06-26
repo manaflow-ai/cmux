@@ -23,6 +23,7 @@ CURRENT_PROJECT_VERSION = 1
 // CMUXGitSHA / CMUXDevTag Info.plist keys that AppVersionInfo reads.
 CMUX_GIT_SHA =
 CMUX_DEV_TAG =
+CMUX_AUTH_ENVIRONMENT =
 
 // Per-developer presence/paired-Mac-backup worker override, baked into the
 // CMUXPresenceBaseURL Info.plist key so a normally-tapped dev device build (which
@@ -68,3 +69,8 @@ CODE_SIGN_ENTITLEMENTS = Config/cmux.entitlements
 // configuration can never hijack release links. Keep both values in sync with
 // CmxPairingURLScheme in Packages/Shared/CMUXMobileCore.
 CMUX_IOS_URL_SCHEME = cmux-ios-dev
+
+// Native auth callback scheme for Safari/email sign-in handoff. Kept separate
+// from pairing so beta and App Store builds can disambiguate auth callbacks
+// even if they keep sharing the QR pairing scheme for compatibility.
+CMUX_IOS_AUTH_CALLBACK_SCHEME = cmux-ios-dev

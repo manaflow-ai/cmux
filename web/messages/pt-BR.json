@@ -1590,7 +1590,9 @@
   "afterSignIn": {
     "title": "Conectado ao cmux",
     "body": "Se o cmux não abriu automaticamente, use o botão abaixo.",
-    "button": "Voltar ao cmux"
+    "button": "Voltar ao cmux",
+    "iphoneButton": "Voltar para o cmux no iPhone",
+    "testFlightButton": "Voltar para o cmux TestFlight"
   },
   "landing": {
     "bestTerminal": {
@@ -1896,5 +1898,12 @@
     "successBody": "Enviaremos um e-mail quando a versão para {platform} estiver pronta.",
     "successBodyAny": "Enviaremos um e-mail quando o cmux estiver pronto para sua plataforma.",
     "done": "Concluído"
+  },
+  "mobileMagicLinkCallback": {
+    "title": "Abra o cmux para concluir o login",
+    "body": "Por segurança, digite no cmux o código deste email. Este link não foi usado.",
+    "button": "Voltar para o cmux",
+    "iphoneButton": "Voltar para o cmux no iPhone",
+    "testFlightButton": "Voltar para o cmux TestFlight"
   }
 }

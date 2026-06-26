@@ -9,7 +9,9 @@ import Foundation
 /// the per-app `AppEnvironment` / `AuthEnvironment` tables. Resolve it once at
 /// the composition root via ``init(environment:overrides:)`` (injecting the
 /// `LocalConfig.plist` overrides) and inject it down; the type never reads
-/// `Bundle.main` itself.
+/// `Bundle.main` itself. The composition root may override the auth environment
+/// so a DEBUG dogfood build can test production Stack credentials and callback
+/// URLs together.
 public struct AuthConfig: Equatable, Sendable {
     /// The Stack Auth project + publishable key for the environment.
     public let stack: CMUXAuthConfig
@@ -54,7 +56,7 @@ public struct AuthConfig: Equatable, Sendable {
             callbackURL = "http://localhost:3000/auth/callback"
             defaultAPIBaseURL = "http://localhost:3000"
         case .production:
-            callbackURL = "https://cmux.com/auth/callback"
+            callbackURL = "https://cmux.com/handler/magic-link-callback"
             defaultAPIBaseURL = "https://cmux.com"
         }
 
