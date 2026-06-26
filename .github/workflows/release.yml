@@ -216,6 +216,17 @@ jobs:
           chmod +x "$wrapper_dir/create-dmg"
           echo "$wrapper_dir" >> "$GITHUB_PATH"
 
+      - name: Cache CmuxIrohFFI.xcframework
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/cmux/cmux-iroh
+          key: cmux-iroh-${{ hashFiles('Native/cmux-iroh/**', 'scripts/ensure-cmux-iroh.sh') }}
+
+      - name: Build CmuxIrohFFI.xcframework
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: ./scripts/ensure-cmux-iroh.sh
+
       - name: Download pre-built GhosttyKit.xcframework
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |

@@ -59,6 +59,49 @@ import Testing
         #expect(decoded.authToken == nil)
     }
 
+    @Test func roundTripsSingleIrohPeerRoute() throws {
+        // iroh mode: the Mac publishes exactly one dial-by-EndpointId route. The
+        // v2 code carries it as i/ir/ida and the phone reconstructs it losslessly.
+        let iroh = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(
+                id: "kabc123def456ghi789",
+                relayHint: nil,
+                directAddrs: ["192.168.1.20:7842"],
+                relayURL: "https://relay.example.com"
+            ),
+            priority: -1
+        )
+        let ticket = try pairingTicket(routes: [iroh])
+        let url = try #require(CmxPairingQRCode().encode(ticket))
+        // It is a real, scannable v2 code (not the v1 fallback), so the pairing
+        // window will display it.
+        #expect(CmxPairingQRCode().isPairingCodeURLString(url))
+
+        let decoded = try CmxPairingQRCode().decode(try components(url))
+        #expect(decoded.routes == ticket.routes)
+        #expect(decoded.workspaceID == "")
+        #expect(decoded.macDeviceID == "")
+        #expect(decoded.authToken == nil)
+    }
+
+    @Test func roundTripsIrohPeerRouteWithoutOptionalHints() throws {
+        // EndpointId only (no relay URL, no direct addrs): still a valid code —
+        // the phone finds the Mac through n0 discovery.
+        let iroh = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(id: "konlyendpointid000", relayHint: nil, directAddrs: [], relayURL: nil),
+            priority: -1
+        )
+        let ticket = try pairingTicket(routes: [iroh])
+        let url = try #require(CmxPairingQRCode().encode(ticket))
+        #expect(CmxPairingQRCode().isPairingCodeURLString(url))
+        let decoded = try CmxPairingQRCode().decode(try components(url))
+        #expect(decoded.routes == ticket.routes)
+    }
+
     @Test func roundTripsMagicDNSPlusIPRoutes() throws {
         let routes = [
             try tailscaleRoute(index: 0, host: "lawrences-mac.tail1234.ts.net"),

@@ -38,12 +38,25 @@ let package = Package(
         .package(path: "../../Packages/iOS/CmuxMobileTerminalKit"),
         .package(path: "../../Packages/iOS/CmuxMobileTransport"),
         .package(path: "../../Packages/iOS/CmuxMobileWorkspace"),
+        // CmuxMobileIrohTransport (iroh dial + accept lanes over CmuxIrohFFI) is
+        // linked into the iOS app so cmuxApp can register the .iroh transport; it
+        // pulls CmuxIrohFFI transitively, proving the xcframework slice matrix.
+        // It lives in Packages/Shared, not inside CmuxMobileTransport, because a
+        // remote-pin-free local dependency does not change a transitive
+        // consumer's Package.resolved originHash, which
+        // scripts/check-package-resolved-policy.py requires; the app package is
+        // the only lockfile-carrying consumer and its originHash does update.
+        .package(path: "../../Packages/Shared/CmuxMobileIrohTransport"),
         .package(path: "../../vendor/stack-auth-swift-sdk-prerelease"),
     ],
     targets: [
         .target(
             name: "cmuxFeature",
             dependencies: [
+                // Pulls CmuxMobileIrohTransport (and CmuxIrohFFI transitively)
+                // into the iOS app's package graph so cmuxApp can register the
+                // .iroh transport; cmuxFeature itself does not import it.
+                .product(name: "CmuxMobileIrohTransport", package: "CmuxMobileIrohTransport"),
                 "CMUXAuthCore",
                 "CmuxAuthRuntime",
                 "CMUXMobileCore",

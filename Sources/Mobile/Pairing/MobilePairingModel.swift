@@ -1,6 +1,7 @@
 import CMUXAuthCore
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxSettings
 import Foundation
 import Observation
 
@@ -57,6 +58,9 @@ final class MobilePairingModel {
     private(set) var state: State = .loading
     /// The signed-in account email, shown in the checklist. `nil` when signed out.
     private(set) var signedInEmail: String?
+    /// The Mac's chosen transport, bound to the in-window picker so the user
+    /// picks how phones reach this Mac during onboarding / adding a machine.
+    private(set) var transportMode: MobileTransportMode = MobileHostService.currentTransportMode()
 
     private let host: MobileHostService
     private let ticketTTL: TimeInterval
@@ -124,13 +128,21 @@ final class MobilePairingModel {
             )
             return
         }
-        // No route a phone can reach: a real iPhone needs a Tailscale address
-        // on this Mac. A DEBUG build's dev loopback route does not count — a
-        // QR pointing at 127.0.0.1 would make the phone dial itself, so the
-        // window shows the set-up-Tailscale guidance instead of a weak code.
-        // (Simulator/dev pairing uses the injected attach URL path, not the QR.)
+        // No route a phone can reach. In a Tailscale-mode Mac that means no
+        // Tailscale address (a DEBUG dev loopback route does not count — a QR
+        // pointing at 127.0.0.1 would make the phone dial itself), so show the
+        // set-up-Tailscale guidance. In an iroh mode it means the iroh endpoint
+        // hasn't published a route yet (bind/relay failure), which Tailscale
+        // can't fix, so show the generic try-again failure instead.
         guard status.routes.contains(where: Self.isPhoneReachableRoute) else {
-            state = .needsTailscale
+            state = MobileHostService.currentTransportMode().usesIroh
+                ? .failed(
+                    String(
+                        localized: "mobile.pairing.error.noTicket",
+                        defaultValue: "Could not generate a pairing code. Try again."
+                    )
+                )
+                : .needsTailscale
             return
         }
         do {
@@ -248,20 +260,42 @@ final class MobilePairingModel {
         }
     }
 
+    /// Applies the user's transport-mode choice from the pairing-window picker:
+    /// persists it (the host's settings observer re-binds the lane) and re-mints
+    /// so the displayed code reflects the chosen transport. A no-op when the mode
+    /// is unchanged.
+    func selectTransportMode(_ mode: MobileTransportMode) {
+        guard mode != transportMode else { return }
+        transportMode = mode
+        MobileHostService.setTransportMode(mode)
+        Task { await refresh() }
+    }
+
     private func enablePairingHost() {
-        UserDefaults.standard.set(true, forKey: MobileHostService.listeningEnabledDefaultsKey)
+        // Mobile host is always-on once a transport is chosen; seed the default
+        // mode if the user hasn't picked one yet so a lane binds.
+        MobileHostService.seedDefaultTransportModeIfUnset()
+        transportMode = MobileHostService.currentTransportMode()
     }
 
     private static var macDisplayName: String {
         Host.current().localizedName ?? ProcessInfo.processInfo.hostName
     }
 
-    /// Whether `route` is one a physical iPhone can actually dial: a
-    /// Tailscale route that does not point back at this Mac. The dev loopback
-    /// route a DEBUG build always carries must not count as reachability, or
-    /// the pairing window would happily display a QR no phone can use.
+    /// Whether `route` is one a physical iPhone can actually dial: an iroh
+    /// dial-by-EndpointId route (reachable from anywhere via relay/holepunch), or
+    /// a Tailscale route that does not point back at this Mac. The dev loopback
+    /// route a DEBUG build always carries must not count as reachability, or the
+    /// pairing window would happily display a QR no phone can use.
     private static func isPhoneReachableRoute(_ route: CmxAttachRoute) -> Bool {
-        route.kind == .tailscale && !CmxLoopbackHost().matches(route)
+        switch route.kind {
+        case .iroh:
+            return true
+        case .tailscale:
+            return !CmxLoopbackHost().matches(route)
+        default:
+            return false
+        }
     }
 
     private static func tailscaleLines(_ routes: [CmxAttachRoute]) -> [String] {

@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileIrohTransport
 import CmuxMobileTransport
 import SwiftUI
 import cmuxFeature
@@ -15,14 +16,26 @@ struct cmuxApp: App {
         // the simulator and on DEBUG device builds so on-device XCUITests can
         // attach to an in-runner mock host; release device builds keep only
         // real transports.
+        // `debugLoopback` (127.0.0.1) is the Network.framework lane; iroh is the
+        // dial-by-EndpointId lane (plans/feat-ios-iroh/DESIGN.md). iroh is
+        // registered on simulator + DEBUG only for now; it stays inert until a
+        // Mac publishes an iroh route (PR 4), at which point `preferredRoute`
+        // picks it over tailscale on these builds.
         #if targetEnvironment(simulator) || DEBUG
-        let supportedKinds: [CmxAttachTransportKind] = [.debugLoopback, .tailscale]
+        let networkKinds: [CmxAttachTransportKind] = [.debugLoopback, .tailscale]
+        let irohEnabled = true
         #else
-        let supportedKinds: [CmxAttachTransportKind] = [.tailscale]
+        let networkKinds: [CmxAttachTransportKind] = [.tailscale]
+        let irohEnabled = false
         #endif
-        let networkFactory = CmxNetworkByteTransportFactory(supportedKinds: supportedKinds)
-        let registrations = supportedKinds.map { kind in
+        let networkFactory = CmxNetworkByteTransportFactory(supportedKinds: networkKinds)
+        var registrations = networkKinds.map { kind in
             CmxRouteTransportFactoryRegistration(kind: kind, factory: networkFactory)
+        }
+        if irohEnabled {
+            registrations.append(
+                CmxRouteTransportFactoryRegistration(kind: .iroh, factory: CmxIrohByteTransportFactory())
+            )
         }
         let transportFactory: CmxRouteTransportFactory
         do {

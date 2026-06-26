@@ -9,18 +9,28 @@ import Testing
 #endif
 
 struct MobileHostServiceSettingsTests {
-    @Test func mobileHostListenerDefaultsOffUntilIOSPairingIsEnabled() throws {
+    @Test func transportModeSelectsTheActiveLane() throws {
         let suiteName = "MobileHostServiceSettingsTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
+        // Default (unset) → cmuxRelay: an iroh mode, so the TCP listener is off
+        // and the iroh lane is on (no custom relay).
         #expect(!MobileHostService.isListeningEnabled(defaults: defaults))
+        #expect(MobileHostService.isIrohHostEnabled(defaults: defaults))
+        #expect(MobileHostService.irohRelayURL(defaults: defaults) == nil)
 
-        defaults.set(true, forKey: MobileHostService.listeningEnabledDefaultsKey)
+        // Tailscale mode → TCP listener on, iroh off.
+        defaults.set(MobileTransportMode.tailscale.rawValue, forKey: MobileHostService.transportModeDefaultsKey)
         #expect(MobileHostService.isListeningEnabled(defaults: defaults))
+        #expect(!MobileHostService.isIrohHostEnabled(defaults: defaults))
 
-        defaults.set(false, forKey: MobileHostService.listeningEnabledDefaultsKey)
+        // ownRelay mode → iroh on with the configured custom relay URL.
+        defaults.set(MobileTransportMode.ownRelay.rawValue, forKey: MobileHostService.transportModeDefaultsKey)
+        defaults.set("https://relay.example.com", forKey: SettingCatalog().mobile.iOSIrohRelayURL.userDefaultsKey)
         #expect(!MobileHostService.isListeningEnabled(defaults: defaults))
+        #expect(MobileHostService.isIrohHostEnabled(defaults: defaults))
+        #expect(MobileHostService.irohRelayURL(defaults: defaults) == "https://relay.example.com")
     }
 
     @Test func configuredPortDefaultsToCatalogDefaultWhenUnset() throws {

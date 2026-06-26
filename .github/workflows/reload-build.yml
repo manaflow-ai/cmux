@@ -118,6 +118,8 @@ jobs:
         if: ${{ inputs.platform == 'ios' }}
         run: |
           set -euo pipefail
+          # Guarded so this is a no-op for source refs that predate the cmux-iroh
+          # crate (the script is checked out from inputs.ref, not this YAML's ref).
           if [ -f scripts/ensure-cmux-iroh.sh ]; then
             export PATH="$HOME/.cargo/bin:$PATH"
             [ -f scripts/install-rust-ci.sh ] && ./scripts/install-rust-ci.sh

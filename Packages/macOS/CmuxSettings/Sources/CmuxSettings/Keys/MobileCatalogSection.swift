@@ -2,23 +2,26 @@ import Foundation
 
 /// Mobile integration settings for pairing and syncing with cmux on iOS.
 public struct MobileCatalogSection: SettingCatalogSection {
-    /// Mac-side iOS pairing host. Release defaults OFF so macOS never asks for
-    /// Local Network permission until the user opts in from Settings. DEBUG
-    /// (dev) builds default ON so a dev Mac advertises its attach route without a
-    /// manual Settings toggle — this is what lets a fresh dev iOS build discover
-    /// the Mac automatically (see MacPairedMacBackupPublisher). An explicit user
-    /// toggle still wins on either build.
-    public let iOSPairingHost = DefaultsKey<Bool>(
-        id: "mobile.iOSPairingHost.enabled",
-        defaultValue: Self.iOSPairingHostDefault,
-        userDefaultsKey: "mobile.iOSPairingHost.enabled"
+    /// How this Mac advertises itself to paired iOS devices: cmux-hosted iroh
+    /// (default), the user's own iroh relay, or Tailscale. A strict single
+    /// choice; the Mac publishes only the chosen lane's routes. The user picks
+    /// this during pairing/onboarding (and when adding a new Mac). Replaces the
+    /// legacy `mobile.iOSPairingHost.enabled` / `mobile.iOSIrohHost.enabled`
+    /// booleans, which ``MobileTransportModeMigration`` derives this from once.
+    public let iOSTransportMode = DefaultsKey<MobileTransportMode>(
+        id: "mobile.iOSTransportMode",
+        defaultValue: .cmuxRelay,
+        userDefaultsKey: "mobile.iOSTransportMode"
     )
 
-    #if DEBUG
-    private static let iOSPairingHostDefault = true
-    #else
-    private static let iOSPairingHostDefault = false
-    #endif
+    /// Relay URL for ``MobileTransportMode/ownRelay``: the `https://` address of
+    /// an `iroh-relay` the user runs themselves. Ignored in the other modes.
+    /// Empty until the user sets one.
+    public let iOSIrohRelayURL = DefaultsKey<String>(
+        id: "mobile.iOSIrohRelayURL",
+        defaultValue: "",
+        userDefaultsKey: "mobile.iOSIrohRelayURL"
+    )
 
     /// TCP port the Mac-side iOS pairing listener prefers to bind.
     ///

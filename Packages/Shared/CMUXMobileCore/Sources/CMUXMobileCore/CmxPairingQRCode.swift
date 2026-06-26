@@ -1,9 +1,14 @@
 import Foundation
 
-/// The minimal pairing-QR grammar: expected Mac account/build metadata plus
-/// plain `host:port` routes in the URL query.
+/// The minimal pairing-QR grammar: expected Mac account/build metadata plus the
+/// chosen transport's route(s) in the URL query. A Mac publishes exactly one
+/// transport (strict single choice), so a code carries either Tailscale
+/// `host:port` routes or one iroh dial-by-EndpointId peer route, never both.
 ///
-/// `cmux-ios://attach?v=2&ub=<stack-user-id>&pc=<compat>&av=<version>&ab=<build>&r=<host>:<port>[&r=<host>:<port>...]`
+/// Tailscale: `cmux-ios://attach?v=2&ub=<stack-user-id>&pc=<compat>&av=<version>&ab=<build>&r=<host>:<port>[&r=<host>:<port>...]`
+///
+/// iroh: `cmux-ios://attach?v=2&ub=...&pc=...&av=...&ab=...&i=<endpointId>[&ir=<relayURL>][&ida=<addr>...]`
+/// (`i` = EndpointId, `ir` = relay URL hint, `ida` = optional direct-addr hints).
 ///
 /// A pairing QR needs to tell the phone where to dial and which non-secret
 /// account/build context to check before dialing. The account value is the
@@ -76,14 +81,31 @@ public struct CmxPairingQRCode: Sendable {
         if let build = normalizedNonEmpty(ticket.macAppBuild) {
             items.append("ab=\(percentEncodeQueryValue(build))")
         }
-        let routeItems = routes.map { route -> String in
-            guard case let .hostPort(host, port) = route.endpoint else {
-                // Unreachable: `encodableRoutes` admits host/port endpoints only.
-                return ""
+        if let iroh = singleIrohPeerRoute(routes),
+           case let .peer(id, _, directAddrs, relayURL) = iroh.endpoint {
+            // iroh mode: one dial-by-EndpointId peer route. `i` is the EndpointId
+            // (the phone dials it via n0 discovery/relay); `ir` is the relay URL
+            // hint (matters off-LAN/cellular); `ida` are optional direct-addr
+            // holepunch hints. No `r=` host:port items in this mode.
+            items.append("i=\(percentEncodeQueryValue(id))")
+            if let relayURL = normalizedNonEmpty(relayURL) {
+                items.append("ir=\(percentEncodeQueryValue(relayURL))")
             }
-            return "r=\(hostPortString(host: host, port: port))"
+            for addr in directAddrs.prefix(Self.maximumRouteCount) {
+                if let addr = normalizedNonEmpty(addr) {
+                    items.append("ida=\(percentEncodeQueryValue(addr))")
+                }
+            }
+        } else {
+            let routeItems = routes.map { route -> String in
+                guard case let .hostPort(host, port) = route.endpoint else {
+                    // Unreachable: `encodableRoutes` admits host/port endpoints only.
+                    return ""
+                }
+                return "r=\(hostPortString(host: host, port: port))"
+            }
+            items.append(contentsOf: routeItems)
         }
-        items.append(contentsOf: routeItems)
         // The scheme is channel-specific (see ``CmxPairingURLScheme``): a dev
         // Mac's QR opens the dev iOS build, a release Mac's QR opens the
         // release build, and the system camera can no longer hand a beta/prod
@@ -116,6 +138,11 @@ public struct CmxPairingQRCode: Sendable {
               ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false else {
             return nil
         }
+        // iroh mode publishes exactly one dial-by-EndpointId peer route, which the
+        // `i=`/`ir=`/`ida=` grammar carries losslessly.
+        if let iroh = singleIrohPeerRoute(ticket.routes) {
+            return [iroh]
+        }
         guard ticket.routes.allSatisfy({ $0.kind == .tailscale || CmxLoopbackHost().matches($0) }) else {
             return nil
         }
@@ -134,6 +161,29 @@ public struct CmxPairingQRCode: Sendable {
         }
         return routes
     }
+
+    /// The single iroh peer route a ticket carries in an iroh transport mode, or
+    /// `nil` when the ticket is not a lone dial-by-EndpointId route. Strict
+    /// single-choice means iroh tickets carry exactly one route.
+    private func singleIrohPeerRoute(_ routes: [CmxAttachRoute]) -> CmxAttachRoute? {
+        guard routes.count == 1,
+              let route = routes.first,
+              route.kind == .iroh,
+              case let .peer(id, relayHint, _, _) = route.endpoint,
+              // The i/ir/ida grammar carries no relayHint, so a route that has
+              // one must stay on the lossless v1 payload (the Mac never sets it
+              // today; this keeps the round-trip honest if that ever changes).
+              relayHint == nil,
+              !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return route
+    }
+
+    /// The canonical id/priority the decoder synthesizes for a scanned iroh
+    /// route, matching the Mac's published iroh route (`adoptIrohRoute`).
+    static let irohRouteID = CmxAttachTransportKind.iroh.rawValue
+    static let irohRoutePriority = -1
 
     /// Whether `components` (an already-parsed `cmux-ios://attach` URL) speaks
     /// this grammar. v1 URLs carry the base64 `payload` item instead.
@@ -178,6 +228,10 @@ public struct CmxPairingQRCode: Sendable {
         guard isPairingCodeURL(components) else {
             throw MobileSyncPairingPayloadError.invalidURL
         }
+        // iroh mode: a single dial-by-EndpointId peer route (`i`/`ir`/`ida`).
+        if let endpointID = queryValue(named: "i", in: components) {
+            return try decodeIrohTicket(endpointID: endpointID, components: components)
+        }
         let rawRoutes = (components.queryItems ?? [])
             .filter { $0.name == "r" }
             .compactMap(\.value)
@@ -207,6 +261,48 @@ public struct CmxPairingQRCode: Sendable {
             macAppVersion: queryValue(named: "av", in: components),
             macAppBuild: queryValue(named: "ab", in: components),
             routes: routes,
+            expiresAt: nil,
+            authToken: nil
+        )
+        try ticket.validate()
+        return ticket
+    }
+
+    /// Reconstructs the iroh `.peer` route from a scanned `i`/`ir`/`ida` code.
+    /// The route comes back with the canonical id/priority the Mac publishes, so
+    /// an encode→decode round-trip is lossless.
+    private func decodeIrohTicket(endpointID: String, components: URLComponents) throws -> CmxAttachTicket {
+        let relayURL = queryValue(named: "ir", in: components)
+        let directAddrs = (components.queryItems ?? [])
+            .filter { $0.name == "ida" }
+            .compactMap(\.value)
+        // Fail closed on a hostile over-cap code, matching the `r=` route path,
+        // rather than silently truncating the hint list.
+        guard directAddrs.count <= Self.maximumRouteCount else {
+            throw MobileSyncPairingPayloadError.invalidURL
+        }
+        let route = try CmxAttachRoute(
+            id: Self.irohRouteID,
+            kind: .iroh,
+            endpoint: .peer(
+                id: endpointID,
+                relayHint: nil,
+                directAddrs: directAddrs,
+                relayURL: relayURL
+            ),
+            priority: Self.irohRoutePriority
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "",
+            macDisplayName: nil,
+            macUserEmail: queryValue(named: "e", in: components),
+            macUserID: queryValue(named: "ub", in: components),
+            macPairingCompatibilityVersion: queryInt(named: "pc", in: components) ?? 0,
+            macAppVersion: queryValue(named: "av", in: components),
+            macAppBuild: queryValue(named: "ab", in: components),
+            routes: [route],
             expiresAt: nil,
             authToken: nil
         )

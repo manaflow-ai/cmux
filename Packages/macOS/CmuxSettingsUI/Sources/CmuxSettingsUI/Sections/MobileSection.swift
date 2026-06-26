@@ -8,7 +8,8 @@ import SwiftUI
 /// connection/route diagnostics.
 @MainActor
 public struct MobileSection: View {
-    @State private var iOSPairingHost: DefaultsValueModel<Bool>
+    @State private var transportMode: DefaultsValueModel<MobileTransportMode>
+    @State private var irohRelayURL: DefaultsValueModel<String>
     @State private var port: DefaultsValueModel<Int>
     @State private var displayName: DefaultsValueModel<String>
     @State private var status: MobilePairingStatusModel
@@ -21,6 +22,10 @@ public struct MobileSection: View {
     @State private var editedPort: Int?
     /// Result of the most recent Apply, shown inline. Cleared when the edit changes.
     @State private var applyResult: MobilePairingPortApplyResult?
+    /// The user's in-progress relay-URL edit, or `nil` when the field tracks the
+    /// persisted value. Local so typing does not rebind the iroh lane; only the
+    /// **Apply** button commits a validated URL.
+    @State private var editedRelayURL: String?
     /// Guards against overlapping Apply taps while a probe is in flight.
     @State private var isApplying = false
 
@@ -42,7 +47,8 @@ public struct MobileSection: View {
         catalog: SettingCatalog,
         hostActions: SettingsHostActions
     ) {
-        _iOSPairingHost = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingHost))
+        _transportMode = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSTransportMode))
+        _irohRelayURL = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSIrohRelayURL))
         _port = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingPort))
         _displayName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingDisplayName))
         _status = State(initialValue: MobilePairingStatusModel(hostActions: hostActions))
@@ -65,6 +71,30 @@ public struct MobileSection: View {
         (1...65535).contains(draftPort)
     }
 
+    private var isTailscaleMode: Bool { transportMode.current == .tailscale }
+    private var isOwnRelayMode: Bool { transportMode.current == .ownRelay }
+
+    /// The relay-URL value shown in the field: the user's in-progress edit if
+    /// any, otherwise the persisted value. Like the port field, edits are local
+    /// and only **Apply** commits, so the iroh lane is not rebound per keystroke.
+    private var draftRelayURL: String {
+        editedRelayURL ?? irohRelayURL.current
+    }
+
+    /// In ownRelay mode the relay URL must be a non-empty `https://` URL.
+    private var isRelayURLValid: Bool {
+        let trimmed = draftRelayURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.lowercased().hasPrefix("https://") else { return false }
+        return URL(string: trimmed) != nil
+    }
+
+    private func applyRelayURL() {
+        let trimmed = draftRelayURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isRelayURLValid, trimmed != irohRelayURL.current else { return }
+        irohRelayURL.set(trimmed)
+        editedRelayURL = nil
+    }
+
     /// The Mobile settings section content.
     public var body: some View {
         Group {
@@ -72,20 +102,26 @@ public struct MobileSection: View {
             SettingsCard {
                 pairDeviceRow
                 SettingsCardDivider()
-                iOSPairingHostRow
-                SettingsCardDivider()
-                portRow
-                boundPortStatusRow
+                transportModeRow
+                if isOwnRelayMode {
+                    SettingsCardDivider()
+                    relayURLRow
+                }
+                if isTailscaleMode {
+                    SettingsCardDivider()
+                    portRow
+                    boundPortStatusRow
+                }
                 SettingsCardDivider()
                 displayNameRow
-                if iOSPairingHost.current {
-                    SettingsCardDivider()
-                    diagnostics
+                SettingsCardDivider()
+                diagnostics
+                if isTailscaleMode {
+                    SettingsCardNote(String(
+                        localized: "settings.mobile.port.note",
+                        defaultValue: "Click Apply to change the port. cmux checks the port is free first: if it's in use, the current listener keeps running untouched; if it's free, it rebinds and connected devices reconnect on the new port."
+                    ))
                 }
-                SettingsCardNote(String(
-                    localized: "settings.mobile.port.note",
-                    defaultValue: "Click Apply to change the port. cmux checks the port is free first: if it's in use, the current listener keeps running untouched; if it's free, it rebinds and connected devices reconnect on the new port."
-                ))
             }
         }
         .task { startObservingSettings() }
@@ -93,7 +129,8 @@ public struct MobileSection: View {
 
     private func startObservingSettings() {
         let models: [any SettingObservationStarting] = [
-            iOSPairingHost,
+            transportMode,
+            irohRelayURL,
             port,
             displayName,
             status,
@@ -119,19 +156,69 @@ public struct MobileSection: View {
     }
 
     @ViewBuilder
-    private var iOSPairingHostRow: some View {
+    private var transportModeRow: some View {
         SettingsCardRow(
             configurationReview: .settingsOnly,
-            searchAnchorID: "setting:mobile:iOSPairingHost",
-            String(localized: "settings.mobile.iOSPairingHost", defaultValue: "iOS Pairing"),
-            subtitle: iOSPairingHost.current
-                ? String(localized: "settings.mobile.iOSPairingHost.subtitleOn", defaultValue: "Allows the iOS app to discover and sync with this Mac on your local network.")
-                : String(localized: "settings.mobile.iOSPairingHost.subtitleOff", defaultValue: "Keeps the Mac-side iOS pairing listener off until you enable it here.")
+            searchAnchorID: "setting:mobile:transportMode",
+            String(localized: "settings.mobile.transportMode", defaultValue: "Mobile Connection"),
+            subtitle: transportModeSubtitle,
+            controlWidth: Self.columnWidth
         ) {
-            Toggle("", isOn: Binding(get: { iOSPairingHost.current }, set: { iOSPairingHost.set($0) }))
-                .labelsHidden()
+            Picker("", selection: Binding(get: { transportMode.current }, set: { transportMode.set($0) })) {
+                ForEach(MobileTransportMode.allCases) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .accessibilityIdentifier("SettingsMobileTransportModePicker")
+        }
+    }
+
+    private var transportModeSubtitle: String {
+        switch transportMode.current {
+        case .cmuxRelay:
+            return String(localized: "settings.mobile.transportMode.subtitle.cmuxRelay", defaultValue: "iPhones and iPads attach over an encrypted iroh connection via cmux's relay. No Tailscale or shared network needed.")
+        case .ownRelay:
+            return String(localized: "settings.mobile.transportMode.subtitle.ownRelay", defaultValue: "Attach over iroh using a relay server you run yourself.")
+        case .tailscale:
+            return String(localized: "settings.mobile.transportMode.subtitle.tailscale", defaultValue: "Attach over your Tailscale network on a TCP port. No relay involved.")
+        }
+    }
+
+    @ViewBuilder
+    private var relayURLRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            String(localized: "settings.mobile.relayURL", defaultValue: "Relay URL"),
+            subtitle: String(localized: "settings.mobile.relayURL.subtitle", defaultValue: "The https:// address of the iroh-relay you run (for example https://relay.example.com)."),
+            controlWidth: 330
+        ) {
+            HStack(spacing: 8) {
+                TextField(
+                    "https://relay.example.com",
+                    text: Binding(get: { draftRelayURL }, set: { editedRelayURL = $0 })
+                )
+                .textFieldStyle(.roundedBorder)
+                .onSubmit { applyRelayURL() }
+                .accessibilityIdentifier("SettingsMobileRelayURLField")
+                Button(String(localized: "settings.mobile.relayURL.apply", defaultValue: "Apply")) {
+                    applyRelayURL()
+                }
+                .buttonStyle(.bordered)
                 .controlSize(.small)
-                .accessibilityIdentifier("SettingsMobileIOSPairingHostToggle")
+                .disabled(!isRelayURLValid || draftRelayURL.trimmingCharacters(in: .whitespacesAndNewlines) == irohRelayURL.current)
+                .accessibilityIdentifier("SettingsMobileRelayURLApplyButton")
+            }
+        }
+        if !isRelayURLValid {
+            statusCaption {
+                Label(
+                    String(localized: "settings.mobile.relayURL.invalid", defaultValue: "Enter an https:// relay URL so your devices can reach this Mac."),
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .foregroundStyle(.orange)
+            }
         }
     }
 
@@ -194,9 +281,9 @@ public struct MobileSection: View {
                 )
                 .foregroundStyle(.orange)
             }
-        } else if case let .portInUse(requested) = applyResult, iOSPairingHost.current {
-            // Only while pairing is on — toggling off stops the listener, which
-            // would make "still listening on …" wrong.
+        } else if case let .portInUse(requested) = applyResult {
+            // The TCP listener is always running in tailscale mode, so the
+            // "still listening on …" indicator is always accurate here.
             statusCaption {
                 Label(
                     String(
@@ -207,17 +294,7 @@ public struct MobileSection: View {
                 )
                 .foregroundStyle(.orange)
             }
-        } else if case let .savedForLater(saved) = applyResult, !iOSPairingHost.current {
-            // Only while pairing is off — once it's on, the live indicator shows
-            // the actual listening port instead of this saved-for-later note.
-            statusCaption {
-                Label(
-                    String(localized: "settings.mobile.port.apply.saved", defaultValue: "Saved. Will use port \(saved) when iOS Pairing is on."),
-                    systemImage: "checkmark.circle.fill"
-                )
-                .foregroundStyle(.secondary)
-            }
-        } else if iOSPairingHost.current, let snapshot = status.current {
+        } else if let snapshot = status.current {
             statusCaption { boundPortStatusText(snapshot) }
         }
     }

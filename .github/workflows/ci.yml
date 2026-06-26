@@ -234,6 +234,40 @@ jobs:
       - name: Validate remote daemon release assets
         run: ./tests/test_remote_daemon_release_assets.sh
 
+  cmux-iroh-crate:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        run: ./scripts/install-rust-ci.sh
+
+      - name: Cache cargo
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            Native/cmux-iroh/target
+          key: cmux-iroh-cargo-${{ runner.os }}-${{ hashFiles('Native/cmux-iroh/Cargo.lock', 'Native/cmux-iroh/rust-toolchain.toml') }}
+          restore-keys: cmux-iroh-cargo-${{ runner.os }}-
+
+      - name: cargo fmt
+        working-directory: Native/cmux-iroh
+        run: cargo fmt --check
+
+      - name: cargo clippy
+        working-directory: Native/cmux-iroh
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: cargo test
+        working-directory: Native/cmux-iroh
+        run: cargo test --locked
+
   web-typecheck:
     needs: changes
     if: ${{ needs.changes.outputs.web == 'true' }}
@@ -409,6 +443,15 @@ jobs:
       - name: Install Rust
         run: |
           ./scripts/install-rust-ci.sh
+
+      - name: Cache CmuxIrohFFI.xcframework
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/cmux/cmux-iroh
+          key: cmux-iroh-${{ hashFiles('Native/cmux-iroh/**', 'scripts/ensure-cmux-iroh.sh') }}
+
+      - name: Build CmuxIrohFFI.xcframework
+        run: ./scripts/ensure-cmux-iroh.sh
 
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -985,6 +1028,15 @@ jobs:
         run: |
           ./scripts/install-rust-ci.sh
 
+      - name: Cache CmuxIrohFFI.xcframework
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/cmux/cmux-iroh
+          key: cmux-iroh-${{ hashFiles('Native/cmux-iroh/**', 'scripts/ensure-cmux-iroh.sh') }}
+
+      - name: Build CmuxIrohFFI.xcframework
+        run: ./scripts/ensure-cmux-iroh.sh
+
       - name: Cache Zig packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -1334,6 +1386,15 @@ jobs:
         run: |
           ./scripts/install-rust-ci.sh
 
+      - name: Cache CmuxIrohFFI.xcframework
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/cmux/cmux-iroh
+          key: cmux-iroh-${{ hashFiles('Native/cmux-iroh/**', 'scripts/ensure-cmux-iroh.sh') }}
+
+      - name: Build CmuxIrohFFI.xcframework
+        run: ./scripts/ensure-cmux-iroh.sh
+
       - name: Cache DerivedData
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -1464,6 +1525,15 @@ jobs:
       - name: Install Rust
         run: |
           ./scripts/install-rust-ci.sh
+
+      - name: Cache CmuxIrohFFI.xcframework
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/cmux/cmux-iroh
+          key: cmux-iroh-${{ hashFiles('Native/cmux-iroh/**', 'scripts/ensure-cmux-iroh.sh') }}
+
+      - name: Build CmuxIrohFFI.xcframework
+        run: ./scripts/ensure-cmux-iroh.sh
 
       - name: Cache Zig packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
