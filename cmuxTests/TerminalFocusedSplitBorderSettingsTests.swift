@@ -1,3 +1,5 @@
+import AppKit
+import CmuxFoundation
 import Foundation
 import Testing
 
