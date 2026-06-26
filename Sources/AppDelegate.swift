@@ -2083,12 +2083,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// Starts the per-pane runaway-memory guardrail: a background timer that
-    /// attributes each pane's process-tree memory by controlling tty. When a
-    /// pane first crosses the configurable threshold it posts a calm, per-pane
-    /// in-app notification (issue #6313) so a leaking process is observable
-    /// before it OOM-suspends the whole app; the intrusive sidebar badge +
-    /// dismissible banner were removed in #6614 and are not reintroduced. It
-    /// also frees nonessential WebKit memory on system memory pressure.
+    /// attributes each pane's process-tree memory by controlling tty and posts a
+    /// calm per-pane notification when one first crosses the threshold (#6313),
+    /// so a leak is visible before it OOM-suspends the app. Also frees
+    /// nonessential WebKit memory on system memory pressure.
     private func startPaneMemoryGuardrailIfNeeded() {
         let guardrail = PaneMemoryGuardrail.shared
         guardrail.paneProvider = { [weak self] in
