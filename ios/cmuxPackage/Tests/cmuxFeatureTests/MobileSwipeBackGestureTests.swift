@@ -36,9 +36,14 @@ struct MobileSwipeBackGestureTests {
         let host = InteractiveSwipeBackEnabler.GestureHostController()
         let root = UIViewController()
         let nav = UINavigationController(rootViewController: root)
+        // Load the navigation controller's view first so its
+        // `interactivePopGestureRecognizer` exists, then complete containment.
+        // This exercises the production wiring in `GestureHostController.didMove`
+        // (`interactivePopGestureRecognizer?.delegate = self`) instead of letting
+        // it no-op against a not-yet-created recognizer.
+        nav.loadViewIfNeeded()
         root.addChild(host)
         host.didMove(toParent: root)
-        nav.loadViewIfNeeded()
         guard let popGesture = nav.interactivePopGestureRecognizer else { return nil }
         return (nav, host, popGesture)
     }
@@ -51,6 +56,16 @@ struct MobileSwipeBackGestureTests {
     func browserWebViewDisablesBackForwardGestures() {
         let webView = MobileBrowserView.makeConfiguredWebView()
         #expect(webView.allowsBackForwardNavigationGestures == false)
+    }
+
+    /// `InteractiveSwipeBackEnabler.GestureHostController` re-arms the swipe by
+    /// taking over the pop gesture's delegate when it moves into the navigation
+    /// controller. Lock that registration so the wiring — not just the delegate
+    /// logic the other tests call directly — cannot silently regress.
+    @Test("enabler registers as the interactive pop gesture delegate")
+    func enablerBecomesPopGestureDelegate() throws {
+        let hosted = try #require(makeHostedNavigation())
+        #expect(hosted.popGesture.delegate === hosted.host)
     }
 
     /// The custom back button hides the system one (which disables the swipe), so
