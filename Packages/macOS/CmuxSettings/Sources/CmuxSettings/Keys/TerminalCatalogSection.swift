@@ -21,6 +21,12 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.copyOnSelect"
     )
 
+    public let reflowCopy = DefaultsKey<Bool>(
+        id: "terminal.reflowCopy",
+        defaultValue: true,
+        userDefaultsKey: "terminal.reflowCopy"
+    )
+
     public let autoResumeAgentSessions = DefaultsKey<Bool>(
         id: "terminal.autoResumeAgentSessions",
         defaultValue: true,

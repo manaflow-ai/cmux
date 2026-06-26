@@ -1001,6 +1001,7 @@
         },
         "terminal": {
           "copyOnSelect": "When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior.",
+          "reflowCopy": "When true (default), Cmd+C reflows wrapped terminal text on copy: lines an application hard-wrapped to fit the viewport are rejoined into continuous paragraphs and continuation indentation is removed, while code fences, tables, blockquotes, lists, and URLs are preserved. Raw, verbatim copy is always available via the Copy Raw action. When false, Cmd+C copies the selection verbatim.",
           "scrollSpeed": "Multiplier applied to terminal scroll wheel and trackpad deltas. Higher values scroll faster; lower values scroll slower.",
           "showTextBoxOnNewTerminals": "Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits.",
           "focusTextBoxOnNewTerminals": "Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox."

@@ -7190,6 +7190,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 keyEquivalent: ""
             )
             item.target = self
+            // When reflow is the default Copy behavior, offer a verbatim escape.
+            // When reflow is off, plain Copy is already verbatim, so this is hidden.
+            if TerminalReflowCopySettings.isEnabled() {
+                let rawItem = menu.addItem(
+                    withTitle: String(localized: "terminalContextMenu.copyRaw", defaultValue: "Copy Raw"),
+                    action: #selector(copyRaw(_:)),
+                    keyEquivalent: ""
+                )
+                rawItem.target = self
+            }
         }
         let pasteItem = menu.addItem(
             withTitle: String(localized: "terminalContextMenu.paste", defaultValue: "Paste"),
