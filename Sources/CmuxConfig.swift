@@ -1627,10 +1627,14 @@ struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
     var id: String {
         // Fold the folder path into the identity so same-named commands in
         // different folders (e.g. `Frontend/Build` and `Backend/Build`) stay
-        // distinct rather than colliding. Folderless commands keep their
+        // distinct rather than colliding. Each component is percent-encoded
+        // *before* joining so a `/` inside a folder or name cannot make two
+        // different (folder, name) pairs collide. Folderless commands keep their
         // historical `cmux.config.command.<name>` id.
-        let key = (folderComponents + [name]).joined(separator: "/")
-        return "cmux.config.command." + (key.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? key)
+        let key = (folderComponents + [name])
+            .map { $0.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? $0 }
+            .joined(separator: "/")
+        return "cmux.config.command." + key
     }
 
     /// The trimmed, non-empty components of ``folder`` split on `/`.
@@ -2534,7 +2538,7 @@ final class CmuxConfigStore: ObservableObject {
                 tooltip: command.description,
                 action: command.workspace == nil
                     ? .command(command.command ?? "")
-                    : .workspaceCommand(command.name),
+                    : .workspaceCommand(command.id),
                 confirm: command.confirm,
                 terminalCommandTarget: command.workspace == nil ? .currentTerminal : nil,
                 actionSourcePath: sourcePath,

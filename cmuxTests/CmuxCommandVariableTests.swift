@@ -235,6 +235,11 @@ import Testing
         #expect(frontend.id != plain.id)
         // Folderless commands keep their historical id.
         #expect(plain.id == "cmux.config.command.Build")
+        // A `/` inside a folder or name must not make two distinct (folder,
+        // name) pairs collide on the same id.
+        let a = CmuxCommandDefinition(name: "C", command: "x", folder: "A/B")
+        let b = CmuxCommandDefinition(name: "B/C", command: "x", folder: "A")
+        #expect(a.id != b.id)
     }
 
     @Test func sameLeafNameInDifferentFoldersBothResolve() throws {
