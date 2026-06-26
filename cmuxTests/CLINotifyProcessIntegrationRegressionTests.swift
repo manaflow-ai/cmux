@@ -790,7 +790,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         standardInput: String,
         extraEnvironment: [String: String] = [:]
     ) -> ProcessRunResult {
-        let serverHandled = startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+        let serverHandled = startMockServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            connectionCount: 4
+        ) { line in
             guard let payload = self.jsonObject(line) else {
                 return "OK"
             }
@@ -3685,7 +3689,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             initialScript
         )
         XCTAssertTrue(initialScript.contains("254|255"), initialScript)
-        XCTAssertFalse(initialScript.contains("-surface"), initialScript)
+        XCTAssertFalse(
+            initialScript.contains(#"ssh-pty-attach --wait --workspace "$cmux_ssh_pty_workspace_id" --surface"#),
+            initialScript
+        )
         XCTAssertTrue(
             initialScript.contains("--workspace \"$cmux_ssh_pty_workspace_id\""),
             initialScript
@@ -3712,7 +3719,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             terminalStartupScript
         )
         XCTAssertTrue(terminalStartupScript.contains("254|255"), terminalStartupScript)
-        XCTAssertFalse(terminalStartupScript.contains("-surface"), terminalStartupScript)
+        XCTAssertFalse(
+            terminalStartupScript.contains(#"ssh-pty-attach --wait --workspace "$cmux_ssh_pty_workspace_id" --surface"#),
+            terminalStartupScript
+        )
         XCTAssertTrue(
             terminalStartupScript.contains("--workspace \"$cmux_ssh_pty_workspace_id\""),
             terminalStartupScript
@@ -8806,7 +8816,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         standardInput: String,
         extraEnvironment: [String: String] = [:]
     ) -> ProcessRunResult {
-        let serverHandled = startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+        let serverHandled = startMockServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            connectionCount: 4
+        ) { line in
             guard let payload = self.jsonObject(line) else {
                 return "OK"
             }

@@ -205,6 +205,39 @@ import Testing
         #expect(store.workspaceListConnectedRefreshTargetMacDeviceID() == "mac-b")
     }
 
+    @Test func staleForegroundSnapshotDoesNotHideUnavailableWorkspaceList() async throws {
+        let store = MobileShellComposite(connectionState: .disconnected)
+        store.setWorkspaceStatesForTesting([
+            "mac-a": MacWorkspaceState(
+                macDeviceID: "mac-a",
+                workspaces: [
+                    MobileWorkspacePreview(
+                        id: "foreground-workspace",
+                        macDeviceID: "mac-a",
+                        name: "Foreground",
+                        terminals: []
+                    ),
+                ],
+                status: .connected
+            ),
+            "mac-b": MacWorkspaceState(
+                macDeviceID: "mac-b",
+                workspaces: [
+                    MobileWorkspacePreview(
+                        id: "secondary-workspace",
+                        macDeviceID: "mac-b",
+                        name: "Secondary",
+                        terminals: []
+                    ),
+                ],
+                status: .unavailable
+            ),
+        ], foregroundMacDeviceID: "mac-a")
+
+        #expect(store.macConnectionStatus == .unavailable)
+        #expect(store.workspaceListConnectionStatus == .unavailable)
+    }
+
     @Test func forgettingKnownMacInvalidatesStoredMacReconnectAttempt() async throws {
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [

@@ -12,11 +12,25 @@ extension MobileShellComposite {
     /// healthy even though the old foreground session was intentionally torn
     /// down.
     public var workspaceListConnectionStatus: MobileMacConnectionStatus {
-        let visibleStates = workspacesByMac.values.filter { !$0.workspaces.isEmpty }
-        if visibleStates.contains(where: { $0.status == .connected }) {
+        let foregroundKey: String?
+        if let id = foregroundMacDeviceID, workspacesByMac[id] != nil {
+            foregroundKey = id
+        } else if workspacesByMac[Self.foregroundAnonymousKey] != nil {
+            foregroundKey = Self.foregroundAnonymousKey
+        } else {
+            foregroundKey = nil
+        }
+        let visibleStatuses = workspacesByMac.compactMap { entry -> MobileMacConnectionStatus? in
+            guard !entry.value.workspaces.isEmpty else { return nil }
+            if entry.key == foregroundKey {
+                return macConnectionStatus
+            }
+            return entry.value.status
+        }
+        if visibleStatuses.contains(.connected) {
             return .connected
         }
-        if visibleStates.contains(where: { $0.status == .reconnecting }) {
+        if visibleStatuses.contains(.reconnecting) {
             return .reconnecting
         }
         return macConnectionStatus
