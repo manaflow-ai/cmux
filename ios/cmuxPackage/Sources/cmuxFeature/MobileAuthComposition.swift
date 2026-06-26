@@ -26,8 +26,9 @@ public struct MobileAuthComposition {
     public let config: AuthConfig
     /// Recognizes/parses native auth callback URLs delivered back from Safari.
     public let callbackRouter: AuthCallbackRouter
-    /// Handles native browser callback token seeding and coordinator publishing.
-    public let browserSignIn: HostBrowserSignInFlow
+    /// iOS does not use desktop-style browser token seeding; callbacks are
+    /// routed only to surface safe mobile magic-link guidance.
+    public let browserSignIn: HostBrowserSignInFlow?
 
     /// A reachability monitor used to fail sign-in flows fast when offline.
     private let reachability: any ReachabilityProviding
@@ -115,25 +116,10 @@ public struct MobileAuthComposition {
         )
         let callbackRouter = AuthCallbackRouter(extraAllowedScheme: authCallbackScheme)
         self.callbackRouter = callbackRouter
-        let browserSignIn = HostBrowserSignInFlow(
-            coordinator: coordinator,
-            tokenStore: tokenStore,
-            sessionFactory: ASWebBrowserAuthSessionFactory(anchor: anchor),
-            callbackRouter: callbackRouter,
-            makeSignInURL: { callbackState in
-                Self.nativeSignInURL(
-                    websiteOrigin: resolvedConfig.apiBaseURL,
-                    callbackScheme: authCallbackScheme,
-                    callbackState: callbackState
-                )
-            },
-            callbackScheme: { authCallbackScheme },
-            allowsStatelessExternalCallbacks: false
-        )
-        self.browserSignIn = browserSignIn
+        self.browserSignIn = nil
         magicLinkCallbackURLProvider.set {
             guard canUseNativeMagicLinkCallback else { return nil }
-            Self.nativeMagicLinkCallbackURL(
+            return Self.nativeMagicLinkCallbackURL(
                 websiteOrigin: resolvedConfig.apiBaseURL,
                 callbackScheme: authCallbackScheme,
                 callbackState: Self.makeCallbackState()
@@ -212,37 +198,11 @@ public struct MobileAuthComposition {
         return resolvedScheme
     }
 
-    static func nativeSignInURL(
-        websiteOrigin: String,
-        callbackScheme: String,
-        callbackState: String
-    ) -> URL {
-        let afterSignIn = nativeAfterSignInURL(
-            websiteOrigin: websiteOrigin,
-            callbackScheme: callbackScheme,
-            callbackState: callbackState
-        )
-
-        let origin = URL(string: websiteOrigin) ?? URL(string: "https://cmux.com")!
-        let nativeSignIn = origin.appendingPathComponent("handler/native-sign-in", isDirectory: false)
-        var nativeComponents = URLComponents(url: nativeSignIn, resolvingAgainstBaseURL: false)!
-        nativeComponents.queryItems = [
-            URLQueryItem(name: "after_auth_return_to", value: afterSignIn.absoluteString),
-        ]
-        return nativeComponents.url!
-    }
-
     static func nativeMagicLinkCallbackURL(
         websiteOrigin: String,
         callbackScheme: String,
         callbackState: String
     ) -> URL {
-        let afterSignIn = nativeAfterSignInURL(
-            websiteOrigin: websiteOrigin,
-            callbackScheme: callbackScheme,
-            callbackState: callbackState
-        )
-
         let origin = URL(string: websiteOrigin) ?? URL(string: "https://cmux.com")!
         let magicLink = origin.appendingPathComponent("handler/mobile-magic-link-callback", isDirectory: false)
         var magicComponents = URLComponents(url: magicLink, resolvingAgainstBaseURL: false)!
@@ -250,24 +210,6 @@ public struct MobileAuthComposition {
             URLQueryItem(name: "native_app_return_to", value: "\(callbackScheme)://auth-callback?cmux_auth_state=\(callbackState)"),
         ]
         return magicComponents.url!
-    }
-
-    private static func nativeAfterSignInURL(
-        websiteOrigin: String,
-        callbackScheme: String,
-        callbackState: String
-    ) -> URL {
-        let origin = URL(string: websiteOrigin) ?? URL(string: "https://cmux.com")!
-        let afterSignIn = origin.appendingPathComponent("handler/after-sign-in", isDirectory: false)
-        var afterComponents = URLComponents(url: afterSignIn, resolvingAgainstBaseURL: false)!
-        afterComponents.queryItems = [
-            URLQueryItem(
-                name: "native_app_return_to",
-                value: "\(callbackScheme)://auth-callback?cmux_auth_state=\(callbackState)"
-            ),
-            URLQueryItem(name: "cmux_native_platform", value: "mobile"),
-        ]
-        return afterComponents.url!
     }
 
     private static func makeCallbackState() -> String {

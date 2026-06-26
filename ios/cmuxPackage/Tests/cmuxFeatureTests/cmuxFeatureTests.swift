@@ -91,7 +91,7 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
-@Test func mobileAuthCallbackSchemeAndNativeSignInURLAreChannelAware() throws {
+@Test func mobileAuthCallbackSchemeAndMagicLinkURLAreChannelAware() throws {
     #expect(MobileAuthComposition.authCallbackScheme(
         bundle: .main,
         authEnvironment: .production,
@@ -103,21 +103,6 @@ final class TerminalOutputCollector {
         overrides: [:]
     ) == "cmux-ios-dev")
 
-    let url = MobileAuthComposition.nativeSignInURL(
-        websiteOrigin: "https://cmux.com",
-        callbackScheme: "cmux-ios-beta",
-        callbackState: "state-123"
-    )
-    let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
-    #expect(components.path == "/handler/native-sign-in")
-    let afterAuth = try #require(components.queryItems?.first(where: { $0.name == "after_auth_return_to" })?.value)
-    let afterAuthURL = try #require(URL(string: afterAuth))
-    let afterComponents = try #require(URLComponents(url: afterAuthURL, resolvingAgainstBaseURL: false))
-    #expect(afterComponents.path == "/handler/after-sign-in")
-    let nativeReturn = try #require(afterComponents.queryItems?.first(where: { $0.name == "native_app_return_to" })?.value)
-    #expect(nativeReturn == "cmux-ios-beta://auth-callback?cmux_auth_state=state-123")
-    #expect(afterComponents.queryItems?.first(where: { $0.name == "cmux_native_platform" })?.value == "mobile")
-
     let magicURL = MobileAuthComposition.nativeMagicLinkCallbackURL(
         websiteOrigin: "https://cmux.com",
         callbackScheme: "cmux-ios-beta",
@@ -125,7 +110,10 @@ final class TerminalOutputCollector {
     )
     let magicComponents = try #require(URLComponents(url: magicURL, resolvingAgainstBaseURL: false))
     #expect(magicComponents.path == "/handler/mobile-magic-link-callback")
-    #expect(magicComponents.queryItems?.first(where: { $0.name == "native_app_return_to" })?.value == nativeReturn)
+    #expect(
+        magicComponents.queryItems?.first(where: { $0.name == "native_app_return_to" })?.value
+            == "cmux-ios-beta://auth-callback?cmux_auth_state=state-123"
+    )
 }
 
 #if DEBUG

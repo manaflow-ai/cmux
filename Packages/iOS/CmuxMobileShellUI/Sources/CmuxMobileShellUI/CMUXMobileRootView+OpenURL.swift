@@ -1,4 +1,5 @@
 import CmuxAuthRuntime
+import CmuxMobileSupport
 import Foundation
 
 extension CMUXMobileRootView {

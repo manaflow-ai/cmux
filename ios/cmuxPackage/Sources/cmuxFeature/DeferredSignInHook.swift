@@ -1,3 +1,5 @@
+import Foundation
+
 /// A settable post-sign-in hook used to break the auth-coordinator <-> push
 /// construction cycle.
 ///
