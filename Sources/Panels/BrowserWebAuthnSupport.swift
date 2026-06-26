@@ -349,7 +349,7 @@ private extension BrowserWebAuthnCoordinator {
         )
         #endif
         let clientDataContext = try BrowserWebAuthnClientDataContext.resolve(for: message)
-        guard let plan = try buildCreationPlan(request, clientDataContext: clientDataContext) else {
+        guard let plan = try request.nativeRequestPlan(clientDataContext: clientDataContext) else {
             #if DEBUG
             cmuxDebugLog("webauthn.handleCreate no plan — returning fallback")
             #endif
@@ -382,7 +382,7 @@ private extension BrowserWebAuthnCoordinator {
         )
         #endif
         let clientDataContext = try BrowserWebAuthnClientDataContext.resolve(for: message)
-        guard let plan = try buildAssertionPlan(request, clientDataContext: clientDataContext) else {
+        guard let plan = try request.nativeRequestPlan(clientDataContext: clientDataContext) else {
             #if DEBUG
             cmuxDebugLog("webauthn.handleGet no plan — returning fallback")
             #endif
@@ -520,199 +520,6 @@ private extension BrowserWebAuthnCoordinator {
         case .failure(let error):
             continuation?.resume(throwing: error)
         }
-    }
-
-    func buildCreationPlan(
-        _ request: BrowserWebAuthnCreationRequest,
-        clientDataContext: BrowserWebAuthnClientDataContext
-    ) throws -> BrowserWebAuthnNativeRequestPlan? {
-        guard let userName = request.publicKey.user.name, !userName.isEmpty else {
-            throw BrowserWebAuthnBridgeError.type("Malformed browser passkey request.")
-        }
-
-        let relyingPartyIdentifier = try clientDataContext.resolveRelyingPartyIdentifier(
-            request.publicKey.rp?.id
-        )
-        let clientData = try clientDataContext.clientData(challenge: request.publicKey.challenge.data)
-        let selection = request.publicKey.authenticatorSelection
-        let attachment = selection?.attachment
-        let requestedAlgorithms = request.publicKey.requestedAlgorithms
-
-        guard !requestedAlgorithms.isEmpty else {
-            throw BrowserWebAuthnBridgeError.type("Malformed browser passkey request.")
-        }
-
-        var platformRequests: [ASAuthorizationRequest] = []
-        if #available(macOS 13.5, *),
-           requestedAlgorithms.contains(-7) {
-            let provider = ASAuthorizationPlatformPublicKeyCredentialProvider(
-                relyingPartyIdentifier: relyingPartyIdentifier
-            )
-            let platformRequest = provider.createCredentialRegistrationRequest(
-                clientData: clientData,
-                name: userName,
-                userID: request.publicKey.user.id.data
-            )
-            platformRequest.displayName = request.publicKey.user.displayName ?? userName
-            platformRequest.userVerificationPreference = .init(
-                rawValue: selection?.userVerificationPreference ?? "preferred"
-            )
-            platformRequest.attestationPreference = .init(
-                rawValue: request.publicKey.normalizedAttestationPreference
-            )
-            let excludedCredentials = (request.publicKey.excludeCredentials ?? [])
-                .compactMap { $0.platformDescriptor() }
-            if !excludedCredentials.isEmpty {
-                platformRequest.excludedCredentials = excludedCredentials
-            }
-            platformRequest.shouldShowHybridTransport = attachment != "platform"
-            platformRequests.append(platformRequest)
-        }
-
-        var securityKeyRequests: [ASAuthorizationRequest] = []
-        if attachment != "platform",
-           #available(macOS 14.4, *) {
-            let provider = ASAuthorizationSecurityKeyPublicKeyCredentialProvider(
-                relyingPartyIdentifier: relyingPartyIdentifier
-            )
-            let securityKeyRequest = provider.createCredentialRegistrationRequest(
-                clientData: clientData,
-                displayName: request.publicKey.user.displayName ?? userName,
-                name: userName,
-                userID: request.publicKey.user.id.data
-            )
-
-            securityKeyRequest.credentialParameters = request.publicKey.pubKeyCredParams
-                .compactMap { $0.securityKeyCredentialParameter() }
-            if securityKeyRequest.credentialParameters.isEmpty {
-                throw BrowserWebAuthnBridgeError.type("Malformed browser passkey request.")
-            }
-
-            securityKeyRequest.userVerificationPreference = .init(
-                rawValue: selection?.userVerificationPreference ?? "preferred"
-            )
-            securityKeyRequest.residentKeyPreference = .init(
-                rawValue: selection?.residentKeyPreference ?? "discouraged"
-            )
-            securityKeyRequest.attestationPreference = .init(
-                rawValue: request.publicKey.normalizedAttestationPreference
-            )
-            let excludedCredentials = (request.publicKey.excludeCredentials ?? [])
-                .compactMap { $0.securityKeyDescriptor() }
-            if !excludedCredentials.isEmpty {
-                securityKeyRequest.excludedCredentials = excludedCredentials
-            }
-            securityKeyRequests.append(securityKeyRequest)
-        }
-
-        guard !platformRequests.isEmpty || !securityKeyRequests.isEmpty else {
-            #if DEBUG
-            cmuxDebugLog("webauthn.buildCreationPlan no requests built — returning nil")
-            #endif
-            return nil
-        }
-
-        #if DEBUG
-        cmuxDebugLog("webauthn.buildCreationPlan rp=\(relyingPartyIdentifier) platform=\(platformRequests.count) securityKey=\(securityKeyRequests.count) attachment=\(attachment ?? "(nil)")")
-        #endif
-        return .init(
-            platformRequests: platformRequests,
-            securityKeyRequests: securityKeyRequests,
-            order: attachment == "cross-platform" ? .securityKeyFirst : .platformFirst,
-            needsBluetoothForPlatformRequests: attachment != "platform",
-            needsBluetoothForSecurityKeyRequests: false,
-            prefersImmediatelyAvailableCredentials: false
-        )
-    }
-
-    func buildAssertionPlan(
-        _ request: BrowserWebAuthnAssertionRequest,
-        clientDataContext: BrowserWebAuthnClientDataContext
-    ) throws -> BrowserWebAuthnNativeRequestPlan? {
-        let relyingPartyIdentifier = try clientDataContext.resolveRelyingPartyIdentifier(
-            request.publicKey.rpId
-        )
-        let clientData = try clientDataContext.clientData(challenge: request.publicKey.challenge.data)
-        let allowCredentials = (request.publicKey.allowCredentials ?? []).filter(\.isPublicKeyCredential)
-        let transportSummary = BrowserWebAuthnTransportSummary(descriptors: allowCredentials)
-        let userVerificationPreference = request.publicKey.normalizedUserVerificationPreference
-
-        let includePlatformRequests =
-            allowCredentials.isEmpty || transportSummary.allowsPlatformCredentials
-        let includeSecurityKeyRequests =
-            allowCredentials.isEmpty || transportSummary.allowsSecurityKeyCredentials
-
-        var platformRequests: [ASAuthorizationRequest] = []
-        if includePlatformRequests,
-           #available(macOS 13.5, *) {
-            let provider = ASAuthorizationPlatformPublicKeyCredentialProvider(
-                relyingPartyIdentifier: relyingPartyIdentifier
-            )
-            let platformRequest = provider.createCredentialAssertionRequest(clientData: clientData)
-            platformRequest.userVerificationPreference = .init(rawValue: userVerificationPreference)
-
-            let allowedCredentials = allowCredentials.compactMap { descriptor -> ASAuthorizationPlatformPublicKeyCredentialDescriptor? in
-                if descriptor.normalizedTransports.isEmpty {
-                    return descriptor.platformDescriptor()
-                }
-
-                let transports = Set(descriptor.normalizedTransports)
-                guard transports.contains(.internal) || transports.contains(.hybrid) else {
-                    return nil
-                }
-                return descriptor.platformDescriptor()
-            }
-            if !allowedCredentials.isEmpty {
-                platformRequest.allowedCredentials = allowedCredentials
-            }
-            platformRequest.shouldShowHybridTransport =
-                allowCredentials.isEmpty ? true : transportSummary.shouldShowHybridTransport
-            platformRequests.append(platformRequest)
-        }
-
-        var securityKeyRequests: [ASAuthorizationRequest] = []
-        if includeSecurityKeyRequests,
-           #available(macOS 14.4, *) {
-            let provider = ASAuthorizationSecurityKeyPublicKeyCredentialProvider(
-                relyingPartyIdentifier: relyingPartyIdentifier
-            )
-            let securityKeyRequest = provider.createCredentialAssertionRequest(clientData: clientData)
-            securityKeyRequest.userVerificationPreference = .init(rawValue: userVerificationPreference)
-            let allowedCredentials = allowCredentials.compactMap { $0.securityKeyDescriptor() }
-            if !allowedCredentials.isEmpty {
-                securityKeyRequest.allowedCredentials = allowedCredentials
-            }
-            if #available(macOS 14.5, *),
-               let appID = request.publicKey.extensions?.appid,
-               !appID.isEmpty {
-                securityKeyRequest.appID = appID
-            }
-            securityKeyRequests.append(securityKeyRequest)
-        }
-
-        guard !platformRequests.isEmpty || !securityKeyRequests.isEmpty else {
-            #if DEBUG
-            cmuxDebugLog("webauthn.buildAssertionPlan no requests built — returning nil")
-            #endif
-            return nil
-        }
-
-        let order: BrowserWebAuthnRequestOrder =
-            transportSummary.prefersSecurityKeysFirst ? .securityKeyFirst : .platformFirst
-        let needsBluetoothForPlatformRequests =
-            allowCredentials.isEmpty ? true : transportSummary.shouldShowHybridTransport
-
-        #if DEBUG
-        cmuxDebugLog("webauthn.buildAssertionPlan rp=\(relyingPartyIdentifier) platform=\(platformRequests.count) securityKey=\(securityKeyRequests.count) allowCredentials=\(allowCredentials.count) mediation=\(request.mediation ?? "(nil)") hybridTransport=\(transportSummary.shouldShowHybridTransport)")
-        #endif
-        return .init(
-            platformRequests: platformRequests,
-            securityKeyRequests: securityKeyRequests,
-            order: order,
-            needsBluetoothForPlatformRequests: needsBluetoothForPlatformRequests,
-            needsBluetoothForSecurityKeyRequests: transportSummary.containsBluetooth,
-            prefersImmediatelyAvailableCredentials: request.mediation == "conditional"
-        )
     }
 
     func successCredentialReply(from credential: ASAuthorizationCredential) throws -> [String: Any] {

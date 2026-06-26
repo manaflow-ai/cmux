@@ -1167,22 +1167,6 @@ class GhosttyApp {
         Self.configLoader.loadCJKFontFallbackIfNeeded(config)
     }
 
-    static func shouldReloadConfigurationForAppearanceChange(
-        previousColorScheme: GhosttyConfig.ColorSchemePreference?,
-        currentColorScheme: GhosttyConfig.ColorSchemePreference
-    ) -> Bool {
-        GhosttyConfig.shouldReloadConfigurationForAppearanceChange(
-            previousColorScheme: previousColorScheme,
-            currentColorScheme: currentColorScheme
-        )
-    }
-
-    static func ghosttyRuntimeColorScheme(
-        for colorScheme: GhosttyConfig.ColorSchemePreference
-    ) -> ghostty_color_scheme_e {
-        GhosttyConfig.ghosttyRuntimeColorScheme(for: colorScheme)
-    }
-
     static func terminalRuntimeColorSchemePreference(
         forBackgroundColor backgroundColor: NSColor
     ) -> GhosttyConfig.ColorSchemePreference {
@@ -1399,7 +1383,7 @@ class GhosttyApp {
         source: String
     ) {
         synchronizeGhosttyRuntimeColorScheme(
-            Self.ghosttyRuntimeColorScheme(for: colorScheme),
+            GhosttyConfig.ghosttyRuntimeColorScheme(for: colorScheme),
             colorScheme: colorScheme,
             source: source
         )
@@ -3205,7 +3189,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let bestMatch = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
         let preferredColorScheme = preferredColorScheme
             ?? GhosttyApp.shared.effectiveTerminalColorSchemePreference
-        let scheme = GhosttyApp.ghosttyRuntimeColorScheme(for: preferredColorScheme)
+        let scheme = GhosttyConfig.ghosttyRuntimeColorScheme(for: preferredColorScheme)
         if !force, appliedColorScheme == scheme {
             if GhosttyApp.shared.backgroundLogEnabled {
                 let schemeLabel = scheme == GHOSTTY_COLOR_SCHEME_DARK ? "dark" : "light"

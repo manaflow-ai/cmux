@@ -54,51 +54,6 @@ private enum WorkspaceTitlebarInteractionMetrics {
     static let minimalModeTopStripHeight: CGFloat = MinimalModeChromeMetrics.titlebarHeight
 }
 
-@MainActor
-final class TmuxWorkspacePaneOverlayModel: ObservableObject {
-    @Published private(set) var unreadRects: [CGRect] = []
-    @Published private(set) var flashRect: CGRect?
-    @Published private(set) var flashStartedAt: Date?
-    @Published private(set) var flashReason: WorkspaceAttentionFlashReason?
-
-    private var currentWorkspaceId: UUID?
-    private var lastFlashTokenByWorkspaceId: [UUID: UInt64] = [:]
-
-    func apply(
-        _ state: TmuxWorkspacePaneOverlayRenderState,
-        now: () -> Date = Date.init
-    ) {
-        unreadRects = state.unreadRects
-        flashRect = state.flashRect
-        flashReason = state.flashReason
-
-        let didChangeWorkspace = currentWorkspaceId != state.workspaceId
-        let previousFlashToken = lastFlashTokenByWorkspaceId[state.workspaceId]
-        let didChangeFlashToken = previousFlashToken.map { state.flashToken != $0 } ?? (state.flashToken > 0)
-        if didChangeFlashToken,
-           state.flashRect != nil {
-            flashStartedAt = now()
-        } else if didChangeWorkspace {
-            flashStartedAt = nil
-        }
-        currentWorkspaceId = state.workspaceId
-        if (previousFlashToken == nil && state.flashToken == 0) ||
-            !didChangeFlashToken ||
-            state.flashRect != nil {
-            lastFlashTokenByWorkspaceId[state.workspaceId] = state.flashToken
-        }
-    }
-
-    func clear() {
-        unreadRects = []
-        flashRect = nil
-        flashStartedAt = nil
-        flashReason = nil
-        currentWorkspaceId = nil
-        lastFlashTokenByWorkspaceId = [:]
-    }
-}
-
 /// View that renders a Workspace's content using BonsplitView
 struct WorkspaceContentView: View {
     private struct DeferredThemeRefresh {

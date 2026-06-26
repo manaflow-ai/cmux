@@ -5,83 +5,6 @@ import Bonsplit
 import Observation
 import SwiftUI
 
-struct DockControlDefinition: Codable, Equatable, Identifiable {
-    let id: String
-    let title: String
-    let command: String
-    let cwd: String?
-    let height: Double?
-    let env: [String: String]
-
-    init(
-        id: String,
-        title: String,
-        command: String,
-        cwd: String? = nil,
-        height: Double? = nil,
-        env: [String: String] = [:]
-    ) {
-        self.id = id
-        self.title = title
-        self.command = command
-        self.cwd = cwd
-        self.height = height
-        self.env = env
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case id
-        case title
-        case command
-        case cwd
-        case height
-        case env
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let rawID = try container.decode(String.self, forKey: .id)
-        let rawTitle = try container.decodeIfPresent(String.self, forKey: .title) ?? rawID
-        let rawCommand = try container.decode(String.self, forKey: .command)
-        let normalizedID = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedTitle = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedCommand = rawCommand.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedID.isEmpty else {
-            throw DecodingError.dataCorruptedError(
-                forKey: .id,
-                in: container,
-                debugDescription: String(localized: "dock.error.blankControlID", defaultValue: "Dock control id must not be blank.")
-            )
-        }
-        guard !normalizedCommand.isEmpty else {
-            throw DecodingError.dataCorruptedError(
-                forKey: .command,
-                in: container,
-                debugDescription: String(localized: "dock.error.blankControlCommand", defaultValue: "Dock control command must not be blank.")
-            )
-        }
-        id = normalizedID
-        title = normalizedTitle.isEmpty ? normalizedID : normalizedTitle
-        command = normalizedCommand
-        cwd = try container.decodeIfPresent(String.self, forKey: .cwd)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        height = try container.decodeIfPresent(Double.self, forKey: .height)
-        env = try container.decodeIfPresent([String: String].self, forKey: .env) ?? [:]
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(id, forKey: .id)
-        try container.encode(title, forKey: .title)
-        try container.encode(command, forKey: .command)
-        try container.encodeIfPresent(cwd, forKey: .cwd)
-        try container.encodeIfPresent(height, forKey: .height)
-        if !env.isEmpty {
-            try container.encode(env, forKey: .env)
-        }
-    }
-}
-
 private struct DockConfigFile: Codable {
     let controls: [DockControlDefinition]
 }
@@ -387,7 +310,12 @@ final class DockControlsStore {
         isProjectSource: Bool
     ) throws -> DockConfigResolution {
         let data = try Data(contentsOf: url)
-        let file = try JSONDecoder().decode(DockConfigFile.self, from: data)
+        let decoder = JSONDecoder()
+        decoder.userInfo[.dockControlDecodingStrings] = DockControlDecodingStrings(
+            blankControlID: String(localized: "dock.error.blankControlID", defaultValue: "Dock control id must not be blank."),
+            blankControlCommand: String(localized: "dock.error.blankControlCommand", defaultValue: "Dock control command must not be blank.")
+        )
+        let file = try decoder.decode(DockConfigFile.self, from: data)
         var seen = Set<String>()
         for control in file.controls {
             guard seen.insert(control.id).inserted else {

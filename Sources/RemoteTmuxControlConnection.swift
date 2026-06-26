@@ -123,31 +123,12 @@ final class RemoteTmuxControlConnection {
     /// attempt's process exits to tell "session genuinely gone" from "host still
     /// unreachable". Reset at the start of each spawn.
     private var stderrBuffer = ""
-    /// Last client size applied via ``setClientSize(columns:rows:)``, re-applied
-    /// after a reconnect so the resumed session keeps the mirror's grid instead of
-    /// reverting to ssh's default 80×24.
-    private var lastClientSize: (columns: Int, rows: Int)?
+    /// Client-size + attach-redraw-kick (SIGWINCH) sub-model. Owns the debounced
+    /// `refresh-client -C` send (coalescing SwiftUI layout-settle oscillation into one
+    /// send) and the one-shot attach redraw kick. This connection drives it through
+    /// the ``RemoteTmuxClientSizeHost`` conformance below and attaches itself in `init`.
+    private let clientSize = RemoteTmuxClientSizeController()
     private var pendingPostAttachAction: PostAttachAction?
-
-    /// Trailing-edge debounce for `refresh-client -C`. SwiftUI layout settle makes the
-    /// rendered grid oscillate (e.g. cols 154→155→156→161→…, ~15 distinct grids in
-    /// ~1.3s), and each previously sent its own `refresh-client -C` → ~15 SIGWINCH /
-    /// redraw storms on the remote per attach. We now coalesce them: ``setClientSize``
-    /// stores the size immediately but defers the send to one shot after the size
-    /// stops changing. The fired timer is also the clean "size settled" edge that
-    /// consumes the one-shot attach redraw kick below.
-    private var clientSizeDebounceTask: Task<Void, Never>?
-    private static let clientSizeDebounceMs = 180
-
-    /// Armed on every transition to `.connected` (first connect AND reconnect) and
-    /// consumed by the first size apply that follows; see
-    /// ``scheduleAttachRedrawKickIfNeeded()`` for why attach needs a redraw kick.
-    private var pendingAttachRedrawKick = false
-    private var attachRedrawKickTask: Task<Void, Never>?
-    /// Gap between the kick's shrink push and its restore push. Must exceed tmux's
-    /// pane-resize coalescing (~250 ms), otherwise the two pushes collapse into a
-    /// net-zero size change and no SIGWINCH is ever delivered.
-    private static let attachRedrawKickGapMs = 350
 
     /// Base reconnect backoff (seconds); doubled each attempt up to ``reconnectMaxDelaySeconds``.
     private static let reconnectBaseDelaySeconds: Double = 1
@@ -190,6 +171,7 @@ final class RemoteTmuxControlConnection {
         self.host = host
         self.sessionName = sessionName
         self.createIfMissing = createIfMissing
+        clientSize.attach(host: self)
     }
 
     // MARK: - Observers
@@ -453,106 +435,7 @@ final class RemoteTmuxControlConnection {
     /// through (the single-pane display surface and the multi-pane window mirror),
     /// so client sizing stays one shared behavior rather than duplicated sends.
     func setClientSize(columns: Int, rows: Int) {
-        guard columns > 0, rows > 0 else { return }
-        // Remember the grid so a reconnect can re-apply it (a fresh ssh client
-        // otherwise reverts to 80×24 and mangles TUIs). Only send now when actually
-        // connected — while reconnecting/ended there is no live stdin (the send would
-        // silently drop); `reseedAfterReconnect` re-applies the stored size.
-        lastClientSize = (columns, rows)
-        guard connectionState == .connected else { return }
-        // Coalesce the layout-settle oscillation into a single send: (re)arm a short
-        // trailing timer; only the last size in a burst actually goes out. The fired
-        // timer is also the "settled" edge that consumes the attach redraw kick.
-        clientSizeDebounceTask?.cancel()
-        clientSizeDebounceTask = Task { @MainActor [weak self] in
-            do {
-                try await ContinuousClock().sleep(for: .milliseconds(Self.clientSizeDebounceMs))
-            } catch {
-                return
-            }
-            guard let self, self.connectionState == .connected, let size = self.lastClientSize else { return }
-            self.send("refresh-client -C \(size.columns)x\(size.rows)")
-            // This send already applied the stored grid — the deferred first-connect
-            // apply would only duplicate it (a deferred reconnect re-seed must stay).
-            if self.pendingPostAttachAction == .applyClientSize {
-                self.pendingPostAttachAction = nil
-            }
-            // Do NOT re-capture here. A re-capture would run capture-pane before the
-            // remote app (claude) finishes its post-SIGWINCH redraw, snapshotting the
-            // stale pre-resize frame and clobbering the correct redraw — the exact
-            // narrow/overlap/duplicate mangle. A manual resize is clean precisely
-            // because it issues no capture: it lets refresh-client -C → SIGWINCH →
-            // the app's own redraw stream back and paint. Attach does the same.
-            self.scheduleAttachRedrawKickIfNeeded()
-        }
-    }
-
-    /// One-shot, attach-only: force a real SIGWINCH when the attach size push was a
-    /// no-op, so a running TUI re-renders the current frame at the current width.
-    ///
-    /// Why this exists: tmux's grid stores an app's output as it was RENDERED — rows
-    /// drawn at an earlier window width, or an inline TUI's streaming churn, stay in
-    /// the visible frame verbatim. tmux has no "redraw" command for a control (-CC)
-    /// client (`%output` is an append-only pty copy; tmux never re-streams grid
-    /// cells), and `capture-pane` re-reads the same stale cells, so the ONLY way to
-    /// get a clean current-width frame is the app's own repaint — which apps do on
-    /// SIGWINCH. A real-terminal attach virtually always delivers that SIGWINCH
-    /// because its size differs from the detached window's size. The mirror's attach
-    /// usually does NOT: the window still has the size cmux itself left behind, so
-    /// `refresh-client -C` matches it exactly, no pane resize happens, and the stale
-    /// frame stays until the user manually resizes. This kick closes that one gap by
-    /// sending the same signal a real attach sends: a genuine size change (rows-1),
-    /// then the true size after tmux's resize-coalescing window has passed.
-    ///
-    /// Ordering is safe vs the seed: the kick is scheduled after the capture-pane
-    /// commands, and the tmux server processes commands FIFO, so the app's redraw
-    /// `%output` always lands after (on top of) the seed paint. Skipped entirely when
-    /// the attach push itself changed the window size (that already SIGWINCHes), and
-    /// invisible for plain-shell panes (nothing re-renders, nothing is streamed).
-    private func scheduleAttachRedrawKickIfNeeded() {
-        guard pendingAttachRedrawKick else { return }
-        // Not ready yet (no grid computed / topology not drained): keep the one-shot
-        // armed for the next size apply instead of consuming it uselessly.
-        guard connectionState == .connected, let size = lastClientSize, !windowsByID.isEmpty else { return }
-        pendingAttachRedrawKick = false
-        guard size.rows > 2 else { return }
-        // Only kick when some mirrored window ALREADY has the target size — i.e. the
-        // size apply above cannot produce a SIGWINCH for it. (window-size latest makes
-        // every window track the client, so one client-level kick redraws them all.)
-        let windowAlreadyAtTarget = windowsByID.values.contains {
-            $0.width == size.columns && $0.height == size.rows
-        }
-        guard windowAlreadyAtTarget else {
-            #if DEBUG
-            cmuxDebugLog("remote.size.kick skip=windowSizeDiffers target=\(size.columns)x\(size.rows)")
-            #endif
-            return
-        }
-        #if DEBUG
-        cmuxDebugLog("remote.size.kick shrink to \(size.columns)x\(size.rows - 1)")
-        #endif
-        attachRedrawKickTask?.cancel()
-        attachRedrawKickTask = Task { @MainActor [weak self] in
-            guard let self, self.connectionState == .connected else { return }
-            // Bail if the user resized since the kick was scheduled: that resize is a
-            // real size change, so it already delivered the SIGWINCH this kick exists
-            // to force — and a shrink at the captured (now stale) size would flash
-            // wrong dimensions at the remote apps.
-            guard let current = self.lastClientSize, current == size else { return }
-            self.send("refresh-client -C \(size.columns)x\(size.rows - 1)")
-            do {
-                try await ContinuousClock().sleep(for: .milliseconds(Self.attachRedrawKickGapMs))
-            } catch {
-                return
-            }
-            guard self.connectionState == .connected else { return }
-            // Restore the CURRENT size (the user may have resized during the gap).
-            let restore = self.lastClientSize ?? size
-            #if DEBUG
-            cmuxDebugLog("remote.size.kick restore to \(restore.columns)x\(restore.rows)")
-            #endif
-            self.send("refresh-client -C \(restore.columns)x\(restore.rows)")
-        }
+        clientSize.setClientSize(columns: columns, rows: rows)
     }
 
     /// Requests the current window list + layouts (used to (re)build topology).
@@ -835,11 +718,7 @@ final class RemoteTmuxControlConnection {
         failPendingActivityQueries()
         reconnectTask?.cancel()
         reconnectTask = nil
-        clientSizeDebounceTask?.cancel()
-        clientSizeDebounceTask = nil
-        attachRedrawKickTask?.cancel()
-        attachRedrawKickTask = nil
-        pendingAttachRedrawKick = false
+        clientSize.reset()
         pendingPostAttachAction = nil
     }
 
@@ -1009,14 +888,14 @@ final class RemoteTmuxControlConnection {
     /// post-reconnect `list-windows` result, so `windowsByID` is freshly repopulated
     /// and the command-result FIFO is aligned (the attach block is already drained).
     private func reseedAfterReconnect() {
-        if let size = lastClientSize {
+        if let size = clientSize.lastClientSize {
             send("refresh-client -C \(size.columns)x\(size.rows)")
         }
         // The re-applied size is usually a no-op (the server kept the window at our
         // size across the transport drop), so TUIs get no SIGWINCH — kick them so
         // they repaint over the re-seeded (possibly stale) frame. FIFO-safe: the
         // captures below are queued before the kick task's first push can run.
-        scheduleAttachRedrawKickIfNeeded()
+        clientSize.scheduleAttachRedrawKickIfNeeded()
         for window in windowsByID.values {
             for paneId in window.paneIDsInOrder {
                 observers.emitPaneOutput(paneId, Data("\u{1b}[H\u{1b}[2J\u{1b}[3J".utf8))
@@ -1039,7 +918,7 @@ final class RemoteTmuxControlConnection {
                 // and would keep showing its stale pre-attach frame. Consumed by the
                 // first size apply (debounced send, reconnect re-seed, or the
                 // first-connect list-windows result).
-                pendingAttachRedrawKick = true
+                clientSize.armAttachRedrawKick()
                 reconnectAttemptCount = 0
                 reconnectTask?.cancel()
                 reconnectTask = nil
@@ -1208,7 +1087,7 @@ final class RemoteTmuxControlConnection {
                 case .applyClientSize:
                     // A surface that hasn't computed a grid yet is covered by the
                     // debounced `setClientSize` instead.
-                    if let size = lastClientSize {
+                    if let size = clientSize.lastClientSize {
                         send("refresh-client -C \(size.columns)x\(size.rows)")
                     }
                 case nil:
@@ -1224,7 +1103,7 @@ final class RemoteTmuxControlConnection {
                 // just queued above, so the at-target check sees the true pre-apply
                 // geometry. No-op when the kick was already consumed (or when
                 // reseedAfterReconnect just ran it).
-                scheduleAttachRedrawKickIfNeeded()
+                clientSize.scheduleAttachRedrawKickIfNeeded()
             }
         case let .capturePane(paneId):
             // capture-pane -e -S output is the pane's history + visible rows (with
@@ -1326,4 +1205,36 @@ final class RemoteTmuxControlConnection {
     var pendingCommandKindsForTesting: [RemoteTmuxControlCommandKind] { pendingCommands }
     #endif
 
+}
+
+// MARK: - RemoteTmuxClientSizeHost
+
+/// Command/state seam the ``clientSize`` sub-model drives. Keeps the window/pane
+/// geometry (`windowsByID`, the app-only ``RemoteTmuxWindow``) and the app's
+/// `cmuxDebugLog` on this side, exposing only plain `Int`/`Bool`/`String` to the
+/// package controller.
+extension RemoteTmuxControlConnection: RemoteTmuxClientSizeHost {
+    var isClientSizeConnectionConnected: Bool { connectionState == .connected }
+
+    var hasMirroredWindowTopology: Bool { !windowsByID.isEmpty }
+
+    func mirroredWindowMatchesClientSize(columns: Int, rows: Int) -> Bool {
+        windowsByID.values.contains { $0.width == columns && $0.height == rows }
+    }
+
+    func sendClientSizeCommand(_ command: String) {
+        send(command)
+    }
+
+    func clientSizeApplyDidCoverPendingPostAttachAction() {
+        if pendingPostAttachAction == .applyClientSize {
+            pendingPostAttachAction = nil
+        }
+    }
+
+    func logClientSizeEvent(_ message: @autoclosure () -> String) {
+        #if DEBUG
+        cmuxDebugLog(message())
+        #endif
+    }
 }

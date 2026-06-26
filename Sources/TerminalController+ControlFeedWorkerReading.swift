@@ -43,7 +43,7 @@ extension TerminalController {
     /// Decodes, publishes, applies side effects for, and blocking-ingests a
     /// `feed.push` event (the app-coupled core of the legacy `v2FeedPush` body,
     /// after the worker performed the wait-timeout parse and event-presence
-    /// checks). Returns the `FeedSocketEncoding.payload(for:)` dictionary bridged
+    /// checks). Returns the `IngestBlockingResult.socketEncodedDictionary` bridged
     /// to ``JSONValue``, or `.decodeFailed` so the worker builds the byte-identical
     /// decode-error message.
     nonisolated func controlFeedPushEvent(
@@ -70,11 +70,11 @@ extension TerminalController {
         CmuxEventBus.shared.publishWorkstreamEvent(
             event,
             phase: "completed",
-            result: FeedSocketEncoding.payload(for: result)
+            result: result.socketEncodedDictionary
         )
-        let payload = FeedSocketEncoding.payload(for: result)
+        let payload = result.socketEncodedDictionary
         guard case .object(let bridged)? = JSONValue(foundationObject: payload) else {
-            // Unreachable: FeedSocketEncoding.payload always returns a valid JSON
+            // Unreachable: socketEncodedDictionary always returns a valid JSON
             // object. Report the same encode-failure the legacy `v2Ok` produced
             // for an unencodable payload (an empty `.ok({})`).
             return .delivered(payload: [:])

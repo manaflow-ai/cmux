@@ -143,7 +143,9 @@ struct FeedCoordinatorTests {
             )
         )
 
-        let dict = FeedSocketEncoding.itemDict(item)
+        let dict = item.socketEncodedDictionary(
+            codexCapabilityToolInputJSON: FeedPermissionActionPolicy.codexCapabilityToolInputJSON
+        )
         let displayToolInput = try #require(dict["tool_input"] as? String)
         let capabilityToolInput = try #require(dict["tool_input_capabilities"] as? String)
 

@@ -69,12 +69,12 @@ extension FileExplorerPanelView.Coordinator {
 
     @objc private func contextMenuOpenExternally(_ sender: NSMenuItem) {
         guard let request = sender.representedObject as? FileExplorerExternalOpenRequest else { return }
-        FileExternalOpenAction.open(fileURL: request.fileURL, applicationURL: request.applicationURL)
+        FileExternalOpenAction.live.open(fileURL: request.fileURL, applicationURL: request.applicationURL)
     }
 
     @objc private func contextMenuRevealInFinder(_ sender: NSMenuItem) {
         guard let node = sender.representedObject as? FileExplorerNode else { return }
-        FileExternalOpenAction.revealInFinder(fileURL: URL(fileURLWithPath: node.path))
+        FileExternalOpenAction.live.revealInFinder(fileURL: URL(fileURLWithPath: node.path))
     }
 
     @objc private func contextMenuCopyPath(_ sender: NSMenuItem) {
@@ -167,12 +167,12 @@ extension FileExplorerContainerView {
 
     @objc private func contextMenuOpenSearchResultExternally(_ sender: NSMenuItem) {
         guard let request = sender.representedObject as? FileExplorerExternalOpenRequest else { return }
-        FileExternalOpenAction.open(fileURL: request.fileURL, applicationURL: request.applicationURL)
+        FileExternalOpenAction.live.open(fileURL: request.fileURL, applicationURL: request.applicationURL)
     }
 
     @objc private func contextMenuRevealSearchResultInFinder(_ sender: NSMenuItem) {
         guard let result = searchResult(forMenuItem: sender) else { return }
-        FileExternalOpenAction.revealInFinder(fileURL: URL(fileURLWithPath: result.path))
+        FileExternalOpenAction.live.revealInFinder(fileURL: URL(fileURLWithPath: result.path))
     }
 
     @objc private func contextMenuCopySearchResultPath(_ sender: NSMenuItem) {

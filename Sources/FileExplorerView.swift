@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Combine
+import CmuxFoundation
 import CmuxGit
 import CmuxWorkspaces
 import CmuxSettings
@@ -430,7 +431,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             if !exactRows.isEmpty {
                 withProgrammaticOutlineUpdate { outlineView.selectRowIndexes(exactRows, byExtendingSelection: false) }
                 let anchorRow = store.selectedPath.flatMap { selectionResolution(for: $0, in: outlineView)?.row }
-                if scroll, let row = FileExplorerSelectionRestoration.scrollRow(anchorRow: anchorRow, exactRows: exactRows) { outlineView.scrollRowToVisible(row) }; return
+                if scroll, let row = exactRows.scrollAnchorRow(preferring: anchorRow) { outlineView.scrollRowToVisible(row) }; return
             }
             if let selectedPath = store.selectedPath,
                let resolution = selectionResolution(for: selectedPath, in: outlineView) {

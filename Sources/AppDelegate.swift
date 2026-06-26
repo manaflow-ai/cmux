@@ -804,41 +804,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // Keep debug-only windows alive when tests intentionally inject key mismatches.
     private var debugDetachedContextWindows: [NSWindow] = []
 
-    private func childExitKeyboardProbePath() -> String? {
-        let env = ProcessInfo.processInfo.environment
-        guard env["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_SETUP"] == "1",
-              let path = env["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_PATH"],
-              !path.isEmpty else {
-            return nil
-        }
-        return path
-    }
+    /// Debug-only env-driven child-exit keyboard probe writer, owned by
+    /// ``CmuxTestSupport/ChildExitKeyboardProbeRecorder``. The shortcut-dispatch
+    /// path forwards through ``writeChildExitKeyboardProbe(_:increments:)`` and
+    /// ``childExitKeyboardProbeHex(_:)`` so the call sites stay unchanged.
+    private lazy var childExitKeyboardProbeRecorder = ChildExitKeyboardProbeRecorder()
 
     private func childExitKeyboardProbeHex(_ value: String?) -> String {
-        guard let value else { return "" }
-        return value.unicodeScalars
-            .map { String(format: "%04X", $0.value) }
-            .joined(separator: ",")
+        childExitKeyboardProbeRecorder.hex(value)
     }
 
     private func writeChildExitKeyboardProbe(_ updates: [String: String], increments: [String: Int] = [:]) {
-        guard let path = childExitKeyboardProbePath() else { return }
-        var payload: [String: String] = {
-            guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
-                return [:]
-            }
-            return object
-        }()
-        for (key, by) in increments {
-            let current = Int(payload[key] ?? "") ?? 0
-            payload[key] = String(current + by)
-        }
-        for (key, value) in updates {
-            payload[key] = value
-        }
-        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
-        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+        childExitKeyboardProbeRecorder.write(updates, increments: increments)
     }
 #endif
 
@@ -6392,7 +6369,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .environmentObject(notificationStore)
             .environmentObject(notificationStore.sidebarUnread)
             .environmentObject(sidebarState)
-            .environmentObject(sidebarSelectionState)
+            .environment(sidebarSelectionState)
             .environmentObject(fileExplorerState)
             .environmentObject(cmuxConfigStore)
             // AppKit hosts this ContentView in its own NSHostingView, which does

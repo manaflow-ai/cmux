@@ -23,8 +23,9 @@ final class RemoteTmuxController {
 
     /// Live `tmux -CC` control connections keyed by `connectionHash\u{1}session`
     /// (see ``RemoteTmuxHost/connectionKey(sessionName:)``), so repeated attach requests for
-    /// the same endpoint+session reuse the existing connection.
-    private var connectionsByHostSession: [String: RemoteTmuxControlConnection] = [:]
+    /// the same endpoint+session reuse the existing connection, owned by
+    /// ``RemoteTmuxController`` and delegated to.
+    private let connectionRegistry = RemoteTmuxControlConnectionRegistry()
 
     init() {}
 
@@ -64,13 +65,13 @@ final class RemoteTmuxController {
         createIfMissing: Bool = false
     ) throws -> RemoteTmuxControlConnection {
         let key = host.connectionKey(sessionName: sessionName)
-        if let existing = connectionsByHostSession[key] {
+        if let existing = connectionRegistry.connection(forKey: key) {
             if !existing.exited { return existing }
             // Replace a dead connection — fully tear down the old one first so
             // its ssh process, stdin fd, stream continuation and ingest task
             // don't leak.
             existing.stop()
-            connectionsByHostSession.removeValue(forKey: key)
+            connectionRegistry.removeConnection(forKey: key)
         }
         let connection = RemoteTmuxControlConnection(
             host: host,
@@ -81,7 +82,7 @@ final class RemoteTmuxController {
         // leaves a dead (never-started, `exited == false`) connection that a
         // later attach would wrongly reuse.
         try connection.start()
-        connectionsByHostSession[key] = connection
+        connectionRegistry.setConnection(connection, forKey: key)
         return connection
     }
 
@@ -120,8 +121,8 @@ final class RemoteTmuxController {
         sessionName: String
     ) {
         let key = host.connectionKey(sessionName: sessionName)
-        guard connectionsByHostSession[key] === connection else { return }
-        connectionsByHostSession.removeValue(forKey: key)
+        guard connectionRegistry.connection(forKey: key) === connection else { return }
+        connectionRegistry.removeConnection(forKey: key)
         connection.stop()
     }
 
@@ -385,7 +386,7 @@ final class RemoteTmuxController {
         let oldKey = host.connectionKey(sessionName: oldName)
         let newKey = host.connectionKey(sessionName: safeName)
         if let existing = sessionMirrors[newKey], existing !== mirror { return }
-        if let existing = connectionsByHostSession[newKey], existing !== mirror.connection { return }
+        if let existing = connectionRegistry.connection(forKey: newKey), existing !== mirror.connection { return }
 
         mirror.setSessionName(safeName)
         mirror.connection.setSessionName(safeName)
@@ -398,12 +399,7 @@ final class RemoteTmuxController {
                 sessionMirrors[newKey] = mirror
             }
 
-            if let connection = connectionsByHostSession.removeValue(forKey: oldKey) {
-                connectionsByHostSession[newKey] = connection
-            } else if let currentKey = connectionsByHostSession.first(where: { $0.value === mirror.connection })?.key {
-                connectionsByHostSession.removeValue(forKey: currentKey)
-                connectionsByHostSession[newKey] = mirror.connection
-            }
+            connectionRegistry.rekey(from: oldKey, to: newKey, matching: mirror.connection)
         }
     }
 
@@ -662,7 +658,7 @@ final class RemoteTmuxController {
         if let mirror = sessionMirrors.removeValue(forKey: key) {
             mirror.detachObserver()
         }
-        connectionsByHostSession.removeValue(forKey: key)?.stop()
+        connectionRegistry.removeConnection(forKey: key)?.stop()
         let hostHasOtherMirrors = sessionMirrors.values.contains(where: { $0.host.connectionHash == host.connectionHash })
         // The dedicated window for this host, captured before the bindings are torn
         // down. `nil` once other sessions remain — losing one of several sessions
@@ -710,8 +706,7 @@ final class RemoteTmuxController {
             // no-op, and the dedicated window may be closed programmatically (the
             // `.closeDedicatedWindow` path), so the hook can't be the one to tear the
             // master down.
-            let hostHasOtherConnections = connectionsByHostSession.values
-                .contains { $0.host.connectionHash == host.connectionHash }
+            let hostHasOtherConnections = connectionRegistry.hasConnection(forHostHash: host.connectionHash)
             if !hostHasOtherConnections {
                 transportRegistry.remove(connectionHash: host.connectionHash)
                 RemoteTmuxSSHTransport.spawnControlMasterExit(host: host)
@@ -770,7 +765,7 @@ final class RemoteTmuxController {
             affectedHosts[mirror.host.connectionHash] = mirror.host
             mirror.detachObserver()
             sessionMirrors.removeValue(forKey: key)
-            connectionsByHostSession.removeValue(forKey: key)?.stop()
+            connectionRegistry.removeConnection(forKey: key)?.stop()
         }
         // For any host left with no live mirror or connection, close its shared SSH
         // ControlMaster now — the dedicated-window/last-session paths already do this,
@@ -778,7 +773,7 @@ final class RemoteTmuxController {
         // lingers for the full ControlPersist window.
         for (hash, host) in affectedHosts {
             let stillUsed = sessionMirrors.values.contains { $0.host.connectionHash == hash }
-                || connectionsByHostSession.values.contains { $0.host.connectionHash == hash }
+                || connectionRegistry.hasConnection(forHostHash: hash)
             if !stillUsed {
                 transportRegistry.remove(connectionHash: hash)
                 RemoteTmuxSSHTransport.spawnControlMasterExit(host: host)
@@ -818,7 +813,7 @@ final class RemoteTmuxController {
                 detach(host: host, sessionName: mirror.sessionName)  // removes the connection too
                 jobs.append((transport, mirror.connection.sessionId.map { "$\($0)" } ?? mirror.sessionName))
             }
-            let stillUsed = sessionMirrors.values.contains { $0.host.connectionHash == host.connectionHash } || connectionsByHostSession.values.contains { $0.host.connectionHash == host.connectionHash }
+            let stillUsed = sessionMirrors.values.contains { $0.host.connectionHash == host.connectionHash } || connectionRegistry.hasConnection(forHostHash: host.connectionHash)
             if !stillUsed {
                 windowRegistry.unbind(hostHash: host.connectionHash)
                 transportRegistry.remove(connectionHash: host.connectionHash)
@@ -840,9 +835,9 @@ final class RemoteTmuxController {
         for (key, mirror) in mirrorsInWindow {
             mirror.detachObserver()
             sessionMirrors.removeValue(forKey: key)
-            connectionsByHostSession.removeValue(forKey: key)?.stop()
+            connectionRegistry.removeConnection(forKey: key)?.stop()
         }
-        let stillUsed = sessionMirrors.values.contains { $0.host.connectionHash == host.connectionHash } || connectionsByHostSession.values.contains { $0.host.connectionHash == host.connectionHash }
+        let stillUsed = sessionMirrors.values.contains { $0.host.connectionHash == host.connectionHash } || connectionRegistry.hasConnection(forHostHash: host.connectionHash)
         if !stillUsed {
             transportRegistry.remove(connectionHash: host.connectionHash)
             RemoteTmuxSSHTransport.spawnControlMasterExit(host: host)
@@ -888,7 +883,7 @@ final class RemoteTmuxController {
                 // ControlPath); this Task is @MainActor so check + exit is atomic.
                 let reclaimed = transportRegistry.contains(connectionHash: host.connectionHash)
                     || sessionMirrors.values.contains { $0.host.connectionHash == host.connectionHash }
-                    || connectionsByHostSession.values.contains { $0.host.connectionHash == host.connectionHash }
+                    || connectionRegistry.hasConnection(forHostHash: host.connectionHash)
                 if !reclaimed {
                     RemoteTmuxSSHTransport.spawnControlMasterExit(host: host)
                 }
@@ -898,13 +893,13 @@ final class RemoteTmuxController {
 
     /// Returns the control connection for a host+session, if attached.
     func connection(host: RemoteTmuxHost, sessionName: String) -> RemoteTmuxControlConnection? {
-        connectionsByHostSession[host.connectionKey(sessionName: sessionName)]
+        connectionRegistry.connection(forKey: host.connectionKey(sessionName: sessionName))
     }
 
     /// Detaches and forgets a control connection (leaves the remote session alive).
     func detach(host: RemoteTmuxHost, sessionName: String) {
         let key = host.connectionKey(sessionName: sessionName)
-        connectionsByHostSession.removeValue(forKey: key)?.stop()
+        connectionRegistry.removeConnection(forKey: key)?.stop()
     }
 
     /// Detaches every control connection on app quit and closes the shared SSH
@@ -912,8 +907,8 @@ final class RemoteTmuxController {
     /// CLI's `ssh -f` left them persistent). Does NOT kill any remote tmux
     /// server/session — only the local control clients and masters.
     func detachAll() {
-        let connections = Array(connectionsByHostSession.values)
-        connectionsByHostSession.removeAll()
+        let connections = connectionRegistry.allConnections()
+        connectionRegistry.removeAll()
         for connection in connections { connection.stop() }
         // Fire-and-forget `ssh -O exit` per endpoint: it hits the local control
         // socket and runs independently of cmux, so the masters are torn down even as

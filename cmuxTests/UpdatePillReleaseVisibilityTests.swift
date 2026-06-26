@@ -3,6 +3,7 @@ import Foundation
 import AppKit
 import CmuxFoundation
 import CmuxSettings
+import CmuxWindowing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

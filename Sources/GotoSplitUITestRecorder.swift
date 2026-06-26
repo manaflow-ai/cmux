@@ -637,20 +637,8 @@ final class GotoSplitUITestRecorder: UITestRecording {
         guard isRecordingEnabled() else { return }
         guard let tabManager, let workspace = tabManager.selectedWorkspace else { return }
 
-        let directionValue: String
-        switch direction {
-        case .left:
-            directionValue = "left"
-        case .right:
-            directionValue = "right"
-        case .up:
-            directionValue = "up"
-        case .down:
-            directionValue = "down"
-        }
-
         var updates = findStateSnapshot(for: workspace)
-        updates["lastMoveDirection"] = directionValue
+        updates["lastMoveDirection"] = direction.directionLabel
         writeData(updates)
     }
 
@@ -659,20 +647,8 @@ final class GotoSplitUITestRecorder: UITestRecording {
         guard isRecordingEnabled() else { return }
         guard let workspace = tabManager?.selectedWorkspace else { return }
 
-        let directionValue: String
-        switch direction {
-        case .left:
-            directionValue = "left"
-        case .right:
-            directionValue = "right"
-        case .up:
-            directionValue = "up"
-        case .down:
-            directionValue = "down"
-        }
-
         var updates = findStateSnapshot(for: workspace)
-        updates["lastSplitDirection"] = directionValue
+        updates["lastSplitDirection"] = direction.directionLabel
         updates["paneCountAfterSplit"] = String(workspace.bonsplitController.allPaneIds.count)
         writeData(updates)
     }

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 
 /// Represented-object payload for a file-explorer "Open in <app>" menu item.
 ///
