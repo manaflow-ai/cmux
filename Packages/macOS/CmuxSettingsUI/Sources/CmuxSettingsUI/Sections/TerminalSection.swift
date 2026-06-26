@@ -34,8 +34,6 @@ public struct TerminalSection: View {
     @State private var badgeOpacity: DefaultsValueModel<Double>
     @State private var badgeFontSize: DefaultsValueModel<Double>
     @State private var badgeColorHex: DefaultsValueModel<String>
-    @State private var badgeTemplateDraft: String = ""
-    @State private var badgeTemplateLoaded = false
     @State private var activeBadgeOpacityDragValue: Double?
     @State private var activeBadgeFontSizeDragValue: Double?
 
@@ -185,15 +183,14 @@ public struct TerminalSection: View {
             ) {
                 TextField(
                     TerminalBadgeConfiguration.defaultTemplate,
-                    text: $badgeTemplateDraft,
-                    onCommit: { badgeTemplate.set(badgeTemplateDraft) }
+                    text: Binding(
+                        get: { badgeTemplate.current },
+                        set: { badgeTemplate.set($0) }
+                    )
                 )
                 .textFieldStyle(.roundedBorder)
                 .disabled(!badgeEnabled.current)
                 .accessibilityIdentifier("SettingsTerminalBadgeTemplateField")
-                .onChange(of: badgeTemplate.current) { _, newValue in
-                    if badgeTemplateDraft != newValue { badgeTemplateDraft = newValue }
-                }
             }
             SettingsCardDivider()
             SettingsCardRow(
@@ -272,12 +269,6 @@ public struct TerminalSection: View {
                     .labelsHidden()
                     .disabled(!badgeEnabled.current)
                     .accessibilityIdentifier("SettingsTerminalBadgeColorPicker")
-            }
-        }
-        .task {
-            if !badgeTemplateLoaded {
-                badgeTemplateDraft = badgeTemplate.current
-                badgeTemplateLoaded = true
             }
         }
     }
