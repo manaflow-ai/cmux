@@ -270,6 +270,117 @@ struct AppDelegateMoveTabToNewWorkspaceTests {
         #expect(destinationWorkspace.focusedPanelId == movedPanelId)
     }
 
+    @Test
+    func queuedNotificationFromMovedSurfaceUsesCurrentWorkspace() throws {
+        let app = AppDelegate()
+        let previousShared = AppDelegate.shared
+        let previousControllerManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let windowId = UUID()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+        let originalNotificationStore = app.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        AppDelegate.shared = app
+        app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
+        app.notificationStore = store
+        TerminalController.shared.setActiveTabManager(manager)
+        AppFocusState.overrideIsFocused = false
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in }
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            store.resetSuppressedNotificationFeedbackHandlerForTesting()
+            app.notificationStore = originalNotificationStore
+            TerminalController.shared.setActiveTabManager(previousControllerManager)
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            AppDelegate.shared = previousShared
+        }
+
+        let sourceWorkspace = try #require(manager.selectedWorkspace)
+        let staleWorkspaceId = sourceWorkspace.id
+        let movedPanelId = try #require(sourceWorkspace.focusedPanelId)
+        let destinationWorkspace = manager.addWorkspace(title: "Operations", select: false)
+
+        #expect(app.moveSurface(
+            panelId: movedPanelId,
+            toWorkspace: destinationWorkspace.id,
+            focus: false,
+            focusWindow: false
+        ))
+        #expect(!manager.tabs.contains { $0.id == staleWorkspaceId })
+        #expect(destinationWorkspace.panels[movedPanelId] != nil)
+
+        let response = TerminalController.debugNotifyTargetQueuedResponseForTesting(
+            "\(staleWorkspaceId.uuidString) \(movedPanelId.uuidString) Async|Moved|Body"
+        )
+        #expect(response == "OK")
+        TerminalMutationBus.shared.drainForTesting()
+
+        let notification = try #require(store.notifications.first { $0.surfaceId == movedPanelId })
+        #expect(notification.tabId == destinationWorkspace.id)
+        #expect(store.hasUnreadNotification(forTabId: destinationWorkspace.id, surfaceId: movedPanelId))
+        #expect(!store.hasUnreadNotification(forTabId: staleWorkspaceId, surfaceId: movedPanelId))
+    }
+
+    @Test
+    func syncNotificationFromMovedSurfaceUsesCurrentWorkspace() throws {
+        let app = AppDelegate()
+        let previousShared = AppDelegate.shared
+        let previousControllerManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let windowId = UUID()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+        let originalNotificationStore = app.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        AppDelegate.shared = app
+        app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
+        app.notificationStore = store
+        TerminalController.shared.setActiveTabManager(manager)
+        AppFocusState.overrideIsFocused = false
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in }
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            store.resetSuppressedNotificationFeedbackHandlerForTesting()
+            app.notificationStore = originalNotificationStore
+            TerminalController.shared.setActiveTabManager(previousControllerManager)
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            AppDelegate.shared = previousShared
+        }
+
+        let sourceWorkspace = try #require(manager.selectedWorkspace)
+        let staleWorkspaceId = sourceWorkspace.id
+        let movedPanelId = try #require(sourceWorkspace.focusedPanelId)
+        let destinationWorkspace = manager.addWorkspace(title: "Operations", select: false)
+
+        #expect(app.moveSurface(
+            panelId: movedPanelId,
+            toWorkspace: destinationWorkspace.id,
+            focus: false,
+            focusWindow: false
+        ))
+        #expect(!manager.tabs.contains { $0.id == staleWorkspaceId })
+        #expect(destinationWorkspace.panels[movedPanelId] != nil)
+
+        let response = TerminalController.debugNotifyTargetResponseForTesting(
+            "\(staleWorkspaceId.uuidString) \(movedPanelId.uuidString) Sync|Moved|Body"
+        )
+        #expect(response == "OK")
+
+        let notification = try #require(store.notifications.first { $0.surfaceId == movedPanelId })
+        #expect(notification.tabId == destinationWorkspace.id)
+        #expect(store.hasUnreadNotification(forTabId: destinationWorkspace.id, surfaceId: movedPanelId))
+        #expect(!store.hasUnreadNotification(forTabId: staleWorkspaceId, surfaceId: movedPanelId))
+    }
+
     private func drainMainQueue() async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             DispatchQueue.main.async {

@@ -472,6 +472,10 @@ class TerminalController {
     static func debugNotifyTargetQueuedResponseForTesting(_ args: String) -> String {
         Self.shared.notifyTargetQueued(args)
     }
+
+    static func debugNotifyTargetResponseForTesting(_ args: String) -> String {
+        Self.shared.notifyTarget(args)
+    }
 #endif
 
     nonisolated static func shouldReplaceStatusEntry(
