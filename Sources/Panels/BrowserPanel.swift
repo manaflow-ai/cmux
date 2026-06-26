@@ -4884,11 +4884,30 @@ final class BrowserPanel: Panel, ObservableObject {
     /// usually omits them, so `browserNavigationShouldCreatePopup` alone would route
     /// it to a tab. Bare `_blank` links with a real destination URL still fall
     /// through to tabs because they are not blank-targeted.
+    ///
+    /// A user-driven new-tab gesture (Cmd-click, middle-click) is still excluded —
+    /// mirroring `browserNavigationShouldCreatePopup` — so the existing new-tab
+    /// fallback wins over a floating popup when the user explicitly asked for a tab.
     nonisolated static func shouldCreateBlankScriptedPopup(
         navigationType: WKNavigationType,
-        requestURL: URL?
+        requestURL: URL?,
+        modifierFlags: NSEvent.ModifierFlags,
+        buttonNumber: Int,
+        hasRecentMiddleClickIntent: Bool = false,
+        currentEventType: NSEvent.EventType? = NSApp.currentEvent?.type,
+        currentEventButtonNumber: Int? = NSApp.currentEvent?.buttonNumber
     ) -> Bool {
-        navigationType == .other && isBlankBrowserPageURL(requestURL)
+        guard navigationType == .other, isBlankBrowserPageURL(requestURL) else {
+            return false
+        }
+        return !browserNavigationShouldOpenInNewTab(
+            navigationType: navigationType,
+            modifierFlags: modifierFlags,
+            buttonNumber: buttonNumber,
+            hasRecentMiddleClickIntent: hasRecentMiddleClickIntent,
+            currentEventType: currentEventType,
+            currentEventButtonNumber: currentEventButtonNumber
+        )
     }
 
     nonisolated static func isBlankBrowserPage(
@@ -8729,7 +8748,10 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         // returns null and the later location.href navigation is lost.
         let isBlankScriptedPopup = BrowserPanel.shouldCreateBlankScriptedPopup(
             navigationType: navigationAction.navigationType,
-            requestURL: navigationAction.request.url
+            requestURL: navigationAction.request.url,
+            modifierFlags: navigationAction.modifierFlags,
+            buttonNumber: navigationAction.buttonNumber,
+            hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
         )
 
         if isScriptedPopup || isBlankScriptedPopup,

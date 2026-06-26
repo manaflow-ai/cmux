@@ -480,7 +480,10 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         // the returned handle stays navigable (#6649).
         let isBlankScriptedPopup = BrowserPanel.shouldCreateBlankScriptedPopup(
             navigationType: navigationAction.navigationType,
-            requestURL: navigationAction.request.url
+            requestURL: navigationAction.request.url,
+            modifierFlags: navigationAction.modifierFlags,
+            buttonNumber: navigationAction.buttonNumber,
+            hasRecentMiddleClickIntent: CmuxWebView.hasRecentMiddleClickIntent(for: webView)
         )
 
         if isScriptedPopup || isBlankScriptedPopup {

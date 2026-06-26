@@ -101,7 +101,7 @@ import WebKit
 /// Covers the deferred-navigation popup predicate that fixes VS Code Web's inline
 /// auth popup opening about:blank on the first attempt: a scripted window.open()
 /// targeting a blank/empty document must return a live popup web view so the JS
-/// window handle stays navigable.
+/// window handle stays navigable, while still honoring explicit user new-tab gestures.
 @Suite struct BrowserBlankScriptedPopupDecisionTests {
     @Test func testAboutBlankScriptedWindowOpenCreatesPopup() throws {
         // window.open("about:blank") with no features is the deferred-navigation
@@ -111,7 +111,12 @@ import WebKit
         #expect(
             BrowserPanel.shouldCreateBlankScriptedPopup(
                 navigationType: .other,
-                requestURL: url
+                requestURL: url,
+                modifierFlags: [],
+                buttonNumber: 0,
+                hasRecentMiddleClickIntent: false,
+                currentEventType: .leftMouseUp,
+                currentEventButtonNumber: 0
             )
         )
     }
@@ -121,7 +126,12 @@ import WebKit
         #expect(
             BrowserPanel.shouldCreateBlankScriptedPopup(
                 navigationType: .other,
-                requestURL: nil
+                requestURL: nil,
+                modifierFlags: [],
+                buttonNumber: 0,
+                hasRecentMiddleClickIntent: false,
+                currentEventType: .leftMouseUp,
+                currentEventButtonNumber: 0
             )
         )
     }
@@ -133,7 +143,12 @@ import WebKit
         #expect(
             !BrowserPanel.shouldCreateBlankScriptedPopup(
                 navigationType: .other,
-                requestURL: url
+                requestURL: url,
+                modifierFlags: [],
+                buttonNumber: 0,
+                hasRecentMiddleClickIntent: false,
+                currentEventType: .leftMouseUp,
+                currentEventButtonNumber: 0
             )
         )
     }
@@ -145,7 +160,45 @@ import WebKit
         #expect(
             !BrowserPanel.shouldCreateBlankScriptedPopup(
                 navigationType: .linkActivated,
-                requestURL: url
+                requestURL: url,
+                modifierFlags: [],
+                buttonNumber: 0,
+                hasRecentMiddleClickIntent: false,
+                currentEventType: .leftMouseUp,
+                currentEventButtonNumber: 0
+            )
+        )
+    }
+
+    @Test func testBlankScriptedCmdClickFallsBackToNewTab() throws {
+        // Cmd-click is an explicit user new-tab gesture: keep the new-tab fallback
+        // instead of a floating popup, mirroring browserNavigationShouldCreatePopup.
+        let url = try #require(URL(string: "about:blank"))
+        #expect(
+            !BrowserPanel.shouldCreateBlankScriptedPopup(
+                navigationType: .other,
+                requestURL: url,
+                modifierFlags: [.command],
+                buttonNumber: 0,
+                hasRecentMiddleClickIntent: false,
+                currentEventType: .leftMouseUp,
+                currentEventButtonNumber: 0
+            )
+        )
+    }
+
+    @Test func testBlankScriptedMiddleClickFallsBackToNewTab() throws {
+        // Middle-click is an explicit user new-tab gesture: keep the new-tab fallback.
+        let url = try #require(URL(string: "about:blank"))
+        #expect(
+            !BrowserPanel.shouldCreateBlankScriptedPopup(
+                navigationType: .other,
+                requestURL: url,
+                modifierFlags: [],
+                buttonNumber: 2,
+                hasRecentMiddleClickIntent: true,
+                currentEventType: .otherMouseUp,
+                currentEventButtonNumber: 2
             )
         )
     }
