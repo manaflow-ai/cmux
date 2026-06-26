@@ -345,13 +345,12 @@ final class VSCodeServeWebRuntimeLocatorTests: XCTestCase {
     private let applicationSupportURL = URL(fileURLWithPath: "/Users/tester/Library/Application Support", isDirectory: true)
 
     func testResolvesStableDataPathsUnderApplicationSupportByDefault() {
-        let resolved = VSCodeServeWebRuntimeLocator.resolve(
+        let location = VSCodeServeWebRuntimeLocator.resolve(
             applicationSupportURL: applicationSupportURL,
             bundleIdentifier: "com.cmuxterm.app",
             environment: [:],
             persistedPort: nil
         )
-        let location = resolved.location
         let serverDataDir = "/Users/tester/Library/Application Support/com.cmuxterm.app/vscode-serve-web"
 
         XCTAssertEqual(location.serverDataDirectoryURL.path, serverDataDir)
@@ -361,7 +360,7 @@ final class VSCodeServeWebRuntimeLocatorTests: XCTestCase {
     }
 
     func testServerDataDirectoryHonorsEnvironmentOverride() {
-        let resolved = VSCodeServeWebRuntimeLocator.resolve(
+        let location = VSCodeServeWebRuntimeLocator.resolve(
             applicationSupportURL: applicationSupportURL,
             bundleIdentifier: "com.cmuxterm.app",
             environment: [
@@ -369,7 +368,6 @@ final class VSCodeServeWebRuntimeLocatorTests: XCTestCase {
             ],
             persistedPort: nil
         )
-        let location = resolved.location
 
         XCTAssertEqual(location.serverDataDirectoryURL.path, "/tmp/custom-serve-web")
         XCTAssertEqual(location.userDataDirectoryURL.path, "/tmp/custom-serve-web/user-data")
@@ -377,7 +375,7 @@ final class VSCodeServeWebRuntimeLocatorTests: XCTestCase {
     }
 
     func testCLIDataDirectoryHonorsEnvironmentOverride() {
-        let resolved = VSCodeServeWebRuntimeLocator.resolve(
+        let location = VSCodeServeWebRuntimeLocator.resolve(
             applicationSupportURL: applicationSupportURL,
             bundleIdentifier: "com.cmuxterm.app",
             environment: [
@@ -386,10 +384,10 @@ final class VSCodeServeWebRuntimeLocatorTests: XCTestCase {
             persistedPort: nil
         )
 
-        XCTAssertEqual(resolved.location.cliDataDirectoryURL.path, "/tmp/cli-data")
+        XCTAssertEqual(location.cliDataDirectoryURL.path, "/tmp/cli-data")
     }
 
-    func testDerivedPortIsStableAndPersistedWhenNoOverrideOrPersistedValue() {
+    func testDerivedPortIsStableWhenNoOverrideOrPersistedValue() {
         let first = VSCodeServeWebRuntimeLocator.resolve(
             applicationSupportURL: applicationSupportURL,
             bundleIdentifier: "com.cmuxterm.app",
@@ -403,9 +401,9 @@ final class VSCodeServeWebRuntimeLocatorTests: XCTestCase {
             persistedPort: nil
         )
 
-        XCTAssertEqual(first.location.port, second.location.port)
-        XCTAssertEqual(first.portToPersist, first.location.port)
-        XCTAssertTrue((49152...65535).contains(first.location.port))
+        XCTAssertEqual(first.port, second.port)
+        XCTAssertEqual(first.port, VSCodeServeWebRuntimeLocator.derivePort(from: "com.cmuxterm.app"))
+        XCTAssertTrue((49152...65535).contains(first.port))
     }
 
     func testDifferentBundleIdentifiersDeriveDifferentPorts() {
@@ -414,20 +412,19 @@ final class VSCodeServeWebRuntimeLocatorTests: XCTestCase {
         XCTAssertNotEqual(release, tagged)
     }
 
-    func testPersistedPortIsReusedWithoutRepersisting() {
-        let resolved = VSCodeServeWebRuntimeLocator.resolve(
+    func testPersistedPortIsPreferredOverDerivedDefault() {
+        let location = VSCodeServeWebRuntimeLocator.resolve(
             applicationSupportURL: applicationSupportURL,
             bundleIdentifier: "com.cmuxterm.app",
             environment: [:],
             persistedPort: 50080
         )
 
-        XCTAssertEqual(resolved.location.port, 50080)
-        XCTAssertNil(resolved.portToPersist)
+        XCTAssertEqual(location.port, 50080)
     }
 
-    func testEnvironmentPortOverrideWinsAndIsNotPersisted() {
-        let resolved = VSCodeServeWebRuntimeLocator.resolve(
+    func testEnvironmentPortOverrideWinsOverPersistedAndDerived() {
+        let location = VSCodeServeWebRuntimeLocator.resolve(
             applicationSupportURL: applicationSupportURL,
             bundleIdentifier: "com.cmuxterm.app",
             environment: [
@@ -436,13 +433,12 @@ final class VSCodeServeWebRuntimeLocatorTests: XCTestCase {
             persistedPort: 50080
         )
 
-        XCTAssertEqual(resolved.location.port, 51234)
-        XCTAssertNil(resolved.portToPersist)
+        XCTAssertEqual(location.port, 51234)
     }
 
-    func testInvalidPortOverridesAreIgnoredInFavorOfDerivedDefault() {
+    func testInvalidPortValuesAreIgnoredInFavorOfDerivedDefault() {
         let derived = VSCodeServeWebRuntimeLocator.derivePort(from: "com.cmuxterm.app")
-        let resolved = VSCodeServeWebRuntimeLocator.resolve(
+        let location = VSCodeServeWebRuntimeLocator.resolve(
             applicationSupportURL: applicationSupportURL,
             bundleIdentifier: "com.cmuxterm.app",
             environment: [
@@ -451,8 +447,36 @@ final class VSCodeServeWebRuntimeLocatorTests: XCTestCase {
             persistedPort: 80 // below the allowed range
         )
 
-        XCTAssertEqual(resolved.location.port, derived)
-        XCTAssertEqual(resolved.portToPersist, derived)
+        XCTAssertEqual(location.port, derived)
+    }
+
+    func testCandidateStablePortsStartWithResolvedPortThenStableAlternates() {
+        let candidates = VSCodeServeWebRuntimeLocator.candidateStablePorts(resolvedPort: 50080, count: 5)
+
+        XCTAssertEqual(candidates.first, 50080, "The preferred port must be attempted first")
+        XCTAssertEqual(candidates.count, 5)
+        XCTAssertEqual(Set(candidates).count, 5, "Candidates must be distinct")
+        // Every candidate is a stable port in the dynamic/private range — never the
+        // ephemeral port 0 — so a collision still yields a fixed origin (#6595).
+        for port in candidates {
+            XCTAssertTrue((49152...65535).contains(port), "candidate \(port) out of dynamic range")
+        }
+    }
+
+    func testCandidateStablePortsAreDeterministic() {
+        let a = VSCodeServeWebRuntimeLocator.candidateStablePorts(resolvedPort: 51000)
+        let b = VSCodeServeWebRuntimeLocator.candidateStablePorts(resolvedPort: 51000)
+        XCTAssertEqual(a, b)
+    }
+
+    func testCandidateStablePortsKeepOutOfRangeOverrideFirstThenInRangeAlternates() {
+        // An out-of-range user override (e.g. 3000) is tried first, then the
+        // alternates fall back into the valid dynamic range.
+        let candidates = VSCodeServeWebRuntimeLocator.candidateStablePorts(resolvedPort: 3000, count: 4)
+        XCTAssertEqual(candidates.first, 3000)
+        for port in candidates.dropFirst() {
+            XCTAssertTrue((49152...65535).contains(port), "alternate \(port) out of dynamic range")
+        }
     }
 }
 

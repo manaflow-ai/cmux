@@ -242,7 +242,7 @@ enum VSCodeServeWebRuntimeLocator {
         bundleIdentifier: String,
         environment: [String: String],
         persistedPort: Int?
-    ) -> (location: VSCodeServeWebRuntimeLocation, portToPersist: Int?) {
+    ) -> VSCodeServeWebRuntimeLocation {
         let serverDataDirectoryURL = resolveServerDataDirectoryURL(
             applicationSupportURL: applicationSupportURL,
             bundleIdentifier: bundleIdentifier,
@@ -256,21 +256,18 @@ enum VSCodeServeWebRuntimeLocator {
         )
         let connectionTokenFileURL = serverDataDirectoryURL
             .appendingPathComponent("connection-token", isDirectory: false)
-        let (port, portToPersist) = resolvePort(
+        let port = resolvePort(
             bundleIdentifier: bundleIdentifier,
             environment: environment,
             persistedPort: persistedPort
         )
 
-        return (
-            VSCodeServeWebRuntimeLocation(
-                serverDataDirectoryURL: serverDataDirectoryURL,
-                userDataDirectoryURL: userDataDirectoryURL,
-                cliDataDirectoryURL: cliDataDirectoryURL,
-                connectionTokenFileURL: connectionTokenFileURL,
-                port: port
-            ),
-            portToPersist
+        return VSCodeServeWebRuntimeLocation(
+            serverDataDirectoryURL: serverDataDirectoryURL,
+            userDataDirectoryURL: userDataDirectoryURL,
+            cliDataDirectoryURL: cliDataDirectoryURL,
+            connectionTokenFileURL: connectionTokenFileURL,
+            port: port
         )
     }
 
@@ -299,20 +296,45 @@ enum VSCodeServeWebRuntimeLocator {
         return serverDataDirectoryURL.appendingPathComponent("cli-data", isDirectory: true)
     }
 
+    /// Resolves the preferred serve-web port to try first: an explicit env
+    /// override, else the last successfully-bound port persisted by the
+    /// controller, else a deterministic per-bundle default.
     private static func resolvePort(
         bundleIdentifier: String,
         environment: [String: String],
         persistedPort: Int?
-    ) -> (port: Int, portToPersist: Int?) {
+    ) -> Int {
         if let override = environment[portEnvironmentKey], let parsed = parsePort(override) {
-            // Env overrides win but are intentionally not persisted as the default.
-            return (parsed, nil)
+            return parsed
         }
         if let persistedPort, isValidPort(persistedPort) {
-            return (persistedPort, nil)
+            return persistedPort
         }
-        let derived = derivePort(from: bundleIdentifier)
-        return (derived, derived)
+        return derivePort(from: bundleIdentifier)
+    }
+
+    /// Ordered ports to attempt for a launch: the preferred port first, then
+    /// deterministic STABLE alternates within the dynamic/private range. This is
+    /// what keeps the server origin fixed across launches even when the preferred
+    /// port is occupied — falling back to an ephemeral port would change the
+    /// origin every launch and reintroduce the auth/Settings Sync loss (#6595).
+    /// The controller appends an ephemeral port only as a final last resort and
+    /// persists whichever stable port actually binds.
+    static func candidateStablePorts(resolvedPort: Int, count: Int = 8) -> [Int] {
+        var ports: [Int] = [resolvedPort]
+        var seen: Set<Int> = [resolvedPort]
+        // Normalize the offset to 0..<portRangeSize so an out-of-range override
+        // such as a user-set 3000 still yields in-range alternates after the first.
+        let baseOffset = ((resolvedPort - minimumPort) % portRangeSize + portRangeSize) % portRangeSize
+        var step = 1
+        while ports.count < count && step <= portRangeSize {
+            let port = minimumPort + (baseOffset + step) % portRangeSize
+            step += 1
+            if seen.insert(port).inserted {
+                ports.append(port)
+            }
+        }
+        return ports
     }
 
     static func parsePort(_ raw: String) -> Int? {
@@ -652,20 +674,24 @@ final class VSCodeServeWebController {
             return nil
         }
 
-        // Try the stable port first; fall back to an ephemeral port if it can't be
-        // bound (e.g. already in use) so the inline server still comes up.
-        var attemptedPorts = [location.port]
-        if location.port != 0 {
-            attemptedPorts.append(0)
-        }
+        // Try the preferred stable port, then deterministic stable alternates if it
+        // is occupied, and persist whichever one actually binds. Persisting the
+        // winner locks the origin in place so it does not drift back to the
+        // (possibly still-occupied) preferred port on a later launch. An ephemeral
+        // port (0) is only a last resort: it changes every launch and would
+        // reintroduce the auth/Settings Sync loss this fixes (#6595).
+        let stableCandidates = VSCodeServeWebRuntimeLocator.candidateStablePorts(resolvedPort: location.port)
 
-        for port in attemptedPorts {
+        for port in stableCandidates + [0] {
             let options = VSCodeServeWebLaunchOptionsBuilder.launchOptions(
                 configuration: launchConfiguration,
                 location: location,
                 port: port
             )
             if let result = runServeWebProcess(options: options, expectedGeneration: expectedGeneration) {
+                if port != 0 {
+                    Self.persistPort(port)
+                }
                 return result
             }
             // Stop retrying if this launch generation was superseded mid-attempt.
@@ -773,8 +799,9 @@ final class VSCodeServeWebController {
         return (process, serveWebURL)
     }
 
-    /// Resolves the stable serve-web paths + port, persisting the derived default
-    /// port and ensuring the data directories exist before launch.
+    /// Resolves the stable serve-web paths + preferred port and ensures the data
+    /// directories exist before launch. The actual bound port is persisted by the
+    /// launch loop once a candidate succeeds.
     private func prepareRuntimeLocation() -> VSCodeServeWebRuntimeLocation? {
         guard let applicationSupportURL = FileManager.default.urls(
             for: .applicationSupportDirectory,
@@ -783,17 +810,13 @@ final class VSCodeServeWebController {
             return nil
         }
         let bundleIdentifier = Bundle.main.bundleIdentifier ?? Self.fallbackBundleIdentifier
-        let resolved = VSCodeServeWebRuntimeLocator.resolve(
+        let location = VSCodeServeWebRuntimeLocator.resolve(
             applicationSupportURL: applicationSupportURL,
             bundleIdentifier: bundleIdentifier,
             environment: ProcessInfo.processInfo.environment,
             persistedPort: Self.persistedPort()
         )
-        if let portToPersist = resolved.portToPersist {
-            Self.persistPort(portToPersist)
-        }
 
-        let location = resolved.location
         let fileManager = FileManager.default
         // These directories hold long-lived VS Code Web auth, Settings Sync, and
         // CLI keyring state, so keep them owner-only (0700) to match the 0600

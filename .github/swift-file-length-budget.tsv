@@ -50,8 +50,8 @@
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
 1945	Sources/RestorableAgentSession.swift
 1900	cmuxTests/NotificationAndMenuBarTests.swift
+1816	cmuxTests/OmnibarAndToolsTests.swift
 1810	Sources/SessionIndexStore.swift
-1792	cmuxTests/OmnibarAndToolsTests.swift
 1748	Sources/WindowDragHandleView.swift
 1732	cmuxTests/WorkspacePullRequestSidebarTests.swift
 1687	cmuxTests/MarkdownPanelTests.swift
@@ -93,11 +93,11 @@
 945	Sources/SessionIndexRegisteredAgents.swift
 937	Sources/TextBoxMentionIndexStore.swift
 934	Sources/App/ShortcutRoutingSupport.swift
+932	Sources/App/VSCodeServeWebSupport.swift
 928	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
 926	Sources/DockPanelView.swift
 920	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 918	cmuxTests/WorkspaceGroupTests.swift
-909	Sources/App/VSCodeServeWebSupport.swift
 905	Sources/CmuxSSHURLRequest.swift
 899	Sources/Panels/MarkdownWebRenderer.swift
 885	Sources/Panels/TerminalPanel.swift
