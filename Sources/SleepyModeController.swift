@@ -14,6 +14,16 @@ import SwiftUI
 /// "Lock Mac" button triggers the actual macOS login lock.
 @MainActor
 final class SleepyModeController {
+    // App-lifecycle UI/window controller: it owns NSWindows and IOKit power
+    // assertions tied to the app's foreground lifetime, so a process-wide
+    // instance is the right ownership boundary. This matches the established
+    // cmux pattern for such controllers (TerminalController.shared,
+    // TaskManagerWindowController.shared, SystemWideHotkeyController.shared,
+    // AboutWindowController.shared, and the *WindowController singletons). Its
+    // data/service dependencies — the settings store and the power-action
+    // service — are NOT baked in here; they are owned as injectable properties
+    // below and passed into the scene, which is where the testability boundary
+    // belongs.
     static let shared = SleepyModeController()
 
     /// The single Sleepy Mode settings store, owned here (the app composition

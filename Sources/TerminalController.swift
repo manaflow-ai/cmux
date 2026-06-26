@@ -11466,7 +11466,8 @@ class TerminalController {
 
 #if DEBUG
     /// Drives Sleepy Mode from the debug socket so automation can exercise the
-    /// overlay. `on`/`off` force a state; anything else toggles.
+    /// overlay. `on`/`off` force a state, `toggle` flips it, and unknown commands
+    /// return an error (so e.g. `unlock` can never accidentally activate it).
     func sleepyModeCommand(_ args: String) -> String {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
         let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
@@ -11474,12 +11475,13 @@ class TerminalController {
         let value = parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespaces).lowercased() : ""
         var isActive = false
         var holding = false
+        var unknown = false
         v2MainSync {
             let store = SleepyModeController.shared.store
             switch cmd {
             case "on", "activate", "start":
                 SleepyModeController.shared.activate()
-            case "off", "deactivate", "stop":
+            case "off", "deactivate", "stop", "unlock", "wake":
                 SleepyModeController.shared.deactivate()
             case "preview":
                 SleepyModeController.shared.preview()
@@ -11490,14 +11492,16 @@ class TerminalController {
             case "glow":
                 if let glow = SleepyGlow.allCases.first(where: { $0.rawValue.lowercased() == value }) { store.glow = glow }
             case "toggle":
+                // No scene name: flip Sleepy Mode itself. A scene name flips that toggle.
                 switch value {
+                case "": SleepyModeController.shared.toggle()
                 case "moon": store.showMoon.toggle()
                 case "stars": store.showStars.toggle()
                 case "zs", "z": store.showZs.toggle()
                 case "clock": store.showClock.toggle()
                 case "status": store.showStatus.toggle()
                 case "pets": store.showPets.toggle()
-                default: break
+                default: unknown = true
                 }
             case "customcolor":
                 let fields = value.split(separator: " ").map(String.init)
@@ -11526,10 +11530,13 @@ class TerminalController {
                     )
                 }
             default:
-                SleepyModeController.shared.toggle()
+                unknown = true
             }
             isActive = SleepyModeController.shared.isActive
             holding = SleepyModeController.shared.isHoldingPowerAssertions
+        }
+        if unknown {
+            return "ERROR: unknown sleepy_mode command '\(cmd)' (use on/off/toggle/preview/unlock/theme/mascot/glow/pets/customcolor)"
         }
         return "OK \(isActive ? "active" : "inactive") assertions=\(holding)"
     }
