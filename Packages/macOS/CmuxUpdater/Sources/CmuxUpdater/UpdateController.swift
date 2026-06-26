@@ -70,28 +70,33 @@ public final class UpdateController {
     ///   - defaults: The `UserDefaults` the settings are applied to.
     ///   - fileManager: Filesystem access for the Sparkle installation-cache workaround;
     ///     injectable so tests can avoid touching the real filesystem.
+    ///   - isDevLikeBundle: Overrides whether this is a DEV/staging build. Defaults to `nil`,
+    ///     which derives it from `hostBundle.bundleIdentifier` via ``isDevLikeBundleIdentifier(_:)``.
+    ///     Injectable because a `Bundle` with an arbitrary identifier cannot be constructed in tests.
     public init(log: any UpdateLogging,
                 clock: any UpdateClock = SystemUpdateClock(),
                 settings: UpdateSettings = UpdateSettings(),
                 hostBundle: Bundle = .main,
                 defaults: UserDefaults = .standard,
-                fileManager: FileManager = .default) {
+                fileManager: FileManager = .default,
+                isDevLikeBundle: Bool? = nil) {
         self.log = log
         self.clock = clock
         self.defaults = defaults
         self.fileManager = fileManager
         self.hostBundle = hostBundle
         self.backgroundProbeInterval = settings.scheduledCheckInterval
-        let isDevLikeBundle = Self.isDevLikeBundleIdentifier(hostBundle.bundleIdentifier)
+        let isDevLikeBundle = isDevLikeBundle ?? Self.isDevLikeBundleIdentifier(hostBundle.bundleIdentifier)
         self.isDevLikeBundle = isDevLikeBundle
         settings.apply(to: defaults)
         if isDevLikeBundle {
             // DEV (`com.cmuxterm.app.debug[.<tag>]`) and staging (`com.cmuxterm.app.staging[.<tag>]`)
             // builds are produced from local source and are not on the public release train, so
             // they must never query the public appcast. Turning off Sparkle's automatic checks
-            // stops both vectors: Sparkle never schedules its own background checks, and cmux's
-            // launch/background probe is short-circuited by the `automaticallyChecksForUpdates`
-            // guard in `startLaunchUpdateProbeIfNeeded`. Manual "Check for Updates" still works.
+            // stops the passive vectors: Sparkle never schedules its own background checks, and
+            // cmux's launch/background probe is short-circuited by the `automaticallyChecksForUpdates`
+            // guard in `startLaunchUpdateProbeIfNeeded`. Manual "Check for Updates" is gated
+            // separately in `checkForUpdatesWhenReady`.
             defaults.set(false, forKey: UpdateSettings.automaticChecksKey)
         }
 
@@ -260,6 +265,17 @@ public final class UpdateController {
 
     /// Check for updates once the updater reports it can.
     private func checkForUpdatesWhenReady() {
+        if isDevLikeBundle {
+            // DEV/staging builds are not on the public release train. A manual check (menu,
+            // custom UI, or attempt-and-install) must not query the public appcast or offer the
+            // public release for install over a locally-built app. Surface "No Updates Available"
+            // without contacting the appcast or starting Sparkle. This is the shared entrypoint
+            // for every manual check path (#6292).
+            log.append("manual update check suppressed (dev/staging build)")
+            cancelReadinessRetry()
+            model.setState(.notFound(.init(acknowledgement: {})))
+            return
+        }
         cancelReadinessRetry()
         startUpdaterIfNeeded()
         ensureSparkleInstallationCache()

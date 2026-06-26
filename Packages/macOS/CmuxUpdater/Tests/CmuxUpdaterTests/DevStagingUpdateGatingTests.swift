@@ -57,6 +57,30 @@ import Testing
         #expect(!UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.debugger"))
         #expect(!UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.stagingx"))
     }
+
+    /// A manual "Check for Updates" on a DEV/staging build must not query the public appcast or
+    /// offer the public release for install — it short-circuits to "No Updates Available" before
+    /// starting Sparkle. (Manual checks are the path that survived the passive-pill gating.)
+    @Test func devLikeBundleManualCheckIsSuppressed() throws {
+        let suiteName = "com.cmuxterm.updatertests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let controller = UpdateController(
+            log: NoopUpdateLog(),
+            clock: ImmediateUpdateClock(),
+            hostBundle: .main,
+            defaults: defaults,
+            isDevLikeBundle: true
+        )
+        controller.checkForUpdates()
+
+        // No query / no checking state — the manual check resolves to notFound synchronously.
+        guard case .notFound = controller.model.state else {
+            Issue.record("dev/staging manual check should surface .notFound, got \(controller.model.state)")
+            return
+        }
+    }
 }
 
 private struct NoopUpdateLog: UpdateLogging {

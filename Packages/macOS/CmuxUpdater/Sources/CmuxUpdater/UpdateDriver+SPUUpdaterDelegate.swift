@@ -70,9 +70,9 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
     func handleDidFindValidUpdate(_ item: SUAppcastItem) {
         if isDevLikeBundle {
             // DEV/staging builds are not on the public release train. ``UpdateController`` already
-            // disables Sparkle's automatic checks and the launch probe for these builds, but a
-            // manual "Check for Updates" — or a probe that started before that gate landed — can
-            // still reach here. Clear any detected update rather than surfacing the pill (#6292).
+            // gates every known path (automatic checks, the launch/background probe, and manual
+            // checks), so this is the last-line defense: if any update is ever found for one of
+            // these builds, clear it rather than surfacing the pill (#6292).
             model.clearDetectedUpdate()
             log.append("ignoring update for dev/staging build: \(item.displayVersionString)")
             return
