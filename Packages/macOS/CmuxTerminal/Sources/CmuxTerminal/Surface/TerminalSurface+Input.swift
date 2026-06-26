@@ -8,8 +8,41 @@ internal import CMUXDebugLog
 
 // MARK: - Socket/API input: send paths, pending queues, parsing
 
+/// Carries a surface pointer and the probe result across the main/background
+/// boundary for the non-blocking close-confirmation query.
+///
+/// `@unchecked Sendable` because `ghostty_surface_t` is an opaque pointer the
+/// compiler can't reason about (the same reason `TerminalSurfaceRuntimeTeardownRequest`
+/// is `@unchecked Sendable`); the pointer is only read by the probe, and `value`
+/// is published back to the waiting thread through a `DispatchSemaphore`
+/// (happens-before the read).
+private final class NeedsConfirmCloseProbe: @unchecked Sendable {
+    let surface: ghostty_surface_t
+    var value = false
+
+    init(surface: ghostty_surface_t) {
+        self.surface = surface
+    }
+}
+
 extension TerminalSurface {
     /// Whether closing this surface should ask for confirmation.
+    ///
+    /// `ghostty_surface_needs_confirm_quit` ultimately takes the surface's
+    /// `renderer_state` mutex (to read whether the cursor sits at a shell
+    /// prompt) — the same lock held by the surface's renderer and IO threads.
+    /// Calling it synchronously on the main thread, as the session autosave tick
+    /// does through `Workspace.sessionPanelSnapshot`, parks the main thread in
+    /// `_os_unfair_lock_lock_slow` -> `__ulock_wait2` forever whenever one of
+    /// those threads is wedged holding the lock, beach-balling the whole app with
+    /// no recovery short of `kill -9` (https://github.com/manaflow-ai/cmux/issues/6381).
+    ///
+    /// So the main thread must never block on it: the query runs on a background
+    /// queue with a short timeout, falling back to `false` (no confirmation) if
+    /// the lock can't be acquired promptly. Every main-thread caller — the
+    /// autosave snapshot and the close/quit confirmation prompts — treats "skip
+    /// confirmation for a wedged surface" as a safe degradation, which beats
+    /// hanging the app. Off-main callers keep the direct synchronous path.
     public func needsConfirmClose() -> Bool {
 #if DEBUG
         if let needsConfirmCloseOverrideForTesting {
@@ -17,7 +50,37 @@ extension TerminalSurface {
         }
 #endif
         guard let surface = surface else { return false }
-        return Self.performNeedsConfirmQuitProbe(surface)
+        guard Thread.isMainThread else {
+            return Self.performNeedsConfirmQuitProbe(surface)
+        }
+        return Self.needsConfirmQuitWithoutBlockingMainThread(surface)
+    }
+
+    /// Runs `performNeedsConfirmQuitProbe` off the main thread, returning `false`
+    /// (no confirmation) if it can't answer within ``needsConfirmCloseProbeTimeout``
+    /// so a wedged surface lock can never hang the app.
+    nonisolated static func needsConfirmQuitWithoutBlockingMainThread(
+        _ surface: ghostty_surface_t
+    ) -> Bool {
+        // Cap concurrently-wedged probes so a permanently stuck surface lock
+        // leaks at most a bounded number of background threads, never one per
+        // autosave tick. If the cap is hit, treat it as a timeout.
+        guard needsConfirmCloseProbeSlots.wait(timeout: .now()) == .success else {
+            return false
+        }
+        let probe = NeedsConfirmCloseProbe(surface: surface)
+        let done = DispatchSemaphore(value: 0)
+        needsConfirmCloseProbeQueue.async {
+            probe.value = performNeedsConfirmQuitProbe(probe.surface)
+            done.signal()
+            needsConfirmCloseProbeSlots.signal()
+        }
+        guard done.wait(timeout: .now() + needsConfirmCloseProbeTimeout) == .success else {
+            // Still wedged on the lock; the probe releases its slot and signals
+            // `done` (ignored) if the lock ever frees. Never block the caller.
+            return false
+        }
+        return probe.value
     }
 
     /// Runs the ghostty close-confirmation query for `surface`.
@@ -33,6 +96,23 @@ extension TerminalSurface {
 #endif
         return ghostty_surface_needs_confirm_quit(surface)
     }
+
+    /// Background queue for the off-main close-confirmation probe. Concurrent so
+    /// one wedged surface never head-of-line-blocks probes for other surfaces.
+    private static let needsConfirmCloseProbeQueue = DispatchQueue(
+        label: "com.cmuxterm.terminal.needs-confirm-close-probe",
+        qos: .userInitiated,
+        attributes: .concurrent
+    )
+
+    /// Bounds simultaneously-wedged probes (and thus leaked background threads)
+    /// when a surface lock is permanently stuck.
+    private static let needsConfirmCloseProbeSlots = DispatchSemaphore(value: 8)
+
+    /// How long the main thread waits for the off-main probe before falling back
+    /// to "no confirmation". Long enough for a normally-contended lock, short
+    /// enough that a wedged surface never produces a perceptible hang.
+    private static let needsConfirmCloseProbeTimeout: DispatchTimeInterval = .milliseconds(250)
 
 #if DEBUG
     /// Test seam replacing `ghostty_surface_needs_confirm_quit`. Suites install a
