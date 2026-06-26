@@ -5,6 +5,13 @@ import Foundation
 /// state; system effects go through an injected `SleepyCommandRunning`, and the
 /// remembered pre-low-power mode lives in an injected `UserDefaults`, so the
 /// behavior can be exercised with a fake runner and isolated defaults.
+///
+/// `@MainActor`-isolated so the Low Power restore state has one serialized
+/// mutation path: every overlay window shares this single injected instance, and
+/// the in-flight guard below runs synchronously on the main actor before any
+/// `await`, so concurrent toggles (e.g. buttons on two displays) cannot
+/// interleave the `switchedToLowThisSession` / saved-mode mutation.
+@MainActor
 final class SleepyPowerControls: SleepyPowerControlling {
     private let runner: SleepyCommandRunning
     private let defaults: UserDefaults
@@ -13,6 +20,9 @@ final class SleepyPowerControls: SleepyPowerControlling {
     /// Low Power. Gates the restore so a value left by a prior run (or a Mac that
     /// was already in Low Power) is never applied system-wide.
     private var switchedToLowThisSession = false
+    /// Single-flight guard: set true synchronously before the first `await` in
+    /// `setLowPowerMode`, so overlapping callers are dropped rather than racing.
+    private var isMutatingLowPower = false
 
     init(runner: SleepyCommandRunning = SystemCommandRunner(), defaults: UserDefaults = .standard) {
         self.runner = runner
@@ -41,6 +51,11 @@ final class SleepyPowerControls: SleepyPowerControlling {
     /// `lowpowermode`. Returns the re-read state after the change applies.
     @discardableResult
     func setLowPowerMode(_ enabled: Bool) async -> Bool {
+        // Drop overlapping toggles (the guard is atomic on the main actor before
+        // any suspension), so the system-wide power mode has one serial owner.
+        if isMutatingLowPower { return await isLowPowerOn() }
+        isMutatingLowPower = true
+        defer { isMutatingLowPower = false }
         let usesPowerMode = await supportsPowerMode()
         if enabled {
             if usesPowerMode {
