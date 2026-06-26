@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSettings
 import Testing
 
 #if canImport(cmux_DEV)
@@ -40,9 +41,11 @@ struct RendererRealizationPlannerTests {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        #expect(RendererRealizationSettings.defaultIdleSeconds == 10 * 60)
-        #expect(RendererRealizationSettings.idleSeconds(defaults: defaults) == 10 * 60)
-        #expect(RendererRealizationSettings.sanitizedIdleSeconds(.infinity) == 10 * 60)
+        let defaultIdleSeconds = RendererRealizationSettings.defaultIdleSeconds
+        #expect(defaultIdleSeconds == 10 * 60)
+        #expect(RendererRealizationSettings.idleSeconds(defaults: defaults) == defaultIdleSeconds)
+        #expect(RendererRealizationSettings.sanitizedIdleSeconds(.infinity) == defaultIdleSeconds)
+        #expect(TerminalCatalogSection().rendererRealizationIdleSeconds.defaultValue == defaultIdleSeconds)
     }
 
     @Test func disabledSelectsNothing() {
