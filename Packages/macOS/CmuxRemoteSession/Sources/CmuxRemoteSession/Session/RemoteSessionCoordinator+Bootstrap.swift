@@ -6,10 +6,13 @@ public import Foundation
 // cmuxd-remote bootstrap: probe the remote platform and existing install,
 // acquire a binary (explicit override, verified manifest download, or the
 // dev-only local `go build` fallback), upload + install it atomically, and
-// perform the stdio `hello` handshake. Faithful lift: probe/upload/install
-// script text, the hello request line, every NSError domain/code/message,
-// and the reinstall-on-missing-capability flow are pinned legacy behavior.
-// `Bundle.main` reads ride the injected ``RemoteSessionBuildInfoProviding``.
+// perform the stdio `hello` handshake. The probe/install script text, the
+// hello request line, every NSError domain/code/message, and the
+// reinstall-on-missing-capability flow are pinned legacy behavior. The binary
+// upload streams over the SSH channel itself (`ssh -T … 'cat > tmp'`) rather
+// than scp/sftp, whose path semantics frequently differ from the interactive
+// SSH session (issue #6207). `Bundle.main` reads ride the injected
+// ``RemoteSessionBuildInfoProviding``.
 extension RemoteSessionCoordinator {
     static let remotePlatformProbeHomeMarker = "__CMUX_REMOTE_HOME__="
     static let remotePlatformProbeOSMarker = "__CMUX_REMOTE_OS__="
@@ -320,26 +323,31 @@ extension RemoteSessionCoordinator {
             ])
         }
 
-        let scpSSHOptions = backgroundSSHOptions(configuration.sshOptions)
-        var scpArgs: [String] = ["-q"]
-        if !hasSSHOptionKey(scpSSHOptions, key: "StrictHostKeyChecking") {
-            scpArgs += ["-o", "StrictHostKeyChecking=accept-new"]
+        // Stream the binary over the SSH channel itself rather than scp/sftp.
+        // scp and sftp frequently resolve paths under a chrooted/jailed
+        // subtree that differs from the interactive SSH session, so a
+        // destination that is valid over SSH can be unreachable or land in the
+        // wrong place under scp (issue #6207). Piping through the same SSH
+        // transport guarantees identical path semantics. `-T` suppresses any
+        // forced pseudo-terminal so tty line-ending translation cannot corrupt
+        // the binary stream.
+        let binaryData: Data
+        do {
+            binaryData = try Data(contentsOf: localBinary)
+        } catch {
+            throw NSError(domain: "cmux.remote.daemon", code: 31, userInfo: [
+                NSLocalizedDescriptionKey: "failed to read cmuxd-remote for upload: \(error.localizedDescription)",
+            ])
         }
-        scpArgs += ["-o", "ControlMaster=no"]
-        if let port = configuration.port {
-            scpArgs += ["-P", String(port)]
-        }
-        if let identityFile = configuration.identityFile,
-           !identityFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            scpArgs += ["-i", identityFile]
-        }
-        for option in scpSSHOptions {
-            scpArgs += ["-o", option]
-        }
-        scpArgs += [localBinary.path, "\(configuration.destination):\(remoteTempPath)"]
-        let scpResult = try scpExec(arguments: scpArgs, timeout: 45)
-        guard scpResult.status == 0 else {
-            let detail = Self.bestErrorLine(stderr: scpResult.stderr, stdout: scpResult.stdout) ?? "scp exited \(scpResult.status)"
+        let uploadScript = "cat > \(remoteTempPath.shellSingleQuoted)"
+        let uploadCommand = "sh -c \(uploadScript.shellSingleQuoted)"
+        let uploadResult = try sshExec(
+            arguments: sshCommonArguments(batchMode: true) + ["-T", configuration.destination, uploadCommand],
+            stdin: binaryData,
+            timeout: 120
+        )
+        guard uploadResult.status == 0 else {
+            let detail = Self.bestErrorLine(stderr: uploadResult.stderr, stdout: uploadResult.stdout) ?? "ssh exited \(uploadResult.status)"
             throw NSError(domain: "cmux.remote.daemon", code: 31, userInfo: [
                 NSLocalizedDescriptionKey: "failed to upload cmuxd-remote: \(detail)",
             ])
