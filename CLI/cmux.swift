@@ -29628,13 +29628,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             if suppressVisibleMutations {
                 telemetry.breadcrumb("\(def.name)-hook.session-end.nested-suppressed")
             } else if let consumed = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
-                persistAgentSessionTitleAfterExit(
-                    agentSessionExitTitle(agent: def.name, record: consumed),
-                    workspaceId: consumed.workspaceId,
-                    client: client,
-                    telemetryKey: "\(def.name)-hook.session-end",
-                    telemetry: telemetry
-                )
+                if !hasOtherRunningSession(workspaceId: consumed.workspaceId) {
+                    persistAgentSessionTitleAfterExit(
+                        agentSessionExitTitle(agent: def.name, record: consumed),
+                        workspaceId: consumed.workspaceId,
+                        client: client,
+                        telemetryKey: "\(def.name)-hook.session-end",
+                        telemetry: telemetry
+                    )
+                }
                 clearAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: consumed.workspaceId,

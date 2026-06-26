@@ -105,24 +105,28 @@ extension CMUXCLI {
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry
     ) {
-        guard (try? client.sendV2(method: "workspace.set_auto_title", params: [
+        guard let payload = try? client.sendV2(method: "workspace.set_auto_title", params: [
             "workspace_id": workspaceId,
             "clear_auto": true
-        ])) != nil else {
+        ]) else {
             telemetry.breadcrumb("\(telemetryKey).clear-title.socket-failed")
             return
         }
-        telemetry.breadcrumb("\(telemetryKey).clear-title.sent")
+        if payload["workspace_cleared"] as? Bool == true {
+            telemetry.breadcrumb("\(telemetryKey).clear-title.cleared")
+        } else {
+            telemetry.breadcrumb("\(telemetryKey).clear-title.no-op")
+        }
     }
 
     func persistAgentSessionTitleAfterExit(
-        _ title: String?,
+        _ normalizedTitle: String?,
         workspaceId: String,
         client: SocketClient,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry
     ) {
-        guard let title = normalizedAgentSessionExitTitle(title) else { return }
+        guard let title = normalizedTitle else { return }
         guard let payload = try? client.sendV2(method: "workspace.set_auto_title", params: [
             "workspace_id": workspaceId,
             "title": title,
