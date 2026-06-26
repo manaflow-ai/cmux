@@ -53,10 +53,15 @@ enum CmuxCommandVariableParser {
     }
 
     /// Resolves `command` for execution: replaces every recognized placeholder
-    /// whose name is present in `values` with its value, leaves placeholders
-    /// whose name is missing from `values` untouched, leaves non-identifier
-    /// `{{…}}` template expressions untouched, and strips the escaping
-    /// backslash from any `\{{…}}` so it becomes a literal `{{…}}`.
+    /// whose name is present in `values` with its value as a single
+    /// POSIX-quoted shell argument, leaves placeholders whose name is missing
+    /// from `values` untouched, leaves non-identifier `{{…}}` template
+    /// expressions untouched, and strips the escaping backslash from any
+    /// `\{{…}}` so it becomes a literal `{{…}}`.
+    ///
+    /// Values are shell-quoted so that whatever the user types is passed as one
+    /// literal argument — a value like `main; rm -rf /` cannot break out of the
+    /// command and run as separate shell words.
     static func substitute(_ command: String, values: [String: String]) -> String {
         guard command.contains("{{") else { return command }
         var result = ""
@@ -66,10 +71,20 @@ enum CmuxCommandVariableParser {
             case .literal(let text):
                 result.append(text)
             case .variable(let variable, let raw):
-                result.append(values[variable.name] ?? raw)
+                if let value = values[variable.name] {
+                    result.append(shellQuote(value))
+                } else {
+                    result.append(raw)
+                }
             }
         }
         return result
+    }
+
+    /// Wraps `value` in POSIX single quotes so it is a single literal shell
+    /// argument, escaping any embedded single quotes as `'\''`.
+    static func shellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     // MARK: - Scanning

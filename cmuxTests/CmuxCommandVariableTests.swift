@@ -85,12 +85,13 @@ final class CmuxCommandVariableParserTests: XCTestCase {
         // `\{{name}}` is not a variable and the backslash is stripped on run.
         XCTAssertEqual(CmuxCommandVariableParser.variables(in: "echo \\{{name}}"), [])
         XCTAssertEqual(CmuxCommandVariableParser.substitute("echo \\{{name}}", values: [:]), "echo {{name}}")
-        // An escaped and an unescaped occurrence can coexist.
+        // An escaped and an unescaped occurrence can coexist; only the real
+        // variable is substituted (and shell-quoted).
         let mixed = "echo \\{{env}} {{env}}"
         XCTAssertEqual(CmuxCommandVariableParser.variables(in: mixed).map(\.name), ["env"])
         XCTAssertEqual(
             CmuxCommandVariableParser.substitute(mixed, values: ["env": "prod"]),
-            "echo {{env}} prod"
+            "echo {{env}} 'prod'"
         )
     }
 
@@ -100,12 +101,12 @@ final class CmuxCommandVariableParserTests: XCTestCase {
 
     // MARK: Substitution
 
-    func testSubstituteReplacesEveryOccurrence() {
+    func testSubstituteShellQuotesEveryOccurrence() {
         let result = CmuxCommandVariableParser.substitute(
             "echo {{x}} and {{x}}",
             values: ["x": "hi"]
         )
-        XCTAssertEqual(result, "echo hi and hi")
+        XCTAssertEqual(result, "echo 'hi' and 'hi'")
     }
 
     func testSubstituteReplacesPlaceholderIncludingDefault() {
@@ -113,7 +114,7 @@ final class CmuxCommandVariableParserTests: XCTestCase {
             "bin/deploy --env {{environment=staging}}",
             values: ["environment": "production"]
         )
-        XCTAssertEqual(result, "bin/deploy --env production")
+        XCTAssertEqual(result, "bin/deploy --env 'production'")
     }
 
     func testSubstituteLeavesUnknownPlaceholdersIntact() {
@@ -121,7 +122,7 @@ final class CmuxCommandVariableParserTests: XCTestCase {
             "{{a}}-{{b}}",
             values: ["a": "x"]
         )
-        XCTAssertEqual(result, "x-{{b}}")
+        XCTAssertEqual(result, "'x'-{{b}}")
     }
 
     func testSubstituteWithNoPlaceholdersReturnsInput() {
@@ -136,7 +137,23 @@ final class CmuxCommandVariableParserTests: XCTestCase {
             "git checkout {{branch}}",
             values: ["branch": "feature/new-thing"]
         )
-        XCTAssertEqual(result, "git checkout feature/new-thing")
+        XCTAssertEqual(result, "git checkout 'feature/new-thing'")
+    }
+
+    func testSubstituteNeutralizesShellMetacharacters() {
+        // A value with shell metacharacters is passed as one literal argument,
+        // never as separate shell words.
+        let result = CmuxCommandVariableParser.substitute(
+            "git checkout {{branch}}",
+            values: ["branch": "main; rm -rf /"]
+        )
+        XCTAssertEqual(result, "git checkout 'main; rm -rf /'")
+    }
+
+    func testShellQuoteEscapesEmbeddedSingleQuotes() {
+        XCTAssertEqual(CmuxCommandVariableParser.shellQuote("it's"), "'it'\\''s'")
+        XCTAssertEqual(CmuxCommandVariableParser.shellQuote(""), "''")
+        XCTAssertEqual(CmuxCommandVariableParser.shellQuote("plain"), "'plain'")
     }
 }
 
