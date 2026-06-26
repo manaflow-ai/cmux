@@ -40,6 +40,67 @@ actor RequestRecorder {
     }
 }
 
+/// Lock-guarded record of the HTTP method that reached a redirect's TARGET, so
+/// the test can read it synchronously right after the awaited upload completes
+/// (the protocol records before it finishes loading the response).
+final class RedirectTargetRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _targetMethod: String?
+    func record(targetMethod: String?) {
+        lock.lock(); defer { lock.unlock() }
+        _targetMethod = targetMethod
+    }
+    func targetMethod() -> String? {
+        lock.lock(); defer { lock.unlock() }
+        return _targetMethod
+    }
+    func reset() {
+        lock.lock(); defer { lock.unlock() }
+        _targetMethod = nil
+    }
+}
+
+/// Simulates a canonicalizing 301 (e.g. the historical `cmux.dev` -> `cmux.com`)
+/// that downgrades the request method to GET — Foundation's documented 301/302
+/// behavior — then records the method that actually arrives at the redirect
+/// target. The first hop (host `redirect-origin.test`) answers 301 by proposing
+/// a body-less GET to the canonical host; the second hop records what it saw.
+final class RedirectingURLProtocol: URLProtocol, @unchecked Sendable {
+    nonisolated(unsafe) static let recorder = RedirectTargetRecorder()
+    static let canonicalURL = URL(string: "https://redirect-canonical.test/api/device-tokens")!
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let url = request.url else {
+            client?.urlProtocolDidFinishLoading(self)
+            return
+        }
+        if url.host == "redirect-origin.test" {
+            let response = HTTPURLResponse(
+                url: url,
+                statusCode: 301,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Location": Self.canonicalURL.absoluteString]
+            )!
+            // Foundation proposes a body-less GET on a 301/302; the redirect
+            // delegate (once installed) is what restores the original method.
+            var proposed = URLRequest(url: Self.canonicalURL)
+            proposed.httpMethod = "GET"
+            client?.urlProtocol(self, wasRedirectedTo: proposed, redirectResponse: response)
+            return
+        }
+        Self.recorder.record(targetMethod: request.httpMethod)
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data())
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
 struct FakeTokenProvider: TokenProviding {
     var access: String? = "access"
     var refresh: String? = "refresh"
@@ -162,5 +223,37 @@ struct FakeTokenProvider: TokenProviding {
             $0.value(forHTTPHeaderField: "Authorization") == "Bearer next-user-access"
         }
         #expect(hijacked == false)
+    }
+
+    @Test func deviceTokenRegistrationSurvivesARedirectAsPOST() async {
+        // Regression for https://github.com/manaflow-ai/cmux/issues/6270.
+        // Foundation downgrades POST/DELETE to a body-less GET on a 301/302
+        // redirect. When the API base URL canonicalizes (the historical
+        // cmux.dev -> cmux.com 301 that "killed beta/prod push"), the upload
+        // arrived as a GET with no body, which `/api/device-tokens` has no
+        // handler for, so the device token silently never registered and iOS
+        // push went dead end-to-end. The registration request must survive the
+        // redirect as a POST.
+        RedirectingURLProtocol.recorder.reset()
+        let suite = "push-redirect-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RedirectingURLProtocol.self]
+        let service = PushRegistrationService(
+            tokenProvider: FakeTokenProvider(),
+            apiBaseURL: "https://redirect-origin.test",
+            bundleID: "dev.cmux.app.beta",
+            apnsEnvironment: "production",
+            suiteName: suite,
+            session: URLSession(configuration: configuration)
+        )
+
+        await service.register(deviceToken: Data([0xAB, 0xCD]))
+        // Enabling uploads the cached token via POST /api/device-tokens, which
+        // the stub 301-redirects to the canonical host.
+        await service.setEnabled(true)
+
+        #expect(RedirectingURLProtocol.recorder.targetMethod() == "POST")
     }
 }
