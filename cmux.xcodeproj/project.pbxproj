@@ -897,6 +897,7 @@
 		C7B0FACE000000000000001A /* SleepyStatusProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE000000000000001B /* SleepyStatusProvider.swift */; };
 		C7B0FACE0000000000000018 /* SleepyStatusProviding.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE0000000000000019 /* SleepyStatusProviding.swift */; };
 		C7B0FACE0000000000000016 /* SleepyStatusSample.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE0000000000000017 /* SleepyStatusSample.swift */; };
+		5834A0065834A0065834A006 /* SocketCommandObservability+Sampling.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5834A0055834A0055834A005 /* SocketCommandObservability+Sampling.swift */; };
 		5834A0025834A0025834A002 /* SocketCommandObservability.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5834A0015834A0015834A001 /* SocketCommandObservability.swift */; };
 		5834A0045834A0045834A004 /* SocketCommandObservabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5834A0035834A0035834A003 /* SocketCommandObservabilityTests.swift */; };
 		A5001226 /* SocketControlMode+Display.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001225 /* SocketControlMode+Display.swift */; };
@@ -2032,6 +2033,7 @@
 		C7B0FACE000000000000001B /* SleepyStatusProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyStatusProvider.swift; sourceTree = "<group>"; };
 		C7B0FACE0000000000000019 /* SleepyStatusProviding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyStatusProviding.swift; sourceTree = "<group>"; };
 		C7B0FACE0000000000000017 /* SleepyStatusSample.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyStatusSample.swift; sourceTree = "<group>"; };
+		5834A0055834A0055834A005 /* SocketCommandObservability+Sampling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SocketCommandObservability+Sampling.swift"; sourceTree = "<group>"; };
 		5834A0015834A0015834A001 /* SocketCommandObservability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketCommandObservability.swift; sourceTree = "<group>"; };
 		5834A0035834A0035834A003 /* SocketCommandObservabilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketCommandObservabilityTests.swift; sourceTree = "<group>"; };
 		A5001225 /* SocketControlMode+Display.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SocketControlMode+Display.swift"; sourceTree = "<group>"; };
@@ -2757,6 +2759,7 @@
 				A5001019 /* TerminalController.swift */,
 				E7E000000000000000000002 /* CmuxEventStream.swift */,
 				E7E00000000000000000000A /* CmuxSocketEventMapper.swift */,
+				5834A0055834A0055834A005 /* SocketCommandObservability+Sampling.swift */,
 				5834A0015834A0015834A001 /* SocketCommandObservability.swift */,
 				A5001440A5001440A5001440 /* FileOpenSocketSupport.swift */,
 				D7AB0000000000000000000C /* TerminalController+MoveTabToNewWorkspace.swift */,
@@ -4447,6 +4450,7 @@
 				C7B0FACE000000000000001A /* SleepyStatusProvider.swift in Sources */,
 				C7B0FACE0000000000000018 /* SleepyStatusProviding.swift in Sources */,
 				C7B0FACE0000000000000016 /* SleepyStatusSample.swift in Sources */,
+				5834A0065834A0065834A006 /* SocketCommandObservability+Sampling.swift in Sources */,
 				5834A0025834A0025834A002 /* SocketCommandObservability.swift in Sources */,
 				A5001226 /* SocketControlMode+Display.swift in Sources */,
 				E30780000000000000000012 /* SSHPTYAttachStartupCommandBuilder.swift in Sources */,

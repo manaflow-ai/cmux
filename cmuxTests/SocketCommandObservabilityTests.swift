@@ -8,8 +8,10 @@ import Testing
 #endif
 
 @Suite struct SocketCommandObservabilityTests {
+    private let observability = SocketCommandObservability()
+
     @Test func parsesV2MethodPeerAndWorkerLane() {
-        let command = SocketCommandObservability.command(
+        let command = observability.command(
             for: #"{"jsonrpc":"2.0","id":1,"method":"browser.eval","params":{}}"#,
             peerPid: 1234
         )
@@ -21,8 +23,8 @@ import Testing
     }
 
     @Test func parsesV1PingAsWorkerAndOtherV1AsMainActor() {
-        let ping = SocketCommandObservability.command(for: "ping", peerPid: nil)
-        let send = SocketCommandObservability.command(for: "send echo hi", peerPid: nil)
+        let ping = observability.command(for: "ping", peerPid: nil)
+        let send = observability.command(for: "send echo hi", peerPid: nil)
 
         #expect(ping.protocolName == .v1)
         #expect(ping.method == "ping")
@@ -33,7 +35,7 @@ import Testing
     }
 
     @Test func sanitizesUntrustedCommandNamesForLogs() {
-        let command = SocketCommandObservability.command(
+        let command = observability.command(
             for: #"{"method":"browser eval\nsecret","params":{}}"#,
             peerPid: nil
         )
@@ -42,7 +44,7 @@ import Testing
     }
 
     @Test func extractsV2MethodWithoutDependingOnFieldOrder() {
-        let command = SocketCommandObservability.command(
+        let command = observability.command(
             for: #"{"params":{"script":"({method:'not this one'})"},"method":"browser.eval","id":7}"#,
             peerPid: nil
         )
@@ -53,9 +55,9 @@ import Testing
     }
 
     @Test func completionEmitsOnlyAtSlowThresholdByDefault() throws {
-        let command = SocketCommandObservability.command(for: "list_workspaces", peerPid: 42)
+        let command = observability.command(for: "list_workspaces", peerPid: 42)
 
-        let fast = SocketCommandObservability.completion(
+        let fast = observability.completion(
             for: command,
             startedAt: 1_000,
             finishedAt: 50_001_000,
@@ -63,7 +65,7 @@ import Testing
         )
         #expect(fast == nil)
 
-        let slow = try #require(SocketCommandObservability.completion(
+        let slow = try #require(observability.completion(
             for: command,
             startedAt: 1_000,
             finishedAt: 125_001_000,
@@ -77,10 +79,10 @@ import Testing
     }
 
     @Test func responseStatusClassifiesV1AndV2Errors() {
-        #expect(SocketCommandObservability.responseStatus(response: nil) == .noResponse)
-        #expect(SocketCommandObservability.responseStatus(response: "ERROR: bad") == .error)
-        #expect(SocketCommandObservability.responseStatus(response: #"{"ok":false,"error":{"code":"bad"}}"#) == .error)
-        #expect(SocketCommandObservability.responseStatus(response: #"{"ok":true,"result":{}}"#) == .ok)
+        #expect(observability.responseStatus(response: nil) == .noResponse)
+        #expect(observability.responseStatus(response: "ERROR: bad") == .error)
+        #expect(observability.responseStatus(response: #"{"ok":false,"error":{"code":"bad"}}"#) == .error)
+        #expect(observability.responseStatus(response: #"{"ok":true,"result":{}}"#) == .ok)
     }
 
     @Test func mainThreadSampleExcerptKeepsOnlyMainThreadCallGraph() throws {
@@ -99,7 +101,7 @@ import Testing
         Total number in stack (recursive counted multiple, when >=5):
         """
 
-        let excerpt = try #require(SocketCommandObservability.mainThreadSampleExcerpt(from: sample))
+        let excerpt = try #require(observability.mainThreadSampleExcerpt(from: sample))
         #expect(excerpt.contains("com.apple.main-thread"))
         #expect(excerpt.contains("v2BrowserEval"))
         #expect(!excerpt.contains("socket-worker"))

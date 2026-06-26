@@ -121,6 +121,7 @@ class TerminalController {
     // The package-owned listener: path/bind/lock lifecycle, accept source,
     // backoff/rearm recovery, and the generation-counted state machine.
     nonisolated let socketServer: SocketControlServer
+    private nonisolated let socketCommandObservability = SocketCommandObservability()
     // Accepted-connection consumer; runs until process exit (singleton).
     private nonisolated let socketConnectionsTask: Task<Void, Never>
     // Per-surface dedupe for high-frequency report_* socket telemetry. Main-
@@ -1283,7 +1284,7 @@ class TerminalController {
     ) -> SocketLineProcessingResult {
         let startedAt = DispatchTime.now().uptimeNanoseconds
 #if DEBUG
-        let debugInfo = Self.socketCommandDebugInfo(command)
+        let debugInfo = Self.socketCommandDebugInfo(command, observability: socketCommandObservability)
         let debugLoggingEnabled = Self.socketCommandDebugLoggingEnabled()
         if debugLoggingEnabled {
             Self.debugLogSocketCommand(
@@ -1293,12 +1294,12 @@ class TerminalController {
 #endif
         var nextAuthenticated = authenticated
         if let response = authResponseIfNeeded(for: command, authenticated: &nextAuthenticated) {
-            let authCommand = SocketCommandObservability.command(
+            let authCommand = socketCommandObservability.command(
                 for: command,
                 peerPid: peerPid,
                 executionLaneOverride: .socketWorker
             )
-            SocketCommandObservability.logCompletionIfNeeded(
+            socketCommandObservability.logCompletionIfNeeded(
                 for: authCommand,
                 startedAt: startedAt,
                 response: response
@@ -1308,20 +1309,21 @@ class TerminalController {
                 debugInfo: debugInfo,
                 startedAt: startedAt,
                 response: response,
-                loggingEnabled: debugLoggingEnabled
+                loggingEnabled: debugLoggingEnabled,
+                observability: socketCommandObservability
             )
 #endif
             return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
         }
 
-        let observabilityCommand = SocketCommandObservability.command(for: command, peerPid: peerPid)
-        let watchdog = SocketCommandObservability.startMainActorWatchdog(
+        let observabilityCommand = socketCommandObservability.command(for: command, peerPid: peerPid)
+        let watchdog = socketCommandObservability.startMainActorWatchdog(
             for: observabilityCommand,
             startedAt: startedAt
         )
         let response = processCommandUsingSocketExecutionPolicy(command)
         watchdog.cancel()
-        SocketCommandObservability.logCompletionIfNeeded(
+        socketCommandObservability.logCompletionIfNeeded(
             for: observabilityCommand,
             startedAt: startedAt,
             response: response
@@ -1332,7 +1334,8 @@ class TerminalController {
                 debugInfo: debugInfo,
                 startedAt: startedAt,
                 response: response,
-                loggingEnabled: debugLoggingEnabled
+                loggingEnabled: debugLoggingEnabled,
+                observability: socketCommandObservability
             )
         }
 #endif
@@ -1359,16 +1362,22 @@ class TerminalController {
         }
     }
 
-    private nonisolated static func socketCommandDebugInfo(_ command: String) -> SocketCommandDebugInfo {
-        let command = SocketCommandObservability.command(for: command, peerPid: nil)
+    private nonisolated static func socketCommandDebugInfo(
+        _ command: String,
+        observability: SocketCommandObservability
+    ) -> SocketCommandDebugInfo {
+        let command = observability.command(for: command, peerPid: nil)
         return SocketCommandDebugInfo(
             protocolName: command.protocolName.rawValue,
             commandKey: command.method
         )
     }
 
-    private nonisolated static func socketCommandDebugStatus(response: String) -> String {
-        switch SocketCommandObservability.responseStatus(response: response) {
+    private nonisolated static func socketCommandDebugStatus(
+        response: String,
+        observability: SocketCommandObservability
+    ) -> String {
+        switch observability.responseStatus(response: response) {
         case .error:
             return "error"
         case .noResponse:
@@ -1382,11 +1391,12 @@ class TerminalController {
         debugInfo: SocketCommandDebugInfo,
         startedAt: UInt64,
         response: String,
-        loggingEnabled: Bool
+        loggingEnabled: Bool,
+        observability: SocketCommandObservability
     ) {
         let elapsedMs = Double(DispatchTime.now().uptimeNanoseconds - startedAt) / 1_000_000
-        let status = socketCommandDebugStatus(response: response)
-        let slowThresholdMs = Double(SocketCommandObservability.slowThresholdNanoseconds) / 1_000_000
+        let status = socketCommandDebugStatus(response: response, observability: observability)
+        let slowThresholdMs = Double(observability.slowThresholdNanoseconds) / 1_000_000
         guard loggingEnabled || elapsedMs >= slowThresholdMs || status != "ok" else {
             return
         }

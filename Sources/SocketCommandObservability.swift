@@ -3,7 +3,7 @@ import Darwin
 import Foundation
 import OSLog
 
-nonisolated struct SocketCommandObservability {
+nonisolated struct SocketCommandObservability: Sendable {
     enum ProtocolName: String, Sendable {
         case v1
         case v2
@@ -60,17 +60,30 @@ nonisolated struct SocketCommandObservability {
         let errorDescription: String?
     }
 
-    static let slowThresholdNanoseconds: UInt64 = 100_000_000
-    static let mainActorWatchdogThresholdNanoseconds: UInt64 = 2_000_000_000
+    let slowThresholdNanoseconds: UInt64
+    let mainActorWatchdogThresholdNanoseconds: UInt64
+    let maxWatchdogSampleFiles: Int
 
     private static let maxSampleExcerptLines = 80
     private static let maxSampleExcerptCharacters = 6_000
-    private nonisolated static let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
-        category: "socket.command"
-    )
+    private let logger: Logger
 
-    static func command(
+    init(
+        slowThresholdNanoseconds: UInt64 = 100_000_000,
+        mainActorWatchdogThresholdNanoseconds: UInt64 = 2_000_000_000,
+        maxWatchdogSampleFiles: Int = 20,
+        logger: Logger = Logger(
+            subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+            category: "socket.command"
+        )
+    ) {
+        self.slowThresholdNanoseconds = slowThresholdNanoseconds
+        self.mainActorWatchdogThresholdNanoseconds = mainActorWatchdogThresholdNanoseconds
+        self.maxWatchdogSampleFiles = maxWatchdogSampleFiles
+        self.logger = logger
+    }
+
+    func command(
         for line: String,
         peerPid: pid_t?,
         executionLaneOverride: ExecutionLane? = nil
@@ -106,7 +119,7 @@ nonisolated struct SocketCommandObservability {
         )
     }
 
-    static func completion(
+    func completion(
         for command: Command,
         startedAt: UInt64,
         finishedAt: UInt64 = DispatchTime.now().uptimeNanoseconds,
@@ -128,7 +141,7 @@ nonisolated struct SocketCommandObservability {
         )
     }
 
-    static func logCompletionIfNeeded(
+    func logCompletionIfNeeded(
         for command: Command,
         startedAt: UInt64,
         response: String?
@@ -139,17 +152,19 @@ nonisolated struct SocketCommandObservability {
         logSlowCompletion(completion)
     }
 
-    static func startMainActorWatchdog(
+    func startMainActorWatchdog(
         for command: Command,
         startedAt: UInt64,
-        thresholdNanoseconds: UInt64 = mainActorWatchdogThresholdNanoseconds
+        thresholdNanoseconds: UInt64? = nil
     ) -> Watchdog {
         guard command.executionLane == .mainActor else {
             return Watchdog(task: nil)
         }
 
+        let thresholdNanoseconds = thresholdNanoseconds ?? mainActorWatchdogThresholdNanoseconds
         let task = Task.detached(priority: .utility) {
             do {
+                // swift-blocking-runtime: intentional-watchdog-deadline
                 // Intentional deadline: emit release diagnostics if a main-actor socket command stays busy.
                 try await Task.sleep(nanoseconds: thresholdNanoseconds)
             } catch {
@@ -159,7 +174,7 @@ nonisolated struct SocketCommandObservability {
 
             let finishedAt = DispatchTime.now().uptimeNanoseconds
             let elapsed = finishedAt >= startedAt ? finishedAt - startedAt : 0
-            let sample = captureWatchdogSample(for: command)
+            let sample = await captureWatchdogSample(for: command)
             guard !Task.isCancelled else { return }
             logMainActorWatchdog(command: command, elapsedNanoseconds: elapsed, sample: sample)
         }
@@ -167,7 +182,7 @@ nonisolated struct SocketCommandObservability {
         return Watchdog(task: task)
     }
 
-    static func responseStatus(response: String?) -> ResponseStatus {
+    func responseStatus(response: String?) -> ResponseStatus {
         guard let response else {
             return .noResponse
         }
@@ -182,7 +197,7 @@ nonisolated struct SocketCommandObservability {
         return .ok
     }
 
-    static func mainThreadSampleExcerpt(from sampleText: String) -> String? {
+    func mainThreadSampleExcerpt(from sampleText: String) -> String? {
         let lines = sampleText.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         guard let start = lines.firstIndex(where: { $0.contains("com.apple.main-thread") }) else {
             return nil
@@ -210,14 +225,14 @@ nonisolated struct SocketCommandObservability {
         return truncated(excerpt.joined(separator: "\n"), maxCharacters: maxSampleExcerptCharacters)
     }
 
-    private static func logSlowCompletion(_ completion: Completion) {
+    private func logSlowCompletion(_ completion: Completion) {
         let peerPid = completion.command.peerPid.map(String.init) ?? "unknown"
         logger.warning(
             "socket.command.slow proto=\(completion.command.protocolName.rawValue, privacy: .public) method=\(completion.command.method, privacy: .public) lane=\(completion.command.executionLane.rawValue, privacy: .public) completion_thread=\(completion.completionThread.rawValue, privacy: .public) peer_pid=\(peerPid, privacy: .public) status=\(completion.status.rawValue, privacy: .public) ms=\(completion.formattedMilliseconds, privacy: .public) bytes=\(completion.responseByteCount, privacy: .public)"
         )
     }
 
-    private static func logMainActorWatchdog(
+    private func logMainActorWatchdog(
         command: Command,
         elapsedNanoseconds: UInt64,
         sample: WatchdogSample
@@ -237,69 +252,6 @@ nonisolated struct SocketCommandObservability {
         }
     }
 
-    private static func captureWatchdogSample(for command: Command) -> WatchdogSample {
-        do {
-            let sampleURL = try watchdogSampleURL(for: command)
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
-            process.arguments = [
-                String(ProcessInfo.processInfo.processIdentifier),
-                "1",
-                "10",
-                "-mayDie",
-                "-file",
-                sampleURL.path
-            ]
-
-            let errorPipe = Pipe()
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = errorPipe
-            try process.run()
-            process.waitUntilExit()
-
-            if process.terminationStatus != 0 {
-                let errorText = String(
-                    data: errorPipe.fileHandleForReading.readDataToEndOfFile(),
-                    encoding: .utf8
-                ) ?? ""
-                return WatchdogSample(
-                    url: sampleURL,
-                    mainThreadExcerpt: nil,
-                    errorDescription: "sample exited \(process.terminationStatus): \(truncated(errorText, maxCharacters: 500))"
-                )
-            }
-
-            let text = try String(contentsOf: sampleURL, encoding: .utf8)
-            return WatchdogSample(
-                url: sampleURL,
-                mainThreadExcerpt: mainThreadSampleExcerpt(from: text),
-                errorDescription: nil
-            )
-        } catch {
-            return WatchdogSample(
-                url: nil,
-                mainThreadExcerpt: nil,
-                errorDescription: String(describing: error)
-            )
-        }
-    }
-
-    private static func watchdogSampleURL(for command: Command) throws -> URL {
-        let directory = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)
-            .first?
-            .appendingPathComponent("Logs/cmux/socket-command-watchdog", isDirectory: true)
-            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-                .appendingPathComponent("cmux-socket-command-watchdog", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-
-        let timestampMs = Int(Date().timeIntervalSince1970 * 1_000)
-        let method = fileNameComponent(command.method)
-        let peerPid = command.peerPid.map(String.init) ?? "unknown"
-        return directory.appendingPathComponent(
-            "socket-command-\(timestampMs)-\(method)-peer-\(peerPid).sample.txt"
-        )
-    }
-
     private static func sanitizedToken(_ value: String) -> String {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-:")
@@ -310,7 +262,7 @@ nonisolated struct SocketCommandObservability {
         return sanitized.isEmpty ? "<empty>" : String(sanitized)
     }
 
-    private static func fileNameComponent(_ value: String) -> String {
+    static func fileNameComponent(_ value: String) -> String {
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
         let cleaned = sanitizedToken(value).unicodeScalars.map { scalar -> String in
             allowed.contains(scalar) ? String(scalar) : "-"
@@ -318,7 +270,7 @@ nonisolated struct SocketCommandObservability {
         return cleaned == "<empty>" ? "empty" : String(cleaned.prefix(96))
     }
 
-    private static func truncated(_ value: String, maxCharacters: Int) -> String {
+    static func truncated(_ value: String, maxCharacters: Int) -> String {
         guard value.count > maxCharacters else {
             return value
         }
