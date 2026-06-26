@@ -190,14 +190,14 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
     }
 
     func testTitlebarControlsListenForWindowGeometryChanges() {
-        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didResizeNotification))
-        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didEndLiveResizeNotification))
-        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.willEnterFullScreenNotification))
-        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didEnterFullScreenNotification))
-        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.willExitFullScreenNotification))
-        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didExitFullScreenNotification))
-        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didChangeScreenNotification))
-        XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didChangeBackingPropertiesNotification))
+        XCTAssertTrue([Notification.Name].titlebarWindowGeometry.contains(NSWindow.didResizeNotification))
+        XCTAssertTrue([Notification.Name].titlebarWindowGeometry.contains(NSWindow.didEndLiveResizeNotification))
+        XCTAssertTrue([Notification.Name].titlebarWindowGeometry.contains(NSWindow.willEnterFullScreenNotification))
+        XCTAssertTrue([Notification.Name].titlebarWindowGeometry.contains(NSWindow.didEnterFullScreenNotification))
+        XCTAssertTrue([Notification.Name].titlebarWindowGeometry.contains(NSWindow.willExitFullScreenNotification))
+        XCTAssertTrue([Notification.Name].titlebarWindowGeometry.contains(NSWindow.didExitFullScreenNotification))
+        XCTAssertTrue([Notification.Name].titlebarWindowGeometry.contains(NSWindow.didChangeScreenNotification))
+        XCTAssertTrue([Notification.Name].titlebarWindowGeometry.contains(NSWindow.didChangeBackingPropertiesNotification))
     }
 
     func testShortcutHintVerticalOffsetTucksPillIntoBottomOfButtonLane() {

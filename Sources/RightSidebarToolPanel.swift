@@ -309,19 +309,10 @@ struct RightSidebarToolPanelView: View {
         for segment in FocusFlashPattern.segments {
             DispatchQueue.main.asyncAfter(deadline: .now() + segment.delay) {
                 guard focusFlashAnimationGeneration == generation else { return }
-                withAnimation(focusFlashAnimation(for: segment.curve, duration: segment.duration)) {
+                withAnimation(segment.curve.animation(duration: segment.duration)) {
                     focusFlashOpacity = segment.targetOpacity
                 }
             }
-        }
-    }
-
-    private func focusFlashAnimation(for curve: FocusFlashCurve, duration: TimeInterval) -> Animation {
-        switch curve {
-        case .easeIn:
-            return .easeIn(duration: duration)
-        case .easeOut:
-            return .easeOut(duration: duration)
         }
     }
 }
