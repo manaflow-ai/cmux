@@ -13280,18 +13280,6 @@ struct TabItemView: View, Equatable {
         }
     }
 
-    private var rowHeightProbe: some View {
-        GeometryReader { proxy in
-            Color.clear
-                .onAppear {
-                    rowHeight = max(proxy.size.height, 1)
-                }
-                .onChange(of: proxy.size.height) { _, newHeight in
-                    rowHeight = max(newHeight, 1)
-                }
-        }
-    }
-
     @ViewBuilder
     private var remoteWorkspaceSection: some View {
         let workspaceSnapshot = self.workspaceSnapshot
@@ -13750,7 +13738,10 @@ struct TabItemView: View, Equatable {
         )
         .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
         .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
-        .background { rowHeightProbe }
+        .sidebarRowHeightProbe()
+        .onPreferenceChange(SidebarRowHeightPreferenceKey.self) { height in
+            rowHeight = max(height, 1)
+        }
         .contentShape(Rectangle())
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay {
