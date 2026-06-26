@@ -26,10 +26,10 @@ actor TextBoxMentionIndexStore {
     ) async -> [TextBoxMentionSuggestion] {
         switch query.kind {
         case .file:
-            guard let rootDirectory = Self.normalizedDirectory(rootDirectory) else { return [] }
+            guard let rootDirectory = rootDirectory?.canonicalDirectoryPath() else { return [] }
             return await fileSuggestions(for: query, rootDirectory: rootDirectory)
         case .skill:
-            let index = skillIndex(rootDirectory: Self.normalizedDirectory(rootDirectory))
+            let index = skillIndex(rootDirectory: rootDirectory?.canonicalDirectoryPath())
             return index.rankedCandidates(
                 matching: query.query,
                 limit: Self.suggestionLimit,
@@ -40,7 +40,7 @@ actor TextBoxMentionIndexStore {
     }
 
     func warmIndexes(rootDirectory: String?) async {
-        let normalizedRootDirectory = Self.normalizedDirectory(rootDirectory)
+        let normalizedRootDirectory = rootDirectory?.canonicalDirectoryPath()
         _ = skillIndex(rootDirectory: normalizedRootDirectory)
         if let normalizedRootDirectory {
             _ = await fileIndex(rootDirectory: normalizedRootDirectory, now: Date())
@@ -655,21 +655,5 @@ actor TextBoxMentionIndexStore {
         return Set(outputText
             .split(separator: "\n", omittingEmptySubsequences: true)
             .map(String.init))
-    }
-
-    private static func normalizedDirectory(_ path: String?) -> String? {
-        guard let path = path?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !path.isEmpty else {
-            return nil
-        }
-
-        let expanded = (path as NSString).expandingTildeInPath
-        let url = URL(fileURLWithPath: expanded, isDirectory: true).standardizedFileURL
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
-              isDirectory.boolValue else {
-            return nil
-        }
-        return url.path
     }
 }

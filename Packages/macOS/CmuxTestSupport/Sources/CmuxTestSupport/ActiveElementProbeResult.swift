@@ -1,4 +1,6 @@
 #if DEBUG
+public import Foundation
+
 /// The parsed result of the goto-split active-element probe page script.
 ///
 /// ``GotoSplitUITestRecorder`` runs a page script (``script(expectedInputIdLiteral:)``)
@@ -37,6 +39,42 @@ public struct ActiveElementProbeResult: Sendable {
         self.editable = (payload?["editable"] as? String) ?? "false"
         self.trackedFocusStateId = (payload?["trackedFocusStateId"] as? String) ?? ""
         self.focusTrackerInstalled = (payload?["focusTrackerInstalled"] as? String) ?? "false"
+    }
+
+    /// The probe's six fields as the legacy `[String: String]` snapshot object,
+    /// keyed exactly as the inline `evaluateJavaScript` completion built it
+    /// (`id`/`tag`/`type`/`editable`/`trackedFocusStateId`/`focusTrackerInstalled`).
+    public var snapshotFields: [String: String] {
+        [
+            "id": id,
+            "tag": tag,
+            "type": type,
+            "editable": editable,
+            "trackedFocusStateId": trackedFocusStateId,
+            "focusTrackerInstalled": focusTrackerInstalled
+        ]
+    }
+
+    /// The capture-file entries for one recorded active-element probe, re-keyed
+    /// under `keyPrefix`, byte-identical to the legacy `recordActiveElement`
+    /// `writeData` payload (panel id plus the six prefixed snapshot fields, each
+    /// with the legacy default of `""` for the string fields and `"false"` for
+    /// the two boolean-shaped fields).
+    ///
+    /// - Parameters:
+    ///   - keyPrefix: The scenario key prefix (e.g. `"addressBarExit"`).
+    ///   - panelId: The browser panel the probe ran in.
+    public func recordedFields(keyPrefix: String, panelId: UUID) -> [String: String] {
+        let snapshot = snapshotFields
+        return [
+            "\(keyPrefix)PanelId": panelId.uuidString,
+            "\(keyPrefix)ActiveElementId": snapshot["id"] ?? "",
+            "\(keyPrefix)ActiveElementTag": snapshot["tag"] ?? "",
+            "\(keyPrefix)ActiveElementType": snapshot["type"] ?? "",
+            "\(keyPrefix)ActiveElementEditable": snapshot["editable"] ?? "false",
+            "\(keyPrefix)TrackedFocusStateId": snapshot["trackedFocusStateId"] ?? "",
+            "\(keyPrefix)FocusTrackerInstalled": snapshot["focusTrackerInstalled"] ?? "false"
+        ]
     }
 
     /// The active-element probe page script, byte-identical to the legacy inline
