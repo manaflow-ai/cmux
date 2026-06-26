@@ -10,6 +10,12 @@ nonisolated private let processPipeWriterLogger = Logger(
     category: "ProcessPipeWriter"
 )
 
+// Upper bound on how long `waitForWritable` waits for a non-blocking descriptor
+// to drain. Blocking descriptors never reach that path, so this only bounds the
+// misuse/edge case; it must stay finite so the calling thread can never park
+// forever.
+private let processPipeWritableWaitTimeoutMilliseconds: UInt64 = 5_000
+
 /// The result of a best-effort write to a process pipe or socket descriptor.
 public enum ProcessPipeWriteOutcome: Equatable, Sendable {
     /// Every byte was written.
@@ -64,7 +70,7 @@ extension FileHandle {
                 }
                 if written == 0 {
                     // No progress and no error reported: treat the sink as gone.
-                    return Self.logFailure(fd: fd, errnoCode: EIO)
+                    return processPipeLogWriteFailure(fd: fd, errnoCode: EIO)
                 }
 
                 let errorCode = errno
@@ -75,8 +81,8 @@ extension FileHandle {
                     // Only reachable on a non-blocking descriptor. Wait for the
                     // descriptor to drain (or hang up) and retry; the retried
                     // write surfaces the concrete errno (e.g. EPIPE) for us.
-                    guard Self.waitForWritable(fd) else {
-                        return Self.logFailure(fd: fd, errnoCode: errorCode)
+                    guard processPipeWaitForWritable(fd) else {
+                        return processPipeLogWriteFailure(fd: fd, errnoCode: errorCode)
                     }
                     continue
                 case EPIPE, ECONNRESET:
@@ -85,53 +91,47 @@ extension FileHandle {
                     )
                     return .brokenPipe
                 default:
-                    return Self.logFailure(fd: fd, errnoCode: errorCode)
+                    return processPipeLogWriteFailure(fd: fd, errnoCode: errorCode)
                 }
             }
             return .completed
         }
     }
+}
 
-    private static func logFailure(fd: Int32, errnoCode: Int32) -> ProcessPipeWriteOutcome {
-        processPipeWriterLogger.warning(
-            "processPipeWriter.writeFailed fd=\(fd, privacy: .public) errno=\(Int(errnoCode), privacy: .public) message=\(String(cString: strerror(errnoCode)), privacy: .public)"
-        )
-        return .failed(errnoCode: errnoCode)
-    }
+private func processPipeLogWriteFailure(fd: Int32, errnoCode: Int32) -> ProcessPipeWriteOutcome {
+    processPipeWriterLogger.warning(
+        "processPipeWriter.writeFailed fd=\(fd, privacy: .public) errno=\(Int(errnoCode), privacy: .public) message=\(String(cString: strerror(errnoCode)), privacy: .public)"
+    )
+    return .failed(errnoCode: errnoCode)
+}
 
-    /// Upper bound on how long ``waitForWritable(_:)`` waits for a non-blocking
-    /// descriptor to drain. Blocking descriptors never reach that path, so this
-    /// only bounds the misuse/edge case; it must stay finite so the calling
-    /// thread can never park forever.
-    private static let writableWaitTimeoutMilliseconds: UInt64 = 5_000
-
-    /// Waits up to ``writableWaitTimeoutMilliseconds`` for `fd` to become
-    /// writable, hung up, or errored. Returns `true` when the caller should
-    /// retry the write (a retry surfaces the concrete errno on hangup), `false`
-    /// when the descriptor is invalid, polling failed, or the wait timed out.
-    private static func waitForWritable(_ fd: Int32) -> Bool {
-        let deadline = DispatchTime.now() + .milliseconds(Int(writableWaitTimeoutMilliseconds))
-        var descriptor = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
-        while true {
-            let now = DispatchTime.now().uptimeNanoseconds
-            guard deadline.uptimeNanoseconds > now else { return false }
-            let remainingMilliseconds = (deadline.uptimeNanoseconds - now) / 1_000_000
-            descriptor.revents = 0
-            let result = poll(&descriptor, 1, Int32(clamping: max(remainingMilliseconds, 1)))
-            if result > 0 {
-                let revents = descriptor.revents
-                if (revents & Int16(POLLNVAL)) != 0 {
-                    return false
-                }
-                return (revents & Int16(POLLOUT | POLLHUP | POLLERR)) != 0
-            }
-            if result == 0 {
+/// Waits up to ``processPipeWritableWaitTimeoutMilliseconds`` for `fd` to become
+/// writable, hung up, or errored. Returns `true` when the caller should retry the
+/// write (a retry surfaces the concrete errno on hangup), `false` when the
+/// descriptor is invalid, polling failed, or the wait timed out.
+private func processPipeWaitForWritable(_ fd: Int32) -> Bool {
+    let deadline = DispatchTime.now() + .milliseconds(Int(processPipeWritableWaitTimeoutMilliseconds))
+    var descriptor = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+    while true {
+        let now = DispatchTime.now().uptimeNanoseconds
+        guard deadline.uptimeNanoseconds > now else { return false }
+        let remainingMilliseconds = (deadline.uptimeNanoseconds - now) / 1_000_000
+        descriptor.revents = 0
+        let result = poll(&descriptor, 1, Int32(clamping: max(remainingMilliseconds, 1)))
+        if result > 0 {
+            let revents = descriptor.revents
+            if (revents & Int16(POLLNVAL)) != 0 {
                 return false
             }
-            if errno == EINTR {
-                continue
-            }
+            return (revents & Int16(POLLOUT | POLLHUP | POLLERR)) != 0
+        }
+        if result == 0 {
             return false
         }
+        if errno == EINTR {
+            continue
+        }
+        return false
     }
 }
