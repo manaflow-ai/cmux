@@ -84,6 +84,7 @@ public struct ChatTranscriptListView: View {
             isAtBottom: $isAtBottom,
             scrollToBottomRequest: scrollToBottomRequest
         )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(alignment: .bottomTrailing) {
             Group {
                 if !isAtBottom {
