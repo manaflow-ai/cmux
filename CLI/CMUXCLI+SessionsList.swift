@@ -387,8 +387,8 @@ extension CMUXCLI {
         }
         let forkSupported = ((payload["fork_supported"] as? Bool) == true) ? "yes" : "no"
         parts.append("fork=\(forkSupported)")
-        if let pidAlive = payload["stored_pid_alive"] as? Bool {
-            parts.append("pid_alive=\(pidAlive ? "yes" : "no")")
+        if let pidExists = payload["stored_pid_exists"] as? Bool {
+            parts.append("pid_exists=\(pidExists ? "yes" : "no")")
         }
         return parts.joined(separator: "  ")
     }
@@ -426,7 +426,7 @@ extension CMUXCLI {
         agent: String,
         record: ClaudeHookSessionRecord
     ) -> [String: Any] {
-        let storedPIDAlive = sessionsListStoredPIDAlive(record.pid)
+        let storedPIDExists = sessionsListStoredPIDExists(record.pid)
         let hookRecordRestorable = record.isRestorable != false
         let forkArguments = hookRecordRestorable ? sessionsListForkArguments(agent: agent, record: record) : nil
         let forkSupported = forkArguments != nil
@@ -445,9 +445,9 @@ extension CMUXCLI {
             "fork_unavailable_reason": unavailableReason,
             "fork_startup_input_available": forkStartupInputAvailable,
             "hook_record_restorable": hookRecordRestorable,
-            "stale_pid_blocks_restore_in_0_64_17": record.pid != nil && storedPIDAlive == false && forkSupported,
+            "stale_pid_blocks_restore_in_0_64_17": hookRecordRestorable && record.pid != nil && storedPIDExists == false,
         ]
-        diagnostics["stored_pid_alive"] = storedPIDAlive ?? NSNull()
+        diagnostics["stored_pid_exists"] = storedPIDExists ?? NSNull()
         return diagnostics
     }
 
@@ -485,7 +485,7 @@ extension CMUXCLI {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    private func sessionsListStoredPIDAlive(_ pid: Int?) -> Bool? {
+    private func sessionsListStoredPIDExists(_ pid: Int?) -> Bool? {
         guard let pid, pid > 0 else { return nil }
         guard let processID = pid_t(exactly: pid) else { return nil }
         errno = 0

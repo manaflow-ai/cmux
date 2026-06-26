@@ -1117,21 +1117,24 @@ struct RestorableAgentSessionIndex: Sendable {
                     updatedAt: effectiveRecord.updatedAt,
                     processIDs: liveProcessID.map { [$0] } ?? []
                 )
-                let previousPanelKindUpdatedAt =
-                    hookCandidatesByPanelAndKind[panelKindKey]?.updatedAt ?? -Double.infinity
-                if previousPanelKindUpdatedAt <= effectiveRecord.updatedAt {
+                if shouldReplaceHookEntry(
+                    existing: hookCandidatesByPanelAndKind[panelKindKey],
+                    incoming: entry
+                ) {
                     hookCandidatesByPanelAndKind[panelKindKey] = entry
                 }
-                if hookCandidatesBySession[sessionKey]?.updatedAt ?? -Double.infinity <= effectiveRecord.updatedAt {
+                if shouldReplaceHookEntry(
+                    existing: hookCandidatesBySession[sessionKey],
+                    incoming: entry
+                ) {
                     hookCandidatesBySession[sessionKey] = entry
                 }
                 // A saved PID is liveness evidence only. It can go stale while the
                 // transcript and hook record are still restorable, so keep the
                 // snapshot and leave processIDs empty when the process is gone.
-                if let existing = resolved[key], existing.updatedAt > effectiveRecord.updatedAt {
-                    continue
+                if shouldReplaceHookEntry(existing: resolved[key], incoming: entry) {
+                    resolved[key] = entry
                 }
-                resolved[key] = entry
             }
         }
 
@@ -1188,6 +1191,19 @@ struct RestorableAgentSessionIndex: Sendable {
                     $0.snapshot.sessionId == snapshot.sessionId
             }
             .max { $0.updatedAt < $1.updatedAt }
+    }
+
+    private static func shouldReplaceHookEntry(existing: Entry?, incoming: Entry) -> Bool {
+        guard let existing else {
+            return true
+        }
+        if existing.processIDs.isEmpty && !incoming.processIDs.isEmpty {
+            return true
+        }
+        if !existing.processIDs.isEmpty && incoming.processIDs.isEmpty {
+            return false
+        }
+        return existing.updatedAt <= incoming.updatedAt
     }
 
     private static func normalizedWorkingDirectory(_ rawValue: String?) -> String? {
