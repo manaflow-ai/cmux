@@ -43,6 +43,17 @@ scanned: it intentionally uses a `GeometryReader` to resolve per-row drop
 anchors and is gated behind an active drag (#5325), so it never runs during the
 steady-state layout this guard protects.
 
+Scope: the guard protects the rows layout *as expressed in*
+`workspaceScrollContent` / `workspaceRows`. It deliberately does not chase a
+force-measure that a future refactor relocates into some other
+transitively-called helper function: tracking arbitrary call graphs in a
+source-pattern lint is fragile, and extracting the rows layout into a new helper
+is a large enough change that it should re-review this guard directly (the
+"could not locate function" failure already trips on the most common such
+rename). Custom `Layout` types are the exception that *is* chased across files,
+because a renamed force-measuring layout is the concrete historical regression
+(#6033).
+
 Usage:
     scripts/check-sidebar-lazy-layout.py [--file PATH]
 
@@ -54,7 +65,6 @@ Exit codes:
 """
 
 import argparse
-import glob
 import os
 import re
 import sys
@@ -242,6 +252,33 @@ def extract_function_body(neutralized, func_name):
     return None
 
 
+# Directory names that hold build artifacts, VCS data, or vendored third-party
+# code. Pruned from the repo-owned Swift walk: a Layout pulled from an external
+# dependency is out of scope (you would have to import it), and SwiftPM checkout
+# trees under `.build` are huge.
+EXCLUDED_DIR_NAMES = frozenset({
+    ".build", ".git", "DerivedData", "Vendor", "vendor", "ThirdParty",
+    "third_party", "Pods", "Carthage", "node_modules",
+})
+
+
+def repo_owned_swift_files(repo_root):
+    """Yield every repo-owned Swift source path under ``Sources/`` and
+    ``Packages/`` (where cmux migrates app code), pruning build/VCS/vendored
+    directories. Scanning both keeps the custom-Layout discovery from being
+    bypassed by defining the force-measuring layout in a package. (#6870 review)
+    """
+    for top in ("Sources", "Packages"):
+        root = os.path.join(repo_root, top)
+        if not os.path.isdir(root):
+            continue
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames if d not in EXCLUDED_DIR_NAMES]
+            for filename in filenames:
+                if filename.endswith(".swift"):
+                    yield os.path.join(dirpath, filename)
+
+
 def find_custom_layout_type_names(paths):
     """Return the set of type names conforming to SwiftUI's `Layout` protocol
     across ``paths`` (comment/string-neutralized so a `: Layout` in prose is not
@@ -345,16 +382,13 @@ def main(argv=None):
               file=sys.stderr)
         return 1
 
-    # Discover custom Layout type names from the target file plus the whole
-    # Sources/ tree, so a renamed force-measuring layout defined in any file is
-    # still banned from the guarded functions.
+    # Discover custom Layout type names from the target file plus every
+    # repo-owned Swift source (Sources/ and Packages/), so a renamed
+    # force-measuring layout defined in any app file or package is still banned
+    # from the guarded functions.
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     layout_scan_paths = [target]
-    sources_dir = os.path.join(repo_root, "Sources")
-    if os.path.isdir(sources_dir):
-        layout_scan_paths.extend(
-            sorted(glob.glob(os.path.join(sources_dir, "**", "*.swift"), recursive=True))
-        )
+    layout_scan_paths.extend(sorted(repo_owned_swift_files(repo_root)))
     custom_layout_names = find_custom_layout_type_names(layout_scan_paths)
 
     violations = check_source(source, custom_layout_names)

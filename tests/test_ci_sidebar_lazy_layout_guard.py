@@ -20,6 +20,7 @@ Cases:
   (h) Renaming/removing a guarded function fails loudly (no silent skip).
 """
 
+import importlib.util
 import os
 import subprocess
 import sys
@@ -27,6 +28,19 @@ import tempfile
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GUARD = os.path.join(ROOT_DIR, "scripts", "check-sidebar-lazy-layout.py")
+
+
+def load_guard_module():
+    spec = importlib.util.spec_from_file_location("sidebar_lazy_layout_guard", GUARD)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def write_text(path, contents):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(contents)
 
 
 def run_guard(path):
@@ -246,6 +260,29 @@ def main():
             run_guard(write_fixture(workdir, "Renamed.swift", renamed)),
             False, "renamed guarded function fails (no silent skip)",
         ) else 1
+
+        # (i) Custom-Layout discovery must cover repo-owned Packages/ (where cmux
+        # migrates app code) and exclude build/vendor trees. (#6870 review)
+        guard = load_guard_module()
+        fake_root = os.path.join(workdir, "fakerepo")
+        write_text(os.path.join(fake_root, "Sources", "Z.swift"),
+                   "struct SourcesLayout: Layout {}\n")
+        write_text(os.path.join(fake_root, "Packages", "macOS", "CmuxSidebar",
+                                "Sources", "X.swift"),
+                   "struct PackagedRowsLayout: Layout {}\n")
+        write_text(os.path.join(fake_root, "Packages", "macOS", "Dep", ".build",
+                                "checkouts", "ext", "Y.swift"),
+                   "struct VendoredLayout: Layout {}\n")
+        scanned = list(guard.repo_owned_swift_files(fake_root))
+        discovered = guard.find_custom_layout_type_names(scanned)
+        cov_ok = (
+            "SourcesLayout" in discovered
+            and "PackagedRowsLayout" in discovered
+            and "VendoredLayout" not in discovered
+        )
+        print("[{0}] discovery covers Sources/ + Packages/, excludes .build "
+              "(found {1})".format("PASS" if cov_ok else "FAIL", sorted(discovered)))
+        failures += 0 if cov_ok else 1
 
     if failures:
         print("\ntest_ci_sidebar_lazy_layout_guard: {0} case(s) FAILED".format(failures),
