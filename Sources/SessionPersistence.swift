@@ -1831,8 +1831,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var customDescription: String?
     /// Provenance of `customDescription`. Optional with a `nil` default so
     /// snapshots persisted before provenance existed decode unchanged; restore
-    /// treats absent provenance as user-set, so a context reset never wipes a
-    /// note it cannot prove an agent owns.
+    /// treats absent provenance as user-set (so resets never wipe user notes).
     var customDescriptionSource: Workspace.CustomDescriptionSource? = nil
     var customColor: String?
     var isPinned: Bool
