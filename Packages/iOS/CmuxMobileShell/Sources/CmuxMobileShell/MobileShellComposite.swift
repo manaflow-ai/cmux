@@ -1,5 +1,5 @@
 public import CMUXMobileCore
-internal import CmuxMobileDiagnostics
+public import CmuxMobileDiagnostics
 public import CmuxMobilePairedMac
 public import CmuxMobileRPC
 public import CmuxMobileShellModel
@@ -83,6 +83,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public private(set) var isSignedIn: Bool {
         didSet {
             guard oldValue != isSignedIn else { return }
+            recordDiagnosticsEvent(isSignedIn ? "auth.signedIn" : "auth.signedOut")
             // Presence follows the session: subscribe while signed in, tear
             // down (and blank the map) the moment the user signs out so a
             // shared device never renders the previous account's devices.
@@ -97,6 +98,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // does not fire for the in-init assignment, so this only observes
             // real transitions. The throttle's `outageOpen` is the per-outage gate.
             guard oldValue != connectionState else { return }
+            recordDiagnosticsEvent("conn.state", fields: [
+                "from": String(describing: oldValue),
+                "to": String(describing: connectionState),
+                "host": connectedHostName,
+            ])
             // Intentional teardown (sign-out, forget, switch) must not look like
             // a network outage: swallow this edge and reset the throttle so a
             // later real reconnect doesn't emit `recovered` with a bogus duration.
@@ -131,7 +137,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     public private(set) var macConnectionStatus: MobileMacConnectionStatus
     public private(set) var connectedHostName: String
-    public private(set) var connectionError: String?
+    public private(set) var connectionError: String? {
+        didSet {
+            guard oldValue != connectionError else { return }
+            guard let trimmed = connectionError?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !trimmed.isEmpty else {
+                return
+            }
+            lastConnectionError = trimmed
+            recordDiagnosticsEvent("conn.error", fields: ["message": trimmed])
+        }
+    }
+    /// Most recent non-empty connection error retained after the visible error
+    /// clears, so diagnostics still explain the failure that led to the current
+    /// state.
+    public private(set) var lastConnectionError: String?
     /// Actionable next-step line shown beneath ``connectionError`` (for example
     /// "Check that both devices are on the same Tailscale"). Set and cleared
     /// together with the error by the pairing-failure classifier sink.
@@ -584,10 +604,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Recording is lock-free and `nonisolated`, so the connect/pair, liveness,
     /// and seq/byte-gap seams below dual-emit a compact ``DiagnosticEvent``
     /// alongside their existing ``MobileDebugLog/anchormux(_:)`` string line.
-    /// `nil` in previews/tests that do not exercise the round-trip. Exposed
-    /// `public` so the DEV feedback-submit affordance can ``DiagnosticLog/export()``
-    /// it.
+    /// `nil` in previews/tests that do not exercise diagnostics export. Exposed
+    /// `public` so feedback and Share Diagnostics affordances can
+    /// ``DiagnosticLog/export()`` it.
     public let diagnosticLog: DiagnosticLog?
+    /// Human-readable auth/connection event log for in-app diagnostics reports.
+    public let diagnosticsEventLog: MobileDiagnosticsEventLog?
     var remoteClient: MobileCoreRPCClient? {
         didSet {
             if remoteClient == nil {
@@ -792,6 +814,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         multiMacAggregationDefaults: UserDefaults = .standard,
         analytics: any AnalyticsEmitting = NoopAnalytics(),
         diagnosticLog: DiagnosticLog? = nil,
+        diagnosticsEventLog: MobileDiagnosticsEventLog? = nil,
         feedbackEmailSubmitter: (any MobileFeedbackEmailSubmitting)? = nil,
         feedbackStampProvider: @escaping @MainActor () -> MobileFeedbackStamp = { MobileShellComposite.emptyFeedbackStamp },
         draftStore: (any TerminalDraftStoring)? = nil,
@@ -814,6 +837,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.multiMacAggregationDefaults = multiMacAggregationDefaults
         self.analytics = analytics
         self.diagnosticLog = diagnosticLog
+        self.diagnosticsEventLog = diagnosticsEventLog
         self.feedbackEmailSubmitter = feedbackEmailSubmitter
         self.feedbackStampProvider = feedbackStampProvider
         // Distinguish "key absent" (an install that predates the hint and may
@@ -902,6 +926,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             workspaces: PreviewMobileHost.workspaces,
             deliveredNotificationClearer: NoopDeliveredNotificationClearer()
         )
+    }
+
+    private func recordDiagnosticsEvent(_ name: String, fields: [String: String] = [:]) {
+        guard let diagnosticsEventLog else { return }
+        Task { await diagnosticsEventLog.record(name, fields: fields) }
     }
 
     public func signIn() {

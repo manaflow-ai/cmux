@@ -95,3 +95,30 @@ public enum AuthError: Error, LocalizedError, Equatable, Sendable {
         }
     }
 }
+
+extension AuthError {
+    var diagnosticName: String {
+        switch self {
+        case .offline:
+            return "offline"
+        case .networkError:
+            return "networkError"
+        case .timedOut:
+            return "timedOut"
+        case .serverError:
+            return "serverError"
+        case .invalidCode:
+            return "invalidCode"
+        case .invalidCallback:
+            return "invalidCallback"
+        case .browserSignInFailed:
+            return "browserSignInFailed"
+        case .unauthorized:
+            return "unauthorized"
+        case .authFailure:
+            return "authFailure"
+        case .cancelled:
+            return "cancelled"
+        }
+    }
+}

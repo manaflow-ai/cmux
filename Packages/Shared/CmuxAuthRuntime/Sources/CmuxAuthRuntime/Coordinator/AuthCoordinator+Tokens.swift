@@ -31,8 +31,12 @@ extension AuthCoordinator {
             if let devToken = await devAuthAccessTokenFallback() {
                 return devToken
             }
+            recordAuthError(AuthError.unauthorized)
             clearAuthState(preservePendingCode: true)
             throw AuthError.unauthorized
+        } catch {
+            recordAuthError(error)
+            throw error
         }
     }
 
@@ -97,9 +101,11 @@ extension AuthCoordinator {
     public func currentTokens() async throws -> (accessToken: String, refreshToken: String) {
         await awaitBootstrapped()
         guard let access = await client.accessToken(), !access.isEmpty else {
+            recordAuthError(AuthError.unauthorized)
             throw AuthError.unauthorized
         }
         guard let refresh = await client.refreshToken(), !refresh.isEmpty else {
+            recordAuthError(AuthError.unauthorized)
             throw AuthError.unauthorized
         }
         return (access, refresh)
@@ -123,8 +129,12 @@ extension AuthCoordinator {
                 try await self.forceRefreshAccessTokenWithoutStateClear()
             }
         } catch AuthError.unauthorized {
+            recordAuthError(AuthError.unauthorized)
             clearAuthState(preservePendingCode: true)
             throw AuthError.unauthorized
+        } catch {
+            recordAuthError(error)
+            throw error
         }
     }
 

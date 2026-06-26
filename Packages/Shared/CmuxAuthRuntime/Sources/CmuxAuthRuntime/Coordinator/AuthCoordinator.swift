@@ -39,6 +39,12 @@ public final class AuthCoordinator {
     public private(set) var isLoading = false
     /// Whether a cached session is being restored/validated at launch.
     public private(set) var isRestoringSession = false
+    /// Most recent display-safe auth failure category for diagnostics reports.
+    ///
+    /// Raw backend errors can contain opaque identifiers or token-adjacent
+    /// payloads, so diagnostics retain only ``AuthError`` case names or the
+    /// thrown Swift error type when no display-safe mapping exists.
+    public private(set) var lastAuthError: String?
     /// The teams the signed-in user belongs to (refreshed on sign-in/restore).
     public private(set) var availableTeams: [CMUXAuthTeam] = []
     /// The user's selected team id. Writes persist through the injected
@@ -234,7 +240,7 @@ public final class AuthCoordinator {
             }
             pendingNonce = nonce
         } catch {
-            throw AuthError(displaySafe: error) ?? error
+            throw recordAuthError(error)
         }
     }
 
@@ -258,7 +264,7 @@ public final class AuthCoordinator {
             }
             try await completeSignIn(flow: flow)
         } catch {
-            throw AuthError(displaySafe: error) ?? error
+            throw recordAuthError(error)
         }
         pendingNonce = nil
     }
@@ -279,7 +285,7 @@ public final class AuthCoordinator {
             }
             try await completeSignIn(flow: flow)
         } catch {
-            throw AuthError(displaySafe: error) ?? error
+            throw recordAuthError(error)
         }
     }
 
@@ -313,7 +319,7 @@ public final class AuthCoordinator {
             try await completeSignIn(flow: flow)
         } catch {
             log.log("auth.oauth provider=\(provider) failed: \(error)")
-            throw AuthError(displaySafe: error) ?? error
+            throw recordAuthError(error)
         }
     }
 
@@ -556,6 +562,7 @@ public final class AuthCoordinator {
         currentUser = user
         isAuthenticated = true
         isRestoringSession = false
+        lastAuthError = nil
         saveCachedUser(user)
         sessionCache.setHasTokens(true)
         await refreshTeams(generation: generation)
@@ -619,6 +626,21 @@ public final class AuthCoordinator {
         currentUser = cachedUser
         isAuthenticated = cachedUser != nil
         isRestoringSession = false
+    }
+
+    @discardableResult
+    func recordAuthError(_ error: any Error) -> any Error {
+        let displaySafe = AuthError(displaySafe: error)
+        let reportable = displaySafe ?? error
+        lastAuthError = Self.diagnosticDescription(for: reportable)
+        return reportable
+    }
+
+    private static func diagnosticDescription(for error: any Error) -> String {
+        if let authError = error as? AuthError {
+            return "AuthError.\(authError.diagnosticName)"
+        }
+        return String(describing: type(of: error))
     }
 
     func clearPersistedAuthForUITest() async {

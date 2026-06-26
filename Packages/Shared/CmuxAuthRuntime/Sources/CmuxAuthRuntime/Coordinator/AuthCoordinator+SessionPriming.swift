@@ -213,6 +213,7 @@ extension AuthCoordinator {
                 authLog.info("Cached session validation superseded by a newer session transition; leaving state untouched")
                 return
             }
+            recordAuthError(error)
             // Drive the clear-vs-preserve decision from LIVE session validity, not
             // the error code alone. The SDK throws the same `UserNotSignedInError`
             // ("USER_NOT_SIGNED_IN") for two opposite situations: a genuine

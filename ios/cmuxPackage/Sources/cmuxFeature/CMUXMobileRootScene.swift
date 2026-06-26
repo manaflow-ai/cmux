@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileAnalytics
+import CmuxMobileDiagnostics
 import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -53,12 +54,10 @@ public struct CMUXMobileRootScene: View {
     /// separately and replaces this at the composition root without touching the
     /// shell.
     private let draftStore: any TerminalDraftStoring
-    #if DEBUG
-    /// The structured diagnostic log injected into the shell store so the DEV
-    /// dogfood feedback round-trip can export it. DEBUG-only; `nil` when the app
-    /// composition root did not build one.
+    /// The structured diagnostic log injected into the shell store.
     private let diagnosticLog: DiagnosticLog?
-    #endif
+    /// Human-readable auth/connection event log for Share Diagnostics.
+    private let diagnosticsEventLog: MobileDiagnosticsEventLog?
 
     #if os(iOS)
     /// Creates the root scene.
@@ -76,8 +75,10 @@ public struct CMUXMobileRootScene: View {
     ///     injected into the root view to gate the one-time onboarding screen.
     ///   - tailscaleStatusMonitor: The app-root tailnet detector, injected into
     ///     the environment for the pairing and disconnected surfaces.
-    ///   - diagnosticLog: The structured diagnostic log (DEBUG builds only),
-    ///     injected into the shell store for the DEV feedback round-trip.
+    ///   - diagnosticLog: The structured diagnostic log injected into the shell
+    ///     store for feedback and diagnostics exports.
+    ///   - diagnosticsEventLog: Human-readable auth/connection event log for
+    ///     Share Diagnostics.
     public init(
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
@@ -87,7 +88,8 @@ public struct CMUXMobileRootScene: View {
         displaySettings: MobileDisplaySettings,
         onboardingStore: MobileOnboardingStore,
         tailscaleStatusMonitor: any TailscaleStatusObserving,
-        diagnosticLog: DiagnosticLog? = nil
+        diagnosticLog: DiagnosticLog? = nil,
+        diagnosticsEventLog: MobileDiagnosticsEventLog? = nil
     ) {
         self.runtime = runtime
         self.auth = auth
@@ -99,9 +101,8 @@ public struct CMUXMobileRootScene: View {
         self.tailscaleStatusMonitor = tailscaleStatusMonitor
         self.pairedMacStore = Self.openPairedMacStore()
         self.draftStore = InMemoryTerminalDraftStore()
-        #if DEBUG
         self.diagnosticLog = diagnosticLog
-        #endif
+        self.diagnosticsEventLog = diagnosticsEventLog
     }
     #else
     /// Creates the root scene (non-iOS: no push).
@@ -118,9 +119,8 @@ public struct CMUXMobileRootScene: View {
         self.tailscaleStatusMonitor = nil
         self.pairedMacStore = Self.openPairedMacStore()
         self.draftStore = InMemoryTerminalDraftStore()
-        #if DEBUG
         self.diagnosticLog = nil
-        #endif
+        self.diagnosticsEventLog = nil
     }
     #endif
 
@@ -259,7 +259,6 @@ public struct CMUXMobileRootScene: View {
         let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp = {
             MobileFeedbackStamp.current()
         }
-        #if DEBUG
         return CMUXMobileShellStore(
             runtime: runtime,
             pairedMacStore: backedUpPairedMacStore,
@@ -271,25 +270,10 @@ public struct CMUXMobileRootScene: View {
             reachability: reachability,
             analytics: analytics,
             diagnosticLog: diagnosticLog,
+            diagnosticsEventLog: diagnosticsEventLog,
             feedbackEmailSubmitter: feedbackEmailSubmitter,
             feedbackStampProvider: feedbackStampProvider,
             draftStore: draftStore
         )
-        #else
-        return CMUXMobileShellStore(
-            runtime: runtime,
-            pairedMacStore: backedUpPairedMacStore,
-            pairedMacRestoreBoundary: restoreBoundary,
-            deviceRegistry: deviceRegistry,
-            presence: makePresenceClient(),
-            identityProvider: identityProvider,
-            teamIDProvider: { await coordinator.resolvedTeamID },
-            reachability: reachability,
-            analytics: analytics,
-            feedbackEmailSubmitter: feedbackEmailSubmitter,
-            feedbackStampProvider: feedbackStampProvider,
-            draftStore: draftStore
-        )
-        #endif
     }
 }
