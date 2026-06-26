@@ -308,6 +308,36 @@ struct UserDefaultsSettingsStoreTests {
         #expect(events.last?.supersededMutationSource == source)
     }
 
+    @Test func valueEventsDeliverNewestSupersededSourceAfterCoalescedSourceLessWrite() async {
+        let (store, catalog) = makeStore()
+        let key = catalog.app.appearance
+        let stream = await store.valueEvents(for: key)
+        var iterator = stream.makeAsyncIterator()
+
+        let initial = await iterator.next()
+        #expect(initial?.value == .system)
+        #expect(initial?.mutationSource == nil)
+        #expect(initial?.supersededMutationSource == nil)
+
+        let firstSource = UserDefaultsSettingsMutationSource()
+        let secondSource = UserDefaultsSettingsMutationSource()
+        await store.set(.dark, for: key, source: firstSource)
+        await store.set(.light, for: key, source: secondSource)
+        await store.set(.system, for: key)
+
+        var sourceLessEvent: UserDefaultsSettingsValueEvent<AppearanceMode>?
+        for _ in 0..<3 {
+            guard let event = await iterator.next() else { break }
+            if event.value == .system {
+                sourceLessEvent = event
+                break
+            }
+        }
+
+        #expect(sourceLessEvent?.mutationSource == nil)
+        #expect(sourceLessEvent?.supersededMutationSource == secondSource)
+    }
+
     @Test func valueEventsTagWritesAfterStreamCreationBeforeFirstRead() async {
         let (store, catalog) = makeStore()
         let key = catalog.app.appearance

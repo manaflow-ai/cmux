@@ -256,9 +256,7 @@ public actor UserDefaultsSettingsStore {
                     || includedMutationSources.contains(record.source)
                 guard shouldDeliver else { continue }
                 nextConsumedSourceSequence = max(record.sequence, nextConsumedSourceSequence)
-                if selectedSupersededSource == nil || includedMutationSources.contains(record.source) {
-                    selectedSupersededSource = record.source
-                }
+                selectedSupersededSource = record.source
             }
             supersededSource = supersededSource ?? selectedSupersededSource
         }
