@@ -30,6 +30,12 @@ struct RemoteTmuxControlCommandBuilder: Sendable {
     private let activityQueryFormat = "#{pane_id}\(RemoteTmuxPaneForegroundState.fieldSeparator)"
         + "#{alternate_on}\(RemoteTmuxPaneForegroundState.fieldSeparator)#{pane_current_command}"
 
+    /// How many scrollback lines ``capturePaneCommand(paneId:)`` seeds (`-S -<N>`)
+    /// so a freshly-mounted mirror tab is scrollable immediately. On an
+    /// alternate-screen pane there is no history, so tmux clamps to the visible
+    /// alt screen — harmless.
+    let captureScrollbackLines = 5_000
+
     /// The exact `refresh-client -B` line that subscribes `paneId`'s working
     /// directory. The `name:target:format` argument MUST stay double-quoted:
     /// tmux's command parser rejects an unquoted `#{…}` mid-argument with
@@ -106,5 +112,86 @@ struct RemoteTmuxControlCommandBuilder: Sendable {
             setBuffer: "set-buffer -b \(buffer) -- \(RemoteTmuxHost.shellSingleQuoted(text))",
             pasteBuffer: "paste-buffer -p -d -b \(buffer) -t %\(paneId)"
         )
+    }
+
+    /// The `list-windows` line behind ``RemoteTmuxControlConnection/requestWindows()``.
+    /// `#{window_name}` is placed last because it can contain spaces, while the id
+    /// and layout tokens never do — so the result parses as
+    /// `@id <layout> <name with spaces…>`.
+    func listWindowsCommand() -> String {
+        "list-windows -F \"#{window_id} #{window_layout} #{window_name}\""
+    }
+
+    /// The `display-message` line behind ``RemoteTmuxControlConnection/capturePane(paneId:)``
+    /// that queries whether `paneId` is on the alternate screen (`#{alternate_on}`),
+    /// so the mirror surface enters alt before painting the captured rows.
+    func paneAlternateScreenQueryCommand(paneId: Int) -> String {
+        "display-message -p -t %\(paneId) -F \"#{alternate_on}\""
+    }
+
+    /// The `capture-pane` line behind ``RemoteTmuxControlConnection/capturePane(paneId:)``.
+    /// `-S -<N>` seeds ``captureScrollbackLines`` of scrollback history (not just the
+    /// visible screen) so the mirrored tab is scrollable immediately on attach.
+    func capturePaneCommand(paneId: Int) -> String {
+        "capture-pane -p -e -S -\(captureScrollbackLines) -t %\(paneId)"
+    }
+
+    /// The `display-message` line behind ``RemoteTmuxControlConnection/capturePane(paneId:)``
+    /// that queries a pane's terminal STATE (cursor, scroll region, DEC private
+    /// modes, mouse tracking). Sent after `capture-pane` so it applies on top of the
+    /// painted rows.
+    func paneStateQueryCommand(paneId: Int) -> String {
+        "display-message -p -t %\(paneId) -F \""
+            + "cursor_x=#{cursor_x},cursor_y=#{cursor_y},"
+            + "scroll_region_upper=#{scroll_region_upper},scroll_region_lower=#{scroll_region_lower},"
+            + "cursor_flag=#{cursor_flag},insert_flag=#{insert_flag},"
+            + "keypad_cursor_flag=#{keypad_cursor_flag},keypad_flag=#{keypad_flag},"
+            + "wrap_flag=#{wrap_flag},origin_flag=#{origin_flag},pane_height=#{pane_height},"
+            + "mouse_all_flag=#{mouse_all_flag},mouse_button_flag=#{mouse_button_flag},"
+            + "mouse_standard_flag=#{mouse_standard_flag},"
+            + "mouse_sgr_flag=#{mouse_sgr_flag},mouse_utf8_flag=#{mouse_utf8_flag}\""
+    }
+
+    /// The one-shot `display-message` line behind ``RemoteTmuxControlConnection/requestPanePath(paneId:)``,
+    /// querying `paneId`'s working directory (`pane_current_path`).
+    func panePathQueryCommand(paneId: Int) -> String {
+        "display-message -p -t %\(paneId) -F \"#{pane_current_path}\""
+    }
+
+    /// The `refresh-client -B` line behind ``RemoteTmuxControlConnection/unsubscribePanePath(paneId:)``
+    /// that removes `paneId`'s live `pane_current_path` subscription, mirroring the
+    /// name built by ``panePathSubscriptionCommand(paneId:)``.
+    func panePathUnsubscribeCommand(paneId: Int) -> String {
+        "refresh-client -B \(cwdSubscriptionPrefix)\(paneId)"
+    }
+
+    /// The one-shot `display-message` line behind ``RemoteTmuxControlConnection/requestPaneReflow(paneId:)``,
+    /// querying `paneId`'s reflow classification (`#{alternate_on}` +
+    /// `#{pane_current_command}`). Mirrors the format streamed by
+    /// ``paneReflowSubscriptionCommand(paneId:)``.
+    func paneReflowQueryCommand(paneId: Int) -> String {
+        "display-message -p -t %\(paneId) -F \""
+            + "#{alternate_on}\(RemoteTmuxPaneForegroundState.fieldSeparator)#{pane_current_command}\""
+    }
+
+    /// The `refresh-client -B` line behind ``RemoteTmuxControlConnection/unsubscribePaneReflow(paneId:)``
+    /// that removes `paneId`'s live reflow-classification subscription, mirroring the
+    /// name built by ``paneReflowSubscriptionCommand(paneId:)``.
+    func paneReflowUnsubscribeCommand(paneId: Int) -> String {
+        "refresh-client -B \(reflowSubscriptionPrefix)\(paneId)"
+    }
+
+    /// The `send-keys -H` line behind ``RemoteTmuxControlConnection/sendKeys(paneId:data:)``,
+    /// delivering `data` as the hex byte arguments from ``hexByteArguments(_:)`` —
+    /// binary-safe and needing no shell quoting.
+    func sendKeysCommand(paneId: Int, data: Data) -> String {
+        "send-keys -t %\(paneId) -H \(hexByteArguments(data))"
+    }
+
+    /// The `refresh-client -C` line that sets the control client's grid size, used
+    /// by ``RemoteTmuxControlConnection`` to (re-)apply the last client size on
+    /// reconnect and after attach.
+    func clientResizeCommand(columns: Int, rows: Int) -> String {
+        "refresh-client -C \(columns)x\(rows)"
     }
 }
