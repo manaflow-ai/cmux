@@ -615,6 +615,7 @@ private enum BrowserDocumentEditingCommandEquivalent: CaseIterable {
     case copy
     case cut
     case selectAll
+    case italic
 
     var shortcut: StoredShortcut {
         switch self {
@@ -644,6 +645,19 @@ private enum BrowserDocumentEditingCommandEquivalent: CaseIterable {
                 option: false,
                 control: false,
                 keyCode: 0
+            )
+        case .italic:
+            // Cmd+I is the universal italics command in web writing apps (Notion,
+            // Google Docs, …). Let the focused editor handle it before the app's
+            // menu/Show Notifications fallback, just like copy/cut/select-all
+            // (issue #6776).
+            return StoredShortcut(
+                key: "i",
+                command: true,
+                shift: false,
+                option: false,
+                control: false,
+                keyCode: 34
             )
         }
     }
