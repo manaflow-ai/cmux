@@ -10074,7 +10074,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard layoutFollowUpTimeoutWorkItem == nil else { return }
 
         let enqueueAttempt: () -> Void = { [weak self] in
-            self?.scheduleLayoutFollowUpAttempt(advancePendingRetry: true)
+            self?.scheduleLayoutFollowUpAttempt()
         }
 
         // Intentionally NOT observing NSWindow.didUpdateNotification here. AppKit
@@ -10165,23 +10165,10 @@ final class Workspace: Identifiable, ObservableObject {
         layoutFollowUpStalledAttemptCount = 0
     }
 
-    private func scheduleLayoutFollowUpAttempt(advancePendingRetry: Bool = false) {
+    private func scheduleLayoutFollowUpAttempt() {
         guard portalRenderingEnabled else { return }
         guard layoutFollowUpTimeoutWorkItem != nil else { return }
-        if layoutFollowUpAttemptScheduled {
-            // A structural readiness event (surface ready, hosted-view moved,
-            // portal visibility, first responder, panels change) must be able to
-            // pull a pending stall-backoff retry forward instead of being
-            // coalesced behind the backoff delay. Otherwise a late-readiness event
-            // could be swallowed by the backoff and the follow-up timeout could
-            // clear the session before any attempt observes the now-ready state.
-            // Progress/stall self-reschedules keep the default (don't advance) so
-            // they ride the backoff.
-            guard advancePendingRetry, layoutFollowUpStalledAttemptCount > 0 else { return }
-            layoutFollowUpStalledAttemptCount = 0
-            layoutFollowUpAttemptVersion &+= 1 // invalidate the pending delayed retry
-            layoutFollowUpAttemptScheduled = false
-        }
+        guard !layoutFollowUpAttemptScheduled else { return }
 
         layoutFollowUpAttemptScheduled = true
         let delay = layoutFollowUpBackoffDelay()
