@@ -391,6 +391,7 @@ extension CmuxSettingsFileStore {
         "sidebar.showProgress",
         "sidebar.showAgentActivity",
         "sidebar.loadingSpinnerPosition",
+        "sidebar.notificationBadgePosition",
         "sidebar.showCustomMetadata",
         RightSidebarWidthSettings.settingsPath,
         "workspaceColors.indicatorStyle",

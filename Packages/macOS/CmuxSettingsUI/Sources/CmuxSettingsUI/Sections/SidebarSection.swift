@@ -35,7 +35,8 @@ public struct SidebarSection: View {
     @State private var showLog: DefaultsValueModel<Bool>
     @State private var showProgress: DefaultsValueModel<Bool>
     @State private var showAgentActivity: DefaultsValueModel<Bool>
-    @State private var loadingSpinnerPosition: DefaultsValueModel<SidebarLoadingIndicatorPosition>
+    @State private var loadingSpinnerPosition: DefaultsValueModel<SidebarIndicatorPosition>
+    @State private var notificationBadgePosition: DefaultsValueModel<SidebarIndicatorPosition>
     @State private var showMetadata: DefaultsValueModel<Bool>
     @State private var rightMaxWidth: DefaultsValueModel<Double>
     @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
@@ -64,6 +65,7 @@ public struct SidebarSection: View {
         _showProgress = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showProgress))
         _showAgentActivity = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showAgentActivity))
         _loadingSpinnerPosition = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.loadingSpinnerPosition))
+        _notificationBadgePosition = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.notificationBadgePosition))
         _showMetadata = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showCustomMetadata))
         _rightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rightMaxWidth))
         _rememberedRightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rememberedRightMaxWidth))
@@ -98,6 +100,8 @@ public struct SidebarSection: View {
             showLog,
             showProgress,
             showAgentActivity,
+            loadingSpinnerPosition,
+            notificationBadgePosition,
             showMetadata,
             rightMaxWidth,
             rememberedRightMaxWidth,
@@ -494,14 +498,33 @@ public struct SidebarSection: View {
                     get: { loadingSpinnerPosition.current },
                     set: { loadingSpinnerPosition.set($0) }
                 )) {
-                    ForEach(SidebarLoadingIndicatorPosition.allCases, id: \.self) { position in
-                        Text(loadingSpinnerPositionLabel(position)).tag(position)
+                    ForEach(SidebarIndicatorPosition.allCases, id: \.self) { position in
+                        Text(positionLabel(position)).tag(position)
                     }
                 }
                 .labelsHidden()
                 .pickerStyle(.segmented)
                 .fixedSize()
                 .disabled(!showAgentActivity.current)
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.notificationBadgePosition"),
+                String(localized: "settings.app.notificationBadgePosition", defaultValue: "Notification Badge Position"),
+                subtitle: String(localized: "settings.app.notificationBadgePosition.subtitle", defaultValue: "Show the unread notification badge on the left or the right of the workspace row.")
+            ) {
+                Picker("", selection: Binding(
+                    get: { notificationBadgePosition.current },
+                    set: { notificationBadgePosition.set($0) }
+                )) {
+                    ForEach(SidebarIndicatorPosition.allCases, id: \.self) { position in
+                        Text(positionLabel(position)).tag(position)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .fixedSize()
             }
             SettingsCardDivider()
 
@@ -518,7 +541,7 @@ public struct SidebarSection: View {
         }
     }
 
-    private func loadingSpinnerPositionLabel(_ position: SidebarLoadingIndicatorPosition) -> String {
+    private func positionLabel(_ position: SidebarIndicatorPosition) -> String {
         switch position {
         case .leading:
             return String(localized: "settings.app.loadingSpinnerPosition.left", defaultValue: "Left")

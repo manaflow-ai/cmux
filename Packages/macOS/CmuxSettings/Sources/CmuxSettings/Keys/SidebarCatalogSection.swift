@@ -122,10 +122,18 @@ public struct SidebarCatalogSection: SettingCatalogSection {
     /// Which side of the workspace row the loading spinner appears on
     /// (`sidebar.loadingSpinnerPosition`). Defaults to leading (left), sharing
     /// the unread-badge slot.
-    public let loadingSpinnerPosition = DefaultsKey<SidebarLoadingIndicatorPosition>(
+    public let loadingSpinnerPosition = DefaultsKey<SidebarIndicatorPosition>(
         id: "sidebar.loadingSpinnerPosition",
         defaultValue: .leading,
         userDefaultsKey: "sidebarLoadingSpinnerPosition"
+    )
+
+    /// Which side of the workspace row the unread notification badge appears on
+    /// (`sidebar.notificationBadgePosition`). Defaults to leading (left).
+    public let notificationBadgePosition = DefaultsKey<SidebarIndicatorPosition>(
+        id: "sidebar.notificationBadgePosition",
+        defaultValue: .leading,
+        userDefaultsKey: "sidebarNotificationBadgePosition"
     )
 
     public let showCustomMetadata = DefaultsKey<Bool>(
