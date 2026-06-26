@@ -8,6 +8,9 @@ import SwiftUI
 struct SleepyFaceView: View {
     var store: SleepyModeSettingsStore
     var power: any SleepyPowerControlling
+    /// Whether the controller actually acquired the keep-awake power assertions.
+    /// When false, the badge says so instead of falsely claiming the Mac is safe.
+    var keepingAwake: Bool
     @State private var lowPowerOn = false
 
     // Easter-egg reactions: timeIntervalSinceReferenceDate when poked.
@@ -56,10 +59,7 @@ struct SleepyFaceView: View {
             .overlay(alignment: .topLeading) { keepAwakeBadge(config: config).padding(26) }
         }
         .ignoresSafeArea()
-        .task {
-            let power = power
-            lowPowerOn = await Task.detached { power.isLowPowerOn() }.value
-        }
+        .task { lowPowerOn = await power.isLowPowerOn() }
     }
 
     // MARK: - Poke handling (easter eggs)
@@ -103,19 +103,24 @@ struct SleepyFaceView: View {
         return CGRect(x: origin.x, y: origin.y, width: 5 * moonPixel, height: 5 * moonPixel)
     }
 
-    /// Reassures the user the Mac is being kept awake (caffeinate is running).
+    /// Tells the user whether the Mac is actually being kept awake. If the power
+    /// assertions could not be acquired, it says so (and to use the Mac's own
+    /// settings) rather than falsely reassuring.
     private func keepAwakeBadge(config: SleepyModeConfig) -> some View {
         let accent = SleepyPalette.colors(for: config)["O"] ?? .white
+        let tint: Color = keepingAwake ? accent : Color(red: 0.95, green: 0.62, blue: 0.30)
         return HStack(spacing: 7) {
-            Image(systemName: "cup.and.saucer.fill")
-            Text(String(localized: "sleepyMode.keepAwake", defaultValue: "Mac staying awake"))
+            Image(systemName: keepingAwake ? "cup.and.saucer.fill" : "exclamationmark.triangle.fill")
+            Text(keepingAwake
+                ? String(localized: "sleepyMode.keepAwake", defaultValue: "Mac staying awake")
+                : String(localized: "sleepyMode.keepAwake.failed", defaultValue: "Couldn't keep Mac awake — check Battery settings"))
         }
         .font(.system(size: 13, weight: .bold, design: .monospaced))
-        .foregroundStyle(accent.opacity(0.7))
+        .foregroundStyle(tint.opacity(keepingAwake ? 0.7 : 0.95))
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
-        .background(accent.opacity(0.08))
-        .overlay(Rectangle().strokeBorder(accent.opacity(0.22), lineWidth: 2))
+        .background(tint.opacity(keepingAwake ? 0.08 : 0.16))
+        .overlay(Rectangle().strokeBorder(tint.opacity(keepingAwake ? 0.22 : 0.5), lineWidth: 2))
     }
 
     private func bottomBar(config: SleepyModeConfig) -> some View {
@@ -134,27 +139,27 @@ struct SleepyFaceView: View {
                 Button {
                     // The real macOS login lock — genuinely secure (Apple's), unlike
                     // the overlay. The screensaver stays up behind it as the backdrop.
-                    power.lockMacNow()
+                    let power = power
+                    Task { await power.lockMacNow() }
                 } label: {
                     Label(String(localized: "sleepyMode.button.lockMac", defaultValue: "Lock Mac"), systemImage: "lock.fill")
                 }
                 .buttonStyle(PixelButtonStyle(tint: Color(red: 0.34, green: 0.30, blue: 0.60)))
 
                 Button {
-                    power.sleepDisplayNow()
+                    let power = power
+                    Task { await power.sleepDisplayNow() }
                 } label: {
                     Label(String(localized: "sleepyMode.button.sleepDisplay", defaultValue: "Sleep Display"), systemImage: "moon.fill")
                 }
                 .buttonStyle(PixelButtonStyle(tint: Color(red: 0.28, green: 0.40, blue: 0.62)))
 
                 Button {
-                    // Off the main thread: the admin prompt blocks until answered.
+                    // The runner does the blocking pmset/admin-prompt work off-main;
+                    // this MainActor task just suspends on await, then applies state.
                     let turnOn = !lowPowerOn
                     let power = power
-                    Task.detached {
-                        let state = power.setLowPowerMode(turnOn)
-                        await MainActor.run { lowPowerOn = state }
-                    }
+                    Task { lowPowerOn = await power.setLowPowerMode(turnOn) }
                 } label: {
                     Label(
                         lowPowerOn

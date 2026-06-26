@@ -41,6 +41,11 @@ final class SleepyModeController {
 
     var isHoldingPowerAssertions: Bool { hasSystemAssertion || hasDisplayAssertion }
 
+    /// True only when BOTH keep-awake assertions are held (system idle sleep and
+    /// display sleep). Drives the honest on-screen badge — if either failed, the
+    /// UI must not claim the Mac is safely staying awake.
+    var keepAwakeFullyActive: Bool { hasSystemAssertion && hasDisplayAssertion }
+
     func toggle() {
         if isActive { deactivate() } else { activate() }
     }
@@ -103,7 +108,7 @@ final class SleepyModeController {
         window.acceptsMouseMovedEvents = true
         window.setFrame(screen.frame, display: true)
         window.onExit = { [weak self] in self?.deactivate() }
-        window.contentView = NSHostingView(rootView: SleepyFaceView(store: store, power: powerControls))
+        window.contentView = NSHostingView(rootView: SleepyFaceView(store: store, power: powerControls, keepingAwake: keepAwakeFullyActive))
         return window
     }
 
