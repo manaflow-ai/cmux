@@ -9930,11 +9930,25 @@ struct CMUXCLI {
             "case \"$cmux_ssh_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_reconnect_limit=20 ;; esac",
             "cmux_ssh_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
             "case \"$cmux_ssh_reconnect_delay\" in ''|*[!0-9]*) cmux_ssh_reconnect_delay=2 ;; esac",
+            // A locked SSH agent (e.g. 1Password auto-locked after sleep) refuses to
+            // sign keys, so every reconnect attempt fails instantly with the same
+            // "agent refused operation" error. Counting those against the network
+            // reconnect budget burns through it in seconds — before the user can
+            // unlock the agent. Track agent-refusals on a separate, gentler budget
+            // that does not consume the transport retry limit so the session can
+            // auto-reconnect once the agent is unlocked.
+            "cmux_ssh_agent_wait_limit=\"${CMUX_SSH_AGENT_WAIT_LIMIT:-60}\"",
+            "case \"$cmux_ssh_agent_wait_limit\" in ''|*[!0-9]*) cmux_ssh_agent_wait_limit=60 ;; esac",
+            "cmux_ssh_agent_wait_delay=\"${CMUX_SSH_AGENT_WAIT_DELAY_SECONDS:-3}\"",
+            "case \"$cmux_ssh_agent_wait_delay\" in ''|*[!0-9]*) cmux_ssh_agent_wait_delay=3 ;; esac",
+            "cmux_ssh_agent_wait=0",
+            "cmux_ssh_agent_wait_exhausted=0",
+            "cmux_ssh_stderr_capture=$(mktemp \"${TMPDIR:-/tmp}/cmux-ssh-stderr.XXXXXX\" 2>/dev/null) || cmux_ssh_stderr_capture=",
             "cmux_ssh_retry=0",
             "CMUX_SSH_CHILD_PID=",
             "CMUX_SSH_PENDING_SIGNAL=",
             "cmux_ssh_note() { if [ -t 2 ]; then printf \"$@\" >&2 || true; fi; }",
-            "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; \(lifecycleCleanup); }",
+            "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; \(lifecycleCleanup); if [ -n \"${cmux_ssh_stderr_capture:-}\" ]; then rm -f -- \"$cmux_ssh_stderr_capture\" 2>/dev/null || true; fi; }",
             // Pane-close signals are terminal lifecycle, not SSH transport lifecycle.
             // Avoid sending an extra TERM to a child that may own the shared ControlMaster path.
             "cmux_ssh_signal_exit() { cmux_ssh_signal_status=\"$1\"; if [ -z \"${CMUX_SSH_CHILD_PID:-}\" ]; then CMUX_SSH_PENDING_SIGNAL=\"$cmux_ssh_signal_status\"; return; fi; CMUX_SSH_SESSION_ENDED=1; trap - EXIT HUP INT TERM; exit \"$cmux_ssh_signal_status\"; }",
@@ -9947,19 +9961,29 @@ struct CMUXCLI {
         if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty {
             scriptLines.append("  cmux_ssh_preflight_control_path")
         }
+        // Mirror ssh's stderr into a per-attempt capture file (via fd 9) so the
+        // wrapper can classify the failure reason after the attempt exits, while
+        // still showing it to the user. The capture is gated behind a subshell
+        // writability probe so a failed redirect can never abort the wrapper.
+        scriptLines += [
+            "  cmux_ssh_capture_active=0",
+            "  if [ -n \"${cmux_ssh_stderr_capture:-}\" ] && ( : > \"$cmux_ssh_stderr_capture\" ) 2>/dev/null; then cmux_ssh_capture_active=1; exec 9>>\"$cmux_ssh_stderr_capture\"; else exec 9>&2; fi",
+        ]
         // POSIX sh redirects stdin of an async command (`&`) to /dev/null when
         // job control is off (the default for `/bin/sh -c …`), so ssh would
         // never receive keystrokes from the surface PTY. Inheriting fd 0
         // explicitly with `<&0` overrides that default and keeps the wrapper's
         // own stdin (the terminal) wired into the backgrounded ssh process.
+        // ssh's stderr (fd 2) is duplicated onto fd 9 so it is both shown and
+        // captured; the remote PTY stream stays on fd 1 and is untouched.
         if isShellSnippet {
             scriptLines += [
                 "  (",
                 "    \(sshCommand)",
-                "  ) <&0 &",
+                "  ) <&0 2>&9 &",
             ]
         } else {
-            scriptLines.append("  command \(sshCommand) <&0 &")
+            scriptLines.append("  command \(sshCommand) <&0 2>&9 &")
         }
         let retryableStatusPattern = retryPTYAttachStatus ? "254|255" : "255"
         scriptLines += [
@@ -9968,8 +9992,26 @@ struct CMUXCLI {
             "  wait \"$CMUX_SSH_CHILD_PID\"",
             "  cmux_ssh_status=$?",
             "  CMUX_SSH_CHILD_PID=",
+            "  exec 9>&-",
+            // Surface the attempt's captured stderr, then classify it: a key-signing
+            // refusal from the agent means the agent is locked (not that the host is
+            // unreachable), so it must not consume the network reconnect budget.
+            "  if [ \"$cmux_ssh_capture_active\" = 1 ] && [ -s \"$cmux_ssh_stderr_capture\" ]; then cat \"$cmux_ssh_stderr_capture\" >&2 2>/dev/null || true; fi",
+            "  cmux_ssh_agent_locked=0",
+            "  if [ \"$cmux_ssh_capture_active\" = 1 ] && [ \"$cmux_ssh_status\" -ne 0 ] && grep -qiE 'agent refused operation|sign_and_send_pubkey: signing failed' \"$cmux_ssh_stderr_capture\" 2>/dev/null; then cmux_ssh_agent_locked=1; fi",
             "  if [ \"$cmux_ssh_status\" -eq 0 ]; then break; fi",
             "  case \"$cmux_ssh_status\" in \(retryableStatusPattern)) ;; *) break ;; esac",
+            // Locked SSH agent: wait on the dedicated agent budget instead of the
+            // network one, and auto-reconnect as soon as the agent is unlocked.
+            "  if [ \"$cmux_ssh_agent_locked\" -eq 1 ]; then",
+            "    if [ \"$cmux_ssh_agent_wait\" -ge \"$cmux_ssh_agent_wait_limit\" ]; then cmux_ssh_agent_wait_exhausted=1; break; fi",
+            "    cmux_ssh_agent_wait=$((cmux_ssh_agent_wait + 1))",
+            "    cmux_ssh_note '\\n\\033[33m[cmux] SSH agent refused to sign the key (agent locked?); waiting to reconnect (attempt %s/%s).\\033[0m\\n\\033[2m[cmux] unlock your SSH agent (e.g. Touch ID in 1Password) to reconnect automatically, or press Reconnect.\\033[0m\\n\\033[2m[cmux] close this pane or press Ctrl-C to stop.\\033[0m\\n' \"$cmux_ssh_agent_wait\" \"$cmux_ssh_agent_wait_limit\"",
+            "    if [ \"$cmux_ssh_agent_wait_delay\" -gt 0 ]; then sleep \"$cmux_ssh_agent_wait_delay\"; fi",
+            "    if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_session_end; trap - EXIT HUP INT TERM; exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
+            "    continue",
+            "  fi",
+            "  cmux_ssh_agent_wait=0",
             "  if [ \"$cmux_ssh_retry\" -ge \"$cmux_ssh_reconnect_limit\" ]; then break; fi",
             "  cmux_ssh_retry=$((cmux_ssh_retry + 1))",
             "  cmux_ssh_note '\\n\\033[33m[cmux] ssh exited with status %s; reconnecting (attempt %s/%s).\\033[0m\\n\\033[2m[cmux] close this pane or press Ctrl-C to stop reconnecting.\\033[0m\\n' \"$cmux_ssh_status\" \"$cmux_ssh_retry\" \"$cmux_ssh_reconnect_limit\"",
@@ -9982,7 +10024,10 @@ struct CMUXCLI {
             // back to a local shell. Without this, Ghostty's PTY respawns a login shell
             // after the startup command exits, and a dead VM looks identical to "I never
             // SSH'd" — the surface shows `Last login: ... on ttys072` + a local prompt.
-            "if [ \"$cmux_ssh_status\" -ne 0 ]; then",
+            "if [ \"$cmux_ssh_agent_wait_exhausted\" -eq 1 ]; then",
+            "  printf '\\n\\033[31m[cmux] SSH agent unavailable — key signing was refused.\\033[0m\\n\\033[2m[cmux] unlock your SSH agent (e.g. Touch ID in 1Password), then press Reconnect in the sidebar.\\033[0m\\n\\033[2m[cmux] press Enter to close this pane.\\033[0m\\n' >&2 || true",
+            "  IFS= read -r _cmux_dismiss_key 2>/dev/null || true",
+            "elif [ \"$cmux_ssh_status\" -ne 0 ]; then",
             "  printf '\\n\\033[31m[cmux] ssh exited with status %s.\\033[0m\\n\\033[2m[cmux] the remote VM may have been paused, destroyed, or lost network.\\033[0m\\n\\033[2m[cmux] press Enter to close this pane.\\033[0m\\n' \"$cmux_ssh_status\" >&2 || true",
             "  IFS= read -r _cmux_dismiss_key 2>/dev/null || true",
             "fi",
