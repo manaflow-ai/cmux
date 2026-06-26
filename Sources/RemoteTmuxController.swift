@@ -1,5 +1,6 @@
 import Foundation
 import CmuxSettings
+import OSLog
 
 /// Coordinates cmux's mirroring of remote tmux servers.
 ///
@@ -16,6 +17,10 @@ import CmuxSettings
 final class RemoteTmuxController {
     typealias MirrorTabActivity = RemoteTmuxMirrorTabActivity
     typealias SessionEndAction = RemoteTmuxSessionEndAction
+
+    /// Diagnostic logger (not user-facing) for mirror lifecycle events such as a
+    /// ControlMaster that couldn't be confirmed ready before the attach burst.
+    nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app", category: "RemoteTmux")
 
     /// Per-endpoint SSH transports (keyed by ``RemoteTmuxHost/connectionHash``),
     /// owned by ``RemoteTmuxController`` and delegated to for discovery + master teardown.
@@ -342,6 +347,22 @@ final class RemoteTmuxController {
         // and open an orphaned dedicated window (with live SSH/tmux behind it).
         try Task.checkCancellation()
 
+        // Warm + confirm the shared ControlMaster BEFORE creating the window and
+        // firing the per-session attach burst below. Each `tmux -CC attach` is
+        // spawned with `ControlMaster=auto`; on a cold first attach with many
+        // sessions they otherwise all race to create the master and all-but-one
+        // fail to mirror (#6732). Doing this before the window is created keeps a
+        // cancellation here (propagated from ensureMasterReady) from leaking a
+        // window. Best-effort: proceed even if readiness can't be confirmed (no
+        // worse than the previous ungated burst), but log so a degraded mirror is
+        // diagnosable.
+        let masterReady = try await transport(for: host).ensureMasterReady()
+        if !masterReady {
+            Self.logger.warning(
+                "remote-tmux: ControlMaster not confirmed ready before attach burst for \(host.destination, privacy: .public); mirroring best-effort"
+            )
+        }
+
         let windowId = appDelegate.createMainWindow(shouldActivate: activateWindow)
         guard let manager = appDelegate.tabManagerFor(windowId: windowId) else {
             throw RemoteTmuxError.unreachable("could not create window")
@@ -392,6 +413,16 @@ final class RemoteTmuxController {
             throw RemoteTmuxError.unreachable("app not ready")
         }
         let sessions = try await transport(for: host).discoverMirrorSessions(createIfEmpty: false)
+        // Confirm the shared ControlMaster before the per-session attach burst (see
+        // ensureMasterReady): without it, concurrent `ControlMaster=auto` attaches
+        // race to create the master on a cold first mirror and all-but-one fail.
+        // Best-effort — proceed regardless so any session that does attach is kept.
+        let masterReady = try await transport(for: host).ensureMasterReady()
+        if !masterReady {
+            Self.logger.warning(
+                "remote-tmux: ControlMaster not confirmed ready before attach burst for \(host.destination, privacy: .public); mirroring best-effort"
+            )
+        }
         for session in sessions {
             // One session failing to attach must not abort mirroring the rest.
             do {
