@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -18,8 +19,12 @@ import XCTest
 /// same order, including the surfaceId/panelId cross-match and read entries.
 /// These tests assert the indexed lookup is byte-identical to an independent
 /// `matches`-based reference filter across those combinations.
+///
+/// Serialized because every case mutates the `TerminalNotificationStore.shared`
+/// singleton.
 @MainActor
-final class TerminalNotificationStoreFingerprintIndexTests: XCTestCase {
+@Suite(.serialized)
+struct TerminalNotificationStoreFingerprintIndexTests {
     private func makeNotification(
         tab: UUID,
         surface: UUID?,
@@ -39,7 +44,8 @@ final class TerminalNotificationStoreFingerprintIndexTests: XCTestCase {
         )
     }
 
-    func testIndexedLookupMatchesFilterSemantics() {
+    @Test
+    func indexedLookupMatchesFilterSemantics() {
         let store = TerminalNotificationStore.shared
         let original = store.notifications
         defer { store.replaceNotificationsForTesting(original) }
@@ -74,9 +80,8 @@ final class TerminalNotificationStoreFingerprintIndexTests: XCTestCase {
             for surface in surfaces {
                 let expected = injected.filter { $0.matches(tabId: tab, surfaceId: surface) }
                 let actual = store.notifications(forTabId: tab, surfaceId: surface)
-                XCTAssertEqual(
-                    actual,
-                    expected,
+                #expect(
+                    actual == expected,
                     "notifications(forTabId:surfaceId:) diverged from matches() filter "
                         + "for tab=\(tab) surface=\(String(describing: surface))"
                 )
@@ -84,7 +89,8 @@ final class TerminalNotificationStoreFingerprintIndexTests: XCTestCase {
         }
     }
 
-    func testIndexedLookupPreservesArrayOrder() {
+    @Test
+    func indexedLookupPreservesArrayOrder() {
         let store = TerminalNotificationStore.shared
         let original = store.notifications
         defer { store.replaceNotificationsForTesting(original) }
@@ -100,16 +106,17 @@ final class TerminalNotificationStoreFingerprintIndexTests: XCTestCase {
         store.replaceNotificationsForTesting(injected)
 
         let actual = store.notifications(forTabId: tab, surfaceId: surface)
-        XCTAssertEqual(actual.map(\.id), injected.map(\.id))
+        #expect(actual.map(\.id) == injected.map(\.id))
     }
 
-    func testEmptyStoreReturnsEmptyForAnyQuery() {
+    @Test
+    func emptyStoreReturnsEmptyForAnyQuery() {
         let store = TerminalNotificationStore.shared
         let original = store.notifications
         defer { store.replaceNotificationsForTesting(original) }
 
         store.replaceNotificationsForTesting([])
-        XCTAssertTrue(store.notifications(forTabId: UUID(), surfaceId: nil).isEmpty)
-        XCTAssertTrue(store.notifications(forTabId: UUID(), surfaceId: UUID()).isEmpty)
+        #expect(store.notifications(forTabId: UUID(), surfaceId: nil).isEmpty)
+        #expect(store.notifications(forTabId: UUID(), surfaceId: UUID()).isEmpty)
     }
 }
