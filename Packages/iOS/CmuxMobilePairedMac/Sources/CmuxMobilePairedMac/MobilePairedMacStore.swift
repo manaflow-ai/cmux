@@ -14,7 +14,7 @@ private let pairedMacStoreLog = Logger(subsystem: "com.cmuxterm.app", category: 
 /// inject it as `any MobilePairedMacStoring`.
 public actor MobilePairedMacStore: MobilePairedMacStoring {
     /// The schema version this build creates and migrates to.
-    public static let currentSchemaVersion: Int32 = 4
+    public static let currentSchemaVersion: Int32 = 5
 
     private let dbPath: String
     // `nonisolated(unsafe)` only so the (Swift 6 nonisolated) `deinit` can close
@@ -109,27 +109,36 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV2()
                 try migrateToV3()
                 try migrateToV4()
-                try setUserVersion(4)
+                try migrateToV5()
+                try setUserVersion(5)
             }
         case 1:
             try transaction {
                 try migrateToV2()
                 try migrateToV3()
                 try migrateToV4()
-                try setUserVersion(4)
+                try migrateToV5()
+                try setUserVersion(5)
             }
         case 2:
             try transaction {
                 try migrateToV3()
                 try migrateToV4()
-                try setUserVersion(4)
+                try migrateToV5()
+                try setUserVersion(5)
             }
         case 3:
             try transaction {
                 try migrateToV4()
-                try setUserVersion(4)
+                try migrateToV5()
+                try setUserVersion(5)
             }
         case 4:
+            try transaction {
+                try migrateToV5()
+                try setUserVersion(5)
+            }
+        case 5:
             break
         default:
             // A newer build wrote a higher schema version. Schema migrations are
@@ -289,6 +298,19 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         try exec("CREATE INDEX IF NOT EXISTS idx_routes_device ON mac_routes(mac_device_id, owner_key);")
     }
 
+    /// v5: local-only attach ticket state for fast reconnect without a Stack
+    /// network round trip. These columns are intentionally not represented in the
+    /// paired-Mac backup wire format.
+    private func migrateToV5() throws {
+        let existing = try tableColumns("paired_macs")
+        if !existing.contains("attach_token") {
+            try exec("ALTER TABLE paired_macs ADD COLUMN attach_token TEXT;")
+        }
+        if !existing.contains("attach_token_expires_at") {
+            try exec("ALTER TABLE paired_macs ADD COLUMN attach_token_expires_at REAL;")
+        }
+    }
+
     /// Column names defined on `table` (via `PRAGMA table_info`), used to make
     /// additive column migrations idempotent.
     private func tableColumns(_ table: String) throws -> Set<String> {
@@ -316,6 +338,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         macDeviceID: String,
         displayName: String?,
         routes: [CmxAttachRoute],
+        attachToken: String? = nil,
+        attachTokenExpiresAt: Date? = nil,
         markActive: Bool,
         stackUserID: String?,
         teamID: String? = nil,
@@ -350,6 +374,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 displayName: displayName,
                 stackUserID: stackUserID,
                 teamID: teamID,
+                attachToken: attachToken,
+                attachTokenExpiresAt: attachTokenExpiresAt,
                 createdAt: createdAt,
                 lastSeenAt: now,
                 isActive: markActive
@@ -484,13 +510,16 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         var customName: String? = nil
         var customColor: String? = nil
         var customIcon: String? = nil
+        var attachToken: String? = nil
+        var attachTokenExpiresAt: Date? = nil
     }
 
     private func fetchMacRow(macDeviceID: String, ownerKey: String) throws -> MacRow? {
         var statement: OpaquePointer?
         defer { sqlite3_finalize(statement) }
         let sql = """
-            SELECT display_name, stack_user_id, created_at, last_seen_at, is_active, team_id
+            SELECT display_name, stack_user_id, created_at, last_seen_at, is_active, team_id,
+                   attach_token, attach_token_expires_at
             FROM paired_macs WHERE mac_device_id = ? AND owner_key = ?;
         """
         let rc = sqlite3_prepare_v2(db, sql, -1, &statement, nil)
@@ -509,6 +538,13 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         let lastSeenAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 3))
         let isActive = sqlite3_column_int(statement, 4) != 0
         let teamID = Self.readNullableText(statement, column: 5)
+        let attachToken = Self.readNullableText(statement, column: 6)
+        let attachTokenExpiresAt: Date?
+        if sqlite3_column_type(statement, 7) == SQLITE_NULL {
+            attachTokenExpiresAt = nil
+        } else {
+            attachTokenExpiresAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 7))
+        }
         return MacRow(
             macDeviceID: macDeviceID,
             ownerKey: ownerKey,
@@ -517,7 +553,9 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             teamID: teamID,
             createdAt: createdAt,
             lastSeenAt: lastSeenAt,
-            isActive: isActive
+            isActive: isActive,
+            attachToken: attachToken,
+            attachTokenExpiresAt: attachTokenExpiresAt
         )
     }
 
@@ -527,17 +565,27 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         displayName: String?,
         stackUserID: String?,
         teamID: String?,
+        attachToken: String?,
+        attachTokenExpiresAt: Date?,
         createdAt: Date,
         lastSeenAt: Date,
         isActive: Bool
     ) throws {
         try exec("""
-            INSERT INTO paired_macs (mac_device_id, owner_key, display_name, stack_user_id, team_id, created_at, last_seen_at, is_active)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO paired_macs (
+                mac_device_id, owner_key, display_name, stack_user_id, team_id,
+                attach_token, attach_token_expires_at, created_at, last_seen_at, is_active
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(mac_device_id, owner_key) DO UPDATE SET
                 display_name = excluded.display_name,
                 stack_user_id = excluded.stack_user_id,
                 team_id = excluded.team_id,
+                attach_token = COALESCE(excluded.attach_token, attach_token),
+                attach_token_expires_at = CASE
+                    WHEN excluded.attach_token IS NOT NULL THEN excluded.attach_token_expires_at
+                    ELSE attach_token_expires_at
+                END,
                 last_seen_at = excluded.last_seen_at,
                 is_active = excluded.is_active;
         """, binding: [
@@ -546,6 +594,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             displayName.map(BindValue.text) ?? .null,
             stackUserID.map(BindValue.text) ?? .null,
             teamID.map(BindValue.text) ?? .null,
+            attachToken.map(BindValue.text) ?? .null,
+            attachTokenExpiresAt.map { .real($0.timeIntervalSince1970) } ?? .null,
             .real(createdAt.timeIntervalSince1970),
             .real(lastSeenAt.timeIntervalSince1970),
             .int(isActive ? 1 : 0),
@@ -579,11 +629,13 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         try exec("""
             INSERT INTO paired_macs (
                 mac_device_id, owner_key, display_name, stack_user_id, team_id,
-                created_at, last_seen_at, is_active, custom_name, custom_color, custom_icon
+                created_at, last_seen_at, is_active, custom_name, custom_color, custom_icon,
+                attach_token, attach_token_expires_at
             )
             SELECT
                 mac_device_id, ?, display_name, stack_user_id, ?, created_at,
-                last_seen_at, is_active, custom_name, custom_color, custom_icon
+                last_seen_at, is_active, custom_name, custom_color, custom_icon,
+                attach_token, attach_token_expires_at
             FROM paired_macs
             WHERE mac_device_id = ? AND owner_key = ?;
         """, binding: [
@@ -634,7 +686,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         let whereClause = clauses.isEmpty ? "" : "WHERE " + clauses.joined(separator: " AND ")
         let sql = """
             SELECT mac_device_id, owner_key, display_name, stack_user_id, created_at, last_seen_at, is_active,
-                   custom_name, custom_color, custom_icon, team_id
+                   custom_name, custom_color, custom_icon, team_id, attach_token, attach_token_expires_at
             FROM paired_macs
             \(whereClause)
             ORDER BY last_seen_at DESC;
@@ -655,6 +707,12 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             let createdAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 4))
             let lastSeenAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 5))
             let isActive = sqlite3_column_int(statement, 6) != 0
+            let attachTokenExpiresAt: Date?
+            if sqlite3_column_type(statement, 12) == SQLITE_NULL {
+                attachTokenExpiresAt = nil
+            } else {
+                attachTokenExpiresAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 12))
+            }
             rows.append(MacRow(
                 macDeviceID: macDeviceID,
                 ownerKey: ownerKey,
@@ -666,7 +724,9 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 isActive: isActive,
                 customName: Self.readNullableText(statement, column: 7),
                 customColor: Self.readNullableText(statement, column: 8),
-                customIcon: Self.readNullableText(statement, column: 9)
+                customIcon: Self.readNullableText(statement, column: 9),
+                attachToken: Self.readNullableText(statement, column: 11),
+                attachTokenExpiresAt: attachTokenExpiresAt
             ))
         }
 
@@ -676,6 +736,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 macDeviceID: row.macDeviceID,
                 displayName: row.displayName,
                 routes: routes,
+                attachToken: row.attachToken,
+                attachTokenExpiresAt: row.attachTokenExpiresAt,
                 createdAt: row.createdAt,
                 lastSeenAt: row.lastSeenAt,
                 isActive: row.isActive,

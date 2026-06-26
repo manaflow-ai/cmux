@@ -9,7 +9,8 @@ public import Foundation
 public protocol MobileSyncRuntime: Sendable {
     /// Factory that builds a byte transport for a given attach route.
     var transportFactory: any CmxByteTransportFactory { get }
-    /// Mints a Stack Auth access token for requests not covered by an attach ticket.
+    /// Mints a Stack Auth access token for tokenless pairing and requests outside
+    /// the attach ticket's local authorization scope.
     var stackAccessTokenProvider: @Sendable () async throws -> String { get }
     /// Returns a cached Stack Auth access token for best-effort status probes.
     /// Must not refresh, cancel, or otherwise mutate auth state.

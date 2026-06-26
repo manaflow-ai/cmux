@@ -1404,17 +1404,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func connectStoredMacHost(
-        name: String,
+        mac: MobilePairedMac,
         host: String,
-        port: Int,
-        pairedMacDeviceID: String
+        port: Int
     ) async {
         await connectManualHost(
-            name: name,
+            name: mac.displayName ?? host,
             host: host,
             port: port,
-            pairedMacDeviceID: pairedMacDeviceID,
-            recordsPairingAttempt: false
+            pairedMacDeviceID: mac.macDeviceID,
+            recordsPairingAttempt: false,
+            durableTicket: durableAttachTicket(for: mac)
         )
     }
 
@@ -1428,7 +1428,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         host: String,
         port: Int,
         pairedMacDeviceID: String? = nil,
-        recordsPairingAttempt: Bool
+        recordsPairingAttempt: Bool,
+        durableTicket: CmxAttachTicket? = nil
     ) async {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
@@ -1468,12 +1469,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let manualRoutes = directRoute.map { [$0] } ?? []
         guard await failPairingIfOffline(attemptID: attemptID, phase: "preflight", routes: manualRoutes) == .proceed else { return }
         do {
-            let ticket = try await manualHostTicket(
-                name: trimmedName,
-                host: normalizedHost,
-                port: port,
-                attemptStartedAt: pairingAttemptStartedAt
-            )
+            let ticket: CmxAttachTicket
+            if let durableTicket {
+                ticket = durableTicket
+            } else {
+                ticket = try await manualHostTicket(
+                    name: trimmedName,
+                    host: normalizedHost,
+                    port: port,
+                    attemptStartedAt: pairingAttemptStartedAt
+                )
+            }
             guard isCurrentPairingAttempt(attemptID) else { return }
             let noThrowFailure = try await connect(
                 ticket: ticket, allowsStackAuthFallback: true, pairedMacDeviceID: pairedMacDeviceID)
@@ -1507,10 +1513,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    /// On launch (after StackAuth has bootstrapped), call this to reconnect
-    /// to the last-active paired Mac. Pulls (route, displayName, macDeviceID)
-    /// from SQLite and re-mints an attach ticket via the StackAuth-authenticated
-    /// manual host flow. Auth tokens never persist; we always re-mint.
+    private func durableAttachTicket(for mac: MobilePairedMac) -> CmxAttachTicket? {
+        guard let attachToken = mac.attachToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !attachToken.isEmpty,
+              let expiresAt = mac.attachTokenExpiresAt,
+              expiresAt > (runtime?.now() ?? Date()) else {
+            return nil
+        }
+        return try? CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: mac.macDeviceID,
+            macDisplayName: mac.displayName,
+            routes: mac.routes,
+            expiresAt: expiresAt,
+            authToken: attachToken
+        )
+    }
+
+    /// On launch, call this to reconnect to the last-active paired Mac. Pulls
+    /// (route, displayName, macDeviceID, local attach token) from SQLite and uses
+    /// the local token first; if none is usable, it falls back to the
+    /// StackAuth-authenticated manual host ticket mint flow.
     @discardableResult
     public func reconnectActiveMacIfAvailable(stackUserID: String?) async -> Bool {
         lastReconnectStackUserID = stackUserID
@@ -1627,8 +1651,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // Best-effort registry refresh for this Mac in the background.
             refreshRoutesFromRegistry(for: mac, scope: scope)
             await connectStoredMacHost(
-                name: mac.displayName ?? host, host: host, port: port,
-                pairedMacDeviceID: mac.macDeviceID)
+                mac: mac,
+                host: host,
+                port: port
+            )
             if connectionState == .connected { break }
         }
         restoringDeadline.cancel()
@@ -2596,6 +2622,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     macDeviceID: ticket.macDeviceID,
                     displayName: displayName,
                     routes: ticket.routes,
+                    attachToken: Self.normalizedAttachToken(ticket.authToken),
+                    attachTokenExpiresAt: ticket.expiresAt,
                     markActive: true,
                     stackUserID: stackUserID,
                     teamID: scope?.teamID,
@@ -2609,6 +2637,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 mobileShellLog.error("paired mac store upsert failed: \(String(describing: error), privacy: .public)")
             }
         }
+    }
+
+    private static func normalizedAttachToken(_ token: String?) -> String? {
+        guard let token = token?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !token.isEmpty else {
+            return nil
+        }
+        return token
     }
 
     /// Recovers the Mac's identity for a connection whose ticket arrived
@@ -3009,18 +3045,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return nil
         }
         let ticket: CmxAttachTicket
-        do {
-            ticket = try await manualHostTicket(
-                name: mac.displayName ?? host,
-                host: host,
-                port: port,
-                attemptStartedAt: nil
-            )
-        } catch {
-            mobileShellLog.warning(
-                "secondary client: ticket failed mac=\(mac.macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)"
-            )
-            return nil
+        if let durableTicket = durableAttachTicket(for: mac) {
+            ticket = durableTicket
+        } else {
+            do {
+                ticket = try await manualHostTicket(
+                    name: mac.displayName ?? host,
+                    host: host,
+                    port: port,
+                    attemptStartedAt: nil
+                )
+            } catch {
+                mobileShellLog.warning(
+                    "secondary client: ticket failed mac=\(mac.macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)"
+                )
+                return nil
+            }
         }
         let supportedRoutes = Self.supportedRoutes(for: ticket, supportedKinds: supportedKinds)
         // Dial the route we PROVED reachable above (the non-loopback host/port the
@@ -4512,9 +4552,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
 
         let workspaceListRequests = try Self.initialWorkspaceListRequests(for: ticket)
-        // Stack auth is now the authorization gate for every request. Decide the
-        // fallback per attempted route so an untrusted fallback route cannot
-        // disable auth for a trusted Tailscale/loopback/iroh route.
+        // Attach-token auth covers ticket-scoped requests. Stack auth remains a
+        // fallback for tokenless pairing or out-of-ticket requests, decided per
+        // attempted route so an untrusted fallback route cannot disable auth for
+        // a trusted Tailscale/loopback/iroh route.
         let routeAllowsStackAuthFallbackOverride = allowsStackAuthFallback
         let connectionAttemptStartedAt = pairingAttemptStartedAt
         var lastError: (any Error)?

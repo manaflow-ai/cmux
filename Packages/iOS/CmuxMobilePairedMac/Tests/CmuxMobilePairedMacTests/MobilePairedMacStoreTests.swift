@@ -134,6 +134,59 @@ import Testing
         #expect(all.isEmpty)
     }
 
+    @Test func attachTokenPersistsAcrossReopenAndSurvivesRouteRefresh() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("paired-macs.sqlite3")
+        let expiresAt = Date(timeIntervalSince1970: 2_000_000_000)
+        let firstRoute = try CmxAttachRoute(
+            id: "tailscale-a",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.5", port: 8443)
+        )
+        let secondRoute = try CmxAttachRoute(
+            id: "tailscale-b",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.6", port: 8443)
+        )
+
+        do {
+            let store = try MobilePairedMacStore(databaseURL: url)
+            try await store.upsert(
+                macDeviceID: "mac-a",
+                displayName: "Mac A",
+                routes: [firstRoute],
+                attachToken: "ticket-secret",
+                attachTokenExpiresAt: expiresAt,
+                markActive: true,
+                stackUserID: "user-1",
+                teamID: nil,
+                now: Date()
+            )
+        }
+
+        let reopened = try MobilePairedMacStore(databaseURL: url)
+        let saved = try #require(try await reopened.activeMac(stackUserID: "user-1"))
+        #expect(saved.attachToken == "ticket-secret")
+        #expect(saved.attachTokenExpiresAt == expiresAt)
+
+        try await reopened.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Mac A",
+            routes: [secondRoute],
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date()
+        )
+        let refreshed = try #require(try await reopened.activeMac(stackUserID: "user-1"))
+        #expect(refreshed.routes.map(\.id) == ["tailscale-b"])
+        #expect(refreshed.attachToken == "ticket-secret")
+        #expect(refreshed.attachTokenExpiresAt == expiresAt)
+    }
+
     /// A newer build can bump `PRAGMA user_version` above what this build knows.
     /// Because schema migrations are additive (older builds keep reading the
     /// columns/tables they know), opening that database from an older build must
@@ -313,9 +366,9 @@ import Testing
         #expect(sqlite3_exec(handle, seed, nil, nil, nil) == SQLITE_OK)
         sqlite3_close(handle)
 
-        // Opening runs v2→v3 (adds team_id). The legacy NULL-team row must remain
-        // visible under ANY team (an upgrade never hides existing hosts), and the
-        // on-disk schema version must advance to 3.
+        // Opening runs all remaining migrations. The legacy NULL-team row must
+        // remain visible under ANY team (an upgrade never hides existing hosts),
+        // and the on-disk schema version must advance to the current one.
         let store = try MobilePairedMacStore(databaseURL: url)
         let underTeamA = try await store.loadAll(stackUserID: "user-1", teamID: "team-a")
         #expect(underTeamA.map(\.macDeviceID) == ["legacy-mac"])

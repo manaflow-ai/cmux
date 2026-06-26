@@ -1090,7 +1090,7 @@ final class TerminalOutputCollector {
     let workspaceList = try #require(requests.first { $0.method == "workspace.list" })
     #expect(workspaceList.workspaceID == nil)
     #expect(workspaceList.attachToken == "ticket-secret")
-    #expect(workspaceList.stackAccessToken == "test-stack-token")
+    #expect(workspaceList.stackAccessToken == nil)
     #expect(store.selectedWorkspace?.id.rawValue == workspaceID)
 }
 
@@ -1161,7 +1161,7 @@ final class TerminalOutputCollector {
     #expect(workspaceLists[0].workspaceID == nil)
     #expect(workspaceLists[0].terminalID == nil)
     #expect(workspaceLists.allSatisfy { $0.attachToken == "ticket-secret" })
-    #expect(workspaceLists.allSatisfy { $0.stackAccessToken == "test-stack-token" })
+    #expect(workspaceLists.allSatisfy { $0.stackAccessToken == nil })
     let workspaceIDs = try await waitForWorkspaceIDs(in: store, matching: [workspaceID, docsWorkspaceID])
     #expect(workspaceIDs == [workspaceID, docsWorkspaceID])
     #expect(store.selectedWorkspace?.id.rawValue == workspaceID)
@@ -1234,7 +1234,7 @@ final class TerminalOutputCollector {
     #expect(workspaceLists[0].workspaceID == nil)
     #expect(workspaceLists[0].terminalID == nil)
     #expect(workspaceLists.allSatisfy { $0.attachToken == "ticket-secret" })
-    #expect(workspaceLists.allSatisfy { $0.stackAccessToken == "test-stack-token" })
+    #expect(workspaceLists.allSatisfy { $0.stackAccessToken == nil })
     let workspaceIDs = try await waitForWorkspaceIDs(in: store, matching: [workspaceID, secondWorkspaceID])
     #expect(workspaceIDs == [workspaceID, secondWorkspaceID])
 }
@@ -1306,7 +1306,7 @@ final class TerminalOutputCollector {
     #expect(workspaceList.workspaceID == nil)
     #expect(workspaceList.terminalID == nil)
     #expect(workspaceList.attachToken == "ticket-secret")
-    #expect(workspaceList.stackAccessToken == "test-stack-token")
+    #expect(workspaceList.stackAccessToken == nil)
     #expect(store.selectedWorkspace?.terminals.first?.id.rawValue == terminalID)
 }
 
@@ -1806,6 +1806,57 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
+@Test func storedMacReconnectUsesPersistedAttachTicketWithoutStackAuth() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let pairedMacStore = try MobilePairedMacStore(databaseURL: directory.appendingPathComponent("paired-macs.sqlite3"))
+    let route = try hostPortRoute(
+        kind: .tailscale,
+        host: "100.64.0.5",
+        port: CmxMobileDefaults.defaultHostPort
+    )
+    try await pairedMacStore.upsert(
+        macDeviceID: "stored-mac",
+        displayName: "Stored Mac",
+        routes: [route],
+        attachToken: "stored-ticket-secret",
+        attachTokenExpiresAt: Date().addingTimeInterval(60),
+        markActive: true,
+        stackUserID: "user-1",
+        teamID: nil,
+        now: Date()
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: "stored-workspace", title: "Stored Workspace"),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: ScriptedTransportFactory(responses: responses),
+        stackAccessToken: nil
+    )
+    let store = CMUXMobileShellStore(
+        runtime: runtime,
+        workspaces: PreviewMobileHost.workspaces,
+        pairedMacStore: pairedMacStore,
+        identityProvider: TestIdentityProvider(
+            currentUserIDValue: "user-1",
+            currentUserEmailValue: "user@example.com"
+        )
+    )
+
+    store.signIn()
+    let didReconnect = await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+
+    #expect(didReconnect)
+    #expect(store.connectionState == .connected)
+    let request = try #require(try await responses.sentRequests().first { $0.method == "workspace.list" })
+    #expect(request.attachToken == "stored-ticket-secret")
+    #expect(request.stackAccessToken == nil)
+    #expect(store.selectedWorkspace?.id.rawValue == "stored-workspace")
+}
+
+@MainActor
 @Test func scannedLoopbackPairingCodeIsRejectedWithGuidance() async throws {
     // "QR shouldn't work for localhost": a scanned/pasted v2 code whose
     // routes point at the phone itself fails closed with copy that names the
@@ -2174,7 +2225,7 @@ final class TerminalOutputCollector {
     let requests = await router.sentRequests()
     let createRequest = try #require(requests.first { $0.method == "workspace.create" })
     #expect(createRequest.attachToken == "ticket-secret")
-    #expect(createRequest.stackAccessToken == "test-stack-token")
+    #expect(createRequest.stackAccessToken == nil)
     #expect(store.connectionError == nil)
     #expect(store.workspaces.map(\.id.rawValue) == ["workspace-main", "workspace-3"])
     #expect(store.selectedWorkspace?.id.rawValue == "workspace-3")

@@ -322,12 +322,17 @@ import Testing
         #expect(probe?.hasAuth == false)
     }
 
-    @Test func ticketCoveredWorkspaceListDoesNotFetchStackToken() async throws {
+    @Test func ticketCoveredWorkspaceListDoesNotWaitForStackToken() async throws {
+        let tokenStarted = AsyncFlag()
         let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
         let transport = QueuedCancellationProbeTransport()
         let runtime = TestMobileSyncRuntime(
             transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
-            stackAccessToken: nil
+            stackAccessTokenProvider: {
+                await tokenStarted.set()
+                try await Task.sleep(nanoseconds: 60 * 1_000_000_000)
+                return "late-stack-token"
+            }
         )
         let ticket = try CmxAttachTicket(
             workspaceID: "workspace-main",
@@ -355,14 +360,15 @@ import Testing
         #expect(frame.attachToken == "ticket-secret")
         #expect(frame.stackAccessToken == nil)
         #expect(frame.hasAuth)
+        #expect(await tokenStarted.isSet() == false)
     }
 
-    @Test func workspaceActionsCarryMacWideAttachTicketContext() async throws {
+    @Test func workspaceActionsUseMacWideAttachTicketAuth() async throws {
         let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
         let transport = QueuedCancellationProbeTransport()
         let runtime = TestMobileSyncRuntime(
             transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
-            stackAccessToken: "test-stack-token"
+            stackAccessToken: nil
         )
         let ticket = try CmxAttachTicket(
             workspaceID: "",
@@ -395,7 +401,7 @@ import Testing
         #expect(frame.method == "workspace.action")
         #expect(frame.workspaceID == "workspace-main")
         #expect(frame.attachToken == "ticket-secret")
-        #expect(frame.stackAccessToken == "test-stack-token")
+        #expect(frame.stackAccessToken == nil)
         #expect(frame.hasAuth)
     }
 }

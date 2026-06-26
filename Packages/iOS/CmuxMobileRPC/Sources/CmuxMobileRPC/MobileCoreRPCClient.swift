@@ -213,21 +213,17 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             // Expiry is enforced only here, where the RPC-minted attach token
             // is actually used. QR-decoded tickets carry no token (and no
             // expiry), so they never reach this branch.
-            if !ticket.isExpired(at: runtime.now()) {
-                auth["attach_token"] = attachToken
-            } else if !allowsStackAuthFallback || !MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) {
+            if ticket.isExpired(at: runtime.now()) {
                 throw MobileShellConnectionError.attachTicketExpired
             }
+            auth["attach_token"] = attachToken
         }
-        // The host treats Stack auth as the SOLE authorization gate: EVERY
-        // authorized request must carry the owner's stack_access_token, even when
-        // an attach_token is also present. The attach ticket is route-discovery
-        // and workspace-selection only and never authorizes on its own, so a
-        // request that ships attach_token-only (e.g. ticket-covered workspace.list)
-        // is rejected host-side with `missingStackTokens`. Always present the
-        // Stack token for authorized requests; attach_token rides along as
-        // supplementary route/workspace context.
-        let shouldSendStackAuth = requestNeedsAuth
+        // A non-expired attach token is the local authorization credential for
+        // ticket-covered attach/reconnect/session-restore requests. Stack auth is
+        // only the fallback for tokenless pairing flows and requests outside the
+        // ticket's scope, so reconnect does not wait on a network auth refresh.
+        let requestHasAttachAuth = auth["attach_token"] != nil
+        let shouldSendStackAuth = requestNeedsAuth && !requestHasAttachAuth
         if shouldSendStackAuth {
             guard allowsStackAuthFallback,
                   MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) else {
