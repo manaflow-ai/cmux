@@ -1,3 +1,4 @@
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import Observation
 import SwiftUI
@@ -391,40 +392,36 @@ struct CmuxTaskManagerRowView: View, Equatable {
                 rowContent
             }
         }
-        .contextMenu {
+        // AppKit-backed context menu instead of SwiftUI `.contextMenu` to avoid the
+        // per-attachment `ContextMenuResponder` retain cycle on these churny rows
+        // (https://github.com/manaflow-ai/cmux/issues/5953).
+        .cmuxAppKitContextMenu {
+            var elements: [CmuxContextMenuElement] = []
             if row.canViewWorkspace {
-                Button {
-                    onViewWorkspace()
-                } label: {
-                    Label(
-                        String(localized: "taskManager.contextMenu.viewWorkspace", defaultValue: "View Workspace"),
-                        systemImage: "rectangle.stack"
-                    )
-                }
+                elements.append(.button(
+                    String(localized: "taskManager.contextMenu.viewWorkspace", defaultValue: "View Workspace"),
+                    systemImage: "rectangle.stack",
+                    action: onViewWorkspace
+                ))
             }
             if row.canViewTerminal {
-                Button {
-                    onViewTerminal()
-                } label: {
-                    Label(
-                        String(localized: "taskManager.contextMenu.viewTerminal", defaultValue: "View Terminal"),
-                        systemImage: "terminal"
-                    )
-                }
+                elements.append(.button(
+                    String(localized: "taskManager.contextMenu.viewTerminal", defaultValue: "View Terminal"),
+                    systemImage: "terminal",
+                    action: onViewTerminal
+                ))
             }
             if row.canKillProcess {
                 if row.canViewWorkspace || row.canViewTerminal {
-                    Divider()
+                    elements.append(.separator)
                 }
-                Button {
-                    onKillProcess()
-                } label: {
-                    Label(
-                        String(localized: "taskManager.contextMenu.killProcess", defaultValue: "Kill Process..."),
-                        systemImage: "xmark.octagon"
-                    )
-                }
+                elements.append(.button(
+                    String(localized: "taskManager.contextMenu.killProcess", defaultValue: "Kill Process..."),
+                    systemImage: "xmark.octagon",
+                    action: onKillProcess
+                ))
             }
+            return elements
         }
     }
 
