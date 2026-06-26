@@ -145,12 +145,8 @@ struct WorkspaceListView: View {
 
     private var visibleRowsAreOnlyForegroundMac: Bool {
         guard !workspaces.isEmpty else { return false }
-        let macIDs = Set(workspaces.compactMap(\.macDeviceID))
-        if macIDs.isEmpty {
-            return store?.connectedMacDeviceID == nil
-        }
         guard let connectedID = store?.connectedMacDeviceID else { return false }
-        return macIDs == Set([connectedID])
+        return workspaces.allSatisfy { $0.macDeviceID == connectedID }
     }
     #endif
 

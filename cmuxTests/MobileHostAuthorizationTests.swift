@@ -47,7 +47,7 @@ struct MobileHostAuthorizationTests {
         #expect(persisted == defaultID)
     }
 
-    @Test func testMobileHostIdentityRereadsSharedWinnerAfterCreateCollision() throws {
+    @Test func testMobileHostIdentityReadsExistingSharedIDWithoutDefaults() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -62,6 +62,25 @@ struct MobileHostAuthorizationTests {
 
         #expect(MobileHostIdentity.deviceID(defaults: defaults, sharedIDURL: sharedIDURL) == sharedID)
         #expect(defaults.string(forKey: "mobileHost.deviceID") == sharedID)
+    }
+
+    @Test func testMobileHostIdentityRepairsInvalidSharedIDFile() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sharedIDURL = directory.appendingPathComponent("mobile-host-device-id")
+        try "not-a-uuid".write(to: sharedIDURL, atomically: true, encoding: .utf8)
+
+        let suiteName = "mobile-host-identity-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let fallbackID = "08E3578B-195D-486F-B874-023CDA2B647D"
+        defaults.set(fallbackID, forKey: "mobileHost.deviceID")
+
+        #expect(MobileHostIdentity.deviceID(defaults: defaults, sharedIDURL: sharedIDURL) == fallbackID)
+        #expect(defaults.string(forKey: "mobileHost.deviceID") == fallbackID)
+        #expect(try String(contentsOf: sharedIDURL, encoding: .utf8) == fallbackID)
     }
 
     @Test func testAttachTicketStoreKeepsMultipleTicketsForSameTerminal() throws {

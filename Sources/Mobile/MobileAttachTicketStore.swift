@@ -258,10 +258,12 @@ enum MobileHostIdentity {
             withIntermediateDirectories: true
         )
         let data = Data(candidate.utf8)
-        if !FileManager.default.createFile(atPath: sharedIDURL.path, contents: data),
-           let winner = readSharedDeviceID(from: sharedIDURL) {
-            defaults.set(winner, forKey: deviceIDKey)
-            return winner
+        if !FileManager.default.createFile(atPath: sharedIDURL.path, contents: data) {
+            if let winner = readSharedDeviceID(from: sharedIDURL) {
+                defaults.set(winner, forKey: deviceIDKey)
+                return winner
+            }
+            try? data.write(to: sharedIDURL, options: .atomic)
         }
         let settled = readSharedDeviceID(from: sharedIDURL) ?? candidate
         defaults.set(settled, forKey: deviceIDKey)

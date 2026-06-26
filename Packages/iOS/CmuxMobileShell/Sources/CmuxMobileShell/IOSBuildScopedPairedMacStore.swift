@@ -28,6 +28,13 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         teamID: String?,
         now: Date
     ) async throws {
+        let selectedTeam = normalizedTeamID(teamID)
+        let fallback = selectedTeam == nil
+            ? nil
+            : try await scopedRows(stackUserID: stackUserID, teamID: nil).first { $0.macDeviceID == macDeviceID }
+        if markActive, selectedTeam != nil {
+            try await inner.clearActive(stackUserID: stackUserID, teamID: scopedTeamID(nil))
+        }
         try await inner.upsert(
             macDeviceID: macDeviceID,
             displayName: displayName,
@@ -37,15 +44,27 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
             teamID: scopedTeamID(teamID),
             now: now
         )
+        if let fallback, selectedTeam != nil {
+            try await inner.setCustomization(
+                macDeviceID: macDeviceID,
+                customName: fallback.customName,
+                customColor: fallback.customColor,
+                customIcon: fallback.customIcon,
+                stackUserID: stackUserID,
+                teamID: scopedTeamID(teamID),
+                now: now
+            )
+            try await inner.remove(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: scopedTeamID(nil))
+        }
     }
 
     public func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
         var byID: [String: MobilePairedMac] = [:]
-        for mac in try await inner.loadAll(stackUserID: stackUserID, teamID: scopedTeamID(teamID)).compactMap(unscoped) {
+        for mac in try await scopedRows(stackUserID: stackUserID, teamID: teamID) {
             byID[mac.macDeviceID] = mac
         }
         if normalizedTeamID(teamID) != nil {
-            for mac in try await inner.loadAll(stackUserID: stackUserID, teamID: scopedTeamID(nil)).compactMap(unscoped) {
+            for mac in try await scopedRows(stackUserID: stackUserID, teamID: nil) {
                 byID[mac.macDeviceID] = byID[mac.macDeviceID] ?? mac
             }
         }
@@ -60,10 +79,23 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
     }
 
     public func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
+        if normalizedTeamID(teamID) != nil {
+            try await inner.clearActive(stackUserID: stackUserID, teamID: scopedTeamID(teamID))
+            try await inner.clearActive(stackUserID: stackUserID, teamID: scopedTeamID(nil))
+            let selectedRows = try await scopedRows(stackUserID: stackUserID, teamID: teamID)
+            let targetTeamID = selectedRows.contains { $0.macDeviceID == macDeviceID } ? teamID : nil
+            try await inner.setActive(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: scopedTeamID(targetTeamID))
+            return
+        }
         try await inner.setActive(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: scopedTeamID(teamID))
     }
 
     public func clearActive(stackUserID: String?, teamID: String?) async throws {
+        if normalizedTeamID(teamID) != nil {
+            try await inner.clearActive(stackUserID: stackUserID, teamID: scopedTeamID(teamID))
+            try await inner.clearActive(stackUserID: stackUserID, teamID: scopedTeamID(nil))
+            return
+        }
         try await inner.clearActive(stackUserID: stackUserID, teamID: scopedTeamID(teamID))
     }
 
@@ -76,6 +108,20 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         teamID: String?,
         now: Date
     ) async throws {
+        if normalizedTeamID(teamID) != nil {
+            let selectedRows = try await scopedRows(stackUserID: stackUserID, teamID: teamID)
+            let targetTeamID = selectedRows.contains { $0.macDeviceID == macDeviceID } ? teamID : nil
+            try await inner.setCustomization(
+                macDeviceID: macDeviceID,
+                customName: customName,
+                customColor: customColor,
+                customIcon: customIcon,
+                stackUserID: stackUserID,
+                teamID: scopedTeamID(targetTeamID),
+                now: now
+            )
+            return
+        }
         try await inner.setCustomization(
             macDeviceID: macDeviceID,
             customName: customName,
@@ -89,6 +135,9 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
 
     public func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
         try await inner.remove(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: scopedTeamID(teamID))
+        if normalizedTeamID(teamID) != nil {
+            try await inner.remove(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: scopedTeamID(nil))
+        }
     }
 
     public func removeAll() async throws {
@@ -105,6 +154,10 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
     private func normalizedTeamID(_ teamID: String?) -> String? {
         let team = teamID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return team.isEmpty ? nil : team
+    }
+
+    private func scopedRows(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
+        try await inner.loadAll(stackUserID: stackUserID, teamID: scopedTeamID(teamID)).compactMap(unscoped)
     }
 
     private func unscoped(_ mac: MobilePairedMac) -> MobilePairedMac? {
