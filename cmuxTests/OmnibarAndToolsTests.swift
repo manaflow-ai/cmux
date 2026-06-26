@@ -969,14 +969,14 @@ private final class OmnibarInlineDeletionHarness {
 
     private func deleteWordBeforeInlineCompletion() {
         guard let inlineCompletion else { return }
-        let updated = omnibarPrefixAfterDeletingTrailingWord(from: inlineCompletion.typedText)
+        let updated = inlineCompletion.typedText.omnibarPrefixAfterDeletingTrailingWord
         replaceTypedPrefixAndDismissSuggestions(with: updated)
     }
 
     private func replaceTypedPrefix(with updated: String) {
         let effects = state.reduce(.bufferChanged(updated))
         XCTAssertTrue(effects.shouldRefreshSuggestions)
-        inlineCompletion = omnibarInlineCompletionForDisplay(
+        inlineCompletion = OmnibarInlineCompletion.forDisplay(
             typedText: state.buffer,
             suggestions: state.suggestions,
             isFocused: state.isFocused,
@@ -1193,7 +1193,7 @@ final class OmnibarSuggestionRankingTests: XCTestCase {
         XCTAssertEqual(results.first?.completion, "https://gmail.com/")
         XCTAssertTrue(results[0].supportsAutocompletion(query: "gm"))
 
-        let inlineCompletion = omnibarInlineCompletionForDisplay(
+        let inlineCompletion = OmnibarInlineCompletion.forDisplay(
             typedText: "gm",
             suggestions: results,
             isFocused: true,
@@ -1410,7 +1410,7 @@ final class OmnibarSuggestionRankingTests: XCTestCase {
             acceptedText: "https://localhost:3000/"
         )
 
-        let published = omnibarPublishedBufferTextForFieldChange(
+        let published = OmnibarInlineCompletion.publishedBufferText(
             fieldValue: inline.displayText,
             inlineCompletion: inline,
             selectionRange: inline.suffixRange,
@@ -1427,7 +1427,7 @@ final class OmnibarSuggestionRankingTests: XCTestCase {
             acceptedText: "https://localhost:3000/"
         )
 
-        let published = omnibarPublishedBufferTextForFieldChange(
+        let published = OmnibarInlineCompletion.publishedBufferText(
             fieldValue: "la",
             inlineCompletion: inline,
             selectionRange: NSRange(location: 2, length: 0),
@@ -1444,7 +1444,7 @@ final class OmnibarSuggestionRankingTests: XCTestCase {
             acceptedText: "https://github.com/"
         )
 
-        let active = omnibarInlineCompletionIfBufferMatchesTypedPrefix(
+        let active = OmnibarInlineCompletion.ifBufferMatchesTypedPrefix(
             bufferText: "l",
             inlineCompletion: staleInline
         )
@@ -1459,7 +1459,7 @@ final class OmnibarSuggestionRankingTests: XCTestCase {
             acceptedText: "https://localhost:3000/"
         )
 
-        let active = omnibarInlineCompletionIfBufferMatchesTypedPrefix(
+        let active = OmnibarInlineCompletion.ifBufferMatchesTypedPrefix(
             bufferText: "l",
             inlineCompletion: inline
         )
@@ -1478,7 +1478,7 @@ final class OmnibarSuggestionRankingTests: XCTestCase {
             ),
         ]
 
-        let result = omnibarInlineCompletionForDisplay(
+        let result = OmnibarInlineCompletion.forDisplay(
             typedText: "l",
             suggestions: suggestions,
             isFocused: true,

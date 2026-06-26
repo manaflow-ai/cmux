@@ -172,54 +172,60 @@ final class GotoSplitUITestRecorder: UITestRecording {
     }
 
     private func findStateSnapshot(for workspace: Workspace) -> [String: String] {
-        var updates: [String: String] = [
-            "focusedPaneId": workspace.bonsplitController.focusedPaneId?.description ?? ""
-        ]
-
+        let focusedPanel: GotoSplitFindStateSnapshot.FocusedPanel
         if let focusedPanelId = workspace.focusedPanelId {
-            updates["focusedPanelId"] = focusedPanelId.uuidString
             if let terminal = workspace.terminalPanel(for: focusedPanelId) {
-                updates["focusedPanelKind"] = "terminal"
-                updates["focusedTerminalFindNeedle"] = terminal.searchState?.needle ?? ""
-                updates["focusedBrowserFindNeedle"] = ""
+                focusedPanel = .terminal(
+                    panelId: focusedPanelId,
+                    findNeedle: terminal.searchState?.needle ?? ""
+                )
             } else if let browser = workspace.browserPanel(for: focusedPanelId) {
-                updates["focusedPanelKind"] = "browser"
-                updates["focusedBrowserFindNeedle"] = browser.searchState?.needle ?? ""
-                updates["focusedTerminalFindNeedle"] = ""
+                focusedPanel = .browser(
+                    panelId: focusedPanelId,
+                    findNeedle: browser.searchState?.needle ?? ""
+                )
             } else {
-                updates["focusedPanelKind"] = "other"
-                updates["focusedTerminalFindNeedle"] = ""
-                updates["focusedBrowserFindNeedle"] = ""
+                focusedPanel = .other(panelId: focusedPanelId)
             }
         } else {
-            updates["focusedPanelId"] = ""
-            updates["focusedPanelKind"] = "none"
-            updates["focusedTerminalFindNeedle"] = ""
-            updates["focusedBrowserFindNeedle"] = ""
+            focusedPanel = .none
         }
 
         let terminalWithFind = workspace.panels.values
             .compactMap { $0 as? TerminalPanel }
             .first(where: { $0.searchState != nil })
-        updates["terminalFindPanelId"] = terminalWithFind?.id.uuidString ?? ""
-        updates["terminalFindNeedle"] = terminalWithFind?.searchState?.needle ?? ""
-        updates["terminalFindVisible"] = terminalWithFind == nil ? "false" : "true"
+        let terminalFind = terminalWithFind.map {
+            GotoSplitFindStateSnapshot.TerminalFind(
+                panelId: $0.id,
+                needle: $0.searchState?.needle ?? ""
+            )
+        }
 
         let browserWithFind = workspace.panels.values
             .compactMap { $0 as? BrowserPanel }
             .first(where: { $0.searchState != nil })
-        updates["browserFindPanelId"] = browserWithFind?.id.uuidString ?? ""
-        updates["browserFindNeedle"] = browserWithFind?.searchState?.needle ?? ""
-        updates["browserFindSelected"] = browserWithFind?.searchState?.selected.map {
-            String($0 + 1)
-        } ?? ""
-        updates["browserFindTotal"] = browserWithFind?.searchState?.total.map(String.init) ?? ""
-        updates["browserFindVisible"] = browserWithFind == nil ? "false" : "true"
+        let browserFind = browserWithFind.map {
+            GotoSplitFindStateSnapshot.BrowserFind(
+                panelId: $0.id,
+                needle: $0.searchState?.needle ?? "",
+                selected: $0.searchState?.selected,
+                total: $0.searchState?.total
+            )
+        }
 
         let currentResponder = (NSApp.keyWindow ?? NSApp.mainWindow)?.firstResponder
-        updates["firstResponderTerminalPanelId"] =
-            cmuxOwningGhosttyView(for: currentResponder)?.terminalSurface?.id.uuidString ?? ""
+        let firstResponderTerminalPanelId =
+            cmuxOwningGhosttyView(for: currentResponder)?.terminalSurface?.id
 
+        let snapshot = GotoSplitFindStateSnapshot(
+            focusedPaneId: workspace.bonsplitController.focusedPaneId?.description ?? "",
+            focusedPanel: focusedPanel,
+            terminalFind: terminalFind,
+            browserFind: browserFind,
+            firstResponderTerminalPanelId: firstResponderTerminalPanelId
+        )
+
+        var updates = snapshot.captureFields
         updates.merge(cmuxFindResponderSnapshot()) { _, new in new }
         return updates
     }

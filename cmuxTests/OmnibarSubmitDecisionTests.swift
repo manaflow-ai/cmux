@@ -80,7 +80,7 @@ import Testing
         ]))
 
         let completion = try #require(
-            omnibarInlineCompletionForDisplay(
+            OmnibarInlineCompletion.forDisplay(
                 typedText: state.buffer,
                 suggestions: state.suggestions,
                 isFocused: true,
@@ -135,7 +135,7 @@ import Testing
         #expect(state.selectedSuggestionIndex == 0)
 
         let completion = try #require(
-            omnibarInlineCompletionForDisplay(
+            OmnibarInlineCompletion.forDisplay(
                 typedText: state.buffer,
                 suggestions: state.suggestions,
                 isFocused: true,
