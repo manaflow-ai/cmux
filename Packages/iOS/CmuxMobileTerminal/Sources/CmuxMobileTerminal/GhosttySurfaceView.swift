@@ -2584,6 +2584,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 )
             }
         }
+        // The await released the main actor: if the user scrolled into history
+        // while the read-back was pending, it hashed a now-stale viewport and a
+        // repair would yank them. Re-check at-bottom before reporting divergence.
+        guard isAtLiveBottom else { return false }
         guard gridDivergenceChecker.diverges(expectedHash: expectedHash, appliedHash: appliedHash) else {
             return false
         }
