@@ -2530,28 +2530,39 @@ final class TerminalOutputCollector {
     let store = CMUXMobileShellStore.preview()
     let surfaceID = "terminal"
 
-    // Mount 1: selecting the workspace attaches an output-stream sink.
-    var firstMount = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
-
-    // Quick switch away-and-back remounts the SAME surface; mount 2 registers
-    // the live sink before mount 1's deferred teardown gets to run.
-    let secondMount = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
-
-    // Dropping mount 1's iterator fires the stream's onTermination, which
-    // schedules the deferred main-actor teardown.
-    firstMount = secondMount
-
-    // onTermination enqueued the deferred teardown on the main actor before this
-    // barrier enqueues its own job, so main-actor FIFO guarantees the teardown
-    // has run by the time `.value` returns.
-    await Task { @MainActor in }.value
-
-    // The remount's sink must still be registered and able to receive frames.
-    withExtendedLifetime(firstMount) {
-        #expect(store.terminalByteContinuationsBySurfaceID[surfaceID] != nil)
-        #expect(store.terminalOutputStreamTokensBySurfaceID[surfaceID] != nil)
-        #expect(store.terminalOutputQueuesBySurfaceID[surfaceID] != nil)
+    // Mount 1: selecting the workspace attaches and consumes an output sink.
+    let staleMount = TerminalOutputCollector()
+    staleMount.mount(store: store, surfaceID: surfaceID)
+    for _ in 0..<100 where store.terminalOutputStreamTokensBySurfaceID[surfaceID] == nil {
+        await Task.yield()
     }
+    let staleToken = store.terminalOutputStreamTokensBySurfaceID[surfaceID]
+
+    // Quick switch away-and-back remounts the SAME surface; mount 2 registers a
+    // fresh sink (new stream token) and begins consuming the live output.
+    let liveMount = TerminalOutputCollector()
+    liveMount.mount(store: store, surfaceID: surfaceID)
+    for _ in 0..<100 where store.terminalOutputStreamTokensBySurfaceID[surfaceID] == staleToken {
+        await Task.yield()
+    }
+
+    // Mount 1 goes away: its stream terminates and schedules the deferred
+    // main-actor teardown. Drain it before delivering so a regression (the
+    // unconditional teardown) has already unregistered mount 2 by delivery time.
+    staleMount.unmount()
+    for _ in 0..<100 { await Task.yield() }
+
+    // Behavior: a frame delivered after the stale teardown must actually reach the
+    // remounted sink. Without the lifetime-token guard the teardown unregisters
+    // mount 2 and this delivery is dropped — the user-visible "stranded on stale
+    // content" bug. Bounded poll so a regression fails fast instead of hanging.
+    store.deliverTerminalBytes(Data("live".utf8), surfaceID: surfaceID)
+    for _ in 0..<500 where !liveMount.lines.contains("live") {
+        await Task.yield()
+    }
+    #expect(liveMount.lines.contains("live"))
+
+    liveMount.unmount()
 }
 
 @MainActor
