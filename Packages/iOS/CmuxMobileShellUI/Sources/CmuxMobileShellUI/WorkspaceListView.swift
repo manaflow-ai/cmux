@@ -3,7 +3,6 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 #if os(iOS)
-@preconcurrency import UIKit
 #elseif os(macOS)
 import AppKit
 #endif
@@ -57,13 +56,8 @@ struct WorkspaceListView: View {
     private var filterMachines: [WorkspaceFilterMachine] {
         let ids = MobileWorkspaceListFilter.machineIDs(in: workspaces)
         guard ids.count > 1 else { return [] }
-        var names: [String: String] = [:]
-        for device in store?.deviceTreeDevices ?? [] {
-            if let name = device.displayName, !name.isEmpty {
-                names[device.deviceId] = name
-            }
-        }
-        return ids.map { WorkspaceFilterMachine(id: $0, name: names[$0] ?? $0) }
+        let names = macDisplayNamesByID()
+        return ids.map { WorkspaceFilterMachine(id: $0, name: names[$0] ?? fallbackMacPickerName) }
     }
     /// Optional: rename a workspace on the Mac. When present, each row offers a
     /// Rename context-menu action.
@@ -96,7 +90,11 @@ struct WorkspaceListView: View {
     @State private var showingDeviceTree = false
     /// The active row filter (All / Unread), shared-model state behind the
     /// toolbar ``WorkspaceListFilterMenu``. Session-transient like a search.
-    @State private var filter: MobileWorkspaceListFilter = .all
+    @State var filter: MobileWorkspaceListFilter = .all
+    /// Which Mac's workspaces the list is focused on. Starts at "All Macs" so
+    /// aggregation is explicit in the title picker and can be narrowed from
+    /// there.
+    @State var macSelection: WorkspaceMacSelection = .all
     /// The workspace whose destructive close action is awaiting confirmation.
     /// Stored at list scope so reusable rows do not own transient presentation
     /// state while `List` is recycling swipe-action rows.
@@ -115,9 +113,15 @@ struct WorkspaceListView: View {
     /// action). A search flattens to a single matched, pinned-first list so
     /// members can be found across groups; floating pinned members out of their
     /// group is acceptable while filtering. An active row filter (Unread)
-    /// flattens the same way, for the same reason.
+    /// flattens the same way, for the same reason. A single-Mac picker scope
+    /// still renders groups only for the foreground Mac whose group metadata is
+    /// available here; "All Macs" and secondary Mac selections flatten because
+    /// group ids are Mac-local. Non-iOS builds keep the pre-picker behavior.
     private var rendersGroupedSections: Bool {
-        !groups.isEmpty && trimmedQuery.isEmpty && !filter.isActive
+        !groups.isEmpty
+            && trimmedQuery.isEmpty
+            && filter.readState == .all
+            && canRenderGroupsForSelection
     }
 
     private func matchesQuery(_ workspace: MobileWorkspacePreview, query: String) -> Bool {
@@ -133,7 +137,7 @@ struct WorkspaceListView: View {
     private var filteredWorkspaces: [MobileWorkspacePreview] {
         let query = trimmedQuery
         let matches = workspaces.filter { workspace in
-            filter.matches(workspace)
+            activeFilter.matches(workspace)
                 && (query.isEmpty || matchesQuery(workspace, query: query))
         }
         return matches.enumerated()
@@ -150,7 +154,11 @@ struct WorkspaceListView: View {
     /// member order and contiguity (no pinned-first flattening, which would
     /// scatter group members).
     private var groupedListItems: [MobileWorkspaceListItem] {
-        MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
+        MobileWorkspaceListItem.items(workspaces: groupedWorkspaces, groups: groups)
+    }
+
+    private var groupedWorkspaces: [MobileWorkspacePreview] {
+        workspaces.filter { activeFilter.matches($0) }
     }
 
     var body: some View {
@@ -196,12 +204,15 @@ struct WorkspaceListView: View {
             Section {
                 if rendersGroupedSections {
                     groupedRows
-                } else if filter.isActive && trimmedQuery.isEmpty && filteredWorkspaces.isEmpty && !workspaces.isEmpty {
+                } else if activeFilter.isActive && trimmedQuery.isEmpty && filteredWorkspaces.isEmpty && !workspaces.isEmpty {
                     // The filter alone (not the Mac, and not a search query)
                     // emptied the list; offer the way back. While searching, the
                     // standard empty search result is shown instead, since "Show
                     // All" would not resolve a query that matches nothing.
-                    WorkspaceListFilterEmptyRow(filter: filter) { filter = .all }
+                    WorkspaceListFilterEmptyRow(filter: activeFilter) {
+                        filter = .all
+                        macSelection = .all
+                    }
                         .listRowSeparator(.hidden)
                 } else {
                     flatRows
@@ -226,13 +237,16 @@ struct WorkspaceListView: View {
             ToolbarItem(placement: .topBarLeading) {
                 settingsMenu
             }
-            if store != nil {
+            ToolbarItem(placement: .principal) {
+                macTitlePicker
+            }
+            if showsDevicesButton {
                 ToolbarItem(placement: .topBarLeading) {
                     devicesButton
                 }
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
-                WorkspaceListFilterMenu(filter: $filter, machines: filterMachines)
+                WorkspaceListFilterMenu(filter: $filter, machines: [])
                 if canCreateWorkspace {
                     newWorkspaceButton
                 }

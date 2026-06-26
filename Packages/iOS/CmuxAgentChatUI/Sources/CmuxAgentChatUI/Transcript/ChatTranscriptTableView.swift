@@ -163,7 +163,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             cell.selectionStyle = .none
             guard let configuration else { return cell }
             let item = items[indexPath.row]
-            let tableWidth = tableView.bounds.width
+            let tableWidth = ChatContainerWidth(tableView: tableView).effectiveWidth
             cell.contentConfiguration = UIHostingConfiguration {
                 configuration.view(for: item, tableWidth: tableWidth)
             }

@@ -114,6 +114,12 @@
 		B6585001B6585001B6585001 /* BrowserHiddenWebViewDiscardMemoryPressureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6585002B6585002B6585002 /* BrowserHiddenWebViewDiscardMemoryPressureTests.swift */; };
 		B42450010000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42450020000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift */; };
 		4E1F28554F1B908F18559390 /* BrowserHistorySuggestionCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D536229C6194FD62B44503 /* BrowserHistorySuggestionCacheTests.swift */; };
+		BABA25000000000000000007 /* BrowserHTTPBasicAuthPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = BABA25000000000000000008 /* BrowserHTTPBasicAuthPrompt.swift */; };
+		BABA25000000000000000001 /* BrowserHTTPBasicAuthPromptCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = BABA25000000000000000002 /* BrowserHTTPBasicAuthPromptCoordinator.swift */; };
+		BABA25000000000000000005 /* BrowserHTTPBasicAuthPromptCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BABA25000000000000000006 /* BrowserHTTPBasicAuthPromptCoordinatorTests.swift */; };
+		BABA2500000000000000000D /* BrowserHTTPBasicAuthPromptRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = BABA2500000000000000000E /* BrowserHTTPBasicAuthPromptRequest.swift */; };
+		BABA25000000000000000003 /* BrowserHTTPBasicAuthPromptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BABA25000000000000000004 /* BrowserHTTPBasicAuthPromptTests.swift */; };
+		BABA2500000000000000000B /* BrowserHTTPBasicAuthProtectionSpaceKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = BABA2500000000000000000C /* BrowserHTTPBasicAuthProtectionSpaceKey.swift */; };
 		FA100000A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA100001A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift */; };
 		FB100000A1B2C3D4E5F60718 /* BrowserImportProfilesUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB100001A1B2C3D4E5F60718 /* BrowserImportProfilesUITests.swift */; };
 		BCBC0A0E0000000000000F01 /* BrowserMediaActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCBC0A0E0000000000000F02 /* BrowserMediaActivity.swift */; };
@@ -121,6 +127,7 @@
 		BCBC0A0E0000000000000E21 /* BrowserMediaPlaybackAudioActivityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCBC0A0E0000000000000E22 /* BrowserMediaPlaybackAudioActivityTests.swift */; };
 		A500MH01 /* BrowserMediaPlaybackMessageHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500MH00 /* BrowserMediaPlaybackMessageHandler.swift */; };
 		A500MR01 /* BrowserMediaPlaybackReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500MR00 /* BrowserMediaPlaybackReport.swift */; };
+		BABA25000000000000000009 /* BrowserNavigationDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = BABA2500000000000000000A /* BrowserNavigationDelegate.swift */; };
 		B0A501000000000000000001 /* BrowserOmnibarAppKitBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A501000000000000000002 /* BrowserOmnibarAppKitBridge.swift */; };
 		B0A500000000000000000001 /* BrowserOmnibarPerformanceSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A500000000000000000002 /* BrowserOmnibarPerformanceSupport.swift */; };
 		C2B6A97D1F2E4C71A8B9D001 /* BrowserOmnibarPerformanceSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2B6A97D1F2E4C71A8B9D002 /* BrowserOmnibarPerformanceSupportTests.swift */; };
@@ -146,7 +153,26 @@
 		4BBF42E8A86EAAB94BC9EA16 /* BrowserSystemProxyMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = 048DACB3F8147BCBDD266297 /* BrowserSystemProxyMirror.swift */; };
 		C7B800062D4202A13C962D2D /* BrowserSystemProxyMirrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D828DA0070335773EBAE83F /* BrowserSystemProxyMirrorTests.swift */; };
 		0796994CA7CCA25DB990BFEF /* BrowserSystemProxyWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 326E7A5E13C6DF650B9F8971 /* BrowserSystemProxyWatcher.swift */; };
+		A50100000000000000000002 /* BrowserWebAuthnAssertionExtensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000001 /* BrowserWebAuthnAssertionExtensions.swift */; };
+		A50100000000000000000004 /* BrowserWebAuthnAssertionPublicKeyOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000003 /* BrowserWebAuthnAssertionPublicKeyOptions.swift */; };
+		A50100000000000000000006 /* BrowserWebAuthnAssertionRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000005 /* BrowserWebAuthnAssertionRequest.swift */; };
+		A50100000000000000000008 /* BrowserWebAuthnAuthenticatorSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000007 /* BrowserWebAuthnAuthenticatorSelection.swift */; };
+		A5010000000000000000000A /* BrowserWebAuthnBinaryData.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000009 /* BrowserWebAuthnBinaryData.swift */; };
+		A5010000000000000000000C /* BrowserWebAuthnBridgeError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5010000000000000000000B /* BrowserWebAuthnBridgeError.swift */; };
+		A5010000000000000000000E /* BrowserWebAuthnBridgeMessageKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5010000000000000000000D /* BrowserWebAuthnBridgeMessageKind.swift */; };
+		A50100000000000000000014 /* BrowserWebAuthnCreationPublicKeyOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000013 /* BrowserWebAuthnCreationPublicKeyOptions.swift */; };
+		A50100000000000000000016 /* BrowserWebAuthnCreationRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000015 /* BrowserWebAuthnCreationRequest.swift */; };
+		A50100000000000000000010 /* BrowserWebAuthnCredentialDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5010000000000000000000F /* BrowserWebAuthnCredentialDescriptor.swift */; };
+		A50100000000000000000012 /* BrowserWebAuthnCredentialParameter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000011 /* BrowserWebAuthnCredentialParameter.swift */; };
+		A50100000000000000000018 /* BrowserWebAuthnMessageEnvelope.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000017 /* BrowserWebAuthnMessageEnvelope.swift */; };
+		A5010000000000000000001A /* BrowserWebAuthnRelyingPartyDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000019 /* BrowserWebAuthnRelyingPartyDescriptor.swift */; };
+		A5007426 /* BrowserWebAuthnRequestParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5007427 /* BrowserWebAuthnRequestParser.swift */; };
+		A5007424 /* BrowserWebAuthnSecurityOrigin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5007425 /* BrowserWebAuthnSecurityOrigin.swift */; };
+		A5010000000000000000001C /* BrowserWebAuthnStringValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5010000000000000000001B /* BrowserWebAuthnStringValidation.swift */; };
 		A5007422 /* BrowserWebAuthnSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5007423 /* BrowserWebAuthnSupport.swift */; };
+		A5010000000000000000001E /* BrowserWebAuthnTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5010000000000000000001D /* BrowserWebAuthnTransport.swift */; };
+		A50100000000000000000020 /* BrowserWebAuthnTransportSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5010000000000000000001F /* BrowserWebAuthnTransportSummary.swift */; };
+		A50100000000000000000022 /* BrowserWebAuthnUserDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000021 /* BrowserWebAuthnUserDescriptor.swift */; };
 		C0DE49870000000000000001 /* BrowserWebContentProcessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE49870000000000000002 /* BrowserWebContentProcessTests.swift */; };
 		C0DE58990000000000000003 /* BrowserWebKitKeyDownDispatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE58990000000000000001 /* BrowserWebKitKeyDownDispatch.swift */; };
 		A5001534 /* BrowserWindowPortal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001533 /* BrowserWindowPortal.swift */; };
@@ -166,6 +192,7 @@
 		A5D41222A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41223A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift */; };
 		A9F200000000000000000015 /* ClaudeStreamJSONAccumulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000015 /* ClaudeStreamJSONAccumulator.swift */; };
 		A5D4120DA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D4120EA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift */; };
+		CA11E4D0FA017DE500000B101 /* CLICallerWorkspaceDefaultTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA11E4D0FA017DE500000F102 /* CLICallerWorkspaceDefaultTests.swift */; };
 		C0D3F1F00000000000000103 /* CLICodexHookTimeoutRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D3F1F00000000000000104 /* CLICodexHookTimeoutRegressionTests.swift */; };
 		C6711A010000000000000001 /* CLICodexWeakEnvironmentRestoreBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6711B010000000000000001 /* CLICodexWeakEnvironmentRestoreBindingTests.swift */; };
 		E295EA3753206FE3FFCA6C0A /* CLIExplicitSurfaceRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1590EE4F01FEF02D40A48698 /* CLIExplicitSurfaceRoutingTests.swift */; };
@@ -580,6 +607,7 @@
 		284FD21ACF8BD1ED6AEBD7A0 /* MobileAttachTicketStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D6D2AC715764ECC1F6B26A2 /* MobileAttachTicketStore.swift */; };
 		6AA2F2E8BEB19ED6B8E125DB /* MobileHostAuthorizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BD519CFE74530A46DF0925D /* MobileHostAuthorizationTests.swift */; };
 		C7A50B000000000000000016 /* MobileHostBuildIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000015 /* MobileHostBuildIdentity.swift */; };
+		B8B056D80000000000000001 /* MobileHostIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8B056D80000000000000002 /* MobileHostIdentityTests.swift */; };
 		DE71CE000000000000000008 /* MobileHostNetworkPathMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000007 /* MobileHostNetworkPathMonitor.swift */; };
 		DE71CE000000000000000006 /* MobileHostNetworkPathRefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000005 /* MobileHostNetworkPathRefreshTests.swift */; };
 		4E673EDE464BF3AB80E94C1D /* MobileHostRPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47BDC06F004C02A52B05E4A0 /* MobileHostRPC.swift */; };
@@ -680,6 +708,7 @@
 		REE0CA0000000000000000A2 /* RemotesClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000A1 /* RemotesClient.swift */; };
 		REE0CA0000000000000000B2 /* RemotesClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000B1 /* RemotesClientTests.swift */; };
 		EE30D6000000000000000006 /* RemoteSessionStrings+App.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE30D6000000000000000005 /* RemoteSessionStrings+App.swift */; };
+		C0F674600000000000000001 /* RemoteShellCWDRelayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0F674600000000000000002 /* RemoteShellCWDRelayTests.swift */; };
 		E4321000E4321000E4321001 /* RemoteShellSessionParsing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4321000E4321000E4321002 /* RemoteShellSessionParsing.swift */; };
 		0A17C0DE0A17C0DE0A17C002 /* RemoteTmuxAttachOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A17C0DE0A17C0DE0A17C001 /* RemoteTmuxAttachOutcome.swift */; };
 		0A17C0DE0A17C0DE0A17C004 /* RemoteTmuxAuthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A17C0DE0A17C0DE0A17C003 /* RemoteTmuxAuthTests.swift */; };
@@ -722,6 +751,8 @@
 		9A5CF3AA2E6462E77144F9E6 /* RemoteTmuxSessionSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31FFFE3EFCDCCD6BDF405370 /* RemoteTmuxSessionSnapshotTests.swift */; };
 		6D3C19C2014FF9C754358EFF /* RemoteTmuxSSHTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F5DB43CBC1B7DF31B7A0C9 /* RemoteTmuxSSHTransport.swift */; };
 		0E17C0DE0E17C0DE0E17C002 /* RemoteTmuxTransportRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E17C0DE0E17C0DE0E17C001 /* RemoteTmuxTransportRegistry.swift */; };
+		0A17C0DE0A17C0DE0A17C902 /* RemoteTmuxVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A17C0DE0A17C0DE0A17C901 /* RemoteTmuxVersion.swift */; };
+		0A17C0DE0A17C0DE0A17CA02 /* RemoteTmuxVersionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A17C0DE0A17C0DE0A17CA01 /* RemoteTmuxVersionTests.swift */; };
 		A8C7BE33C1BD3C1AD4342CB1 /* RemoteTmuxWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB52610183419D424AE520B0 /* RemoteTmuxWindow.swift */; };
 		826F6597BF05F1242E17F0C3 /* RemoteTmuxWindowMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCE03473FCBD453C7DA78A09 /* RemoteTmuxWindowMirror.swift */; };
 		063516351A6B6F642928B37D /* RemoteTmuxWindowMirrorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E292DDF62C863C3553F4C9E7 /* RemoteTmuxWindowMirrorView.swift */; };
@@ -1259,6 +1290,12 @@
 		B6585002B6585002B6585002 /* BrowserHiddenWebViewDiscardMemoryPressureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserHiddenWebViewDiscardMemoryPressureTests.swift; sourceTree = "<group>"; };
 		B42450020000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserHiddenWebViewDiscardPolicy.swift; sourceTree = "<group>"; };
 		19D536229C6194FD62B44503 /* BrowserHistorySuggestionCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserHistorySuggestionCacheTests.swift; sourceTree = "<group>"; };
+		BABA25000000000000000008 /* BrowserHTTPBasicAuthPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserHTTPBasicAuthPrompt.swift; sourceTree = "<group>"; };
+		BABA25000000000000000002 /* BrowserHTTPBasicAuthPromptCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserHTTPBasicAuthPromptCoordinator.swift; sourceTree = "<group>"; };
+		BABA25000000000000000006 /* BrowserHTTPBasicAuthPromptCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserHTTPBasicAuthPromptCoordinatorTests.swift; sourceTree = "<group>"; };
+		BABA2500000000000000000E /* BrowserHTTPBasicAuthPromptRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserHTTPBasicAuthPromptRequest.swift; sourceTree = "<group>"; };
+		BABA25000000000000000004 /* BrowserHTTPBasicAuthPromptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserHTTPBasicAuthPromptTests.swift; sourceTree = "<group>"; };
+		BABA2500000000000000000C /* BrowserHTTPBasicAuthProtectionSpaceKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserHTTPBasicAuthProtectionSpaceKey.swift; sourceTree = "<group>"; };
 		FA100001A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserImportMappingTests.swift; sourceTree = "<group>"; };
 		FB100001A1B2C3D4E5F60718 /* BrowserImportProfilesUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserImportProfilesUITests.swift; sourceTree = "<group>"; };
 		BCBC0A0E0000000000000F02 /* BrowserMediaActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserMediaActivity.swift; sourceTree = "<group>"; };
@@ -1266,6 +1303,7 @@
 		BCBC0A0E0000000000000E22 /* BrowserMediaPlaybackAudioActivityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserMediaPlaybackAudioActivityTests.swift; sourceTree = "<group>"; };
 		A500MH00 /* BrowserMediaPlaybackMessageHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserMediaPlaybackMessageHandler.swift; sourceTree = "<group>"; };
 		A500MR00 /* BrowserMediaPlaybackReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserMediaPlaybackReport.swift; sourceTree = "<group>"; };
+		BABA2500000000000000000A /* BrowserNavigationDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserNavigationDelegate.swift; sourceTree = "<group>"; };
 		B0A501000000000000000002 /* BrowserOmnibarAppKitBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserOmnibarAppKitBridge.swift; sourceTree = "<group>"; };
 		B0A500000000000000000002 /* BrowserOmnibarPerformanceSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserOmnibarPerformanceSupport.swift; sourceTree = "<group>"; };
 		C2B6A97D1F2E4C71A8B9D002 /* BrowserOmnibarPerformanceSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserOmnibarPerformanceSupportTests.swift; sourceTree = "<group>"; };
@@ -1291,7 +1329,26 @@
 		048DACB3F8147BCBDD266297 /* BrowserSystemProxyMirror.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserSystemProxyMirror.swift; sourceTree = "<group>"; };
 		8D828DA0070335773EBAE83F /* BrowserSystemProxyMirrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserSystemProxyMirrorTests.swift; sourceTree = "<group>"; };
 		326E7A5E13C6DF650B9F8971 /* BrowserSystemProxyWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserSystemProxyWatcher.swift; sourceTree = "<group>"; };
+		A50100000000000000000001 /* BrowserWebAuthnAssertionExtensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnAssertionExtensions.swift; sourceTree = "<group>"; };
+		A50100000000000000000003 /* BrowserWebAuthnAssertionPublicKeyOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnAssertionPublicKeyOptions.swift; sourceTree = "<group>"; };
+		A50100000000000000000005 /* BrowserWebAuthnAssertionRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnAssertionRequest.swift; sourceTree = "<group>"; };
+		A50100000000000000000007 /* BrowserWebAuthnAuthenticatorSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnAuthenticatorSelection.swift; sourceTree = "<group>"; };
+		A50100000000000000000009 /* BrowserWebAuthnBinaryData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnBinaryData.swift; sourceTree = "<group>"; };
+		A5010000000000000000000B /* BrowserWebAuthnBridgeError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnBridgeError.swift; sourceTree = "<group>"; };
+		A5010000000000000000000D /* BrowserWebAuthnBridgeMessageKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnBridgeMessageKind.swift; sourceTree = "<group>"; };
+		A50100000000000000000013 /* BrowserWebAuthnCreationPublicKeyOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnCreationPublicKeyOptions.swift; sourceTree = "<group>"; };
+		A50100000000000000000015 /* BrowserWebAuthnCreationRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnCreationRequest.swift; sourceTree = "<group>"; };
+		A5010000000000000000000F /* BrowserWebAuthnCredentialDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnCredentialDescriptor.swift; sourceTree = "<group>"; };
+		A50100000000000000000011 /* BrowserWebAuthnCredentialParameter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnCredentialParameter.swift; sourceTree = "<group>"; };
+		A50100000000000000000017 /* BrowserWebAuthnMessageEnvelope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnMessageEnvelope.swift; sourceTree = "<group>"; };
+		A50100000000000000000019 /* BrowserWebAuthnRelyingPartyDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnRelyingPartyDescriptor.swift; sourceTree = "<group>"; };
+		A5007427 /* BrowserWebAuthnRequestParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnRequestParser.swift; sourceTree = "<group>"; };
+		A5007425 /* BrowserWebAuthnSecurityOrigin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnSecurityOrigin.swift; sourceTree = "<group>"; };
+		A5010000000000000000001B /* BrowserWebAuthnStringValidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnStringValidation.swift; sourceTree = "<group>"; };
 		A5007423 /* BrowserWebAuthnSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnSupport.swift; sourceTree = "<group>"; };
+		A5010000000000000000001D /* BrowserWebAuthnTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnTransport.swift; sourceTree = "<group>"; };
+		A5010000000000000000001F /* BrowserWebAuthnTransportSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnTransportSummary.swift; sourceTree = "<group>"; };
+		A50100000000000000000021 /* BrowserWebAuthnUserDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnUserDescriptor.swift; sourceTree = "<group>"; };
 		C0DE49870000000000000002 /* BrowserWebContentProcessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebContentProcessTests.swift; sourceTree = "<group>"; };
 		C0DE58990000000000000001 /* BrowserWebKitKeyDownDispatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebKitKeyDownDispatch.swift; sourceTree = "<group>"; };
 		A5001533 /* BrowserWindowPortal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWindowPortal.swift; sourceTree = "<group>"; };
@@ -1311,6 +1368,7 @@
 		A5D41223A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeNotificationStatusLifecycleTests.swift; sourceTree = "<group>"; };
 		A9F100000000000000000015 /* ClaudeStreamJSONAccumulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ClaudeStreamJSONAccumulator.swift; sourceTree = "<group>"; };
 		A5D4120EA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIAuthAliasTests.swift; sourceTree = "<group>"; };
+		CA11E4D0FA017DE500000F102 /* CLICallerWorkspaceDefaultTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICallerWorkspaceDefaultTests.swift; sourceTree = "<group>"; };
 		C0D3F1F00000000000000104 /* CLICodexHookTimeoutRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICodexHookTimeoutRegressionTests.swift; sourceTree = "<group>"; };
 		C6711B010000000000000001 /* CLICodexWeakEnvironmentRestoreBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICodexWeakEnvironmentRestoreBindingTests.swift; sourceTree = "<group>"; };
 		1590EE4F01FEF02D40A48698 /* CLIExplicitSurfaceRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIExplicitSurfaceRoutingTests.swift; sourceTree = "<group>"; };
@@ -1672,6 +1730,7 @@
 		8D6D2AC715764ECC1F6B26A2 /* MobileAttachTicketStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileAttachTicketStore.swift; sourceTree = "<group>"; };
 		9BD519CFE74530A46DF0925D /* MobileHostAuthorizationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostAuthorizationTests.swift; sourceTree = "<group>"; };
 		C7A50B000000000000000015 /* MobileHostBuildIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostBuildIdentity.swift; sourceTree = "<group>"; };
+		B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIdentityTests.swift; sourceTree = "<group>"; };
 		DE71CE000000000000000007 /* MobileHostNetworkPathMonitor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostNetworkPathMonitor.swift; sourceTree = "<group>"; };
 		DE71CE000000000000000005 /* MobileHostNetworkPathRefreshTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostNetworkPathRefreshTests.swift; sourceTree = "<group>"; };
 		47BDC06F004C02A52B05E4A0 /* MobileHostRPC.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostRPC.swift; sourceTree = "<group>"; };
@@ -1769,6 +1828,7 @@
 		REE0CA0000000000000000A1 /* RemotesClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RemotesClient.swift; sourceTree = "<group>"; };
 		REE0CA0000000000000000B1 /* RemotesClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemotesClientTests.swift; sourceTree = "<group>"; };
 		EE30D6000000000000000005 /* RemoteSessionStrings+App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteSessionStrings+App.swift"; sourceTree = "<group>"; };
+		C0F674600000000000000002 /* RemoteShellCWDRelayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteShellCWDRelayTests.swift; sourceTree = "<group>"; };
 		E4321000E4321000E4321002 /* RemoteShellSessionParsing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteShellSessionParsing.swift; sourceTree = "<group>"; };
 		0A17C0DE0A17C0DE0A17C001 /* RemoteTmuxAttachOutcome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxAttachOutcome.swift; sourceTree = "<group>"; };
 		0A17C0DE0A17C0DE0A17C003 /* RemoteTmuxAuthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxAuthTests.swift; sourceTree = "<group>"; };
@@ -1811,6 +1871,8 @@
 		31FFFE3EFCDCCD6BDF405370 /* RemoteTmuxSessionSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxSessionSnapshotTests.swift; sourceTree = "<group>"; };
 		E8F5DB43CBC1B7DF31B7A0C9 /* RemoteTmuxSSHTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxSSHTransport.swift; sourceTree = "<group>"; };
 		0E17C0DE0E17C0DE0E17C001 /* RemoteTmuxTransportRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxTransportRegistry.swift; sourceTree = "<group>"; };
+		0A17C0DE0A17C0DE0A17C901 /* RemoteTmuxVersion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxVersion.swift; sourceTree = "<group>"; };
+		0A17C0DE0A17C0DE0A17CA01 /* RemoteTmuxVersionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxVersionTests.swift; sourceTree = "<group>"; };
 		AB52610183419D424AE520B0 /* RemoteTmuxWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxWindow.swift; sourceTree = "<group>"; };
 		FCE03473FCBD453C7DA78A09 /* RemoteTmuxWindowMirror.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxWindowMirror.swift; sourceTree = "<group>"; };
 		E292DDF62C863C3553F4C9E7 /* RemoteTmuxWindowMirrorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxWindowMirrorView.swift; sourceTree = "<group>"; };
@@ -2769,6 +2831,11 @@
 				A5001411 /* TerminalPanel.swift */,
 				B42450020000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift */,
 				B42450040000000000000001 /* BrowserHiddenWebViewDiscardManager.swift */,
+				BABA25000000000000000002 /* BrowserHTTPBasicAuthPromptCoordinator.swift */,
+				BABA25000000000000000008 /* BrowserHTTPBasicAuthPrompt.swift */,
+				BABA2500000000000000000C /* BrowserHTTPBasicAuthProtectionSpaceKey.swift */,
+				BABA2500000000000000000E /* BrowserHTTPBasicAuthPromptRequest.swift */,
+				BABA2500000000000000000A /* BrowserNavigationDelegate.swift */,
 				A5001412 /* BrowserPanel.swift */,
 				C62530010000000000000002 /* BrowserPanelReloadMode.swift */,
 				C59240010000000000000002 /* BrowserDownloadFilenameResolver.swift */,
@@ -2830,7 +2897,26 @@
 				B0A500000000000000000002 /* BrowserOmnibarPerformanceSupport.swift */,
 				C76D07ED88D244B1B02FAF3C /* BrowserOmnibarSubmitSupport.swift */,
 				A5007421 /* BrowserPopupWindowController.swift */,
+				A50100000000000000000001 /* BrowserWebAuthnAssertionExtensions.swift */,
+				A50100000000000000000003 /* BrowserWebAuthnAssertionPublicKeyOptions.swift */,
+				A50100000000000000000005 /* BrowserWebAuthnAssertionRequest.swift */,
+				A50100000000000000000007 /* BrowserWebAuthnAuthenticatorSelection.swift */,
+				A50100000000000000000009 /* BrowserWebAuthnBinaryData.swift */,
+				A5010000000000000000000B /* BrowserWebAuthnBridgeError.swift */,
+				A5010000000000000000000D /* BrowserWebAuthnBridgeMessageKind.swift */,
+				A5010000000000000000000F /* BrowserWebAuthnCredentialDescriptor.swift */,
+				A50100000000000000000011 /* BrowserWebAuthnCredentialParameter.swift */,
+				A50100000000000000000013 /* BrowserWebAuthnCreationPublicKeyOptions.swift */,
+				A50100000000000000000015 /* BrowserWebAuthnCreationRequest.swift */,
+				A50100000000000000000017 /* BrowserWebAuthnMessageEnvelope.swift */,
+				A50100000000000000000019 /* BrowserWebAuthnRelyingPartyDescriptor.swift */,
+				A5007425 /* BrowserWebAuthnSecurityOrigin.swift */,
+				A5007427 /* BrowserWebAuthnRequestParser.swift */,
+				A5010000000000000000001B /* BrowserWebAuthnStringValidation.swift */,
 				A5007423 /* BrowserWebAuthnSupport.swift */,
+				A5010000000000000000001D /* BrowserWebAuthnTransport.swift */,
+				A5010000000000000000001F /* BrowserWebAuthnTransportSummary.swift */,
+				A50100000000000000000021 /* BrowserWebAuthnUserDescriptor.swift */,
 				A5001418 /* MarkdownPanel.swift */,
 				A50014F0 /* MarkdownPanelFileLinkResolver.swift */,
 				F5168A030000000000000002 /* MarkdownFontSizeSettings.swift */,
@@ -2926,6 +3012,7 @@
 				71D411EFBE33FE85901B9E6A /* RemoteTmuxCommandResult.swift */,
 				02B8A9858C9804AC9C37D7B4 /* RemoteTmuxHost.swift */,
 				0A17C0DE0A17C0DE0A17C001 /* RemoteTmuxAttachOutcome.swift */,
+				0A17C0DE0A17C0DE0A17C901 /* RemoteTmuxVersion.swift */,
 				92CA6F2F239631988B2FB0C8 /* WorkspaceRemoteTmuxNonInteractiveCloseRoute.swift */,
 				5E55400000000000000000D2 /* FocusStealingResponderConformances.swift */,
 				A5001671 /* SessionRestoredTerminalCommandStore.swift */,
@@ -3080,6 +3167,7 @@
 				C0F15A000000000000000002 /* FishShellIntegrationTests.swift */,
 				C0F16A000000000000000002 /* ShellStartupMatrixTests.swift */,
 				C0F16C000000000000000002 /* ShellStartupMissingBundleTests.swift */,
+				C0F674600000000000000002 /* RemoteShellCWDRelayTests.swift */,
 				F4000001A1B2C3D4E5F60718 /* GhosttyConfigTests.swift */,
 				B8E9500A0000000000000002 /* PostHogAnalyticsPropertiesTests.swift */,
 				604100010000000000000002 /* GhosttyDrawableSizeRetryTests.swift */,
@@ -3161,6 +3249,8 @@
 				D36090010000000000000004 /* SettingsWindowPresenterTests.swift */,
 				D36090010000000000000006 /* CmuxMainWindowConstrainFrameTests.swift */,
 				970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */,
+				BABA25000000000000000006 /* BrowserHTTPBasicAuthPromptCoordinatorTests.swift */,
+				BABA25000000000000000004 /* BrowserHTTPBasicAuthPromptTests.swift */,
 				8D828DA0070335773EBAE83F /* BrowserSystemProxyMirrorTests.swift */,
 				C59240010000000000000004 /* BrowserDownloadFilenameResolverTests.swift */,
 				C0DE58990000000000000002 /* CmuxWebViewKeyDownReentryTests.swift */,
@@ -3221,6 +3311,7 @@
 					C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */,
 					C0DE31390000000000000112 /* CMUXOpenHTMLFocusTests.swift */,
 					1590EE4F01FEF02D40A48698 /* CLIExplicitSurfaceRoutingTests.swift */,
+					CA11E4D0FA017DE500000F102 /* CLICallerWorkspaceDefaultTests.swift */,
 					C0DE31390000000000000106 /* CMUXCLIErrorOutputRegressionTests.swift */,
 					C0DE64950000000000000006 /* CMUXCLISessionsListTests.swift */,
 					C0DE64950000000000000004 /* CMUXCLITestAssertions.swift */,
@@ -3286,6 +3377,7 @@
 				C57570010000000000000001 /* RightSidebarPanelViewTestSupport.swift */,
 				5F5553CB5553CB5553CB0002 /* RightSidebarRemoteCommandTests.swift */,
 				3F704ED4F177122D7DCD0BCC /* RemoteTmuxSessionListParserTests.swift */,
+				0A17C0DE0A17C0DE0A17CA01 /* RemoteTmuxVersionTests.swift */,
 				3F704ED4F177122D7DCD0B01 /* RemoteTmuxSessionRenameTitleTests.swift */,
 				31FFFE3EFCDCCD6BDF405370 /* RemoteTmuxSessionSnapshotTests.swift */,
 				08850489C70ECFACA540C2F3 /* WorkspaceTerminalWorkingDirectoryFallbackTests.swift */,
@@ -3355,6 +3447,7 @@
 				FE002010 /* FileExplorerDoubleClickActionTests.swift */,
 				FE002003 /* FileSearchRipgrepParserTests.swift */,
 				9BD519CFE74530A46DF0925D /* MobileHostAuthorizationTests.swift */,
+				B8B056D80000000000000002 /* MobileHostIdentityTests.swift */,
 				5E2701030000000000000002 /* SentryEventScrubberTests.swift */,
 			);
 			path = cmuxTests;
@@ -3857,9 +3950,14 @@
 				A5008373 /* BrowserFindWebViewEvaluator.swift in Sources */,
 				B42450030000000000000001 /* BrowserHiddenWebViewDiscardManager.swift in Sources */,
 				B42450010000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift in Sources */,
+				BABA25000000000000000007 /* BrowserHTTPBasicAuthPrompt.swift in Sources */,
+				BABA25000000000000000001 /* BrowserHTTPBasicAuthPromptCoordinator.swift in Sources */,
+				BABA2500000000000000000D /* BrowserHTTPBasicAuthPromptRequest.swift in Sources */,
+				BABA2500000000000000000B /* BrowserHTTPBasicAuthProtectionSpaceKey.swift in Sources */,
 				BCBC0A0E0000000000000F01 /* BrowserMediaActivity.swift in Sources */,
 				A500MH01 /* BrowserMediaPlaybackMessageHandler.swift in Sources */,
 				A500MR01 /* BrowserMediaPlaybackReport.swift in Sources */,
+				BABA25000000000000000009 /* BrowserNavigationDelegate.swift in Sources */,
 				B0A501000000000000000001 /* BrowserOmnibarAppKitBridge.swift in Sources */,
 				B0A500000000000000000001 /* BrowserOmnibarPerformanceSupport.swift in Sources */,
 				27DA3BE42CBF4AAFB6DE69C5 /* BrowserOmnibarSubmitSupport.swift in Sources */,
@@ -3877,7 +3975,26 @@
 				A5008371 /* BrowserSearchOverlay.swift in Sources */,
 				4BBF42E8A86EAAB94BC9EA16 /* BrowserSystemProxyMirror.swift in Sources */,
 				0796994CA7CCA25DB990BFEF /* BrowserSystemProxyWatcher.swift in Sources */,
+				A50100000000000000000002 /* BrowserWebAuthnAssertionExtensions.swift in Sources */,
+				A50100000000000000000004 /* BrowserWebAuthnAssertionPublicKeyOptions.swift in Sources */,
+				A50100000000000000000006 /* BrowserWebAuthnAssertionRequest.swift in Sources */,
+				A50100000000000000000008 /* BrowserWebAuthnAuthenticatorSelection.swift in Sources */,
+				A5010000000000000000000A /* BrowserWebAuthnBinaryData.swift in Sources */,
+				A5010000000000000000000C /* BrowserWebAuthnBridgeError.swift in Sources */,
+				A5010000000000000000000E /* BrowserWebAuthnBridgeMessageKind.swift in Sources */,
+				A50100000000000000000014 /* BrowserWebAuthnCreationPublicKeyOptions.swift in Sources */,
+				A50100000000000000000016 /* BrowserWebAuthnCreationRequest.swift in Sources */,
+				A50100000000000000000010 /* BrowserWebAuthnCredentialDescriptor.swift in Sources */,
+				A50100000000000000000012 /* BrowserWebAuthnCredentialParameter.swift in Sources */,
+				A50100000000000000000018 /* BrowserWebAuthnMessageEnvelope.swift in Sources */,
+				A5010000000000000000001A /* BrowserWebAuthnRelyingPartyDescriptor.swift in Sources */,
+				A5007426 /* BrowserWebAuthnRequestParser.swift in Sources */,
+				A5007424 /* BrowserWebAuthnSecurityOrigin.swift in Sources */,
+				A5010000000000000000001C /* BrowserWebAuthnStringValidation.swift in Sources */,
 				A5007422 /* BrowserWebAuthnSupport.swift in Sources */,
+				A5010000000000000000001E /* BrowserWebAuthnTransport.swift in Sources */,
+				A50100000000000000000020 /* BrowserWebAuthnTransportSummary.swift in Sources */,
+				A50100000000000000000022 /* BrowserWebAuthnUserDescriptor.swift in Sources */,
 				C0DE58990000000000000003 /* BrowserWebKitKeyDownDispatch.swift in Sources */,
 				A5001534 /* BrowserWindowPortal.swift in Sources */,
 				CA52B0010000000000000000 /* CanvasAction.swift in Sources */,
@@ -4185,6 +4302,7 @@
 				1255599FA91128E5925D3983 /* RemoteTmuxSessionMirror.swift in Sources */,
 				6D3C19C2014FF9C754358EFF /* RemoteTmuxSSHTransport.swift in Sources */,
 				0E17C0DE0E17C0DE0E17C002 /* RemoteTmuxTransportRegistry.swift in Sources */,
+				0A17C0DE0A17C0DE0A17C902 /* RemoteTmuxVersion.swift in Sources */,
 				A8C7BE33C1BD3C1AD4342CB1 /* RemoteTmuxWindow.swift in Sources */,
 				826F6597BF05F1242E17F0C3 /* RemoteTmuxWindowMirror.swift in Sources */,
 				063516351A6B6F642928B37D /* RemoteTmuxWindowMirrorView.swift in Sources */,
@@ -4548,6 +4666,8 @@
 				A5008381 /* BrowserFindJavaScriptTests.swift in Sources */,
 				B6585001B6585001B6585001 /* BrowserHiddenWebViewDiscardMemoryPressureTests.swift in Sources */,
 				4E1F28554F1B908F18559390 /* BrowserHistorySuggestionCacheTests.swift in Sources */,
+				BABA25000000000000000005 /* BrowserHTTPBasicAuthPromptCoordinatorTests.swift in Sources */,
+				BABA25000000000000000003 /* BrowserHTTPBasicAuthPromptTests.swift in Sources */,
 				FA100000A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift in Sources */,
 				BCBC0A0E0000000000000E11 /* BrowserMediaActivityAggregationTests.swift in Sources */,
 				BCBC0A0E0000000000000E21 /* BrowserMediaPlaybackAudioActivityTests.swift in Sources */,
@@ -4566,6 +4686,7 @@
 				A5D41220A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift in Sources */,
 				A5D41222A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift in Sources */,
 				A5D4120DA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift in Sources */,
+					CA11E4D0FA017DE500000B101 /* CLICallerWorkspaceDefaultTests.swift in Sources */,
 				C0D3F1F00000000000000103 /* CLICodexHookTimeoutRegressionTests.swift in Sources */,
 				C6711A010000000000000001 /* CLICodexWeakEnvironmentRestoreBindingTests.swift in Sources */,
 					E295EA3753206FE3FFCA6C0A /* CLIExplicitSurfaceRoutingTests.swift in Sources */,
@@ -4667,6 +4788,7 @@
 				606500010000000000000001 /* MenuBarOnlyActivationPolicyTests.swift in Sources */,
 					C0DE70520000000000000002 /* MenuBarProfilingLauncherTests.swift in Sources */,
 				6AA2F2E8BEB19ED6B8E125DB /* MobileHostAuthorizationTests.swift in Sources */,
+				B8B056D80000000000000001 /* MobileHostIdentityTests.swift in Sources */,
 				DE71CE000000000000000006 /* MobileHostNetworkPathRefreshTests.swift in Sources */,
 				C0DE10510000000000000001 /* MobileHostServiceSettingsTests.swift in Sources */,
 				4C1A7E10B2D34F56A8C90013 /* MobileHostStatusVerificationLimiterTests.swift in Sources */,
@@ -4695,6 +4817,7 @@
 				A64610020000000000000001 /* QuitConfirmationAlertPresenterTests.swift in Sources */,
 				A6D1F0400000000000000002 /* ReleasingWindowControllerTests.swift in Sources */,
 				REE0CA0000000000000000B2 /* RemotesClientTests.swift in Sources */,
+				C0F674600000000000000001 /* RemoteShellCWDRelayTests.swift in Sources */,
 				0A17C0DE0A17C0DE0A17C004 /* RemoteTmuxAuthTests.swift in Sources */,
 				5F5553CA5553CA5553CA0001 /* RemoteTmuxCapabilitiesTests.swift in Sources */,
 				B2FDE62450514C4C27FBD8F1 /* RemoteTmuxControlParserTests.swift in Sources */,
@@ -4705,6 +4828,7 @@
 				3AC9AB9046E742B93726A405 /* RemoteTmuxSessionListParserTests.swift in Sources */,
 				3AC9AB9046E742B93726A501 /* RemoteTmuxSessionRenameTitleTests.swift in Sources */,
 				9A5CF3AA2E6462E77144F9E6 /* RemoteTmuxSessionSnapshotTests.swift in Sources */,
+				0A17C0DE0A17C0DE0A17CA02 /* RemoteTmuxVersionTests.swift in Sources */,
 				FA00C0DE0001BEEF0001CAFE /* RemoteTmuxWindowRegistryTests.swift in Sources */,
 				C58410010000000000000001 /* RenderableSystemSymbolTests.swift in Sources */,
 				D36A00050000000000000001 /* RendererRealizationPlannerTests.swift in Sources */,
