@@ -1,5 +1,3 @@
-import Foundation
-
 /// Host-provided macOS notification authorization state for the Settings UI.
 public enum DesktopNotificationAuthorizationState: Equatable, Sendable {
     /// The host has not reported a concrete permission state yet.

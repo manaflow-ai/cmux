@@ -18,6 +18,24 @@ import Testing
         #expect(presentation.statusLabel == .denied)
         #expect(presentation.subtitle == .denied)
         #expect(presentation.primaryAction == .openSystemSettings)
-        #expect(presentation.sendTestEnabled)
+        #expect(!presentation.sendTestEnabled)
+    }
+
+    @Test func unknownStateDisablesSendTestUntilPermissionRefreshCompletes() {
+        let presentation = DesktopNotificationPermissionPresentation.make(for: .unknown)
+
+        #expect(presentation.statusLabel == .unknown)
+        #expect(presentation.subtitle == .notDetermined)
+        #expect(presentation.primaryAction == nil)
+        #expect(!presentation.sendTestEnabled)
+    }
+
+    @Test func notDeterminedStateDisablesSendTestUntilUserEnablesPermission() {
+        let presentation = DesktopNotificationPermissionPresentation.make(for: .notDetermined)
+
+        #expect(presentation.statusLabel == .notRequested)
+        #expect(presentation.subtitle == .notDetermined)
+        #expect(presentation.primaryAction == .requestAuthorization)
+        #expect(!presentation.sendTestEnabled)
     }
 }
