@@ -143,13 +143,7 @@ extension SidebarGitMetadataService {
             removeWorkspaceGitSnapshotRequest(for: probeKey)
         }
         workspaceGitSnapshotDirectoryByProbeKey[probeKey] = expectedDirectory
-        if var requests = workspaceGitSnapshotRequestsByDirectory[expectedDirectory],
-           let existingRequestIndex = requests.firstIndex(where: { $0.probeKey == probeKey }) {
-            requests[existingRequestIndex] = request
-            workspaceGitSnapshotRequestsByDirectory[expectedDirectory] = requests
-        } else {
-            workspaceGitSnapshotRequestsByDirectory[expectedDirectory, default: []].append(request)
-        }
+        workspaceGitSnapshotRequestsByDirectory[expectedDirectory, default: [:]][probeKey] = request
         let taskContext = WorkspaceGitSnapshotTaskContext(
             trackedPathEventGeneration: trackedPathEventGenerationForSnapshot(
                 directory: expectedDirectory,
@@ -204,8 +198,8 @@ extension SidebarGitMetadataService {
     ) {
         workspaceGitSnapshotTasksByDirectory.removeValue(forKey: expectedDirectory)
         workspaceGitSnapshotTaskContextByDirectory.removeValue(forKey: expectedDirectory)
-        let requests = workspaceGitSnapshotRequestsByDirectory.removeValue(forKey: expectedDirectory) ?? []
-        for request in requests {
+        let requests = workspaceGitSnapshotRequestsByDirectory.removeValue(forKey: expectedDirectory) ?? [:]
+        for request in requests.values {
             workspaceGitSnapshotDirectoryByProbeKey.removeValue(forKey: request.probeKey)
             applyWorkspaceGitMetadataSnapshot(
                 snapshot,

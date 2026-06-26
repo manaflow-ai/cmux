@@ -8,7 +8,7 @@ extension SidebarGitMetadataService {
               var requests = workspaceGitSnapshotRequestsByDirectory[directory] else {
             return
         }
-        requests.removeAll { $0.probeKey == key }
+        requests.removeValue(forKey: key)
         if requests.isEmpty {
             workspaceGitSnapshotRequestsByDirectory.removeValue(forKey: directory)
             workspaceGitSnapshotTaskContextByDirectory.removeValue(forKey: directory)
@@ -45,7 +45,10 @@ extension SidebarGitMetadataService {
     }
 
     func markWorkspaceGitSnapshotRerunPending(directory: String) {
-        for request in workspaceGitSnapshotRequestsByDirectory[directory] ?? [] {
+        guard let requests = workspaceGitSnapshotRequestsByDirectory[directory] else {
+            return
+        }
+        for request in requests.values {
             markWorkspaceGitProbeRerunPending(for: request.probeKey)
         }
     }
