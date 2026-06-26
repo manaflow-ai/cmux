@@ -10188,10 +10188,10 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    /// Minimum spacing between consecutive event-driven layout follow-up
-    /// attempts. Chosen to exceed a single 60 Hz display frame so AppKit's own
+    /// Coalescing policy for event-driven layout follow-up attempts. The minimum
+    /// spacing is chosen to exceed a single 60 Hz display frame so AppKit's own
     /// display-cycle layout pass can interleave between attempts. See #6790.
-    private static let layoutFollowUpMinAttemptInterval: TimeInterval = 1.0 / 30.0
+    private static let layoutFollowUpCoalescing = AttemptCoalescingPolicy(minInterval: 1.0 / 30.0)
 
     private func layoutFollowUpAttemptDelay() -> TimeInterval {
         // Coalesce high-frequency follow-up drivers so consecutive attempts are
@@ -10205,25 +10205,10 @@ final class Workspace: Identifiable, ObservableObject {
         // flush finds settled layout. Genuine convergence is preserved: progress
         // still reschedules within this floor, the specific structural-change
         // notifications still fire, and the 2 s timeout bounds the loop.
-        Self.coalescedLayoutFollowUpAttemptDelay(
+        Self.layoutFollowUpCoalescing.delay(
             backoff: layoutFollowUpBackoffDelay(),
-            sinceLastAttempt: ProcessInfo.processInfo.systemUptime - layoutFollowUpLastAttemptUptime,
-            minInterval: Self.layoutFollowUpMinAttemptInterval
+            sinceLastAttempt: ProcessInfo.processInfo.systemUptime - layoutFollowUpLastAttemptUptime
         )
-    }
-
-    /// Pure coalescing policy for event-driven layout follow-up attempts.
-    /// Returns the larger of the stall `backoff` and the per-frame throttle
-    /// (`minInterval - sinceLastAttempt`, floored at zero) so a burst of
-    /// high-frequency drivers cannot force back-to-back synchronous full-window
-    /// relayouts during scroll. See #6790.
-    nonisolated static func coalescedLayoutFollowUpAttemptDelay(
-        backoff: TimeInterval,
-        sinceLastAttempt: TimeInterval,
-        minInterval: TimeInterval
-    ) -> TimeInterval {
-        let throttle = max(0, minInterval - sinceLastAttempt)
-        return max(backoff, throttle)
     }
 
     private func layoutFollowUpBackoffDelay() -> TimeInterval {
