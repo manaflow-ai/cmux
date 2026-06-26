@@ -121,8 +121,8 @@ final class MinimalModeSidebarControlActionView: NSView {
         button.isTransparent = true
         button.title = ""
         button.bezelStyle = .regularSquare
-        button.focusRingType = .none
-        button.refusesFirstResponder = true
+        button.focusRingType = .default
+        button.refusesFirstResponder = false
         button.setButtonType(.momentaryChange)
         button.action = #selector(buttonPressed(_:))
         button.identifier = NSUserInterfaceItemIdentifier(slot.accessibilityIdentifier)

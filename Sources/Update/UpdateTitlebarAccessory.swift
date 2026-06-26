@@ -7,6 +7,12 @@ import CmuxSettingsUI
 import CmuxTestSupport
 import SwiftUI
 
+final class NonDraggableHostingView<Content: View>: NSHostingView<Content> {
+    override var mouseDownCanMoveWindow: Bool { false }
+    override var canBecomeKeyView: Bool { true }
+    override var acceptsFirstResponder: Bool { true }
+}
+
 enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
     case classic
     case compact
@@ -652,12 +658,41 @@ struct TitlebarControlButton<Content: View>: View {
     let foregroundColor: Color
     let accessibilityIdentifier: String
     let accessibilityLabel: String
+    let accessibilityHint: String?
     let action: () -> Void
     var isEnabled = true
     var rightClickAction: ((NSView, NSEvent) -> Void)? = nil
     @ViewBuilder let content: () -> Content
 
+    init(
+        config: TitlebarControlsStyleConfig,
+        accessibilityIdentifier: String,
+        accessibilityLabel: String,
+        accessibilityHint: String? = nil,
+        action: @escaping () -> Void,
+        rightClickAction: ((NSView, NSEvent) -> Void)? = nil,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.config = config
+        self.accessibilityIdentifier = accessibilityIdentifier
+        self.accessibilityLabel = accessibilityLabel
+        self.accessibilityHint = accessibilityHint
+        self.action = action
+        self.rightClickAction = rightClickAction
+        self.content = content
+    }
+
     var body: some View {
+        Group {
+            if titlebarControlsShouldTrackButtonHover(config: config) {
+                hintedButton.onHover { isHovering = $0 }
+            } else {
+                hintedButton
+            }
+        }
+    }
+
+    private var baseButton: some View {
         Button(action: action) {
             content()
         }
@@ -667,14 +702,26 @@ struct TitlebarControlButton<Content: View>: View {
         .background(TitlebarChromeGeometryReporter(keyPrefix: accessibilityIdentifier.replacingOccurrences(of: ".", with: "_")))
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier(accessibilityIdentifier)
         .accessibilityLabel(accessibilityLabel)
+        .focusable()
+        .background(hoverBackground)
         .overlay {
             if let rightClickAction {
                 TitlebarControlRightClickView(onRightMouseDown: rightClickAction)
             }
         }
         .titlebarInteractiveControl()
+    }
+
+    @ViewBuilder
+    private var hintedButton: some View {
+        if let hint = accessibilityHint {
+            baseButton.accessibilityHint(Text(hint))
+        } else {
+            baseButton
+        }
     }
 }
 
@@ -953,6 +1000,7 @@ struct TitlebarControlsView: View {
                 foregroundColor: foregroundColor,
                 accessibilityIdentifier: "titlebarControl.toggleSidebar",
                 accessibilityLabel: String(localized: "titlebar.sidebar.accessibilityLabel", defaultValue: "Toggle Sidebar"),
+                accessibilityHint: String(localized: "titlebar.sidebar.accessibilityHint", defaultValue: "Show or hide the sidebar"),
                 action: {
                 #if DEBUG
                 cmuxDebugLog("titlebar.toggleSidebar")
@@ -971,6 +1019,7 @@ struct TitlebarControlsView: View {
                 foregroundColor: foregroundColor,
                 accessibilityIdentifier: "titlebarControl.showNotifications",
                 accessibilityLabel: String(localized: "titlebar.notifications.accessibilityLabel", defaultValue: "Notifications"),
+                accessibilityHint: String(localized: "titlebar.notifications.accessibilityHint", defaultValue: "Show notifications"),
                 action: {
                 #if DEBUG
                 cmuxDebugLog("titlebar.notifications")
@@ -1004,6 +1053,7 @@ struct TitlebarControlsView: View {
                 foregroundColor: foregroundColor,
                 accessibilityIdentifier: "titlebarControl.newTab",
                 accessibilityLabel: String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace"),
+                accessibilityHint: String(localized: "titlebar.newWorkspace.accessibilityHint", defaultValue: "Create a new workspace"),
                 action: {
                 #if DEBUG
                 cmuxDebugLog("titlebar.newTab")
@@ -1048,6 +1098,7 @@ struct TitlebarControlsView: View {
             .safeHelp(KeyboardShortcutSettings.Action.focusHistoryForward.tooltip(String(localized: "menu.history.focusForward", defaultValue: "Focus Forward")))
 
         }
+        .accessibilityElement(children: .contain)
 
         let paddedContent = content.padding(config.groupPadding)
 
