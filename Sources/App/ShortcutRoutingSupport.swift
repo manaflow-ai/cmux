@@ -351,6 +351,10 @@ func shouldConsumeShortcutWhileCommandPaletteVisible(
     let normalizedChars = chars.lowercased()
 
     if normalizedFlags == [.command] {
+        if keyCode == 49 {
+            return false
+        }
+
         if normalizedChars == "a"
             || normalizedChars == "c"
             || normalizedChars == "v"
