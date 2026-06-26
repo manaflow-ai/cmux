@@ -212,6 +212,10 @@ public final class AuthCoordinator {
 
     // MARK: - Sign-in flows
 
+    public var hasPendingMagicLinkCode: Bool {
+        pendingNonce != nil
+    }
+
     /// Send a sign-in code to `email`, or run the debug `42` shortcut.
     public func sendCode(to email: String) async throws {
         try await requireOnline()

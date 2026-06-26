@@ -50,6 +50,7 @@ import Testing
 
     @Test func magicLinkRequiresPriorNonce() async {
         let (coordinator, _) = makeCoordinator(client: FakeAuthClient())
+        #expect(!coordinator.hasPendingMagicLinkCode)
         await #expect(throws: AuthError.invalidCode) {
             try await coordinator.verifyCode("000000")
         }
@@ -61,9 +62,11 @@ import Testing
         let (coordinator, _) = makeCoordinator(client: client)
 
         try await coordinator.sendCode(to: "a@b.com")
+        #expect(coordinator.hasPendingMagicLinkCode)
         try await coordinator.verifyCode("123456")
 
         #expect(coordinator.isAuthenticated)
+        #expect(!coordinator.hasPendingMagicLinkCode)
         let didMagicLink = await client.signedInWithMagicLink
         #expect(didMagicLink)
     }

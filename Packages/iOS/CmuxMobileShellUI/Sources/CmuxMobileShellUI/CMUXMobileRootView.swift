@@ -78,6 +78,10 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    var canShowAuthCodeEntry: Bool {
+        authManager.hasPendingMagicLinkCode
+    }
+
     @ViewBuilder private var terminalLayoutPreview: some View {
         #if os(iOS) && DEBUG
         TerminalLayoutPreviewView()
