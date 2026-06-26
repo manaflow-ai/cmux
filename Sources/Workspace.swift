@@ -5124,7 +5124,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     }
 
     private func registerRemoteRelayIDAliases(remotePTYSessionID: String, restoredPanelId: UUID) {
-        guard let parsed = Self.parsedDefaultSSHPTYSessionID(remotePTYSessionID) else { return }
+        guard let parsed = SSHPTYSessionID(parsing: remotePTYSessionID) else { return }
         registerRemoteRelayIDAliases(
             snapshotWorkspaceId: parsed.workspaceId,
             snapshotPanelId: parsed.panelId,
@@ -5168,25 +5168,12 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         return Self.defaultSSHPTYSessionID(workspaceId: id, panelId: panelId)
     }
 
+    /// Forwards to ``CmuxRemoteWorkspace/SSHPTYSessionID`` so the canonical
+    /// `ssh-<workspace>-<panel>` formatting lives in the package value type;
+    /// retained as a `Workspace`-namespaced entry point for internal callers
+    /// and session-restore tests.
     nonisolated static func defaultSSHPTYSessionID(workspaceId: UUID, panelId: UUID) -> String {
-        "ssh-\(workspaceId.uuidString)-\(panelId.uuidString)"
-    }
-
-    private nonisolated static func parsedDefaultSSHPTYSessionID(_ value: String) -> (workspaceId: UUID, panelId: UUID)? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("ssh-") else { return nil }
-        let suffix = String(trimmed.dropFirst(4))
-        guard suffix.count == 73 else { return nil }
-        let separatorIndex = suffix.index(suffix.startIndex, offsetBy: 36)
-        guard suffix[separatorIndex] == "-" else { return nil }
-        let panelStart = suffix.index(after: separatorIndex)
-        let workspacePart = String(suffix[..<separatorIndex])
-        let panelPart = String(suffix[panelStart...])
-        guard let workspaceId = UUID(uuidString: workspacePart),
-              let panelId = UUID(uuidString: panelPart) else {
-            return nil
-        }
-        return (workspaceId, panelId)
+        SSHPTYSessionID(workspaceId: workspaceId, panelId: panelId).rawValue
     }
 
     nonisolated static func sshPTYAttachStartupCommand(sessionID: String) -> String {
