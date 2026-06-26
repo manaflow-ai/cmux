@@ -135,8 +135,15 @@ public struct ParsedShortcutCombo: Sendable {
         self.charactersIgnoringModifiers = charactersIgnoringModifiers
     }
 
-    /// Matches macOS ANSI key codes for common printable keys and a few named specials.
-    private static func keyCodeForShortcutKey(_ key: String) -> UInt16? {
+    /// The macOS ANSI key code for a printable shortcut key glyph (`"a"`, `"5"`,
+    /// `"]"`, `` "`" ``), or `nil` when the glyph is not a printable ANSI key.
+    ///
+    /// This is the single source of truth for the printable-ANSI glyph→key-code
+    /// table in this package. ``PhysicalShortcutKey/init(storedKey:)`` reuses it
+    /// for its printable rows and layers the binding-only keys (function keys,
+    /// media keys, space, tab, return, arrows) on top, so the printable table is
+    /// not duplicated.
+    static func keyCodeForShortcutKey(_ key: String) -> UInt16? {
         switch key {
         case "a": return 0   // kVK_ANSI_A
         case "s": return 1   // kVK_ANSI_S

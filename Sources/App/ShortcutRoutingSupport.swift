@@ -3,6 +3,7 @@ import Bonsplit
 import CmuxBrowser
 import CmuxCommandPalette
 import CmuxWindowing
+import CmuxWorkspaces
 import Foundation
 import CmuxTerminal
 
@@ -472,7 +473,7 @@ func shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(
 func shouldRouteInlineVSCodeCommandPaletteShortcutThroughWebContentFirst(
     _ event: NSEvent,
     pageURL: URL?,
-    inlineVSCodeURLMatcher: (URL?) -> Bool = { VSCodeServeWebController.shared.isServeWebURL($0) },
+    inlineVSCodeURLMatcher: (URL?) -> Bool = { AppDelegate.shared?.vscodeServeWebController.isServeWebURL($0) ?? false },
     shortcutForAction: (KeyboardShortcutSettings.Action) -> StoredShortcut = KeyboardShortcutSettings.shortcut(for:)
 ) -> Bool {
     guard inlineVSCodeURLMatcher(pageURL) else { return false }

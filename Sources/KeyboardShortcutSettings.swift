@@ -1395,7 +1395,7 @@ struct ShortcutStroke: Equatable, Hashable {
 
         let shortcutKey = key.lowercased()
         if Self.usesDirectKeyCodeMatching(shortcutKey) {
-            guard let expectedKeyCode = self.keyCode ?? Self.keyCodeForShortcutKey(shortcutKey) else {
+            guard let expectedKeyCode = self.keyCode ?? PhysicalShortcutKey(storedKey: shortcutKey)?.keyCode else {
                 return false
             }
             return keyCode == expectedKeyCode
@@ -1457,7 +1457,7 @@ struct ShortcutStroke: Equatable, Hashable {
                         || (!hasEventChars && (layoutCharacter?.isEmpty ?? true))
                 ))
         if allowANSIKeyCodeFallback,
-           let expectedKeyCode = Self.keyCodeForShortcutKey(shortcutKey) {
+           let expectedKeyCode = PhysicalShortcutKey(storedKey: shortcutKey)?.keyCode {
             return keyCode == expectedKeyCode
         }
 
@@ -1511,52 +1511,12 @@ struct ShortcutStroke: Equatable, Hashable {
             return recordableKey
         }
 
-        guard let storedKey = storedKey(
-            keyCode: event.keyCode,
+        guard let storedKey = PhysicalShortcutKey(keyCode: event.keyCode).storedKey(
             charactersIgnoringModifiers: event.charactersIgnoringModifiers
         ) else {
             return nil
         }
         return RecordableKey(key: storedKey, keyCode: event.keyCode)
-    }
-
-    private static func storedKey(
-        keyCode: UInt16,
-        charactersIgnoringModifiers: String?
-    ) -> String? {
-        // Prefer keyCode mapping so shifted symbol keys (e.g. "}") record as "]".
-        switch keyCode {
-        case 123: return "←" // left arrow
-        case 124: return "→" // right arrow
-        case 125: return "↓" // down arrow
-        case 126: return "↑" // up arrow
-        case 48: return "\t" // tab
-        case 49: return "space" // kVK_Space
-        case 36, 76: return "\r" // return, keypad enter
-        case 33: return "["  // kVK_ANSI_LeftBracket
-        case 30: return "]"  // kVK_ANSI_RightBracket
-        case 27: return "-"  // kVK_ANSI_Minus
-        case 24: return "="  // kVK_ANSI_Equal
-        case 43: return ","  // kVK_ANSI_Comma
-        case 47: return "."  // kVK_ANSI_Period
-        case 44: return "/"  // kVK_ANSI_Slash
-        case 41: return ";"  // kVK_ANSI_Semicolon
-        case 39: return "'"  // kVK_ANSI_Quote
-        case 50: return "`"  // kVK_ANSI_Grave
-        case 42: return "\\" // kVK_ANSI_Backslash
-        default:
-            break
-        }
-
-        guard let chars = charactersIgnoringModifiers?.lowercased(),
-              let char = chars.first else {
-            return nil
-        }
-
-        if char.isLetter || char.isNumber {
-            return String(char)
-        }
-        return nil
     }
 
     private static func recordableKey(
@@ -1614,52 +1574,6 @@ struct ShortcutStroke: Equatable, Hashable {
         }
     }
 
-    static func normalizedShortcutEventCharacter(
-        _ eventCharacter: String,
-        applyShiftSymbolNormalization: Bool,
-        eventKeyCode: UInt16
-    ) -> String {
-        let lowered = eventCharacter.lowercased()
-
-        // "+" -> "=" and "_" -> "-" are normalized regardless of Shift. On US
-        // layouts these symbols only exist as Shift variants, so the Shift gate
-        // below historically sufficed. On European layouts (German QWERTZ, French
-        // AZERTY, Nordic) "+" and "-" are dedicated keys typed WITHOUT Shift, so a
-        // bare "+"/"_" can only originate from such a key. Mapping them to their
-        // base zoom key ("=", "-") unconditionally is therefore safe (no shortcut
-        // key is ever stored as "+"/"_") and is what makes Cmd zoom work there.
-        switch lowered {
-        case "+": return "="
-        case "_": return "-"
-        default: break
-        }
-
-        guard applyShiftSymbolNormalization else { return lowered }
-
-        switch lowered {
-        case "{": return "["
-        case "}": return "]"
-        case "<": return eventKeyCode == 43 ? "," : lowered // kVK_ANSI_Comma
-        case ">": return eventKeyCode == 47 ? "." : lowered // kVK_ANSI_Period
-        case "?": return "/"
-        case ":": return ";"
-        case "\"": return "'"
-        case "|": return "\\"
-        case "~": return "`"
-        case "!": return eventKeyCode == 18 ? "1" : lowered // kVK_ANSI_1
-        case "@": return eventKeyCode == 19 ? "2" : lowered // kVK_ANSI_2
-        case "#": return eventKeyCode == 20 ? "3" : lowered // kVK_ANSI_3
-        case "$": return eventKeyCode == 21 ? "4" : lowered // kVK_ANSI_4
-        case "%": return eventKeyCode == 23 ? "5" : lowered // kVK_ANSI_5
-        case "^": return eventKeyCode == 22 ? "6" : lowered // kVK_ANSI_6
-        case "&": return eventKeyCode == 26 ? "7" : lowered // kVK_ANSI_7
-        case "*": return eventKeyCode == 28 ? "8" : lowered // kVK_ANSI_8
-        case "(": return eventKeyCode == 25 ? "9" : lowered // kVK_ANSI_9
-        case ")": return eventKeyCode == 29 ? "0" : lowered // kVK_ANSI_0
-        default: return lowered
-        }
-    }
-
     private static func shouldRequireCharacterMatchForCommandShortcut(shortcutKey: String) -> Bool {
         guard shortcutKey.count == 1, let scalar = shortcutKey.unicodeScalars.first else {
             return false
@@ -1674,100 +1588,11 @@ struct ShortcutStroke: Equatable, Hashable {
         eventKeyCode: UInt16
     ) -> Bool {
         guard let eventCharacter, !eventCharacter.isEmpty else { return false }
-        return normalizedShortcutEventCharacter(
+        return PhysicalShortcutKey(keyCode: eventKeyCode).normalizedEventCharacter(
             eventCharacter,
             applyShiftSymbolNormalization: applyShiftSymbolNormalization,
-            eventKeyCode: eventKeyCode
+            normalizePlusMinusRegardlessOfShift: true
         ) == shortcutKey
-    }
-
-    private static func keyCodeForShortcutKey(_ key: String) -> UInt16? {
-        switch key {
-        case "f1": return 122
-        case "f2": return 120
-        case "f3": return 99
-        case "f4": return 118
-        case "f5": return 96
-        case "f6": return 97
-        case "f7": return 98
-        case "f8": return 100
-        case "f9": return 101
-        case "f10": return 109
-        case "f11": return 103
-        case "f12": return 111
-        case "f13": return 105
-        case "f14": return 107
-        case "f15": return 113
-        case "f16": return 106
-        case "f17": return 64
-        case "f18": return 79
-        case "f19": return 80
-        case "f20": return 90
-        case "media.volumeUp": return 0
-        case "media.volumeDown": return 1
-        case "media.brightnessUp": return 2
-        case "media.brightnessDown": return 3
-        case "media.mute": return 7
-        case "media.playPause": return 16
-        case "media.next": return 17
-        case "media.previous": return 18
-        case "space": return 49
-        case "a": return 0
-        case "s": return 1
-        case "d": return 2
-        case "f": return 3
-        case "h": return 4
-        case "g": return 5
-        case "z": return 6
-        case "x": return 7
-        case "c": return 8
-        case "v": return 9
-        case "b": return 11
-        case "q": return 12
-        case "w": return 13
-        case "e": return 14
-        case "r": return 15
-        case "y": return 16
-        case "t": return 17
-        case "1": return 18
-        case "2": return 19
-        case "3": return 20
-        case "4": return 21
-        case "6": return 22
-        case "5": return 23
-        case "=": return 24
-        case "9": return 25
-        case "7": return 26
-        case "-": return 27
-        case "8": return 28
-        case "0": return 29
-        case "]": return 30
-        case "o": return 31
-        case "u": return 32
-        case "[": return 33
-        case "i": return 34
-        case "p": return 35
-        case "l": return 37
-        case "j": return 38
-        case "'": return 39
-        case "k": return 40
-        case ";": return 41
-        case "\\": return 42
-        case ",": return 43
-        case "/": return 44
-        case "n": return 45
-        case "m": return 46
-        case ".": return 47
-        case "\t": return 48
-        case "`": return 50
-        case "\r": return 36
-        case "←": return 123
-        case "→": return 124
-        case "↓": return 125
-        case "↑": return 126
-        default:
-            return nil
-        }
     }
 
     private static func usesDirectKeyCodeMatching(_ key: String) -> Bool {
@@ -1831,7 +1656,7 @@ struct ShortcutStroke: Equatable, Hashable {
             }
         }
 
-        return Self.keyCodeForShortcutKey(shortcutKey)
+        return PhysicalShortcutKey(storedKey: shortcutKey)?.keyCode
     }
 
     var carbonHotKeyRegistration: CarbonHotKeyRegistration? {

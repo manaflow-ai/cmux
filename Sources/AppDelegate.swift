@@ -88,6 +88,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func ensureClosedItemHistoryInstalled() {
         _ = closedItemHistory
     }
+    /// Owns the inline VS Code `serve-web` process lifecycle
+    /// (``VSCodeServeWebController``, CmuxWorkspaces); composition-root owned so
+    /// the type no longer exposes a `static let shared`. The ContentView and
+    /// shortcut-routing call sites reach this same instance through
+    /// ``AppDelegate/shared``.
+    let vscodeServeWebController = VSCodeServeWebController()
     #if DEBUG
     /// DEBUG main-run-loop stall probe (CmuxTestSupport); composition-root owned,
     /// injected behind ``RunLoopStallMonitoring`` to retire the former
@@ -2116,7 +2122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         MobileHostService.shared.stop()
         terminalControl.stop()
         GhosttyApp.terminalPasteboard.cleanupAllOwnedTemporaryImageFiles()
-        VSCodeServeWebController.shared.stop()
+        vscodeServeWebController.stop()
         BrowserProfileStore.shared.flushPendingSaves()
         ghosttyCrashBreadcrumbTask?.cancel()
         ghosttyCrashBreadcrumbTask = nil
@@ -5690,7 +5696,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ?? targetTabManager.addWorkspace(select: true).id
         let normalizedDirectoryURL = directoryURL.standardizedFileURL
 
-        VSCodeServeWebController.shared.ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
+        vscodeServeWebController.ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
             guard let serveWebURL,
                   let openFolderURL = serveWebURL.vscodeServeWebFolderURL(
                       directoryPath: normalizedDirectoryURL.path

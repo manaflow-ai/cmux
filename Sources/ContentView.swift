@@ -5726,14 +5726,14 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     }
 
     private func stopInlineVSCodeServeWeb() {
-        VSCodeServeWebController.shared.stop()
+        AppDelegate.shared?.vscodeServeWebController.stop()
     }
 
     private func restartInlineVSCodeServeWeb() -> Bool {
         guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscodeInline.applicationURL() else {
             return false
         }
-        VSCodeServeWebController.shared.restart(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
+        AppDelegate.shared?.vscodeServeWebController.restart(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
             if serveWebURL == nil {
                 NSSound.beep()
             }
