@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Coalescing policy for high-frequency, work-inducing follow-up attempts.
 ///
@@ -15,6 +15,13 @@ public struct AttemptCoalescingPolicy: Sendable, Equatable {
     /// display frame so the display cycle can interleave between attempts.
     public let minInterval: TimeInterval
 
+    /// Creates a coalescing policy.
+    ///
+    /// - Parameter minInterval: Minimum seconds between consecutive attempts.
+    ///   Choose a value above one display frame (for example `1.0 / 30.0`) so the
+    ///   display cycle can interleave and absorb pending work between attempts;
+    ///   pass `0` to disable the per-frame floor and defer entirely to the
+    ///   caller's backoff.
     public init(minInterval: TimeInterval) {
         self.minInterval = minInterval
     }
