@@ -471,19 +471,14 @@ extension MarkdownPanel: FindablePanel {
     @discardableResult
     func startFind() -> Bool {
         if displayMode == .preview {
-            pendingTextFinderAction = .showFindInterface
-            setDisplayMode(.text)
-            _ = performPendingTextFinderActionIfPossible()
-            return true
+            return switchToTextModeAndOpenFindInterface()
         }
         return performTextFinderAction(.showFindInterface)
     }
 
     func findNext() {
         if displayMode == .preview {
-            pendingTextFinderAction = .nextMatch
-            setDisplayMode(.text)
-            _ = performPendingTextFinderActionIfPossible()
+            _ = switchToTextModeAndOpenFindInterface()
             return
         }
         _ = performTextFinderAction(.nextMatch)
@@ -491,9 +486,7 @@ extension MarkdownPanel: FindablePanel {
 
     func findPrevious() {
         if displayMode == .preview {
-            pendingTextFinderAction = .previousMatch
-            setDisplayMode(.text)
-            _ = performPendingTextFinderActionIfPossible()
+            _ = switchToTextModeAndOpenFindInterface()
             return
         }
         _ = performTextFinderAction(.previousMatch)
@@ -517,7 +510,7 @@ extension MarkdownPanel: FindablePanel {
         guard displayMode == .text else { return false }
         guard let textView else {
             if queueIfNeeded {
-                pendingTextFinderAction = action
+                pendingTextFinderAction = action.queuedWithoutTextView
                 return true
             }
             return false
@@ -525,6 +518,14 @@ extension MarkdownPanel: FindablePanel {
         _ = textView.window?.makeFirstResponder(textView)
         textView.performTextFinderAction(action.menuItemSender)
         pendingTextFinderAction = nil
+        return true
+    }
+
+    @discardableResult
+    private func switchToTextModeAndOpenFindInterface() -> Bool {
+        pendingTextFinderAction = .showFindInterface
+        setDisplayMode(.text)
+        _ = performPendingTextFinderActionIfPossible()
         return true
     }
 }

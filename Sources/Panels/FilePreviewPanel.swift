@@ -4522,7 +4522,7 @@ extension FilePreviewPanel: FindablePanel {
     private func performTextFinderAction(_ action: NSTextFinder.Action) -> Bool {
         guard previewMode == .text else { return false }
         guard let textView else {
-            pendingTextFinderAction = action
+            pendingTextFinderAction = action.queuedWithoutTextView
             return true
         }
         _ = textView.window?.makeFirstResponder(textView)

@@ -404,4 +404,14 @@ extension NSTextFinder.Action {
         item.tag = rawValue
         return item
     }
+
+    /// Action to queue when the text view that owns the AppKit finder is not mounted yet.
+    var queuedWithoutTextView: NSTextFinder.Action {
+        switch self {
+        case .nextMatch, .previousMatch:
+            return .showFindInterface
+        default:
+            return self
+        }
+    }
 }
