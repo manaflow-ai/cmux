@@ -50,6 +50,7 @@ private final class MemoryPressureHiddenWebViewDiscardTestDelegate: BrowserHidde
 private func makeMemoryPressureHiddenWebViewDiscardBlockerSnapshot() -> BrowserHiddenWebViewDiscardManager.BlockerSnapshot {
     BrowserHiddenWebViewDiscardManager.BlockerSnapshot(
         isClosing: false,
+        isActiveInWorkspace: false,
         isVisibleInUI: false,
         shouldRenderWebView: true,
         hasPendingRemoteNavigation: false,

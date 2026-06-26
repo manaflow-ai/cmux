@@ -3594,6 +3594,10 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func configureBrowserPanel(_ browserPanel: BrowserPanel) {
+        browserPanel.isActiveInWorkspaceForResourceLifecycle = { [weak self, weak browserPanel] in
+            guard let self, let browserPanel else { return false }
+            return self.focusedPanelId == browserPanel.id
+        }
         browserPanel.webViewDidRequestClose = { [weak self, weak browserPanel] in
             guard let self, let browserPanel else { return }
             guard self.panels[browserPanel.id] is BrowserPanel else { return }
@@ -3605,6 +3609,7 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
             _ = self.closePanel(browserPanel.id, force: true)
         }
+        browserPanel.noteWorkspaceResourceLifecycleProtectionMayHaveChanged(reason: "workspace.configureBrowserPanel")
     }
 
     private func triggerWorkspacePaneFlash(panelId: UUID, reason: WorkspaceAttentionFlashReason) {
@@ -9509,6 +9514,11 @@ final class Workspace: Identifiable, ObservableObject {
         if currentlyFocusedPanelId != panelId {
             syncUnreadBadgeStateForAllPanels()
         }
+        notifyBrowserResourceLifecycleProtectionChanged(
+            previousPanelId: currentlyFocusedPanelId,
+            currentPanelId: focusedPanelId,
+            reason: "workspace.focusPanel"
+        )
 
         if let browserPanel = panels[panelId] as? BrowserPanel {
             maybeAutoFocusBrowserAddressBarOnPanelFocus(browserPanel, trigger: trigger)
@@ -9520,6 +9530,17 @@ final class Workspace: Identifiable, ObservableObject {
                 reason: "workspace.focusPanel.terminal",
                 terminalFocusPanelId: panelId
             )
+        }
+    }
+
+    private func notifyBrowserResourceLifecycleProtectionChanged(
+        previousPanelId: UUID?,
+        currentPanelId: UUID?,
+        reason: String
+    ) {
+        for panelId in Set([previousPanelId, currentPanelId].compactMap { $0 }) {
+            (panels[panelId] as? BrowserPanel)?
+                .noteWorkspaceResourceLifecycleProtectionMayHaveChanged(reason: reason)
         }
     }
 

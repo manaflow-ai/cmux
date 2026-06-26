@@ -21,6 +21,7 @@ protocol BrowserHiddenWebViewDiscardManagerDelegate: AnyObject {
 final class BrowserHiddenWebViewDiscardManager {
     struct BlockerSnapshot {
         let isClosing: Bool
+        let isActiveInWorkspace: Bool
         let isVisibleInUI: Bool
         let shouldRenderWebView: Bool
         let hasPendingRemoteNavigation: Bool
@@ -79,6 +80,7 @@ final class BrowserHiddenWebViewDiscardManager {
         if isSystemSleeping { blockers.append("system_sleeping") }
         if snapshot.isClosing { blockers.append("closing") }
         if isDiscardedForMemory { blockers.append("already_discarded") }
+        if snapshot.isActiveInWorkspace { blockers.append("active_workspace_surface") }
         if snapshot.isVisibleInUI { blockers.append("visible") }
         if !snapshot.shouldRenderWebView { blockers.append("not_rendered") }
         if snapshot.hasPendingRemoteNavigation { blockers.append("pending_remote_navigation") }
@@ -133,6 +135,7 @@ final class BrowserHiddenWebViewDiscardManager {
                 guard delegate.hiddenWebViewDiscardWebViewInstanceID == observedWebViewInstanceID else { return }
                 self.discardTimer?.cancel()
                 self.discardTimer = nil
+                guard self.blockers(for: delegate.hiddenWebViewDiscardSnapshot).isEmpty else { return }
                 delegate.hiddenWebViewDiscardManagerDidRequestDiscard(self, reason: reason)
             }
         }

@@ -100,6 +100,7 @@ private final class BrowserHiddenWebViewDiscardTestDelegate: BrowserHiddenWebVie
 
 @MainActor
 private func makeHiddenWebViewDiscardBlockerSnapshot(
+    isActiveInWorkspace: Bool = false,
     hasActiveMainFrameProvisionalNavigation: Bool = false,
     isVisualAutomationCaptureActive: Bool = false,
     isCapturingMedia: Bool = false,
@@ -107,6 +108,7 @@ private func makeHiddenWebViewDiscardBlockerSnapshot(
 ) -> BrowserHiddenWebViewDiscardManager.BlockerSnapshot {
     BrowserHiddenWebViewDiscardManager.BlockerSnapshot(
         isClosing: false,
+        isActiveInWorkspace: isActiveInWorkspace,
         isVisibleInUI: false,
         shouldRenderWebView: true,
         hasPendingRemoteNavigation: false,
