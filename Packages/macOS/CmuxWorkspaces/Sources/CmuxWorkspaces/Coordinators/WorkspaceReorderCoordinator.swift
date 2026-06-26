@@ -166,37 +166,6 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
 
     // MARK: - Sidebar drag planning
 
-    /// The row-id space a sidebar drag plans in (full rows, or top-level
-    /// rows when the drag involves group rows or promotion).
-    public func sidebarReorderWorkspaceIds(
-        forDraggedWorkspaceId draggedWorkspaceId: UUID?,
-        targetWorkspaceId: UUID? = nil,
-        usesTopLevelRows: Bool = false
-    ) -> [UUID] {
-        guard usesTopLevelRows || sidebarReorderUsesTopLevelRows(
-            forDraggedWorkspaceId: draggedWorkspaceId,
-            targetWorkspaceId: targetWorkspaceId
-        ) else {
-            return model.tabs.map(\.id)
-        }
-        return model.sidebarTopLevelWorkspaceIds(promotingWorkspaceId: draggedWorkspaceId)
-    }
-
-    /// The pinned subset of the drag's row-id space.
-    public func sidebarReorderPinnedWorkspaceIds(
-        forDraggedWorkspaceId draggedWorkspaceId: UUID?,
-        targetWorkspaceId: UUID? = nil,
-        usesTopLevelRows: Bool = false
-    ) -> Set<UUID> {
-        guard usesTopLevelRows || sidebarReorderUsesTopLevelRows(
-            forDraggedWorkspaceId: draggedWorkspaceId,
-            targetWorkspaceId: targetWorkspaceId
-        ) else {
-            return Set(model.tabs.filter { $0.groupId == nil && $0.isPinned }.map(\.id))
-        }
-        return model.sidebarTopLevelPinnedWorkspaceIds()
-    }
-
     /// The legal insertion range for an in-group member drag, or `nil` when
     /// the drag is not constrained to a group section.
     public func sidebarReorderLegalInsertionRange(
@@ -295,9 +264,7 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         return true
     }
 
-    /// Whether a sidebar drag plans in top-level rows (group rows involved
-    /// or a grouped child being promoted out of its group).
-    public func sidebarReorderUsesTopLevelRows(
+    private func sidebarReorderUsesTopLevelRows(
         forDraggedWorkspaceId draggedWorkspaceId: UUID?,
         targetWorkspaceId: UUID?
     ) -> Bool {
@@ -308,9 +275,7 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         )
     }
 
-    /// Snapshot variant of `sidebarReorderUsesTopLevelRows` over a caller-
-    /// provided membership map.
-    public func sidebarReorderUsesTopLevelRows(
+    private func sidebarReorderUsesTopLevelRows(
         forDraggedWorkspaceId draggedWorkspaceId: UUID?,
         targetWorkspaceId: UUID?,
         workspaceGroupIdByWorkspaceId: [UUID: UUID?]

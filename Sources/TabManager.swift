@@ -1630,18 +1630,6 @@ class TabManager: ObservableObject {
         )
     }
 
-    func sidebarReorderUsesTopLevelRows(
-        forDraggedWorkspaceId draggedWorkspaceId: UUID?,
-        targetWorkspaceId: UUID?,
-        workspaceGroupIdByWorkspaceId: [UUID: UUID?]
-    ) -> Bool {
-        sidebarWorkspaceListSnapshot.sidebarReorderUsesTopLevelRows(
-            forDraggedWorkspaceId: draggedWorkspaceId,
-            targetWorkspaceId: targetWorkspaceId,
-            workspaceGroupIdByWorkspaceId: workspaceGroupIdByWorkspaceId
-        )
-    }
-
     func workspaceReorderPlan(tabId: UUID, toIndex targetIndex: Int) -> WorkspaceReorderPlanItem? {
         workspaceReordering.workspaceReorderPlan(tabId: tabId, toIndex: targetIndex)
     }

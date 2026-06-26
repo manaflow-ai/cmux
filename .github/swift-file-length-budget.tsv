@@ -3,7 +3,7 @@
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 34629	CLI/cmux.swift
 17854	Sources/AppDelegate.swift
-16090	Sources/ContentView.swift
+16083	Sources/ContentView.swift
 13913	Sources/TerminalController.swift
 12838	Sources/Workspace.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
@@ -17,7 +17,7 @@
 6895	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 6317	cmuxTests/SessionPersistenceTests.swift
 6217	cmuxTests/GhosttyConfigTests.swift
-6200	Sources/TabManager.swift
+6188	Sources/TabManager.swift
 6077	Sources/TextBoxInput.swift
 5915	cmuxTests/TerminalAndGhosttyTests.swift
 5573	cmuxTests/BrowserConfigTests.swift
@@ -194,7 +194,6 @@
 549	Sources/Panels/BrowserAutomation.swift
 547	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/BackingUpPairedMacStore.swift
 541	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Pane/ControlCommandCoordinator+Pane.swift
-540	Packages/macOS/CmuxWorkspaces/Sources/CmuxWorkspaces/Coordinators/WorkspaceReorderCoordinator.swift
 539	CLI/CMUXCLI+Themes.swift
 539	CLI/CodexTeamsApprovalBridge.swift
 538	Packages/macOS/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/PTYBridge/RemotePTYBridgeSession.swift
@@ -221,6 +220,7 @@
 509	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerAdditionalPolicies.swift
 507	Sources/TerminalControllerTopSupport.swift
 506	Sources/App/MainWindowVisibilityController.swift
+505	Packages/macOS/CmuxWorkspaces/Sources/CmuxWorkspaces/Coordinators/WorkspaceReorderCoordinator.swift
 505	cmuxUITests/DisplayResolutionRegressionUITests.swift
 504	cmuxTests/TerminalNotificationSocketActionTests.swift
 503	Sources/Settings/ConfigSource.swift

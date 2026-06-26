@@ -118,27 +118,6 @@ final class SidebarWorkspaceListSnapshot {
         return targetWorkspaceGroupId == nil
     }
 
-    func sidebarReorderUsesTopLevelRows(
-        forDraggedWorkspaceId draggedWorkspaceId: UUID?,
-        targetWorkspaceId: UUID?,
-        workspaceGroupIdByWorkspaceId: [UUID: UUID?]
-    ) -> Bool {
-        guard let draggedWorkspaceId else { return false }
-        if workspaceGroupAnchorIds.contains(draggedWorkspaceId) ||
-            targetWorkspaceId.map(workspaceGroupAnchorIds.contains) == true {
-            return true
-        }
-        guard let draggedWorkspaceGroupId = workspaceGroupIdByWorkspaceId[draggedWorkspaceId],
-              draggedWorkspaceGroupId != nil else {
-            return false
-        }
-        guard let targetWorkspaceId else { return true }
-        guard let targetWorkspaceGroupId = workspaceGroupIdByWorkspaceId[targetWorkspaceId] else {
-            return false
-        }
-        return targetWorkspaceGroupId == nil
-    }
-
     private func topLevelWorkspaceIdsForReorder(promotingWorkspaceId promotedWorkspaceId: UUID?) -> [UUID] {
         guard let promotedWorkspaceId,
               !topLevelWorkspaceIds.contains(promotedWorkspaceId),
