@@ -2146,10 +2146,28 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
     @MainActor
     func testPersistentPTYBootstrapReinstallsOldDaemonMissingPTYCapability() throws {
+        // A daemon binary is already installed (exists=yes), but its `hello`
+        // reports a capability set missing the persistent-PTY support, so the
+        // bootstrap must reinstall it. We assert that reinstall upload streams
+        // over ssh, not scp (#6207). The daemon binary is supplied via an
+        // explicit override so the test stays deterministic and does not depend
+        // on a Go toolchain being present on the CI runner.
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-remote-daemon-reinstall-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directoryURL) }
+
+        let fakeDaemonURL = directoryURL.appendingPathComponent("cmuxd-remote", isDirectory: false)
+        try Data("fake daemon".utf8).write(to: fakeDaemonURL)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeDaemonURL.path)
+
         let previousAllowLocalBuild = getenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD").map { String(cString: $0) }
         let previousDaemonBinary = getenv("CMUX_REMOTE_DAEMON_BINARY").map { String(cString: $0) }
         setenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD", "1", 1)
-        unsetenv("CMUX_REMOTE_DAEMON_BINARY")
+        setenv("CMUX_REMOTE_DAEMON_BINARY", fakeDaemonURL.path, 1)
         defer {
             if let previousAllowLocalBuild {
                 setenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD", previousAllowLocalBuild, 1)
@@ -2167,8 +2185,8 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let lock = NSLock()
         var uploadCommand: String?
         var usedScp = false
+        var uploadCount = 0
         let remoteProcessScript: RemoteProcessScript = { executable, arguments, _, _ in
-            let executableName = URL(fileURLWithPath: executable).lastPathComponent
             if executable == "/usr/bin/ssh" {
                 let command = arguments.last ?? ""
                 if command.contains("uname -s") {
@@ -2184,6 +2202,8 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                     )
                 }
                 if command.contains("serve --stdio") {
+                    // Existing daemon advertises capabilities missing persistent PTY,
+                    // which triggers the capability reinstall below.
                     return (
                         status: 0,
                         stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"old","capabilities":["proxy.stream.push"]}}"# + "\n",
@@ -2195,10 +2215,19 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 }
                 if command.contains("cat >") {
                     lock.lock()
-                    uploadCommand = command
+                    uploadCount += 1
+                    let isReinstallUpload = uploadCount >= 2
+                    if isReinstallUpload {
+                        uploadCommand = command
+                    }
                     lock.unlock()
-                    uploadInvoked.signal()
-                    return (status: 1, stdout: "", stderr: "intentional stop after capability reinstall")
+                    if isReinstallUpload {
+                        uploadInvoked.signal()
+                        return (status: 1, stdout: "", stderr: "intentional stop after capability reinstall")
+                    }
+                    // Let the first (initial install) upload + finalize succeed so the
+                    // bootstrap proceeds to the hello/capability check and reinstalls.
+                    return (status: 0, stdout: "", stderr: "")
                 }
                 return (status: 0, stdout: "", stderr: "")
             }
@@ -2208,19 +2237,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 lock.unlock()
                 uploadInvoked.signal()
                 return (status: 1, stdout: "", stderr: "scp must not be used for daemon upload")
-            }
-            if executableName == "go" {
-                if let outputFlagIndex = arguments.firstIndex(of: "-o"),
-                   outputFlagIndex + 1 < arguments.count {
-                    let outputURL = URL(fileURLWithPath: arguments[outputFlagIndex + 1], isDirectory: false)
-                    try? FileManager.default.createDirectory(
-                        at: outputURL.deletingLastPathComponent(),
-                        withIntermediateDirectories: true
-                    )
-                    try Data("fake daemon".utf8).write(to: outputURL)
-                    try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: outputURL.path)
-                }
-                return (status: 0, stdout: "", stderr: "")
             }
             XCTFail("unexpected executable \(executable)")
             return (status: 1, stdout: "", stderr: "unexpected executable")
@@ -2246,7 +2262,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.configureRemoteConnection(config, autoConnect: true)
 
-        XCTAssertEqual(uploadInvoked.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(uploadInvoked.wait(timeout: .now() + 5), .success)
         lock.lock()
         let capturedCommand = uploadCommand
         let capturedUsedScp = usedScp
@@ -2256,6 +2272,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             "reinstall upload must stream over ssh, not scp (#6207)"
         )
         let command = try XCTUnwrap(capturedCommand)
+        XCTAssertTrue(
+            command.contains("cat > "),
+            "expected the reinstall binary to be piped via cat, got \(command)"
+        )
         XCTAssertTrue(
             command.contains("/home/test/.cmux/bin/cmuxd-remote/"),
             "expected missing pty.session to reinstall the old daemon over ssh, got \(command)"
