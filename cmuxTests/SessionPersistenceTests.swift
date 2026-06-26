@@ -771,8 +771,40 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(marked.components(separatedBy: "\(esc)]133;A").count - 1, 1)
     }
 
+    // Agent output frequently echoes the user's words mid-sentence ("I'll
+    // refactor the login flow"). The marker must land on the prompt row that
+    // BEGINS with the message, not on the later agent-output row that merely
+    // contains the words.
+    func testScrollbackReplayDoesNotMarkAgentOutputEchoingTheMessage() {
+        let esc = "\u{001B}"
+        let reset = "\(esc)[0m"
+        let message = "refactor the login flow"
+        let lines = [
+            "\(esc)[2m> \(reset)refactor the login flow",            // the actual prompt row
+            "\(esc)[33m⏺ I'll refactor the login flow now…\(reset)", // agent echo, below the prompt
+            "\(esc)[32m● Done\(reset)",
+        ]
+        let scrollback = lines.joined(separator: "\n")
+
+        let marked = SessionScrollbackReplayStore.reinjectingLastPromptMark(
+            into: scrollback,
+            lastUserMessage: message
+        )
+        let markedLines = marked.components(separatedBy: "\n")
+
+        XCTAssertTrue(
+            markedLines[0].hasPrefix(SessionScrollbackReplayStore.semanticPromptStartMark),
+            "the prompt row must be marked, got: \(markedLines[0])"
+        )
+        XCTAssertFalse(
+            markedLines[1].contains("\(esc)]133;A"),
+            "agent output echoing the message must not be marked, got: \(markedLines[1])"
+        )
+        XCTAssertEqual(marked.components(separatedBy: "\(esc)]133;A").count - 1, 1)
+    }
+
     // A multiline prompt (newlines collapsed) whose words land on different
-    // captured rows still matches via the cross-row stream.
+    // captured rows still matches across rows.
     func testScrollbackReplayMarksMultilinePromptAcrossRows() {
         let esc = "\u{001B}"
         let message = "first line\nsecond line of the prompt"
