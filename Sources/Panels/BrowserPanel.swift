@@ -4282,10 +4282,17 @@ final class BrowserPanel: Panel, ObservableObject {
 
         let store = webView.configuration.websiteDataStore
         guard let endpoint = remoteProxyEndpoint else {
-            // Local panes mirror an active system proxy with loopback excluded
-            // (#5888); remote panes keep [] while their endpoint is pending/lost.
-            store.proxyConfigurations = usesRemoteWorkspaceProxy
-                ? [] : BrowserSystemProxyMirror.currentProxyConfigurations()
+            // Remote panes keep [] while their endpoint is pending/lost. Local
+            // panes prefer an explicit user proxy (cmux.json `browser.proxy` /
+            // CMUX_BROWSER_PROXY, #6639); otherwise they mirror an active system
+            // proxy with loopback excluded (#5888).
+            if usesRemoteWorkspaceProxy {
+                store.proxyConfigurations = []
+            } else if let userProxy = BrowserUserProxyMirror.currentProxyConfigurations() {
+                store.proxyConfigurations = userProxy
+            } else {
+                store.proxyConfigurations = BrowserSystemProxyMirror.currentProxyConfigurations()
+            }
             return
         }
 
@@ -4779,6 +4786,12 @@ final class BrowserPanel: Panel, ObservableObject {
         // Keep the local-workspace system-proxy mirror fresh when the user
         // toggles a global proxy or switches network locations mid-session.
         NotificationCenter.default.publisher(for: .browserSystemProxySettingsDidChange)
+            .sink { [weak self] _ in self?.applyProxyConfigurationIfAvailable() }
+            .store(in: &webViewCancellables)
+
+        // Re-apply the user-configured browser proxy (cmux.json `browser.proxy`)
+        // after a `cmux reload-config` so edits take effect without a restart.
+        NotificationCenter.default.publisher(for: .browserUserProxyConfigurationDidChange)
             .sink { [weak self] _ in self?.applyProxyConfigurationIfAvailable() }
             .store(in: &webViewCancellables)
 

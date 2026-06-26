@@ -1027,6 +1027,46 @@
           "default": "system",
           "description": "Embedded browser theme."
         },
+        "proxy": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Route local embedded-browser panes through an HTTP CONNECT or SOCKSv5 proxy (WKWebsiteDataStore.proxyConfigurations). Applies to local panes only; remote-workspace panes keep their workspace tunnel. Reloadable via `cmux reload-config`. The CMUX_BROWSER_PROXY environment variable (e.g. socks5://127.0.0.1:1080, or socks5://user:pass@host:port) overrides this.",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["off", "socks5", "httpConnect"],
+              "default": "off",
+              "description": "Proxy protocol. off applies no cmux browser proxy (an active macOS system proxy is still mirrored for the loopback fix). socks5 uses a SOCKSv5 proxy; httpConnect uses an HTTP CONNECT proxy."
+            },
+            "host": {
+              "type": "string",
+              "default": "",
+              "description": "Proxy server hostname or IP, e.g. 127.0.0.1."
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535,
+              "description": "Proxy server port, e.g. 1080."
+            },
+            "username": {
+              "type": "string",
+              "default": "",
+              "description": "Optional username for an authenticated proxy."
+            },
+            "password": {
+              "type": "string",
+              "default": "",
+              "description": "Optional password for an authenticated proxy."
+            },
+            "bypass": {
+              "type": "array",
+              "items": { "type": "string" },
+              "default": [],
+              "description": "Hostname suffixes that connect directly instead of through the proxy, e.g. localhost, *.localhost, 127.0.0.1. Loopback and link-local hosts are always bypassed."
+            }
+          }
+        },
         "discardHiddenWebViews": {
           "type": "boolean",
           "default": true,
