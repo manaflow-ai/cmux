@@ -162,6 +162,38 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
         )
     }
 
+    func testDoesNotRestorePreviousFrameMostlyOffScreen() {
+        // Old frame straddled an adjacent external display that is now unplugged:
+        // it still overlaps the built-in by >60pt (passes the constrain
+        // reachability bar) but only ~7% of its area is on-screen, so restoring
+        // it would push the window mostly off-screen. Must refuse.
+        let builtIn = NSRect(x: 0, y: 0, width: 1512, height: 944)
+        let mostlyOffScreen = NSRect(x: 1400, y: 0, width: 1500, height: 900)
+        let current = NSRect(x: 256, y: 122, width: 1000, height: 700)
+        XCTAssertNil(
+            CmuxMainWindow.restoredFrameAfterInactiveDisplayTransition(
+                current: current,
+                beforeDeactivation: mostlyOffScreen,
+                visibleFrames: [builtIn]
+            )
+        )
+    }
+
+    func testDoesNotRestorePreviousFrameLargerThanCurrentDisplay() {
+        // Display woke at a smaller mode; the old maximized frame no longer fits,
+        // so restoring it would overflow the current display. Must refuse.
+        let smallerMode = NSRect(x: 0, y: 0, width: 1280, height: 800)
+        let oldLarge = NSRect(x: 0, y: 0, width: 2560, height: 1440)
+        let current = NSRect(x: 140, y: 90, width: 1000, height: 620)
+        XCTAssertNil(
+            CmuxMainWindow.restoredFrameAfterInactiveDisplayTransition(
+                current: current,
+                beforeDeactivation: oldLarge,
+                visibleFrames: [smallerMode]
+            )
+        )
+    }
+
     func testDoesNotRestoreOnNegligibleShrink() {
         let visible = NSRect(x: 0, y: 0, width: 1512, height: 944)
         let before = NSRect(x: 0, y: 0, width: 1512, height: 944)
