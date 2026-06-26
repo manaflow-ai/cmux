@@ -27,6 +27,12 @@ on:
         description: Branch or SHA
         required: false
         default: ""
+  # While bringing this up (the workflow isn't on the default branch yet, so
+  # workflow_dispatch via the API is unavailable), trigger it by pushing a change
+  # to this file on the feature branch. Controlled: only fires on edits to itself.
+  push:
+    branches: [feat-ios-appstore-prod-lane]
+    paths: [".github/workflows/ios-streamed-validate.yml"]
 
 permissions:
   contents: read
