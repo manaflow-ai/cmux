@@ -693,9 +693,9 @@ final class CmuxWebView: WKWebView {
         let identifier = item.identifier?.rawValue ?? "nil"
         let title = item.title
         let actionName = Self.selectorName(item.action)
-        let idToken = Self.normalizedContextMenuToken(identifier)
-        let titleToken = Self.normalizedContextMenuToken(title)
-        let actionToken = Self.normalizedContextMenuToken(actionName)
+        let idToken = identifier.normalizedBrowserContextMenuToken
+        let titleToken = title.normalizedBrowserContextMenuToken
+        let actionToken = actionName.normalizedBrowserContextMenuToken
         guard idToken.contains("download")
             || titleToken.contains("download")
             || actionToken.contains("download") else {
@@ -706,80 +706,15 @@ final class CmuxWebView: WKWebView {
         )
     }
 
-    private static func normalizedContextMenuToken(_ value: String?) -> String {
-        guard let value else { return "" }
-        let lowered = value.lowercased()
-        let alphanumerics = CharacterSet.alphanumerics
-        let scalars = lowered.unicodeScalars.filter { alphanumerics.contains($0) }
-        return String(String.UnicodeScalarView(scalars))
-    }
-
-    private func isDownloadImageMenuItem(_ item: NSMenuItem) -> Bool {
-        let identifier = Self.normalizedContextMenuToken(item.identifier?.rawValue)
-        if identifier.contains("downloadimage") {
-            return true
-        }
-
-        let title = Self.normalizedContextMenuToken(item.title)
-        if title.contains("downloadimage") {
-            return true
-        }
-
-        if let action = item.action {
-            let actionName = Self.normalizedContextMenuToken(NSStringFromSelector(action))
-            if actionName.contains("downloadimage") {
-                return true
-            }
-        }
-
-        return false
-    }
-
-    private func isDownloadLinkedFileMenuItem(_ item: NSMenuItem) -> Bool {
-        let identifier = Self.normalizedContextMenuToken(item.identifier?.rawValue)
-        if identifier.contains("downloadlinkedfile")
-            || identifier.contains("downloadlinktodisk") {
-            return true
-        }
-
-        let title = Self.normalizedContextMenuToken(item.title)
-        if title.contains("downloadlinkedfile")
-            || title.contains("downloadlinktodisk") {
-            return true
-        }
-
-        if let action = item.action {
-            let actionName = Self.normalizedContextMenuToken(NSStringFromSelector(action))
-            if actionName.contains("downloadlinkedfile")
-                || actionName.contains("downloadlinktodisk") {
-                return true
-            }
-        }
-
-        return false
-    }
-
-    private func isCopyImageMenuItem(_ item: NSMenuItem) -> Bool {
-        let tokens = [
-            Self.normalizedContextMenuToken(item.identifier?.rawValue),
-            Self.normalizedContextMenuToken(item.title),
-            item.action.map { Self.normalizedContextMenuToken(NSStringFromSelector($0)) } ?? "",
-        ]
-
-        for token in tokens where !token.isEmpty {
-            if token.contains("copyimageaddress")
-                || token.contains("copyimageurl")
-                || token.contains("copyimagelocation") {
-                return false
-            }
-            if token == "copyimage"
-                || token.contains("copyimagetoclipboard")
-                || token.contains("copyimage") {
-                return true
-            }
-        }
-
-        return false
+    /// Bridges an AppKit `NSMenuItem` to the string-only
+    /// `BrowserContextMenuItemClassifier` in `CmuxBrowser`, which owns the
+    /// download/copy token matching.
+    private static func contextMenuItemClassifier(for item: NSMenuItem) -> BrowserContextMenuItemClassifier {
+        BrowserContextMenuItemClassifier(
+            identifier: item.identifier?.rawValue,
+            title: item.title,
+            actionName: item.action.map { NSStringFromSelector($0) }
+        )
     }
 
     private func isOurContextMenuAction(target: AnyObject?, action: Selector?) -> Bool {
@@ -1578,7 +1513,7 @@ final class CmuxWebView: WKWebView {
                 item.action = #selector(contextMenuOpenLinkInNewTab(_:))
             }
 
-            if isDownloadImageMenuItem(item) {
+            if Self.contextMenuItemClassifier(for: item).isDownloadImageMenuItem {
                 debugContextDownload(
                     "browser.ctxdl.menu hook kind=image index=\(index) id=\(item.identifier?.rawValue ?? "nil") title=\(item.title) action=\(Self.selectorName(item.action))"
                 )
@@ -1595,7 +1530,7 @@ final class CmuxWebView: WKWebView {
                 item.action = #selector(contextMenuDownloadImage(_:))
             }
 
-            if isCopyImageMenuItem(item) {
+            if Self.contextMenuItemClassifier(for: item).isCopyImageMenuItem {
                 debugContextDownload(
                     "browser.ctxcopy.menu hook kind=image index=\(index) id=\(item.identifier?.rawValue ?? "nil") title=\(item.title) action=\(Self.selectorName(item.action))"
                 )
@@ -1611,7 +1546,7 @@ final class CmuxWebView: WKWebView {
                 item.action = #selector(contextMenuCopyImage(_:))
             }
 
-            if isDownloadLinkedFileMenuItem(item) {
+            if Self.contextMenuItemClassifier(for: item).isDownloadLinkedFileMenuItem {
                 debugContextDownload(
                     "browser.ctxdl.menu hook kind=linked index=\(index) id=\(item.identifier?.rawValue ?? "nil") title=\(item.title) action=\(Self.selectorName(item.action))"
                 )

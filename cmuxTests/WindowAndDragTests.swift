@@ -1056,7 +1056,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             accuracy: 0.001
         )
         XCTAssertEqual(
-            MinimalModeSidebarTitlebarControlsMetrics.topInset(defaults: defaults),
+            MinimalModeSidebarTitlebarControlsMetrics(defaults: defaults).topInset,
             CGFloat(MinimalModeTitlebarDebugSnapshot.defaultLeftControlsTopInset),
             accuracy: 0.001
         )

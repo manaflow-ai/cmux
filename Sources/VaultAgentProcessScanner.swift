@@ -379,15 +379,16 @@ extension RestorableAgentSessionIndex {
         kind: RestorableAgentKind,
         arguments: [String]
     ) -> String? {
+        let argvParser = AgentResumeArgvParser()
         switch kind {
         case .claude:
-            return sessionIdAfterOption(
-                arguments,
-                options: ["--resume", "-r", "--session-id"],
+            return argvParser.sessionId(
+                in: arguments,
+                afterAnyOption: ["--resume", "-r", "--session-id"],
                 valuePrefixes: ["--resume=", "--session-id="]
             )
         case .codex:
-            if let id = sessionIdAfterOption(arguments, options: ["--resume", "-r"], valuePrefixes: ["--resume="]) {
+            if let id = argvParser.sessionId(in: arguments, afterAnyOption: ["--resume", "-r"], valuePrefixes: ["--resume="]) {
                 return id
             }
             if let index = arguments.firstIndex(of: "resume"),
@@ -399,27 +400,6 @@ extension RestorableAgentSessionIndex {
         default:
             return nil
         }
-    }
-
-    private static func sessionIdAfterOption(
-        _ arguments: [String],
-        options: Set<String>,
-        valuePrefixes: [String]
-    ) -> String? {
-        var index = arguments.startIndex
-        while index < arguments.endIndex {
-            let argument = arguments[index]
-            if options.contains(argument),
-               index + 1 < arguments.endIndex,
-               !arguments[index + 1].hasPrefix("-") {
-                return normalized(arguments[index + 1])
-            }
-            for prefix in valuePrefixes where argument.hasPrefix(prefix) {
-                return normalized(String(argument.dropFirst(prefix.count)))
-            }
-            index += 1
-        }
-        return nil
     }
 
     private static func processDetectedOpenCodeSnapshots(

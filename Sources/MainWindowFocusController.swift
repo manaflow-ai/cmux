@@ -367,7 +367,7 @@ final class MainWindowFocusController {
             return focusRightSidebar(mode: .files, focusFirstItem: focusFirstItem)
         }
         let mode = desiredMode
-        let target = rightSidebarFocusTarget(mode: mode, focusFirstItem: focusFirstItem)
+        let target = RightSidebarFocusTarget.forMode(mode, focusFirstItem: focusFirstItem)
         return focusRightSidebar(mode: mode, target: target, terminalYieldReason: "rightSidebarFocus")
     }
 
@@ -440,7 +440,7 @@ final class MainWindowFocusController {
         let responder = currentResponder ?? window?.firstResponder
         if let responder {
             if let mode = rightSidebarModeOwning(responder) {
-                return findShortcutTarget(forRightSidebarMode: mode)
+                return MainWindowFindShortcutTarget.forRightSidebarMode(mode)
             }
             if terminalFocusRequest(for: responder) != nil {
                 return .mainPanelFind
@@ -449,13 +449,13 @@ final class MainWindowFocusController {
                 return .mainPanelFind
             }
             if case .rightSidebar(let mode) = intent {
-                return findShortcutTarget(forRightSidebarMode: mode)
+                return MainWindowFindShortcutTarget.forRightSidebarMode(mode)
             }
             return .mainPanelFind
         }
 
         if case .rightSidebar(let mode) = intent {
-            return findShortcutTarget(forRightSidebarMode: mode)
+            return MainWindowFindShortcutTarget.forRightSidebarMode(mode)
         }
         return .mainPanelFind
     }
@@ -484,10 +484,6 @@ final class MainWindowFocusController {
             respectForeignFirstResponder: false
         )
         return terminalPanel.hostedView.isSurfaceViewFirstResponder()
-    }
-
-    private func findShortcutTarget(forRightSidebarMode mode: RightSidebarMode) -> MainWindowFindShortcutTarget {
-        mode == .files ? .rightSidebarFileSearch : .none
     }
 
     private func selectedFocusedPanelIsBrowser() -> Bool {
@@ -603,24 +599,6 @@ final class MainWindowFocusController {
                 target: target
             )
         )
-    }
-
-    private func rightSidebarFocusTarget(
-        mode: RightSidebarMode,
-        focusFirstItem: Bool
-    ) -> RightSidebarFocusTarget {
-        switch mode {
-        case .files:
-            return .outline
-        case .find:
-            return .searchField
-        case .sessions:
-            return .host
-        case .feed:
-            return focusFirstItem ? .firstItem : .host
-        case .dock:
-            return focusFirstItem ? .firstItem : .host
-        }
     }
 
     private func focusRightSidebarEndpoint(

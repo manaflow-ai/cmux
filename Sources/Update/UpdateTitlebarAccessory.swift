@@ -217,7 +217,7 @@ final class NotificationsAnchorRegistry {
         anchors.allObjects
             .compactMap { view -> (view: NSView, distance: CGFloat)? in
                 guard view.window === window else { return nil }
-                guard notificationsPopoverAnchorIsVisible(view) else { return nil }
+                guard view.isVisibleAsNotificationsPopoverAnchor else { return nil }
                 let frameInWindow = view.convert(view.bounds, to: nil)
                 guard !frameInWindow.isEmpty else { return nil }
                 let center = NSPoint(x: frameInWindow.midX, y: frameInWindow.midY)
@@ -228,31 +228,6 @@ final class NotificationsAnchorRegistry {
             .min { $0.distance < $1.distance }?
             .view
     }
-}
-
-@MainActor
-func notificationsPopoverAnchorIsVisible(_ view: NSView) -> Bool {
-    var current: NSView? = view
-    while let candidate = current {
-        if candidate.isHidden || candidate.alphaValue <= 0 {
-            return false
-        }
-        current = candidate.superview
-    }
-    return true
-}
-
-@MainActor
-func preferredNotificationsPopoverAnchor(buttonAnchor: NSView?, fallbackAnchor: NSView?) -> NSView? {
-    let fallbackWindow = fallbackAnchor?.window
-    guard let buttonAnchor,
-          let buttonWindow = buttonAnchor.window,
-          fallbackWindow == nil || buttonWindow === fallbackWindow,
-          !buttonAnchor.bounds.isEmpty,
-          notificationsPopoverAnchorIsVisible(buttonAnchor) else {
-        return fallbackAnchor
-    }
-    return buttonAnchor
 }
 
 private final class DetachedNotificationsPopoverDelegate: NSObject, NSPopoverDelegate {
@@ -1891,7 +1866,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 
         // Use external anchor (e.g. fullscreen sidebar controls) if provided.
         if let externalAnchor, externalAnchor.window != nil {
-            let anchorView = preferredNotificationsPopoverAnchor(
+            let anchorView = NSView.preferredNotificationsPopoverAnchor(
                 buttonAnchor: viewModel.notificationsAnchorView,
                 fallbackAnchor: externalAnchor
             ) ?? externalAnchor
