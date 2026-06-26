@@ -94,6 +94,17 @@ function hookEnvironment(cwd: string): NodeJS.ProcessEnv {
   return env;
 }
 
+function hasCmuxHookContext(): boolean {
+  return Boolean(
+    process.env.CMUX_SURFACE_ID ||
+    process.env.CMUX_PANEL_ID ||
+    process.env.CMUX_WORKSPACE_ID ||
+    process.env.CMUX_SOCKET_PATH ||
+    process.env.CMUX_BUNDLED_CLI_PATH ||
+    process.env.CMUX_AMP_CMUX_BIN
+  );
+}
+
 function eventName(subcommand: string): string {
   switch (subcommand) {
     case "session-start":
@@ -114,7 +125,7 @@ function sendHook(
   extra: Record<string, unknown> = {}
 ): void {
   if (process.env.CMUX_AMP_HOOKS_DISABLED === "1") return;
-  if (!process.env.CMUX_SURFACE_ID) return;
+  if (!hasCmuxHookContext()) return;
   if (!sessionId) return;
 
   const payload: Record<string, unknown> = {

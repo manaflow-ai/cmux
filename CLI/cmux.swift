@@ -27386,9 +27386,20 @@ function hookEnvironment(cwd) {
   return env;
 }
 
+function hasCmuxHookContext() {
+  return Boolean(
+    process.env.CMUX_SURFACE_ID ||
+    process.env.CMUX_PANEL_ID ||
+    process.env.CMUX_WORKSPACE_ID ||
+    process.env.CMUX_SOCKET_PATH ||
+    process.env.CMUX_BUNDLED_CLI_PATH ||
+    process.env.CMUX_OPENCODE_CMUX_BIN
+  );
+}
+
 function sendHook(subcommand, ctx, event, extra = {}) {
   if (process.env.CMUX_OPENCODE_HOOKS_DISABLED === "1") return;
-  if (!process.env.CMUX_SURFACE_ID) return;
+  if (!hasCmuxHookContext()) return;
 
   const sessionId = sessionIdFor(event);
   if (!sessionId) return;
@@ -27785,6 +27796,17 @@ function hookEnvironment(cwd: string): NodeJS.ProcessEnv {
   return env;
 }
 
+function hasCmuxHookContext(): boolean {
+  return Boolean(
+    process.env.CMUX_SURFACE_ID ||
+    process.env.CMUX_PANEL_ID ||
+    process.env.CMUX_WORKSPACE_ID ||
+    process.env.CMUX_SOCKET_PATH ||
+    process.env.CMUX_BUNDLED_CLI_PATH ||
+    process.env.CMUX_PI_CMUX_BIN
+  );
+}
+
 function eventName(subcommand: string): string {
   switch (subcommand) {
     case "session-start":
@@ -27824,7 +27846,7 @@ function lastAssistantMessage(event: AgentEndEvent): string | undefined {
 
 function sendHook(subcommand: string, ctx: ExtensionContext, extra: Record<string, unknown> = {}): void {
   if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return;
-  if (!process.env.CMUX_SURFACE_ID) return;
+  if (!hasCmuxHookContext()) return;
 
   const sessionId = firstString(ctx.sessionManager.getSessionId());
   if (!sessionId) return;
