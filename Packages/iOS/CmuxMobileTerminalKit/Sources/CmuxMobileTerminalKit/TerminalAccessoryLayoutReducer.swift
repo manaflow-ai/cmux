@@ -240,6 +240,53 @@ public struct TerminalAccessoryLayoutReducer<ID: Hashable & Sendable>: Sendable 
         return Layout(rows: Self.split(order, matchingRowLengthsOf: layout.rows), enabled: layout.enabled)
     }
 
+    /// Returns `layout` with a scoped set of identifiers reordered inside their current rows.
+    ///
+    /// Use this when a settings surface shows only part of the toolbar. Identifiers
+    /// outside `scopedIDs` keep their exact row positions, and scoped identifiers are
+    /// reordered only among the scoped slots in the row they already occupy. Moving
+    /// an item between rows must go through ``move(_:toRow:in:)``.
+    ///
+    /// - Parameters:
+    ///   - orderedIDs: The desired row-major order for the scoped identifiers.
+    ///   - scopedIDs: The identifiers the caller's current surface is allowed to move.
+    ///   - layout: The current layout.
+    /// - Returns: The updated layout.
+    public func reorder(_ orderedIDs: [ID], limitedTo scopedIDs: Set<ID>, in layout: Layout) -> Layout {
+        let validScopedIDs = scopedIDs.intersection(configurableSet)
+        guard !validScopedIDs.isEmpty else { return layout }
+
+        var seen = Set<ID>()
+        let desiredScopedOrder = orderedIDs.filter { identifier in
+            configurableSet.contains(identifier)
+                && validScopedIDs.contains(identifier)
+                && seen.insert(identifier).inserted
+        }
+        guard !desiredScopedOrder.isEmpty else { return layout }
+
+        var rows = layout.rows
+        for rowIndex in rows.indices {
+            let row = rows[rowIndex]
+            let rowScopedIDs = Set(row.filter { validScopedIDs.contains($0) })
+            guard !rowScopedIDs.isEmpty else { continue }
+
+            var rowSeen = Set<ID>()
+            var rowScopedOrder = desiredScopedOrder.filter { identifier in
+                rowScopedIDs.contains(identifier) && rowSeen.insert(identifier).inserted
+            }
+            for identifier in row where rowScopedIDs.contains(identifier) && rowSeen.insert(identifier).inserted {
+                rowScopedOrder.append(identifier)
+            }
+
+            var iterator = rowScopedOrder.makeIterator()
+            rows[rowIndex] = row.map { identifier in
+                guard rowScopedIDs.contains(identifier) else { return identifier }
+                return iterator.next() ?? identifier
+            }
+        }
+        return Layout(rows: rows, enabled: layout.enabled)
+    }
+
     /// Returns `layout` with items moved within one toolbar row.
     ///
     /// `offsets`/`destination` follow the SwiftUI `onMove` contract: indices into

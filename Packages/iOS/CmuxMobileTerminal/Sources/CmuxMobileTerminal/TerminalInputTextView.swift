@@ -603,9 +603,6 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
     private func updateAccessoryRowsHeight(rowCount: Int) {
         accessoryRowsHeightConstraint?.constant = Self.dockedRowsHeight(rowCount: rowCount)
-        if accessoryRowsHeightConstraint != nil {
-            terminalAccessoryToolbar.frame.size.height = Self.dockedButtonRowHeight(rowCount: rowCount)
-        }
     }
 
     /// Disarm the active modifier if its bar button is no longer rendered, so a

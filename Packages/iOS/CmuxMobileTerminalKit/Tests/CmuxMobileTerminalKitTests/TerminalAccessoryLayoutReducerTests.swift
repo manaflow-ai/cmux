@@ -141,6 +141,20 @@ struct TerminalAccessoryLayoutReducerTests {
         #expect(moved.rows == [[0, 1], [3, 2]])
     }
 
+    @Test("scoped reorder preserves terminal rows and non-scoped positions")
+    func scopedReorderPreservesRows() {
+        let scopedReducer = TerminalAccessoryLayoutReducer(configurable: [0, 1, 2, 3, 4, 5])
+        let layout = TerminalAccessoryLayoutReducer<Int>.Layout(
+            rows: [[0, 1, 2], [3, 4, 5]],
+            enabled: Set([0, 1, 2, 3, 4, 5])
+        )
+
+        let moved = scopedReducer.reorder([5, 3, 0, 2], limitedTo: Set([0, 2, 3, 5]), in: layout)
+
+        #expect(moved.rows == [[0, 1, 2], [5, 4, 3]])
+        #expect(moved.enabled == layout.enabled)
+    }
+
     @Test("moving an item to another row preserves enabled state")
     func moveItemToRow() {
         let layout = TerminalAccessoryLayoutReducer<Int>.Layout(

@@ -51,18 +51,18 @@ struct TerminalShortcutsSettingsView: View {
                         ))
                     }
 
-                    ForEach(displayedItemRows.indices, id: \.self) { rowIndex in
+                    ForEach(displayedRowSections) { rowSection in
                         Section {
-                            ForEach(displayedItemRows[rowIndex]) { item in
-                                row(for: item, rowIndex: rowIndex)
+                            ForEach(rowSection.items) { item in
+                                row(for: item, rowIndex: rowSection.index)
                             }
                             .onMove { offsets, destination in
-                                moveDisplayedItems(from: offsets, to: destination, inRow: rowIndex)
+                                moveDisplayedItems(from: offsets, to: destination, inRow: rowSection.index)
                             }
                         } header: {
-                            Text(rowTitle(rowIndex))
+                            Text(rowTitle(rowSection.index))
                         } footer: {
-                            if rowIndex == displayedItemRows.count - 1 {
+                            if rowSection.index == displayedRowSections.count - 1 {
                                 Text(scope.footer)
                             }
                         }
@@ -199,6 +199,16 @@ struct TerminalShortcutsSettingsView: View {
         configuration.displayItemRows.map { row in row.filter(scope.includes) }
     }
 
+    private var displayedRowSections: [TerminalShortcutRowSection] {
+        displayedItemRows.enumerated().map { index, items in
+            TerminalShortcutRowSection(
+                id: "terminal-shortcuts-row-\(index)",
+                index: index,
+                items: items
+            )
+        }
+    }
+
     private func rowIndex(for id: ToolbarItemID) -> Int? {
         configuration.displayRows.firstIndex { row in row.contains(id) }
     }
@@ -211,21 +221,11 @@ struct TerminalShortcutsSettingsView: View {
     }
 
     private func moveDisplayedItems(from offsets: IndexSet, to destination: Int) {
-        guard scope != .terminal else {
-            configuration.moveItems(from: offsets, to: destination)
-            return
-        }
-
         let visibleIDs = displayedItems.map(\.id)
         let visibleSet = Set(visibleIDs)
         var reorderedVisibleIDs = visibleIDs
         reorderedVisibleIDs.move(fromOffsets: offsets, toOffset: destination)
-        var visibleIterator = reorderedVisibleIDs.makeIterator()
-        let reorderedFullIDs = configuration.displayOrder.map { id in
-            guard visibleSet.contains(id) else { return id }
-            return visibleIterator.next() ?? id
-        }
-        configuration.reorderItems(reorderedFullIDs)
+        configuration.reorderItems(reorderedVisibleIDs, limitedTo: visibleSet)
     }
 
     private func moveDisplayedItems(from offsets: IndexSet, to destination: Int, inRow rowIndex: Int) {

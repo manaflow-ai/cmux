@@ -302,16 +302,22 @@ public final class TerminalAccessoryConfiguration {
         persistAndNotify()
     }
 
-    /// Reorder the configurable items using a complete desired order.
+    /// Reorder the configurable items inside their current toolbar rows.
     ///
     /// Unknown identifiers are dropped and any omitted current/configurable ids
-    /// are appended by the reducer load path, matching launch-time normalization.
+    /// keep their current relative order. Moving an item between rows must go
+    /// through ``moveItem(_:toRow:)`` so row assignment never changes implicitly.
     public func reorderItems(_ orderedIDs: [ToolbarItemID]) {
-        apply(reducer.load(
-            savedRows: Self.split(orderedIDs, matchingRowLengthsOf: displayRows),
-            savedEnabled: Array(enabledSet),
-            rowCount: rowCount
-        ))
+        apply(reducer.reorder(orderedIDs, limitedTo: Set(displayOrder), in: currentLayout))
+        persistAndNotify()
+    }
+
+    /// Reorder a scoped subset of configurable items inside their current rows.
+    ///
+    /// This keeps every non-scoped item in its exact row position and only reorders
+    /// `scopedIDs` among the scoped slots in the row each item already occupies.
+    public func reorderItems(_ orderedIDs: [ToolbarItemID], limitedTo scopedIDs: Set<ToolbarItemID>) {
+        apply(reducer.reorder(orderedIDs, limitedTo: scopedIDs, in: currentLayout))
         persistAndNotify()
     }
 
@@ -402,25 +408,6 @@ public final class TerminalAccessoryConfiguration {
     /// Clamp a requested toolbar row count to the supported range.
     public static func clampedRowCount(_ rowCount: Int) -> Int {
         min(max(rowCount, minimumRowCount), maximumRowCount)
-    }
-
-    private static func split(
-        _ order: [ToolbarItemID],
-        matchingRowLengthsOf rows: [[ToolbarItemID]]
-    ) -> [[ToolbarItemID]] {
-        guard !rows.isEmpty else { return [order] }
-        var result: [[ToolbarItemID]] = []
-        var cursor = order.startIndex
-        for row in rows {
-            let remaining = order.distance(from: cursor, to: order.endIndex)
-            let end = order.index(cursor, offsetBy: min(row.count, remaining))
-            result.append(Array(order[cursor..<end]))
-            cursor = end
-        }
-        if cursor < order.endIndex {
-            result[result.count - 1].append(contentsOf: order[cursor...])
-        }
-        return result
     }
 
     private func persist() {
