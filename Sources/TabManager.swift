@@ -777,11 +777,14 @@ class TabManager: ObservableObject {
     }
 
     var isFindVisible: Bool {
-        selectedTerminalPanel?.searchState != nil || focusedBrowserPanel?.searchState != nil
+        selectedTerminalPanel?.searchState != nil
+            || focusedBrowserPanel?.searchState != nil
+            || focusedFindablePanel?.isFindVisible == true
     }
 
     var canUseSelectionForFind: Bool {
         selectedTerminalPanel?.hasSelection() == true
+            || focusedFindablePanel?.hasSelectionForFind == true
     }
 
     @discardableResult
@@ -807,24 +810,30 @@ class TabManager: ObservableObject {
 #endif
             return handled
         }
-        guard let browserPanel = focusedBrowserPanel else { return false }
-        browserPanel.startFind()
-        return browserPanel.searchState != nil
+        if let browserPanel = focusedBrowserPanel {
+            browserPanel.startFind()
+            return browserPanel.searchState != nil
+        }
+        return focusedFindablePanel?.startFind() ?? false
     }
 
     func searchSelection() {
-        guard let panel = selectedTerminalPanel else { return }
-        if panel.searchState == nil {
-            panel.searchState = TerminalSurface.SearchState()
-        }
+        if let panel = selectedTerminalPanel {
+            if panel.searchState == nil {
+                panel.searchState = TerminalSurface.SearchState()
+            }
 #if DEBUG
-        cmuxDebugLog(
-            "find.searchSelection workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
-            "panel=\(panel.id.uuidString.prefix(5))"
-        )
+            cmuxDebugLog(
+                "find.searchSelection workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
+                "panel=\(panel.id.uuidString.prefix(5))"
+            )
 #endif
-        NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
-        _ = panel.performBindingAction("search_selection")
+            NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
+            _ = panel.performBindingAction("search_selection")
+            return
+        }
+
+        focusedFindablePanel?.useSelectionForFind()
     }
 
     func findNext() {
@@ -832,8 +841,12 @@ class TabManager: ObservableObject {
             _ = panel.performBindingAction("search:next")
             return
         }
+        if let browserPanel = focusedBrowserPanel {
+            browserPanel.findNext()
+            return
+        }
 
-        focusedBrowserPanel?.findNext()
+        focusedFindablePanel?.findNext()
     }
 
     func findPrevious() {
@@ -841,8 +854,12 @@ class TabManager: ObservableObject {
             _ = panel.performBindingAction("search:previous")
             return
         }
+        if let browserPanel = focusedBrowserPanel {
+            browserPanel.findPrevious()
+            return
+        }
 
-        focusedBrowserPanel?.findPrevious()
+        focusedFindablePanel?.findPrevious()
     }
 
     @discardableResult
@@ -940,8 +957,12 @@ class TabManager: ObservableObject {
             panel.searchState = nil
             return
         }
+        if let browserPanel = focusedBrowserPanel {
+            browserPanel.hideFind()
+            return
+        }
 
-        focusedBrowserPanel?.hideFind()
+        focusedFindablePanel?.hideFind()
     }
 
     func makeWorkspaceForCreation(
@@ -2898,6 +2919,17 @@ class TabManager: ObservableObject {
         guard let tab = selectedWorkspace,
               let panelId = tab.focusedPanelId else { return nil }
         return tab.panels[panelId] as? BrowserPanel
+    }
+
+    /// Returns the focused panel if it conforms to ``FindablePanel``, nil
+    /// otherwise. Terminal and browser panels have their own bespoke find
+    /// dispatch and are intentionally not findable panels, so this only matches
+    /// the remaining panel types (file preview, markdown, project, …) that the
+    /// global Cmd+F command should route to.
+    var focusedFindablePanel: FindablePanel? {
+        guard let tab = selectedWorkspace,
+              let panelId = tab.focusedPanelId else { return nil }
+        return tab.panels[panelId] as? FindablePanel
     }
 
     @discardableResult

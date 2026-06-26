@@ -13,6 +13,9 @@ struct ProjectBuildSettingsTabView: View {
     @ObservedObject var panel: ProjectPanel
     let model: ProjectModel
 
+    /// Drives keyboard focus into the settings filter field for Cmd+F.
+    @FocusState private var searchFieldFocused: Bool
+
     var body: some View {
         let computedRows = rows
         VStack(alignment: .leading, spacing: 0) {
@@ -22,6 +25,22 @@ struct ProjectBuildSettingsTabView: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // `onAppear` covers a find requested before this tab mounted (the panel
+        // was still loading, or another tab was active); `onChange` covers a find
+        // requested while this tab is already on screen.
+        .onAppear { applyPendingFindFocusIfNeeded() }
+        .onChange(of: panel.findFocus.request) { _, _ in applyPendingFindFocusIfNeeded() }
+        .onChange(of: panel.findFocus.resignToken) { _, _ in
+            searchFieldFocused = false
+        }
+    }
+
+    /// Moves keyboard focus into the filter field when a find request targets
+    /// the Build Settings tab, then clears the one-shot request.
+    private func applyPendingFindFocusIfNeeded() {
+        guard panel.findFocus.request == .settings else { return }
+        searchFieldFocused = true
+        panel.findFocus.request = nil
     }
 
     @ViewBuilder
@@ -38,6 +57,7 @@ struct ProjectBuildSettingsTabView: View {
                 TextField("Filter settings", text: $panel.settingsSearchText)
                     .textFieldStyle(.plain)
                     .cmuxFont(size: 12)
+                    .focused($searchFieldFocused)
                 Toggle("Customized only", isOn: $panel.settingsCustomizedOnly)
                     .toggleStyle(.checkbox)
                     .cmuxFont(size: 11)
