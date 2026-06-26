@@ -853,6 +853,7 @@
 		C7B0FACE0000000000000012 /* SleepyPixelButtonStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE0000000000000013 /* SleepyPixelButtonStyle.swift */; };
 		C7B0FACE000000000000000A /* SleepyPowerControlling.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE000000000000000B /* SleepyPowerControlling.swift */; };
 		C7B000000000000000000102 /* SleepyPowerControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B000000000000000000101 /* SleepyPowerControls.swift */; };
+		C7B0FACE0000000000000020 /* SleepyPowerUIState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE0000000000000021 /* SleepyPowerUIState.swift */; };
 		C7B0FACE000000000000000E /* SleepyReactions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE000000000000000F /* SleepyReactions.swift */; };
 		C7B0FACE0000000000000014 /* SleepyStar.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE0000000000000015 /* SleepyStar.swift */; };
 		C7B0FACE000000000000001A /* SleepyStatusProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE000000000000001B /* SleepyStatusProvider.swift */; };
@@ -1947,6 +1948,7 @@
 		C7B0FACE0000000000000013 /* SleepyPixelButtonStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyPixelButtonStyle.swift; sourceTree = "<group>"; };
 		C7B0FACE000000000000000B /* SleepyPowerControlling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyPowerControlling.swift; sourceTree = "<group>"; };
 		C7B000000000000000000101 /* SleepyPowerControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyPowerControls.swift; sourceTree = "<group>"; };
+		C7B0FACE0000000000000021 /* SleepyPowerUIState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyPowerUIState.swift; sourceTree = "<group>"; };
 		C7B0FACE000000000000000F /* SleepyReactions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyReactions.swift; sourceTree = "<group>"; };
 		C7B0FACE0000000000000015 /* SleepyStar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyStar.swift; sourceTree = "<group>"; };
 		C7B0FACE000000000000001B /* SleepyStatusProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyStatusProvider.swift; sourceTree = "<group>"; };
@@ -2719,6 +2721,7 @@
 				C7B000000000000000000101 /* SleepyPowerControls.swift */,
 				C7B0000000000000000000F1 /* SleepyAgentCensus.swift */,
 				C7B0000000000000000000B1 /* SleepyFaceView.swift */,
+				C7B0FACE0000000000000021 /* SleepyPowerUIState.swift */,
 				C7B0FACE0000000000000001 /* SleepyOverlayWindow.swift */,
 				C7B0FACE0000000000000003 /* SleepyAgentCounts.swift */,
 				C7B0FACE0000000000000005 /* SleepyAgentCensusing.swift */,
@@ -4290,6 +4293,7 @@
 				C7B0FACE0000000000000012 /* SleepyPixelButtonStyle.swift in Sources */,
 				C7B0FACE000000000000000A /* SleepyPowerControlling.swift in Sources */,
 				C7B000000000000000000102 /* SleepyPowerControls.swift in Sources */,
+				C7B0FACE0000000000000020 /* SleepyPowerUIState.swift in Sources */,
 				C7B0FACE000000000000000E /* SleepyReactions.swift in Sources */,
 				C7B0FACE0000000000000014 /* SleepyStar.swift in Sources */,
 				C7B0FACE000000000000001A /* SleepyStatusProvider.swift in Sources */,

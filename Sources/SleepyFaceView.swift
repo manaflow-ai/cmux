@@ -14,10 +14,8 @@ struct SleepyFaceView: View {
     /// Frame-sampled data providers, injected by the controller.
     var agentCensus: any SleepyAgentCensusing
     var statusProvider: any SleepyStatusProviding
-    @State private var lowPowerOn = false
-    /// In-flight gate so overlapping clicks can't issue concurrent privileged
-    /// power mutations (which could race the restore mode). MainActor-isolated.
-    @State private var lowPowerBusy = false
+    /// Shared Low Power UI state (one instance across all per-display overlays).
+    var powerUIState: SleepyPowerUIState
 
     // Easter-egg reactions: timeIntervalSinceReferenceDate when poked.
     @State private var mascotReactAt: Double?
@@ -58,7 +56,7 @@ struct SleepyFaceView: View {
             .overlay(alignment: .topLeading) { keepAwakeBadge(config: config).padding(26) }
         }
         .ignoresSafeArea()
-        .task { lowPowerOn = await power.isLowPowerOn() }
+        .task { powerUIState.isOn = await power.isLowPowerOn() }
     }
 
     // MARK: - Poke handling (easter eggs)
@@ -154,28 +152,30 @@ struct SleepyFaceView: View {
                 .buttonStyle(SleepyPixelButtonStyle(tint: Color(red: 0.28, green: 0.40, blue: 0.62)))
 
                 Button {
-                    // Gate on MainActor: ignore clicks while a mutation is in
-                    // flight so two privileged toggles can't overlap and race the
-                    // saved restore mode. The runner does the blocking pmset/
-                    // admin-prompt work off-main; this task just suspends on await.
-                    guard !lowPowerBusy else { return }
-                    lowPowerBusy = true
-                    let turnOn = !lowPowerOn
+                    // Gate on the shared MainActor UI state so overlapping clicks
+                    // (from any display) can't issue concurrent privileged toggles,
+                    // and every overlay computes the next action from one value.
+                    // The runner does the blocking pmset/admin-prompt work off-main;
+                    // this task just suspends on await.
+                    guard !powerUIState.isBusy else { return }
+                    powerUIState.isBusy = true
+                    let turnOn = !powerUIState.isOn
                     let power = power
+                    let ui = powerUIState
                     Task {
-                        lowPowerOn = await power.setLowPowerMode(turnOn)
-                        lowPowerBusy = false
+                        ui.isOn = await power.setLowPowerMode(turnOn)
+                        ui.isBusy = false
                     }
                 } label: {
                     Label(
-                        lowPowerOn
+                        powerUIState.isOn
                             ? String(localized: "sleepyMode.button.lowPowerOn", defaultValue: "Low Power: On")
                             : String(localized: "sleepyMode.button.lowPowerOff", defaultValue: "Low Power: Off"),
-                        systemImage: lowPowerOn ? "leaf.fill" : "leaf"
+                        systemImage: powerUIState.isOn ? "leaf.fill" : "leaf"
                     )
                 }
-                .buttonStyle(SleepyPixelButtonStyle(tint: lowPowerOn ? Color(red: 0.24, green: 0.56, blue: 0.32) : Color(red: 0.30, green: 0.42, blue: 0.46)))
-                .disabled(lowPowerBusy)
+                .buttonStyle(SleepyPixelButtonStyle(tint: powerUIState.isOn ? Color(red: 0.24, green: 0.56, blue: 0.32) : Color(red: 0.30, green: 0.42, blue: 0.46)))
+                .disabled(powerUIState.isBusy)
             }
             Spacer().frame(height: 50)
             Text(hintText)

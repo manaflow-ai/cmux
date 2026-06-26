@@ -67,15 +67,18 @@ final class SleepyPowerControls: SleepyPowerControlling {
             let source = await activeSourceFlag()
             if usesPowerMode {
                 let current = await currentEnergyMode()
-                if current != .low {
+                let ok = await runner.runPrivileged("/usr/bin/pmset", [source, "powermode", String(SleepyEnergyMode.low.rawValue)])
+                // Only record the restore snapshot once the change actually
+                // applied (a cancelled prompt / failed pmset leaves state as-is).
+                if ok, current != .low {
                     defaults.set(current.rawValue, forKey: previousModeKey)
                     switchedToLowThisSession = true
                     loweredSourceFlag = source
                 }
-                await runner.runPrivileged("/usr/bin/pmset", [source, "powermode", String(SleepyEnergyMode.low.rawValue)])
             } else {
-                if !(await isLowPowerOn()) { loweredSourceFlag = source }
-                await runner.runPrivileged("/usr/bin/pmset", [source, "lowpowermode", "1"])
+                let wasLow = await isLowPowerOn()
+                let ok = await runner.runPrivileged("/usr/bin/pmset", [source, "lowpowermode", "1"])
+                if ok, !wasLow { loweredSourceFlag = source }
             }
         } else {
             // Restore the profile we changed (fall back to the active source).
@@ -88,20 +91,24 @@ final class SleepyPowerControls: SleepyPowerControlling {
             if usesPowerMode {
                 // Only restore a mode we actually switched away from this session;
                 // otherwise fall back to Automatic rather than a stale stored value.
-                // Clear the saved value either way so it can't leak into a later run.
                 var restore = SleepyEnergyMode.automatic
                 if switchedToLowThisSession,
                    let storedRaw = defaults.object(forKey: previousModeKey) as? Int,
                    let stored = SleepyEnergyMode(rawValue: storedRaw), stored != .low {
                     restore = stored
                 }
-                defaults.removeObject(forKey: previousModeKey)
-                switchedToLowThisSession = false
-                await runner.runPrivileged("/usr/bin/pmset", [source, "powermode", String(restore.rawValue)])
+                let ok = await runner.runPrivileged("/usr/bin/pmset", [source, "powermode", String(restore.rawValue)])
+                // Keep the snapshot if the restore failed (e.g. cancelled prompt)
+                // so a later retry can still recover the original mode.
+                if ok {
+                    defaults.removeObject(forKey: previousModeKey)
+                    switchedToLowThisSession = false
+                    loweredSourceFlag = nil
+                }
             } else {
-                await runner.runPrivileged("/usr/bin/pmset", [source, "lowpowermode", "0"])
+                let ok = await runner.runPrivileged("/usr/bin/pmset", [source, "lowpowermode", "0"])
+                if ok { loweredSourceFlag = nil }
             }
-            loweredSourceFlag = nil
         }
         return await isLowPowerOn()
     }

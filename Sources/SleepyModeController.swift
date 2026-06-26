@@ -39,6 +39,10 @@ final class SleepyModeController {
     let agentCensus: any SleepyAgentCensusing = SleepyAgentCensus()
     let statusProvider: any SleepyStatusProviding = SleepyStatusProvider()
 
+    /// Shared Low Power UI state, so every per-display overlay shows the same
+    /// label and toggles from one authoritative value.
+    let powerUIState = SleepyPowerUIState()
+
     private(set) var isActive = false
 
     /// Invoked whenever sleepy mode turns on or off so menu UI can refresh.
@@ -123,7 +127,7 @@ final class SleepyModeController {
         window.acceptsMouseMovedEvents = true
         window.setFrame(screen.frame, display: true)
         window.onExit = { [weak self] in self?.deactivate() }
-        window.contentView = NSHostingView(rootView: SleepyFaceView(store: store, power: powerControls, keepingAwake: keepAwakeFullyActive, agentCensus: agentCensus, statusProvider: statusProvider))
+        window.contentView = NSHostingView(rootView: SleepyFaceView(store: store, power: powerControls, keepingAwake: keepAwakeFullyActive, agentCensus: agentCensus, statusProvider: statusProvider, powerUIState: powerUIState))
         return window
     }
 
