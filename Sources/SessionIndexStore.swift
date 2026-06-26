@@ -633,127 +633,6 @@ final class SessionIndexStore: ObservableObject {
         return combined.sorted { $0.modified > $1.modified }
     }
 
-    /// Returns a usable user-prompt string from a Codex `user_message` /
-    /// `response_item.input_text` payload, or nil when the message is just an
-    /// envelope/system wrapper (`<environment_context>...`, `<user_instructions>`,
-    /// `<permissions>`, AGENTS.md preamble) that we don't want to surface as a
-    /// session title.
-    nonisolated static func realCodexUserMessage(_ raw: String) -> String? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        let envelopePrefixes = [
-            "<environment_context",
-            "<user_instructions",
-            "<permissions",
-            "<system",
-            "# AGENTS.md",
-        ]
-        for prefix in envelopePrefixes where trimmed.hasPrefix(prefix) {
-            return nil
-        }
-        return trimmed
-    }
-
-    // MARK: Codex
-
-    private struct CodexParsed {
-        var sessionId: String = ""
-        /// First user message — used only if Codex never assigns a thread_name.
-        var firstUserMessage: String = ""
-        /// Codex-generated session title (`event_msg.thread_name_updated`). Wins over firstUserMessage.
-        var threadName: String = ""
-        var cwd: String?
-        var branch: String?
-        var model: String?
-        var approvalPolicy: String?
-        var sandboxMode: String?
-        var effort: String?
-
-        var title: String {
-            threadName.isEmpty ? firstUserMessage : threadName
-        }
-    }
-
-    /// Cheap cwd peek for Codex rollouts. `session_meta` is always the first line
-    /// of the file, but the line itself can be 30+ KB (it embeds the full system
-    /// prompt). Read up to 64 KB to cover that, parse the JSON, return cwd.
-    nonisolated private static func peekCodexSessionMetaCwd(url: URL) -> String? {
-        let head = url.readFileHead(byteCap: headByteCap)
-        guard let nl = head.firstIndex(of: "\n") else { return nil }
-        let firstLine = head[..<nl]
-        guard let data = firstLine.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              (obj["type"] as? String) == "session_meta",
-              let payload = obj["payload"] as? [String: Any],
-              let cwd = payload["cwd"] as? String,
-              !cwd.isEmpty else {
-            return nil
-        }
-        return cwd
-    }
-
-    /// Stream lines from `url` until we have everything we need. The first user_message
-    /// can sit ~100 KB into a Codex rollout (after huge base_instructions + AGENTS.md),
-    /// so a fixed head buffer is unreliable.
-    nonisolated private static func extractCodexMetadata(url: URL) -> CodexParsed {
-        var out = CodexParsed()
-        let maxBytes = 4 * 1024 * 1024
-        url.forEachJSONLine(maxBytes: maxBytes) { obj in
-            let type = obj["type"] as? String
-            let payload = obj["payload"] as? [String: Any]
-            if type == "session_meta", let p = payload {
-                if let c = p["cwd"] as? String, !c.isEmpty { out.cwd = c }
-                if let id = p["id"] as? String, !id.isEmpty { out.sessionId = id }
-                if let git = p["git"] as? [String: Any],
-                   let branch = git["branch"] as? String, !branch.isEmpty {
-                    out.branch = branch
-                }
-            }
-            if type == "turn_context", let p = payload {
-                if let m = p["model"] as? String, !m.isEmpty { out.model = m }
-                if let a = p["approval_policy"] as? String, !a.isEmpty { out.approvalPolicy = a }
-                if let sandbox = p["sandbox_policy"] as? [String: Any],
-                   let s = sandbox["type"] as? String, !s.isEmpty {
-                    out.sandboxMode = s
-                }
-                if let e = p["effort"] as? String, !e.isEmpty { out.effort = e }
-            }
-            if type == "event_msg", let p = payload,
-               (p["type"] as? String) == "thread_name_updated",
-               let name = p["thread_name"] as? String, !name.isEmpty {
-                out.threadName = name
-            }
-            if out.firstUserMessage.isEmpty, type == "event_msg", let p = payload,
-               (p["type"] as? String) == "user_message",
-               let msg = p["message"] as? String,
-               let real = realCodexUserMessage(msg) {
-                out.firstUserMessage = real
-            }
-            if out.firstUserMessage.isEmpty, type == "response_item", let p = payload,
-               (p["type"] as? String) == "message",
-               (p["role"] as? String) == "user",
-               let content = p["content"] as? [[String: Any]] {
-                for part in content {
-                    guard (part["type"] as? String) == "input_text",
-                          let text = part["text"] as? String,
-                          let real = realCodexUserMessage(text) else { continue }
-                    out.firstUserMessage = real
-                    break
-                }
-            }
-            // Stop early once we have a real thread name + the launch metadata. If no
-            // thread name appears we keep streaming until we at least have a user
-            // message — Codex emits thread_name_updated late in newer versions but it's
-            // still typically within the first few KB of events.
-            return !out.threadName.isEmpty
-                && out.cwd != nil
-                && out.branch != nil
-                && !out.sessionId.isEmpty
-                && out.model != nil
-        }
-        return out
-    }
-
     // MARK: OpenCode
 
     nonisolated private static func parseOpenCodeAssistant(_ raw: String?) -> (String?, String?) {
@@ -1252,11 +1131,11 @@ final class SessionIndexStore: ObservableObject {
             // rollout. Pull just that line and bail before streaming the
             // (potentially MB-sized) rest of the file looking for title/branch.
             if let cwdFilter,
-               let firstLineCwd = peekCodexSessionMetaCwd(url: url),
+               let firstLineCwd = CodexParsed.peekSessionMetaCwd(url: url),
                firstLineCwd != cwdFilter {
                 continue
             }
-            let parsed = extractCodexMetadata(url: url)
+            let parsed = CodexParsed(rolloutFileURL: url)
             if let cwdFilter, parsed.cwd != cwdFilter { continue }
             matches.append(SessionEntry(
                 id: "codex:" + url.path,

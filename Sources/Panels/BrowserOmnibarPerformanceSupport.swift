@@ -24,22 +24,6 @@ struct BrowserOpenTabSuggestionSnapshot: Equatable {
     }
 }
 
-struct OmnibarOpenTabMatch: Equatable {
-    let tabId: UUID
-    let panelId: UUID
-    let url: String
-    let title: String?
-    let isKnownOpenTab: Bool
-
-    init(tabId: UUID, panelId: UUID, url: String, title: String?, isKnownOpenTab: Bool = true) {
-        self.tabId = tabId
-        self.panelId = panelId
-        self.url = url
-        self.title = title
-        self.isKnownOpenTab = isKnownOpenTab
-    }
-}
-
 extension BrowserHistoryStore {
     static func uiTestSeedEntriesIfConfigured() -> [Entry]? {
         let env = ProcessInfo.processInfo.environment

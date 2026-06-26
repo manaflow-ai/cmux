@@ -164,7 +164,7 @@ extension SessionIndexStore {
         let displayTitle: String
         if !record.titleField.isEmpty {
             displayTitle = record.titleField
-        } else if let real = realCodexUserMessage(record.firstUserMessage) {
+        } else if let real = CodexParsed.realUserMessage(record.firstUserMessage) {
             displayTitle = real
         } else {
             displayTitle = ""

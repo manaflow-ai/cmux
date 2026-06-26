@@ -77,6 +77,7 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
         )
     }
 
+    @MainActor
     func testTmuxWorkspacePaneOverlayRectReturnsMatchingPaneFrame() {
         let paneID = PaneID(id: UUID())
         let snapshot = LayoutSnapshot(
@@ -94,7 +95,7 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            WorkspaceContentView.tmuxWorkspacePaneOverlayRect(
+            WorkspacePaneOverlayRectResolver().paneOverlayRect(
                 layoutSnapshot: snapshot,
                 paneId: paneID
             ),
@@ -148,7 +149,7 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            WorkspaceContentView.tmuxWorkspacePaneUnreadRects(
+            WorkspacePaneOverlayRectResolver().paneUnreadRects(
                 workspace: workspace,
                 notificationStore: store,
                 layoutSnapshot: snapshot

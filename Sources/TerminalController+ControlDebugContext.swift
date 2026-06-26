@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxAppKitSupportUI
 import CmuxControlSocket
 import CmuxFoundation
 import CmuxSettings
@@ -1122,28 +1123,6 @@ extension TerminalController: ControlDebugContext {
             }
 
             @MainActor
-            func isHiddenOrAncestorHidden(_ view: NSView) -> Bool {
-                if view.isHidden { return true }
-                var current = view.superview
-                while let v = current {
-                    if v.isHidden { return true }
-                    current = v.superview
-                }
-                return false
-            }
-
-            @MainActor
-            func windowFrame(for view: NSView) -> CGRect? {
-                guard view.window != nil else { return nil }
-                // Prefer the view's frame as laid out by its superview. Some AppKit views
-                // (notably scroll views) can temporarily report stale bounds during reparenting.
-                if let superview = view.superview {
-                    return superview.convert(view.frame, to: nil)
-                }
-                return view.convert(view.bounds, to: nil)
-            }
-
-            @MainActor
             func splitViewInfos(for view: NSView) -> [LayoutDebugSplitView] {
                 var infos: [LayoutDebugSplitView] = []
                 var current: NSView? = view
@@ -1156,9 +1135,9 @@ extension TerminalController: ControlDebugContext {
                         let isVertical = sv.isVertical
                         let dividerThickness = Double(sv.dividerThickness)
                         let bounds = PixelRect(from: sv.bounds)
-                        let frame = windowFrame(for: sv).map { PixelRect(from: $0) }
+                        let frame = sv.frameInWindow.map { PixelRect(from: $0) }
                         let arranged = sv.arrangedSubviews
-                        let arrangedFrames = arranged.compactMap { windowFrame(for: $0).map { PixelRect(from: $0) } }
+                        let arrangedFrames = arranged.compactMap { $0.frameInWindow.map { PixelRect(from: $0) } }
 
                         // Approximate divider position from the first arranged subview's size.
                         let totalSize: CGFloat = isVertical ? sv.bounds.width : sv.bounds.height
@@ -1219,7 +1198,7 @@ extension TerminalController: ControlDebugContext {
 	                }
 
                 if let tp = panel as? TerminalPanel {
-                    let viewRect = windowFrame(for: tp.hostedView).map { PixelRect(from: $0) }
+                    let viewRect = tp.hostedView.frameInWindow.map { PixelRect(from: $0) }
                     let splitViews = splitViewInfos(for: tp.hostedView)
 		                    return LayoutDebugSelectedPanel(
 	                        paneId: paneIdStr,
@@ -1228,14 +1207,14 @@ extension TerminalController: ControlDebugContext {
 	                        panelId: panelId.uuidString,
 	                        panelType: tp.panelType.rawValue,
 	                        inWindow: tp.surface.isViewInWindow,
-	                        hidden: isHiddenOrAncestorHidden(tp.hostedView),
+	                        hidden: tp.hostedView.isHiddenOrAncestorHidden,
 	                        viewFrame: viewRect,
 	                        splitViews: splitViews
 	                    )
 	                }
 
                 if let bp = panel as? BrowserPanel {
-                    let viewRect = windowFrame(for: bp.webView).map { PixelRect(from: $0) }
+                    let viewRect = bp.webView.frameInWindow.map { PixelRect(from: $0) }
                     let splitViews = splitViewInfos(for: bp.webView)
 		                    return LayoutDebugSelectedPanel(
 	                        paneId: paneIdStr,
@@ -1244,7 +1223,7 @@ extension TerminalController: ControlDebugContext {
 	                        panelId: panelId.uuidString,
 	                        panelType: bp.panelType.rawValue,
 	                        inWindow: bp.webView.window != nil,
-	                        hidden: isHiddenOrAncestorHidden(bp.webView),
+	                        hidden: bp.webView.isHiddenOrAncestorHidden,
 	                        viewFrame: viewRect,
 	                        splitViews: splitViews
 	                    )

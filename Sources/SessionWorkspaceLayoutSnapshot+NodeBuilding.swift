@@ -1,12 +1,13 @@
 import CmuxWorkspaces
 import Foundation
 
-/// Conforms the app-owned persisted layout enum to the package node-build seam
-/// so `SessionRestoreCoordinator.sessionLayoutSnapshot(from:)` can mint the
-/// persisted layout tree while the wire format and concrete pane/split DTOs
-/// stay owned by the app target. Counterpart to the
+/// Conforms the persisted layout enum (now owned by `CmuxWorkspaces`) to the
+/// package node-build seam so `SessionRestoreCoordinator.sessionLayoutSnapshot(from:)`
+/// can mint the persisted layout tree. The concrete pane/split DTOs live in
+/// `CmuxWorkspaces`; this bridge stays in the app target, so the conformance is
+/// `@retroactive`. Counterpart to the
 /// `SessionWorkspaceLayoutSnapshot: SessionLayoutPruning` conformance.
-extension SessionWorkspaceLayoutSnapshot: SessionLayoutNodeBuilding {
+extension SessionWorkspaceLayoutSnapshot: @retroactive SessionLayoutNodeBuilding {
     static func sessionLayoutBuiltPane(
         panelIds: [UUID],
         selectedPanelId: UUID?

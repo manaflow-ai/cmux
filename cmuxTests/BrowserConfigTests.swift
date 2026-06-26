@@ -15,14 +15,13 @@ import CmuxSidebar
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
-// The app target still declares a legacy duplicate of BrowserThemeMode; with
-// CmuxSettings imported unconditionally the name is ambiguous. Pin the app
-// type for theme tests and the package type for browser search settings.
-private typealias BrowserThemeMode = cmux_DEV.BrowserThemeMode
+// BrowserThemeMode and BrowserSearchEngine are shared CmuxSettings value types;
+// pin them to the package so the names are unambiguous here.
+private typealias BrowserThemeMode = CmuxSettings.BrowserThemeMode
 private typealias BrowserSearchEngine = CmuxSettings.BrowserSearchEngine
 #elseif canImport(cmux)
 @testable import cmux
-private typealias BrowserThemeMode = cmux.BrowserThemeMode
+private typealias BrowserThemeMode = CmuxSettings.BrowserThemeMode
 private typealias BrowserSearchEngine = CmuxSettings.BrowserSearchEngine
 #endif
 
@@ -2380,7 +2379,7 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
 final class BrowserPopupContentRectTests: XCTestCase {
     func testExplicitTopOriginCoordinatesConvertToAppKitBottomOrigin() {
-        let rect = browserPopupContentRect(
+        let rect = BrowserPopupContentGeometry().contentRect(
             requestedWidth: 400,
             requestedHeight: 300,
             requestedX: 150,
@@ -2395,7 +2394,7 @@ final class BrowserPopupContentRectTests: XCTestCase {
     }
 
     func testExplicitCoordinatesClampToVisibleFrame() {
-        let rect = browserPopupContentRect(
+        let rect = BrowserPopupContentGeometry().contentRect(
             requestedWidth: 1400,
             requestedHeight: 1200,
             requestedX: 900,
@@ -2410,7 +2409,7 @@ final class BrowserPopupContentRectTests: XCTestCase {
     }
 
     func testMissingCoordinatesCentersPopup() {
-        let rect = browserPopupContentRect(
+        let rect = BrowserPopupContentGeometry().contentRect(
             requestedWidth: 300,
             requestedHeight: 200,
             requestedX: nil,
@@ -5016,7 +5015,7 @@ final class BrowserSearchEngineTests: XCTestCase {
     }
 
     func testStaleRemoteSuggestionsSuppressedWhenProviderDoesNotSupportRemoteSuggestions() {
-        let suggestions = staleOmnibarRemoteSuggestionsForDisplay(
+        let suggestions = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { resolveBrowserNavigableURL($0) }).staleRemoteSuggestionsForDisplay(
             query: "swift",
             previousRemoteQuery: "swi",
             previousRemoteSuggestions: ["swift actors"],

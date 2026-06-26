@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 import XCTest
 import Bonsplit

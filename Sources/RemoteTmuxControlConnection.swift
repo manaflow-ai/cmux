@@ -47,9 +47,9 @@ final class RemoteTmuxControlConnection {
             observers.notifyStateChanged(connectionState)
             switch connectionState {
             case .connected:
-                finishConnectionWaiters(connected: true)
+                connectionWaiters.finishAll(connected: true)
             case .ended:
-                finishConnectionWaiters(connected: false)
+                connectionWaiters.finishAll(connected: false)
             case .connecting, .reconnecting:
                 break
             }
@@ -93,7 +93,7 @@ final class RemoteTmuxControlConnection {
     private var parser = RemoteTmuxControlStreamParser()
     private var ingestTask: Task<Void, Never>?
     private var pendingCommands: [CommandKind] = []
-    private var connectionWaiters: [UUID: (Bool) -> Void] = [:]
+    private let connectionWaiters = RemoteTmuxConnectionWaiters()
     /// `false` until the attach command's own `%begin`/`%end` block — always the
     /// FIRST block on each control stream, preceding every notification — has been
     /// consumed. That first block is matched explicitly (see the `.commandResult`
@@ -262,17 +262,17 @@ final class RemoteTmuxControlConnection {
                     break
                 }
 
-                connectionWaiters[token] = { connected in
+                connectionWaiters.register(token) { connected in
                     continuation.resume(returning: connected)
                 }
 
                 if Task.isCancelled {
-                    finishConnectionWaiter(token, connected: false)
+                    connectionWaiters.finish(token, connected: false)
                 }
             }
         } onCancel: {
             Task { @MainActor [weak self] in
-                self?.finishConnectionWaiter(token, connected: false)
+                self?.connectionWaiters.finish(token, connected: false)
             }
         }
     }
@@ -645,19 +645,6 @@ final class RemoteTmuxControlConnection {
         let completions = Array(activityQueryCompletions.values)
         activityQueryCompletions.removeAll()
         for completion in completions { completion(nil) }
-    }
-
-    private func finishConnectionWaiters(connected: Bool) {
-        guard !connectionWaiters.isEmpty else { return }
-        let waiters = Array(connectionWaiters.values)
-        connectionWaiters.removeAll()
-        for waiter in waiters {
-            waiter(connected)
-        }
-    }
-
-    private func finishConnectionWaiter(_ token: UUID, connected: Bool) {
-        connectionWaiters.removeValue(forKey: token)?(connected)
     }
 
     /// Sends literal key bytes to a pane via tmux `send-keys -H` (hex-encoded),

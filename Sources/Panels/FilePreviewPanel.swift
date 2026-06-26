@@ -11,93 +11,59 @@ import Quartz
 import SwiftUI
 import UniformTypeIdentifiers
 
-enum FileExternalOpenText {
-    static var openWithMenu: String {
-        String(localized: "filePreview.openWith.menu", defaultValue: "Open With")
+/// Localized titles for the file-external-open menus, resolved against the app
+/// bundle (which owns the catalog keys).
+///
+/// A value type instantiated where the titles are needed: each `init()`
+/// re-resolves `String(localized:)`, so a locale change is reflected on the next
+/// use, matching the former per-call resolution before this was a value type.
+struct FileExternalOpenText {
+    let openWithMenu: String
+    let openExternally: String
+    let revealInFinder: String
+    /// `printf`-style format with a single `%@` for the application name.
+    let openInApplicationFormat: String
+
+    init() {
+        openWithMenu = String(localized: "filePreview.openWith.menu", defaultValue: "Open With")
+        openExternally = String(localized: "filePreview.openExternally", defaultValue: "Open Externally")
+        revealInFinder = String(localized: "fileExplorer.contextMenu.revealInFinder", defaultValue: "Reveal in Finder")
+        openInApplicationFormat = String(localized: "filePreview.openInApplication", defaultValue: "Open in %@")
     }
 
-    static var openExternally: String {
-        String(localized: "filePreview.openExternally", defaultValue: "Open Externally")
-    }
-
-    static func openInApplication(_ applicationName: String) -> String {
-        let format = String(localized: "filePreview.openInApplication", defaultValue: "Open in %@")
-        return String(format: format, applicationName)
-    }
-
-    static var revealInFinder: String {
-        String(localized: "fileExplorer.contextMenu.revealInFinder", defaultValue: "Reveal in Finder")
+    func openInApplication(_ applicationName: String) -> String {
+        String(format: openInApplicationFormat, applicationName)
     }
 }
 
-enum FileExternalOpenMenuFactory {
-    static func makeMenu(
-        fileURL: URL,
-        primaryApplication: FileExternalOpenApplication?,
-        otherApplications: [FileExternalOpenApplication]
-    ) -> NSMenu {
-        let menu = NSMenu(title: FileExternalOpenText.openWithMenu)
-        menu.autoenablesItems = false
+extension FileExternalOpenMenuActionTarget {
+    /// Process-wide retained `@objc` target for the file-external-open menus.
+    /// `NSMenuItem.target` is a weak reference, so this single instance is
+    /// composed app-side (the composition root) and held for the process
+    /// lifetime so it outlives every menu its items belong to. Mirrors
+    /// `FilePreviewDragRegistry.shared` below.
+    static let shared = FileExternalOpenMenuActionTarget()
+}
 
-        if let primaryApplication {
-            menu.addItem(menuItem(
-                title: FileExternalOpenText.openInApplication(primaryApplication.displayName),
-                fileURL: fileURL,
-                action: .open(applicationURL: primaryApplication.url)
-            ))
-        } else {
-            menu.addItem(menuItem(
-                title: FileExternalOpenText.openExternally,
-                fileURL: fileURL,
-                action: .open(applicationURL: nil)
-            ))
-        }
-
-        menu.addItem(menuItem(
-            title: FileExternalOpenText.revealInFinder,
-            fileURL: fileURL,
-            action: .revealInFinder
-        ))
-
-        if !otherApplications.isEmpty {
-            menu.addItem(.separator())
-            let openWithMenu = NSMenu(title: FileExternalOpenText.openWithMenu)
-            openWithMenu.autoenablesItems = false
-            for application in otherApplications {
-                openWithMenu.addItem(menuItem(
-                    title: application.displayName,
-                    fileURL: fileURL,
-                    action: .open(applicationURL: application.url)
-                ))
-            }
-            let openWithItem = NSMenuItem(
-                title: FileExternalOpenText.openWithMenu,
-                action: nil,
-                keyEquivalent: ""
-            )
-            openWithItem.submenu = openWithMenu
-            menu.addItem(openWithItem)
-        }
-
-        return menu
-    }
-
-    private static func menuItem(
-        title: String,
-        fileURL: URL,
-        action: FileExternalOpenMenuPayloadAction
-    ) -> NSMenuItem {
-        let item = NSMenuItem(
-            title: title,
-            action: #selector(FileExternalOpenMenuActionTarget.open(_:)),
-            keyEquivalent: ""
+extension FileExternalOpenMenuBuilder {
+    /// App-side file-external-open menu builder. Resolves its localized titles
+    /// freshly on each access (so a locale change is reflected, matching the
+    /// former per-`makeMenu` `String(localized:)` resolution) and wires the
+    /// produced items to the retained ``FileExternalOpenMenuActionTarget/shared``.
+    /// Composed here, app-side, because the localized titles bind to the app
+    /// bundle and the scattered SwiftUI menu views share no common constructor
+    /// to inject a builder through.
+    static var app: FileExternalOpenMenuBuilder {
+        let text = FileExternalOpenText()
+        return FileExternalOpenMenuBuilder(
+            strings: FileExternalOpenMenuStrings(
+                openWithMenu: text.openWithMenu,
+                openExternally: text.openExternally,
+                revealInFinder: text.revealInFinder,
+                openInApplicationFormat: text.openInApplicationFormat
+            ),
+            target: .shared
         )
-        item.target = FileExternalOpenMenuActionTarget.shared
-        item.representedObject = FileExternalOpenMenuActionPayload(
-            fileURL: fileURL,
-            action: action
-        )
-        return item
     }
 }
 
@@ -184,11 +150,11 @@ struct FileExternalOpenMenu: View {
         if let primaryApplication {
             return openInTitle(primaryApplication.displayName)
         }
-        return FileExternalOpenText.openExternally
+        return FileExternalOpenText().openExternally
     }
 
     private func openInTitle(_ applicationName: String) -> String {
-        FileExternalOpenText.openInApplication(applicationName)
+        FileExternalOpenText().openInApplication(applicationName)
     }
 
     @MainActor
@@ -234,7 +200,7 @@ struct FileExternalOpenMenu: View {
         primaryApplication: FileExternalOpenApplication?,
         otherApplications: [FileExternalOpenApplication]
     ) -> NSMenu {
-        FileExternalOpenMenuFactory.makeMenu(
+        FileExternalOpenMenuBuilder.app.makeMenu(
             fileURL: fileURL,
             primaryApplication: primaryApplication,
             otherApplications: otherApplications
@@ -278,46 +244,11 @@ private struct FileExternalOpenHeaderMenuButton: View {
     }
 
     private func makeMenu() -> NSMenu {
-        FileExternalOpenMenuFactory.makeMenu(
+        FileExternalOpenMenuBuilder.app.makeMenu(
             fileURL: fileURL,
             primaryApplication: primaryApplication,
             otherApplications: otherApplications
         )
-    }
-}
-
-private enum FileExternalOpenMenuPayloadAction {
-    case open(applicationURL: URL?)
-    case revealInFinder
-}
-
-private final class FileExternalOpenMenuActionPayload: NSObject {
-    let fileURL: URL
-    let action: FileExternalOpenMenuPayloadAction
-
-    init(fileURL: URL, action: FileExternalOpenMenuPayloadAction) {
-        self.fileURL = fileURL
-        self.action = action
-    }
-}
-
-private final class FileExternalOpenMenuActionTarget: NSObject {
-    static let shared = FileExternalOpenMenuActionTarget()
-
-    @objc func open(_ item: NSMenuItem) {
-        guard let payload = item.representedObject as? FileExternalOpenMenuActionPayload else {
-            return
-        }
-        switch payload.action {
-        case .open(let applicationURL):
-            guard let applicationURL else {
-                FileExternalOpenAction.live.openDefault(fileURL: payload.fileURL)
-                return
-            }
-            FileExternalOpenAction.live.open(fileURL: payload.fileURL, applicationURL: applicationURL)
-        case .revealInFinder:
-            FileExternalOpenAction.live.revealInFinder(fileURL: payload.fileURL)
-        }
     }
 }
 

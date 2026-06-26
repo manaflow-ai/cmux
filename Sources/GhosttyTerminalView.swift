@@ -6156,29 +6156,7 @@ extension GhosttyNSView: TerminalSurfaceGridReading {
 }
 
 final class GhosttySurfaceScrollView: NSView {
-    enum FlashStyle {
-        case navigation
-        case notification
-
-        /// The `Sendable` pane-flash style pushed across the overlay seam.
-        var paneFlashStyle: TerminalPaneFlashStyle {
-            switch self {
-            case .navigation: return .navigation
-            case .notification: return .notification
-            }
-        }
-    }
-
-    static func flashStyle(for reason: WorkspaceAttentionFlashReason) -> FlashStyle {
-        switch reason {
-        case .navigation:
-            return .navigation
-        case .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
-            return .notification
-        }
-    }
-
-    private static func flashPresentation(for style: FlashStyle) -> WorkspaceAttentionFlashPresentation {
+    private static func flashPresentation(for style: TerminalPaneFlashStyle) -> WorkspaceAttentionFlashPresentation {
         switch style {
         case .navigation:
             return WorkspaceAttentionCoordinator.flashStyle(for: .navigation)
@@ -7752,7 +7730,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 #endif
 
-    func triggerFlash(style: FlashStyle = .navigation) {
+    func triggerFlash(style: TerminalPaneFlashStyle = .navigation) {
         #if DEBUG
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -7762,7 +7740,7 @@ final class GhosttySurfaceScrollView: NSView {
         }
 #endif
         ringChrome.triggerFlash(
-            style: style.paneFlashStyle,
+            style: style,
             presentation: Self.flashPresentation(for: style).ringPresentation(),
             animation: FocusFlashPattern.paneAnimationSpec
         )

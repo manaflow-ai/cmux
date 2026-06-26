@@ -2777,20 +2777,6 @@ final class StoredShortcutMatchingTests: XCTestCase {
 }
 
 
-final class WorkspaceShortcutMapperTests: XCTestCase {
-    func testCommandNineMapsToLastWorkspaceIndex() {
-        XCTAssertEqual(WorkspaceShortcutMapper.workspaceIndex(forDigit: 9, workspaceCount: 1), 0)
-        XCTAssertEqual(WorkspaceShortcutMapper.workspaceIndex(forDigit: 9, workspaceCount: 4), 3)
-        XCTAssertEqual(WorkspaceShortcutMapper.workspaceIndex(forDigit: 9, workspaceCount: 12), 11)
-    }
-
-    func testCommandDigitBadgesUseNineForLastWorkspaceWhenNeeded() {
-        XCTAssertEqual(WorkspaceShortcutMapper.digitForWorkspace(at: 0, workspaceCount: 12), 1)
-        XCTAssertEqual(WorkspaceShortcutMapper.digitForWorkspace(at: 7, workspaceCount: 12), 8)
-        XCTAssertEqual(WorkspaceShortcutMapper.digitForWorkspace(at: 11, workspaceCount: 12), 9)
-        XCTAssertNil(WorkspaceShortcutMapper.digitForWorkspace(at: 8, workspaceCount: 12))
-    }
-}
 @MainActor
 final class WorkspaceCustomDescriptionTests: XCTestCase {
     func testSetCustomDescriptionPreservesMeaningfulLeadingAndTrailingWhitespace() {
