@@ -260,7 +260,8 @@ extension TerminalController {
             command: inputs.command,
             workingDirectory: inputs.workingDirectory,
             tmuxStartCommand: inputs.tmuxStartCommand,
-            focus: focus
+            focus: focus,
+            allowTextBoxFocusDefault: focus == true
         ) else {
             return .respawnFailed(surfaceId)
         }

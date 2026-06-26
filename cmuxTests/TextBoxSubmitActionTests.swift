@@ -902,6 +902,33 @@ struct TextBoxSubmitActionTests {
 
             XCTAssertTrue(automationWorkspacePanel.isTextBoxActive)
             #expect(automationWorkspacePanel.preferredFocusIntentForActivation() != .terminal(.textBoxInput))
+
+            guard let respawnSourcePanel = workspace.focusedTerminalPanel,
+                  let respawnedPanel = workspace.respawnTerminalSurface(
+                    panelId: respawnSourcePanel.id,
+                    command: "echo respawned",
+                    focus: false,
+                    allowTextBoxFocusDefault: false
+                  ) else {
+                XCTFail("Expected background respawned terminal")
+                return
+            }
+
+            XCTAssertTrue(respawnedPanel.isTextBoxActive)
+            #expect(respawnedPanel.preferredFocusIntentForActivation() != .terminal(.textBoxInput))
+
+            guard let remotePanePanel = workspace.addRemoteTmuxDisplayPane(
+                remotePaneId: 42,
+                focus: false,
+                allowTextBoxFocusDefault: false,
+                onInput: { _ in }
+            ) else {
+                XCTFail("Expected background remote tmux display pane")
+                return
+            }
+
+            XCTAssertTrue(remotePanePanel.isTextBoxActive)
+            #expect(remotePanePanel.preferredFocusIntentForActivation() != .terminal(.textBoxInput))
         }
     }
 
