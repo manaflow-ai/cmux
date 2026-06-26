@@ -122,19 +122,6 @@ typealias TerminalNotification = CmuxNotifications.TerminalNotification
 
 @MainActor
 final class TerminalNotificationStore: ObservableObject {
-    private struct TabSurfaceKey: Hashable {
-        let tabId: UUID
-        let surfaceId: UUID?
-    }
-
-    private struct NotificationIndexes {
-        var unreadCount = 0
-        var unreadCountByTabId: [UUID: Int] = [:]
-        var unreadByTabSurface = Set<TabSurfaceKey>()
-        var latestUnreadByTabId: [UUID: TerminalNotification] = [:]
-        var latestByTabId: [UUID: TerminalNotification] = [:]
-    }
-
     /// Records that the composition root has claimed ownership of the single
     /// terminal-notification store, so the tail call sites reaching ``shared``
     /// and the root's injected reference resolve to the same object.
@@ -361,7 +348,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     @Published private(set) var notifications: [TerminalNotification] = [] {
         didSet {
-            indexes = Self.buildIndexes(for: notifications)
+            indexes = NotificationIndexes(notifications: notifications)
             refreshUnreadPresentation()
             if !suppressNotificationDiffPublishing { CmuxEventBus.shared.publishNotificationChanges(oldValue: oldValue, newValue: notifications) }
         }
@@ -446,7 +433,7 @@ final class TerminalNotificationStore: ObservableObject {
     private var indexes = NotificationIndexes()
 
     private init() {
-        indexes = Self.buildIndexes(for: notifications)
+        indexes = NotificationIndexes(notifications: notifications)
         userDefaultsObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: nil,
@@ -1949,30 +1936,6 @@ final class TerminalNotificationStore: ObservableObject {
     ) -> Bool {
         guard origin == .notificationDelivery else { return false }
         return shouldDeferAutomaticAuthorizationRequest(status: status, isAppActive: isAppActive)
-    }
-
-    private static func buildIndexes(for notifications: [TerminalNotification]) -> NotificationIndexes {
-        var indexes = NotificationIndexes()
-        for notification in notifications {
-            if indexes.latestByTabId[notification.tabId] == nil {
-                indexes.latestByTabId[notification.tabId] = notification
-            }
-            guard !notification.isRead else { continue }
-            indexes.unreadCount += 1
-            indexes.unreadCountByTabId[notification.tabId, default: 0] += 1
-            indexes.unreadByTabSurface.insert(
-                TabSurfaceKey(tabId: notification.tabId, surfaceId: notification.surfaceId)
-            )
-            if let panelId = notification.panelId, panelId != notification.surfaceId {
-                indexes.unreadByTabSurface.insert(
-                    TabSurfaceKey(tabId: notification.tabId, surfaceId: panelId)
-                )
-            }
-            if indexes.latestUnreadByTabId[notification.tabId] == nil {
-                indexes.latestUnreadByTabId[notification.tabId] = notification
-            }
-        }
-        return indexes
     }
 
     private static func notificationSortPrecedes(_ lhs: TerminalNotification, _ rhs: TerminalNotification) -> Bool {

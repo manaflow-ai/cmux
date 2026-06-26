@@ -1,3 +1,4 @@
+import CmuxRemoteWorkspace
 import Foundation
 
 /// Pure builders for the tmux control-mode command strings that

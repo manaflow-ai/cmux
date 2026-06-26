@@ -213,9 +213,10 @@ extension RestorableAgentSessionIndex {
         latestSessionIdForSolePanel: String?,
         sameWorkingDirectoryPanelCount: Int
     ) -> String? {
-        if arguments.hasOpenCodeForkFlag {
-            let explicitSessionId = arguments.value(afterOption: "--session") ?? arguments.value(afterOption: "-s")
-            let assignedForkParentSessionId = arguments.openCodeForkParentSessionId
+        let argvParser = AgentResumeArgvParser()
+        if argvParser.hasOpenCodeForkFlag(in: arguments) {
+            let explicitSessionId = argvParser.value(in: arguments, afterOption: "--session") ?? argvParser.value(in: arguments, afterOption: "-s")
+            let assignedForkParentSessionId = argvParser.openCodeForkParentSessionId(in: arguments)
             if let explicitSessionId,
                let assignedForkParentSessionId,
                explicitSessionId != assignedForkParentSessionId {
@@ -228,7 +229,7 @@ extension RestorableAgentSessionIndex {
             guard forkParentSessionId != latestSessionIdForSolePanel else { return nil }
             return latestSessionIdForSolePanel
         }
-        if let explicitSessionId = arguments.value(afterOption: "--session") ?? arguments.value(afterOption: "-s") {
+        if let explicitSessionId = argvParser.value(in: arguments, afterOption: "--session") ?? argvParser.value(in: arguments, afterOption: "-s") {
             return explicitSessionId
         }
         return nil
@@ -495,9 +496,10 @@ extension RestorableAgentSessionIndex {
 
         for process in openCodeProcesses {
             let sameWorkingDirectoryPanelCount = panelKeysByWorkingDirectory[process.workingDirectoryKey]?.count ?? 0
-            let hasForkFlag = process.observed.arguments.hasOpenCodeForkFlag
-            let forkParentSessionId = process.observed.arguments.openCodeForkParentSessionId
-                ?? (hasForkFlag ? process.observed.arguments.value(afterOption: "--session") : nil)
+            let argvParser = AgentResumeArgvParser()
+            let hasForkFlag = argvParser.hasOpenCodeForkFlag(in: process.observed.arguments)
+            let forkParentSessionId = argvParser.openCodeForkParentSessionId(in: process.observed.arguments)
+                ?? (hasForkFlag ? argvParser.value(in: process.observed.arguments, afterOption: "--session") : nil)
             let latestSessionId: String?
             let sessionCacheKey = process.workingDirectoryKey + "\u{1f}" + (forkParentSessionId ?? "")
             if !hasForkFlag || forkParentSessionId == nil || sameWorkingDirectoryPanelCount != 1 || process.workingDirectory == nil {
@@ -926,7 +928,7 @@ private struct VaultObservedAgentProcess: Sendable {
     }
 
     var piCompatibleSessionID: String? {
-        arguments.piCompatibleSessionID(startingAt: piCompatibleSessionArgumentStartIndex)
+        AgentResumeArgvParser().piCompatibleSessionID(in: arguments, startingAt: piCompatibleSessionArgumentStartIndex)
     }
 
     var openCodeExecutableArgumentIndex: Int? {
@@ -1133,7 +1135,7 @@ private extension CmuxVaultAgentSessionIDSource {
     ) -> VaultAgentSessionIDResolution? {
         switch self {
         case .argvOption(let option):
-            guard let sessionId = process.arguments.nonOptionValue(afterOption: option) else { return nil }
+            guard let sessionId = AgentResumeArgvParser().nonOptionValue(in: process.arguments, afterOption: option) else { return nil }
             return VaultAgentSessionIDResolution(sessionId: sessionId, source: .explicit)
         case .piSessionFile:
             let locator = PiSessionLocator(fileManager: fileManager)
@@ -1153,7 +1155,7 @@ private extension CmuxVaultAgentSessionIDSource {
             }
             return VaultAgentSessionIDResolution(sessionId: sessionId, source: .inferredLatestSessionFile)
         case .grokSessionDirectory:
-            if let session = process.arguments.grokResumeSessionID {
+            if let session = AgentResumeArgvParser().grokResumeSessionID(in: process.arguments) {
                 return VaultAgentSessionIDResolution(sessionId: session, source: .explicit)
             }
             return nil
@@ -1173,105 +1175,6 @@ private extension CmuxTopProcessSnapshot {
             processIDsByPanelKey[key, default: []].insert(process.pid)
         }
         return processIDsByPanelKey
-    }
-}
-
-private extension Array where Element == String {
-    var hasOpenCodeForkFlag: Bool {
-        contains { $0 == "--fork" || $0.hasPrefix("--fork=") }
-    }
-
-    var openCodeForkParentSessionId: String? {
-        for argument in self {
-            let prefix = "--fork="
-            guard argument.hasPrefix(prefix) else { continue }
-            let value = String(argument.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
-            return value.isEmpty ? nil : value
-        }
-        return nil
-    }
-
-    func value(afterOption option: String) -> String? {
-        for index in indices {
-            let argument = self[index]
-            if argument == option {
-                let nextIndex = self.index(after: index)
-                guard nextIndex < endIndex else { return nil }
-                let value = self[nextIndex].trimmingCharacters(in: .whitespacesAndNewlines)
-                return value.isEmpty ? nil : value
-            }
-            let prefix = option + "="
-            if argument.hasPrefix(prefix) {
-                let value = String(argument.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
-                return value.isEmpty ? nil : value
-            }
-        }
-        return nil
-    }
-
-    func nonOptionValue(afterOption option: String) -> String? {
-        guard let value = value(afterOption: option), !value.hasPrefix("-") else {
-            return nil
-        }
-        return value
-    }
-
-    func piCompatibleSessionID(startingAt startIndex: Int) -> String? {
-        guard startIndex < endIndex else { return nil }
-        for index in indices where index >= startIndex {
-            let argument = self[index]
-            if argument == "--session" || argument == "--resume" || argument == "-r" {
-                let nextIndex = self.index(after: index)
-                guard nextIndex < endIndex else { continue }
-                if let value = normalizedNonOptionValue(self[nextIndex]) {
-                    return value
-                }
-                continue
-            }
-            if argument.hasPrefix("--session="),
-               let value = normalizedNonOptionValue(String(argument.dropFirst("--session=".count))) {
-                return value
-            }
-            if argument.hasPrefix("--resume="),
-               let value = normalizedNonOptionValue(String(argument.dropFirst("--resume=".count))) {
-                return value
-            }
-            if argument.hasPrefix("-r="),
-               let value = normalizedNonOptionValue(String(argument.dropFirst("-r=".count))) {
-                return value
-            }
-        }
-        return nil
-    }
-
-    private func normalizedNonOptionValue(_ rawValue: String) -> String? {
-        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !value.isEmpty && !value.hasPrefix("-") ? value : nil
-    }
-
-    var grokResumeSessionID: String? {
-        let options = ["-r", "--resume"]
-        for index in indices {
-            let argument = self[index]
-            if options.contains(argument) {
-                let nextIndex = self.index(after: index)
-                guard nextIndex < endIndex else { continue }
-                let value = self[nextIndex].trimmingCharacters(in: .whitespacesAndNewlines)
-                if !value.isEmpty, !value.hasPrefix("-") {
-                    return value
-                }
-                continue
-            }
-            for option in options {
-                let prefix = option + "="
-                guard argument.hasPrefix(prefix) else { continue }
-                let value = String(argument.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !value.isEmpty, !value.hasPrefix("-") {
-                    return value
-                }
-            }
-        }
-        return nil
     }
 }
 
@@ -1354,7 +1257,7 @@ struct PiSessionLocator: Sendable {
         for process: VaultObservedAgentProcess,
         registration: CmuxVaultAgentRegistration
     ) -> String {
-        let sessionRoot = process.arguments.value(afterOption: "--session-dir")
+        let sessionRoot = AgentResumeArgvParser().value(in: process.arguments, afterOption: "--session-dir")
             ?? process.environment["PI_CODING_AGENT_SESSION_DIR"]
             ?? configuredSessionDirectory(for: registration)
             ?? ompAgentSessionsRoot(for: process, registration: registration)

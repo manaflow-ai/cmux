@@ -8,7 +8,9 @@ import Foundation
 /// touch no actor isolation, so they are `nonisolated` and safe to call from any
 /// context; ``RemoteTmuxControlConnection`` owns an instance and routes its
 /// internal call sites through it.
-struct RemoteTmuxControlMessageDecoding {
+public struct RemoteTmuxControlMessageDecoding {
+    public init() {}
+
     /// Builds the escape sequence that restores a pane's terminal state onto the
     /// mirror surface, from a `display-message` `key=value,…` line. Sets the scroll
     /// region (DECSTBM), the DEC private modes (wrap/cursor/insert/app-cursor-keys/
@@ -19,7 +21,7 @@ struct RemoteTmuxControlMessageDecoding {
     /// position, so any earlier cursor placement would be lost. When origin mode is
     /// on with a restricted region, tmux's absolute cursor row is translated to the
     /// region-relative row the (origin-relative) CUP then expects.
-    nonisolated func paneStateSeedSequence(from line: String) -> Data {
+    public nonisolated func paneStateSeedSequence(from line: String) -> Data {
         var fields: [String: String] = [:]
         for pair in line.split(separator: ",") {
             let kv = pair.split(separator: "=", maxSplits: 1)
@@ -97,7 +99,7 @@ struct RemoteTmuxControlMessageDecoding {
 
     /// Returns `order` with the windows in `reordered` rearranged into
     /// `reordered`'s sequence, leaving windows not in that set in their positions.
-    nonisolated func windowOrder(_ order: [Int], applyingReorder reordered: [Int]) -> [Int] {
+    public nonisolated func windowOrder(_ order: [Int], applyingReorder reordered: [Int]) -> [Int] {
         let set = Set(reordered)
         var iterator = reordered.makeIterator()
         return order.map { set.contains($0) ? (iterator.next() ?? $0) : $0 }
@@ -106,7 +108,7 @@ struct RemoteTmuxControlMessageDecoding {
     /// Whether captured ssh/tmux stderr indicates the session/server is genuinely
     /// gone (reconnect should stop and end) vs a transient transport failure (host
     /// unreachable / connection refused — keep retrying).
-    nonisolated func stderrIndicatesSessionGone(_ stderr: String) -> Bool {
+    public nonisolated func stderrIndicatesSessionGone(_ stderr: String) -> Bool {
         let lowered = stderr.lowercased()
         return lowered.contains("can't find session")
             || lowered.contains("can\u{2019}t find session")

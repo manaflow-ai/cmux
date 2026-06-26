@@ -9,10 +9,11 @@ actor TextBoxMentionIndexStore {
     private static let directorySeedBatchSize = 128
     private static let maxIndexedDirectories = 2000
     private static let maxIndexedFiles = 6000
-    private static let maxIndexedSkills = 800
     private static let rootSuggestionLimit = 200
     private static let suggestionLimit = 500
     private static let directorySkipPolicy = IndexedDirectorySkipPolicy()
+
+    private let skillScanner = TextBoxMentionSkillScanner()
 
     private var fileIndexesByRoot: [String: TextBoxMentionCachedIndex] = [:]
     private var fileIndexRefreshTasks: [String: TextBoxMentionFileIndexRefreshTask] = [:]
@@ -239,37 +240,13 @@ actor TextBoxMentionIndexStore {
     }
 
     private func skillIndex(rootDirectory: String?) -> TextBoxMentionCandidateIndex {
-        let roots = Self.skillSearchRoots(rootDirectory: rootDirectory)
+        let roots = skillScanner.searchRoots(rootDirectory: rootDirectory)
         let cacheKey = roots.map(\.path).joined(separator: "\n")
         if let cached = skillIndexesByRootKey[cacheKey] {
             return cached
         }
 
-        var seenPaths = Set<String>()
-        var candidates: [TextBoxMentionCandidate] = []
-        for (rootIndex, root) in roots.enumerated() {
-            for skillURL in Self.scanSkillFiles(rootURL: root) {
-                let path = skillURL.standardizedFileURL.path
-                guard seenPaths.insert(path).inserted else { continue }
-                let skillName = Self.skillName(from: skillURL)
-                candidates.append(TextBoxMentionCandidate(
-                    title: "/\(skillName)",
-                    subtitle: Self.displayPath(path),
-                    targetPath: path,
-                    systemImageName: "sparkle.magnifyingglass",
-                    searchKey: Self.skillSearchKey(skillName: skillName, skillURL: skillURL, rootURL: root),
-                    priority: rootIndex
-                ))
-                if candidates.count >= Self.maxIndexedSkills {
-                    break
-                }
-            }
-            if candidates.count >= Self.maxIndexedSkills {
-                break
-            }
-        }
-
-        let index = TextBoxMentionCandidateIndex(candidates: candidates)
+        let index = TextBoxMentionCandidateIndex(candidates: skillScanner.candidates(inRoots: roots))
         skillIndexesByRootKey[cacheKey] = index
         return index
     }
@@ -318,14 +295,14 @@ actor TextBoxMentionIndexStore {
                     continue
                 }
                 appendDirectoryCandidate(
-                    relativePath: Self.relativePath(for: standardizedURL.path, rootPath: rootPath),
+                    relativePath: standardizedURL.path.pathRelative(toRoot: rootPath),
                     directoryURL: standardizedURL
                 )
                 continue
             }
             guard values?.isRegularFile == true else { continue }
 
-            let relativePath = Self.relativePath(for: standardizedURL.path, rootPath: rootPath)
+            let relativePath = standardizedURL.path.pathRelative(toRoot: rootPath)
             if fileCandidates.count < maxIndexedFiles {
                 fileCandidates.append(Self.fileCandidate(
                     relativePath: relativePath,
@@ -362,7 +339,7 @@ actor TextBoxMentionIndexStore {
                 return values?.isRegularFile == true
             }
         let relativePaths = candidateURLs.map {
-            Self.relativePath(for: $0.path, rootPath: rootPath)
+            $0.path.pathRelative(toRoot: rootPath)
         }
         let ignoredRelativePaths = await isGitWorkTree(rootURL: rootURL)
             ? await gitIgnoredRelativePaths(rootURL: rootURL, relativePaths: relativePaths)
@@ -371,7 +348,7 @@ actor TextBoxMentionIndexStore {
         var candidates: [TextBoxMentionCandidate] = []
         candidates.reserveCapacity(candidateURLs.count)
         for url in candidateURLs {
-            let relativePath = Self.relativePath(for: url.path, rootPath: rootPath)
+            let relativePath = url.path.pathRelative(toRoot: rootPath)
             guard !relativePath.isEmpty,
                   !ignoredRelativePaths.contains(relativePath),
                   !ignoredRelativePaths.contains("\(relativePath)/") else {
@@ -541,14 +518,14 @@ actor TextBoxMentionIndexStore {
             queueIndex = batchEndIndex
 
             let relativePaths = directoryBatch.map {
-                Self.relativePath(for: $0.path, rootPath: rootPath)
+                $0.path.pathRelative(toRoot: rootPath)
             }
             let ignoredRelativePaths = checksGitIgnore
                 ? await gitIgnoredRelativePaths(rootURL: rootURL, relativePaths: relativePaths)
                 : []
 
             for standardizedURL in directoryBatch {
-                let relativePath = Self.relativePath(for: standardizedURL.path, rootPath: rootPath)
+                let relativePath = standardizedURL.path.pathRelative(toRoot: rootPath)
                 guard !relativePath.isEmpty,
                       !ignoredRelativePaths.contains(relativePath),
                       !ignoredRelativePaths.contains("\(relativePath)/") else {
@@ -686,7 +663,7 @@ actor TextBoxMentionIndexStore {
         let directoryName = directoryURL.lastPathComponent
         return TextBoxMentionCandidate(
             title: displayTitle,
-            subtitle: displayPath(directoryURL.path),
+            subtitle: directoryURL.path.homeAbbreviatedPath,
             targetPath: directoryURL.path,
             systemImageName: "folder",
             searchKey: "\(normalizedPath) \(directoryName) folder directory".lowercased(),
@@ -701,7 +678,7 @@ actor TextBoxMentionIndexStore {
     ) -> TextBoxMentionCandidate {
         TextBoxMentionCandidate(
             title: "@\(relativePath)",
-            subtitle: displayPath(fileURL.path),
+            subtitle: fileURL.path.homeAbbreviatedPath,
             targetPath: fileURL.path,
             systemImageName: "doc",
             searchKey: "\(relativePath) \(fileName)".lowercased(),
@@ -730,145 +707,6 @@ actor TextBoxMentionIndexStore {
         }
     }
 
-    private static func scanSkillFiles(rootURL: URL) -> [URL] {
-        let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: rootURL.path) else { return [] }
-
-        var result: [URL] = []
-        if fileManager.fileExists(atPath: rootURL.appendingPathComponent("SKILL.md").path) {
-            result.append(rootURL.appendingPathComponent("SKILL.md"))
-            return result
-        }
-
-        guard let enumerator = fileManager.enumerator(
-            at: rootURL,
-            includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey],
-            options: [.skipsHiddenFiles, .skipsPackageDescendants],
-            errorHandler: { _, _ in true }
-        ) else { return result }
-
-        while let item = enumerator.nextObject() as? URL {
-            let standardizedURL = item.standardizedFileURL
-            let name = standardizedURL.lastPathComponent
-            let values = try? standardizedURL.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
-            if values?.isDirectory == true {
-                if directorySkipPolicy.shouldSkip(name) {
-                    enumerator.skipDescendants()
-                    continue
-                }
-
-                let skillFile = standardizedURL.appendingPathComponent("SKILL.md", isDirectory: false)
-                if fileManager.fileExists(atPath: skillFile.path) {
-                    result.append(skillFile.standardizedFileURL)
-                    enumerator.skipDescendants()
-                }
-            } else if values?.isRegularFile == true, name == "SKILL.md" {
-                result.append(standardizedURL)
-            }
-
-            if result.count >= maxIndexedSkills {
-                break
-            }
-        }
-
-        return result
-    }
-
-    private static func skillSearchRoots(rootDirectory: String?) -> [URL] {
-        let fileManager = FileManager.default
-        var roots: [URL] = []
-
-        if let rootDirectory {
-            var current = URL(fileURLWithPath: rootDirectory, isDirectory: true).standardizedFileURL
-            while current.path != "/" {
-                let skillsURL = current.appendingPathComponent("skills", isDirectory: true)
-                if fileManager.fileExists(atPath: skillsURL.path) {
-                    roots.append(skillsURL)
-                }
-                current.deleteLastPathComponent()
-            }
-        }
-
-        let home = fileManager.homeDirectoryForCurrentUser
-        roots.append(home.appendingPathComponent(".codex/skills", isDirectory: true))
-        roots.append(home.appendingPathComponent(".codex/skills/.system", isDirectory: true))
-        roots.append(home.appendingPathComponent(".agents/skills", isDirectory: true))
-        roots.append(contentsOf: pluginSkillRoots(
-            pluginCacheURL: home.appendingPathComponent(".codex/plugins/cache", isDirectory: true),
-            fileManager: fileManager
-        ))
-
-        var seen = Set<String>()
-        return roots
-            .map(\.standardizedFileURL)
-            .filter { fileManager.fileExists(atPath: $0.path) }
-            .filter { seen.insert($0.path).inserted }
-    }
-
-    private static func pluginSkillRoots(pluginCacheURL: URL, fileManager: FileManager) -> [URL] {
-        guard let vendors = try? fileManager.contentsOfDirectory(
-            at: pluginCacheURL,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return []
-        }
-
-        var roots: [URL] = []
-        for vendor in vendors where isDirectory(vendor, fileManager: fileManager) {
-            guard let pluginNames = try? fileManager.contentsOfDirectory(
-                at: vendor,
-                includingPropertiesForKeys: [.isDirectoryKey],
-                options: [.skipsHiddenFiles]
-            ) else { continue }
-
-            for pluginName in pluginNames where isDirectory(pluginName, fileManager: fileManager) {
-                guard let versions = try? fileManager.contentsOfDirectory(
-                    at: pluginName,
-                    includingPropertiesForKeys: [.isDirectoryKey],
-                    options: [.skipsHiddenFiles]
-                ) else { continue }
-
-                for version in versions where isDirectory(version, fileManager: fileManager) {
-                    let skillsURL = version.appendingPathComponent("skills", isDirectory: true)
-                    if isDirectory(skillsURL, fileManager: fileManager) {
-                        roots.append(skillsURL)
-                    }
-                }
-            }
-        }
-        return roots
-    }
-
-    private static func isDirectory(_ url: URL, fileManager: FileManager) -> Bool {
-        (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-    }
-
-    private static func skillName(from skillURL: URL) -> String {
-        guard let content = try? String(contentsOf: skillURL, encoding: .utf8) else {
-            return skillURL.deletingLastPathComponent().lastPathComponent
-        }
-
-        for line in content.split(separator: "\n", maxSplits: 32, omittingEmptySubsequences: false) {
-            let trimmed = String(line).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard trimmed.hasPrefix("name:") else { continue }
-            let name = String(trimmed.dropFirst("name:".count)).trimmingCharacters(in: .whitespacesAndNewlines)
-            if !name.isEmpty {
-                return name.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
-            }
-        }
-        return skillURL.deletingLastPathComponent().lastPathComponent
-    }
-
-    private static func skillSearchKey(skillName: String, skillURL: URL, rootURL: URL) -> String {
-        let skillDirectory = skillURL.deletingLastPathComponent().standardizedFileURL
-        let relativeSkillPath = relativePath(
-            for: skillDirectory.path,
-            rootPath: rootURL.standardizedFileURL.path
-        )
-        return "\(skillName) \(relativeSkillPath)".lowercased()
-    }
-
     private static func normalizedDirectory(_ path: String?) -> String? {
         guard let path = path?.trimmingCharacters(in: .whitespacesAndNewlines),
               !path.isEmpty else {
@@ -883,18 +721,5 @@ actor TextBoxMentionIndexStore {
             return nil
         }
         return url.path
-    }
-
-    private static func relativePath(for path: String, rootPath: String) -> String {
-        guard path.hasPrefix(rootPath) else { return path }
-        let start = path.index(path.startIndex, offsetBy: rootPath.count)
-        let relative = String(path[start...]).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        return relative.isEmpty ? URL(fileURLWithPath: path).lastPathComponent : relative
-    }
-
-    private static func displayPath(_ path: String) -> String {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        guard path.hasPrefix(home) else { return path }
-        return "~" + String(path.dropFirst(home.count))
     }
 }

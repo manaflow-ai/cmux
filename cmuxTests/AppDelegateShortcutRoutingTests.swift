@@ -1,5 +1,6 @@
 import XCTest
 import CmuxCommandPaletteUI
+import CmuxFoundation
 import CmuxTerminal
 import AppKit
 import Carbon.HIToolbox
@@ -8075,33 +8076,29 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             attachmentCount: 0
         )
 
-        XCTAssertTrue(TextBoxFailedSubmitRollbackPolicy.shouldRestore(
-            rollbackSnapshot: rollbackSnapshot,
-            currentSnapshot: TextBoxFailedSubmitRollbackSnapshot(
+        XCTAssertTrue(rollbackSnapshot.shouldRestore(
+            givenCurrent: TextBoxFailedSubmitRollbackSnapshot(
                 revision: 4,
                 text: "",
                 attachmentCount: 0
             )
         ))
-        XCTAssertFalse(TextBoxFailedSubmitRollbackPolicy.shouldRestore(
-            rollbackSnapshot: rollbackSnapshot,
-            currentSnapshot: TextBoxFailedSubmitRollbackSnapshot(
+        XCTAssertFalse(rollbackSnapshot.shouldRestore(
+            givenCurrent: TextBoxFailedSubmitRollbackSnapshot(
                 revision: 4,
                 text: "new draft",
                 attachmentCount: 0
             )
         ))
-        XCTAssertFalse(TextBoxFailedSubmitRollbackPolicy.shouldRestore(
-            rollbackSnapshot: rollbackSnapshot,
-            currentSnapshot: TextBoxFailedSubmitRollbackSnapshot(
+        XCTAssertFalse(rollbackSnapshot.shouldRestore(
+            givenCurrent: TextBoxFailedSubmitRollbackSnapshot(
                 revision: 4,
                 text: "",
                 attachmentCount: 1
             )
         ))
-        XCTAssertFalse(TextBoxFailedSubmitRollbackPolicy.shouldRestore(
-            rollbackSnapshot: rollbackSnapshot,
-            currentSnapshot: TextBoxFailedSubmitRollbackSnapshot(
+        XCTAssertFalse(rollbackSnapshot.shouldRestore(
+            givenCurrent: TextBoxFailedSubmitRollbackSnapshot(
                 revision: 5,
                 text: "",
                 attachmentCount: 0

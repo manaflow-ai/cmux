@@ -11,7 +11,7 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
     func testIMessageModeCommandTogglesDefaultAndReportsState() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(
-                CommandPaletteSettingsToggleCommands.descriptor(
+                CommandPaletteSettingsToggleCatalog().descriptor(
                     commandId: "palette.toggleSetting.iMessageMode"
                 )
             )
@@ -28,22 +28,22 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
             let offState = String(localized: "command.toggleSetting.state.off", defaultValue: "Off")
             let onState = String(localized: "command.toggleSetting.state.on", defaultValue: "On")
             XCTAssertFalse(descriptor.isOn(defaults))
-            XCTAssertEqual(descriptor.commandTitle(strings: CommandPaletteSettingsToggleCommands.toggleStrings, defaults: defaults), enableTitle)
-            XCTAssertTrue(descriptor.commandSubtitle(strings: CommandPaletteSettingsToggleCommands.toggleStrings, defaults: defaults).contains(offState))
+            XCTAssertEqual(descriptor.commandTitle(strings: CommandPaletteSettingsToggleCatalog().toggleStrings, defaults: defaults), enableTitle)
+            XCTAssertTrue(descriptor.commandSubtitle(strings: CommandPaletteSettingsToggleCatalog().toggleStrings, defaults: defaults).contains(offState))
 
             descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
 
             XCTAssertEqual(defaults.object(forKey: IMessageModeSettings.key) as? Bool, true)
             XCTAssertTrue(descriptor.isOn(defaults))
-            XCTAssertEqual(descriptor.commandTitle(strings: CommandPaletteSettingsToggleCommands.toggleStrings, defaults: defaults), disableTitle)
-            XCTAssertTrue(descriptor.commandSubtitle(strings: CommandPaletteSettingsToggleCommands.toggleStrings, defaults: defaults).contains(onState))
+            XCTAssertEqual(descriptor.commandTitle(strings: CommandPaletteSettingsToggleCatalog().toggleStrings, defaults: defaults), disableTitle)
+            XCTAssertTrue(descriptor.commandSubtitle(strings: CommandPaletteSettingsToggleCatalog().toggleStrings, defaults: defaults).contains(onState))
         }
     }
 
     func testTerminalScrollBarTogglePostsChangeNotification() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(
-                CommandPaletteSettingsToggleCommands.descriptor(
+                CommandPaletteSettingsToggleCatalog().descriptor(
                     commandId: "palette.toggleSetting.terminalShowScrollBar"
                 )
             )
@@ -69,7 +69,7 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
     func testShowMenuBarCommandIsUnavailableWhenMenuBarOnlyIsEnabled() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(
-                CommandPaletteSettingsToggleCommands.descriptor(
+                CommandPaletteSettingsToggleCatalog().descriptor(
                     commandId: "palette.toggleSetting.showInMenuBar"
                 )
             )
@@ -83,7 +83,7 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
     func testInterceptTerminalOpenCommandReadsRawSettingWhenBrowserIsDisabled() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(
-                CommandPaletteSettingsToggleCommands.descriptor(
+                CommandPaletteSettingsToggleCatalog().descriptor(
                     commandId: "palette.toggleSetting.interceptTerminalOpenCommandInCmuxBrowser"
                 )
             )
@@ -105,7 +105,7 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
     func testOpenSupportedFilesCommandTogglesAndPostsChangeNotification() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(
-                CommandPaletteSettingsToggleCommands.descriptor(
+                CommandPaletteSettingsToggleCatalog().descriptor(
                     commandId: "palette.toggleSetting.openSupportedFilesInCmux"
                 )
             )
@@ -133,7 +133,7 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
     func testOpenMarkdownViewerCommandTogglesAndPostsChangeNotification() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(
-                CommandPaletteSettingsToggleCommands.descriptor(
+                CommandPaletteSettingsToggleCatalog().descriptor(
                     commandId: "palette.toggleSetting.openMarkdownInCmuxViewer"
                 )
             )
@@ -161,7 +161,7 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
     func testAgentHibernationCommandTogglesAndPostsChangeNotification() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(
-                CommandPaletteSettingsToggleCommands.descriptor(
+                CommandPaletteSettingsToggleCatalog().descriptor(
                     commandId: "palette.toggleSetting.agentHibernation"
                 )
             )
@@ -189,7 +189,7 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
     func testWarnBeforeQuitCommandWritesConfirmQuitSourceOfTruth() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(
-                CommandPaletteSettingsToggleCommands.descriptor(
+                CommandPaletteSettingsToggleCatalog().descriptor(
                     commandId: "palette.toggleSetting.warnBeforeQuit"
                 )
             )
@@ -213,12 +213,12 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
 
     func testConfigLinkAndFileOpeningSettingsHaveCommandPaletteToggles() throws {
         XCTAssertNotNil(
-            CommandPaletteSettingsToggleCommands.descriptor(
+            CommandPaletteSettingsToggleCatalog().descriptor(
                 commandId: "palette.toggleSetting.openTerminalLinksInCmuxBrowser"
             )
         )
         XCTAssertNotNil(
-            CommandPaletteSettingsToggleCommands.descriptor(
+            CommandPaletteSettingsToggleCatalog().descriptor(
                 commandId: "palette.toggleSetting.openSupportedFilesInCmux"
             )
         )
@@ -227,7 +227,7 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
     func testSuppressSubagentNotificationsCommandTogglesDefaultAndReportsState() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(
-                CommandPaletteSettingsToggleCommands.descriptor(
+                CommandPaletteSettingsToggleCatalog().descriptor(
                     commandId: "palette.toggleSetting.suppressSubagentNotifications"
                 )
             )
@@ -235,7 +235,7 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
             let offState = String(localized: "command.toggleSetting.state.off", defaultValue: "Off")
             let onState = String(localized: "command.toggleSetting.state.on", defaultValue: "On")
             XCTAssertTrue(descriptor.isOn(defaults))
-            XCTAssertTrue(descriptor.commandSubtitle(strings: CommandPaletteSettingsToggleCommands.toggleStrings, defaults: defaults).contains(onState))
+            XCTAssertTrue(descriptor.commandSubtitle(strings: CommandPaletteSettingsToggleCatalog().toggleStrings, defaults: defaults).contains(onState))
 
             descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
 
@@ -244,14 +244,14 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
                 false
             )
             XCTAssertFalse(descriptor.isOn(defaults))
-            XCTAssertTrue(descriptor.commandSubtitle(strings: CommandPaletteSettingsToggleCommands.toggleStrings, defaults: defaults).contains(offState))
+            XCTAssertTrue(descriptor.commandSubtitle(strings: CommandPaletteSettingsToggleCatalog().toggleStrings, defaults: defaults).contains(offState))
         }
     }
 
     func testOpenSidebarPortLinksCommandIsUnavailableWhenPortsAreHidden() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(
-                CommandPaletteSettingsToggleCommands.descriptor(
+                CommandPaletteSettingsToggleCatalog().descriptor(
                     commandId: "palette.toggleSetting.openSidebarPortLinksInCmuxBrowser"
                 )
             )
@@ -265,7 +265,7 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
     func testWrapWorkspaceTitlesCommandTogglesDefaultAndReportsState() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(
-                CommandPaletteSettingsToggleCommands.descriptor(
+                CommandPaletteSettingsToggleCatalog().descriptor(
                     commandId: "palette.toggleSetting.wrapWorkspaceTitlesInSidebar"
                 )
             )
@@ -281,7 +281,7 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
     func testUnavailableCommandDoesNotToggleStoredValue() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(
-                CommandPaletteSettingsToggleCommands.descriptor(
+                CommandPaletteSettingsToggleCatalog().descriptor(
                     commandId: "palette.toggleSetting.openSidebarPortLinksInCmuxBrowser"
                 )
             )
@@ -298,14 +298,14 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
     }
 
     func testSettingsToggleContributionsIncludeEveryDescriptor() {
-        let descriptorIds = Set(CommandPaletteSettingsToggleCommands.descriptors.map(\.commandId))
+        let descriptorIds = Set(CommandPaletteSettingsToggleCatalog().descriptors.map(\.commandId))
         let contributionIds = Set(ContentView.commandPaletteSettingsToggleCommandContributions().map(\.commandId))
 
         XCTAssertEqual(contributionIds, descriptorIds)
     }
 
     func testSettingsToggleCommandIdsAreUnique() {
-        let commandIds = CommandPaletteSettingsToggleCommands.descriptors.map(\.commandId)
+        let commandIds = CommandPaletteSettingsToggleCatalog().descriptors.map(\.commandId)
         XCTAssertEqual(Set(commandIds).count, commandIds.count)
     }
 

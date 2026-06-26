@@ -16,7 +16,7 @@ struct MenuBarOnlyActivationPolicyTests {
 
     @Test func commandPaletteToggleIsNotExposedAsInstantToggle() {
         #expect(
-            CommandPaletteSettingsToggleCommands.descriptor(
+            CommandPaletteSettingsToggleCatalog().descriptor(
                 commandId: "palette.toggleSetting.menuBarOnly"
             ) == nil
         )

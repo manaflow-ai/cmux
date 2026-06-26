@@ -1,3 +1,4 @@
+import CmuxNotifications
 import Foundation
 
 fileprivate struct QueuedTerminalNotificationKey: Hashable, Sendable {

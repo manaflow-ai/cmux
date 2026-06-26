@@ -686,159 +686,6 @@ final class SessionIndexStore: ObservableObject {
         return combined.sorted { $0.modified > $1.modified }
     }
 
-    private struct ClaudeParsed {
-        var title: String = ""
-        var cwd: String?
-        var branch: String?
-        var pr: PullRequestLink?
-        var model: String?
-        var permissionMode: String?
-    }
-
-    private struct ClaudeSessionRoot: Hashable {
-        let configDir: String
-        let resumeConfigDirectory: String?
-
-        var projectsRoot: String {
-            (configDir as NSString).appendingPathComponent("projects")
-        }
-    }
-
-    private struct ClaudeSessionCandidate: Sendable {
-        let url: URL
-        let mtime: Date
-        let dirName: String
-        let resumeConfigDirectory: String?
-        let prefilteredByRipgrep: Bool
-    }
-
-    nonisolated private static func claudeSessionRoots() -> [ClaudeSessionRoot] {
-        let fm = FileManager.default
-        var roots: [ClaudeSessionRoot] = []
-        var seen: Set<String> = []
-
-        func appendRoot(_ rawPath: String?, requireConfigured: Bool) {
-            guard let rawPath else { return }
-            let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return }
-            let configDir = (trimmed as NSString).expandingTildeInPath
-            let standardized = ClaudeConfigDirectoryPath.preferredPath(configDir)
-            let projectsRoot = (standardized as NSString).appendingPathComponent("projects")
-            var isDirectory: ObjCBool = false
-            guard fm.fileExists(atPath: projectsRoot, isDirectory: &isDirectory),
-                  isDirectory.boolValue else {
-                return
-            }
-            let resumeConfigDirectory = ClaudeConfigurationRoot.configuredResumeDirectory(
-                standardized,
-                fileManager: fm
-            )
-            if requireConfigured, resumeConfigDirectory == nil {
-                return
-            }
-            guard seen.insert(standardized).inserted else { return }
-            roots.append(
-                ClaudeSessionRoot(
-                    configDir: standardized,
-                    resumeConfigDirectory: resumeConfigDirectory
-                )
-            )
-        }
-
-        let environmentConfigDir = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"]
-        appendRoot(environmentConfigDir, requireConfigured: false)
-
-        let accountRoot = ("~/.codex-accounts/claude" as NSString).expandingTildeInPath
-        if let accountDirs = try? fm.contentsOfDirectory(atPath: accountRoot) {
-            for accountDir in accountDirs.sorted() {
-                appendRoot(
-                    (accountRoot as NSString).appendingPathComponent(accountDir),
-                    requireConfigured: true
-                )
-            }
-        }
-
-        appendRoot(
-            ("~/.claude" as NSString).expandingTildeInPath,
-            requireConfigured: false
-        )
-
-        return roots
-    }
-
-    nonisolated private static func extractClaudeMetadata(head: String, tail: String, projectDir: String) -> ClaudeParsed {
-        var out = ClaudeParsed()
-        out.cwd = decodeClaudeProjectDir(projectDir)
-
-        for line in head.split(separator: "\n", omittingEmptySubsequences: true) {
-            guard let data = line.data(using: .utf8),
-                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
-            let isMeta = (obj["isMeta"] as? Bool) ?? false
-            if let cwdField = obj["cwd"] as? String, !cwdField.isEmpty {
-                out.cwd = cwdField
-            }
-            if let branchField = obj["gitBranch"] as? String, !branchField.isEmpty {
-                out.branch = branchField
-            }
-            if let mode = obj["permissionMode"] as? String, !mode.isEmpty {
-                out.permissionMode = mode
-            }
-            if (obj["type"] as? String) == "assistant",
-               let message = obj["message"] as? [String: Any],
-               let model = message["model"] as? String, !model.isEmpty {
-                out.model = model
-            }
-            if out.title.isEmpty,
-               (obj["type"] as? String) == "user",
-               let message = obj["message"] as? [String: Any],
-               (message["role"] as? String) == "user" {
-                if let content = message["content"] as? String,
-                   let title = SessionEntry.claudeDisplayTitle(from: content, isMeta: isMeta) {
-                    out.title = title
-                } else if let parts = message["content"] as? [[String: Any]] {
-                    for part in parts {
-                        if (part["type"] as? String) == "text",
-                           let text = part["text"] as? String,
-                           let title = SessionEntry.claudeDisplayTitle(from: text, isMeta: isMeta) {
-                            out.title = title
-                            break
-                        }
-                    }
-                }
-            }
-        }
-
-        for line in tail.split(separator: "\n", omittingEmptySubsequences: true) {
-            guard let data = line.data(using: .utf8),
-                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
-            let type = obj["type"] as? String
-            if type == "pr-link", let number = obj["prNumber"] as? Int,
-               let url = obj["prUrl"] as? String {
-                out.pr = PullRequestLink(
-                    number: number,
-                    url: url,
-                    repository: obj["prRepository"] as? String
-                )
-            }
-            if let branchField = obj["gitBranch"] as? String, !branchField.isEmpty {
-                out.branch = branchField
-            }
-            if let mode = obj["permissionMode"] as? String, !mode.isEmpty {
-                out.permissionMode = mode
-            }
-            if (obj["type"] as? String) == "assistant",
-               let message = obj["message"] as? [String: Any],
-               let model = message["model"] as? String, !model.isEmpty {
-                out.model = model
-            }
-        }
-        // Strip the [1m] suffix some Claude internal model IDs carry (claude-opus-4-7[1m]).
-        if let m = out.model, let bracket = m.firstIndex(of: "[") {
-            out.model = String(m[..<bracket])
-        }
-        return out
-    }
-
     /// Returns a usable user-prompt string from a Codex `user_message` /
     /// `response_item.input_text` payload, or nil when the message is just an
     /// envelope/system wrapper (`<environment_context>...`, `<user_instructions>`,
@@ -858,86 +705,6 @@ final class SessionIndexStore: ObservableObject {
             return nil
         }
         return trimmed
-    }
-
-    nonisolated private static func decodeClaudeProjectDir(_ raw: String) -> String? {
-        // Claude encodes cwd by replacing "/" with "-" and prefixing "-"
-        // e.g. "-Users-lawrence-fun-cmuxterm-hq" -> "/Users/lawrence/fun/cmuxterm-hq".
-        // The encoding is lossy: a real path segment containing "-"
-        // (e.g. "my-cool-project") collapses to multiple segments
-        // ("/my/cool/project") on decode, which is wrong. Only return the
-        // candidate if it actually exists on disk; otherwise let the caller
-        // fall back to the JSONL `cwd` field.
-        guard !raw.isEmpty else { return nil }
-        let stripped = raw.hasPrefix("-") ? String(raw.dropFirst()) : raw
-        let candidate = "/" + stripped.replacingOccurrences(of: "-", with: "/")
-        var isDir: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: candidate, isDirectory: &isDir),
-              isDir.boolValue else {
-            return nil
-        }
-        return candidate
-    }
-
-    nonisolated private static func claudeProjectDirName(for url: URL, projectsRoot: String) -> String {
-        let root = projectsRoot.hasSuffix("/") ? projectsRoot : projectsRoot + "/"
-        guard url.path.hasPrefix(root) else {
-            return url.deletingLastPathComponent().lastPathComponent
-        }
-        let relative = String(url.path.dropFirst(root.count))
-        return relative.split(separator: "/", maxSplits: 1).first.map(String.init)
-            ?? url.deletingLastPathComponent().lastPathComponent
-    }
-
-    nonisolated private static func enumerateClaudeJSONLCandidates(
-        root: ClaudeSessionRoot,
-        cwdFilter: String?,
-        prefilteredByRipgrep: Bool
-    ) -> [ClaudeSessionCandidate] {
-        let fm = FileManager.default
-        var candidates: [ClaudeSessionCandidate] = []
-
-        func appendJSONLFiles(in dirPath: String, dirName: String) {
-            guard let contents = try? fm.contentsOfDirectory(atPath: dirPath) else { return }
-            for name in contents where name.hasSuffix(".jsonl") {
-                let filePath = (dirPath as NSString).appendingPathComponent(name)
-                let url = URL(fileURLWithPath: filePath)
-                guard let attrs = try? fm.attributesOfItem(atPath: filePath),
-                      let mtime = attrs[.modificationDate] as? Date else { continue }
-                candidates.append(
-                    ClaudeSessionCandidate(
-                        url: url,
-                        mtime: mtime,
-                        dirName: dirName,
-                        resumeConfigDirectory: root.resumeConfigDirectory,
-                        prefilteredByRipgrep: prefilteredByRipgrep
-                    )
-                )
-            }
-        }
-
-        if let cwdFilter {
-            // Single-sourced with RestorableAgentSessionIndex so this fast-path cwd filter
-            // encodes dotted paths ("." -> "-") identically to the transcript-discovery path.
-            let dirName = RestorableAgentSessionIndex.encodeClaudeProjectDir(cwdFilter)
-            let dirPath = (root.projectsRoot as NSString).appendingPathComponent(dirName)
-            var isDir: ObjCBool = false
-            if fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue {
-                appendJSONLFiles(in: dirPath, dirName: dirName)
-            }
-            return candidates
-        }
-
-        guard let projectDirs = try? fm.contentsOfDirectory(atPath: root.projectsRoot) else {
-            return candidates
-        }
-        for dirName in projectDirs {
-            let dirPath = (root.projectsRoot as NSString).appendingPathComponent(dirName)
-            var isDir: ObjCBool = false
-            guard fm.fileExists(atPath: dirPath, isDirectory: &isDir), isDir.boolValue else { continue }
-            appendJSONLFiles(in: dirPath, dirName: dirName)
-        }
-        return candidates
     }
 
     // MARK: Codex
@@ -1373,7 +1140,7 @@ final class SessionIndexStore: ObservableObject {
     nonisolated private static func loadClaudeEntries(
         needle: String, cwdFilter: String?, offset: Int, limit: Int
     ) async -> [SessionEntry] {
-        let roots = claudeSessionRoots()
+        let roots = ClaudeSessionRoot.discoverAll()
         guard !roots.isEmpty else { return [] }
         let fm = FileManager.default
 
@@ -1389,7 +1156,7 @@ final class SessionIndexStore: ObservableObject {
                     fileGlob: "*.jsonl"
                 ) else {
                     candidates.append(
-                        contentsOf: enumerateClaudeJSONLCandidates(
+                        contentsOf: ClaudeSessionCandidate.enumerate(
                             root: root,
                             cwdFilter: cwdFilter,
                             prefilteredByRipgrep: false
@@ -1400,7 +1167,7 @@ final class SessionIndexStore: ObservableObject {
                 for url in rgPaths {
                     guard let attrs = try? fm.attributesOfItem(atPath: url.path),
                           let mtime = attrs[.modificationDate] as? Date else { continue }
-                    let dirName = claudeProjectDirName(for: url, projectsRoot: root.projectsRoot)
+                    let dirName = ClaudeSessionCandidate.projectDirName(for: url, projectsRoot: root.projectsRoot)
                     candidates.append(
                         ClaudeSessionCandidate(
                             url: url,
@@ -1417,7 +1184,7 @@ final class SessionIndexStore: ObservableObject {
             // enumerating every other project entirely.
             for root in roots {
                 candidates.append(
-                    contentsOf: enumerateClaudeJSONLCandidates(
+                    contentsOf: ClaudeSessionCandidate.enumerate(
                         root: root,
                         cwdFilter: cwdFilter,
                         prefilteredByRipgrep: false
@@ -1427,7 +1194,7 @@ final class SessionIndexStore: ObservableObject {
         } else {
             for root in roots {
                 candidates.append(
-                    contentsOf: enumerateClaudeJSONLCandidates(
+                    contentsOf: ClaudeSessionCandidate.enumerate(
                         root: root,
                         cwdFilter: nil,
                         prefilteredByRipgrep: false
@@ -1482,7 +1249,7 @@ final class SessionIndexStore: ObservableObject {
                             true
                         )
                     }
-                    let parsed = extractClaudeMetadata(head: head, tail: tail, projectDir: candidate.dirName)
+                    let parsed = ClaudeParsed(head: head, tail: tail, projectDir: candidate.dirName)
                     if let cwdFilter, parsed.cwd != cwdFilter { return (idx, nil, false) }
                     let sid = candidate.url.deletingPathExtension().lastPathComponent
                     let entry = SessionEntry(

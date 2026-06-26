@@ -1,3 +1,4 @@
+import CmuxRemoteWorkspace
 import Foundation
 
 /// Parses a raw tmux window-layout string into a ``RemoteTmuxLayoutNode`` tree.

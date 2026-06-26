@@ -1,6 +1,6 @@
 import Foundation
 
-enum RemoteTmuxControlCommandKind: Equatable {
+public enum RemoteTmuxControlCommandKind: Equatable {
     case listWindows
     case capturePane(Int)
     case paneState(Int)
