@@ -212,7 +212,11 @@ final class MobileTerminalRenderObserver {
                     cursor: snapshot.frame.cursor,
                     full: false,
                     styles: snapshot.frame.styles,
-                    rowSpans: []
+                    rowSpans: [],
+                    // Carry the authoritative screen so a cursor/seq-only frame
+                    // does not flip the consumer back to the primary screen while
+                    // a TUI still owns the alternate screen.
+                    activeScreen: snapshot.frame.activeScreen
                 ) else {
                     return
                 }
