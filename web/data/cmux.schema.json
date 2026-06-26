@@ -37,6 +37,7 @@
       "items": {
         "type": "object",
         "additionalProperties": true,
+        "required": ["name"],
         "oneOf": [
           {
             "required": ["command"],
@@ -50,7 +51,8 @@
         "properties": {
           "name": {
             "type": "string",
-            "description": "Display name shown in the Command Palette."
+            "pattern": "\\S",
+            "description": "Display name shown in the Command Palette. Must not be blank."
           },
           "description": {
             "type": "string",
