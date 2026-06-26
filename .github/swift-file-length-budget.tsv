@@ -184,9 +184,9 @@
 578	Sources/RightSidebarPanelView.swift
 577	cmuxTests/AppearanceSettingsTests.swift
 572	Sources/Feed/FeedTextEditorDebugWindowController.swift
+571	cmuxTests/WorkspaceTerminalFocusRecoveryTests.swift
 568	Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/MobileTerminalRenderGrid.swift
 567	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/ConfigDiscovery/GhosttyConfigDiscovery.swift
-567	cmuxTests/WorkspaceTerminalFocusRecoveryTests.swift
 562	cmuxTests/AgentExecutableResolverTests.swift
 561	cmuxTests/GhosttyConfigPathResolverTests.swift
 560	cmuxTests/CLISSHPTYResizeInputTests.swift

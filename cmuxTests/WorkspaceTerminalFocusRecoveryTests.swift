@@ -102,6 +102,10 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
         #expect(workspace.focusedPanelId == leftPanel.id)
         let hiddenSnapshot = try #require(BrowserWindowPortalRegistry.debugSnapshot(for: rightPanel.webView))
         #expect(!hiddenSnapshot.visibleInUI)
+        #expect(
+            hiddenSnapshot.containerHidden,
+            "Precondition: destination browser portal should start hidden"
+        )
 
         workspace.moveFocus(direction: .right)
 
