@@ -20,6 +20,10 @@ final class SleepyModeController {
     /// root) and injected into the overlay scene and the Preferences section.
     let store = SleepyModeSettingsStore()
 
+    /// Power-action service (display sleep / real Mac lock / Low Power), owned
+    /// here and injected into the scene; swap the runner for tests.
+    let powerControls: any SleepyPowerControlling = SleepyPowerControls()
+
     private(set) var isActive = false
 
     /// Invoked whenever sleepy mode turns on or off so menu UI can refresh.
@@ -99,7 +103,7 @@ final class SleepyModeController {
         window.acceptsMouseMovedEvents = true
         window.setFrame(screen.frame, display: true)
         window.onExit = { [weak self] in self?.deactivate() }
-        window.contentView = NSHostingView(rootView: SleepyFaceView(store: store))
+        window.contentView = NSHostingView(rootView: SleepyFaceView(store: store, power: powerControls))
         return window
     }
 

@@ -7,6 +7,7 @@ import SwiftUI
 /// art stays crisp; all motion is a pure function of the timeline date.
 struct SleepyFaceView: View {
     var store: SleepyModeSettingsStore
+    var power: any SleepyPowerControlling
     @State private var lowPowerOn = false
 
     // Easter-egg reactions: timeIntervalSinceReferenceDate when poked.
@@ -55,7 +56,10 @@ struct SleepyFaceView: View {
             .overlay(alignment: .topLeading) { keepAwakeBadge(config: config).padding(26) }
         }
         .ignoresSafeArea()
-        .task { lowPowerOn = await Task.detached { SleepyPowerControls.isLowPowerOn() }.value }
+        .task {
+            let power = power
+            lowPowerOn = await Task.detached { power.isLowPowerOn() }.value
+        }
     }
 
     // MARK: - Poke handling (easter eggs)
@@ -130,14 +134,14 @@ struct SleepyFaceView: View {
                 Button {
                     // The real macOS login lock — genuinely secure (Apple's), unlike
                     // the overlay. The screensaver stays up behind it as the backdrop.
-                    SleepyPowerControls.lockMacNow()
+                    power.lockMacNow()
                 } label: {
                     Label(String(localized: "sleepyMode.button.lockMac", defaultValue: "Lock Mac"), systemImage: "lock.fill")
                 }
                 .buttonStyle(PixelButtonStyle(tint: Color(red: 0.34, green: 0.30, blue: 0.60)))
 
                 Button {
-                    SleepyPowerControls.sleepDisplayNow()
+                    power.sleepDisplayNow()
                 } label: {
                     Label(String(localized: "sleepyMode.button.sleepDisplay", defaultValue: "Sleep Display"), systemImage: "moon.fill")
                 }
@@ -146,8 +150,9 @@ struct SleepyFaceView: View {
                 Button {
                     // Off the main thread: the admin prompt blocks until answered.
                     let turnOn = !lowPowerOn
+                    let power = power
                     Task.detached {
-                        let state = SleepyPowerControls.setLowPowerMode(turnOn)
+                        let state = power.setLowPowerMode(turnOn)
                         await MainActor.run { lowPowerOn = state }
                     }
                 } label: {
