@@ -11094,9 +11094,7 @@ final class GhosttySurfaceScrollView: NSView {
 
                 // Check if we're currently at the bottom (with threshold for float drift)
                 let currentOrigin = scrollView.contentView.bounds.origin
-                let documentHeight = documentView.frame.height
-                let viewportHeight = scrollView.contentView.bounds.height
-                let distanceFromBottom = documentHeight - currentOrigin.y - viewportHeight
+                let distanceFromBottom = max(currentOrigin.y, 0)
                 let isAtBottom = distanceFromBottom <= Self.scrollToBottomThreshold
 
                 // Update userScrolledAwayFromBottom based on current position
@@ -11135,11 +11133,12 @@ final class GhosttySurfaceScrollView: NSView {
         let visibleRect = scrollView.contentView.documentVisibleRect
         let documentHeight = documentView.frame.height
         let scrollOffset = documentHeight - visibleRect.origin.y - visibleRect.height
+        let distanceFromBottom = max(visibleRect.origin.y, 0)
 
         // Track if user has scrolled away from bottom to review scrollback
-        if scrollOffset > Self.scrollToBottomThreshold {
+        if distanceFromBottom > Self.scrollToBottomThreshold {
             userScrolledAwayFromBottom = true
-        } else if scrollOffset <= 0 {
+        } else {
             userScrolledAwayFromBottom = false
         }
 
