@@ -11301,6 +11301,12 @@ struct CMUXCLI {
                     of: "__CMUX_SURFACE_ID__",
                     with: ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] ?? ""
                 )
+            for key in Self.sshPTYAttachForwardedEnvironmentKeys {
+                let value = ProcessInfo.processInfo.environment[key] ?? ""
+                decoded = decoded
+                    .replacingOccurrences(of: "__CMUX_ENV_\(key)__", with: value)
+                    .replacingOccurrences(of: "__CMUX_ENV_SH_\(key)__", with: shellQuote(value))
+            }
             return decoded
         }
         var bridgeReachedReady = false
@@ -11444,6 +11450,24 @@ struct CMUXCLI {
             }
         }
     }
+
+    private static let sshPTYAttachForwardedEnvironmentKeys: [String] = [
+        "CMUX_BUNDLE_ID",
+        "CMUX_BUNDLED_CLI_PATH",
+        "CMUX_CLAUDE_HOOKS_DISABLED",
+        "CMUX_CLAUDE_WRAPPER_SHIM",
+        "CMUX_CLAUDE_WRAPPER_SHIM_ROOT",
+        "CMUX_CUSTOM_CLAUDE_PATH",
+        "CMUX_PORT",
+        "CMUX_PORT_END",
+        "CMUX_PORT_RANGE",
+        "CMUX_SHELL_INTEGRATION",
+        "CMUX_SHELL_INTEGRATION_DIR",
+        "CMUX_SOCKET_PATH",
+        "CMUX_SURFACE_ID",
+        "CMUX_WORKSPACE_ID",
+        "PATH",
+    ]
 
     private func cleanupFailedSSHPTYAttach(
         client: SocketClient,

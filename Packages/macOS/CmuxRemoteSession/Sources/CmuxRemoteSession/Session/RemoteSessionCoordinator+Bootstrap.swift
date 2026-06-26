@@ -83,6 +83,29 @@ extension RemoteSessionCoordinator {
         return hello
     }
 
+    func bootstrapLocalDaemonLocked(requiredCapabilities: [String]) throws -> DaemonHello {
+        debugLog("remote.bootstrap.local.begin \(debugConfigSummary())")
+        let version = remoteDaemonVersion()
+        let localBinary = try buildLocalDaemonBinary(
+            goOS: "darwin",
+            goArch: Self.localDaemonGoArch(),
+            version: version
+        )
+        let hello = try helloLocalDaemonLocked(localPath: localBinary.path)
+        let missingCapabilities = Self.missingRequiredCapabilities(requiredCapabilities, in: hello.capabilities)
+        guard missingCapabilities.isEmpty else {
+            throw NSError(domain: "cmux.remote.daemon", code: 44, userInfo: [
+                NSLocalizedDescriptionKey: daemonStrings.missingRequiredCapabilitiesMessage(missingCapabilities),
+                NSDebugDescriptionErrorKey: "local daemon missing required capability \(missingCapabilities.joined(separator: ","))",
+            ])
+        }
+        debugLog(
+            "remote.bootstrap.local.ready name=\(hello.name) version=\(hello.version) " +
+            "capabilities=\(hello.capabilities.joined(separator: ",")) path=\(hello.remotePath)"
+        )
+        return hello
+    }
+
     /// Builds the remote shell probe that reports platform and daemon availability markers.
     ///
     /// The OS/arch normalization uses literal `case` alternatives rather than
@@ -407,6 +430,66 @@ extension RemoteSessionCoordinator {
             capabilities: capabilities,
             remotePath: remotePath
         )
+    }
+
+    func helloLocalDaemonLocked(localPath: String) throws -> DaemonHello {
+        let request = #"{"id":1,"method":"hello","params":{}}"# + "\n"
+        let result = try runProcess(
+            executable: localPath,
+            arguments: ["serve", "--stdio"],
+            stdin: Data(request.utf8),
+            timeout: 12
+        )
+        guard result.status == 0 else {
+            let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "local daemon exited \(result.status)"
+            throw NSError(domain: "cmux.remote.daemon", code: 45, userInfo: [
+                NSLocalizedDescriptionKey: "failed to start local daemon: \(detail)",
+            ])
+        }
+        let responseLine = result.stdout
+            .split(separator: "\n")
+            .map(String.init)
+            .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) ?? ""
+        guard !responseLine.isEmpty,
+              let data = responseLine.data(using: .utf8),
+              let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
+            throw NSError(domain: "cmux.remote.daemon", code: 46, userInfo: [
+                NSLocalizedDescriptionKey: "local daemon hello returned invalid JSON",
+            ])
+        }
+        if let ok = payload["ok"] as? Bool, !ok {
+            let errorMessage: String = {
+                if let errorObject = payload["error"] as? [String: Any],
+                   let message = errorObject["message"] as? String,
+                   !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return message
+                }
+                return "hello call failed"
+            }()
+            throw NSError(domain: "cmux.remote.daemon", code: 47, userInfo: [
+                NSLocalizedDescriptionKey: "local daemon hello failed: \(errorMessage)",
+            ])
+        }
+        let resultObject = payload["result"] as? [String: Any] ?? [:]
+        let name = (resultObject["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let version = (resultObject["version"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let capabilities = (resultObject["capabilities"] as? [String]) ?? []
+        return DaemonHello(
+            name: (name?.isEmpty == false ? name! : "cmuxd-remote"),
+            version: (version?.isEmpty == false ? version! : "dev"),
+            capabilities: capabilities,
+            remotePath: localPath
+        )
+    }
+
+    static func localDaemonGoArch() -> String {
+    #if arch(arm64)
+        return "arm64"
+    #elseif arch(x86_64)
+        return "amd64"
+    #else
+        return "arm64"
+    #endif
     }
 
     static func mapUnameOS(_ raw: String) -> String? {

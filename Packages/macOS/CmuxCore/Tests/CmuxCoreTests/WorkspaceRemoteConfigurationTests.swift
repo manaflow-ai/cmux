@@ -166,6 +166,7 @@ struct WorkspaceRemoteConfigurationValueTests {
 
     @Test("sessionSnapshot persists only SSH transports with a non-empty destination")
     func sessionSnapshotGating() {
+        #expect(makeConfiguration(transport: .local).sessionSnapshot() == nil)
         #expect(makeConfiguration(transport: .websocket).sessionSnapshot() == nil)
         #expect(makeConfiguration(destination: "   ").sessionSnapshot() == nil)
 
