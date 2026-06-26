@@ -1,5 +1,8 @@
 public import Foundation
-import QuartzCore
+// `public` because the designated initializer's default `now` closure references
+// `CACurrentMediaTime()` in a default-argument position, which is emitted into
+// clients and so cannot reference an internal-imported symbol.
+public import QuartzCore
 
 /// Captures the timing values stamped onto a background-log line, sampled on the
 /// calling thread when an event is emitted. Injectable so tests can supply
