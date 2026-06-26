@@ -122,8 +122,9 @@ private func debugCommandPaletteResponderSummary(_ responder: NSResponder?) -> S
 #endif
 
 @MainActor
-private final class WindowCommandPaletteOverlayController: NSObject {
+final class WindowCommandPaletteOverlayController: NSObject {
     private weak var window: NSWindow?
+    private let notificationCenter: NotificationCenter
     private let containerView = CommandPaletteOverlayContainerView(frame: .zero)
     private let hostingView = NSHostingView(rootView: AnyView(EmptyView()))
     private let chromeComposition = AppWindowChromeComposition()
@@ -137,8 +138,9 @@ private final class WindowCommandPaletteOverlayController: NSObject {
     private var windowDidBecomeKeyObserver: NSObjectProtocol?
     private var windowDidResignKeyObserver: NSObjectProtocol?
 
-    init(window: NSWindow) {
+    init(window: NSWindow, notificationCenter: NotificationCenter = .default) {
         self.window = window
+        self.notificationCenter = notificationCenter
         super.init()
         containerView.translatesAutoresizingMaskIntoConstraints = false
         containerView.wantsLayer = true
@@ -436,7 +438,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
 
     private func installWindowKeyObservers() {
         guard let window else { return }
-        windowDidBecomeKeyObserver = NotificationCenter.default.addObserver(
+        windowDidBecomeKeyObserver = notificationCenter.addObserver(
             forName: NSWindow.didBecomeKeyNotification,
             object: window,
             queue: .main
@@ -445,7 +447,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
                 self?.updateFocusLockForWindowState()
             }
         }
-        windowDidResignKeyObserver = NotificationCenter.default.addObserver(
+        windowDidResignKeyObserver = notificationCenter.addObserver(
             forName: NSWindow.didResignKeyNotification,
             object: window,
             queue: .main
