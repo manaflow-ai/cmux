@@ -9265,10 +9265,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
-    /// Opens a fresh workspace with the appshot context staged in its terminal
-    /// (no trailing Return, so a plain shell does not execute it). Does not
-    /// bring cmux to the front. Returns the new surface for recency tracking, or
-    /// `nil` if no workspace could be created (so the caller signals failure).
+    /// Last-resort fallback (no terminal surface exists): opens a fresh workspace
+    /// with the appshot context staged in its terminal (no trailing Return, so a
+    /// plain shell does not execute it). Does not bring cmux to the front.
+    /// Returns the new surface, or `nil` if no workspace could be created (so the
+    /// caller signals failure). The caller does not record this as the appshot
+    /// route — it's a fresh shell, not a confirmed agent.
     func openAppshotInNewWorkspace(_ text: String) -> (workspaceId: UUID, panelId: UUID)? {
         guard let workspace = addWorkspaceInPreferredMainWindow(
             initialTerminalInput: text,

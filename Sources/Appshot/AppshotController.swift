@@ -105,17 +105,26 @@ final class AppshotController {
             if AppDelegate.shared?.sendAppshotText(prompt, workspaceId: workspaceId, panelId: panelId) == true {
                 routingState.lastRoute = AppshotAgentRef(workspaceId: workspaceId, panelId: panelId, at: now)
             } else {
-                openNewThread(with: prompt, now: now)
+                routeToActiveAgentOrNewWorkspace(prompt: prompt, now: now)
             }
         case .newThread:
-            openNewThread(with: prompt, now: now)
+            routeToActiveAgentOrNewWorkspace(prompt: prompt, now: now)
         }
     }
 
-    private func openNewThread(with prompt: String, now: Date) {
-        if let ref = AppDelegate.shared?.openAppshotInNewWorkspace(prompt) {
+    /// Fallback when no recent agent qualifies. Targets the "active agent" — the
+    /// front cmux window's focused terminal pane (the issue's definition of the
+    /// active agent) — and only opens a fresh workspace when there is no terminal
+    /// surface at all. The fresh workspace is a plain shell (not a confirmed
+    /// agent), so it is intentionally NOT recorded as the appshot route: the next
+    /// appshot re-resolves the active agent instead of stacking onto that shell.
+    private func routeToActiveAgentOrNewWorkspace(prompt: String, now: Date) {
+        if let ref = AppDelegate.shared?.appshotFocusedAgentRef(),
+           AppDelegate.shared?.sendAppshotText(prompt, workspaceId: ref.workspaceId, panelId: ref.panelId) == true {
             routingState.lastRoute = AppshotAgentRef(workspaceId: ref.workspaceId, panelId: ref.panelId, at: now)
-        } else {
+            return
+        }
+        if AppDelegate.shared?.openAppshotInNewWorkspace(prompt) == nil {
             NSSound.beep()
         }
     }
