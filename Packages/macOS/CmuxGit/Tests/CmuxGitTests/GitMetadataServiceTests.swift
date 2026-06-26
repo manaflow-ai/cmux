@@ -195,6 +195,31 @@ import Testing
         #expect(reader.callCount(atPath: fileURL.path) == 2)
     }
 
+    @Test func sameGenerationFromIndependentOwnersRescansAndDetectsUnstagedEdit() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let entry = try fixture.writeWorkingTreeFile("file.txt", contents: "hello")
+        try fixture.writeIndex(GitIndexFixture(version: 2, entries: [entry]))
+        let repository = try #require(GitMetadataService.resolveGitRepository(containing: fixture.root.path))
+        let fileURL = fixture.root.appendingPathComponent("file.txt")
+        let reader = CountingGitFileStatusReader()
+        let service = GitMetadataService(fileStatusReader: reader)
+
+        let clean = await service.gitTrackedChangesSnapshot(
+            repository: repository,
+            trackedPathEventGeneration: 1
+        )
+        try "hello, dirty".write(to: fileURL, atomically: true, encoding: .utf8)
+        let dirty = await service.gitTrackedChangesSnapshot(
+            repository: repository,
+            trackedPathEventGeneration: 1
+        )
+
+        #expect(clean.isDirty == false)
+        #expect(dirty.isDirty)
+        #expect(reader.callCount(atPath: fileURL.path) == 2)
+    }
+
     @Test func indexStatChangeRescansTrackedEntries() async throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")
