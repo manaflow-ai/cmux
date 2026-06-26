@@ -638,14 +638,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// grid under the surface lock; running it per frame would load the
     /// typing-latency render path.
     private var gridDivergenceChecker = MobileTerminalRenderGridDivergenceChecker()
-    /// Gate for the grid-hash divergence repair. When the applied grid diverges
-    /// from the producer's stamped hash (checked only at the live bottom,
-    /// throttled), the consumer requests a full-snapshot resync so a stale/blank
-    /// row self-heals instead of persisting. The read-back cost (`render_grid_json`
-    /// + decode on `outputQueue`) is bounded by the throttle and the at-bottom
-    /// gate, and is justified by the recovery it provides. Exposed so it can be
-    /// flipped off if a surface ever needs to opt out.
-    public static var gridDivergenceRepairEnabled = true
+    /// Per-surface gate for the grid-hash divergence repair. When the applied
+    /// grid diverges from the producer's stamped hash (checked only at the live
+    /// bottom, throttled), the consumer requests a full-snapshot resync so a
+    /// stale/blank row self-heals instead of persisting. The read-back cost
+    /// (`render_grid_json` + decode on `outputQueue`) is bounded by the throttle
+    /// and the at-bottom gate, and is justified by the recovery it provides.
+    /// Instance-owned (not ambient global state); promote to an injected
+    /// parameter if a real per-surface opt-out policy ever appears.
+    private let gridDivergenceRepairEnabled = true
     /// Serial background queue for `ghostty_surface_process_output`, which
     /// blocks on libghostty's internal renderer/IO futex. Running it on the
     /// main thread hangs the app until the scene-update watchdog kills it.
@@ -2567,7 +2568,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// path, and the throttle also bounds how often a repair can be requested.
     @MainActor
     public func appliedGridDivergesFromExpected(_ expectedHash: UInt64?, surfaceID: String) async -> Bool {
-        guard Self.gridDivergenceRepairEnabled else { return false }
+        guard gridDivergenceRepairEnabled else { return false }
         // Only compare while showing the live bottom. When scrolled up, the
         // read-back hashes scrollback history, not the live grid the producer
         // stamped, so a check there would report a false divergence.
