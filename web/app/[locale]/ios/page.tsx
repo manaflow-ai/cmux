@@ -100,13 +100,13 @@ export default function IosLanding() {
         {/* Phone */}
         <div
           data-dev="ios-screenshot"
-          className="my-14 grid grid-cols-2 gap-5 sm:gap-10 max-w-lg mx-auto"
+          className="my-14 grid grid-cols-2 gap-4 sm:gap-6"
         >
           <RevealImage
             src={iosWorkspaces}
             alt={t("screenshotAlt")}
             priority
-            sizes="(max-width: 640px) 42vw, 240px"
+            sizes="(max-width: 640px) 42vw, 336px"
             className="w-full h-auto drop-shadow-[0_24px_56px_rgba(0,0,0,0.5)]"
           />
           <RevealImage
@@ -114,7 +114,7 @@ export default function IosLanding() {
             alt={t("screenshotAlt")}
             priority
             delay={90}
-            sizes="(max-width: 640px) 42vw, 240px"
+            sizes="(max-width: 640px) 42vw, 336px"
             className="w-full h-auto drop-shadow-[0_24px_56px_rgba(0,0,0,0.5)]"
           />
         </div>
@@ -186,8 +186,24 @@ export default function IosLanding() {
           </p>
         </section>
 
+        {/* Bottom CTA */}
+        <div
+          className="flex flex-wrap items-center justify-center gap-3 mt-12"
+          data-dev="ios-cta-bottom"
+        >
+          <a
+            href="https://github.com/manaflow-ai/cmux#founders-edition"
+            className={`${ctaButtonBase} ${ctaButtonDefaultSize}`}
+            style={ctaButtonStyle}
+          >
+            <AppleMark size={19} />
+            {t("ctaBeta")}
+          </a>
+          <GitHubButton location="ios-bottom" />
+        </div>
+
         {/* Bottom links */}
-        <div className="flex justify-center gap-4 mt-12">
+        <div className="flex justify-center gap-4 mt-6">
           <Link href="/docs/ios" className={`text-sm text-muted hover:text-foreground transition-colors ${linkClass}`}>
             {t("ctaDocs")}
           </Link>

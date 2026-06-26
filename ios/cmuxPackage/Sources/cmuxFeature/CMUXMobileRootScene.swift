@@ -4,6 +4,7 @@ import CmuxMobileAnalytics
 import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxMobileSupport
 @_exported import CmuxMobileShellUI
 import CmuxMobileTransport
 import Foundation
@@ -184,8 +185,15 @@ public struct CMUXMobileRootScene: View {
     ) -> (any MobilePairedMacStoring)? {
         guard let store = pairedMacStore else { return nil }
         let coordinator = auth.coordinator
+        let buildScope = MobileIOSBuildScope.current()
+        let buildScopedStore: any MobilePairedMacStoring
+        if let buildScope {
+            buildScopedStore = IOSBuildScopedPairedMacStore(inner: store, scope: buildScope)
+        } else {
+            buildScopedStore = store
+        }
         let scopedStore = TeamScopedPairedMacStore(
-            inner: store,
+            inner: buildScopedStore,
             teamIDProvider: { await coordinator.resolvedTeamID }
         )
         guard MobilePairedMacBackup.resolved().isEnabled,
@@ -198,7 +206,8 @@ public struct CMUXMobileRootScene: View {
                 accessToken: { try? await coordinator.accessToken() },
                 currentUserID: { await coordinator.currentUser?.id }
             ),
-            teamIDProvider: { await coordinator.resolvedTeamID }
+            teamIDProvider: { await coordinator.resolvedTeamID },
+            clientScopeProvider: { buildScope?.serializedScope }
         )
         return BackingUpPairedMacStore(
             inner: scopedStore,
@@ -224,7 +233,9 @@ public struct CMUXMobileRootScene: View {
     private var content: some View {
         #if os(iOS)
         #if DEBUG
-        if ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS"] == "1" {
+        if UITestConfig.workspaceListLayoutPreviewEnabled {
+            WorkspaceListLayoutPreviewView()
+        } else if ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS"] == "1" {
             MobileZoomStressView()
         } else {
             CMUXMobileAppView(store: makeStore(), onboardingStore: onboardingStore)

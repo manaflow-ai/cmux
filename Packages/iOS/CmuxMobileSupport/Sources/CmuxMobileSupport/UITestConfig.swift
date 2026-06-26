@@ -88,6 +88,7 @@ public struct UITestConfig {
     public static var workspaceListLayoutPreviewEnabled: Bool {
         #if DEBUG
         return ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW"] == "1"
+            || ProcessInfo.processInfo.arguments.contains("CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1")
         #else
         return false
         #endif

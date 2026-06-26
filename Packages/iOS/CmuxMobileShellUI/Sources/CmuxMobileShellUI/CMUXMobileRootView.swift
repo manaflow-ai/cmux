@@ -218,11 +218,9 @@ struct CMUXMobileRootView: View {
                 reconnectStoredMac: reconnectStoredMacIfNeeded
             )
         } else if shouldShowOnboarding {
-            // Placed after the reconnect-determining branch so `hasKnownPairedMac`
-            // has resolved: a genuine first run (never onboarded, never paired)
-            // sees the one-time explainer before the add-device flow; a returning
-            // paired-but-offline user (who can reach here after a failed
-            // reconnect) is excluded by the gate and falls through to pairing.
+            // Show the one-time explainer before the add-device flow. This is
+            // keyed only by onboarding completion so auto-pairing cannot defer
+            // onboarding until the user later removes every computer.
             onboardingFlow
         } else if store.connectionState != .connected && !store.hasKnownPairedMac {
             // ONLY when there are no saved Macs at all: the add-device flow (it
@@ -308,8 +306,7 @@ struct CMUXMobileRootView: View {
     private var shouldShowOnboarding: Bool {
         #if os(iOS)
         return MobileOnboardingGate.shouldShowOnboarding(
-            hasSeenOnboarding: hasSeenOnboarding,
-            hasKnownPairedMac: store.hasKnownPairedMac
+            hasSeenOnboarding: hasSeenOnboarding
         )
         #else
         return false
