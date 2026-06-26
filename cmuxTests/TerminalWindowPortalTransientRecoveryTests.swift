@@ -19,8 +19,19 @@ struct TerminalWindowPortalTransientRecoveryTests {
         window.contentView?.layoutSubtreeIfNeeded()
     }
 
-    private func drainMainQueue() {
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+    private func waitUntil(_ predicate: () -> Bool, timeout: TimeInterval = 2.0) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !predicate() && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+    }
+
+    private func drainMainQueueTurn() {
+        var didDrain = false
+        DispatchQueue.main.async {
+            didDrain = true
+        }
+        waitUntil { didDrain }
     }
 
     @Test func externalGeometryTinyFrameSchedulesSelfRecoveryAfterAnchorSettles() throws {
@@ -56,7 +67,7 @@ struct TerminalWindowPortalTransientRecoveryTests {
             expectedGeneration: surface.portalBindingGeneration()
         )
         TerminalWindowPortalRegistry.synchronizeForAnchor(anchor)
-        drainMainQueue()
+        drainMainQueueTurn()
 
         #expect(!hosted.isHidden)
         #expect(hosted.frame.height > 100)
@@ -65,13 +76,19 @@ struct TerminalWindowPortalTransientRecoveryTests {
         contentView.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
 
+        var didRestoreAnchor = false
         TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
         DispatchQueue.main.async {
             anchor.frame = stableFrame
             contentView.layoutSubtreeIfNeeded()
             window.displayIfNeeded()
+            didRestoreAnchor = true
         }
-        drainMainQueue()
+        waitUntil {
+            didRestoreAnchor &&
+                !hosted.isHidden &&
+                hosted.frame.height > 100
+        }
 
         #expect(
             !hosted.isHidden,
