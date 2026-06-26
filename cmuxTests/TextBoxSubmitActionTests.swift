@@ -602,6 +602,37 @@ struct TextBoxSubmitActionTests {
     }
 
     @Test
+    func testUnknownPromptCustomActionDoesNotEnterPendingProviderMode() {
+        let router = TextBoxSubmitAction(
+            id: "router",
+            title: "Router",
+            kind: .commandTemplate,
+            commandTemplate: "agent-router --plan {{prompt}}",
+            preservePromptAfterLaunch: nil,
+            systemImage: "sparkle",
+            backgroundColorHex: "#FFFFFF"
+        )
+
+        let plan = TextBoxInputContainer.dispatchPlan(
+            [.text("keep working")],
+            applying: router,
+            shouldForceTextEntrySubmit: false,
+            allowsCommandTemplateSubmit: true,
+            terminalAgentContext: "",
+            pendingProviderLaunchAction: nil
+        )
+
+        XCTAssertEqual(plan.launchContextCommand, nil)
+        XCTAssertEqual(
+            plan.events,
+            TextBoxSubmit.dispatchEvents(
+                for: [.text("agent-router --plan 'keep working'")],
+                terminalAgentContext: ""
+            )
+        )
+    }
+
+    @Test
     func testTextBoxPendingLaunchUsesInitialCommandContext() {
         let launchOnlyCodex = TextBoxSubmitAction(
             id: "custom-codex-launch",
