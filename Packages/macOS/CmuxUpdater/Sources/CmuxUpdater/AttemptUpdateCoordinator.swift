@@ -91,10 +91,14 @@ struct AttemptUpdateCoordinator {
             case .updateAvailable:
                 phase = .inactive
                 return .confirmInstall
-            case .notFound, .error:
+            case .idle, .notFound, .error:
+                // The fresh check ended without resolving an update: it was cancelled (the user hit
+                // Cancel in the checking popover, which returns the model to idle), found nothing,
+                // or errored. Stop coordinating so a later unrelated check is not auto-confirmed
+                // without the user asking to install.
                 phase = .inactive
                 return .none
-            case .idle, .checking, .downloading, .extracting, .installing, .permissionRequest:
+            case .checking, .downloading, .extracting, .installing, .permissionRequest:
                 return .none
             }
         }

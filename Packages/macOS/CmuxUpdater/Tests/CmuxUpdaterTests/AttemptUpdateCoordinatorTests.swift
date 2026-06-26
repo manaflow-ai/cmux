@@ -102,6 +102,34 @@ import Testing
         #expect(!coordinator.isMonitoring)
     }
 
+    /// Regression: if the user cancels the in-flight fresh check (Cancel in the checking popover,
+    /// which returns the model to idle), the coordinator must stop monitoring. Otherwise it lingers
+    /// and silently auto-installs the result of the next unrelated user-triggered check.
+    @Test func cancellingFreshCheckStopsMonitoringSoLaterCheckIsNotAutoInstalled() {
+        var coordinator = AttemptUpdateCoordinator()
+        _ = coordinator.requestInstallLatest(currentState: .idle)
+        #expect(coordinator.handleStateChange(.checking(.init(cancel: {}))) == .none)
+
+        // User cancels the in-flight check → model returns to idle.
+        #expect(coordinator.handleStateChange(.idle) == .none)
+        #expect(!coordinator.isMonitoring)
+
+        // A later, unrelated check that finds an update must NOT be auto-confirmed.
+        #expect(coordinator.handleStateChange(updateAvailable("0.64.16")) == .none)
+    }
+
+    /// The active-prompt cancel path: the stale prompt is dismissed (idle), the check restarts
+    /// (checking), then the user cancels (idle again) — the coordinator must stop, not linger.
+    @Test func cancellingAfterActivePromptDismissStopsMonitoring() {
+        var coordinator = AttemptUpdateCoordinator()
+        _ = coordinator.requestInstallLatest(currentState: updateAvailable("0.64.15"))
+        #expect(coordinator.handleStateChange(.idle) == .none)   // stale prompt dismissed
+        #expect(coordinator.handleStateChange(.checking(.init(cancel: {}))) == .none)
+        #expect(coordinator.handleStateChange(.idle) == .none)   // user cancels the fresh check
+        #expect(!coordinator.isMonitoring)
+        #expect(coordinator.handleStateChange(updateAvailable("0.64.16")) == .none)
+    }
+
     @Test func stopsMonitoringWhenFreshCheckErrors() {
         var coordinator = AttemptUpdateCoordinator()
         _ = coordinator.requestInstallLatest(currentState: .idle)
