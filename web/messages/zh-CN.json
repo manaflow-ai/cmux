@@ -860,7 +860,8 @@
       "shortcutsWhenBooleanKeys": "布尔键。未知或不存在的键按 false 处理；也接受字面量 true 和 false。",
       "shortcutsWhenTypedKeys": "用于比较的类型化键：右侧边栏的当前模式（字符串），以及窗格和工作区数量（整数）。",
       "shortcutsWhenOperators": "布尔运算符、类型化比较、正则匹配和列表成员判断。比较的结合优先级高于 && 和 ||。",
-      "shortcutsWhenExample": "例如，下面的配置让 Ctrl+1–9 在右侧边栏未聚焦时选择工作区（把 Ctrl+1–5 留给侧边栏模式切换器），并在工作区有多个窗格时将表面选择限定在查找侧边栏："
+      "shortcutsWhenExample": "例如，下面的配置让 Ctrl+1–9 在右侧边栏未聚焦时选择工作区（把 Ctrl+1–5 留给侧边栏模式切换器），并在工作区有多个窗格时将表面选择限定在查找侧边栏：",
+      "shortcutsCommandsIntro": "为命令面板中的任何命令分配你自己的键盘快捷键——包括没有内置快捷键的命令，例如在编辑器中打开当前目录。键是命令 id（与面板中显示的 id 相同，例如 <code>palette.openFolderInVSCodeInline</code>）；值是单次按键的快捷键。这里不支持和弦——请使用包含主修饰键（⌘、⌥ 或 ⌃）的单次按键。该快捷键会在当前聚焦的窗口上触发命令；在当前上下文中不可用的命令不会执行任何操作。使用 <code>null</code>（或 <code>\"\"</code>、<code>none</code>、<code>clear</code>、<code>unbound</code>、<code>disabled</code>）来清除绑定。最简单的管理方式是 <settings>设置 → 键盘快捷键 → 自定义命令</settings>，它会对命令进行模糊搜索，并阻止已属于内置操作或其他命令的按键。"
     },
     "customCommands": {
       "title": "自定义命令",
