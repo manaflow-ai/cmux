@@ -567,6 +567,7 @@
 		3865A0033865A0033865A003 /* MenubarSearchPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0033865B0033865B003 /* MenubarSearchPopover.swift */; };
 		E1000000A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */; };
 		C0DE3150A00000000000001 /* MinimalModeSidebarControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE3150A00000000000002 /* MinimalModeSidebarControls.swift */; };
+		A77C4E10000000000000C101 /* MobileAttachTicketAuthorization+RequestAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77C4E10000000000000C100 /* MobileAttachTicketAuthorization+RequestAuthorization.swift */; };
 		284FD21ACF8BD1ED6AEBD7A0 /* MobileAttachTicketStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D6D2AC715764ECC1F6B26A2 /* MobileAttachTicketStore.swift */; };
 		ACA7C4B000000000000000B1 /* MobileChatRPCHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4B000000000000000B2 /* MobileChatRPCHandler.swift */; };
 		ACA7C4B000000000000000A1 /* MobileChatRPCHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4B000000000000000A2 /* MobileChatRPCHost.swift */; };
@@ -1671,6 +1672,7 @@
 		3865B0033865B0033865B003 /* MenubarSearchPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/MenubarSearchPopover.swift; sourceTree = "<group>"; };
 		E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuKeyEquivalentRoutingUITests.swift; sourceTree = "<group>"; };
 		C0DE3150A00000000000002 /* MinimalModeSidebarControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/MinimalModeSidebarControls.swift; sourceTree = "<group>"; };
+		A77C4E10000000000000C100 /* MobileAttachTicketAuthorization+RequestAuthorization.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileAttachTicketAuthorization+RequestAuthorization.swift"; sourceTree = "<group>"; };
 		8D6D2AC715764ECC1F6B26A2 /* MobileAttachTicketStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileAttachTicketStore.swift; sourceTree = "<group>"; };
 		ACA7C4B000000000000000B2 /* MobileChatRPCHandler.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileChatRPCHandler.swift"; sourceTree = "<group>"; };
 		ACA7C4B000000000000000A2 /* MobileChatRPCHost.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileChatRPCHost.swift"; sourceTree = "<group>"; };
@@ -2406,6 +2408,7 @@
 			isa = PBXGroup;
 			children = (
 				8D6D2AC715764ECC1F6B26A2 /* MobileAttachTicketStore.swift */,
+				A77C4E10000000000000C100 /* MobileAttachTicketAuthorization+RequestAuthorization.swift */,
 				47BDC06F004C02A52B05E4A0 /* MobileHostRPC.swift */,
 				7ACA497A6831165EA879C642 /* MobileHostService.swift */,
 				5E5511000000000000000002 /* MobileHostConnection.swift */,
@@ -4169,6 +4172,7 @@
 				1A8BEE693C9E4C3190CB7F20 /* MenuBarExtraController.swift in Sources */,
 				3865A0033865A0033865A003 /* MenubarSearchPopover.swift in Sources */,
 				C0DE3150A00000000000001 /* MinimalModeSidebarControls.swift in Sources */,
+				A77C4E10000000000000C101 /* MobileAttachTicketAuthorization+RequestAuthorization.swift in Sources */,
 				284FD21ACF8BD1ED6AEBD7A0 /* MobileAttachTicketStore.swift in Sources */,
 				ACA7C4B000000000000000B1 /* MobileChatRPCHandler.swift in Sources */,
 				ACA7C4B000000000000000A1 /* MobileChatRPCHost.swift in Sources */,

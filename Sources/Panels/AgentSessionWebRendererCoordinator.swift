@@ -1,6 +1,6 @@
 import AppKit
+import CmuxAgentChat
 import CmuxFoundation
-import UniformTypeIdentifiers
 import WebKit
 
 @MainActor
@@ -22,8 +22,6 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     private var isClosed = false
     private var isProviderStartPending = false
     private var processStore = AgentSessionProcessStore()
-    nonisolated private static let imagePreviewMaxBytes = 512 * 1024
-    nonisolated private static let imagePreviewTotalMaxBytes = 2 * 1024 * 1024
     var onHasActiveProviderChanged: ((Bool) -> Void)? {
         didSet {
             onHasActiveProviderChanged?(processStore.hasActiveProviderSession)
@@ -624,49 +622,8 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
 
         let urls = panel.urls
         return await Task.detached(priority: .userInitiated) {
-            var remainingImagePreviewBytes = Self.imagePreviewTotalMaxBytes
-            return [
-                "files": urls.map {
-                    Self.pickedLocalFileDictionary($0, remainingImagePreviewBytes: &remainingImagePreviewBytes)
-                }
-            ]
+            ["files": LocalAttachmentEncoder().encode(urls)]
         }.value
-    }
-
-    nonisolated private static func pickedLocalFileDictionary(
-        _ url: URL,
-        remainingImagePreviewBytes: inout Int
-    ) -> [String: Any] {
-        let type = UTType(filenameExtension: url.pathExtension)
-        let mimeType = type?.preferredMIMEType ?? "application/octet-stream"
-        let isImage = type?.conforms(to: .image) == true
-        var file: [String: Any] = [
-            "label": url.lastPathComponent,
-            "path": url.path,
-            "fsPath": url.path,
-            "mimeType": mimeType,
-            "isImage": isImage
-        ]
-        if isImage,
-           let byteCount = imagePreviewByteCount(url),
-           byteCount <= Self.imagePreviewMaxBytes,
-           byteCount <= remainingImagePreviewBytes,
-           let data = try? Data(contentsOf: url, options: .mappedIfSafe),
-           data.count <= byteCount {
-            remainingImagePreviewBytes -= data.count
-            file["dataUrl"] = "data:\(mimeType);base64,\(data.base64EncodedString())"
-        }
-        return file
-    }
-
-    nonisolated private static func imagePreviewByteCount(_ url: URL) -> Int? {
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
-              attributes[.type] as? FileAttributeType != .typeSymbolicLink,
-              let size = attributes[.size] as? NSNumber else {
-            return nil
-        }
-        let byteCount = size.intValue
-        return byteCount >= 0 ? byteCount : nil
     }
 
     private func sendEvent(_ event: [String: Any]) {
