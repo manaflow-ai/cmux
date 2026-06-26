@@ -29,6 +29,9 @@ for needle in \
   "is not from an external fork" \
   "repository: \${{ needs.resolve-pr.outputs.head_repo }}" \
   "ref: \${{ needs.resolve-pr.outputs.head_sha }}" \
+  "pr_number: \${{ steps.pr.outputs.pr_number }}" \
+  "APPROVED_PR_NUMBER: \${{ needs.resolve-pr.outputs.pr_number }}" \
+  "BUILD_TAG: pr-\${{ needs.resolve-pr.outputs.pr_number }}-\${{ needs.resolve-pr.outputs.short_sha }}" \
   "persist-credentials: false" \
   "CMUX_RELOAD_APP_PATH_OUTPUT=\"\$app_path_file\"" \
   "./scripts/reload.sh --tag \"\$BUILD_TAG\" --swift-frontend-workaround" \

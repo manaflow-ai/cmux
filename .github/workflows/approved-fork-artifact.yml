@@ -29,6 +29,7 @@ jobs:
     outputs:
       head_repo: ${{ steps.pr.outputs.head_repo }}
       head_sha: ${{ steps.pr.outputs.head_sha }}
+      pr_number: ${{ steps.pr.outputs.pr_number }}
       short_sha: ${{ steps.pr.outputs.short_sha }}
     steps:
       - name: Resolve and validate requested PR head
@@ -81,6 +82,7 @@ jobs:
 
             core.setOutput('head_repo', headRepo);
             core.setOutput('head_sha', actualHeadSha);
+            core.setOutput('pr_number', String(prNumber));
             core.setOutput('short_sha', actualHeadSha.slice(0, 12));
 
             await core.summary
@@ -98,8 +100,8 @@ jobs:
     env:
       APPROVED_HEAD_REPO: ${{ needs.resolve-pr.outputs.head_repo }}
       APPROVED_HEAD_SHA: ${{ needs.resolve-pr.outputs.head_sha }}
-      APPROVED_PR_NUMBER: ${{ inputs.pr_number }}
-      BUILD_TAG: pr-${{ inputs.pr_number }}-${{ needs.resolve-pr.outputs.short_sha }}
+      APPROVED_PR_NUMBER: ${{ needs.resolve-pr.outputs.pr_number }}
+      BUILD_TAG: pr-${{ needs.resolve-pr.outputs.pr_number }}-${{ needs.resolve-pr.outputs.short_sha }}
       CMUX_SKIP_ZIG_BUILD: "1"
       SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
     steps:
@@ -170,7 +172,7 @@ jobs:
       - name: Upload approved app artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: approved-pr-${{ inputs.pr_number }}-${{ needs.resolve-pr.outputs.short_sha }}-macos
+          name: approved-pr-${{ needs.resolve-pr.outputs.pr_number }}-${{ needs.resolve-pr.outputs.short_sha }}-macos
           path: artifact/
           retention-days: 14
           if-no-files-found: error
