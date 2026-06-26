@@ -55,6 +55,18 @@ struct ControlCommandExecutionPolicyTests {
         }
     }
 
+    @Test func surfaceReadTextRunsOnTheSocketWorker() {
+        // `surface.read_text` formats a terminal's full scrollback (line tailing,
+        // candidate scoring, and base64 encoding). Running that on the main actor
+        // via `v2MainSync` stalls the run loop under heavy agent load (the
+        // beachball in https://github.com/manaflow-ai/cmux/issues/5757), so it
+        // must run on the socket worker — only the Ghostty FFI capture takes a
+        // minimal main hop; the formatting stays off the main actor.
+        let policy = ControlCommandExecutionPolicy(forMethod: "surface.read_text")
+        #expect(policy.runsOnSocketWorker, "surface.read_text")
+        #expect(policy == .socketWorker(mainThreadCallable: false))
+    }
+
     @Test func onlyPureProbesAreMainThreadCallable() {
         #expect(ControlCommandExecutionPolicy(forMethod: "system.ping") == .socketWorker(mainThreadCallable: true))
         #expect(ControlCommandExecutionPolicy(forMethod: "system.capabilities") == .socketWorker(mainThreadCallable: true))

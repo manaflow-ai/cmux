@@ -430,14 +430,6 @@ extension ControlSurfaceContext {
         key: String
     ) -> ControlSurfaceSendResolution { .tabManagerUnavailable }
 
-    func controlSurfaceReadText(
-        routing: ControlRoutingSelectors,
-        surfaceID: UUID?,
-        hasSurfaceIDParam: Bool,
-        includeScrollback: Bool,
-        lineLimit: Int?
-    ) -> ControlSurfaceReadTextResolution { .tabManagerUnavailable }
-
     func controlSurfaceResumeSet(
         routing: ControlRoutingSelectors,
         explicitTargetID: UUID?,

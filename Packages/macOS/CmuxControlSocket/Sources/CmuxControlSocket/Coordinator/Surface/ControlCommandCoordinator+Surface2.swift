@@ -274,59 +274,11 @@ extension ControlCommandCoordinator {
         }
     }
 
-    // MARK: - read_text
-
-    /// `surface.read_text` — read a terminal surface's visible / scrollback text.
-    func surfaceReadText(_ params: [String: JSONValue]) -> ControlCallResult {
-        let routing = routingSelectors(params)
-        guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
-        }
-        var includeScrollback = bool(params, "scrollback") ?? false
-        let lineLimit = int(params, "lines")
-        if let lineLimit, lineLimit <= 0 {
-            return .err(code: "invalid_params", message: "lines must be greater than 0", data: nil)
-        }
-        if lineLimit != nil {
-            includeScrollback = true
-        }
-        let resolution = context?.controlSurfaceReadText(
-            routing: routing,
-            surfaceID: uuid(params, "surface_id"),
-            hasSurfaceIDParam: params["surface_id"] != nil,
-            includeScrollback: includeScrollback,
-            lineLimit: lineLimit
-        ) ?? .internalError(message: "Failed to read terminal text")
-        switch resolution {
-        case .tabManagerUnavailable:
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
-        case .workspaceNotFound:
-            return .err(code: "not_found", message: "Workspace not found", data: nil)
-        case .surfaceNotFoundForID:
-            return .err(code: "not_found", message: "Surface not found for the given surface_id", data: nil)
-        case .noFocusedSurface:
-            return .err(code: "not_found", message: "No focused surface", data: nil)
-        case .surfaceNotTerminal(let id):
-            return .err(
-                code: "invalid_params",
-                message: "Surface is not a terminal",
-                data: .object(["surface_id": .string(id.uuidString)])
-            )
-        case .internalError(let message):
-            return .err(code: "internal_error", message: message, data: nil)
-        case .read(let text, let base64, let windowID, let workspaceID, let surfaceID):
-            return .ok(.object([
-                "text": .string(text),
-                "base64": .string(base64),
-                "workspace_id": .string(workspaceID.uuidString),
-                "workspace_ref": ref(.workspace, workspaceID),
-                "surface_id": .string(surfaceID.uuidString),
-                "surface_ref": ref(.surface, surfaceID),
-                "window_id": orNull(windowID?.uuidString),
-                "window_ref": ref(.window, windowID),
-            ]))
-        }
-    }
+    // `surface.read_text` is intentionally absent here: it runs on the
+    // socket-worker lane (issue #5757) so its full-scrollback formatting never
+    // holds the main actor, and the @MainActor coordinator seam cannot host the
+    // capture-on-main / format-off-main split. See `TerminalController`'s
+    // `v2SurfaceReadText` worker body.
 
     // MARK: - debug.terminals
 

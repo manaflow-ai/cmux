@@ -72,6 +72,15 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "mobile.terminal.set_font",
         "system.top",
         "system.memory",
+        // `surface.read_text` reads a terminal's visible or full-scrollback text
+        // and formats it (line tailing, candidate scoring, base64 encoding). On
+        // the main actor that formatting stalls the run loop under heavy agent
+        // load (https://github.com/manaflow-ai/cmux/issues/5757), so it runs on
+        // the worker lane: only the Ghostty FFI capture takes a minimal
+        // `v2MainSync` hop while the formatting stays off the main actor. The
+        // @MainActor ControlCommandCoordinator seam cannot host that split, so
+        // the method stays app-side like the browser.* lane.
+        "surface.read_text",
         // `workspace.env` is a read that resolves a workspace and copies its
         // env dictionary behind a `v2MainSync` hop, so it runs on the worker
         // lane like the other workspace reads below.
