@@ -155,6 +155,14 @@ final class AgentChatTranscriptService {
         registry.sessions(workspaceID: workspaceID)
     }
 
+    /// Observe-floor detection: discover live codex/claude sessions from the
+    /// process table (no hooks required) and fold them into the registry.
+    /// Throttled; intended to run on the iOS list pull so a fresh detection
+    /// appears the moment the GUI asks for the list.
+    func observeAgentProcesses() async {
+        await registry.observeAgentProcesses()
+    }
+
     /// The registry record for a session (send path needs the terminal
     /// binding).
     ///

@@ -2,6 +2,19 @@ import CMUXAgentLaunch
 import CmuxAgentChat
 import Foundation
 
+/// A coding-agent session discovered by observing the process table, with no
+/// dependency on hooks firing. Identity (and, for codex, the transcript path)
+/// comes from the agent's own argv or open transcript file, so a session
+/// launched through any indirection (a subrouter, a wrapper) is still found.
+nonisolated struct ObservedAgentSession: Sendable {
+    let sessionID: String
+    let agentKind: ChatAgentKind
+    let surfaceID: String
+    let workspaceID: String?
+    let pid: Int
+    let transcriptPath: String?
+}
+
 /// Main-actor registry of chat-capable agent sessions, built from agent
 /// hook events and the on-disk hook session stores.
 @MainActor
@@ -127,6 +140,173 @@ final class AgentChatSessionRegistry {
             return pid
         }
         return nil
+    }
+
+    // MARK: Observe-floor detection (process tree)
+
+    /// Off-main scan + main-actor apply: discover live codex/claude sessions by
+    /// observing the process table, with no dependency on hooks firing. Resolves
+    /// identity from the agent's own state (codex: the rollout file it holds
+    /// open; claude: its `--session-id`/`--resume` argv), so a session launched
+    /// through any indirection (a subrouter, a wrapper) is still found and bound.
+    /// Throttled; safe to call coarsely (e.g. on the iOS list pull). The snapshot
+    /// is captured off the main actor.
+    private var observeThrottle: Date?
+    func observeAgentProcesses() async {
+        let now = Date()
+        if let last = observeThrottle, now.timeIntervalSince(last) < 2.0 { return }
+        observeThrottle = now
+        let observed = await Task.detached { Self.scanObservedAgentSessions() }.value
+        applyObservedSessions(observed)
+    }
+
+    /// Folds detections in: create a record for any session not already known
+    /// (state `.idle`, from cmux's own observation), and backfill a missing
+    /// binding (surface / workspace / transcript / pid) on an existing one.
+    /// Observation only ADDS presence and bindings; it never downgrades
+    /// hook-derived state.
+    private func applyObservedSessions(_ observed: [ObservedAgentSession]) {
+        let now = Date()
+        for session in observed {
+            if records[session.sessionID] == nil {
+                var record = AgentChatSessionRecord(
+                    sessionID: session.sessionID,
+                    agentKind: session.agentKind,
+                    workspaceID: session.workspaceID,
+                    surfaceID: session.surfaceID,
+                    workingDirectory: nil,
+                    transcriptPath: session.transcriptPath,
+                    state: .idle,
+                    lastActivityAt: now,
+                    title: nil,
+                    pid: session.pid
+                )
+                stampVersion(&record)
+                records[session.sessionID] = record
+                syncProcessExitWatch(for: record)
+                updateLiveSessionIndex(previous: nil, current: record)
+                onRecordChanged?(record, nil)
+            } else {
+                update(sessionID: session.sessionID) { rec in
+                    if rec.surfaceID == nil { rec.surfaceID = session.surfaceID }
+                    if rec.workspaceID == nil { rec.workspaceID = session.workspaceID }
+                    if rec.transcriptPath == nil { rec.transcriptPath = session.transcriptPath }
+                    if rec.pid == nil { rec.pid = session.pid }
+                }
+            }
+        }
+    }
+
+    /// Off-main: one entry per distinct live codex/claude session under any cmux
+    /// surface, identity resolved without hooks.
+    private nonisolated static func scanObservedAgentSessions() -> [ObservedAgentSession] {
+        let snapshot = CmuxTopProcessSnapshot.capture(
+            includeProcessDetails: true,
+            includeCMUXScope: true
+        )
+        var result: [ObservedAgentSession] = []
+        var seen = Set<String>()
+        for process in snapshot.cmuxScopedProcesses() {
+            guard let surfaceID = process.cmuxSurfaceID,
+                  let def = CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+                      processName: process.name,
+                      processPath: process.path,
+                      arguments: [],
+                      environment: [:]
+                  ),
+                  def.id == "codex" || def.id == "claude" else { continue }
+            var sessionID: String?
+            var transcriptPath: String?
+            if def.id == "codex", let rollout = openCodexRolloutPath(pid: process.pid) {
+                transcriptPath = rollout
+                sessionID = firstUUIDLike(in: (rollout as NSString).lastPathComponent)
+            }
+            if sessionID == nil,
+               let argv = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process.pid)?.arguments {
+                sessionID = sessionIDFromArguments(argv)
+            }
+            guard let resolved = sessionID, !seen.contains(resolved) else { continue }
+            seen.insert(resolved)
+            result.append(ObservedAgentSession(
+                sessionID: resolved,
+                agentKind: ChatAgentKind(source: def.id),
+                surfaceID: surfaceID.uuidString,
+                workspaceID: process.cmuxWorkspaceID?.uuidString,
+                pid: process.pid,
+                transcriptPath: transcriptPath
+            ))
+        }
+        return result
+    }
+
+    /// libproc: the path of a `~/.codex/sessions/**/rollout-*.jsonl` the process
+    /// holds open (codex keeps its rollout open for writing), or nil.
+    private nonisolated static func openCodexRolloutPath(pid: Int) -> String? {
+        let listSize = proc_pidinfo(pid_t(pid), PROC_PIDLISTFDS, 0, nil, 0)
+        guard listSize > 0 else { return nil }
+        let count = Int(listSize) / MemoryLayout<proc_fdinfo>.stride
+        guard count > 0 else { return nil }
+        var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: count)
+        let used = proc_pidinfo(pid_t(pid), PROC_PIDLISTFDS, 0, &fds, listSize)
+        guard used > 0 else { return nil }
+        let actual = Int(used) / MemoryLayout<proc_fdinfo>.stride
+        for index in 0..<min(actual, fds.count) {
+            guard fds[index].proc_fdtype == UInt32(PROX_FDTYPE_VNODE) else { continue }
+            var info = vnode_fdinfowithpath()
+            let size = proc_pidfdinfo(
+                pid_t(pid),
+                fds[index].proc_fd,
+                PROC_PIDFDVNODEPATHINFO,
+                &info,
+                Int32(MemoryLayout<vnode_fdinfowithpath>.size)
+            )
+            guard size > 0 else { continue }
+            let path = withUnsafeBytes(of: &info.pvip.vip_path) { raw -> String in
+                guard let base = raw.baseAddress else { return "" }
+                return String(cString: base.assumingMemoryBound(to: CChar.self))
+            }
+            if path.hasSuffix(".jsonl"), path.contains("/.codex/sessions/") {
+                return path
+            }
+        }
+        return nil
+    }
+
+    /// Extracts a session id from an agent's argv (`--session-id <id>`,
+    /// `--session-id=<id>`, `--resume <id>`, `--resume=<id>`).
+    private nonisolated static func sessionIDFromArguments(_ arguments: [String]) -> String? {
+        var index = 0
+        while index < arguments.count {
+            let arg = arguments[index]
+            if arg == "--session-id" || arg == "--resume", index + 1 < arguments.count,
+               let id = firstUUIDLike(in: arguments[index + 1]) {
+                return id
+            }
+            if arg.hasPrefix("--session-id="),
+               let id = firstUUIDLike(in: String(arg.dropFirst("--session-id=".count))) {
+                return id
+            }
+            if arg.hasPrefix("--resume="),
+               let id = firstUUIDLike(in: String(arg.dropFirst("--resume=".count))) {
+                return id
+            }
+            index += 1
+        }
+        return nil
+    }
+
+    private nonisolated static let uuidLikeRegex = try? NSRegularExpression(
+        pattern: "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+    )
+
+    /// The first UUID-shaped substring (matches both standard UUIDs and codex's
+    /// UUIDv7 rollout ids), or nil.
+    private nonisolated static func firstUUIDLike(in string: String) -> String? {
+        guard let regex = uuidLikeRegex else { return nil }
+        let range = NSRange(string.startIndex..., in: string)
+        guard let match = regex.firstMatch(in: string, options: [], range: range),
+              let matchRange = Range(match.range, in: string) else { return nil }
+        return String(string[matchRange])
     }
 
     /// The watched agent process exited. Before ending the session, verify
