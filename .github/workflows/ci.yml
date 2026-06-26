@@ -490,11 +490,8 @@ jobs:
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
           # Focused gate for https://github.com/manaflow-ai/cmux/issues/5888.
-          # The full "Run unit tests" step tolerates app-host crashes by
-          # parsing only the last test summary, so suites that run late can
-          # otherwise be skipped by an app-host abort that still reports
-          # "(0 unexpected)". Keep this targeted only-testing invocation as a
-          # non-tolerant guard for the system proxy mirror regression.
+          # Keep this targeted only-testing invocation as a focused guard for
+          # the system proxy mirror regression alongside the sharded suite.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           scripts/ci/run-in-console-session.sh \
@@ -598,15 +595,7 @@ jobs:
             set -e
           fi
 
-          if [ "$EXIT_CODE" -ne 0 ]; then
-            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
-            if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
-              echo "All failures are expected, treating as pass"
-            else
-              echo "Unexpected test failures detected"
-              exit 1
-            fi
-          fi
+          python3 scripts/ci/check-xcodebuild-test-result.py --exit-code "$EXIT_CODE" "$TEST_OUTPUT"
 
       - name: Run bundled Ghostty theme picker helper regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}

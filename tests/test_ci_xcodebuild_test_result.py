@@ -83,6 +83,28 @@ Test Suite 'SkippedBundle' started
     )
 
 
+def test_rejects_unexpected_failure_even_when_last_suite_is_clean() -> None:
+    expect_fail(
+        65,
+        """
+Test Suite 'BrowserDeveloperToolsVisibilityPersistenceTests' failed
+    Executed 3 tests, with 1 failure (1 unexpected) in 2.000 seconds
+Test Suite 'LaterSuite' passed
+    Executed 1 test, with 0 failures (0 unexpected) in 0.010 seconds
+""",
+    )
+
+
+def test_rejects_zero_test_summaries_without_any_executed_tests() -> None:
+    expect_fail(
+        65,
+        """
+Test Suite 'SkippedBundle' started
+    Executed 0 tests, with 0 failures (0 unexpected) in 0.000 seconds
+""",
+    )
+
+
 def test_rejects_logs_without_xctest_execution_summaries() -> None:
     expect_fail(
         65,
@@ -96,6 +118,8 @@ def main() -> int:
     test_accepts_nonzero_runner_cleanup_after_zero_failure_summaries()
     test_rejects_assertion_failure_even_when_last_suite_has_zero_unexpected()
     test_rejects_timeout_even_when_xcodebuild_prints_zero_test_summaries()
+    test_rejects_unexpected_failure_even_when_last_suite_is_clean()
+    test_rejects_zero_test_summaries_without_any_executed_tests()
     test_rejects_logs_without_xctest_execution_summaries()
     print("PASS: xcodebuild test result policy rejects masked failures")
     return 0
