@@ -9281,7 +9281,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // A new workspace is created with a focused terminal, so this is not
             // expected; log it so a staged-but-untracked workspace is visible
             // rather than silently accumulating on repeated hotkey presses.
+            #if DEBUG
             cmuxDebugLog("appshot.newThread workspace=\(workspace.id.uuidString.prefix(5)) created without focusedPanelId")
+            #endif
             return nil
         }
         return (workspace.id, panelId)
