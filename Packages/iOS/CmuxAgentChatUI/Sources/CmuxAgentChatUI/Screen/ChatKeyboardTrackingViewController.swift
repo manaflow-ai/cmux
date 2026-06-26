@@ -368,6 +368,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
 
     #if DEBUG
     private func updateKeyboardDebugValues(overlap: CGFloat) {
+        let visibleOverlap = currentVisibleKeyboardOverlap()
         let guideOverlap = keyboardLayoutGuideOverlap()
         let composerFrame = frameInWindow(for: composerHostingController.view)
         let composerPresentationFrame = presentationAdjustedFrameInWindow(for: composerHostingController.view)
@@ -387,7 +388,8 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
                 return self.presentationAdjustedFrameInWindow(for: self.composerHostingController.view)?.minY
             }
             tableView.keyboardDebugEventCount = keyboardDebugEventCount
-            tableView.keyboardDebugOverlap = overlap
+            tableView.keyboardDebugOverlap = visibleOverlap
+            tableView.keyboardDebugTargetOverlap = overlap
             tableView.keyboardDebugGuideOverlap = guideOverlap
             tableView.keyboardDebugBottomConstraint = -overlap
             tableView.keyboardDebugComposerMinY = composerFrame?.minY ?? 0

@@ -12,6 +12,7 @@ final class ChatTranscriptUITableView: UITableView {
     #if DEBUG
     var keyboardDebugEventCount = 0
     var keyboardDebugOverlap: CGFloat = 0
+    var keyboardDebugTargetOverlap: CGFloat = 0
     var keyboardDebugGuideOverlap: CGFloat = 0
     var keyboardDebugBottomConstraint: CGFloat = 0
     var keyboardDebugComposerMinY: CGFloat = 0
@@ -118,7 +119,7 @@ final class ChatTranscriptUITableView: UITableView {
         let presentationGap = composerPresentationMinY - presentationFrameMaxY
         recordKeyboardAnimationGap(presentationGap)
         return String(
-            format: "frameMinY=%.2f;frameMaxY=%.2f;frameHeight=%.2f;presentationFrameMaxY=%.2f;boundsHeight=%.2f;offsetY=%.2f;visibleBottomY=%.2f;contentHeight=%.2f;distanceFromBottom=%.2f;keyboardEvents=%d;keyboardOverlap=%.2f;keyboardGuideOverlap=%.2f;keyboardBottomConstraint=%.2f;composerMinY=%.2f;composerPresentationMinY=%.2f;presentationGap=%.2f;keyboardAnimationActive=%d;keyboardAnimationProgress=%.2f;keyboardTransitionDuration=%.3f;maxAnimationPresentationGap=%.2f;keyboardAnimationSamples=%d",
+            format: "frameMinY=%.2f;frameMaxY=%.2f;frameHeight=%.2f;presentationFrameMaxY=%.2f;boundsHeight=%.2f;offsetY=%.2f;visibleBottomY=%.2f;contentHeight=%.2f;distanceFromBottom=%.2f;keyboardEvents=%d;keyboardOverlap=%.2f;keyboardTargetOverlap=%.2f;keyboardGuideOverlap=%.2f;keyboardBottomConstraint=%.2f;composerMinY=%.2f;composerPresentationMinY=%.2f;presentationGap=%.2f;keyboardAnimationActive=%d;keyboardAnimationProgress=%.2f;keyboardTransitionDuration=%.3f;maxAnimationPresentationGap=%.2f;keyboardAnimationSamples=%d",
             locale: Locale(identifier: "en_US_POSIX"),
             frameInWindow.minY,
             frameInWindow.maxY,
@@ -131,6 +132,7 @@ final class ChatTranscriptUITableView: UITableView {
             distanceFromBottom,
             keyboardDebugEventCount,
             keyboardDebugOverlap,
+            keyboardDebugTargetOverlap,
             keyboardDebugGuideOverlap,
             keyboardDebugBottomConstraint,
             keyboardDebugComposerMinY,

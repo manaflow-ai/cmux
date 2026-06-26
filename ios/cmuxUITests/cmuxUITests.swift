@@ -653,6 +653,11 @@ final class cmuxUITests: XCTestCase {
             animationSamples,
             scrollPosition: "middle video evidence"
         )
+        assertChatKeyboardVisibleBottomStayedPinned(
+            animationSamples,
+            baselineVisibleBottomY: beforeKeyboard.visibleBottomY,
+            scrollPosition: "middle video evidence"
+        )
         assertChatKeyboardEvidenceCapturedIntermediateMotion(
             animationSamples,
             scrollPosition: "middle video evidence"
@@ -723,6 +728,11 @@ final class cmuxUITests: XCTestCase {
             animationSamples,
             scrollPosition: "middle interrupted show-dismiss video evidence"
         )
+        assertChatKeyboardVisibleBottomStayedPinned(
+            animationSamples,
+            baselineVisibleBottomY: beforeKeyboard.visibleBottomY,
+            scrollPosition: "middle interrupted show-dismiss video evidence"
+        )
         assertChatKeyboardMotionCapturedIntermediateSteps(
             animationSamples,
             scrollPosition: "middle interrupted show-dismiss video evidence",
@@ -790,6 +800,11 @@ final class cmuxUITests: XCTestCase {
             animationSamples,
             scrollPosition: "middle interrupted refocus video evidence"
         )
+        assertChatKeyboardVisibleBottomStayedPinned(
+            animationSamples,
+            baselineVisibleBottomY: beforeKeyboard.visibleBottomY,
+            scrollPosition: "middle interrupted refocus video evidence"
+        )
         assertChatKeyboardEvidenceCapturedIntermediateMotion(
             animationSamples,
             scrollPosition: "middle interrupted refocus video evidence"
@@ -817,9 +832,11 @@ final class cmuxUITests: XCTestCase {
     @MainActor
     func testAgentChatMiddleKeyboardToggleVideoEvidence() throws {
         for refocusCase in [
+            (delay: 0.08, prefix: "toggle-interrupt-edge", label: "middle edge interrupted hide-refocus"),
             (delay: 0.16, prefix: "toggle-interrupt-early", label: "middle early interrupted hide-refocus"),
             (delay: 0.24, prefix: "toggle-interrupt-mid", label: "middle interrupted hide-refocus"),
             (delay: 0.32, prefix: "toggle-interrupt-late", label: "middle late interrupted hide-refocus"),
+            (delay: 0.44, prefix: "toggle-after-settle", label: "middle settled hide-refocus"),
         ] {
             let app = launchAgentChatInlinePreviewApp(environment: [
                 "CMUX_UITEST_CHAT_AUTOFOCUS_DELAY": "14.0",
@@ -855,6 +872,11 @@ final class cmuxUITests: XCTestCase {
             )
             assertChatKeyboardAnimationStayedAttached(
                 interruptedSamples,
+                scrollPosition: refocusCase.label
+            )
+            assertChatKeyboardVisibleBottomStayedPinned(
+                interruptedSamples,
+                baselineVisibleBottomY: beforeKeyboard.visibleBottomY,
                 scrollPosition: refocusCase.label
             )
             assertChatKeyboardMotionHasNoLargeSnap(
@@ -904,6 +926,13 @@ final class cmuxUITests: XCTestCase {
         )
         assertChatKeyboardAnimationStayedAttached(
             animationSamples,
+            scrollPosition: scrollPosition,
+            file: file,
+            line: line
+        )
+        assertChatKeyboardVisibleBottomStayedPinned(
+            animationSamples,
+            baselineVisibleBottomY: beforeKeyboard.visibleBottomY,
             scrollPosition: scrollPosition,
             file: file,
             line: line
@@ -1595,6 +1624,7 @@ final class cmuxUITests: XCTestCase {
         let distanceFromBottom: CGFloat
         let keyboardEvents: Int
         let keyboardOverlap: CGFloat
+        let keyboardTargetOverlap: CGFloat
         let composerMinY: CGFloat
         let composerPresentationMinY: CGFloat
         let presentationGap: CGFloat
@@ -1605,7 +1635,7 @@ final class cmuxUITests: XCTestCase {
         let keyboardAnimationSamples: Int
 
         var description: String {
-            "frameMinY=\(frameMinY), frameMaxY=\(frameMaxY), frameHeight=\(frameHeight), presentationFrameMaxY=\(presentationFrameMaxY), boundsHeight=\(boundsHeight), offsetY=\(offsetY), visibleBottomY=\(visibleBottomY), contentHeight=\(contentHeight), distanceFromBottom=\(distanceFromBottom), keyboardEvents=\(keyboardEvents), keyboardOverlap=\(keyboardOverlap), composerMinY=\(composerMinY), composerPresentationMinY=\(composerPresentationMinY), presentationGap=\(presentationGap), keyboardAnimationActive=\(keyboardAnimationActive), keyboardAnimationProgress=\(keyboardAnimationProgress), keyboardTransitionDuration=\(keyboardTransitionDuration), maxAnimationPresentationGap=\(maxAnimationPresentationGap), keyboardAnimationSamples=\(keyboardAnimationSamples)"
+            "frameMinY=\(frameMinY), frameMaxY=\(frameMaxY), frameHeight=\(frameHeight), presentationFrameMaxY=\(presentationFrameMaxY), boundsHeight=\(boundsHeight), offsetY=\(offsetY), visibleBottomY=\(visibleBottomY), contentHeight=\(contentHeight), distanceFromBottom=\(distanceFromBottom), keyboardEvents=\(keyboardEvents), keyboardOverlap=\(keyboardOverlap), keyboardTargetOverlap=\(keyboardTargetOverlap), composerMinY=\(composerMinY), composerPresentationMinY=\(composerPresentationMinY), presentationGap=\(presentationGap), keyboardAnimationActive=\(keyboardAnimationActive), keyboardAnimationProgress=\(keyboardAnimationProgress), keyboardTransitionDuration=\(keyboardTransitionDuration), maxAnimationPresentationGap=\(maxAnimationPresentationGap), keyboardAnimationSamples=\(keyboardAnimationSamples)"
         }
 
         init?(_ rawValue: String) {
@@ -1639,6 +1669,7 @@ final class cmuxUITests: XCTestCase {
             self.distanceFromBottom = distanceFromBottom
             self.keyboardEvents = Int(values["keyboardEvents"] ?? 0)
             self.keyboardOverlap = values["keyboardOverlap"] ?? 0
+            self.keyboardTargetOverlap = values["keyboardTargetOverlap"] ?? self.keyboardOverlap
             self.composerMinY = values["composerMinY"] ?? frameMaxY
             self.composerPresentationMinY = values["composerPresentationMinY"] ?? self.composerMinY
             self.presentationGap = values["presentationGap"] ?? 0
@@ -1651,6 +1682,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     private struct ChatKeyboardAnimationSample: CustomStringConvertible {
+        let elapsed: TimeInterval
         let metrics: ChatTranscriptMetrics
         let composerFrame: CGRect?
 
@@ -1659,7 +1691,7 @@ final class cmuxUITests: XCTestCase {
         }
 
         var description: String {
-            "metrics={\(metrics)}, composerFrame=\(String(describing: composerFrame)), visiblePresentationGap=\(String(describing: visiblePresentationGap))"
+            "elapsed=\(elapsed), metrics={\(metrics)}, composerFrame=\(String(describing: composerFrame)), visiblePresentationGap=\(String(describing: visiblePresentationGap))"
         }
     }
 
@@ -1693,7 +1725,9 @@ final class cmuxUITests: XCTestCase {
                         frameIndex += 1
                         nextCaptureTime = Date().addingTimeInterval(0.06)
                     }
+                    let elapsed = Date().timeIntervalSince(captureStart)
                     samples.append(ChatKeyboardAnimationSample(
+                        elapsed: elapsed,
                         metrics: metrics,
                         composerFrame: usableFrameNow(of: composerBar)
                     ))
@@ -1734,7 +1768,9 @@ final class cmuxUITests: XCTestCase {
                     frameIndex += 1
                     nextCaptureTime = Date().addingTimeInterval(0.08)
                 }
+                let elapsed = Date().timeIntervalSince(captureStart)
                 samples.append(ChatKeyboardAnimationSample(
+                    elapsed: elapsed,
                     metrics: metrics,
                     composerFrame: usableFrameNow(of: composerBar)
                 ))
@@ -1757,7 +1793,7 @@ final class cmuxUITests: XCTestCase {
             prefix,
             index,
             elapsedMS,
-            metrics.keyboardOverlap,
+            max(0, metrics.keyboardOverlap),
             max(0, metrics.presentationGap)
         )
         let screenshot = XCUIScreen.main.screenshot()
@@ -1822,6 +1858,37 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    private func assertChatKeyboardVisibleBottomStayedPinned(
+        _ samples: [ChatKeyboardAnimationSample],
+        baselineVisibleBottomY: CGFloat,
+        scrollPosition: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let movingSamples = samples.filter {
+            isChatKeyboardVisiblyMoving($0.metrics)
+        }
+        guard !movingSamples.isEmpty else {
+            XCTFail(
+                "Keyboard evidence for \(scrollPosition) must include moving samples before visible-bottom pinning can be evaluated. samples=\(samples)",
+                file: file,
+                line: line
+            )
+            return
+        }
+        let largestDeviation = movingSamples
+            .map { abs($0.metrics.visibleBottomY - baselineVisibleBottomY) }
+            .max() ?? 0
+        XCTAssertLessThanOrEqual(
+            largestDeviation,
+            36,
+            "Visible bottom content must stay pinned while keyboard animates from \(scrollPosition). largestDeviation=\(largestDeviation) baselineVisibleBottomY=\(baselineVisibleBottomY) samples=\(samples)",
+            file: file,
+            line: line
+        )
+    }
+
+    @MainActor
     private func assertChatKeyboardMotionHasNoLargeSnap(
         _ samples: [ChatKeyboardAnimationSample],
         scrollPosition: String,
@@ -1839,7 +1906,8 @@ final class cmuxUITests: XCTestCase {
         let transitionLegs = Dictionary(grouping: movingSamples, by: { $0.metrics.keyboardEvents })
             .values
         for leg in transitionLegs {
-            let legFrameYs = leg.map(\.metrics.presentationFrameMaxY)
+            let orderedLeg = leg.sorted { $0.elapsed < $1.elapsed }
+            let legFrameYs = orderedLeg.map(\.metrics.presentationFrameMaxY)
             let distinctFrameBuckets = Set(legFrameYs.map { Int(($0 / 8).rounded()) })
             guard distinctFrameBuckets.count >= 3,
                   let legMinFrameY = legFrameYs.min(),
@@ -1849,17 +1917,24 @@ final class cmuxUITests: XCTestCase {
             }
             let legTotalMotion = legMaxFrameY - legMinFrameY
             guard legTotalMotion > 80 else { continue }
-            let largestStep = zip(leg, leg.dropFirst())
-                .map { abs($0.metrics.presentationFrameMaxY - $1.metrics.presentationFrameMaxY) }
-                .max() ?? 0
-            let allowedSparseFrameStep = max(120, legTotalMotion * 0.95)
-            XCTAssertLessThan(
-                largestStep,
-                allowedSparseFrameStep,
-                "Keyboard tracking should not jump directly between endpoints during \(scrollPosition). event=\(leg.first?.metrics.keyboardEvents ?? -1) largestStep=\(largestStep) totalMotion=\(legTotalMotion) samples=\(samples)",
-                file: file,
-                line: line
-            )
+            for (previous, next) in zip(orderedLeg, orderedLeg.dropFirst()) {
+                let elapsedGap = max(next.elapsed - previous.elapsed, 1.0 / 120.0)
+                guard elapsedGap <= 0.12 else { continue }
+                let duration = max(
+                    max(previous.metrics.keyboardTransitionDuration, next.metrics.keyboardTransitionDuration),
+                    1.0 / 60.0
+                )
+                let expectedStep = (legTotalMotion / CGFloat(duration)) * CGFloat(elapsedGap)
+                let allowedStep = min(legTotalMotion * 0.95, max(72, expectedStep * 2.5 + 32))
+                let step = abs(next.metrics.presentationFrameMaxY - previous.metrics.presentationFrameMaxY)
+                XCTAssertLessThanOrEqual(
+                    step,
+                    allowedStep,
+                    "Keyboard tracking should not snap between sampled presentation frames during \(scrollPosition). event=\(previous.metrics.keyboardEvents) step=\(step) allowedStep=\(allowedStep) elapsedGap=\(elapsedGap) totalMotion=\(legTotalMotion) samples=\(samples)",
+                    file: file,
+                    line: line
+                )
+            }
         }
     }
 
