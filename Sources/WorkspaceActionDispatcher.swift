@@ -61,7 +61,7 @@ enum WorkspaceActionDispatcher {
 
         var followUpMoves: [WindowMove] = []
         if orderedWorkspaceIds.count > 1 {
-            for workspaceId in orderedWorkspaceIds.dropFirst() {
+            for workspaceId in orderedWorkspaceIds.dropFirst().dropLast() {
                 followUpMoves.append(WindowMove(workspaceId: workspaceId, focus: false))
             }
             if let finalWorkspaceId = orderedWorkspaceIds.last {
