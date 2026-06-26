@@ -8734,7 +8734,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         textView.insertAttachments([restoredAttachment])
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: durableURL.path))
-        _ = textView.performControlInteraction(action: "close_first_attachment")
+        _ = textView.debugInteract(action: "close_first_attachment")
         XCTAssertFalse(FileManager.default.fileExists(atPath: durableURL.path))
         XCTAssertTrue(textView.inlineAttachments().isEmpty)
     }
@@ -8761,7 +8761,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             textView.font = NSFont.systemFont(ofSize: 14)
             textView.textColor = .labelColor
             textView.insertAttachments([restoredAttachment])
-            _ = textView.performControlInteraction(action: "select_first_attachment")
+            _ = textView.debugInteract(action: "select_first_attachment")
 
             XCTAssertTrue(FileManager.default.fileExists(atPath: durableURL.path))
             textView.cut(nil)
@@ -8812,13 +8812,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             window.makeFirstResponder(textView)
             Self.retainedTextBoxUndoWindows.append(window)
 
-            textView.installInlineControlFixture(snapshot.textBoxAttachment(), beforeText: "hello ", afterText: " world")
-            _ = textView.performControlInteraction(action: "close_first_attachment")
+            textView.installDebugInlineFixture(snapshot.textBoxAttachment(), beforeText: "hello ", afterText: " world")
+            _ = textView.debugInteract(action: "close_first_attachment")
             XCTAssertTrue(textView.undoManager?.canUndo == true)
             textView.undoManager?.undo()
             XCTAssertEqual(textView.inlineAttachments().map(\.displayName), ["moon.png"])
 
-            _ = textView.performControlInteraction(action: "select_first_attachment")
+            _ = textView.debugInteract(action: "select_first_attachment")
             textView.cut(nil)
 
             XCTAssertTrue(textView.inlineAttachments().isEmpty)
@@ -8861,7 +8861,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(TextBoxAttachment.shouldCleanupLocalURLWhenDisposed(durableURL))
         XCTAssertTrue(FileManager.default.fileExists(atPath: durableURL.path))
 
-        _ = textView.performControlInteraction(action: "close_first_attachment")
+        _ = textView.debugInteract(action: "close_first_attachment")
         XCTAssertTrue(textView.inlineAttachments().isEmpty)
         XCTAssertFalse(FileManager.default.fileExists(atPath: durableURL.path))
     }
@@ -8887,7 +8887,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         textView.font = NSFont.systemFont(ofSize: 14)
         textView.textColor = .labelColor
         textView.insertAttachments([restoredAttachment])
-        _ = textView.performControlInteraction(action: "select_first_attachment")
+        _ = textView.debugInteract(action: "select_first_attachment")
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: durableURL.path))
         textView.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
@@ -8923,8 +8923,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         window.contentView = scrollView
         window.makeFirstResponder(textView)
         Self.retainedTextBoxUndoWindows.append(window)
-        textView.installInlineControlFixture(attachment, beforeText: "hello ", afterText: " world")
-        _ = textView.performControlInteraction(action: "select_first_attachment")
+        textView.installDebugInlineFixture(attachment, beforeText: "hello ", afterText: " world")
+        _ = textView.debugInteract(action: "select_first_attachment")
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: temporaryURL.path))
         guard let keyEvent = makeKeyDownEvent(
@@ -8953,7 +8953,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         textView.font = NSFont.systemFont(ofSize: 14)
         textView.textColor = .labelColor
-        textView.installInlineControlFixture(attachment, beforeText: "hello ", afterText: " world")
+        textView.installDebugInlineFixture(attachment, beforeText: "hello ", afterText: " world")
 
         let selectionStart = ("hello " as NSString).length + 1
         textView.setSelectedRange(NSRange(location: selectionStart, length: (" world" as NSString).length))
@@ -8998,8 +8998,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         window.makeFirstResponder(textView)
         Self.retainedTextBoxUndoWindows.append(window)
 
-        textView.installInlineControlFixture(restoredAttachment, beforeText: "hello ", afterText: " world")
-        _ = textView.performControlInteraction(action: "close_first_attachment")
+        textView.installDebugInlineFixture(restoredAttachment, beforeText: "hello ", afterText: " world")
+        _ = textView.debugInteract(action: "close_first_attachment")
 
         XCTAssertTrue(textView.inlineAttachments().isEmpty)
         XCTAssertTrue(textView.undoManager?.canUndo == true)
@@ -9014,7 +9014,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         textView.cleanupPendingUndoableAttachmentFiles()
         XCTAssertTrue(FileManager.default.fileExists(atPath: durableURL.path))
 
-        _ = textView.performControlInteraction(action: "close_first_attachment")
+        _ = textView.debugInteract(action: "close_first_attachment")
         textView.discardUndoHistoryAndCleanupPendingAttachmentFiles()
         XCTAssertFalse(FileManager.default.fileExists(atPath: durableURL.path))
     }
@@ -9065,7 +9065,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         Self.retainedTextBoxUndoWindows.append(window)
 
         textView.insertAttachments([deletedSnapshot.textBoxAttachment()])
-        _ = textView.performControlInteraction(action: "close_first_attachment")
+        _ = textView.debugInteract(action: "close_first_attachment")
         XCTAssertTrue(textView.inlineAttachments().isEmpty)
         XCTAssertTrue(FileManager.default.fileExists(atPath: deletedDurableURL.path))
         XCTAssertTrue(textView.undoManager?.canUndo == true)
@@ -9113,12 +9113,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         window.makeFirstResponder(textView)
         Self.retainedTextBoxUndoWindows.append(window)
 
-        textView.installInlineControlFixture(
+        textView.installDebugInlineFixture(
             snapshot.textBoxAttachment(),
             beforeText: "hello ",
             afterText: " world"
         )
-        _ = textView.performControlInteraction(action: "close_first_attachment")
+        _ = textView.debugInteract(action: "close_first_attachment")
         XCTAssertTrue(textView.inlineAttachments().isEmpty)
         XCTAssertTrue(FileManager.default.fileExists(atPath: durableURL.path))
 
@@ -9194,7 +9194,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             cleanupLocalURLWhenDisposed: true
         )
         let textView = makeRetainedTextBoxInputTextView()
-        textView.installInlineControlFixture(
+        textView.installDebugInlineFixture(
             attachment,
             beforeText: "new ",
             afterText: " prompt"
@@ -9221,7 +9221,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             cleanupLocalURLWhenDisposed: true
         )
         let textView = makeRetainedTextBoxInputTextView()
-        textView.installInlineControlFixture(
+        textView.installDebugInlineFixture(
             attachment,
             beforeText: "describe ",
             afterText: ""
@@ -10005,8 +10005,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         try withPreservedGeneralPasteboard {
-            textView.installInlineControlFixture(originalAttachment, beforeText: "hello ", afterText: " world")
-            _ = textView.performControlInteraction(action: "select_first_attachment")
+            textView.installDebugInlineFixture(originalAttachment, beforeText: "hello ", afterText: " world")
+            _ = textView.debugInteract(action: "select_first_attachment")
 
             XCTAssertEqual(textView.selectedRange(), NSRange(location: 6, length: 1))
             XCTAssertTrue(textView.performKeyEquivalent(with: copyEvent))
@@ -10017,8 +10017,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTAssertEqual(PasteboardFileURLReader.fileURLs(from: .general).map(\.path), [originalURL.path])
             XCTAssertTrue(textView.inlineAttachments().isEmpty)
 
-            textView.installInlineControlFixture(originalAttachment, beforeText: "hello ", afterText: " world")
-            _ = textView.performControlInteraction(action: "select_first_attachment")
+            textView.installDebugInlineFixture(originalAttachment, beforeText: "hello ", afterText: " world")
+            _ = textView.debugInteract(action: "select_first_attachment")
             writeFileURLs([replacementURL], to: .general)
 
             XCTAssertTrue(textView.performKeyEquivalent(with: pasteEvent))
@@ -10065,8 +10065,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         try withPreservedGeneralPasteboard {
-            textView.installInlineControlFixture(originalAttachment, beforeText: "hello ", afterText: " world")
-            _ = textView.performControlInteraction(action: "select_first_attachment")
+            textView.installDebugInlineFixture(originalAttachment, beforeText: "hello ", afterText: " world")
+            _ = textView.debugInteract(action: "select_first_attachment")
             XCTAssertEqual(textView.selectedRange(), NSRange(location: 6, length: 1))
 
             textView.setSelectedRange(NSRange(location: 0, length: 5))
@@ -10107,12 +10107,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         window.makeFirstResponder(textView)
         Self.retainedTextBoxUndoWindows.append(window)
 
-        textView.installInlineControlFixture(originalAttachment, beforeText: "hello ", afterText: " world")
-        let focusedState = textView.performControlInteraction(action: "select_first_attachment")
+        textView.installDebugInlineFixture(originalAttachment, beforeText: "hello ", afterText: " world")
+        let focusedState = textView.debugInteract(action: "select_first_attachment")
         XCTAssertEqual(focusedState["focused_attachment_index"] as? Int, 6)
 
         XCTAssertTrue(window.makeFirstResponder(otherView))
-        let unfocusedState = textView.controlInteractionState()
+        let unfocusedState = textView.debugInteractionState()
         XCTAssertEqual(unfocusedState["focused_attachment_index"] as? Int, -1)
     }
 
@@ -10142,7 +10142,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let originalTextView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         originalTextView.font = NSFont.systemFont(ofSize: 14)
         originalTextView.textColor = .labelColor
-        originalTextView.installInlineControlFixture(originalAttachment, beforeText: "hello ", afterText: " world")
+        originalTextView.installDebugInlineFixture(originalAttachment, beforeText: "hello ", afterText: " world")
 
         terminalPanel.preserveTextBoxContentForUnmount(from: originalTextView)
 
@@ -10206,7 +10206,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let textView = makeRetainedTextBoxInputTextView()
         textView.font = NSFont.systemFont(ofSize: 14)
         textView.textColor = .labelColor
-        textView.installInlineControlFixture(attachment, beforeText: "close ", afterText: " draft")
+        textView.installDebugInlineFixture(attachment, beforeText: "close ", afterText: " draft")
         terminalPanel.registerTextBoxInputView(textView)
         terminalPanel.isTextBoxActive = true
 
@@ -10237,7 +10237,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let originalTextView = makeRetainedTextBoxInputTextView()
         originalTextView.font = NSFont.systemFont(ofSize: 14)
         originalTextView.textColor = .labelColor
-        originalTextView.installInlineControlFixture(originalAttachment, beforeText: "restore ", afterText: " now")
+        originalTextView.installDebugInlineFixture(originalAttachment, beforeText: "restore ", afterText: " now")
 
         terminalPanel.preserveTextBoxContentForUnmount(from: originalTextView)
         terminalPanel.isTextBoxActive = true
@@ -10281,7 +10281,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let originalTextView = makeRetainedTextBoxInputTextView()
         originalTextView.font = NSFont.systemFont(ofSize: 14)
         originalTextView.textColor = .labelColor
-        originalTextView.installInlineControlFixture(originalAttachment, beforeText: "hidden ", afterText: " draft")
+        originalTextView.installDebugInlineFixture(originalAttachment, beforeText: "hidden ", afterText: " draft")
 
         terminalPanel.preserveTextBoxContentForUnmount(from: originalTextView)
         terminalPanel.isTextBoxActive = false
@@ -10677,10 +10677,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         window.makeFirstResponder(textView)
         Self.retainedTextBoxUndoWindows.append(window)
 
-        textView.installInlineControlFixture(originalAttachment, beforeText: "hello ", afterText: " world")
+        textView.installDebugInlineFixture(originalAttachment, beforeText: "hello ", afterText: " world")
         XCTAssertEqual(textView.inlineAttachments().map(\.displayName), ["moon.png"])
 
-        _ = textView.performControlInteraction(action: "close_first_attachment")
+        _ = textView.debugInteract(action: "close_first_attachment")
         XCTAssertTrue(textView.inlineAttachments().isEmpty)
         XCTAssertTrue(textView.undoManager?.canUndo == true)
 
@@ -11364,7 +11364,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let textView = makeRetainedTextBoxInputTextView()
         textView.font = NSFont.systemFont(ofSize: 14)
         textView.textColor = .labelColor
-        textView.installInlineControlFixture(attachment, beforeText: beforeText, afterText: afterText)
+        textView.installDebugInlineFixture(attachment, beforeText: beforeText, afterText: afterText)
 
         terminalPanel.preserveTextBoxContentForUnmount(from: textView)
         terminalPanel.isTextBoxActive = isActive

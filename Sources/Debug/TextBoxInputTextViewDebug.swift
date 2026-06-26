@@ -17,6 +17,14 @@ extension TextBoxInputTextView {
         setControlAttributedText(attributed)
     }
 
+    func installDebugInlineFixture(
+        _ attachment: TextBoxAttachment?,
+        beforeText: String,
+        afterText: String
+    ) {
+        installInlineControlFixture(attachment, beforeText: beforeText, afterText: afterText)
+    }
+
     @discardableResult
     func performControlInteraction(action: String) -> [String: Any] {
         window?.makeFirstResponder(self)
@@ -74,6 +82,11 @@ extension TextBoxInputTextView {
         return controlInteractionState()
     }
 
+    @discardableResult
+    func `debugInteract`(action: String) -> [String: Any] {
+        performControlInteraction(action: action)
+    }
+
     private func setControlAttributedText(_ attributed: NSAttributedString) {
         textStorage?.setAttributedString(attributed)
         normalizeTextBaselineOffsets()
@@ -89,6 +102,10 @@ extension TextBoxInputTextView {
         window?.viewsNeedDisplay = true
         window?.displayIfNeeded()
         didChangeText()
+    }
+
+    func `debugInteractionState`() -> [String: Any] {
+        controlInteractionState()
     }
 
     func controlInteractionState() -> [String: Any] {
