@@ -234,10 +234,10 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
 
     func testTitlebarControlsLeadingOffsetDoesNotDoubleApplyTrafficLightPosition() {
         let snapshot = MinimalModeTitlebarDebugSnapshot(
-            leftControlsLeadingInset: MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset,
-            leftControlsTopInset: MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset,
-            trafficLightTabBarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset,
-            trafficLightTitlebarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
+            leftControlsLeadingInset: MinimalModeTitlebarDebugSnapshot.defaultLeftControlsLeadingInset,
+            leftControlsTopInset: MinimalModeTitlebarDebugSnapshot.defaultLeftControlsTopInset,
+            trafficLightTabBarLeadingInset: MinimalModeTitlebarDebugSnapshot.defaultTrafficLightTabBarInset,
+            trafficLightTitlebarLeadingInset: MinimalModeTitlebarDebugSnapshot.defaultTrafficLightTitlebarLeadingInset
         )
         let trafficLightFrame = NSRect(x: 18, y: 7, width: 14, height: 14)
 
@@ -254,9 +254,9 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
     func testTitlebarControlsLeadingOffsetDoesNotFollowSidebarTrailingEdge() {
         let snapshot = MinimalModeTitlebarDebugSnapshot(
             leftControlsLeadingInset: 150,
-            leftControlsTopInset: MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset,
-            trafficLightTabBarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset,
-            trafficLightTitlebarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
+            leftControlsTopInset: MinimalModeTitlebarDebugSnapshot.defaultLeftControlsTopInset,
+            trafficLightTabBarLeadingInset: MinimalModeTitlebarDebugSnapshot.defaultTrafficLightTabBarInset,
+            trafficLightTitlebarLeadingInset: MinimalModeTitlebarDebugSnapshot.defaultTrafficLightTitlebarLeadingInset
         )
 
         XCTAssertEqual(
@@ -270,7 +270,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
     }
 
     func testTitlebarControlsVerticalOffsetAlignsToTrafficLightsWhenAvailable() {
-        let snapshot = MinimalModeTitlebarDebugSettings.snapshot()
+        let snapshot = MinimalModeTitlebarDebugSnapshot.snapshot()
         let yOffset = TitlebarControlsLayoutMetrics.yOffset(
             contentHeight: WindowChromeMetrics.appTitlebarHeight,
             containerHeight: 32,
@@ -282,7 +282,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
     }
 
     func testTitlebarControlsBalanceTopAndBottomAgainstTrafficLights() {
-        let snapshot = MinimalModeTitlebarDebugSettings.snapshot()
+        let snapshot = MinimalModeTitlebarDebugSnapshot.snapshot()
         let trafficLightFrame = NSRect(x: 20, y: 7, width: 14, height: 14)
         let contentHeight = WindowChromeMetrics.appTitlebarHeight
         let yOffset = TitlebarControlsLayoutMetrics.yOffset(
@@ -302,7 +302,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
     }
 
     func testTitlebarControlsVerticalOffsetFallsBackToTitlebarCenter() {
-        let snapshot = MinimalModeTitlebarDebugSettings.snapshot()
+        let snapshot = MinimalModeTitlebarDebugSnapshot.snapshot()
         let yOffset = TitlebarControlsLayoutMetrics.yOffset(
             contentHeight: WindowChromeMetrics.appTitlebarHeight,
             containerHeight: 32,
