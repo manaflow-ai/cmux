@@ -778,137 +778,6 @@ final class FilePreviewPDFChromeHostingView: NSHostingView<AnyView> {
     }
 }
 
-struct FilePreviewPDFZoomChromeView: View {
-    let chromeStyleVariant: FilePreviewPDFChromeStyleVariant
-    let fileURL: URL?
-    let zoomOut: () -> Void
-    let actualSize: () -> Void
-    let zoomIn: () -> Void
-    let zoomToFit: () -> Void
-    let rotateLeft: () -> Void
-    let rotateRight: () -> Void
-
-    var body: some View {
-        if chromeStyleVariant == .systemControlGroup {
-            ControlGroup {
-                zoomButtons(includeDividers: false)
-                secondaryButtons(includeDividers: false)
-                if let fileURL {
-                    FileExternalOpenMenu(fileURL: fileURL, style: .chrome)
-                }
-            } label: {
-                Label(
-                    String(localized: "filePreview.pdf.zoomControls", defaultValue: "Zoom Controls"),
-                    systemImage: "magnifyingglass"
-                )
-            }
-            .controlSize(.regular)
-        } else {
-            HStack(spacing: 10) {
-                HStack(spacing: 0) {
-                    zoomButtons(includeDividers: true)
-                }
-                .frame(height: chromeStyleVariant == .liquidGlass ? 40 : 36)
-                .modifier(FilePreviewPDFChromeStyleModifier(variant: chromeStyleVariant))
-
-                HStack(spacing: 0) {
-                    secondaryButtons(includeDividers: true)
-                }
-                .frame(height: chromeStyleVariant == .liquidGlass ? 40 : 36)
-                .modifier(FilePreviewPDFChromeStyleModifier(variant: chromeStyleVariant))
-
-                if let fileURL {
-                    HStack(spacing: 0) {
-                        FileExternalOpenMenu(fileURL: fileURL, style: .chrome)
-                    }
-                    .frame(width: 40, height: 40)
-                    .modifier(FilePreviewPDFStandaloneChromeStyleModifier(variant: chromeStyleVariant))
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func zoomButtons(includeDividers: Bool) -> some View {
-        chromeButton(
-            systemName: "minus.magnifyingglass",
-            label: String(localized: "filePreview.pdf.zoomOut", defaultValue: "Zoom Out"),
-            action: zoomOut
-        )
-        if includeDividers {
-            chromeDivider
-        }
-        chromeButton(
-            systemName: "1.magnifyingglass",
-            label: String(localized: "filePreview.pdf.actualSize", defaultValue: "Actual Size"),
-            action: actualSize
-        )
-        if includeDividers {
-            chromeDivider
-        }
-        chromeButton(
-            systemName: "plus.magnifyingglass",
-            label: String(localized: "filePreview.pdf.zoomIn", defaultValue: "Zoom In"),
-            action: zoomIn
-        )
-    }
-
-    @ViewBuilder
-    private func secondaryButtons(includeDividers: Bool) -> some View {
-        chromeButton(
-            systemName: "arrow.up.left.and.arrow.down.right",
-            label: String(localized: "filePreview.pdf.zoomToFit", defaultValue: "Zoom to Fit"),
-            action: zoomToFit
-        )
-        if includeDividers {
-            chromeDivider
-        }
-        chromeButton(
-            systemName: "rotate.left",
-            label: String(localized: "filePreview.pdf.rotateLeft", defaultValue: "Rotate Left"),
-            action: rotateLeft
-        )
-        if includeDividers {
-            chromeDivider
-        }
-        chromeButton(
-            systemName: "rotate.right",
-            label: String(localized: "filePreview.pdf.rotateRight", defaultValue: "Rotate Right"),
-            action: rotateRight
-        )
-    }
-
-    @ViewBuilder
-    private func chromeButton(
-        systemName: String,
-        label: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        if chromeStyleVariant == .liquidGlass {
-            FilePreviewChromeIconButton(systemName: systemName, label: label, action: action)
-        } else {
-            Button(action: action) {
-                Image(systemName: systemName)
-                    .font(.system(size: 16, weight: .regular))
-                    .frame(width: 38, height: 36)
-                    .contentShape(Rectangle())
-            }
-            .accessibilityLabel(label)
-            .help(label)
-        }
-    }
-
-    private var chromeDivider: some View {
-        Divider()
-            .frame(width: 1, height: 20)
-            .overlay(
-                chromeStyleVariant == .liquidGlass
-                    ? Color.white.opacity(0.18)
-                    : Color.clear
-            )
-    }
-}
-
 final class FilePreviewPDFThumbnailSidebarView: NSView, NSCollectionViewDataSource, NSCollectionViewDelegate, NSCollectionViewDelegateFlowLayout {
     private enum Metrics {
         static let thumbnailHeight = FilePreviewPDFSizing.thumbnailMaximumSize.height
@@ -1754,7 +1623,16 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         ))
         zoomChromeHost.rootView = AnyView(FilePreviewPDFZoomChromeView(
             chromeStyleVariant: chromeStyleVariant,
-            fileURL: currentURL,
+            strings: FilePreviewPDFZoomChromeStrings(
+                zoomControls: String(localized: "filePreview.pdf.zoomControls", defaultValue: "Zoom Controls"),
+                zoomOut: String(localized: "filePreview.pdf.zoomOut", defaultValue: "Zoom Out"),
+                actualSize: String(localized: "filePreview.pdf.actualSize", defaultValue: "Actual Size"),
+                zoomIn: String(localized: "filePreview.pdf.zoomIn", defaultValue: "Zoom In"),
+                zoomToFit: String(localized: "filePreview.pdf.zoomToFit", defaultValue: "Zoom to Fit"),
+                rotateLeft: String(localized: "filePreview.pdf.rotateLeft", defaultValue: "Rotate Left"),
+                rotateRight: String(localized: "filePreview.pdf.rotateRight", defaultValue: "Rotate Right")
+            ),
+            fileOpenMenu: currentURL.map { AnyView(FileExternalOpenMenu(fileURL: $0, style: .chrome)) },
             zoomOut: { [weak self] in self?.zoomOut() },
             actualSize: { [weak self] in self?.actualSize() },
             zoomIn: { [weak self] in self?.zoomIn() },

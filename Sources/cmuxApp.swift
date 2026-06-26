@@ -98,7 +98,7 @@ struct cmuxApp: App {
     // records it via `installCompositionRootInstance`, so the transitional
     // `TerminalNotificationStore.shared` accessor read by the tail call sites
     // resolves to this same object instead of a self-vivified `static let shared`.
-    @StateObject private var notificationStore = TerminalNotificationStore.shared
+    @StateObject var notificationStore = TerminalNotificationStore.shared
     // De-singletonization stage b73: `ClosedItemHistoryStore` no longer
     // self-vivifies an eager `static let shared`. The composition root
     // (`AppDelegate.closedItemHistory`, installed in
@@ -128,7 +128,7 @@ struct cmuxApp: App {
     @AppStorage(BrowserToolbarAccessorySpacingStore.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingStore.defaultSpacing
     @State private var browserFocusModeMenuRevision = 0
     @State var focusHistoryMenuInvalidator = FocusHistoryMenuInvalidator()
-    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @Environment(\.openWindow) private var openWindow
 
     private var browserToolbarAccessorySpacing: Int {
@@ -360,48 +360,7 @@ struct cmuxApp: App {
             }
 #endif
 
-            CommandMenu(String(localized: "menu.notifications.title", defaultValue: "Notifications")) {
-                let snapshot = notificationMenuSnapshot
-
-                Button(snapshot.stateHintTitle) {}
-                    .disabled(true)
-
-                if !snapshot.recentNotifications.isEmpty {
-                    Divider()
-
-                    ForEach(snapshot.recentNotifications) { notification in
-                        Button(notificationMenuItemTitle(for: notification)) {
-                            openNotificationFromMainMenu(notification)
-                        }
-                    }
-
-                    Divider()
-                }
-
-                splitCommandButton(title: String(localized: "menu.notifications.show", defaultValue: "Show Notifications"), shortcut: menuShortcut(for: .showNotifications)) {
-                    showNotificationsPopover()
-                }
-
-                splitCommandButton(title: String(localized: "menu.notifications.jumpToUnread", defaultValue: "Jump to Latest Unread"), shortcut: menuShortcut(for: .jumpToUnread)) {
-                    appDelegate.jumpToLatestUnread()
-                }
-                .disabled(!snapshot.hasUnreadNotifications)
-
-                splitCommandButton(title: String(localized: "menu.notifications.toggleUnread", defaultValue: "Toggle Unread"), shortcut: menuShortcut(for: .toggleUnread)) {
-                    appDelegate.toggleFocusedNotificationUnread()
-                }
-                .disabled(activeTabManager.selectedWorkspace == nil)
-
-                Button(String(localized: "menu.notifications.markAllRead", defaultValue: "Mark All Read")) {
-                    notificationStore.markAllRead()
-                }
-                .disabled(!snapshot.hasUnreadNotifications)
-
-                Button(String(localized: "menu.notifications.clearAll", defaultValue: "Clear All")) {
-                    notificationStore.clearAll()
-                }
-                .disabled(!snapshot.hasNotifications)
-            }
+            notificationsCommands
 
 #if DEBUG
             CommandMenu("Debug") {
@@ -1029,10 +988,6 @@ struct cmuxApp: App {
         return KeyboardShortcutSettings.menuShortcut(for: action)
     }
 
-    private var notificationMenuSnapshot: NotificationMenuSnapshot {
-        notificationStore.notificationMenuSnapshot
-    }
-
     private var browserFocusModeMenuSnapshot: (title: String, canToggle: Bool) {
         let _ = browserFocusModeMenuRevision
         let panel = activeTabManager.focusedBrowserPanel
@@ -1052,15 +1007,6 @@ struct cmuxApp: App {
         AppDelegate.shared?.activeTabManagerForCommands(
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
         ) ?? tabManager
-    }
-
-    private func notificationMenuItemTitle(for notification: TerminalNotification) -> String {
-        let tabTitle = appDelegate.tabTitle(for: notification.tabId)
-        return MenuBarNotificationLineFormatter.menuTitle(notification: notification, tabTitle: tabTitle)
-    }
-
-    private func openNotificationFromMainMenu(_ notification: TerminalNotification) {
-        _ = appDelegate.openTerminalNotification(notification)
     }
 
     private func performSplitFromMenu(direction: SplitDirection) {
@@ -1215,7 +1161,7 @@ struct cmuxApp: App {
         activeTabManager.closeCurrentTabWithConfirmation()
     }
 
-    private func showNotificationsPopover() {
+    func showNotificationsPopover() {
         AppDelegate.shared?.toggleNotificationsPopover(animated: false)
     }
 

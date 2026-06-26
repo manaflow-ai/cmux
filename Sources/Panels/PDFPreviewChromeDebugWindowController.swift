@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import SwiftUI
 
@@ -219,7 +220,21 @@ private struct PDFPreviewChromeDebugSample: View {
     var body: some View {
         FilePreviewPDFZoomChromeView(
             chromeStyleVariant: variant,
-            fileURL: URL(fileURLWithPath: "/tmp/cmux-pdf-chrome-debug.pdf"),
+            strings: FilePreviewPDFZoomChromeStrings(
+                zoomControls: String(localized: "filePreview.pdf.zoomControls", defaultValue: "Zoom Controls"),
+                zoomOut: String(localized: "filePreview.pdf.zoomOut", defaultValue: "Zoom Out"),
+                actualSize: String(localized: "filePreview.pdf.actualSize", defaultValue: "Actual Size"),
+                zoomIn: String(localized: "filePreview.pdf.zoomIn", defaultValue: "Zoom In"),
+                zoomToFit: String(localized: "filePreview.pdf.zoomToFit", defaultValue: "Zoom to Fit"),
+                rotateLeft: String(localized: "filePreview.pdf.rotateLeft", defaultValue: "Rotate Left"),
+                rotateRight: String(localized: "filePreview.pdf.rotateRight", defaultValue: "Rotate Right")
+            ),
+            fileOpenMenu: AnyView(
+                FileExternalOpenMenu(
+                    fileURL: URL(fileURLWithPath: "/tmp/cmux-pdf-chrome-debug.pdf"),
+                    style: .chrome
+                )
+            ),
             zoomOut: { model.record(.zoomOut) },
             actualSize: { model.record(.actualSize) },
             zoomIn: { model.record(.zoomIn) },

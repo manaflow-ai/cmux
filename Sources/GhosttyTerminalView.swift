@@ -744,12 +744,12 @@ class GhosttyApp {
             primaryConfig,
             preferredColorScheme: initialColorScheme
         )
-        updateDefaultBackground(
+        appearanceState.updateDefaultBackground(
             from: primaryConfig,
             source: "initialize.primaryConfig",
             forceNotify: primaryRenderingModeChanged
         )
-        updateDefaultBackgroundFromResolvedGhosttyConfig(
+        appearanceState.updateDefaultBackgroundFromResolvedGhosttyConfig(
             source: "initialize.primaryConfig",
             preferredColorScheme: initialColorScheme,
             baselineConfig: primaryConfig,
@@ -923,12 +923,12 @@ class GhosttyApp {
                 source: "initialize.fallbackConfig"
             )
             ghostty_config_finalize(fallbackConfig)
-            updateDefaultBackground(
+            appearanceState.updateDefaultBackground(
                 from: fallbackConfig,
                 source: "initialize.fallbackConfig",
                 forceNotify: fallbackRenderingModeChanged
             )
-            updateDefaultBackgroundFromResolvedGhosttyConfig(
+            appearanceState.updateDefaultBackgroundFromResolvedGhosttyConfig(
                 source: "initialize.fallbackConfig",
                 preferredColorScheme: initialColorScheme,
                 baselineConfig: fallbackConfig,
@@ -1276,7 +1276,7 @@ class GhosttyApp {
         )
         synchronizeGhosttyRuntimeColorScheme(loadColorScheme, source: "reloadConfiguration:\(source):load")
         logThemeAction("reload begin source=\(source) soft=\(soft)")
-        resetDefaultBackgroundUpdateScope(source: "reloadConfiguration(source=\(source))")
+        appearanceState.resetDefaultBackgroundUpdateScope(source: "reloadConfiguration(source=\(source))")
         if soft, let config {
             let effectiveReloadColorScheme = effectiveTerminalColorSchemePreference
             synchronizeGhosttyRuntimeColorScheme(effectiveReloadColorScheme, source: "reloadConfiguration:\(source):resolved")
@@ -1300,14 +1300,14 @@ class GhosttyApp {
             newConfig,
             preferredColorScheme: reloadColorScheme
         )
-        updateDefaultBackground(
+        appearanceState.updateDefaultBackground(
             from: newConfig,
             source: "reloadConfiguration(source=\(source))",
             scope: .unscoped,
             forceNotify: renderingModeChanged
         )
         GhosttyConfig.invalidateLoadCache()
-        updateDefaultBackgroundFromResolvedGhosttyConfig(
+        appearanceState.updateDefaultBackgroundFromResolvedGhosttyConfig(
             source: "reloadConfiguration(source=\(source))",
             preferredColorScheme: reloadColorScheme,
             baselineConfig: newConfig,
@@ -1436,10 +1436,6 @@ class GhosttyApp {
         return true
     }
 
-    private func resetDefaultBackgroundUpdateScope(source: String) {
-        appearanceState.resetDefaultBackgroundUpdateScope(source: source)
-    }
-
     @discardableResult
     private func setUsesHostLayerBackground(_ newValue: Bool, source: String) -> Bool {
         let previous = usesHostLayerBackground
@@ -1451,50 +1447,6 @@ class GhosttyApp {
             )
         }
         return hasChanged
-    }
-
-    private func ghosttyColorValue(
-        from config: ghostty_config_t,
-        key: String,
-        fallback: NSColor
-    ) -> NSColor {
-        GhosttyConfig.colorValue(from: config, key: key, fallback: fallback)
-    }
-
-    private func updateDefaultBackground(
-        from config: ghostty_config_t?,
-        source: String,
-        scope: GhosttyDefaultBackgroundUpdateScope = .unscoped,
-        forceNotify: Bool = false
-    ) {
-        appearanceState.updateDefaultBackground(
-            from: config,
-            source: source,
-            scope: scope,
-            forceNotify: forceNotify
-        )
-    }
-
-    private func updateDefaultBackgroundFromResolvedGhosttyConfig(
-        source: String,
-        preferredColorScheme: GhosttyConfig.ColorSchemePreference,
-        baselineConfig: ghostty_config_t?,
-        scope: GhosttyDefaultBackgroundUpdateScope = .unscoped,
-        useOnDiskResolvedConfig: Bool = true,
-        forceNotify: Bool = false
-    ) {
-        appearanceState.updateDefaultBackgroundFromResolvedGhosttyConfig(
-            source: source,
-            preferredColorScheme: preferredColorScheme,
-            baselineConfig: baselineConfig,
-            scope: scope,
-            useOnDiskResolvedConfig: useOnDiskResolvedConfig,
-            forceNotify: forceNotify
-        )
-    }
-
-    private func defaultBackgroundBlurValue(from config: ghostty_config_t) -> GhosttyBackgroundBlur {
-        GhosttyConfig.backgroundBlurValue(from: config)
     }
 
     func focusFollowsMouseEnabled() -> Bool {

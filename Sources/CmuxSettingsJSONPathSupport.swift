@@ -66,29 +66,6 @@ enum AutomationSettings {
     static let defaultPortRange = 10
 }
 
-struct SettingsFileBooleanMapping {
-    let jsonKey: String
-    let defaultsKey: String
-    let invalidPath: String?
-
-    init(jsonKey: String, defaultsKey: String, invalidPath: String? = nil) {
-        self.jsonKey = jsonKey
-        self.defaultsKey = defaultsKey
-        self.invalidPath = invalidPath
-    }
-}
-
-struct SettingsFileStringMapping {
-    let jsonKey: String
-    let defaultsKey: String
-}
-
-struct SettingsFileStringArrayMapping {
-    let jsonKey: String
-    let defaultsKey: String
-    let invalidPath: String
-}
-
 enum AppSettingsFileMapping {
     private static let app = AppCatalogSection()
 

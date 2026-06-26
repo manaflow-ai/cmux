@@ -1,6 +1,5 @@
 import CMUXAgentLaunch
 import struct CmuxBrowser.BrowserThemeSettings
-import CmuxFoundation
 import CmuxSettings
 import Foundation
 import os
@@ -16,6 +15,8 @@ nonisolated private let settingsFileParserLogger = Logger(subsystem: "com.cmuxte
 /// (reading bytes, JSONC preprocessing, JSON decoding) and calls
 /// ``parseSettingsFile(root:sourcePath:)`` once per source file.
 struct SettingsFileParser {
+    private let projection = SettingsFileProjectionEngine()
+
     func parseSettingsFile(root: [String: Any], sourcePath: String) -> ResolvedSettingsSnapshot {
         let schemaVersion = jsonInt(root["schemaVersion"]) ?? 1
         if schemaVersion > CmuxSettingsFileSchema.current.version {
@@ -115,8 +116,8 @@ struct SettingsFileParser {
                 logInvalid("app.forkConversationDefaultDestination", sourcePath: sourcePath)
             }
         }
-        applyBooleanSettings(AppSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
-        applyStringSettings(AppSettingsFileMapping.stringSettings, from: section, snapshot: &snapshot)
+        projection.applyBooleanSettings(AppSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, into: &snapshot)
+        projection.applyStringSettings(AppSettingsFileMapping.stringSettings, from: section, into: &snapshot)
         if let value = jsonBool(section["minimalMode"]) {
             let mode = value ? WorkspacePresentationModeSettings.Mode.minimal : .standard
             snapshot.managedUserDefaults[WorkspacePresentationModeSettings.modeKey] = .string(mode.rawValue)
@@ -150,7 +151,7 @@ struct SettingsFileParser {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
-        applyBooleanSettings(NotificationSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
+        projection.applyBooleanSettings(NotificationSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, into: &snapshot)
         if let raw = jsonString(section["sound"]) {
             let allowed = Set(NotificationSoundSettings.systemSounds.map(\.value))
             guard allowed.contains(raw) else {
@@ -159,7 +160,7 @@ struct SettingsFileParser {
             }
             snapshot.managedUserDefaults[NotificationSoundSettings.key] = .string(raw)
         }
-        applyStringSettings(NotificationSettingsFileMapping.stringSettings, from: section, snapshot: &snapshot)
+        projection.applyStringSettings(NotificationSettingsFileMapping.stringSettings, from: section, into: &snapshot)
     }
 
     private func parseTerminalSection(
@@ -167,7 +168,7 @@ struct SettingsFileParser {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
-        applyBooleanSettings(TerminalSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
+        projection.applyBooleanSettings(TerminalSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, into: &snapshot)
 
         if let value = jsonBool(section["showTextBoxOnNewTerminals"]) {
             snapshot.managedUserDefaults[TerminalTextBoxInputSettings.showOnNewTerminalsKey] = .bool(value)
@@ -504,8 +505,8 @@ struct SettingsFileParser {
                 return
             }
         }
-        applyBooleanSettings(AutomationSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
-        applyStringSettings(AutomationSettingsFileMapping.stringSettings, from: section, snapshot: &snapshot)
+        projection.applyBooleanSettings(AutomationSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, into: &snapshot)
+        projection.applyStringSettings(AutomationSettingsFileMapping.stringSettings, from: section, into: &snapshot)
         if let raw = jsonString(section["kiroNotificationLevel"]) {
             if KiroNotificationLevel(rawValue: raw) != nil {
                 snapshot.managedUserDefaults[IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey] = .string(raw)
@@ -556,8 +557,8 @@ struct SettingsFileParser {
                 logInvalid("browser.customSearchEngineURLTemplate", sourcePath: sourcePath)
             }
         }
-        applyBooleanSettings(BrowserSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
-        applyStringSettings(BrowserSettingsFileMapping.stringSettings, from: section, snapshot: &snapshot)
+        projection.applyBooleanSettings(BrowserSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, into: &snapshot)
+        projection.applyStringSettings(BrowserSettingsFileMapping.stringSettings, from: section, into: &snapshot)
         if let raw = jsonString(section["theme"]) {
             guard let mode = BrowserThemeMode(rawValue: raw) else {
                 logInvalid("browser.theme", sourcePath: sourcePath)
@@ -572,7 +573,7 @@ struct SettingsFileParser {
             }
             snapshot.managedUserDefaults[BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey] = .double(delay)
         }
-        applyNormalizedStringArraySettings(BrowserSettingsFileMapping.stringArraySettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
+        projection.applyNormalizedStringArraySettings(BrowserSettingsFileMapping.stringArraySettings, from: section, sourcePath: sourcePath, into: &snapshot)
     }
 
     private func parseWorkspaceGroupsSection(
@@ -669,75 +670,31 @@ struct SettingsFileParser {
         return .some(normalized)
     }
 
-    private func applyBooleanSettings(
-        _ settings: [SettingsFileBooleanMapping],
-        from section: [String: Any],
-        sourcePath: String,
-        snapshot: inout ResolvedSettingsSnapshot
-    ) {
-        for setting in settings {
-            if let value = jsonBool(section[setting.jsonKey]) {
-                snapshot.managedUserDefaults[setting.defaultsKey] = .bool(value)
-            } else if let invalidPath = setting.invalidPath, section.keys.contains(setting.jsonKey) {
-                logInvalid(invalidPath, sourcePath: sourcePath)
-            }
-        }
-    }
-
-    private func applyStringSettings(
-        _ settings: [SettingsFileStringMapping],
-        from section: [String: Any],
-        snapshot: inout ResolvedSettingsSnapshot
-    ) {
-        for setting in settings {
-            if let raw = jsonString(section[setting.jsonKey]) {
-                snapshot.managedUserDefaults[setting.defaultsKey] = .string(raw)
-            }
-        }
-    }
-
-    private func applyNormalizedStringArraySettings(
-        _ settings: [SettingsFileStringArrayMapping],
-        from section: [String: Any],
-        sourcePath: String,
-        snapshot: inout ResolvedSettingsSnapshot
-    ) {
-        for setting in settings {
-            if let values = jsonStringArray(section[setting.jsonKey]) {
-                let normalized = values
-                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .filter { !$0.isEmpty }
-                snapshot.managedUserDefaults[setting.defaultsKey] = .string(normalized.joined(separator: "\n"))
-            } else if section.keys.contains(setting.jsonKey) {
-                logInvalid(setting.invalidPath, sourcePath: sourcePath)
-            }
-        }
-    }
-
+    // The domain-agnostic projection engine (table-driven apply, invalid-setting
+    // logging, JSON scalar coercion) lives in `CmuxSettings`. The parser holds one
+    // instance; the per-domain methods forward the shared `logInvalid`/`json*`
+    // helpers to it so their call sites stay unchanged.
     private func logInvalid(_ path: String, sourcePath: String) {
-        settingsFileParserLogger.warning("ignoring invalid setting '\(path, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
+        projection.logInvalid(path, sourcePath: sourcePath)
     }
 
-    // JSON scalar coercion narrows untyped `Any?` parsed values to typed Swift
-    // values; the coercion rules live in `CmuxFoundation.JSONScalar`. These thin
-    // adapters keep the parser's existing call sites unchanged.
     private func jsonString(_ rawValue: Any?) -> String? {
-        JSONScalar(rawValue).string
+        projection.jsonString(rawValue)
     }
 
     private func jsonBool(_ rawValue: Any?) -> Bool? {
-        JSONScalar(rawValue).bool
+        projection.jsonBool(rawValue)
     }
 
     private func jsonInt(_ rawValue: Any?) -> Int? {
-        JSONScalar(rawValue).int
+        projection.jsonInt(rawValue)
     }
 
     private func jsonDouble(_ rawValue: Any?) -> Double? {
-        JSONScalar(rawValue).double
+        projection.jsonDouble(rawValue)
     }
 
     private func jsonStringArray(_ rawValue: Any?) -> [String]? {
-        JSONScalar(rawValue).stringArray
+        projection.jsonStringArray(rawValue)
     }
 }
