@@ -133,6 +133,97 @@ extension WKWebView {
     }
 }
 
+/// Window-portal variant of the rendering-state reattach lifecycle.
+///
+/// `BrowserWindowPortal` hosts browser webviews directly under the window (above
+/// SwiftUI content) rather than in an inline panel slot. When such a portal-hosted
+/// webview is hidden and later re-shown it hits the same AppKit deferred-rendering
+/// blank-view problem as the panel path, so it replays the same private
+/// `viewDidHide` / `viewDidUnhide` / `_enterInWindow` / `_exitInWindow` selectors
+/// and invalidates layout/display. It tracks its pending-reattach flag under its
+/// own associated-object key, independent of the panel path, and (unlike the panel
+/// variant) does not gate on web-inspector frontends.
+extension WKWebView {
+    private static let cmuxBrowserPortalRenderingStateReattachAssociationKey = malloc(1)!
+
+    private var browserPortalNeedsRenderingStateReattach: Bool {
+        get {
+            (objc_getAssociatedObject(self, Self.cmuxBrowserPortalRenderingStateReattachAssociationKey) as? NSNumber)?
+                .boolValue ?? false
+        }
+        set {
+            objc_setAssociatedObject(
+                self,
+                Self.cmuxBrowserPortalRenderingStateReattachAssociationKey,
+                NSNumber(value: newValue),
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
+        }
+    }
+
+    /// Whether a rendering-state reattach is currently pending for this
+    /// portal-hosted webview (set by a prior ``browserPortalNotifyHidden(reason:)``).
+    public var browserPortalRequiresRenderingStateReattach: Bool {
+        browserPortalNeedsRenderingStateReattach
+    }
+
+    /// Marks the portal-hosted webview as needing a rendering-state reattach and
+    /// replays the private `viewDidHide` / `_exitInWindow` AppKit selectors so the
+    /// view exits the window lifecycle cleanly when its portal slot is hidden.
+    public func browserPortalNotifyHidden(reason: String) {
+        browserPortalNeedsRenderingStateReattach = true
+        let firedSelectors = ["viewDidHide", "_exitInWindow"].filter {
+            browserPanelCallVoidIfAvailable($0)
+        }
+#if DEBUG
+        if !firedSelectors.isEmpty {
+            CMUXDebugLog.logDebugEvent(
+                "browser.portal.webview.hidden web=\(browserPanelRenderingStateLogID) " +
+                "reason=\(reason) selectors=\(firedSelectors.joined(separator: ","))"
+            )
+        }
+#endif
+    }
+
+    /// Reattaches the portal-hosted webview's rendering state, but only if a
+    /// reattach is pending and the view is currently in a window.
+    public func browserPortalReattachRenderingState(reason: String) {
+        guard browserPortalNeedsRenderingStateReattach else { return }
+        guard window != nil else { return }
+        browserPortalNeedsRenderingStateReattach = false
+
+        let firedSelectors = [
+            "viewDidUnhide",
+            "_enterInWindow",
+            "_endDeferringViewInWindowChangesSync",
+        ].filter {
+            browserPanelCallVoidIfAvailable($0)
+        }
+
+        if let scrollView = enclosingScrollView {
+            scrollView.needsLayout = true
+            scrollView.needsDisplay = true
+            scrollView.setNeedsDisplay(scrollView.bounds)
+            scrollView.contentView.needsLayout = true
+            scrollView.contentView.needsDisplay = true
+        }
+
+        needsLayout = true
+        needsDisplay = true
+        setNeedsDisplay(bounds)
+
+#if DEBUG
+        if !firedSelectors.isEmpty {
+            CMUXDebugLog.logDebugEvent(
+                "browser.portal.webview.reattach web=\(browserPanelRenderingStateLogID) " +
+                "reason=\(reason) selectors=\(firedSelectors.joined(separator: ",")) " +
+                "frame=\(frame.browserPanelRenderingStateLogDescription)"
+            )
+        }
+#endif
+    }
+}
+
 private extension NSObject {
     /// Invokes a nullary `Void`-returning Objective-C selector by name when the
     /// receiver responds to it, returning whether the call was dispatched.
