@@ -22,6 +22,7 @@ import Foundation
 /// The mapping mirrors ``ShortcutAction/defaultFocusWhenClause``: keep the two in
 /// sync when a new built-in focus context is introduced.
 func builtInScopeCaption(for clause: ShortcutWhenClause) -> String? {
+    let canvasLayoutKey = ShortcutContextKnownKey.workspaceCanvasLayout.rawValue
     switch clause {
     case .always:
         return nil
@@ -40,10 +41,27 @@ func builtInScopeCaption(for clause: ShortcutWhenClause) -> String? {
             localized: "shortcut.when.caption.markdownFocus",
             defaultValue: "Only while a markdown preview is focused"
         )
+    case let .key(key) where key == canvasLayoutKey:
+        return canvasLayoutCaption()
+    case let .and(.key(key), _) where key == canvasLayoutKey:
+        // `Canvas: Actual Size` gates on `canvas && !browser && !markdown` so it
+        // never collides with the browser/markdown ⌘0 zoom-reset bindings, but
+        // its user-facing scope is still simply "the canvas layout".
+        return canvasLayoutCaption()
     default:
+        // The remaining built-in scope is the terminal-pane predicate used by
+        // Rename Tab/Workspace, Send Ctrl-F, and Clear Screen
+        // (`!browser && !sidebar`).
         return String(
             localized: "shortcut.when.caption.terminalFocus",
             defaultValue: "Only while a terminal pane is focused"
         )
     }
+}
+
+private func canvasLayoutCaption() -> String {
+    String(
+        localized: "shortcut.when.caption.canvasLayout",
+        defaultValue: "Only while the canvas layout is active"
+    )
 }
