@@ -34,6 +34,45 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
         )
     }
 
+    func testSidebarObservationPublisherEmitsWhenAgentPIDMakesExistingStatusVisible() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex",
+            value: "Running",
+            icon: "bolt.fill",
+            color: "#4C8DFF"
+        )
+        XCTAssertFalse(
+            workspace.sidebarStatusEntriesInDisplayOrder().contains { $0.key == "codex" },
+            "Structured agent statuses stay hidden until a live agent runtime owns the status key."
+        )
+
+        var publishCount = 0
+        let cancellable = workspace.sidebarObservationPublisher.sink {
+            publishCount += 1
+        }
+        defer { cancellable.cancel() }
+        publishCount = 0
+
+        workspace.recordAgentPID(
+            key: "codex.session-b",
+            pid: 12_345,
+            panelId: panelId,
+            refreshPorts: false
+        )
+
+        XCTAssertTrue(
+            workspace.sidebarStatusEntriesInDisplayOrder().contains { $0.key == "codex" },
+            "Recording the agent PID makes the existing Running status visible."
+        )
+        XCTAssertGreaterThan(
+            publishCount,
+            0,
+            "A sidebar row must refresh when agent PID ownership changes status visibility."
+        )
+    }
+
     func testSidebarImmediateObservationPublisherEmitsForLateTitleSubscriber() {
         let workspace = Workspace()
         workspace.title = "Restored Workspace"
