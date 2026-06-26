@@ -236,24 +236,37 @@ cmux_claude_project_dir_names_for_cwd() {
 
 cmux_claude_current_cwd_candidates() {
     local logical="${PWD:-}"
-    [[ -n "$logical" ]] && printf '%s\n' "$logical"
 
     local physical=""
     physical="$(pwd -P 2>/dev/null || true)"
-    if [[ -n "$physical" && "$physical" != "$logical" ]]; then
-        printf '%s\n' "$physical"
-    fi
 
+    local private_variant=""
     case "$logical" in
         /private/*)
-            printf '%s\n' "${logical#/private}"
+            private_variant="${logical#/private}"
             ;;
         /*)
             if [[ -e "/private$logical" ]]; then
-                printf '%s\n' "/private$logical"
+                private_variant="/private$logical"
             fi
             ;;
     esac
+
+    local -a candidates=()
+    local candidate existing seen
+    for candidate in "$logical" "$physical" "$private_variant"; do
+        [[ -n "$candidate" ]] || continue
+        seen=false
+        for existing in "${candidates[@]}"; do
+            if [[ "$existing" == "$candidate" ]]; then
+                seen=true
+                break
+            fi
+        done
+        [[ "$seen" == true ]] && continue
+        candidates+=("$candidate")
+        printf '%s\n' "$candidate"
+    done
 }
 
 cmux_claude_seed_resume_session_for_current_cwd() {
@@ -265,6 +278,7 @@ cmux_claude_seed_resume_session_for_current_cwd() {
     source_project_dir="$(dirname "$source_transcript")"
     source_sidecar="$source_project_dir/$sid"
 
+    local seeded=false
     while IFS= read -r cwd; do
         [[ -n "$cwd" ]] || continue
         while IFS= read -r project_dir_name; do
@@ -272,17 +286,24 @@ cmux_claude_seed_resume_session_for_current_cwd() {
             target_project_dir="$root/projects/$project_dir_name"
             target_transcript="$target_project_dir/$sid.jsonl"
             target_sidecar="$target_project_dir/$sid"
-            [[ "$target_transcript" == "$source_transcript" ]] && continue
-            [[ -f "$target_transcript" && -s "$target_transcript" ]] && continue
+            if [[ "$target_transcript" == "$source_transcript" ]]; then
+                seeded=true
+                continue
+            fi
+            if [[ -f "$target_transcript" && -s "$target_transcript" ]]; then
+                seeded=true
+                continue
+            fi
             mkdir -p "$target_project_dir" 2>/dev/null || continue
             cp -p "$source_transcript" "$target_transcript" 2>/dev/null || continue
+            seeded=true
             if [[ -d "$source_sidecar" && ! -e "$target_sidecar" ]]; then
                 cp -Rp "$source_sidecar" "$target_sidecar" 2>/dev/null || true
             fi
         done < <(cmux_claude_project_dir_names_for_cwd "$cwd")
     done < <(cmux_claude_current_cwd_candidates)
 
-    return 0
+    [[ "$seeded" == true ]]
 }
 
 claude_option_consumes_value() {
