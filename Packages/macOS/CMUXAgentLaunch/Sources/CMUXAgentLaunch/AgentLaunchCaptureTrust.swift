@@ -83,9 +83,15 @@ public enum AgentLaunchCaptureTrust {
     /// (e.g. a wrapper script named `fish`) is not misclassified.
     public static func argvLooksLikeShellWrapper(_ arguments: [String]) -> Bool {
         guard executableLooksLikeShell(arguments.first) else { return false }
-        // A combined short option whose letters are shell mode flags and that
-        // includes `c` (-c, -lc, -ic, -lic, …): the command-string form.
-        return arguments.dropFirst().contains(where: shellCommandStringFlag)
+        for argument in arguments.dropFirst() {
+            if shellCommandStringFlag(argument) {
+                return true
+            }
+            if argument == "--" || !argument.hasPrefix("-") {
+                return false
+            }
+        }
+        return false
     }
 
     private static func shellCommandStringFlag(_ flag: String) -> Bool {
