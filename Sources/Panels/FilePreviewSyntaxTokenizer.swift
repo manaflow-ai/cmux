@@ -1,0 +1,254 @@
+import Foundation
+
+/// Shared, dependency-free scanner that turns source text into colored token
+/// ranges. Pure value-in / value-out so it runs off the main thread and is
+/// straightforward to unit test.
+enum FilePreviewSyntaxTokenizer {
+    static func tokens(in source: String, language: FilePreviewSyntaxLanguage) -> [FilePreviewSyntaxToken] {
+        tokens(in: source, grammar: language.grammar)
+    }
+
+    static func tokens(in source: String, grammar: FilePreviewSyntaxGrammar) -> [FilePreviewSyntaxToken] {
+        var cursor = Cursor(source: source)
+        var tokens: [FilePreviewSyntaxToken] = []
+        let lineCommentPatterns = grammar.lineComments.map { Array($0.unicodeScalars) }
+        let blockOpen = grammar.blockComment.map { Array($0.open.unicodeScalars) }
+        let blockClose = grammar.blockComment.map { Array($0.close.unicodeScalars) }
+        var atLineStart = true
+
+        while let scalar = cursor.current {
+            if scalar == "\n" || scalar == "\r" {
+                cursor.advance()
+                atLineStart = true
+                continue
+            }
+            if isWhitespace(scalar) {
+                cursor.advance()
+                continue
+            }
+
+            // Line comments.
+            if let pattern = lineCommentPatterns.first(where: { cursor.matches($0) }) {
+                let start = cursor.utf16Offset
+                cursor.advance(pattern.count)
+                cursor.advanceToEndOfLine()
+                tokens.append(FilePreviewSyntaxToken(range: cursor.range(from: start), kind: .comment))
+                atLineStart = false
+                continue
+            }
+
+            // Block comments.
+            if let open = blockOpen, let close = blockClose, cursor.matches(open) {
+                let start = cursor.utf16Offset
+                cursor.advance(open.count)
+                cursor.advanceUntilMatch(close)
+                tokens.append(FilePreviewSyntaxToken(range: cursor.range(from: start), kind: .comment))
+                atLineStart = false
+                continue
+            }
+
+            // Strings (triple-quoted first so they win over the single form).
+            if grammar.stringDelimiters.contains(scalar) {
+                let token = scanString(&cursor, delimiter: scalar, grammar: grammar)
+                tokens.append(token)
+                atLineStart = false
+                continue
+            }
+
+            // Numbers.
+            if isDigit(scalar) || (scalar == "." && cursor.peek(1).map(isDigit) == true) {
+                let start = cursor.utf16Offset
+                cursor.advanceWhile { isNumberContinuation($0) }
+                tokens.append(FilePreviewSyntaxToken(range: cursor.range(from: start), kind: .number))
+                atLineStart = false
+                continue
+            }
+
+            // Decorators / annotations (@Foo).
+            if grammar.usesAtDecorators, scalar == "@", cursor.peek(1).map(isIdentifierStart) == true {
+                let start = cursor.utf16Offset
+                cursor.advance()
+                cursor.advanceWhile { isIdentifierContinuation($0, allowsDollar: grammar.allowsDollarInIdentifiers) }
+                tokens.append(FilePreviewSyntaxToken(range: cursor.range(from: start), kind: .attribute))
+                atLineStart = false
+                continue
+            }
+
+            // C-family preprocessor directives (#include) at line start.
+            if grammar.usesPreprocessorHash, atLineStart, scalar == "#" {
+                let start = cursor.utf16Offset
+                cursor.advance()
+                cursor.advanceWhile { isIdentifierContinuation($0, allowsDollar: false) }
+                tokens.append(FilePreviewSyntaxToken(range: cursor.range(from: start), kind: .attribute))
+                atLineStart = false
+                continue
+            }
+
+            // Identifiers / keywords / types / function calls.
+            if isIdentifierStart(scalar) {
+                let start = cursor.utf16Offset
+                let text = cursor.consumeIdentifier(allowsDollar: grammar.allowsDollarInIdentifiers)
+                if grammar.keywords.contains(text) {
+                    tokens.append(FilePreviewSyntaxToken(range: cursor.range(from: start), kind: .keyword))
+                } else if grammar.types.contains(text) {
+                    tokens.append(FilePreviewSyntaxToken(range: cursor.range(from: start), kind: .type))
+                } else if grammar.detectFunctionCalls, cursor.nextNonSpaceScalar() == "(" {
+                    tokens.append(FilePreviewSyntaxToken(range: cursor.range(from: start), kind: .function))
+                }
+                atLineStart = false
+                continue
+            }
+
+            // Operators / punctuation: left at the editor's base color.
+            cursor.advance()
+            atLineStart = false
+        }
+
+        return tokens
+    }
+
+    private static func scanString(
+        _ cursor: inout Cursor,
+        delimiter: Unicode.Scalar,
+        grammar: FilePreviewSyntaxGrammar
+    ) -> FilePreviewSyntaxToken {
+        let start = cursor.utf16Offset
+        let triple: [Unicode.Scalar] = [delimiter, delimiter, delimiter]
+        if grammar.supportsTripleQuotedStrings, cursor.matches(triple) {
+            cursor.advance(3)
+            cursor.advanceUntilMatch(triple)
+            return FilePreviewSyntaxToken(range: cursor.range(from: start), kind: .string)
+        }
+
+        cursor.advance() // opening delimiter
+        while let scalar = cursor.current {
+            if scalar == "\\" {
+                cursor.advance()
+                cursor.advance() // escaped scalar
+                continue
+            }
+            if scalar == delimiter {
+                cursor.advance()
+                break
+            }
+            if scalar == "\n" || scalar == "\r" {
+                break // unterminated single-line string
+            }
+            cursor.advance()
+        }
+        return FilePreviewSyntaxToken(range: cursor.range(from: start), kind: .string)
+    }
+
+    // MARK: - Scalar classification
+
+    private static func isWhitespace(_ scalar: Unicode.Scalar) -> Bool {
+        scalar == " " || scalar == "\t" || scalar.value == 0x0B || scalar.value == 0x0C
+    }
+
+    private static func isDigit(_ scalar: Unicode.Scalar) -> Bool {
+        scalar >= "0" && scalar <= "9"
+    }
+
+    private static func isNumberContinuation(_ scalar: Unicode.Scalar) -> Bool {
+        isDigit(scalar)
+            || (scalar >= "a" && scalar <= "z")
+            || (scalar >= "A" && scalar <= "Z")
+            || scalar == "."
+            || scalar == "_"
+    }
+
+    private static func isIdentifierStart(_ scalar: Unicode.Scalar) -> Bool {
+        (scalar >= "a" && scalar <= "z")
+            || (scalar >= "A" && scalar <= "Z")
+            || scalar == "_"
+            || scalar.value > 0x7F
+    }
+
+    private static func isIdentifierContinuation(_ scalar: Unicode.Scalar, allowsDollar: Bool) -> Bool {
+        isIdentifierStart(scalar) || isDigit(scalar) || (allowsDollar && scalar == "$")
+    }
+
+    /// Cursor over the source scalars that keeps a UTF-16 offset in sync so token
+    /// ranges line up with `NSTextStorage` / `NSString` indexing.
+    private struct Cursor {
+        private let scalars: [Unicode.Scalar]
+        private var index = 0
+        private(set) var utf16Offset = 0
+
+        init(source: String) {
+            scalars = Array(source.unicodeScalars)
+        }
+
+        var current: Unicode.Scalar? {
+            index < scalars.count ? scalars[index] : nil
+        }
+
+        func peek(_ ahead: Int) -> Unicode.Scalar? {
+            let target = index + ahead
+            return target < scalars.count ? scalars[target] : nil
+        }
+
+        mutating func advance() {
+            guard index < scalars.count else { return }
+            utf16Offset += scalars[index].value > 0xFFFF ? 2 : 1
+            index += 1
+        }
+
+        mutating func advance(_ count: Int) {
+            for _ in 0..<count { advance() }
+        }
+
+        mutating func advanceWhile(_ predicate: (Unicode.Scalar) -> Bool) {
+            while let scalar = current, predicate(scalar) { advance() }
+        }
+
+        mutating func advanceToEndOfLine() {
+            while let scalar = current, scalar != "\n", scalar != "\r" { advance() }
+        }
+
+        mutating func advanceUntilMatch(_ pattern: [Unicode.Scalar]) {
+            while current != nil {
+                if matches(pattern) {
+                    advance(pattern.count)
+                    return
+                }
+                advance()
+            }
+        }
+
+        mutating func consumeIdentifier(allowsDollar: Bool) -> String {
+            var result = ""
+            while let scalar = current,
+                  FilePreviewSyntaxTokenizer.isIdentifierContinuation(scalar, allowsDollar: allowsDollar) {
+                result.unicodeScalars.append(scalar)
+                advance()
+            }
+            return result
+        }
+
+        func matches(_ pattern: [Unicode.Scalar]) -> Bool {
+            guard !pattern.isEmpty, index + pattern.count <= scalars.count else { return false }
+            for offset in 0..<pattern.count where scalars[index + offset] != pattern[offset] {
+                return false
+            }
+            return true
+        }
+
+        func nextNonSpaceScalar() -> Unicode.Scalar? {
+            var probe = index
+            while probe < scalars.count {
+                let scalar = scalars[probe]
+                if scalar == " " || scalar == "\t" {
+                    probe += 1
+                    continue
+                }
+                return scalar
+            }
+            return nil
+        }
+
+        func range(from start: Int) -> NSRange {
+            NSRange(location: start, length: utf16Offset - start)
+        }
+    }
+}

@@ -985,7 +985,8 @@
           "snappingEnabled": "ペインのドラッグやリサイズを隣のペインの端や間隔にスナップします。Commandキーを押している間はスナップを一時停止します。"
         },
         "fileEditor": {
-          "wordWrap": "横スクロールする代わりに、エディタの右端で長い行を折り返します。"
+          "wordWrap": "横スクロールする代わりに、エディタの右端で長い行を折り返します。",
+          "syntaxHighlighting": "組み込みファイルプレビューで、認識されたソースファイルを色分けします。背景の明暗に合わせたパレットを使用します。大きなファイルはプレーンテキストとして表示されます。"
         },
         "sidebar": {
           "rightMaxWidth": "右サイドバーの最大幅（ポイント）。省略すると、組み込みの動的上限が適用されます。"
@@ -1007,6 +1008,7 @@
       "exampleMarkdownFontFamily": "本文フォントファミリーの既定値です。空のままにするとシステムの Markdown フォントスタックを使います。",
       "exampleMarkdownMaxWidth": "読み取りカラム最大幅の既定値（CSS ピクセル単位）です。",
       "exampleFileEditorWordWrap": "横スクロールする代わりに、エディタの右端で長い行を折り返します。",
+      "exampleFileEditorSyntaxHighlighting": "組み込みファイルプレビューで、認識されたソースファイルを色分けします。",
       "exampleFileExplorerDoubleClickAction": "ファイルをダブルクリックしたときの動作: preview（既定）、defaultEditor（macOS の既定アプリ）、preferredEditor（app.preferredEditor コマンド）。",
       "shortcutsWhenIntro": "アクションごとの任意のコンテキスト述語（VS Code スタイルの when 句）で、cmux のアクション ID をキーにします。バインディングは、その句が成立するときだけ発火し、同じキーストロークの他のバインディングともそのときだけ競合します。句を省略すると、アクションの組み込みコンテキストが維持されます。句で使える語彙:",
       "shortcutsWhenBooleanKeys": "boolean キー。未知または存在しないキーは false として扱われ、リテラル true / false も使えます。",

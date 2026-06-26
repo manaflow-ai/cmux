@@ -1293,6 +1293,7 @@ struct FilePreviewPanelView: View {
     @State private var focusFlashOpacity = 0.0
     @State private var focusFlashAnimationGeneration = 0
     @AppStorage(FilePreviewWordWrapSettings.key) private var fileEditorWordWrap = FilePreviewWordWrapSettings.defaultEnabled
+    @AppStorage(FilePreviewSyntaxHighlightSettings.key) private var fileEditorSyntaxHighlighting = FilePreviewSyntaxHighlightSettings.defaultEnabled
 
     private var themeForegroundColor: NSColor {
         appearance.foregroundColor
@@ -1364,7 +1365,9 @@ struct FilePreviewPanelView: View {
                     themeBackgroundColor: contentBackgroundColor,
                     themeForegroundColor: themeForegroundColor,
                     drawsBackground: appearance.drawsContentBackground,
-                    wordWrap: fileEditorWordWrap
+                    wordWrap: fileEditorWordWrap,
+                    syntaxLanguage: FilePreviewSyntaxLanguage.detect(for: panel.fileURL),
+                    syntaxHighlightingEnabled: fileEditorSyntaxHighlighting
                 )
             case .pdf:
                 FilePreviewPDFView(

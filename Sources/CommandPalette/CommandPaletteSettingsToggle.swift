@@ -264,6 +264,23 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: FilePreviewWordWrapSettings.key
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "fileEditorSyntaxHighlighting",
+                settingsKey: "fileEditor.syntaxHighlighting",
+                title: {
+                    String(
+                        localized: "settings.app.fileEditorSyntaxHighlighting",
+                        defaultValue: "File Editor Syntax Highlighting"
+                    )
+                },
+                sectionTitle: app,
+                keywords: [
+                    "fileEditor.syntaxHighlighting", "file", "editor", "syntax", "highlighting",
+                    "colorize", "colors", "code", "source", "preview", "theme"
+                ],
+                defaultValue: FilePreviewSyntaxHighlightSettings.defaultEnabled,
+                defaultsKey: FilePreviewSyntaxHighlightSettings.key
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "iMessageMode",
                 settingsKey: "app.iMessageMode",
                 title: {

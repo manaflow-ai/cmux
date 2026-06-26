@@ -1155,6 +1155,12 @@
           "default": false,
           "description": "Wrap long lines at the editor's right edge instead of scrolling horizontally.",
           "descriptionKey": "schemaDescriptions.fileEditor.wordWrap"
+        },
+        "syntaxHighlighting": {
+          "type": "boolean",
+          "default": true,
+          "description": "Colorize recognized source files in the built-in file preview, using a palette that follows the light or dark background. Large files render as plain text.",
+          "descriptionKey": "schemaDescriptions.fileEditor.syntaxHighlighting"
         }
       }
     },
