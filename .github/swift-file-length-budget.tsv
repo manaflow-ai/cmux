@@ -46,7 +46,7 @@
 2126	cmuxTests/CmuxConfigTests.swift
 2091	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2078	Sources/SessionPersistence.swift
-2062	Sources/KeyboardShortcutSettingsFileStore.swift
+2063	Sources/KeyboardShortcutSettingsFileStore.swift
 1945	Sources/RestorableAgentSession.swift
 1900	cmuxTests/NotificationAndMenuBarTests.swift
 1866	Sources/Panels/BrowserWebAuthnSupport.swift
@@ -135,8 +135,8 @@
 710	Sources/TerminalSSHSessionDetector.swift
 706	CLI/CMUXCLI+Config.swift
 699	cmuxTests/TerminalNotificationClearAllTests.swift
+698	cmuxTests/CommandPaletteShortcutCustomizationTests.swift
 698	cmuxTests/RestorableAgentHookProviderResumeTests.swift
-696	cmuxTests/CommandPaletteShortcutCustomizationTests.swift
 696	cmuxTests/UpdatePillReleaseVisibilityTests.swift
 691	Sources/NotificationSoundSettings.swift
 691	cmuxTests/TaskManagerResourcesTests.swift

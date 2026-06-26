@@ -134,8 +134,8 @@ struct CustomCommandShortcutsCard: View {
         let validationMessage: String? = {
             if bareKeyRejected {
                 return String(
-                    localized: "shortcut.recorder.error.bareKeyNotAllowed",
-                    defaultValue: "Shortcuts must include ⌘ ⌥ ⌃ or ⇧"
+                    localized: "shortcut.recorder.error.commandRequiresPrimaryModifier",
+                    defaultValue: "Command shortcuts must include ⌘, ⌥, or ⌃."
                 )
             }
             if let conflict {
@@ -248,6 +248,14 @@ struct CustomCommandShortcutsCard: View {
     /// Re-records an existing bound command's shortcut, applying the same
     /// conflict check as the picker.
     private func reassign(stroke: ShortcutStroke, to commandId: String) async {
+        // The recorder requires *some* modifier, but a command shortcut must
+        // include a primary one (⌘/⌥/⌃): a shift-only printable key would steal
+        // ordinary typing. Reuse the bare-key banner (now command-specific text).
+        guard stroke.command || stroke.option || stroke.control else {
+            rowBareKeyRejections.insert(commandId)
+            rowConflicts.removeValue(forKey: commandId)
+            return
+        }
         let proposed = StoredShortcut(first: stroke)
         if let conflict = conflictChecker().conflictLabel(stroke: proposed, excludingCommandId: commandId) {
             rowConflicts[commandId] = conflict

@@ -1055,12 +1055,13 @@ final class CmuxSettingsFileStore {
             return nil
         }
 
-        // Command shortcuts must include a modifier: the Settings recorder
-        // enforces it and the docs require it. `parseConfig`/the object form
-        // still permit a bare Space, which would otherwise swallow ordinary
-        // Space key events away from terminal/browser text input — reject any
-        // first stroke without ⌘ ⌥ ⌃ or ⇧.
-        guard !shortcut.firstStroke.modifierFlags.isEmpty else { return nil }
+        // Command shortcuts must include a *primary* modifier (⌘, ⌥, or ⌃).
+        // They are installed in the app-level key monitor and fire before the
+        // terminal/browser receives the key, so a bare key (incl. Space) or a
+        // shift-only printable key like ⇧Y would otherwise run the command every
+        // time the user types that character. Shift alone is not enough.
+        let firstStroke = shortcut.firstStroke
+        guard firstStroke.command || firstStroke.option || firstStroke.control else { return nil }
         return shortcut
     }
 

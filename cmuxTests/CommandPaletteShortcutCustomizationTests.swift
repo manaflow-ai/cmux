@@ -488,6 +488,7 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
                   "palette.openFolder": ["cmd+b", "c"],
                   "palette.newWorkspace": null,
                   "palette.bareSpace": "space",
+                  "palette.shiftOnly": "shift+y",
                   "palette.modifierSpace": "cmd+space"
                 }
               }
@@ -496,7 +497,7 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
         )
 
         let resolved = KeyboardShortcutSettings.commandShortcuts()
-        XCTAssertEqual(resolved.count, 2, "Only the valid modifier-bearing bindings should survive")
+        XCTAssertEqual(resolved.count, 2, "Only the valid primary-modifier bindings should survive")
 
         let newWindow = try XCTUnwrap(resolved["palette.newWindow"])
         XCTAssertFalse(newWindow.hasChord)
@@ -508,7 +509,8 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
 
         XCTAssertNil(resolved["palette.openFolder"], "Chord bindings are not allowed for command shortcuts")
         XCTAssertNil(resolved["palette.newWorkspace"], "A null binding clears the command shortcut")
-        XCTAssertNil(resolved["palette.bareSpace"], "A bare Space must be rejected — command shortcuts require a modifier")
+        XCTAssertNil(resolved["palette.bareSpace"], "A bare Space must be rejected — command shortcuts require a primary modifier")
+        XCTAssertNil(resolved["palette.shiftOnly"], "Shift-only must be rejected — it would steal ordinary typing")
 
         let modifierSpace = try XCTUnwrap(resolved["palette.modifierSpace"], "Space with a modifier is allowed")
         XCTAssertEqual(modifierSpace.firstStroke.key, "space")

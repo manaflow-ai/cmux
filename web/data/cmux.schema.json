@@ -1583,7 +1583,7 @@
       "required": [
         "key"
       ],
-      "description": "One recorded keystroke as flat fields: the key plus modifier booleans and an optional macOS virtual key code. At least one modifier must be true (command shortcuts require a modifier).",
+      "description": "One recorded keystroke as flat fields: the key plus modifier booleans and an optional macOS virtual key code. At least one primary modifier (command, option, or control) must be true; shift alone is not enough for a command shortcut.",
       "properties": {
         "key": {
           "type": "string"
@@ -1612,16 +1612,6 @@
           ],
           "properties": {
             "command": {
-              "const": true
-            }
-          }
-        },
-        {
-          "required": [
-            "shift"
-          ],
-          "properties": {
-            "shift": {
               "const": true
             }
           }
@@ -1775,9 +1765,12 @@
         },
         {
           "pattern": "^(?:(?:[cC][mM][dD]|[cC][oO][mM][mM][aA][nN][dD]|[sS][hH][iI][fF][tT]|[oO][pP][tT]|[oO][pP][tT][iI][oO][nN]|[aA][lL][tT]|[cC][tT][rR][lL]|[cC][oO][nN][tT][rR][oO][lL]|[cC][tT][lL]|⌘|⇧|⌥|⌃)\\+)+"
+        },
+        {
+          "pattern": "(?:[cC][mM][dD]|[cC][oO][mM][mM][aA][nN][dD]|[oO][pP][tT]|[oO][pP][tT][iI][oO][nN]|[aA][lL][tT]|[cC][tT][rR][lL]|[cC][oO][nN][tT][rR][oO][lL]|[cC][tT][lL]|⌘|⌥|⌃)\\+"
         }
       ],
-      "description": "Single-stroke command shortcut string. Must include at least one modifier (cmd, shift, opt, or ctrl); bare keys (including Space) are not allowed."
+      "description": "Single-stroke command shortcut string. Must include a primary modifier (cmd, opt, or ctrl); shift alone or a bare key (including Space) is not allowed."
     }
   }
 }
