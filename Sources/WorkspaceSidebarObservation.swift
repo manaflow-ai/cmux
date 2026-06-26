@@ -1,6 +1,5 @@
 import Combine
 import CmuxCore
-import Darwin
 import Foundation
 import CmuxSidebar
 
@@ -22,13 +21,6 @@ private struct SidebarImmediateObservationState: Equatable {
     let latestSubmittedAt: Date?
 }
 
-struct WorkspaceSidebarAgentRuntimeObservationState: Equatable {
-    let agentPIDs: [String: pid_t]
-    let agentPIDPanelIdsByKey: [String: UUID]
-    let agentPIDKeysByPanelId: [UUID: Set<String>]
-    let agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]]
-}
-
 private struct SidebarObservationState: Equatable {
     let currentDirectory: String
     let extensionSidebarProjectRootPath: String?
@@ -47,7 +39,6 @@ private struct SidebarObservationState: Equatable {
     let remoteConnectionDetail: String?
     let activeRemoteTerminalSessionCount: Int
     let listeningPorts: [Int]
-    let agentRuntime: WorkspaceSidebarAgentRuntimeObservationState
     let browserMediaActivity: BrowserMediaActivity
 }
 
@@ -108,26 +99,19 @@ extension Workspace {
             $remoteConnectionDetail,
             $activeRemoteTerminalSessionCount
         )
-        let presentationInvalidationFields = Publishers.CombineLatest(
-            $listeningPorts,
-            agentRuntimeObservationPublisher
-        )
-
         return Publishers.CombineLatest4(
             workspaceFields,
             metadataFields,
             gitFields,
             remoteFields
         )
-            .combineLatest(presentationInvalidationFields)
-            .compactMap { [weak self] groupedFields, presentationInvalidationFields -> SidebarObservationState? in
+            .combineLatest($listeningPorts)
+            .compactMap { [weak self] groupedFields, listeningPorts -> SidebarObservationState? in
                 guard let self else { return nil }
                 let workspaceFields = groupedFields.0
                 let metadataFields = groupedFields.1
                 let gitFields = groupedFields.2
                 let remoteFields = groupedFields.3
-                let listeningPorts = presentationInvalidationFields.0
-                let agentRuntimeFields = presentationInvalidationFields.1
                 return SidebarObservationState(
                     currentDirectory: workspaceFields.0,
                     extensionSidebarProjectRootPath: workspaceFields.1,
@@ -146,7 +130,6 @@ extension Workspace {
                     remoteConnectionDetail: remoteFields.2,
                     activeRemoteTerminalSessionCount: remoteFields.3,
                     listeningPorts: listeningPorts,
-                    agentRuntime: agentRuntimeFields,
                     browserMediaActivity: self.browserMediaActivity
                 )
             }

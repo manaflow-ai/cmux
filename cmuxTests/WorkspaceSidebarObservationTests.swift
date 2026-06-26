@@ -34,7 +34,7 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
-    @Test func sidebarObservationPublisherEmitsWhenAgentPIDMakesExistingStatusVisible() throws {
+    @Test func agentRuntimeObservationChangesWhenAgentPIDMakesExistingStatusVisible() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
         workspace.statusEntries["codex"] = SidebarStatusEntry(
@@ -48,17 +48,12 @@ struct WorkspaceSidebarObservationTests {
             "Structured agent statuses stay hidden until a live agent runtime owns the status key."
         )
 
-        var publishCount = 0
-        let cancellable = workspace.sidebarObservationPublisher.sink {
-            publishCount += 1
-        }
-        defer { cancellable.cancel() }
+        let generationBeforeRecord = workspace.sidebarAgentRuntimeObservation.changeGeneration
         var workspaceWillChangeCount = 0
         let objectWillChangeCancellable = workspace.objectWillChange.sink {
             workspaceWillChangeCount += 1
         }
         defer { objectWillChangeCancellable.cancel() }
-        publishCount = 0
 
         workspace.recordAgentPID(
             key: "codex.session-b",
@@ -72,8 +67,8 @@ struct WorkspaceSidebarObservationTests {
             "Recording the agent PID makes the existing Running status visible."
         )
         #expect(
-            publishCount > 0,
-            "A sidebar row must refresh when agent PID ownership changes status visibility."
+            workspace.sidebarAgentRuntimeObservation.changeGeneration > generationBeforeRecord,
+            "Agent PID ownership changes must notify the sidebar row runtime observation stream."
         )
         #expect(
             workspaceWillChangeCount == 0,

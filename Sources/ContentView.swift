@@ -13788,6 +13788,22 @@ struct TabItemView: View, Equatable {
             guard !Task.isCancelled, workspaceFinderDirectoryOpenRequest == request else { return }
             workspaceFinderDirectoryOpenRequest = nil
         }
+        .task(id: tab.id) { @MainActor in
+            for await _ in tab.sidebarAgentRuntimeObservation.changes() {
+                if Task.isCancelled { break }
+#if DEBUG
+                let description = tab.customDescription ?? ""
+                cmuxDebugLog(
+                    "sidebar.row.invalidate workspace=\(tab.id.uuidString.prefix(8)) " +
+                    "source=agentRuntime " +
+                    "title=\"\(debugCommandPaletteTextPreview(tab.title))\" " +
+                    "descLen=\((description as NSString).length) " +
+                    "desc=\"\(debugCommandPaletteTextPreview(description))\""
+                )
+#endif
+                refreshWorkspaceSnapshot()
+            }
+        }
         .onReceive(
             tab.sidebarImmediateObservationPublisher
                 .receive(on: RunLoop.main)

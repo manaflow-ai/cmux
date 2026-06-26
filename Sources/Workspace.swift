@@ -2511,24 +2511,22 @@ final class Workspace: Identifiable, ObservableObject {
     }
     /// PIDs associated with agent status entries (e.g. claude_code), keyed by status key.
     /// Used for stale-session detection: if the PID is dead, the status entry is cleared.
-    var agentPIDs: [String: pid_t] = [:] {
-        didSet { publishAgentRuntimeObservationState() }
+    let sidebarAgentRuntimeObservation = WorkspaceSidebarAgentRuntimeObservationModel()
+    var agentPIDs: [String: pid_t] {
+        get { sidebarAgentRuntimeObservation.agentPIDs }
+        set { sidebarAgentRuntimeObservation.setAgentPIDs(newValue) }
     }
-    var agentPIDPanelIdsByKey: [String: UUID] = [:] {
-        didSet { publishAgentRuntimeObservationState() }
+    var agentPIDPanelIdsByKey: [String: UUID] {
+        get { sidebarAgentRuntimeObservation.agentPIDPanelIdsByKey }
+        set { sidebarAgentRuntimeObservation.setAgentPIDPanelIdsByKey(newValue) }
     }
-    var agentPIDKeysByPanelId: [UUID: Set<String>] = [:] {
-        didSet { publishAgentRuntimeObservationState() }
+    var agentPIDKeysByPanelId: [UUID: Set<String>] {
+        get { sidebarAgentRuntimeObservation.agentPIDKeysByPanelId }
+        set { sidebarAgentRuntimeObservation.setAgentPIDKeysByPanelId(newValue) }
     }
-    var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] = [:] {
-        didSet { publishAgentRuntimeObservationState() }
-    }
-    private lazy var agentRuntimeObservationSubject =
-        CurrentValueSubject<WorkspaceSidebarAgentRuntimeObservationState, Never>(
-            currentAgentRuntimeObservationState()
-        )
-    var agentRuntimeObservationPublisher: AnyPublisher<WorkspaceSidebarAgentRuntimeObservationState, Never> {
-        agentRuntimeObservationSubject.eraseToAnyPublisher()
+    var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] {
+        get { sidebarAgentRuntimeObservation.agentLifecycleStatesByPanelId }
+        set { sidebarAgentRuntimeObservation.setAgentLifecycleStatesByPanelId(newValue) }
     }
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 #if DEBUG
@@ -2556,19 +2554,6 @@ final class Workspace: Identifiable, ObservableObject {
     // instead of dropping the first value and repairing timing with a Void event.
     lazy var sidebarImmediateObservationPublisher: AnyPublisher<Void, Never> = makeSidebarImmediateObservationPublisher()
     lazy var sidebarObservationPublisher: AnyPublisher<Void, Never> = makeSidebarObservationPublisher()
-
-    private func currentAgentRuntimeObservationState() -> WorkspaceSidebarAgentRuntimeObservationState {
-        WorkspaceSidebarAgentRuntimeObservationState(
-            agentPIDs: agentPIDs,
-            agentPIDPanelIdsByKey: agentPIDPanelIdsByKey,
-            agentPIDKeysByPanelId: agentPIDKeysByPanelId,
-            agentLifecycleStatesByPanelId: agentLifecycleStatesByPanelId
-        )
-    }
-
-    private func publishAgentRuntimeObservationState() {
-        agentRuntimeObservationSubject.send(currentAgentRuntimeObservationState())
-    }
 
     private func scheduleExtensionSidebarProjectRootRefresh(for directory: String) {
         extensionSidebarProjectRootRefreshID &+= 1
