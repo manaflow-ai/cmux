@@ -615,11 +615,7 @@ final class WindowTerminalPortal: NSObject {
             return false
         }
         let frameInContainer = container.convert(reference.bounds, from: reference)
-        let hasFiniteFrame =
-            frameInContainer.origin.x.isFinite &&
-            frameInContainer.origin.y.isFinite &&
-            frameInContainer.size.width.isFinite &&
-            frameInContainer.size.height.isFinite
+        let hasFiniteFrame = frameInContainer.hasFiniteComponents
         guard hasFiniteFrame else { return false }
 
         if !hostView.frame.isApproximatelyEqual(to: frameInContainer, epsilon: 0.01) {
@@ -776,11 +772,7 @@ final class WindowTerminalPortal: NSObject {
         var current = anchorView.superview
         while let ancestor = current {
             let ancestorBoundsInWindow = ancestor.convert(ancestor.bounds, to: nil)
-            let finiteAncestorBounds =
-                ancestorBoundsInWindow.origin.x.isFinite &&
-                ancestorBoundsInWindow.origin.y.isFinite &&
-                ancestorBoundsInWindow.size.width.isFinite &&
-                ancestorBoundsInWindow.size.height.isFinite
+            let finiteAncestorBounds = ancestorBoundsInWindow.hasFiniteComponents
             if finiteAncestorBounds {
                 frameInWindow = frameInWindow.intersection(ancestorBoundsInWindow)
                 if frameInWindow.isNull { return .zero }
@@ -796,19 +788,11 @@ final class WindowTerminalPortal: NSObject {
         let frameInWindow = effectiveAnchorFrameInWindow(for: anchorView)
         let frameInHostRaw = hostView.convert(frameInWindow, from: nil)
         let frameInHost = frameInHostRaw.pixelSnapped(in: hostView)
-        let hasFiniteFrame =
-            frameInHost.origin.x.isFinite &&
-            frameInHost.origin.y.isFinite &&
-            frameInHost.size.width.isFinite &&
-            frameInHost.size.height.isFinite
+        let hasFiniteFrame = frameInHost.hasFiniteComponents
         guard hasFiniteFrame else { return nil }
 
         let hostBounds = hostView.bounds
-        let hasFiniteHostBounds =
-            hostBounds.origin.x.isFinite &&
-            hostBounds.origin.y.isFinite &&
-            hostBounds.size.width.isFinite &&
-            hostBounds.size.height.isFinite
+        let hasFiniteHostBounds = hostBounds.hasFiniteComponents
         if hasFiniteHostBounds {
             let clampedFrame = frameInHost.intersection(hostBounds)
             if !clampedFrame.isNull, clampedFrame.width > 1, clampedFrame.height > 1 {
@@ -1174,11 +1158,7 @@ final class WindowTerminalPortal: NSObject {
         logBonsplitContainerFrameIfNeeded(anchorView: anchorView, hostedView: hostedView)
 #endif
         let hostBounds = hostView.bounds
-        let hasFiniteHostBounds =
-            hostBounds.origin.x.isFinite &&
-            hostBounds.origin.y.isFinite &&
-            hostBounds.size.width.isFinite &&
-            hostBounds.size.height.isFinite
+        let hasFiniteHostBounds = hostBounds.hasFiniteComponents
         let hostBoundsReady = hasFiniteHostBounds && hostBounds.width > 1 && hostBounds.height > 1
         if !hostBoundsReady {
 #if DEBUG
@@ -1223,11 +1203,7 @@ final class WindowTerminalPortal: NSObject {
             }
             return
         }
-        let hasFiniteFrame =
-            frameInHost.origin.x.isFinite &&
-            frameInHost.origin.y.isFinite &&
-            frameInHost.size.width.isFinite &&
-            frameInHost.size.height.isFinite
+        let hasFiniteFrame = frameInHost.hasFiniteComponents
         let clampedFrame = frameInHost.intersection(hostBounds)
         let hasVisibleIntersection =
             !clampedFrame.isNull &&

@@ -8949,26 +8949,6 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
 
 #if DEBUG
-    struct DebugFrameSample {
-        let sampleCount: Int
-        let uniqueQuantized: Int
-        let lumaStdDev: Double
-        let modeFraction: Double
-        let fingerprint: UInt64
-        let iosurfaceWidthPx: Int
-        let iosurfaceHeightPx: Int
-        let expectedWidthPx: Int
-        let expectedHeightPx: Int
-        let layerClass: String
-        let layerContentsGravity: String
-        let layerContentsKey: String
-
-        var isProbablyBlank: Bool {
-            (lumaStdDev < 3.5 && modeFraction > 0.985) ||
-            (uniqueQuantized <= 6 && modeFraction > 0.95)
-        }
-    }
-
     /// Create a CGImage from the terminal's IOSurface-backed layer contents.
     ///
     /// This avoids Screen Recording permissions (unlike CGWindowListCreateImage) and is therefore
@@ -9100,56 +9080,16 @@ final class GhosttySurfaceScrollView: NSView {
         let bytesPerRow = IOSurfaceGetBytesPerRow(surfaceRef)
         if bytesPerRow <= 0 { return nil }
 
-        // Assume 4 bytes/pixel BGRA (common for IOSurfaceLayer contents).
-        let bytesPerPixel = 4
-        let step = 6
-
-        var hist = [UInt16: Int]()
-        hist.reserveCapacity(256)
-
-        var lumas = [Double]()
-        lumas.reserveCapacity(((x1 - x0) / step) * ((y1 - y0) / step))
-
-        var count = 0
-        var fnv: UInt64 = 1469598103934665603
-
-        for y in stride(from: y0, to: y1, by: step) {
-            let row = base.advanced(by: y * bytesPerRow)
-            for x in stride(from: x0, to: x1, by: step) {
-                let p = row.advanced(by: x * bytesPerPixel)
-                let b = Double(p.load(fromByteOffset: 0, as: UInt8.self))
-                let g = Double(p.load(fromByteOffset: 1, as: UInt8.self))
-                let r = Double(p.load(fromByteOffset: 2, as: UInt8.self))
-                let luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
-                lumas.append(luma)
-
-                let rq = UInt16(UInt8(r) >> 4)
-                let gq = UInt16(UInt8(g) >> 4)
-                let bq = UInt16(UInt8(b) >> 4)
-                let key = (rq << 8) | (gq << 4) | bq
-                hist[key, default: 0] += 1
-                count += 1
-
-                let lq = UInt8(max(0, min(63, Int(luma / 4.0))))
-                fnv ^= UInt64(lq)
-                fnv &*= 1099511628211
-            }
-        }
-
-        guard count > 0 else { return nil }
-        let mean = lumas.reduce(0.0, +) / Double(lumas.count)
-        let variance = lumas.reduce(0.0) { $0 + ($1 - mean) * ($1 - mean) } / Double(lumas.count)
-        let stddev = sqrt(variance)
-
-        let modeCount = hist.values.max() ?? 0
-        let modeFrac = Double(modeCount) / Double(count)
-
-        return DebugFrameSample(
-            sampleCount: count,
-            uniqueQuantized: hist.count,
-            lumaStdDev: stddev,
-            modeFraction: modeFrac,
-            fingerprint: fnv,
+        // The IOSurface lock/cast, layer geometry, and crop->pixel clamping stay
+        // here; the pure pixel-statistics core (histogram, luma mean/std,
+        // fingerprint) lives in CmuxTerminalCore's DebugFrameSample.analyze.
+        return DebugFrameSample.analyze(
+            base: base,
+            bytesPerRow: bytesPerRow,
+            x0: x0,
+            y0: y0,
+            x1: x1,
+            y1: y1,
             iosurfaceWidthPx: width,
             iosurfaceHeightPx: height,
             expectedWidthPx: expectedWidthPx,

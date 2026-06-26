@@ -1041,6 +1041,7 @@
 		A11EAD000000000000000000 /* WorkspaceAppearanceResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11EAD000000000000000001 /* WorkspaceAppearanceResolution.swift */; };
 		A5F0C0010000000000000002 /* WorkspaceAttentionFlashRingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F0C0010000000000000001 /* WorkspaceAttentionFlashRingView.swift */; };
 		CA52B0160000000000000000 /* WorkspaceCanvasHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0160000000000000000 /* WorkspaceCanvasHostView.swift */; };
+		C0DEC10F00000000000C0001 /* WorkspaceCloseConfirmationPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC10F00000000000C0002 /* WorkspaceCloseConfirmationPresenter.swift */; };
 		D7AB3605C10DEF0000000003 /* WorkspaceCloseTabsBatching.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB3605C10DEF0000000004 /* WorkspaceCloseTabsBatching.swift */; };
 		D7AB3605C10DEF0000000001 /* WorkspaceCloseTabsContextMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB3605C10DEF0000000002 /* WorkspaceCloseTabsContextMenuTests.swift */; };
 		A5001407 /* WorkspaceContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001417 /* WorkspaceContentView.swift */; };
@@ -2127,6 +2128,7 @@
 		A11EAD000000000000000001 /* WorkspaceAppearanceResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceAppearanceResolution.swift; sourceTree = "<group>"; };
 		A5F0C0010000000000000001 /* WorkspaceAttentionFlashRingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/WorkspaceAttentionFlashRingView.swift; sourceTree = "<group>"; };
 		CA52C0160000000000000000 /* WorkspaceCanvasHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceCanvasHostView.swift"; sourceTree = "<group>"; };
+		C0DEC10F00000000000C0002 /* WorkspaceCloseConfirmationPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCloseConfirmationPresenter.swift; sourceTree = "<group>"; };
 		D7AB3605C10DEF0000000004 /* WorkspaceCloseTabsBatching.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCloseTabsBatching.swift; sourceTree = "<group>"; };
 		D7AB3605C10DEF0000000002 /* WorkspaceCloseTabsContextMenuTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCloseTabsContextMenuTests.swift; sourceTree = "<group>"; };
 		A5001417 /* WorkspaceContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentView.swift; sourceTree = "<group>"; };
@@ -2593,6 +2595,7 @@
 				C0DEF0B10000000000000002 /* JSONCParser.swift */,
 				A50012F4 /* KeyboardLayout.swift */,
 				A5001013 /* TabManager.swift */,
+				C0DEC10F00000000000C0002 /* WorkspaceCloseConfirmationPresenter.swift */,
 				C5B6A10000000000000000B2 /* TabManager+SidebarGitHosting.swift */,
 				F0C05170000000000000001 /* FocusHistory.swift */,
 				C0DEFB100000000000000002 /* FocusSurfaceBroadcaster.swift */,
@@ -4481,6 +4484,7 @@
 				A11EAD000000000000000000 /* WorkspaceAppearanceResolution.swift in Sources */,
 				A5F0C0010000000000000002 /* WorkspaceAttentionFlashRingView.swift in Sources */,
 				CA52B0160000000000000000 /* WorkspaceCanvasHostView.swift in Sources */,
+				C0DEC10F00000000000C0001 /* WorkspaceCloseConfirmationPresenter.swift in Sources */,
 				D7AB3605C10DEF0000000003 /* WorkspaceCloseTabsBatching.swift in Sources */,
 				A5001407 /* WorkspaceContentView.swift in Sources */,
 				D7C6F5050000000000000000 /* WorkspaceCurrentDirectorySubscription.swift in Sources */,

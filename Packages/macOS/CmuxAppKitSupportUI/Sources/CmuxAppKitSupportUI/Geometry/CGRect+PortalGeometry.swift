@@ -1,6 +1,16 @@
 public import AppKit
 
 extension CGRect {
+    /// Whether every origin and size component is finite (not NaN or infinite).
+    /// Portal geometry methods gate frame math on this so a non-finite anchor
+    /// conversion never propagates into Auto Layout or layer frames.
+    public var hasFiniteComponents: Bool {
+        origin.x.isFinite &&
+            origin.y.isFinite &&
+            size.width.isFinite &&
+            size.height.isFinite
+    }
+
     /// Whether `self` and `other` are equal within `epsilon` on every origin and
     /// size component. Callers pass the tolerance explicitly so each comparison
     /// site keeps its own intended slack.
