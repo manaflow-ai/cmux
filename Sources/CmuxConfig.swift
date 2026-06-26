@@ -4,6 +4,9 @@ import Combine
 import CryptoKit
 import Foundation
 import CmuxSettings
+import OSLog
+
+nonisolated private let cmuxConfigLogger = Logger(subsystem: "com.cmuxterm.app", category: "CmuxConfig")
 
 extension CodingUserInfoKey {
     static let cmuxWorkspaceColorDefaults = CodingUserInfoKey(rawValue: "cmuxWorkspaceColorDefaults")!
@@ -2484,7 +2487,9 @@ final class CmuxConfigStore: ObservableObject {
         var seenNames = Set<String>()
         return profiles.compactMap { profile in
             guard seenNames.insert(profile.name).inserted else {
-                NSLog("[CmuxConfig] workspaceProfiles ignored duplicate profile '%@'", profile.name)
+                cmuxConfigLogger.warning(
+                    "[CmuxConfig] workspaceProfiles ignored duplicate profile '\(profile.name, privacy: .public)'"
+                )
                 return nil
             }
             let resolvedCwd = Self.normalizeAbsolutePath(Self.resolveCwd(profile.cwd, relativeTo: baseCwd))
