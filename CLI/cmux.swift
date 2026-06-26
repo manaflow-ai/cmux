@@ -1219,7 +1219,7 @@ final class ClaudeHookSessionStore {
                     }
                 }
 
-                if requireLiveProcess, !Self.processExists(record.pid) {
+                if requireLiveProcess, !Self.processIsLiveForSession(pid: record.pid, updatedAt: record.updatedAt) {
                     record.runtimeStatus = nil
                     record.updatedAt = now
                     state.sessions[sessionId] = record
@@ -1234,12 +1234,76 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    private static func processExists(_ pid: Int?) -> Bool {
+    func surfaceHasEarlierLiveOwner(
+        workspaceId: String,
+        surfaceId: String,
+        incomingSessionId: String?
+    ) throws -> Bool {
+        guard let normalizedWorkspace = normalizeOptional(workspaceId),
+              let normalizedSurface = normalizeOptional(surfaceId) else {
+            return false
+        }
+        let incoming = normalizeOptional(incomingSessionId)
+        return try withLockedState { state in
+            let incomingStartedAt = incoming.flatMap { state.sessions[$0]?.startedAt }
+            let now = Date().timeIntervalSince1970
+
+            for sessionId in Array(state.sessions.keys) {
+                guard var record = state.sessions[sessionId] else { continue }
+                guard record.sessionId != incoming,
+                      normalizeOptional(record.workspaceId) == normalizedWorkspace,
+                      normalizeOptional(record.surfaceId) == normalizedSurface,
+                      Self.runtimeStatusOwnsSurface(record.runtimeStatus) else {
+                    continue
+                }
+                if let incomingStartedAt, record.startedAt > incomingStartedAt {
+                    continue
+                }
+                if !Self.processIsLiveForSession(pid: record.pid, updatedAt: record.updatedAt) {
+                    record.runtimeStatus = nil
+                    record.updatedAt = now
+                    state.sessions[sessionId] = record
+                    continue
+                }
+                return true
+            }
+
+            return false
+        }
+    }
+
+    private static func runtimeStatusOwnsSurface(_ status: AgentHookRuntimeStatus?) -> Bool {
+        status == .running || status == .needsInput
+    }
+
+    private static func processIsLiveForSession(pid: Int?, updatedAt: TimeInterval?) -> Bool {
         guard let pid, pid > 0 else { return false }
+        let processExists: Bool
         if kill(pid_t(pid), 0) == 0 {
+            processExists = true
+        } else {
+            processExists = errno == EPERM
+        }
+        guard processExists else { return false }
+        guard let updatedAt,
+              let startedAt = processStartTime(pid: pid) else {
             return true
         }
-        return errno == EPERM
+        return startedAt <= updatedAt
+    }
+
+    private static func processStartTime(pid: Int) -> TimeInterval? {
+        guard pid > 0, pid <= Int(Int32.max) else { return nil }
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.size
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, Int32(pid)]
+        guard sysctl(&mib, u_int(mib.count), &info, &size, nil, 0) == 0,
+              size >= MemoryLayout<kinfo_proc>.size,
+              info.kp_proc.p_pid == pid_t(pid) else {
+            return nil
+        }
+        let startTime = info.kp_proc.p_un.__p_starttime
+        return TimeInterval(startTime.tv_sec) + (TimeInterval(startTime.tv_usec) / 1_000_000)
     }
 
     /// Returns true when an event belongs to the workspace's active Claude session.
@@ -29789,10 +29853,48 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return boundSurface
             }
 
+            func targetBlockedByEarlierLiveOwner(
+                _ target: (workspaceId: String, surfaceId: String),
+                mapped: ClaudeHookSessionRecord?
+            ) -> Bool {
+                guard explicitSurfaceFlag == nil else { return false }
+                guard processBinding() == nil else { return false }
+                let currentPID = mapped?.pid ?? inferredPID
+                guard !shouldSuppressNestedAgentVisibleMutations(currentAgentPID: currentPID, env: env) else {
+                    return false
+                }
+                let blocked = (try? store.surfaceHasEarlierLiveOwner(
+                    workspaceId: target.workspaceId,
+                    surfaceId: target.surfaceId,
+                    incomingSessionId: sessionId
+                )) == true
+#if DEBUG
+                if blocked {
+                    agentHookDebugLog(
+                        "agentHook.target.nil agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) reason=earlierLiveSurfaceOwner workspace=\(agentHookDebugShort(target.workspaceId)) surface=\(agentHookDebugShort(target.surfaceId))",
+                        socketPath: client.socketPath,
+                        env: env
+                    )
+                }
+#endif
+                return blocked
+            }
+
+            func targetUnlessBlockedByEarlierLiveOwner(
+                _ target: (workspaceId: String, surfaceId: String)?,
+                mapped: ClaudeHookSessionRecord?
+            ) -> (workspaceId: String, surfaceId: String)? {
+                guard let target else { return nil }
+                return targetBlockedByEarlierLiveOwner(target, mapped: mapped) ? nil : target
+            }
+
             if let workspaceId = resolvedDirectWorkspaceArg {
                 let preferredSurfaceId = correctedDirectSurfaceId(workspaceId: workspaceId)
                     ?? (hookWsFlag == nil ? processBinding()?.surfaceId : nil)
-                let target = resolveTarget(workspaceId: workspaceId, preferredSurfaceId: preferredSurfaceId, mapped: mapped)
+                let target = targetUnlessBlockedByEarlierLiveOwner(
+                    resolveTarget(workspaceId: workspaceId, preferredSurfaceId: preferredSurfaceId, mapped: mapped),
+                    mapped: mapped
+                )
 #if DEBUG
                 agentHookDebugLog(
                     "agentHook.target.\(target == nil ? "nil" : "resolved") agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=direct workspace=\(agentHookDebugShort(target?.workspaceId ?? workspaceId)) surface=\(agentHookDebugShort(target?.surfaceId)) mapped=\(mapped == nil ? 0 : 1)",
@@ -29805,9 +29907,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
             let binding = processBinding()
             if let workspaceId = resolveAccessibleWorkspaceId(binding?.workspaceId),
-               let target = resolveTarget(
-                   workspaceId: workspaceId,
-                   preferredSurfaceId: binding?.surfaceId,
+               let target = targetUnlessBlockedByEarlierLiveOwner(
+                   resolveTarget(
+                       workspaceId: workspaceId,
+                       preferredSurfaceId: binding?.surfaceId,
+                       mapped: mapped
+                   ),
                    mapped: mapped
                ) {
 #if DEBUG
@@ -29830,7 +29935,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 #endif
                 return nil
             }
-            let target = resolveTarget(workspaceId: workspaceId, preferredSurfaceId: nil, mapped: mapped)
+            let target = targetUnlessBlockedByEarlierLiveOwner(
+                resolveTarget(workspaceId: workspaceId, preferredSurfaceId: nil, mapped: mapped),
+                mapped: mapped
+            )
 #if DEBUG
             agentHookDebugLog(
                 "agentHook.target.\(target == nil ? "nil" : "resolved") agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=mapped workspace=\(agentHookDebugShort(target?.workspaceId ?? workspaceId)) surface=\(agentHookDebugShort(target?.surfaceId)) mapped=\(mapped == nil ? 0 : 1)",

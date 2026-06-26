@@ -3738,6 +3738,128 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
     }
 
+    func testCodexHookWithoutTTYCanRouteWhenSurfaceOwnerIsStoppedOrRecycled() throws {
+        let cliPath = try bundledCLIPath()
+
+        for ownerCase in [("idle", false), ("running", true)] {
+            let socketPath = makeSocketPath("codex-take")
+            let listenerFD = try bindUnixSocket(at: socketPath)
+            let state = MockSocketServerState()
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-codex-take-\(ownerCase.0)-\(UUID().uuidString)", isDirectory: true)
+            let workspaceId = "11111111-1111-1111-1111-111111111111"
+            let surfaceId = "22222222-2222-2222-2222-222222222222"
+            let ownerSessionId = "codex-takeover-owner-\(ownerCase.0)-session"
+            let newcomerSessionId = "codex-takeover-new-\(ownerCase.0)-session"
+
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            let ownerProcess = Process()
+            ownerProcess.executableURL = URL(fileURLWithPath: "/bin/sleep")
+            ownerProcess.arguments = ["30"]
+            try ownerProcess.run()
+            defer {
+                if ownerProcess.isRunning {
+                    ownerProcess.terminate()
+                    ownerProcess.waitUntilExit()
+                }
+                Darwin.close(listenerFD)
+                unlink(socketPath)
+                try? FileManager.default.removeItem(at: root)
+            }
+
+            let now = Date().timeIntervalSince1970
+            let ownerUpdatedAt = ownerCase.1 ? now - 60 : now
+            let store: [String: Any] = [
+                "version": 1,
+                "sessions": [
+                    ownerSessionId: [
+                        "sessionId": ownerSessionId,
+                        "workspaceId": workspaceId,
+                        "surfaceId": surfaceId,
+                        "cwd": root.path,
+                        "pid": Int(ownerProcess.processIdentifier),
+                        "runtimeStatus": ownerCase.0,
+                        "agentLifecycle": ownerCase.0,
+                        "startedAt": ownerUpdatedAt - 10,
+                        "updatedAt": ownerUpdatedAt,
+                    ],
+                ],
+            ]
+            try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+                .write(to: root.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+
+            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                guard let payload = self.jsonObject(line) else { return "OK" }
+                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+                }
+                switch method {
+                case "surface.list":
+                    return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                case "debug.terminals":
+                    return self.v2Response(id: id, ok: true, result: ["terminals": []])
+                case "system.top":
+                    return self.v2Response(id: id, ok: true, result: ["windows": []])
+                case "surface.resume.set":
+                    return self.v2Response(id: id, ok: true, result: ["ok": true])
+                case "feed.push":
+                    return self.v2Response(id: id, ok: true, result: [:])
+                default:
+                    return self.v2Response(
+                        id: id, ok: false,
+                        error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
+                    )
+                }
+            }
+
+            var environment = ProcessInfo.processInfo.environment
+            environment["HOME"] = root.path
+            environment["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+            environment["PWD"] = root.path
+            environment["CMUX_SOCKET_PATH"] = socketPath
+            environment["CMUX_WORKSPACE_ID"] = workspaceId
+            environment["CMUX_SURFACE_ID"] = surfaceId
+            environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+            environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+            environment["CMUX_CODEX_PID"] = "\(Int(Darwin.getpid()))"
+            environment["CMUX_AGENT_LAUNCH_KIND"] = "codex"
+            environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/codex"
+            environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
+            environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated(["/usr/local/bin/codex"])
+            for key in ["CMUX_CLI_TTY_NAME", "CMUX_TTY_NAME", "TTY", "SSH_TTY"] {
+                environment.removeValue(forKey: key)
+            }
+
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "codex", "prompt-submit"],
+                environment: environment,
+                standardInput: #"{"session_id":"\#(newcomerSessionId)","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
+                timeout: 5
+            )
+
+            wait(for: [serverHandled], timeout: 5)
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+
+            let resumeRequests = state.snapshot().compactMap { command -> [String: Any]? in
+                guard let payload = self.jsonObject(command),
+                      payload["method"] as? String == "surface.resume.set" else { return nil }
+                return payload["params"] as? [String: Any]
+            }
+            let params = try XCTUnwrap(
+                resumeRequests.last,
+                "stopped or recycled owner should not block no-TTY takeover; saw \(state.snapshot())"
+            )
+            XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+            XCTAssertEqual(params["checkpoint_id"] as? String, newcomerSessionId)
+            XCTAssertTrue(
+                state.snapshot().contains { $0.hasPrefix("set_agent_pid codex.\(newcomerSessionId) ") },
+                "takeover should route newcomer PID after stopped/recycled owner: \(state.snapshot())"
+            )
+        }
+    }
+
     /// `codex exec` (and `review`, `login`, …) are non-restorable: AgentLaunchSanitizer rejects their
     /// argv so they never get a resume/fork binding. The CODEX_HOME env-only fallback must NOT bypass
     /// that — a captured-but-rejected argv keeps returning nil even when CODEX_HOME is present, so no
