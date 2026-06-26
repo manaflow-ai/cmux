@@ -4871,6 +4871,26 @@ final class BrowserPanel: Panel, ObservableObject {
         return value.caseInsensitiveCompare("about:blank") == .orderedSame
     }
 
+    /// A scripted `window.open()` / `window.open("about:blank")` with no destination
+    /// URL is the deferred-navigation popup pattern: the page keeps the returned
+    /// window handle and later sets `popup.location.href` (often asynchronously, to
+    /// dodge popup blockers). Returning a live popup web view is the only way to
+    /// preserve that handle — falling back to a new tab makes `window.open()` return
+    /// `null`, which silently breaks flows like VS Code Web's GitHub / Settings Sync
+    /// auth popup (https://github.com/manaflow-ai/cmux/issues/6649): the first attempt
+    /// shows `about:blank` and the auth navigation never happens.
+    ///
+    /// Window features are intentionally NOT required here: the deferred pattern
+    /// usually omits them, so `browserNavigationShouldCreatePopup` alone would route
+    /// it to a tab. Bare `_blank` links with a real destination URL still fall
+    /// through to tabs because they are not blank-targeted.
+    nonisolated static func shouldCreateBlankScriptedPopup(
+        navigationType: WKNavigationType,
+        requestURL: URL?
+    ) -> Bool {
+        navigationType == .other && isBlankBrowserPageURL(requestURL)
+    }
+
     nonisolated static func isBlankBrowserPage(
         liveURL: URL?,
         currentURL: URL?,
@@ -8439,26 +8459,6 @@ func browserNavigationShouldFallbackNilTargetToNewTab(
     navigationType != .other
 }
 
-/// A scripted `window.open()` / `window.open("about:blank")` with no destination
-/// URL is the deferred-navigation popup pattern: the page keeps the returned
-/// window handle and later sets `popup.location.href` (often asynchronously, to
-/// dodge popup blockers). Returning a live popup web view is the only way to
-/// preserve that handle — falling back to a new tab makes `window.open()` return
-/// `null`, which silently breaks flows like VS Code Web's GitHub / Settings Sync
-/// auth popup (https://github.com/manaflow-ai/cmux/issues/6649): the first attempt
-/// shows `about:blank` and the auth navigation never happens.
-///
-/// `popupFeaturesWereSpecified` is intentionally NOT required here: the deferred
-/// pattern usually omits window features, so `browserNavigationShouldCreatePopup`
-/// alone would route it to a tab. Bare `_blank` links with a real destination URL
-/// still fall through to tabs because they are not blank-targeted.
-func browserNavigationShouldCreateBlankScriptedPopup(
-    navigationType: WKNavigationType,
-    requestURL: URL?
-) -> Bool {
-    navigationType == .other && BrowserPanel.isBlankBrowserPageURL(requestURL)
-}
-
 func browserNavigationHasSimpleUserActivation(
     currentEventType: NSEvent.EventType? = NSApp.currentEvent?.type
 ) -> Bool {
@@ -8727,7 +8727,7 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         // deferred-navigation pattern (e.g. VS Code Web auth, #6649) and must get
         // a live popup web view even without window features, or window.open()
         // returns null and the later location.href navigation is lost.
-        let isBlankScriptedPopup = browserNavigationShouldCreateBlankScriptedPopup(
+        let isBlankScriptedPopup = BrowserPanel.shouldCreateBlankScriptedPopup(
             navigationType: navigationAction.navigationType,
             requestURL: navigationAction.request.url
         )

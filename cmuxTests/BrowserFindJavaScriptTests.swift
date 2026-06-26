@@ -109,7 +109,7 @@ import WebKit
         // though no window features were specified.
         let url = try #require(URL(string: "about:blank"))
         #expect(
-            browserNavigationShouldCreateBlankScriptedPopup(
+            BrowserPanel.shouldCreateBlankScriptedPopup(
                 navigationType: .other,
                 requestURL: url
             )
@@ -119,7 +119,7 @@ import WebKit
     @Test func testNilURLScriptedWindowOpenCreatesPopup() {
         // window.open() with no argument can surface a nil request URL.
         #expect(
-            browserNavigationShouldCreateBlankScriptedPopup(
+            BrowserPanel.shouldCreateBlankScriptedPopup(
                 navigationType: .other,
                 requestURL: nil
             )
@@ -131,7 +131,7 @@ import WebKit
         // tab navigation works; do not force it onto the blank-popup path.
         let url = try #require(URL(string: "https://example.com/"))
         #expect(
-            !browserNavigationShouldCreateBlankScriptedPopup(
+            !BrowserPanel.shouldCreateBlankScriptedPopup(
                 navigationType: .other,
                 requestURL: url
             )
@@ -143,7 +143,7 @@ import WebKit
         // must keep falling through to tab handling.
         let url = try #require(URL(string: "about:blank"))
         #expect(
-            !browserNavigationShouldCreateBlankScriptedPopup(
+            !BrowserPanel.shouldCreateBlankScriptedPopup(
                 navigationType: .linkActivated,
                 requestURL: url
             )
