@@ -128,6 +128,42 @@ import Testing
     #expect(queue.isIdle)
 }
 
+// Regression for https://github.com/manaflow-ai/cmux/issues/6358: switching a
+// workspace away and quickly back remounts the same terminal surface. Mount 2
+// installs the live output sink, but mount 1's stream teardown is deferred onto
+// the main actor. If that stale teardown unregisters unconditionally it rips out
+// mount 2's freshly-installed sink, leaving the remounted surface showing stale /
+// leftover content because it can no longer receive frames. The teardown must
+// only fire when it still owns the live registration.
+@MainActor
+@Test func remountedSurfaceSinkSurvivesStaleStreamTeardown() async {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+
+    // Mount 1: selecting the workspace attaches an output-stream sink.
+    var firstMount = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+
+    // Quick switch away-and-back remounts the SAME surface; mount 2 registers
+    // the live sink before mount 1's deferred teardown gets to run.
+    let secondMount = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+
+    // Mount 1's consuming task was cancelled by the dismantle. Dropping its
+    // iterator fires the stream's onTermination, which schedules the deferred
+    // main-actor teardown.
+    firstMount = secondMount
+
+    // Drain the deferred teardown task (it runs FIFO ahead of our own hop).
+    for _ in 0..<8 { await Task.yield() }
+    await Task { @MainActor in }.value
+
+    // The remount's sink must still be registered and able to receive frames.
+    withExtendedLifetime(firstMount) {
+        #expect(store.terminalByteContinuationsBySurfaceID[surfaceID] != nil)
+        #expect(store.terminalOutputStreamTokensBySurfaceID[surfaceID] != nil)
+        #expect(store.terminalOutputQueuesBySurfaceID[surfaceID] != nil)
+    }
+}
+
 @Test func renderGridViewportPatchIsReplaceableOnlyWhenEveryRowIsCleared() throws {
     let fullFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
         surfaceID: "terminal",
