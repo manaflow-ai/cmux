@@ -112,6 +112,9 @@ jobs:
       - name: Validate create-dmg version pinning
         run: ./tests/test_ci_create_dmg_pinned.sh
 
+      - name: Validate Homebrew cask macOS dependency syntax
+        run: ./tests/test_ci_homebrew_cask_macos_dependency.sh
+
       - name: Validate unit-test SwiftPM retry guard
         run: ./tests/test_ci_unit_test_spm_retry.sh
 
