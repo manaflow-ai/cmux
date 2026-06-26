@@ -134,7 +134,7 @@ enum FilePreviewSyntaxKeywords {
         "set", "echo", "printf", "read", "cd", "test"
     ]
 
-    static let sql: Set<String> = [
+    static let sql: Set<String> = Set([
         "add", "all", "alter", "and", "as", "asc", "begin", "between", "by", "case", "cast",
         "check", "column", "commit", "constraint", "create", "cross", "database", "default",
         "delete", "desc", "distinct", "drop", "else", "end", "exists", "foreign", "from", "full",
@@ -142,7 +142,7 @@ enum FilePreviewSyntaxKeywords {
         "left", "like", "limit", "not", "null", "on", "or", "order", "outer", "primary",
         "references", "right", "rollback", "select", "set", "table", "then", "transaction",
         "trigger", "union", "unique", "update", "using", "values", "view", "when", "where", "with"
-    ].union([
+    ]).union([
         "ADD", "ALL", "ALTER", "AND", "AS", "ASC", "BEGIN", "BETWEEN", "BY", "CASE", "CAST",
         "CHECK", "COLUMN", "COMMIT", "CONSTRAINT", "CREATE", "CROSS", "DATABASE", "DEFAULT",
         "DELETE", "DESC", "DISTINCT", "DROP", "ELSE", "END", "EXISTS", "FOREIGN", "FROM", "FULL",
