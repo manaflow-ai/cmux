@@ -5,10 +5,11 @@ import CoreGraphics
 ///
 /// The title is a screen-centered `.principal` toolbar item, so it is bound by
 /// TWICE the wider of the two side clusters (it grows symmetrically and hits the
-/// nearer side first): the leading custom back button vs the trailing terminal
-/// picker plus, when the visible tab has an agent session, the chat toggle.
-/// Reserving only that (instead of a flat, over-large constant) lets a long
-/// title use as much of the center as it safely can before truncating.
+/// nearer side first): the leading custom back button vs the trailing cluster of
+/// the always-present new-terminal "+" button and the terminal picker plus, when
+/// the visible tab has an agent session, the chat toggle. Reserving only that
+/// (instead of a flat, over-large constant) lets a long title use as much of the
+/// center as it safely can before truncating.
 struct MobileNavTitleWidth {
     private init() {}
 
@@ -17,11 +18,23 @@ struct MobileNavTitleWidth {
     static let leadingReserve: CGFloat = 84
     /// Reserved width of the trailing cluster with just the terminal picker.
     static let trailingReserveBase: CGFloat = 60
+    /// Extra width the always-present new-terminal "+" button adds to the
+    /// trailing cluster (issue #6271).
+    static let newTerminalReserve: CGFloat = 48
     /// Extra width the agent-chat toggle adds to the trailing cluster.
     static let chatToggleReserve: CGFloat = 56
     /// Fallback before the pane width has been measured.
     static let unmeasuredFallback: CGFloat = 180
     /// Never shrink the pill below this, so a tiny pane still shows some title.
+    ///
+    /// This is a deliberate readability-over-overlap floor: when the side
+    /// clusters consume the center (a narrow pane, or a 393pt phone once the
+    /// always-present "+" plus the agent-chat toggle make the trailing cluster
+    /// three buttons), the floor keeps a readable title even though the centered
+    /// pill can then exceed `contentWidth - 2 * widerSide` and slightly underlap
+    /// the bar buttons. `neverBelowFloor` and `growsMoreThanLegacyFlatReserve`
+    /// pin this priority; widening the reserve (issue #6271) reduces that overlap
+    /// versus not reserving, it does not introduce it.
     static let floor: CGFloat = 96
 
     /// Max width for the centered title pill.
@@ -30,7 +43,7 @@ struct MobileNavTitleWidth {
     ///   - hasChatToggle: Whether the trailing cluster includes the chat toggle.
     static func cap(contentWidth: CGFloat, hasChatToggle: Bool) -> CGFloat {
         guard contentWidth > 0 else { return unmeasuredFallback }
-        let trailing = trailingReserveBase + (hasChatToggle ? chatToggleReserve : 0)
+        let trailing = trailingReserveBase + newTerminalReserve + (hasChatToggle ? chatToggleReserve : 0)
         let widerSide = max(leadingReserve, trailing)
         return max(floor, contentWidth - 2 * widerSide)
     }

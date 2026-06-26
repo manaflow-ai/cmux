@@ -9,8 +9,8 @@ import Testing
     /// The regression guard: tapping the prominent "+" adds a terminal to the
     /// current workspace, never a new workspace.
     @Test func primaryAddButtonAddsTerminalToCurrentWorkspace() {
-        #expect(MobileTerminalPrimaryAddButton.affordance == .newTerminalInCurrentWorkspace)
-        #expect(MobileTerminalPrimaryAddButton.affordance != .newWorkspace)
+        #expect(MobileTerminalAddAffordance.primaryNavbarButton == .newTerminalInCurrentWorkspace)
+        #expect(MobileTerminalAddAffordance.primaryNavbarButton != .newWorkspace)
     }
 
     /// The plain "plus" must drive the primary button; the layered
@@ -20,7 +20,7 @@ import Testing
         #expect(MobileTerminalAddAffordance.newTerminalInCurrentWorkspace.systemImageName == "plus")
         #expect(MobileTerminalAddAffordance.newWorkspace.systemImageName == "plus.square.on.square")
         #expect(
-            MobileTerminalPrimaryAddButton.affordance.systemImageName
+            MobileTerminalAddAffordance.primaryNavbarButton.systemImageName
                 != MobileTerminalAddAffordance.newWorkspace.systemImageName
         )
     }

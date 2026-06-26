@@ -101,7 +101,7 @@
 905	Sources/CmuxSSHURLRequest.swift
 899	Sources/Panels/MarkdownWebRenderer.swift
 885	Sources/Panels/TerminalPanel.swift
-878	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
+883	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
 877	Packages/Shared/CmuxAgentChat/Tests/CmuxAgentChatTests/ChatConversationStoreTests.swift
 871	cmuxTests/ClaudeHookSurfaceResolutionSwiftTests.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift

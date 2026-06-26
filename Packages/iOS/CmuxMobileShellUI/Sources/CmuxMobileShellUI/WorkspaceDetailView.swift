@@ -170,6 +170,7 @@ struct WorkspaceDetailView: View {
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 chatToggleButton
+                newTerminalToolbarButton
                 terminalPickerToolbarButton
             }
         }
@@ -272,6 +273,7 @@ struct WorkspaceDetailView: View {
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 chatToggleButton
+                newTerminalToolbarButton
                 terminalPickerToolbarButton
             }
         }
@@ -424,6 +426,7 @@ struct WorkspaceDetailView: View {
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 chatToggleButton
+                newTerminalToolbarButton
                 terminalPickerToolbarButton
             }
             #else
@@ -790,7 +793,7 @@ struct WorkspaceDetailView: View {
     }
     #endif
 
-    private func createWorkspaceFromToolbar() {
+    func createWorkspaceFromToolbar() {
         guard canCreateWorkspace else { return }
         dismissTerminalKeyboardForChrome()
         createWorkspace()
@@ -837,12 +840,15 @@ struct WorkspaceDetailView: View {
     }
     #endif
 
-    private func createTerminalFromToolbar() {
+    func createTerminalFromToolbar() {
         dismissTerminalKeyboardForChrome()
-        // Creating a terminal from the (shared) chrome must surface it. If a
-        // browser pane is up, close it so `body` leaves the browser branch and
-        // shows the new terminal instead of staying on the browser.
+        // Creating a terminal from the (shared) chrome must surface it, so leave
+        // any overlay pane that would otherwise hide it: close the browser and
+        // exit agent-chat mode. `detailSurfaceContent` then falls through to the
+        // freshly-created terminal instead of staying on the browser or chat.
         browserStore.closeBrowser(for: workspace.id.rawValue)
+        isChatMode = false
+        pinnedChatSessionID = nil
         createTerminal()
     }
 

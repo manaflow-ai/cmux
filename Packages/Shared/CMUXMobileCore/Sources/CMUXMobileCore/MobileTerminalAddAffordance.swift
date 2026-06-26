@@ -13,6 +13,14 @@ public enum MobileTerminalAddAffordance: Equatable, Sendable {
     /// Create a brand-new workspace (with its own first terminal).
     case newWorkspace
 
+    /// What the prominent "+" button in the workspace terminal navbar (the slot
+    /// immediately to the left of the terminal picker) does.
+    ///
+    /// Pinned to ``newTerminalInCurrentWorkspace`` for issue #6271;
+    /// `MobileTerminalAddAffordanceTests` guards it so a refactor can't quietly
+    /// rebind it to "new workspace" again.
+    public static let primaryNavbarButton: MobileTerminalAddAffordance = .newTerminalInCurrentWorkspace
+
     /// SF Symbol for the affordance. A plain `plus` reads as "add" (matching the
     /// macOS new-tab glyph); the layered `plus.square.on.square` reads as a new
     /// stacked workspace — the very icon testers misread as "add terminal".
@@ -24,15 +32,4 @@ public enum MobileTerminalAddAffordance: Equatable, Sendable {
             return "plus.square.on.square"
         }
     }
-}
-
-/// Identity of the prominent "+" button in the mobile workspace terminal navbar
-/// (the slot immediately to the left of the terminal picker).
-///
-/// Pinned to ``MobileTerminalAddAffordance/newTerminalInCurrentWorkspace`` for
-/// issue #6271; `MobileTerminalAddAffordanceTests` guards it so a refactor can't
-/// quietly rebind it to "new workspace" again.
-public enum MobileTerminalPrimaryAddButton {
-    /// What tapping the prominent "+" does.
-    public static let affordance: MobileTerminalAddAffordance = .newWorkspace
 }
