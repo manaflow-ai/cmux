@@ -45,6 +45,7 @@ final class GPUSpinnerNSView: NSView {
     private static let animationKey = "cmux.gpuSpinner.rotation"
     private static let spokeCount = 8
     private static let cycleDuration: CFTimeInterval = 0.8
+    private static let arcDuration: CFTimeInterval = 0.9
 
     private let contentLayer = CALayer()
     private var spokeLayers: [CALayer] = []
@@ -232,6 +233,16 @@ final class GPUSpinnerNSView: NSView {
         }
     }
 
+    /// Anchors a repeating animation's `beginTime` to a shared media-clock grid
+    /// so every spinner of the same duration stays phase-locked, regardless of
+    /// when it was created, shown, or resumed after a pause. Because the anchor
+    /// is always a multiple of `duration` in the layer's time space, the phase
+    /// `(t - beginTime) mod duration` is identical across all spinners.
+    private func syncedBeginTime(duration: CFTimeInterval) -> CFTimeInterval {
+        let now = contentLayer.convertTime(CACurrentMediaTime(), from: nil)
+        return now - now.truncatingRemainder(dividingBy: duration)
+    }
+
     private func installAnimationIfNeeded() {
         guard contentLayer.animation(forKey: Self.animationKey) == nil else { return }
         switch style {
@@ -246,15 +257,17 @@ final class GPUSpinnerNSView: NSView {
             animation.duration = Self.cycleDuration
             animation.repeatCount = .infinity
             animation.isRemovedOnCompletion = false
+            animation.beginTime = syncedBeginTime(duration: Self.cycleDuration)
             contentLayer.add(animation, forKey: Self.animationKey)
         case .arc:
             let animation = CABasicAnimation(keyPath: "transform.rotation.z")
             animation.fromValue = 0
             animation.toValue = CGFloat.pi * 2
-            animation.duration = 0.9
+            animation.duration = Self.arcDuration
             animation.repeatCount = .infinity
             animation.timingFunction = CAMediaTimingFunction(name: .linear)
             animation.isRemovedOnCompletion = false
+            animation.beginTime = syncedBeginTime(duration: Self.arcDuration)
             contentLayer.add(animation, forKey: Self.animationKey)
         }
     }
