@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -9,9 +10,7 @@ import XCTest
 /// Unit tests for the pure appshot logic: the single-line prompt formatting and
 /// the 60-second recency routing decision. The capture itself (ScreenCaptureKit
 /// + Accessibility) is integration-only and exercised manually.
-final class AppshotRoutingTests: XCTestCase {
-
-    // MARK: - promptText
+@Suite struct AppshotRoutingTests {
 
     private func capture(
         app: String = "Safari",
@@ -31,70 +30,79 @@ final class AppshotRoutingTests: XCTestCase {
         )
     }
 
-    func testPromptReferencesBothFilesWhenImageAndText() throws {
-        let prompt = try XCTUnwrap(
+    // MARK: - promptText
+
+    @Test func promptReferencesBothFilesWhenImageAndText() throws {
+        let prompt = try #require(
             capture(image: "/tmp/cmux-appshots/a.png", text: "/tmp/cmux-appshots/a.txt").promptText()
         )
-        XCTAssertTrue(prompt.contains("/tmp/cmux-appshots/a.png"))
-        XCTAssertTrue(prompt.contains("/tmp/cmux-appshots/a.txt"))
-        XCTAssertTrue(prompt.contains("Safari"))
-        XCTAssertTrue(prompt.contains("Example Window"))
-        XCTAssertFalse(prompt.contains("\n"), "prompt must be a single line so a single Return submits it")
+        #expect(prompt.contains("/tmp/cmux-appshots/a.png"))
+        #expect(prompt.contains("/tmp/cmux-appshots/a.txt"))
+        #expect(prompt.contains("Safari"))
+        #expect(prompt.contains("Example Window"))
+        #expect(!prompt.contains("\n"), "prompt must be a single line")
     }
 
-    func testPromptImageOnlyShowsAccessibilityHintWhenDenied() throws {
-        let prompt = try XCTUnwrap(
+    @Test func promptImageOnlyShowsAccessibilityHintWhenDenied() throws {
+        let prompt = try #require(
             capture(image: "/tmp/a.png", text: nil, accessibilityDenied: true).promptText()
         )
-        XCTAssertTrue(prompt.contains("/tmp/a.png"))
-        XCTAssertFalse(prompt.contains(".txt"))
-        XCTAssertTrue(prompt.localizedCaseInsensitiveContains("Accessibility"))
-        XCTAssertFalse(prompt.contains("\n"))
+        #expect(prompt.contains("/tmp/a.png"))
+        #expect(!prompt.contains(".txt"))
+        #expect(prompt.localizedCaseInsensitiveContains("Accessibility"))
+        #expect(!prompt.contains("\n"))
     }
 
-    func testPromptImageOnlyOmitsHintWhenAccessibilityWasGranted() throws {
+    @Test func promptImageOnlyOmitsHintWhenAccessibilityWasGranted() throws {
         // Accessibility granted but the app exposed no readable text.
-        let prompt = try XCTUnwrap(
+        let prompt = try #require(
             capture(image: "/tmp/a.png", text: nil, accessibilityDenied: false).promptText()
         )
-        XCTAssertFalse(prompt.contains("Grant cmux Accessibility"))
+        #expect(!prompt.contains("Grant cmux Accessibility"))
     }
 
-    func testPromptTextOnlyShowsScreenRecordingHintWhenDenied() throws {
-        let prompt = try XCTUnwrap(
+    @Test func promptTextOnlyShowsScreenRecordingHintWhenDenied() throws {
+        let prompt = try #require(
             capture(image: nil, text: "/tmp/a.txt", screenRecordingDenied: true).promptText()
         )
-        XCTAssertTrue(prompt.contains("/tmp/a.txt"))
-        XCTAssertTrue(prompt.localizedCaseInsensitiveContains("Screen Recording"))
-        XCTAssertFalse(prompt.contains("\n"))
+        #expect(prompt.contains("/tmp/a.txt"))
+        #expect(prompt.localizedCaseInsensitiveContains("Screen Recording"))
+        #expect(!prompt.contains("\n"))
     }
 
-    func testPromptIsNilWhenNothingCaptured() {
-        XCTAssertNil(capture(image: nil, text: nil).promptText())
+    @Test func promptFramesCapturedFilesAsUntrusted() throws {
+        let prompt = try #require(
+            capture(image: "/tmp/a.png", text: "/tmp/a.txt").promptText()
+        )
+        #expect(prompt.localizedCaseInsensitiveContains("untrusted"))
     }
 
-    func testPromptCollapsesMultilineTitleToSingleLine() throws {
-        let prompt = try XCTUnwrap(
+    @Test func promptIsNilWhenNothingCaptured() {
+        #expect(capture(image: nil, text: nil).promptText() == nil)
+    }
+
+    @Test func promptCollapsesMultilineTitleToSingleLine() throws {
+        let prompt = try #require(
             capture(title: "Line1\nLine2\nLine3", image: "/tmp/a.png", text: "/tmp/a.txt").promptText()
         )
-        XCTAssertFalse(prompt.contains("\n"))
-        XCTAssertTrue(prompt.contains("Line1 Line2 Line3"))
+        #expect(!prompt.contains("\n"))
+        #expect(prompt.contains("Line1 Line2 Line3"))
     }
 
-    func testPromptStripsControlCharactersFromHostileTitle() throws {
+    @Test func promptStripsControlCharactersFromHostileTitle() throws {
         // A hostile window title (e.g. a web page can set its title) must not
         // smuggle a terminal escape sequence into the staged single-line prompt.
-        let prompt = try XCTUnwrap(
+        let prompt = try #require(
             capture(title: "Tab\u{1B}[31mEvil\u{07}\u{08}", image: "/tmp/a.png", text: "/tmp/a.txt").promptText()
         )
-        XCTAssertFalse(prompt.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) })
-        XCTAssertFalse(prompt.contains("\n"))
-        XCTAssertTrue(prompt.contains("/tmp/a.png"))
+        #expect(!prompt.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) })
+        #expect(!prompt.contains("\n"))
+        #expect(prompt.contains("/tmp/a.png"))
     }
 
     // MARK: - routing
 
-    func testRoutesToLastRouteWithinWindowWhenSurfaceExists() {
+    @Test func routesToLastRouteWithinWindowWhenSurfaceExists() {
         let workspace = UUID()
         let panel = UUID()
         let now = Date()
@@ -104,10 +112,10 @@ final class AppshotRoutingTests: XCTestCase {
         let route = AppshotRouteResolver.resolve(
             now: now, state: state, lastRouteSurfaceExists: true, lastInteractiveSurfaceExists: false
         )
-        XCTAssertEqual(route, .append(workspaceId: workspace, panelId: panel))
+        #expect(route == .append(workspaceId: workspace, panelId: panel))
     }
 
-    func testLastRouteWinsOverInteractiveAgentSoConsecutiveAppshotsStack() {
+    @Test func lastRouteWinsOverInteractiveAgentSoConsecutiveAppshotsStack() {
         let routed = (workspace: UUID(), panel: UUID())
         let interactive = (workspace: UUID(), panel: UUID())
         let now = Date()
@@ -118,10 +126,10 @@ final class AppshotRoutingTests: XCTestCase {
         let route = AppshotRouteResolver.resolve(
             now: now, state: state, lastRouteSurfaceExists: true, lastInteractiveSurfaceExists: true
         )
-        XCTAssertEqual(route, .append(workspaceId: routed.workspace, panelId: routed.panel))
+        #expect(route == .append(workspaceId: routed.workspace, panelId: routed.panel))
     }
 
-    func testFallsThroughToInteractiveAgentWhenLastRouteIsStale() {
+    @Test func fallsThroughToInteractiveAgentWhenLastRouteIsStale() {
         let interactive = (workspace: UUID(), panel: UUID())
         let now = Date()
         let state = AppshotRoutingState(
@@ -131,10 +139,10 @@ final class AppshotRoutingTests: XCTestCase {
         let route = AppshotRouteResolver.resolve(
             now: now, state: state, lastRouteSurfaceExists: true, lastInteractiveSurfaceExists: true
         )
-        XCTAssertEqual(route, .append(workspaceId: interactive.workspace, panelId: interactive.panel))
+        #expect(route == .append(workspaceId: interactive.workspace, panelId: interactive.panel))
     }
 
-    func testNewThreadWhenEverythingIsStale() {
+    @Test func newThreadWhenEverythingIsStale() {
         let now = Date()
         let state = AppshotRoutingState(
             lastRoute: AppshotAgentRef(workspaceId: UUID(), panelId: UUID(), at: now.addingTimeInterval(-200)),
@@ -143,10 +151,10 @@ final class AppshotRoutingTests: XCTestCase {
         let route = AppshotRouteResolver.resolve(
             now: now, state: state, lastRouteSurfaceExists: true, lastInteractiveSurfaceExists: true
         )
-        XCTAssertEqual(route, .newThread)
+        #expect(route == .newThread)
     }
 
-    func testNewThreadWhenRecentTargetNoLongerExists() {
+    @Test func newThreadWhenRecentTargetNoLongerExists() {
         let now = Date()
         let state = AppshotRoutingState(
             lastRoute: AppshotAgentRef(workspaceId: UUID(), panelId: UUID(), at: now.addingTimeInterval(-5))
@@ -154,17 +162,17 @@ final class AppshotRoutingTests: XCTestCase {
         let route = AppshotRouteResolver.resolve(
             now: now, state: state, lastRouteSurfaceExists: false, lastInteractiveSurfaceExists: false
         )
-        XCTAssertEqual(route, .newThread)
+        #expect(route == .newThread)
     }
 
-    func testNewThreadWhenStateIsEmpty() {
+    @Test func newThreadWhenStateIsEmpty() {
         let route = AppshotRouteResolver.resolve(
             now: Date(), state: AppshotRoutingState(), lastRouteSurfaceExists: false, lastInteractiveSurfaceExists: false
         )
-        XCTAssertEqual(route, .newThread)
+        #expect(route == .newThread)
     }
 
-    func testRecencyBoundaryIsInclusive() {
+    @Test func recencyBoundaryIsInclusive() {
         let workspace = UUID()
         let panel = UUID()
         let now = Date()
@@ -174,6 +182,6 @@ final class AppshotRoutingTests: XCTestCase {
         let route = AppshotRouteResolver.resolve(
             now: now, window: 60, state: state, lastRouteSurfaceExists: true, lastInteractiveSurfaceExists: false
         )
-        XCTAssertEqual(route, .append(workspaceId: workspace, panelId: panel))
+        #expect(route == .append(workspaceId: workspace, panelId: panel))
     }
 }

@@ -352,12 +352,17 @@ enum AppshotCapturer {
         nodesVisited += 1
 
         for attribute in [kAXValueAttribute, kAXTitleAttribute, kAXDescriptionAttribute] {
+            guard charCount < maxAccessibilityChars else { return }
             guard let raw = copyString(element, attribute) else { continue }
-            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Clamp to the remaining budget BEFORE trimming/deduping/appending so a
+            // single huge AX value (e.g. a whole document in `kAXValueAttribute`)
+            // can't blow the cap or be retained in full on this hotkey path.
+            let remaining = maxAccessibilityChars - charCount
+            let bounded = raw.count > remaining ? String(raw.prefix(remaining)) : raw
+            let trimmed = bounded.trimmingCharacters(in: .whitespacesAndNewlines)
             guard trimmed.count > 1, seen.insert(trimmed).inserted else { continue }
             pieces.append(trimmed)
             charCount += trimmed.count
-            if charCount >= maxAccessibilityChars { return }
         }
 
         guard let children = copyElements(element, kAXChildrenAttribute) else { return }
