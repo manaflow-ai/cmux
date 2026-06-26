@@ -359,9 +359,8 @@ public struct KeyboardShortcutsSection: View {
             // Two bindings on the same keystroke only collide when some focus
             // state activates both effective `when` clauses AND router priority
             // cannot decide the overlap. Context-disjoint clauses coexist.
-            // Priority-routed sidebar mode shortcuts win their context
-            // outright so the factory Select Workspace ⌃1…9 coexists with the
-            // sidebar's ⌃1…5 — matching the app target's authoritative check.
+            // Priority-routed sidebar mode shortcuts win their context outright
+            // so Select Workspace ⌃1…9 coexists with the sidebar's ⌃1…5.
             guard ShortcutWhenClause.bindingsCollide(
                 proposedClause,
                 lhsHasPriority: action.hasPriorityShortcutRouting,
