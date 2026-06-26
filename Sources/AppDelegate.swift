@@ -13141,6 +13141,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // Focused browser web content owns document-editing command equivalents
+        // (copy/cut/select-all/italic). Yield them so e.g. Cmd+I italicizes in web
+        // writing apps (Notion, Google Docs, …) instead of opening Show
+        // Notifications. This special-cases only the editing collision: the action
+        // stays generally available, so non-colliding custom bindings (e.g.
+        // Cmd+Shift+I) still open notifications from a browser pane, and the URL bar
+        // is excluded since italics is meaningless there (issue #6776).
+        if !hasFocusedAddressBarInShortcutContext,
+           shortcutEventFocusContext(event).browserPanel != nil,
+           shouldRouteBrowserDocumentEditingCommandEquivalentThroughWebContentFirst(event) {
+            return false
+        }
+
         if !hasFocusedAddressBarInShortcutContext,
            shouldRouteInlineVSCodeCommandPaletteShortcutThroughWebContentFirst(
                event,

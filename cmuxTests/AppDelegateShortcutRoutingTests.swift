@@ -12090,9 +12090,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testShowNotificationsShortcutYieldsToFocusedBrowserPane() {
-        // With a browser pane focused, Cmd+I must no longer match the Show
-        // Notifications shortcut, so the keystroke falls through to the focused web
-        // view and writing apps (Notion, Google Docs, …) can italicize (issue #6776).
+        // With a browser pane focused, app shortcut routing must yield Cmd+I (a
+        // browser document-editing command) so the keystroke reaches the focused
+        // web view and writing apps (Notion, Google Docs, …) can italicize. The
+        // action stays generally available — only the editing collision yields
+        // (issue #6776).
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -12112,16 +12114,48 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
 #if DEBUG
         XCTAssertFalse(
-            appDelegate.debugMatchesConfiguredShortcut(event: event, action: .showNotifications),
-            "Cmd+I must not match Show Notifications while a browser pane is focused"
-        )
-        XCTAssertFalse(
             appDelegate.debugHandleCustomShortcut(event: event),
             "Cmd+I must not be captured by app shortcut routing while a browser pane is focused"
         )
 #else
         XCTFail("debug shortcut hooks are only available in DEBUG")
 #endif
+    }
+
+    func testCustomShowNotificationsBindingStillFiresInFocusedBrowserPane() {
+        // Regression guard: special-casing the Cmd+I collision must not disable the
+        // whole action in browser panes. A non-colliding custom binding (Cmd+Shift+I)
+        // still opens Show Notifications from a focused browser pane (issue #6776).
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+        guard let harness = makeBrowserFocusModeHarness() else { return }
+        defer { closeWindow(withId: harness.windowId) }
+
+        guard let event = makeKeyDownEvent(
+            key: "i",
+            modifiers: [.command, .shift],
+            keyCode: 34, // kVK_ANSI_I
+            windowNumber: harness.window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+Shift+I event")
+            return
+        }
+
+        withTemporaryShortcut(
+            action: .showNotifications,
+            shortcut: StoredShortcut(key: "i", command: true, shift: true, option: false, control: false)
+        ) {
+#if DEBUG
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: event),
+                "A non-colliding custom Show Notifications binding must still fire in a browser pane"
+            )
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
     }
 
     func testBrowserPaneCmdISkipsShowNotificationsAppMenuFallback() {

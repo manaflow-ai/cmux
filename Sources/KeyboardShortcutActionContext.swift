@@ -103,14 +103,6 @@ extension KeyboardShortcutSettings.Action {
             return .rightSidebarFocus
         case .renameTab, .renameWorkspace, .sendCtrlFToTerminal, .clearScreenKeepScrollback:
             return .nonBrowserPanel
-        case .showNotifications:
-            // Cmd+I is the standard italics keybinding in web writing apps (Notion,
-            // Google Docs, VS Code, …). Scope Show Notifications outside browser
-            // panels so the keystroke reaches focused web content for italics
-            // instead of being captured here. The notifications bell and command
-            // palette still open it, and it keeps firing from terminal/app focus
-            // (issue #6776).
-            return .nonBrowserPanel
         case .browserBack, .browserForward, .browserReload, .browserHardReload,
              .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole, .browserZoomIn,
              .browserZoomOut, .browserZoomReset, .toggleBrowserFocusMode:
