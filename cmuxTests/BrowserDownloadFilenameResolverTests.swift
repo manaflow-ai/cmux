@@ -263,6 +263,33 @@ import WebKit
     }
 
     @MainActor
+    @Test func sessionDownloadBridgePostsAutomationEvents() throws {
+        let panel = BrowserPanel(workspaceId: UUID(), renderInitialNavigation: false)
+        let capture = BrowserDownloadEventCapture()
+        let observer = NotificationCenter.default.addObserver(
+            forName: .browserDownloadEventDidArrive,
+            object: panel,
+            queue: nil
+        ) { notification in
+            capture.append(notification)
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        panel.webView.onSessionDownloadEvent?([
+            "type": "saved",
+            "download_id": "session-download-1",
+            "filename": "report.csv",
+            "path": "/tmp/report.csv",
+        ])
+
+        let events = capture.snapshot()
+        try #require(events.count == 1)
+        #expect(events[0]["type"] as? String == "saved")
+        #expect(events[0]["download_id"] as? String == "session-download-1")
+        #expect(events[0]["path"] as? String == "/tmp/report.csv")
+    }
+
+    @MainActor
     @Test func promptedDownloadSavePanelSkipsHiddenPreloadWindow() throws {
         let panel = BrowserPanel(
             workspaceId: UUID(),

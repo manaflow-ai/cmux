@@ -350,6 +350,16 @@ import WebKit
             .value(forHTTPHeaderField: "Content-Disposition")
         let allowsSubframeDownload = navigationResponse.isForMainFrame
             || subframeDownloadIntents.consume(for: navigationResponse.response.url)
+        if !navigationResponse.isForMainFrame,
+           allowsSubframeDownload,
+           let url = navigationResponse.response.url,
+           shouldBlockInsecureHTTPNavigation?(url) == true {
+            #if DEBUG
+            cmuxDebugLog("download.policy=cancel reason=insecureHTTPSubframe url=\(url.absoluteString)")
+            #endif
+            decisionHandler(.cancel)
+            return
+        }
         if let reason = BrowserDownloadFilenameResolver().navigationResponseDownloadReason(
             mimeType: mime,
             canShowMIMEType: canShow,

@@ -17,6 +17,7 @@ extension CmuxWebView {
 
     func clearBrowserDownloadCallbacks() {
         onContextMenuDownloadStateChanged = nil
+        onSessionDownloadEvent = nil
         onSubframeDownloadIntent = nil
     }
 

@@ -3744,6 +3744,18 @@ final class BrowserPanel: Panel, ObservableObject {
                 self?.endDownloadActivity()
             }
         }
+        webView.onSessionDownloadEvent = { [weak self] event in
+            guard let self else { return }
+            NotificationCenter.default.post(
+                name: .browserDownloadEventDidArrive,
+                object: self,
+                userInfo: [
+                    "surfaceId": self.id,
+                    "workspaceId": self.workspaceId,
+                    "event": event
+                ]
+            )
+        }
         webView.onContextMenuOpenLinkInNewTab = { [weak self] url in
             self?.openLinkInNewTab(url: url)
         }

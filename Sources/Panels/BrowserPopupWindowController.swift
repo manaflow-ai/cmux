@@ -674,6 +674,13 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         let contentDisposition = (navigationResponse.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition")
         let allowsSubframeDownload = navigationResponse.isForMainFrame
             || subframeDownloadIntents.consume(for: navigationResponse.response.url)
+        if !navigationResponse.isForMainFrame,
+           allowsSubframeDownload,
+           let url = navigationResponse.response.url,
+           browserShouldBlockInsecureHTTPURL(url) {
+            decisionHandler(.cancel)
+            return
+        }
         if BrowserDownloadFilenameResolver().navigationResponseDownloadReason(
             mimeType: navigationResponse.response.mimeType,
             canShowMIMEType: navigationResponse.canShowMIMEType,

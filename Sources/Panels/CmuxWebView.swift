@@ -380,6 +380,7 @@ final class CmuxWebView: WKWebView {
     private static var cmuxDownloadDelegateKey: UInt8 = 0
     private static let pasteAsPlainTextKeyCode: UInt16 = 9 // V key (hardware position, layout-independent)
     var onContextMenuDownloadStateChanged: ((Bool) -> Void)?
+    var onSessionDownloadEvent: (([String: Any]) -> Void)?
     /// Called when "Open Link in New Tab" context menu is selected.
     /// Bypasses createWebViewWith so the link opens as a tab, not a popup.
     var onContextMenuOpenLinkInNewTab: ((URL) -> Void)?
@@ -1619,6 +1620,16 @@ final class CmuxWebView: WKWebView {
         }
     }
 
+    private func notifySessionDownloadEvent(_ event: [String: Any]) {
+        if Thread.isMainThread {
+            onSessionDownloadEvent?(event)
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.onSessionDownloadEvent?(event)
+            }
+        }
+    }
+
     private func finishSessionDownload(
         data: Data,
         saveName: String,
@@ -1631,18 +1642,36 @@ final class CmuxWebView: WKWebView {
         failureFallbackReason: String?
     ) {
         let filenameResolver = BrowserDownloadFilenameResolver()
+        let downloadID = UUID().uuidString
+        notifySessionDownloadEvent([
+            "type": "started",
+            "download_id": downloadID,
+            "filename": saveName,
+        ])
         let handleWriteResult: (Result<URL, Error>, Bool) -> Void = { [weak self] result, shouldClearDownloadState in
             guard let self else { return }
             if shouldClearDownloadState { self.notifyContextMenuDownloadState(false) }
             switch result {
-            case .success:
+            case .success(let destinationURL):
                 self.debugContextDownload(
                     "browser.ctxdl.\(logCategory) trace=\(traceID) stage=saveSuccess path=<redacted>"
                 )
+                self.notifySessionDownloadEvent([
+                    "type": "saved",
+                    "download_id": downloadID,
+                    "filename": saveName,
+                    "path": destinationURL.path,
+                ])
             case .failure(let error):
                 self.debugContextDownload(
                     "browser.ctxdl.\(logCategory) trace=\(traceID) stage=saveFailure error=\(error.localizedDescription)"
                 )
+                self.notifySessionDownloadEvent([
+                    "type": "failed",
+                    "download_id": downloadID,
+                    "filename": saveName,
+                    "error": error.localizedDescription,
+                ])
                 if let failureFallbackReason {
                     self.runContextMenuFallback(
                         action: fallbackAction,
@@ -1661,6 +1690,11 @@ final class CmuxWebView: WKWebView {
             savePanel.canCreateDirectories = true
             savePanel.directoryURL = filenameResolver.downloadsDirectory()
             notifyContextMenuDownloadState(false)
+            notifySessionDownloadEvent([
+                "type": "ready_to_save",
+                "download_id": downloadID,
+                "filename": saveName,
+            ])
             debugContextDownload(
                 "browser.ctxdl.\(logCategory) trace=\(traceID) stage=savePrompt shown=1 defaultName=<redacted>"
             )
@@ -1669,6 +1703,11 @@ final class CmuxWebView: WKWebView {
                     self.debugContextDownload(
                         "browser.ctxdl.\(logCategory) trace=\(traceID) stage=savePrompt result=cancel"
                     )
+                    self.notifySessionDownloadEvent([
+                        "type": "cancelled",
+                        "download_id": downloadID,
+                        "filename": saveName,
+                    ])
                     return
                 }
                 self.writeSessionDownloadDataInBackground(
