@@ -7066,6 +7066,8 @@ extension BrowserPanel {
         webView.pageZoom
     }
 
+    static let maximumMinimumViewportDimension: CGFloat = 100_000
+
     @discardableResult
     func setPageZoomFactor(_ pageZoom: CGFloat) -> Bool {
         let clamped = max(minPageZoom, min(maxPageZoom, pageZoom))
@@ -8098,7 +8100,7 @@ extension BrowserPanel {
 private extension BrowserPanel {
     static func normalizedMinimumViewportDimension(_ value: CGFloat?) -> CGFloat? {
         guard let value, value.isFinite, value > 0 else { return nil }
-        return value
+        return min(value, BrowserPanel.maximumMinimumViewportDimension)
     }
 
     static func viewportSizeApproximatelyEqual(_ lhs: CGSize?, _ rhs: CGSize?, epsilon: CGFloat = 0.5) -> Bool {

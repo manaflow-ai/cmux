@@ -9536,8 +9536,14 @@ class TerminalController {
               width.isFinite,
               height.isFinite,
               width >= 0,
-              height >= 0 else {
-            return .err(code: "invalid_params", message: "browser.viewport.set requires non-negative width and height", data: nil)
+              height >= 0,
+              width <= Double(BrowserPanel.maximumMinimumViewportDimension),
+              height <= Double(BrowserPanel.maximumMinimumViewportDimension) else {
+            return .err(
+                code: "invalid_params",
+                message: "browser.viewport.set requires width and height from 0 to \(Int(BrowserPanel.maximumMinimumViewportDimension))",
+                data: nil
+            )
         }
 
         return v2BrowserWithPanel(params: params) { tabManager, workspace, surfaceId, browserPanel in

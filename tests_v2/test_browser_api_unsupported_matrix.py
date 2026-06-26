@@ -132,6 +132,17 @@ def _expect_not_supported(c: cmux, method: str, params: dict) -> None:
     raise cmuxError(f"Expected not_supported for {method}, but call succeeded")
 
 
+def _expect_error(c: cmux, method: str, params: dict, needle: str) -> None:
+    try:
+        c._call(method, params)
+    except cmuxError as exc:
+        text = str(exc)
+        if needle in text:
+            return
+        raise cmuxError(f"Expected {needle} for {method}, got: {text}")
+    raise cmuxError(f"Expected {needle} for {method}, but call succeeded")
+
+
 def main() -> int:
     with cmux(SOCKET_PATH) as c:
         caps = c.capabilities() or {}
@@ -150,6 +161,12 @@ def main() -> int:
         c._call("browser.wait", {"surface_id": sid, "function": "window.innerWidth >= 1400", "timeout_ms": 5000})
         inner_width = c._call("browser.eval", {"surface_id": sid, "script": "window.innerWidth"}) or {}
         _must(int(inner_width.get("value") or 0) >= 1400, f"Expected viewport width >= 1400: {inner_width}")
+        _expect_error(
+            c,
+            "browser.viewport.set",
+            {"surface_id": sid, "width": 1e100, "height": 900},
+            "invalid_params",
+        )
 
         for method, extra in WKWEBVIEW_NOT_SUPPORTED.items():
             payload = {"surface_id": sid}
