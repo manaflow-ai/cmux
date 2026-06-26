@@ -459,9 +459,7 @@ final class OmnibarStateMachineTests: XCTestCase {
         _ = state.reduce(.bufferChanged("abcdef"))
 
         let effects = state.reduce(.focusReasserted(
-                shouldSelectAll: browserOmnibarShouldSelectAllOnFocusReassertion(
-                    selectionIntent: .selectAll
-                )
+                shouldSelectAll: BrowserAddressBarFocusSelectionIntent.selectAll.shouldSelectAll
             )
         )
 
@@ -474,14 +472,10 @@ final class OmnibarStateMachineTests: XCTestCase {
 
     func testFocusReassertionHonorsSelectionIntent() throws {
         XCTAssertTrue(
-            browserOmnibarShouldSelectAllOnFocusReassertion(
-                selectionIntent: .selectAll
-            )
+            BrowserAddressBarFocusSelectionIntent.selectAll.shouldSelectAll
         )
         XCTAssertFalse(
-            browserOmnibarShouldSelectAllOnFocusReassertion(
-                selectionIntent: .preserveFieldEditorSelection
-            )
+            BrowserAddressBarFocusSelectionIntent.preserveFieldEditorSelection.shouldSelectAll
         )
     }
 
@@ -489,11 +483,11 @@ final class OmnibarStateMachineTests: XCTestCase {
     // omnibar selects the whole URL so the next keystroke replaces it (Chrome parity).
     func testFocusGainingClickSelectsAll() throws {
         XCTAssertTrue(
-            browserOmnibarFocusGainingClickShouldSelectAll(
+            BrowserOmnibarFocusGainingClick(
                 gainedFocusOnThisClick: true,
                 isShiftClick: false,
                 didDrag: false
-            )
+            ).shouldSelectAll
         )
     }
 
@@ -501,11 +495,11 @@ final class OmnibarStateMachineTests: XCTestCase {
     // first responder keeps the caret placed at the click point — no select-all.
     func testAlreadyFocusedClickPlacesCaret() throws {
         XCTAssertFalse(
-            browserOmnibarFocusGainingClickShouldSelectAll(
+            BrowserOmnibarFocusGainingClick(
                 gainedFocusOnThisClick: false,
                 isShiftClick: false,
                 didDrag: false
-            )
+            ).shouldSelectAll
         )
     }
 
@@ -513,18 +507,18 @@ final class OmnibarStateMachineTests: XCTestCase {
     // select-all defers to it even on the click that gains focus.
     func testFocusGainingClickDefersToExplicitSelection() throws {
         XCTAssertFalse(
-            browserOmnibarFocusGainingClickShouldSelectAll(
+            BrowserOmnibarFocusGainingClick(
                 gainedFocusOnThisClick: true,
                 isShiftClick: true,
                 didDrag: false
-            )
+            ).shouldSelectAll
         )
         XCTAssertFalse(
-            browserOmnibarFocusGainingClickShouldSelectAll(
+            BrowserOmnibarFocusGainingClick(
                 gainedFocusOnThisClick: true,
                 isShiftClick: false,
                 didDrag: true
-            )
+            ).shouldSelectAll
         )
     }
 

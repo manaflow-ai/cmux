@@ -5500,28 +5500,28 @@ final class BrowserHostWhitelistTests: XCTestCase {
 final class BrowserOmnibarFocusPolicyTests: XCTestCase {
     func testReacquiresFocusWhenOmnibarStillWantsFocusAndNextResponderIsNotAnotherTextField() {
         XCTAssertTrue(
-            browserOmnibarShouldReacquireFocusAfterEndEditing(
+            BrowserOmnibarEndEditingFocusReacquisition(
                 desiredOmnibarFocus: true,
                 nextResponderIsOtherTextField: false
-            )
+            ).shouldReacquireFocus
         )
     }
 
     func testDoesNotReacquireFocusWhenAnotherTextFieldAlreadyTookFocus() {
         XCTAssertFalse(
-            browserOmnibarShouldReacquireFocusAfterEndEditing(
+            BrowserOmnibarEndEditingFocusReacquisition(
                 desiredOmnibarFocus: true,
                 nextResponderIsOtherTextField: true
-            )
+            ).shouldReacquireFocus
         )
     }
 
     func testDoesNotReacquireFocusWhenOmnibarNoLongerWantsFocus() {
         XCTAssertFalse(
-            browserOmnibarShouldReacquireFocusAfterEndEditing(
+            BrowserOmnibarEndEditingFocusReacquisition(
                 desiredOmnibarFocus: false,
                 nextResponderIsOtherTextField: false
-            )
+            ).shouldReacquireFocus
         )
     }
 }

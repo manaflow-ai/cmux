@@ -22,15 +22,6 @@ import CommonCrypto
 import Security
 #endif
 
-enum BrowserAddressBarFocusSelectionIntent: Equatable {
-    case preserveFieldEditorSelection
-    case selectAll
-
-    var shouldSelectAll: Bool {
-        self == .selectAll
-    }
-}
-
 private struct BrowserFocusModePlainEscapeEventFingerprint: Equatable {
     let type: NSEvent.EventType
     let timestamp: TimeInterval

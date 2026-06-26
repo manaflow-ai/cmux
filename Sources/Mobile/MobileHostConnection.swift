@@ -74,7 +74,7 @@ actor MobileHostConnection {
         let previousSubscriptions = Array(subscriptions.values)
         subscriptions.removeAll()
         for topics in previousSubscriptions where !topics.isEmpty {
-            MobileHostEventSubscriptionTracker.replace(
+            MobileHostService.sharedEventSubscriptionTracker.replace(
                 previousTopics: topics,
                 nextTopics: nil
             )
@@ -335,7 +335,7 @@ actor MobileHostConnection {
     func subscribe(streamID: String, topics: Set<String>) {
         let previousTopics = subscriptions[streamID]
         subscriptions[streamID] = topics
-        MobileHostEventSubscriptionTracker.replace(
+        MobileHostService.sharedEventSubscriptionTracker.replace(
             previousTopics: previousTopics,
             nextTopics: topics
         )
@@ -349,7 +349,7 @@ actor MobileHostConnection {
         let previousTopics = subscriptions.removeValue(forKey: streamID)
         let removed = previousTopics != nil
         if let previousTopics {
-            MobileHostEventSubscriptionTracker.replace(previousTopics: previousTopics, nextTopics: nil)
+            MobileHostService.sharedEventSubscriptionTracker.replace(previousTopics: previousTopics, nextTopics: nil)
         }
         if subscriptions.isEmpty {
             startIdleTimeout()
