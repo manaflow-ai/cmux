@@ -1,6 +1,7 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
+import { DocsSchema } from "../docs-schema";
 import { Callout } from "../../components/callout";
 import { CodeBlock } from "../../components/code-block";
 
@@ -23,6 +24,7 @@ export default function TextBoxPage() {
 
   return (
     <>
+      <DocsSchema namespace="docs.textBox" path="/docs/textbox" />
       <h1>{t("title")}</h1>
       <p>{t("intro")}</p>
 

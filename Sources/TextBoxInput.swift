@@ -1076,8 +1076,7 @@ private struct TextBoxAttachmentPreviewPopoverView: View {
                 .background(Color.black.opacity(0.82))
         } else {
             VStack(spacing: 10) {
-                Image(systemName: "doc")
-                    .cmuxFont(size: 42, weight: .regular)
+                CmuxSystemSymbolImage(magnified: "doc", pointSize: 42, weight: .regular)
                 Text(attachment.displayName)
                     .cmuxFont(size: 13, weight: .medium)
                     .lineLimit(2)
@@ -1158,8 +1157,7 @@ private struct TextBoxAttachmentChip: View {
                     )
                     .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
             } else {
-                Image(systemName: "doc")
-                    .cmuxFont(size: 12, weight: .medium)
+                CmuxSystemSymbolImage(magnified: "doc", pointSize: 12, weight: .medium)
                     .frame(
                         width: TextBoxLayout.attachmentImageSize,
                         height: TextBoxLayout.attachmentImageSize
@@ -1173,8 +1171,7 @@ private struct TextBoxAttachmentChip: View {
                 .frame(maxWidth: 118, alignment: .leading)
 
             Button(action: onRemove) {
-                Image(systemName: "xmark")
-                    .cmuxFont(size: 8, weight: .bold)
+                CmuxSystemSymbolImage(magnified: "xmark", pointSize: 8, weight: .bold)
                     .frame(width: 14, height: 14)
             }
             .buttonStyle(.plain)
@@ -2596,8 +2593,7 @@ struct TextBoxInputContainer: View {
 
     private func addFilesButton(foreground: Color) -> some View {
         Button(action: chooseFiles) {
-            Image(systemName: "plus")
-                .cmuxFont(size: TextBoxLayout.iconSymbolSize, weight: .semibold)
+            CmuxSystemSymbolImage(magnified: "plus", pointSize: TextBoxLayout.iconSymbolSize, weight: .semibold)
                 .frame(width: TextBoxLayout.iconButtonSize, height: TextBoxLayout.iconButtonSize)
                 .background(
                     Circle()
@@ -2641,8 +2637,7 @@ struct TextBoxInputContainer: View {
                 showPendingCommentsPreview.toggle()
             } label: {
                 HStack(spacing: 5) {
-                    Image(systemName: "text.bubble")
-                        .cmuxFont(size: 11, weight: .medium)
+                    CmuxSystemSymbolImage(magnified: "text.bubble", pointSize: 11, weight: .medium)
                     Text(pendingCommentsLabel(count))
                         .cmuxFont(size: 12, weight: .medium)
                         .lineLimit(1)
@@ -2656,8 +2651,7 @@ struct TextBoxInputContainer: View {
             Button {
                 dismissPendingComments()
             } label: {
-                Image(systemName: "xmark")
-                    .cmuxFont(size: 9, weight: .bold)
+                CmuxSystemSymbolImage(magnified: "xmark", pointSize: 9, weight: .bold)
                     .frame(width: 16, height: 16)
                     .background(Circle().fill(foreground.opacity(0.12)))
             }

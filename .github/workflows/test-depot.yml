@@ -28,7 +28,7 @@ on:
 
 jobs:
   tests:
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 20
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)

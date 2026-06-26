@@ -447,7 +447,7 @@ enum KeyboardShortcutSettings {
             case .canvasZoomOut:
                 return StoredShortcut(key: "-", command: true, shift: false, option: true, control: false)
             case .canvasZoomReset:
-                return StoredShortcut(key: "0", command: true, shift: false, option: true, control: false)
+                return StoredShortcut(key: "0", command: true, shift: false, option: false, control: false)
             case .canvasTidy:
                 return StoredShortcut(key: "t", command: true, shift: false, option: false, control: true)
             case .canvasAlignLeft,
@@ -637,11 +637,9 @@ enum KeyboardShortcutSettings {
             // Two bindings on the same keystroke only collide when some focus
             // state activates both AND router priority cannot decide the overlap.
             // A `shortcuts.when` override (or the built-in context default) can
-            // make them non-overlapping — e.g. ⌃1 selecting a workspace only when
-            // the sidebar is NOT focused coexists with the sidebar's ⌃1 (issue
-            // #5189) — and a pre-routed action (sidebar modes) wins its context
-            // outright, so the factory Select Surface ⌃1…9 coexists with the
-            // sidebar's ⌃1…5 by priority.
+            // make them non-overlapping (issue #5189), and a pre-routed action
+            // wins its context outright, so factory Select Surface ⌃1…9 coexists
+            // with the sidebar's ⌃1…5 by priority.
             guard ShortcutWhenClause.bindingsCollide(
                 KeyboardShortcutSettings.effectiveWhenClause(for: self),
                 lhsHasPriority: hasPriorityShortcutRouting,

@@ -9,7 +9,7 @@ concurrency:
 
 jobs:
   build-ghosttykit:
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 20
     env:
       GHOSTTYKIT_CRASH_REPORT_SUBDIR: cmux/crash

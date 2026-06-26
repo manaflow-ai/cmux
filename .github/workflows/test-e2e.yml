@@ -1,5 +1,5 @@
 name: E2E test with video recording
-run-name: ${{ inputs.test_filter }} on ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner }} @ ${{ inputs.ref || github.ref_name }}
+run-name: ${{ inputs.test_filter }} on ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }} @ ${{ inputs.ref || github.ref_name }}
 
 on:
   workflow_dispatch:
@@ -25,7 +25,7 @@ on:
         default: true
         type: boolean
       runner:
-        description: "Runner OS (auto follows the MACOS_RUNNER_15 repo variable, then warp; pick depot-macos-* for GUI activation)"
+        description: "Runner OS (auto follows the MACOS_RUNNER_15 repo variable, default Blacksmith; pick warp-/depot-macos-* to override)"
         required: false
         default: "auto"
         type: choice
@@ -39,20 +39,20 @@ on:
           - depot-macos-14
 
 concurrency:
-  group: e2e-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}
+  group: e2e-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}
   cancel-in-progress: true
 
 jobs:
   e2e:
-    runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner }}
+    runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}
     timeout-minutes: ${{ fromJSON(inputs.job_timeout || '20') }}
     env:
       TEST_REF: ${{ inputs.ref || github.ref }}
     steps:
       - name: Validate Depot runner identity
-        if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner, 'depot-macos-') }}
+        if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner, 'depot-macos-') }}
         env:
-          REQUESTED_RUNNER: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner }}
+          REQUESTED_RUNNER: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
@@ -228,8 +228,8 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .ci-source-packages
-          key: spm-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner }}-
+          key: spm-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}-
 
       - name: Sanitize Swift package cache
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
