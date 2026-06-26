@@ -30,6 +30,8 @@ public struct SSHConfigHost: Equatable, Sendable, Codable {
     /// `DynamicForward` specs (e.g. `1080`) that apply, in order.
     public var dynamicForwards: [String]
 
+    /// Creates a host entry. All fields except `alias` default to empty/nil,
+    /// matching a host that sets no corresponding `ssh_config` directive.
     public init(
         alias: String,
         hostName: String? = nil,

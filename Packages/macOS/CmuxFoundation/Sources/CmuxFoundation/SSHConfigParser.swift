@@ -14,6 +14,8 @@ import Foundation
 /// verbatim. Single-valued directives use first-match-wins; forwards
 /// accumulate across every matching block.
 public struct SSHConfigParser: Sendable {
+    /// Creates a parser. It holds no state, so a single instance can parse any
+    /// number of configurations.
     public init() {}
 
     /// Upper bound on `Include` nesting, mirroring OpenSSH, to bound work and
@@ -99,20 +101,20 @@ public struct SSHConfigParser: Sendable {
         // `isNewline` covers LF, CR, and the CRLF grapheme cluster (Swift treats
         // "\r\n" as one Character, so splitting on "\n" alone would miss it).
         for rawLine in configText.split(omittingEmptySubsequences: false, whereSeparator: { $0.isNewline }) {
-            guard let (key, value) = Self.parseLine(String(rawLine)) else { continue }
+            guard let (key, value) = parseLine(String(rawLine)) else { continue }
             switch key {
             case "host":
-                let patterns = Self.parsePatterns(value)
+                let patterns = parsePatterns(value)
                 // AND this `Host` line onto the conditions the file was included
                 // under: ssh reads a conditional include only for targets that
                 // match the enclosing condition, so directives here apply to the
                 // intersection, not to every listed alias.
                 currentScope = .conditions(enclosingConditions + [patterns])
-                for pattern in patterns where !pattern.negated && !Self.isWildcard(pattern.glob) {
+                for pattern in patterns where !pattern.negated && !isWildcard(pattern.glob) {
                     // List the alias only if it is reachable under the enclosing
                     // condition (verified against `ssh -G`). At the top level
                     // the enclosing condition is empty, so every alias is listed.
-                    guard Self.scope(enclosingScope, matches: pattern.glob) else { continue }
+                    guard scope(enclosingScope, matches: pattern.glob) else { continue }
                     if seenAliases.insert(pattern.glob).inserted {
                         aliases.append(pattern.glob)
                     }
@@ -127,7 +129,7 @@ public struct SSHConfigParser: Sendable {
                 guard case .conditions(let childConditions) = currentScope else { continue }
                 // Multiple whitespace-separated paths are allowed and a path
                 // with spaces may be double-quoted, so tokenize and resolve each.
-                for path in Self.tokenize(value) {
+                for path in tokenize(value) {
                     for includedText in includeResolver(path) {
                         collect(
                             configText: includedText,
@@ -150,18 +152,18 @@ public struct SSHConfigParser: Sendable {
 
     private func resolve(alias: String, directives: [ScopedDirective]) -> SSHConfigHost {
         var host = SSHConfigHost(alias: alias)
-        for directive in directives where Self.scope(directive.scope, matches: alias) {
+        for directive in directives where scope(directive.scope, matches: alias) {
             switch directive.key {
             case "hostname":
-                if host.hostName == nil { host.hostName = Self.unquote(directive.value) }
+                if host.hostName == nil { host.hostName = unquote(directive.value) }
             case "user":
-                if host.user == nil { host.user = Self.unquote(directive.value) }
+                if host.user == nil { host.user = unquote(directive.value) }
             case "port":
-                if host.port == nil { host.port = Int(Self.unquote(directive.value)) }
+                if host.port == nil { host.port = Int(unquote(directive.value)) }
             case "identityfile":
-                if host.identityFile == nil { host.identityFile = Self.unquote(directive.value) }
+                if host.identityFile == nil { host.identityFile = unquote(directive.value) }
             case "proxyjump":
-                if host.proxyJump == nil { host.proxyJump = Self.unquote(directive.value) }
+                if host.proxyJump == nil { host.proxyJump = unquote(directive.value) }
             case "localforward":
                 host.localForwards.append(directive.value)
             case "remoteforward":
@@ -178,7 +180,7 @@ public struct SSHConfigParser: Sendable {
     /// Whether `alias` matches `scope`: every condition in the conjunction must
     /// match (an empty conjunction is global). A `Match`/ignored scope never
     /// matches.
-    private static func scope(_ scope: Scope, matches alias: String) -> Bool {
+    private func scope(_ scope: Scope, matches alias: String) -> Bool {
         switch scope {
         case .ignored:
             return false
@@ -189,7 +191,7 @@ public struct SSHConfigParser: Sendable {
 
     /// Whether `alias` satisfies one `Host`-line condition set: it matches at
     /// least one positive pattern and no negated pattern (ssh `Host` semantics).
-    private static func hostLineMatches(_ patterns: [HostPattern], _ alias: String) -> Bool {
+    private func hostLineMatches(_ patterns: [HostPattern], _ alias: String) -> Bool {
         var matched = false
         for pattern in patterns where glob(pattern.glob, matches: alias) {
             if pattern.negated { return false }
@@ -207,7 +209,7 @@ public struct SSHConfigParser: Sendable {
     /// (`host#x`) or inside quotes (`"a # b"`) is literal. Verified against
     /// `ssh -G`: `HostName x # c` resolves to `x`, but `HostName x#c` and
     /// `HostName "x # c"` keep the hash.
-    static func stripInlineComment(_ line: String) -> String {
+    func stripInlineComment(_ line: String) -> String {
         var result = ""
         var inQuotes = false
         var precededByWhitespace = true // the line start behaves like whitespace
@@ -234,7 +236,7 @@ public struct SSHConfigParser: Sendable {
     /// argument is returned verbatim (quotes intact) because multi-token
     /// arguments (`Host`, `Include`) must be tokenized quote-aware before any
     /// unquoting; single-valued consumers unquote in `resolve`.
-    static func parseLine(_ raw: String) -> (key: String, value: String)? {
+    func parseLine(_ raw: String) -> (key: String, value: String)? {
         var line = Substring(stripInlineComment(raw))
         line = line.drop(while: { $0.isWhitespace })
         guard let first = line.first, first != "#" else { return nil }
@@ -257,7 +259,7 @@ public struct SSHConfigParser: Sendable {
     /// double quotes so a single token may contain spaces. OpenSSH allows
     /// quoting `Host` patterns and `Include` paths that contain whitespace.
     /// Surrounding quotes are removed from each token.
-    static func tokenize(_ value: String) -> [String] {
+    func tokenize(_ value: String) -> [String] {
         var tokens: [String] = []
         var current = ""
         var inQuotes = false
@@ -287,7 +289,7 @@ public struct SSHConfigParser: Sendable {
 
     /// Parse a `Host` line's patterns, honoring `!` negation and per-pattern
     /// quoting.
-    static func parsePatterns(_ value: String) -> [HostPattern] {
+    func parsePatterns(_ value: String) -> [HostPattern] {
         tokenize(value).compactMap { token in
             var text = token
             var negated = false
@@ -302,7 +304,7 @@ public struct SSHConfigParser: Sendable {
 
     /// Strip one pair of surrounding double quotes from a single-valued
     /// argument (multi-token arguments are handled by `tokenize`).
-    static func unquote(_ value: String) -> String {
+    func unquote(_ value: String) -> String {
         guard value.count >= 2, value.hasPrefix("\""), value.hasSuffix("\"") else { return value }
         return String(value.dropFirst().dropLast())
     }
@@ -312,7 +314,7 @@ public struct SSHConfigParser: Sendable {
     /// `[...]` character classes — so `db[12]` is a literal host, not a pattern
     /// (verified against `ssh -G`: `ssh db1` does not match `Host db[12]`).
     /// Brackets are therefore not wildcards.
-    static func isWildcard(_ pattern: String) -> Bool {
+    func isWildcard(_ pattern: String) -> Bool {
         pattern.contains("*") || pattern.contains("?")
     }
 
@@ -320,7 +322,7 @@ public struct SSHConfigParser: Sendable {
     /// like `ssh(1)` host matching. Any other character — including `[` / `]` —
     /// is matched literally, matching OpenSSH (which does not treat brackets as
     /// character classes in `Host` patterns).
-    static func glob(_ pattern: String, matches text: String) -> Bool {
+    func glob(_ pattern: String, matches text: String) -> Bool {
         let p = Array(pattern)
         let t = Array(text)
         var pi = 0

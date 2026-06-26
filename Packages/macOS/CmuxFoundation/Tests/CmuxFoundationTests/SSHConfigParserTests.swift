@@ -421,17 +421,17 @@ import Testing
         let hosts = parser.hosts(configText: config)
         #expect(hosts.map(\.alias) == ["db[12]"])
         #expect(hosts[0].hostName == "bracket.example.com")
-        #expect(!SSHConfigParser.isWildcard("db[12]"))
-        #expect(SSHConfigParser.glob("db[12]", matches: "db[12]"))
-        #expect(!SSHConfigParser.glob("db[12]", matches: "db1"))
+        #expect(!parser.isWildcard("db[12]"))
+        #expect(parser.glob("db[12]", matches: "db[12]"))
+        #expect(!parser.glob("db[12]", matches: "db1"))
     }
 
     @Test func globMatchesWildcards() {
-        #expect(SSHConfigParser.glob("db-*", matches: "db-1"))
-        #expect(SSHConfigParser.glob("*.example.com", matches: "gpu.example.com"))
-        #expect(SSHConfigParser.glob("gpu?", matches: "gpu1"))
-        #expect(!SSHConfigParser.glob("gpu?", matches: "gpu"))
-        #expect(!SSHConfigParser.glob("db-*", matches: "web-1"))
-        #expect(SSHConfigParser.glob("*", matches: "anything"))
+        #expect(parser.glob("db-*", matches: "db-1"))
+        #expect(parser.glob("*.example.com", matches: "gpu.example.com"))
+        #expect(parser.glob("gpu?", matches: "gpu1"))
+        #expect(!parser.glob("gpu?", matches: "gpu"))
+        #expect(!parser.glob("db-*", matches: "web-1"))
+        #expect(parser.glob("*", matches: "anything"))
     }
 }
