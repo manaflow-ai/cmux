@@ -13449,9 +13449,9 @@ class TerminalController {
 
     /// Handle `terminal.paste_image`: a paired client (the iOS app) forwards an
     /// image it pasted as base64 bytes. We materialize it to a temp file on the
-    /// Mac and inject the shell-escaped path as terminal input, exactly the way a
-    /// local clipboard-image paste does, so the running TUI (e.g. Claude Code)
-    /// attaches the image from the path.
+    /// Mac and inject the shell-escaped path through the paste path, exactly the
+    /// way local clipboard-image paste does, so the running TUI (e.g. Claude Code)
+    /// sees bracketed paste framing and attaches the image from the path.
     func v2MobileTerminalPasteImage(params: [String: Any]) -> V2CallResult {
         guard let base64 = v2RawString(params, "image_base64"),
               let imageData = Data(base64Encoded: base64), !imageData.isEmpty else {
@@ -13476,7 +13476,7 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Image payload was empty or exceeded the size limit", data: nil)
         }
 
-        let sendResult = terminalPanel.surface.sendInputResult(escapedPath)
+        let sendResult = terminalPanel.surface.sendTextResult(escapedPath)
         switch sendResult {
         case .sent:
             terminalPanel.surface.forceRefresh(reason: "mobileHost.terminalPasteImage")
