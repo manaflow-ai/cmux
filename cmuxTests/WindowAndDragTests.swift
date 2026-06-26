@@ -27,6 +27,7 @@ import struct CmuxWindowing.MinimalModeTitlebarClickRecord
 // CmuxWorkspaces owns the lifted tmux pane-overlay exact-rect geometry; import only
 // the moved type to avoid shadowing app-target names with a blanket import.
 import struct CmuxWorkspaces.TmuxPaneOverlayGeometry
+import class CmuxWorkspaces.TmuxWorkspacePaneOverlayModel
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

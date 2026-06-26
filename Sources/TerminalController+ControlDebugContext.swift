@@ -1114,10 +1114,6 @@ extension TerminalController: ControlDebugContext {
         return "OK"
     }
 
-    private static let panelSnapshotLock = NSLock()
-
-    private static var panelSnapshots: [UUID: PanelSnapshotState] = [:]
-
     func panelSnapshotReset(_ args: String) -> String {
         guard let tabManager else { return "ERROR: TabManager not available" }
         let panelArg = args.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1133,9 +1129,7 @@ extension TerminalController: ControlDebugContext {
                 result = "ERROR: Surface not found"
                 return
             }
-            Self.panelSnapshotLock.lock()
-            Self.panelSnapshots.removeValue(forKey: panelId)
-            Self.panelSnapshotLock.unlock()
+            panelSnapshotStore.reset(panelId)
             result = "OK"
         }
 
@@ -1195,13 +1189,7 @@ extension TerminalController: ControlDebugContext {
                 return
             }
 
-            var changedPixels = -1
-            Self.panelSnapshotLock.lock()
-            if let previous = Self.panelSnapshots[panelId] {
-                changedPixels = current.changedPixelCount(comparedTo: previous)
-            }
-            Self.panelSnapshots[panelId] = current
-            Self.panelSnapshotLock.unlock()
+            let changedPixels = panelSnapshotStore.record(current, for: panelId)
 
             // Save PNG for postmortem debugging.
             let bitmap = NSBitmapImageRep(cgImage: cgImage)

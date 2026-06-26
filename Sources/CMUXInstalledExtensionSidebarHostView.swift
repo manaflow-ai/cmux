@@ -507,14 +507,14 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             ForEach(effectiveGrant.manifest.readScopes, id: \.self) { scope in
                 permissionRow(
                     title: scope.displayName,
-                    detail: permissionDescription(scope: scope),
+                    detail: scope.permissionDescription,
                     isGranted: effectiveGrant.readScopes.contains(scope)
                 )
             }
             ForEach(effectiveGrant.manifest.actionScopes, id: \.self) { scope in
                 permissionRow(
                     title: scope.displayName,
-                    detail: permissionDescription(actionScope: scope),
+                    detail: scope.permissionDescription,
                     isGranted: effectiveGrant.actionScopes.contains(scope)
                 )
             }
@@ -751,56 +751,8 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         let pendingActionScopes = effectiveGrant.manifest.actionScopes.filter {
             !effectiveGrant.actionScopes.contains($0)
         }
-        return pendingReadScopes.map(permissionDescription(scope:)) +
-            pendingActionScopes.map(permissionDescription(actionScope:))
-    }
-
-    private func permissionDescription(scope: CmuxExtensionScope) -> String {
-        switch scope {
-        case .workspaceList:
-            return String(localized: "sidebar.extensions.permission.workspaceList.detail", defaultValue: "Read workspace IDs and names")
-        case .workspaceMetadata:
-            return String(localized: "sidebar.extensions.permission.workspaceMetadata.detail", defaultValue: "Read workspace names, branches, unread counts, and selection")
-        case .surfaceMetadata:
-            return String(localized: "sidebar.extensions.permission.surfaceMetadata.detail", defaultValue: "Read surfaces nested inside each workspace")
-        case .workspacePaths:
-            return String(localized: "sidebar.extensions.permission.workspacePaths.detail", defaultValue: "Read local workspace and project paths")
-        case .notifications:
-            return String(localized: "sidebar.extensions.permission.notifications.detail", defaultValue: "Read latest workspace notifications")
-        case .networkPorts:
-            return String(localized: "sidebar.extensions.permission.networkPorts.detail", defaultValue: "Read listening ports for each workspace")
-        case .pullRequests:
-            return String(localized: "sidebar.extensions.permission.pullRequests.detail", defaultValue: "Read pull request links associated with workspaces")
-        }
-    }
-
-    private func permissionDescription(actionScope: CmuxExtensionActionScope) -> String {
-        switch actionScope {
-        case .createWorkspace:
-            return String(localized: "sidebar.extensions.permission.createWorkspace.detail", defaultValue: "Create workspaces")
-        case .selectWorkspace:
-            return String(localized: "sidebar.extensions.permission.selectWorkspace.detail", defaultValue: "Select a workspace when you click in the extension")
-        case .closeWorkspace:
-            return String(localized: "sidebar.extensions.permission.closeWorkspace.detail", defaultValue: "Close workspaces from the extension")
-        case .createSurface:
-            return String(localized: "sidebar.extensions.permission.createSurface.detail", defaultValue: "Create terminal and browser surfaces")
-        case .selectSurface:
-            return String(localized: "sidebar.extensions.permission.selectSurface.detail", defaultValue: "Select surfaces inside a workspace")
-        case .closeSurface:
-            return String(localized: "sidebar.extensions.permission.closeSurface.detail", defaultValue: "Close surfaces inside a workspace")
-        case .splitSurface:
-            return String(localized: "sidebar.extensions.permission.splitSurface.detail", defaultValue: "Create split surfaces")
-        case .zoomSurface:
-            return String(localized: "sidebar.extensions.permission.zoomSurface.detail", defaultValue: "Toggle surface zoom")
-        case .navigateWorkspace:
-            return String(localized: "sidebar.extensions.permission.navigateWorkspace.detail", defaultValue: "Navigate between workspaces")
-        case .navigateSurface:
-            return String(localized: "sidebar.extensions.permission.navigateSurface.detail", defaultValue: "Navigate between surfaces")
-        case .openURL:
-            return String(localized: "sidebar.extensions.permission.openURL.detail", defaultValue: "Open links from the extension")
-        case .createWorkspaceWithPath:
-            return String(localized: "sidebar.extensions.permission.createWorkspaceWithPath.detail", defaultValue: "Create workspaces for specific local folders")
-        }
+        return pendingReadScopes.map(\.permissionDescription) +
+            pendingActionScopes.map(\.permissionDescription)
     }
 
     private func observeIdentitySequence(extensionPointIdentifier: String) async throws {
@@ -896,6 +848,25 @@ private extension CmuxExtensionScope {
             return String(localized: "sidebar.extensions.scope.pullRequests", defaultValue: "Pull requests")
         }
     }
+
+    var permissionDescription: String {
+        switch self {
+        case .workspaceList:
+            return String(localized: "sidebar.extensions.permission.workspaceList.detail", defaultValue: "Read workspace IDs and names")
+        case .workspaceMetadata:
+            return String(localized: "sidebar.extensions.permission.workspaceMetadata.detail", defaultValue: "Read workspace names, branches, unread counts, and selection")
+        case .surfaceMetadata:
+            return String(localized: "sidebar.extensions.permission.surfaceMetadata.detail", defaultValue: "Read surfaces nested inside each workspace")
+        case .workspacePaths:
+            return String(localized: "sidebar.extensions.permission.workspacePaths.detail", defaultValue: "Read local workspace and project paths")
+        case .notifications:
+            return String(localized: "sidebar.extensions.permission.notifications.detail", defaultValue: "Read latest workspace notifications")
+        case .networkPorts:
+            return String(localized: "sidebar.extensions.permission.networkPorts.detail", defaultValue: "Read listening ports for each workspace")
+        case .pullRequests:
+            return String(localized: "sidebar.extensions.permission.pullRequests.detail", defaultValue: "Read pull request links associated with workspaces")
+        }
+    }
 }
 
 private extension CmuxExtensionActionScope {
@@ -925,6 +896,35 @@ private extension CmuxExtensionActionScope {
             return String(localized: "sidebar.extensions.actionScope.openURL", defaultValue: "Open URLs")
         case .createWorkspaceWithPath:
             return String(localized: "sidebar.extensions.actionScope.createWorkspaceWithPath", defaultValue: "Create workspaces with paths")
+        }
+    }
+
+    var permissionDescription: String {
+        switch self {
+        case .createWorkspace:
+            return String(localized: "sidebar.extensions.permission.createWorkspace.detail", defaultValue: "Create workspaces")
+        case .selectWorkspace:
+            return String(localized: "sidebar.extensions.permission.selectWorkspace.detail", defaultValue: "Select a workspace when you click in the extension")
+        case .closeWorkspace:
+            return String(localized: "sidebar.extensions.permission.closeWorkspace.detail", defaultValue: "Close workspaces from the extension")
+        case .createSurface:
+            return String(localized: "sidebar.extensions.permission.createSurface.detail", defaultValue: "Create terminal and browser surfaces")
+        case .selectSurface:
+            return String(localized: "sidebar.extensions.permission.selectSurface.detail", defaultValue: "Select surfaces inside a workspace")
+        case .closeSurface:
+            return String(localized: "sidebar.extensions.permission.closeSurface.detail", defaultValue: "Close surfaces inside a workspace")
+        case .splitSurface:
+            return String(localized: "sidebar.extensions.permission.splitSurface.detail", defaultValue: "Create split surfaces")
+        case .zoomSurface:
+            return String(localized: "sidebar.extensions.permission.zoomSurface.detail", defaultValue: "Toggle surface zoom")
+        case .navigateWorkspace:
+            return String(localized: "sidebar.extensions.permission.navigateWorkspace.detail", defaultValue: "Navigate between workspaces")
+        case .navigateSurface:
+            return String(localized: "sidebar.extensions.permission.navigateSurface.detail", defaultValue: "Navigate between surfaces")
+        case .openURL:
+            return String(localized: "sidebar.extensions.permission.openURL.detail", defaultValue: "Open links from the extension")
+        case .createWorkspaceWithPath:
+            return String(localized: "sidebar.extensions.permission.createWorkspaceWithPath.detail", defaultValue: "Create workspaces for specific local folders")
         }
     }
 }

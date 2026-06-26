@@ -396,6 +396,7 @@
 		E50320010000000000000001 /* ExtensionWorktreeSpawnArgsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */; };
 		FEED0A00000000000000F007 /* feed-tui in Resources */ = {isa = PBXBuildFile; fileRef = FEED0A00000000000000F006 /* feed-tui */; };
 		FEED0000000000000000F0D1 /* FeedButtonDebugStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F0D0 /* FeedButtonDebugStore.swift */; };
+		FEED0000000000000000F015 /* FeedButtonStyleDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F014 /* FeedButtonStyleDebugView.swift */; };
 		FEED0000000000000000F00D /* FeedButtonStyleDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F00C /* FeedButtonStyleDebugWindowController.swift */; };
 		FEED0000000000000000F002 /* FeedCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F001 /* FeedCoordinator.swift */; };
 		FEEDC0DEC0DEC0DEC0DE0001 /* FeedCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEEDC0DEC0DEC0DEC0DE0002 /* FeedCoordinatorTests.swift */; };
@@ -746,6 +747,7 @@
 		F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */; };
 		E30780000000000000000014 /* SessionRemoteWorkspaceSnapshot+Restore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30780000000000000000013 /* SessionRemoteWorkspaceSnapshot+Restore.swift */; };
 		A5001670 /* SessionRestoredTerminalCommandStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001671 /* SessionRestoredTerminalCommandStore.swift */; };
+		FE5E5E01 /* SessionSectionSearchPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE5E5E02 /* SessionSectionSearchPopover.swift */; };
 		A50016B1A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */; };
 		F5320004A1B2C3D4E5F60718 /* SessionTranscriptLineClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5320005A1B2C3D4E5F60718 /* SessionTranscriptLineClassifier.swift */; };
 		A5001672 /* SessionTranscriptLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001673 /* SessionTranscriptLoader.swift */; };
@@ -1470,6 +1472,7 @@
 		E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionWorktreeSpawnArgsTests.swift; sourceTree = "<group>"; };
 		FEED0A00000000000000F006 /* feed-tui */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = "feed-tui"; sourceTree = "<group>"; };
 		FEED0000000000000000F0D0 /* FeedButtonDebugStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedButtonDebugStore.swift; sourceTree = "<group>"; };
+		FEED0000000000000000F014 /* FeedButtonStyleDebugView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedButtonStyleDebugView.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F00C /* FeedButtonStyleDebugWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedButtonStyleDebugWindowController.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F001 /* FeedCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedCoordinator.swift; sourceTree = "<group>"; };
 		FEEDC0DEC0DEC0DEC0DE0002 /* FeedCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedCoordinatorTests.swift; sourceTree = "<group>"; };
@@ -1811,6 +1814,7 @@
 		F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistenceTests.swift; sourceTree = "<group>"; };
 		E30780000000000000000013 /* SessionRemoteWorkspaceSnapshot+Restore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionRemoteWorkspaceSnapshot+Restore.swift"; sourceTree = "<group>"; };
 		A5001671 /* SessionRestoredTerminalCommandStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRestoredTerminalCommandStore.swift; sourceTree = "<group>"; };
+		FE5E5E02 /* SessionSectionSearchPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSectionSearchPopover.swift; sourceTree = "<group>"; };
 		A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/SessionSnapshotDebugBenchmark.swift; sourceTree = "<group>"; };
 		F5320005A1B2C3D4E5F60718 /* SessionTranscriptLineClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptLineClassifier.swift; sourceTree = "<group>"; };
 		A5001673 /* SessionTranscriptLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptLoader.swift; sourceTree = "<group>"; };
@@ -2976,6 +2980,7 @@
 				F5320003A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift */,
 				F5320005A1B2C3D4E5F60718 /* SessionTranscriptLineClassifier.swift */,
 				FE003002 /* SessionIndexView.swift */,
+				FE5E5E02 /* SessionSectionSearchPopover.swift */,
 				FE0030A0 /* SessionTranscriptPreviewLayout.swift */,
 				B7F9A601B7F9A601B7F9A601 /* RightSidebarChromeGeometryReporting.swift */,
 				B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */,
@@ -3335,6 +3340,7 @@
 				FEED0000000000000000F010 /* FeedPanelViewModel.swift */,
 				FEED0000000000000000F00A /* FeedPreviewWindowController.swift */,
 				FEED0000000000000000F00C /* FeedButtonStyleDebugWindowController.swift */,
+				FEED0000000000000000F014 /* FeedButtonStyleDebugView.swift */,
 				FEED0000000000000000F0D0 /* FeedButtonDebugStore.swift */,
 				FEED0000000000000000F00E /* FeedTextEditorDebugWindowController.swift */,
 			);
@@ -3961,6 +3967,7 @@
 				E4C001000000000000000001 /* ExtensionSidebarWorkspaceRowView.swift in Sources */,
 				E4C001000000000000000003 /* ExtensionWorktreePrototype.swift in Sources */,
 				FEED0000000000000000F0D1 /* FeedButtonDebugStore.swift in Sources */,
+				FEED0000000000000000F015 /* FeedButtonStyleDebugView.swift in Sources */,
 				FEED0000000000000000F00D /* FeedButtonStyleDebugWindowController.swift in Sources */,
 				FEED0000000000000000F002 /* FeedCoordinator.swift in Sources */,
 				FEED0000000000000000F005 /* FeedPanelView.swift in Sources */,
@@ -4190,6 +4197,7 @@
 				A5001610 /* SessionPersistence.swift in Sources */,
 				E30780000000000000000014 /* SessionRemoteWorkspaceSnapshot+Restore.swift in Sources */,
 				A5001670 /* SessionRestoredTerminalCommandStore.swift in Sources */,
+				FE5E5E01 /* SessionSectionSearchPopover.swift in Sources */,
 				A50016B1A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift in Sources */,
 				F5320004A1B2C3D4E5F60718 /* SessionTranscriptLineClassifier.swift in Sources */,
 				A5001672 /* SessionTranscriptLoader.swift in Sources */,

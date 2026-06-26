@@ -23,4 +23,25 @@ extension String {
         guard hasPrefix(home) else { return self }
         return "~" + String(dropFirst(home.count))
     }
+
+    /// Interpreting `self` as an absolute filesystem path, returns the form shown
+    /// to the user relative to an explicit `homePath` (which may be a remote home
+    /// for an SSH provider). A path equal to home collapses to `~`, a path under
+    /// home becomes `~/<remainder>`, and anything else (including a `nil`/empty
+    /// home) is returned verbatim. Trailing slashes on either side are ignored
+    /// when matching, but the original (unnormalized) string is returned for
+    /// non-matches.
+    public func homeRelativeDisplayPath(homePath: String?) -> String {
+        guard let home = homePath, !home.isEmpty else { return self }
+        let normalizedHome = home.hasSuffix("/") ? String(home.dropLast()) : home
+        let normalizedPath = hasSuffix("/") ? String(dropLast()) : self
+        if normalizedPath == normalizedHome {
+            return "~"
+        }
+        let homePrefix = normalizedHome + "/"
+        if normalizedPath.hasPrefix(homePrefix) {
+            return "~/" + normalizedPath.dropFirst(homePrefix.count)
+        }
+        return self
+    }
 }
