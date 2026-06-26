@@ -138,15 +138,6 @@ enum SectionIcon: Equatable {
     case folder
 }
 
-/// Owns the "which section is currently being dragged" bit, separate from
-/// `SessionIndexStore`. Isolating this means drag start/end does not emit
-/// `objectWillChange` on the data store, so rows and gaps don't re-render
-/// every time a drag begins or clears.
-@MainActor
-final class SessionDragCoordinator: ObservableObject {
-    @Published var draggedKey: SectionKey? = nil
-}
-
 /// Immutable per-directory snapshot consumed by `SectionPopoverView` for
 /// empty-query scrolling. All entries are merged across the three agent
 /// sources and sorted by `modified` desc. The popover slices this array

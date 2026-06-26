@@ -752,6 +752,7 @@
 		A5001601 /* SentryHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001600 /* SentryHelper.swift */; };
 		FE003106 /* SessionAgentPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003006 /* SessionAgentPresentation.swift */; };
 		A9F200000000000000000008 /* SessionAgentSessionPanelSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000008 /* SessionAgentSessionPanelSnapshot.swift */; };
+		FE0032D1 /* SessionDragCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE0032D0 /* SessionDragCoordinator.swift */; };
 		B3575000000000000000000C /* SessionIndexModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3575000000000000000000B /* SessionIndexModels.swift */; };
 		B35750000000000000000008 /* SessionIndexRegisteredAgents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000007 /* SessionIndexRegisteredAgents.swift */; };
 		FE003104 /* SessionIndexStore+CodexSQL.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003004 /* SessionIndexStore+CodexSQL.swift */; };
@@ -1838,6 +1839,7 @@
 		A5001600 /* SentryHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SentryHelper.swift; sourceTree = "<group>"; };
 		FE003006 /* SessionAgentPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAgentPresentation.swift; sourceTree = "<group>"; };
 		A9F100000000000000000008 /* SessionAgentSessionPanelSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAgentSessionPanelSnapshot.swift; sourceTree = "<group>"; };
+		FE0032D0 /* SessionDragCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDragCoordinator.swift; sourceTree = "<group>"; };
 		B3575000000000000000000B /* SessionIndexModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexModels.swift; sourceTree = "<group>"; };
 		B35750000000000000000007 /* SessionIndexRegisteredAgents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexRegisteredAgents.swift; sourceTree = "<group>"; };
 		FE003004 /* SessionIndexStore+CodexSQL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionIndexStore+CodexSQL.swift"; sourceTree = "<group>"; };
@@ -3023,6 +3025,7 @@
 				FE0A1002FE0A1002FE0A1002 /* FileExplorerExternalOpenMenu.swift */,
 				FE0A1003FE0A1003FE0A1003 /* NSResponder+FileExplorerDebug.swift */,
 				FE003001 /* SessionIndexStore.swift */,
+				FE0032D0 /* SessionDragCoordinator.swift */,
 				C1A0DE01 /* ClaudeParsed.swift */,
 				C1A0DE03 /* ClaudeSessionRoot.swift */,
 				C1A0DE05 /* ClaudeSessionCandidate.swift */,
@@ -4261,6 +4264,7 @@
 				A5001601 /* SentryHelper.swift in Sources */,
 				FE003106 /* SessionAgentPresentation.swift in Sources */,
 				A9F200000000000000000008 /* SessionAgentSessionPanelSnapshot.swift in Sources */,
+				FE0032D1 /* SessionDragCoordinator.swift in Sources */,
 				B3575000000000000000000C /* SessionIndexModels.swift in Sources */,
 				B35750000000000000000008 /* SessionIndexRegisteredAgents.swift in Sources */,
 				FE003104 /* SessionIndexStore+CodexSQL.swift in Sources */,
