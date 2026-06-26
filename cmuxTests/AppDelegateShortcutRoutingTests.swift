@@ -6052,52 +6052,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
-    func testBrowserDocumentEditingAppMenuFallbackSuppressionIsItalicsOnly() {
-        // Italic has no AppKit Edit-menu counterpart, so an unhandled browser-first
-        // Cmd+I must be swallowed rather than fall through to the ⌘I Show
-        // Notifications menu item (issue #6776). Copy/cut/select-all keep their real
-        // Edit-menu fallback, and unrelated combos are unaffected.
-        let cmdI = makeKeyEvent(
-            modifierFlags: [.command],
-            characters: "i",
-            charactersIgnoringModifiers: "i",
-            keyCode: 34 // kVK_ANSI_I
-        )
-        XCTAssertTrue(
-            shouldSuppressAppMenuFallbackForBrowserDocumentEditingCommandEquivalent(cmdI),
-            "Unhandled browser-first Cmd+I must not fall back to the app menu"
-        )
-
-        let editingFallthroughCases: [(name: String, chars: String, keyCode: UInt16)] = [
-            ("cmd-c", "c", 8),
-            ("cmd-x", "x", 7),
-            ("cmd-a", "a", 0),
-        ]
-        for testCase in editingFallthroughCases {
-            let event = makeKeyEvent(
-                modifierFlags: [.command],
-                characters: testCase.chars,
-                charactersIgnoringModifiers: testCase.chars,
-                keyCode: testCase.keyCode
-            )
-            XCTAssertFalse(
-                shouldSuppressAppMenuFallbackForBrowserDocumentEditingCommandEquivalent(event),
-                "\(testCase.name) must keep its Edit-menu fallback"
-            )
-        }
-
-        let cmdJ = makeKeyEvent(
-            modifierFlags: [.command],
-            characters: "j",
-            charactersIgnoringModifiers: "j",
-            keyCode: 38 // kVK_ANSI_J
-        )
-        XCTAssertFalse(
-            shouldSuppressAppMenuFallbackForBrowserDocumentEditingCommandEquivalent(cmdJ),
-            "Cmd+J is not a browser document-editing command"
-        )
-    }
-
     func testBrowserFirstFindShortcutRoutingDoesNotUseANSIPositionsForMismatchedASCIICharacters() {
         let cases: [(name: String, modifiers: NSEvent.ModifierFlags, chars: String, keyCode: UInt16)] = [
             ("cmd-u-on-ansi-f", [.command], "u", 3),
@@ -12215,12 +12169,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
-    func testBrowserPaneCmdISkipsShowNotificationsAppMenuFallback() {
-        // A browser pane is focused (not browser focus mode). When the page does
-        // not claim Cmd+I, cmux must swallow it via the document-editing route
-        // instead of letting the static ⌘I main-menu key equivalent (Show
-        // Notifications) fire — that menu fallback was the remaining path that
-        // hijacked italics in web editors (issue #6776).
+    func testBrowserPaneCmdIFallsThroughToNotificationsOnNonEditableContent() {
+        // A browser pane is focused (not browser focus mode) on non-editable content.
+        // The page does not claim Cmd+I, so after web content has had first crack it
+        // falls through to the ⌘I Show Notifications main-menu key equivalent —
+        // notifications stay reachable via Cmd+I on non-editable browser pages, while
+        // editable web editors still consume it for italics (issue #6776).
         guard let harness = makeBrowserFocusModeHarness() else { return }
         defer { closeWindow(withId: harness.windowId) }
 
@@ -12250,12 +12204,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertTrue(
             harness.webView.performKeyEquivalent(with: commandI),
-            "Cmd+I over a focused browser pane must be consumed by web-content routing"
+            "Cmd+I over a focused browser pane should resolve (here via the Show Notifications menu fallback)"
         )
         XCTAssertEqual(
             probe.callCount,
-            0,
-            "Cmd+I must not fall through to the Show Notifications main-menu key equivalent while a browser pane is focused"
+            1,
+            "Cmd+I on non-editable browser content must fall through to the Show Notifications menu item"
         )
     }
 

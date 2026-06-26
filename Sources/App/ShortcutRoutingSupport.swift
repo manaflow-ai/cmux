@@ -661,21 +661,6 @@ private enum BrowserDocumentEditingCommandEquivalent: CaseIterable {
             )
         }
     }
-
-    /// Whether an unhandled command may fall through to the app's main menu after
-    /// the focused web content declines it. Copy/cut/select-all map to real Edit
-    /// menu items, so they keep that fallback. Italic has no AppKit Edit-menu
-    /// counterpart — the only `⌘I` main-menu item is the unrelated Show
-    /// Notifications shortcut, which must not hijack an editing keystroke the page
-    /// owns. So an unhandled browser-first Cmd+I is swallowed instead (issue #6776).
-    var fallsBackToAppMenuWhenUnhandled: Bool {
-        switch self {
-        case .copy, .cut, .selectAll:
-            return true
-        case .italic:
-            return false
-        }
-    }
 }
 
 func cmuxIsLikelyWebInspectorResponder(_ responder: NSResponder?) -> Bool {
@@ -727,28 +712,6 @@ func shouldRouteBrowserDocumentEditingCommandEquivalentThroughWebContentFirst(
     }
 
     return true
-}
-
-/// After the focused web content has declined a browser-first document-editing
-/// command, whether cmux should swallow the event instead of letting the app's
-/// main menu run its key equivalent. True only for editing commands that have no
-/// legitimate AppKit Edit-menu counterpart (italic): otherwise an unrelated
-/// static main-menu key equivalent — e.g. `⌘I` mapped to Show Notifications —
-/// would hijack an editing keystroke the page owns (issue #6776). Copy/cut/
-/// select-all keep their real Edit-menu fallback.
-func shouldSuppressAppMenuFallbackForBrowserDocumentEditingCommandEquivalent(
-    _ event: NSEvent,
-    responder: NSResponder? = nil
-) -> Bool {
-    guard let command = browserDocumentEditingCommandEquivalent(for: event) else {
-        return false
-    }
-
-    if cmuxIsLikelyWebInspectorResponder(responder) {
-        return false
-    }
-
-    return !command.fallsBackToAppMenuWhenUnhandled
 }
 
 /// For browser content, let the page try browser-local Find-family commands before cmux's menu fallback.
