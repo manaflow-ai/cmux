@@ -12514,6 +12514,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func reloadCmuxConfigStores(source: String) {
         configStoreReloadCoordinator.reload(source: source)
+        // Local browser panes read `browser.proxy` straight from cmux.json, so a
+        // reload must nudge them to re-apply their proxy configuration (#6639).
+        NotificationCenter.default.post(name: .browserUserProxyConfigurationDidChange, object: nil)
     }
 
     var reloadableConfigStores: [any CmuxConfigStoreReloading] {

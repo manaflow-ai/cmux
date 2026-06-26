@@ -823,7 +823,14 @@
         "browser": {
           "defaultSearchEngine": "Standard søkemotor for søk i nettleserens adresselinje som ikke er URLer. Bruk custom med customSearchEngineURLTemplate for andre leverandører.",
           "customSearchEngineName": "Visningsnavn som brukes når defaultSearchEngine er custom.",
-          "customSearchEngineURLTemplate": "Søke-URL som brukes når defaultSearchEngine er custom. Inkluder søkeplassholderen eller %s for det kodede søket. Uten plassholder legger cmux til q= i URLen."
+          "customSearchEngineURLTemplate": "Søke-URL som brukes når defaultSearchEngine er custom. Inkluder søkeplassholderen eller %s for det kodede søket. Uten plassholder legger cmux til q= i URLen.",
+          "proxy": {
+            "description": "Ruter lokale innebygde nettleserpaneler gjennom en HTTP CONNECT- eller SOCKSv5-proxy (WKWebsiteDataStore.proxyConfigurations). Gjelder bare lokale paneler; paneler i eksterne arbeidsområder beholder arbeidsområdetunnelen sin. Kan lastes inn på nytt via cmux reload-config. Miljøvariabelen CMUX_BROWSER_PROXY (f.eks. socks5://127.0.0.1:1080) overstyrer dette.",
+            "type": "Proxy-protokoll. off bruker ingen cmux-nettleserproxy (en aktiv macOS-systemproxy speiles fortsatt for loopback-rettelsen). socks5 bruker en SOCKSv5-proxy; httpConnect bruker en HTTP CONNECT-proxy.",
+            "host": "Vertsnavn eller IP til proxyserveren, f.eks. 127.0.0.1.",
+            "port": "Proxyserverens port, f.eks. 1080.",
+            "bypass": "Vertsnavnsuffikser som kobler til direkte i stedet for gjennom proxyen, f.eks. localhost, *.localhost, 127.0.0.1. Loopback- og link-local-verter omgås alltid."
+          }
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Global standard for hvor Cmd-N i en gruppe, + knappen i gruppehodet og konfigurerte gruppehandlinger plasserer det nye workspace: `afterCurrent` (etter aktivt workspace i gruppen, med top som fallback), `top` (andre plass, rett etter ankeret) eller `end` (etter siste medlem).",

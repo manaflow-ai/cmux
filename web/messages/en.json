@@ -1008,7 +1008,14 @@
         "browser": {
           "defaultSearchEngine": "Default search engine for non-URL browser address bar queries. Use custom with customSearchEngineURLTemplate for arbitrary providers.",
           "customSearchEngineName": "Display name used when defaultSearchEngine is custom.",
-          "customSearchEngineURLTemplate": "Search URL used when defaultSearchEngine is custom. Include the query placeholder or %s for the encoded query. If omitted, cmux appends q= to the URL."
+          "customSearchEngineURLTemplate": "Search URL used when defaultSearchEngine is custom. Include the query placeholder or %s for the encoded query. If omitted, cmux appends q= to the URL.",
+          "proxy": {
+            "description": "Route local embedded-browser panes through an HTTP CONNECT or SOCKSv5 proxy (WKWebsiteDataStore.proxyConfigurations). Applies to local panes only; remote-workspace panes keep their workspace tunnel. Reloadable via cmux reload-config. The CMUX_BROWSER_PROXY environment variable (e.g. socks5://127.0.0.1:1080) overrides this.",
+            "type": "Proxy protocol. off applies no cmux browser proxy (an active macOS system proxy is still mirrored for the loopback fix). socks5 uses a SOCKSv5 proxy; httpConnect uses an HTTP CONNECT proxy.",
+            "host": "Proxy server hostname or IP, e.g. 127.0.0.1.",
+            "port": "Proxy server port, e.g. 1080.",
+            "bypass": "Hostname suffixes that connect directly instead of through the proxy, e.g. localhost, *.localhost, 127.0.0.1. Loopback and link-local hosts are always bypassed."
+          }
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Global default for where Cmd-N inside a group, the group header + button, and configured group actions place the new workspace: `afterCurrent` (after the active in-group workspace, falling back to top), `top` (second slot, just after the anchor), or `end` (after the last member).",

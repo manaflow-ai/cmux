@@ -823,7 +823,14 @@
         "browser": {
           "defaultSearchEngine": "Standardsøgemaskine for forespørgsler i browserens adresselinje, der ikke er URLer. Brug custom med customSearchEngineURLTemplate til andre udbydere.",
           "customSearchEngineName": "Visningsnavn brugt når defaultSearchEngine er custom.",
-          "customSearchEngineURLTemplate": "Søge-URL brugt når defaultSearchEngine er custom. Medtag forespørgselspladsholderen eller %s for den kodede søgning. Uden en pladsholder tilføjer cmux q= til URLen."
+          "customSearchEngineURLTemplate": "Søge-URL brugt når defaultSearchEngine er custom. Medtag forespørgselspladsholderen eller %s for den kodede søgning. Uden en pladsholder tilføjer cmux q= til URLen.",
+          "proxy": {
+            "description": "Dirigerer lokale indlejrede browserruder gennem en HTTP CONNECT- eller SOCKSv5-proxy (WKWebsiteDataStore.proxyConfigurations). Gælder kun for lokale ruder; ruder i fjernarbejdsområder beholder deres arbejdsområdetunnel. Kan genindlæses via cmux reload-config. Miljøvariablen CMUX_BROWSER_PROXY (f.eks. socks5://127.0.0.1:1080) tilsidesætter dette.",
+            "type": "Proxyprotokol. off anvender ingen cmux-browserproxy (en aktiv macOS-systemproxy spejles stadig for loopback-rettelsen). socks5 bruger en SOCKSv5-proxy; httpConnect bruger en HTTP CONNECT-proxy.",
+            "host": "Proxyserverens værtsnavn eller IP, f.eks. 127.0.0.1.",
+            "port": "Proxyserverens port, f.eks. 1080.",
+            "bypass": "Værtsnavnssuffikser, der opretter forbindelse direkte i stedet for gennem proxyen, f.eks. localhost, *.localhost, 127.0.0.1. Loopback- og link-local-værter omgås altid."
+          }
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Global standard for hvor Cmd-N i en gruppe, gruppehovedets + knap og konfigurerede gruppehandlinger placerer det nye workspace: `afterCurrent` (efter det aktive workspace i gruppen, med top som fallback), `top` (anden plads, lige efter ankeret) eller `end` (efter det sidste medlem).",

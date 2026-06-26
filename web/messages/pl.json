@@ -823,7 +823,14 @@
         "browser": {
           "defaultSearchEngine": "Domyślna wyszukiwarka dla wpisów w pasku adresu przeglądarki, które nie są URL-ami. Użyj custom z customSearchEngineURLTemplate dla innych dostawców.",
           "customSearchEngineName": "Nazwa wyświetlana, gdy defaultSearchEngine ma wartość custom.",
-          "customSearchEngineURLTemplate": "URL wyszukiwania używany, gdy defaultSearchEngine ma wartość custom. Dodaj symbol zastępczy zapytania lub %s dla zakodowanego zapytania. Bez symbolu zastępczego cmux doda q= do URL."
+          "customSearchEngineURLTemplate": "URL wyszukiwania używany, gdy defaultSearchEngine ma wartość custom. Dodaj symbol zastępczy zapytania lub %s dla zakodowanego zapytania. Bez symbolu zastępczego cmux doda q= do URL.",
+          "proxy": {
+            "description": "Kieruje lokalne panele wbudowanej przeglądarki przez proxy HTTP CONNECT lub SOCKSv5 (WKWebsiteDataStore.proxyConfigurations). Dotyczy tylko paneli lokalnych; panele zdalnych obszarów roboczych zachowują swój tunel obszaru roboczego. Można przeładować za pomocą cmux reload-config. Zmienna środowiskowa CMUX_BROWSER_PROXY (np. socks5://127.0.0.1:1080) ma nad tym pierwszeństwo.",
+            "type": "Protokół proxy. off nie stosuje żadnego proxy przeglądarki cmux (aktywne proxy systemowe macOS jest nadal odzwierciedlane na potrzeby poprawki loopback). socks5 używa proxy SOCKSv5; httpConnect używa proxy HTTP CONNECT.",
+            "host": "Nazwa hosta lub adres IP serwera proxy, np. 127.0.0.1.",
+            "port": "Port serwera proxy, np. 1080.",
+            "bypass": "Sufiksy nazw hostów, które łączą się bezpośrednio zamiast przez proxy, np. localhost, *.localhost, 127.0.0.1. Hosty loopback i link-local są zawsze pomijane."
+          }
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Globalna wartość domyślna określająca, gdzie Cmd-N w grupie, przycisk + w nagłówku grupy i skonfigurowane akcje grupy umieszczają nowy workspace: `afterCurrent` (po aktywnym workspace w grupie, z fallbackiem do top), `top` (druga pozycja, tuż za kotwicą) albo `end` (po ostatnim członku).",

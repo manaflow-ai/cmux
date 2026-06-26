@@ -967,7 +967,14 @@
         "browser": {
           "defaultSearchEngine": "ブラウザのアドレスバーでURLではない入力に使う既定の検索エンジンです。任意のプロバイダには custom と customSearchEngineURLTemplate を使います。",
           "customSearchEngineName": "defaultSearchEngine が custom のときに使う表示名です。",
-          "customSearchEngineURLTemplate": "defaultSearchEngine が custom のときに使う検索URLです。エンコード済み検索語にはクエリ用プレースホルダーまたは %s を含めます。省略すると cmux が URL に q= を追加します。"
+          "customSearchEngineURLTemplate": "defaultSearchEngine が custom のときに使う検索URLです。エンコード済み検索語にはクエリ用プレースホルダーまたは %s を含めます。省略すると cmux が URL に q= を追加します。",
+          "proxy": {
+            "description": "ローカルの埋め込みブラウザペインを HTTP CONNECT または SOCKSv5 プロキシ（WKWebsiteDataStore.proxyConfigurations）経由でルーティングします。ローカルペインのみに適用され、リモートワークスペースのペインはワークスペーストンネルを維持します。cmux reload-config で再読み込みできます。CMUX_BROWSER_PROXY 環境変数（例: socks5://127.0.0.1:1080）がこれを上書きします。",
+            "type": "プロキシプロトコル。off は cmux ブラウザプロキシを適用しません（ループバック修正のため、有効な macOS システムプロキシは引き続きミラーリングされます）。socks5 は SOCKSv5 プロキシを使用し、httpConnect は HTTP CONNECT プロキシを使用します。",
+            "host": "プロキシサーバーのホスト名または IP。例: 127.0.0.1。",
+            "port": "プロキシサーバーのポート。例: 1080。",
+            "bypass": "プロキシ経由ではなく直接接続するホスト名のサフィックス。例: localhost, *.localhost, 127.0.0.1。ループバックおよびリンクローカルホストは常にバイパスされます。"
+          }
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "グループ内で Cmd-N、グループヘッダーの + ボタン、設定済みグループアクションが新しいワークスペースを配置する場所のグローバル既定値です: `afterCurrent` (アクティブなグループ内ワークスペースの直後。ない場合は top)、`top` (アンカー直後の2番目の位置)、`end` (最後のメンバーの後)。",

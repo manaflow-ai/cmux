@@ -823,7 +823,14 @@
         "browser": {
           "defaultSearchEngine": "Standardsuchmaschine für Nicht-URL-Eingaben in der Browser-Adressleiste. Verwenden Sie custom mit customSearchEngineURLTemplate für beliebige Anbieter.",
           "customSearchEngineName": "Anzeigename, der verwendet wird, wenn defaultSearchEngine custom ist.",
-          "customSearchEngineURLTemplate": "Such-URL, die verwendet wird, wenn defaultSearchEngine custom ist. Verwenden Sie den Abfrageplatzhalter oder %s für den kodierten Suchbegriff. Ohne Platzhalter fügt cmux q= zur URL hinzu."
+          "customSearchEngineURLTemplate": "Such-URL, die verwendet wird, wenn defaultSearchEngine custom ist. Verwenden Sie den Abfrageplatzhalter oder %s für den kodierten Suchbegriff. Ohne Platzhalter fügt cmux q= zur URL hinzu.",
+          "proxy": {
+            "description": "Leitet lokale eingebettete Browser-Bereiche über einen HTTP CONNECT- oder SOCKSv5-Proxy (WKWebsiteDataStore.proxyConfigurations) um. Gilt nur für lokale Bereiche; Bereiche von Remote-Workspaces behalten ihren Workspace-Tunnel. Neu ladbar über cmux reload-config. Die Umgebungsvariable CMUX_BROWSER_PROXY (z. B. socks5://127.0.0.1:1080) überschreibt dies.",
+            "type": "Proxy-Protokoll. off wendet keinen cmux-Browser-Proxy an (ein aktiver macOS-Systemproxy wird für die Loopback-Korrektur weiterhin gespiegelt). socks5 verwendet einen SOCKSv5-Proxy; httpConnect verwendet einen HTTP CONNECT-Proxy.",
+            "host": "Hostname oder IP des Proxyservers, z. B. 127.0.0.1.",
+            "port": "Port des Proxyservers, z. B. 1080.",
+            "bypass": "Hostnamen-Suffixe, die direkt statt über den Proxy verbunden werden, z. B. localhost, *.localhost, 127.0.0.1. Loopback- und Link-Local-Hosts werden immer umgangen."
+          }
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Globaler Standard dafür, wo Cmd-N innerhalb einer Gruppe, die + Schaltfläche im Gruppenkopf und konfigurierte Gruppenaktionen den neuen Workspace platzieren: `afterCurrent` (nach dem aktiven Workspace in der Gruppe, mit Rückfall auf top), `top` (zweite Position direkt nach dem Anker) oder `end` (nach dem letzten Mitglied).",

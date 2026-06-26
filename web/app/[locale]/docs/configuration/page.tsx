@@ -93,7 +93,13 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   "customSearchEngineName": "My Search",
   //   "customSearchEngineURLTemplate": "https://search.example.com/?q={query}",
   //   "openTerminalLinksInCmuxBrowser": true,
-  //   "hostsToOpenInEmbeddedBrowser": ["localhost", "*.internal.example"]
+  //   "hostsToOpenInEmbeddedBrowser": ["localhost", "*.internal.example"],
+  //   "proxy": {
+  //     "type": "socks5",
+  //     "host": "127.0.0.1",
+  //     "port": 1080,
+  //     "bypass": ["localhost", "*.localhost", "127.0.0.1"]
+  //   }
   // },
 
   // "markdown": {
