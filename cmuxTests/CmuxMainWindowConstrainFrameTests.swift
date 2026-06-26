@@ -213,5 +213,94 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
         XCTAssertEqual(window.frame.width, restoredTarget.width, accuracy: 1.0)
         XCTAssertEqual(window.frame.height, restoredTarget.height, accuracy: 1.0)
     }
+
+    // MARK: - MainWindowFrameRestorer gating (issue #5492)
+
+    private func makeTestMainWindow() -> CmuxMainWindow {
+        let window = CmuxMainWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        return window
+    }
+
+    private func shrunkFrame(in visible: NSRect) -> NSRect {
+        NSRect(
+            x: visible.minX + 40,
+            y: visible.minY + 40,
+            width: min(900, visible.width - 80),
+            height: min(600, visible.height - 80)
+        )
+    }
+
+    func testRestorerRestoresShrunkWindowAfterInactiveDisplayTransition() throws {
+        guard let screen = NSScreen.main else {
+            throw XCTSkip("No screen available for MainWindowFrameRestorer")
+        }
+        let visible = screen.visibleFrame
+        let window = makeTestMainWindow()
+        defer { window.orderOut(nil); window.close() }
+
+        window.setFrame(visible, display: false)
+        let restorer = MainWindowFrameRestorer()
+        restorer.captureFrames(of: [window])
+        restorer.noteDisplayTransition(appIsActive: false) // display slept while away
+
+        window.setFrame(shrunkFrame(in: visible), display: false)
+        restorer.restoreIfNeeded(windows: [window], visibleFrames: [visible])
+
+        XCTAssertEqual(window.frame.width, visible.width, accuracy: 1.0)
+        XCTAssertEqual(window.frame.height, visible.height, accuracy: 1.0)
+    }
+
+    func testRestorerLeavesWindowAloneWithoutDisplayTransition() throws {
+        // The regression the review caught: a background resize NOT tied to a
+        // display transition (keyboard window manager, AppleScript, macOS window
+        // management) must be left alone, not reverted on the next activation.
+        guard let screen = NSScreen.main else {
+            throw XCTSkip("No screen available for MainWindowFrameRestorer")
+        }
+        let visible = screen.visibleFrame
+        let window = makeTestMainWindow()
+        defer { window.orderOut(nil); window.close() }
+
+        window.setFrame(visible, display: false)
+        let restorer = MainWindowFrameRestorer()
+        restorer.captureFrames(of: [window])
+        // No noteDisplayTransition: no display transition observed.
+
+        let shrunk = shrunkFrame(in: visible)
+        window.setFrame(shrunk, display: false)
+        restorer.restoreIfNeeded(windows: [window], visibleFrames: [visible])
+
+        XCTAssertEqual(
+            window.frame.width, shrunk.width, accuracy: 1.0,
+            "Without an observed display transition the window must not be resized"
+        )
+        XCTAssertEqual(window.frame.height, shrunk.height, accuracy: 1.0)
+    }
+
+    func testRestorerIgnoresTransitionObservedWhileActive() throws {
+        guard let screen = NSScreen.main else {
+            throw XCTSkip("No screen available for MainWindowFrameRestorer")
+        }
+        let visible = screen.visibleFrame
+        let window = makeTestMainWindow()
+        defer { window.orderOut(nil); window.close() }
+
+        window.setFrame(visible, display: false)
+        let restorer = MainWindowFrameRestorer()
+        restorer.captureFrames(of: [window])
+        restorer.noteDisplayTransition(appIsActive: true) // transition while active is not armed
+
+        let shrunk = shrunkFrame(in: visible)
+        window.setFrame(shrunk, display: false)
+        restorer.restoreIfNeeded(windows: [window], visibleFrames: [visible])
+
+        XCTAssertEqual(window.frame.width, shrunk.width, accuracy: 1.0)
+    }
 }
 #endif
