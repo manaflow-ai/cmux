@@ -694,10 +694,18 @@ final class VSCodeServeWebController {
         let process = Process()
         process.executableURL = launchConfiguration.executableURL
         let inlineLoader = InlineVSCodeServeWebConfigurationLoader()
+        // Capture the throwaway data dir (created only for non-persistent mode) so
+        // it can be removed when this specific process is torn down. Only this
+        // unique per-launch dir is ever deleted, never a sibling instance's.
+        var ephemeralServerDataDir: String?
         process.arguments = inlineLoader.loadOptions().serveWebArguments(
             argumentsPrefix: launchConfiguration.argumentsPrefix,
             connectionTokenFilePath: connectionTokenFileURL.path,
-            makeEphemeralServerDataDir: inlineLoader.makeEphemeralServerDataDir
+            makeEphemeralServerDataDir: {
+                let directory = inlineLoader.makeEphemeralServerDataDir()
+                ephemeralServerDataDir = directory
+                return directory
+            }
         )
         process.environment = launchConfiguration.environment
 
@@ -720,12 +728,13 @@ final class VSCodeServeWebController {
         stdoutPipe.fileHandleForReading.readabilityHandler = outputReader
         stderrPipe.fileHandleForReading.readabilityHandler = outputReader
 
-        process.terminationHandler = { [weak self] terminatedProcess in
+        process.terminationHandler = { [weak self, ephemeralServerDataDir] terminatedProcess in
             stdoutPipe.fileHandleForReading.readabilityHandler = nil
             stderrPipe.fileHandleForReading.readabilityHandler = nil
             Self.drainAvailableOutput(from: stdoutPipe.fileHandleForReading, collector: collector)
             Self.drainAvailableOutput(from: stderrPipe.fileHandleForReading, collector: collector)
             collector.markProcessExited()
+            Self.removeEphemeralServerDataDir(ephemeralServerDataDir)
             self?.queue.async {
                 guard let self else { return }
                 if self.launchingProcess === terminatedProcess {
@@ -769,6 +778,7 @@ final class VSCodeServeWebController {
             stdoutPipe.fileHandleForReading.readabilityHandler = nil
             stderrPipe.fileHandleForReading.readabilityHandler = nil
             Self.removeConnectionTokenFile(at: connectionTokenFileURL)
+            Self.removeEphemeralServerDataDir(ephemeralServerDataDir)
             return nil
         }
 
@@ -840,6 +850,15 @@ final class VSCodeServeWebController {
 
     private static func removeConnectionTokenFile(at url: URL) {
         try? FileManager.default.removeItem(at: url)
+    }
+
+    /// Removes a non-persistent launch's unique throwaway data directory once its
+    /// `serve-web` process is gone, so `persistServeWebState: false` does not leak
+    /// data directories under the temp root across restarts. The path is the
+    /// per-launch UUID dir, so this never removes another instance's directory.
+    private static func removeEphemeralServerDataDir(_ path: String?) {
+        guard let path else { return }
+        try? FileManager.default.removeItem(atPath: path)
     }
 
     private static func urlsShareLoopbackOrigin(_ lhs: URL, _ rhs: URL?) -> Bool {
