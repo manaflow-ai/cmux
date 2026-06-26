@@ -2802,6 +2802,77 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
+    func testCodexResumeCommandRetriesTransientStateDatabaseLock() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-resume-lock-\(UUID().uuidString)", isDirectory: true)
+        let workingDirectory = root.appendingPathComponent("repo with spaces", isDirectory: true)
+        let binDirectory = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: binDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let attemptsURL = root.appendingPathComponent("attempts.txt", isDirectory: false)
+        let recordURL = root.appendingPathComponent("record.txt", isDirectory: false)
+        let fakeCodexURL = binDirectory.appendingPathComponent("codex fake", isDirectory: false)
+        try """
+        #!/bin/zsh
+        attempt=0
+        if [[ -r \(shellQuotedForTest(attemptsURL.path)) ]]; then
+          attempt="$(cat \(shellQuotedForTest(attemptsURL.path)))"
+        fi
+        attempt=$((attempt + 1))
+        print -r -- "$attempt" > \(shellQuotedForTest(attemptsURL.path))
+        if [[ "$attempt" -lt 3 ]]; then
+          print -u2 "Codex couldn't start because another Codex process is using its local data."
+          print -u2 "Technical details:"
+          print -u2 "  Location: /Users/example/.codex/state_5.sqlite"
+          print -u2 "  Cause: failed to initialize state runtime: error returned from database: (code: 5) database is locked"
+          exit 1
+        fi
+        printf 'attempt=%s\\ncwd=%s\\nargs=%s\\n' "$attempt" "$PWD" "$*" > \(shellQuotedForTest(recordURL.path))
+        """.write(to: fakeCodexURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCodexURL.path)
+
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: workingDirectory.path,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: fakeCodexURL.path,
+                arguments: [
+                    fakeCodexURL.path,
+                    "--model",
+                    "gpt-5.4"
+                ],
+                workingDirectory: workingDirectory.path,
+                environment: ["CODEX_HOME": root.appendingPathComponent("codex home", isDirectory: true).path],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+        let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-lc", resumeCommand]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        let stderr = Pipe()
+        process.standardError = stderr
+        try runWithBoundedWait(process, shellDescription: "zsh codex resume retry")
+        let stderrText = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+
+        XCTAssertEqual(process.terminationStatus, 0, stderrText)
+        XCTAssertEqual(
+            try String(contentsOf: attemptsURL, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
+            "3"
+        )
+        let record = try String(contentsOf: recordURL, encoding: .utf8)
+        XCTAssertTrue(record.contains("cwd=\(workingDirectory.path)\n"), record)
+        XCTAssertTrue(record.contains("args=resume 019dad34-d218-7943-b81a-eddac5c87951 --model gpt-5.4\n"), record)
+    }
+
     func testForkCommandsUseVerifiedAgentForkSyntaxAndPreserveContext() {
         let claude = SessionRestorableAgentSnapshot(
             kind: .claude,
