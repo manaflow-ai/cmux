@@ -4572,10 +4572,10 @@ extension Notification.Name {
     static let ghosttyDidFocusSurface = Notification.Name("ghosttyDidFocusSurface")
     static let ghosttyDidBecomeFirstResponderSurface = Notification.Name("ghosttyDidBecomeFirstResponderSurface")
     static let browserDidBecomeFirstResponderWebView = BrowserFirstResponderEvent.notificationName
-    static let browserFocusAddressBar = Notification.Name("browserFocusAddressBar")
-    static let browserMoveOmnibarSelection = Notification.Name("browserMoveOmnibarSelection")
-    static let browserDidExitAddressBar = Notification.Name("browserDidExitAddressBar")
-    static let browserDidFocusAddressBar = Notification.Name("browserDidFocusAddressBar")
+    static let browserFocusAddressBar = BrowserOmnibarFocusSignal.focusAddressBar.notificationName
+    static let browserMoveOmnibarSelection = BrowserOmnibarFocusSignal.moveSelection.notificationName
+    static let browserDidExitAddressBar = BrowserOmnibarFocusSignal.didExitAddressBar.notificationName
+    static let browserDidFocusAddressBar = BrowserOmnibarFocusSignal.didFocusAddressBar.notificationName
     static let browserDidBlurAddressBar = Notification.Name("browserDidBlurAddressBar")
     static let browserFocusModeStateDidChange = Notification.Name("cmux.browserFocusModeStateDidChange")
     static let webViewDidReceiveClick = Notification.Name("webViewDidReceiveClick")
