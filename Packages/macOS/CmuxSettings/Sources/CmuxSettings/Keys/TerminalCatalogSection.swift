@@ -54,10 +54,10 @@ public struct TerminalCatalogSection: SettingCatalogSection {
     )
 
     /// Seconds a terminal must stay off-screen before its renderer memory is
-    /// reclaimed.
+    /// reclaimed. Defaults to ten minutes.
     public let rendererRealizationIdleSeconds = DefaultsKey<Double>(
         id: "terminal.rendererRealization.idleSeconds",
-        defaultValue: 30,
+        defaultValue: 10 * 60,
         userDefaultsKey: "terminal.rendererRealization.idleSeconds"
     )
 

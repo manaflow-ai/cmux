@@ -27,10 +27,22 @@ struct RendererRealizationPlannerTests {
 
     private func settings(
         enabled: Bool = true,
-        idle: TimeInterval = 30,
+        idle: TimeInterval = RendererRealizationSettings.defaultIdleSeconds,
         warm: Int = 12
     ) -> RendererRealizationSettings.Values {
         .init(enabled: enabled, idleSeconds: idle, maxWarmRenderers: warm)
+    }
+
+    @Test func defaultsUseLongUnfocusedIdleThreshold() throws {
+        let suiteName = "RendererRealizationPlannerTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        #expect(RendererRealizationSettings.defaultIdleSeconds == 10 * 60)
+        #expect(RendererRealizationSettings.idleSeconds(defaults: defaults) == 10 * 60)
+        #expect(RendererRealizationSettings.sanitizedIdleSeconds(.infinity) == 10 * 60)
     }
 
     @Test func disabledSelectsNothing() {
