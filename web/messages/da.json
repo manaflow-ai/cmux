@@ -961,7 +961,11 @@
       "absolutePath": "Absolut sti",
       "cwdAbsolute": "bruges som den er",
       "fullExample": "Fuldt eksempel",
-      "restartNew": "Opret et nyt workspace (standard)"
+      "restartNew": "Opret et nyt workspace (standard)",
+      "fieldFolder": "Valgfri /-adskilt mappesti (f.eks. Project/Linting), der grupperer kommandoen i kommandopaletten",
+      "commandVariables": "Kommandovariabler",
+      "commandVariablesDesc": "Tilføj {{variable}}-pladsholdere til en kommando, og cmux beder om hver værdi, før den køres. Genbrug det samme navn for at udfylde det flere steder på én gang.",
+      "commandVariablesDefaultNote": "Brug {{variable=default}} til at udfylde prompten med en standardværdi på forhånd."
     },
     "keyboardShortcuts": {
       "title": "Tastaturgenveje",

@@ -961,7 +961,11 @@
       "absolutePath": "Apsolutna putanja",
       "cwdAbsolute": "koristi se kao takvo",
       "fullExample": "Potpuni primjer",
-      "restartNew": "Kreiraj novi radni prostor (zadano)"
+      "restartNew": "Kreiraj novi radni prostor (zadano)",
+      "fieldFolder": "Opcionalna putanja foldera odvojena znakom / (npr. Project/Linting) koja grupira komandu u Komandnoj paleti",
+      "commandVariables": "Varijable komande",
+      "commandVariablesDesc": "Dodajte {{variable}} rezervirana mjesta u komandu i cmux će zatražiti svaku vrijednost prije pokretanja. Ponovo upotrijebite isti naziv da ga popunite na više mjesta odjednom.",
+      "commandVariablesDefaultNote": "Koristite {{variable=default}} da unaprijed popunite upit zadanom vrijednošću."
     },
     "keyboardShortcuts": {
       "title": "Prečice na tastaturi",

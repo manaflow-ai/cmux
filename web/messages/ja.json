@@ -1113,7 +1113,11 @@
       "absolutePath": "絶対パス",
       "cwdAbsolute": "そのまま使用",
       "fullExample": "完全な例",
-      "restartNew": "新しいワークスペースを作成する (デフォルト)"
+      "restartNew": "新しいワークスペースを作成する (デフォルト)",
+      "fieldFolder": "コマンドパレットでコマンドをグループ化する任意の / 区切りフォルダーパス（例: Project/Linting）",
+      "commandVariables": "コマンド変数",
+      "commandVariablesDesc": "コマンドに {{variable}} プレースホルダーを追加すると、実行前に cmux が各値の入力を求めます。同じプレースホルダー名を再利用すると、複数箇所を一度に入力できます。",
+      "commandVariablesDefaultNote": "{{variable=default}} を使うと、プロンプトに既定値をあらかじめ入力できます。"
     },
     "keyboardShortcuts": {
       "title": "キーボードショートカット",

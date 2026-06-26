@@ -36,7 +36,39 @@
       "type": "array",
       "items": {
         "type": "object",
-        "additionalProperties": true
+        "additionalProperties": true,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Display name shown in the Command Palette."
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional subtitle shown beneath the name."
+          },
+          "keywords": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Extra search terms for the Command Palette."
+          },
+          "command": {
+            "type": "string",
+            "description": "Shell command to run. Use {{variable}} placeholders (optionally {{variable=default}}) to prompt for values before running, for example \"bin/deploy --env {{environment}}\"."
+          },
+          "folder": {
+            "type": "string",
+            "description": "Optional /-separated folder path used to group the command in the Command Palette, for example \"Project/Linting\"."
+          },
+          "confirm": {
+            "type": "boolean",
+            "description": "Ask for confirmation before running the command."
+          },
+          "workspace": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Workspace layout to open instead of running a shell command. Mutually exclusive with command."
+          }
+        }
       }
     },
     "vault": {

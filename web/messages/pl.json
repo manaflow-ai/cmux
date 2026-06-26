@@ -961,7 +961,11 @@
       "absolutePath": "Ścieżka bezwzględna",
       "cwdAbsolute": "używana bez zmian",
       "fullExample": "Pełny przykład",
-      "restartNew": "Utwórz nowy workspace (domyślnie)"
+      "restartNew": "Utwórz nowy workspace (domyślnie)",
+      "fieldFolder": "Opcjonalna ścieżka folderu rozdzielona znakiem / (np. Project/Linting), która grupuje polecenie w palecie poleceń",
+      "commandVariables": "Zmienne polecenia",
+      "commandVariablesDesc": "Dodaj symbole {{variable}} do polecenia, a cmux poprosi o każdą wartość przed jego uruchomieniem. Użyj tej samej nazwy ponownie, aby wypełnić ją w wielu miejscach naraz.",
+      "commandVariablesDefaultNote": "Użyj {{variable=default}}, aby wstępnie wypełnić monit wartością domyślną."
     },
     "keyboardShortcuts": {
       "title": "Skróty klawiszowe",

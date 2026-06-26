@@ -961,7 +961,11 @@
       "absolutePath": "مسار مطلق",
       "cwdAbsolute": "يُستخدم كما هو",
       "fullExample": "مثال كامل",
-      "restartNew": "إنشاء مساحة عمل جديدة (الافتراضي)"
+      "restartNew": "إنشاء مساحة عمل جديدة (الافتراضي)",
+      "fieldFolder": "مسار مجلد اختياري مفصول بـ / (مثل Project/Linting) لتجميع الأمر في لوحة الأوامر",
+      "commandVariables": "متغيرات الأمر",
+      "commandVariablesDesc": "أضِف عناصر نائبة {{variable}} إلى الأمر، وسيطلب cmux إدخال كل قيمة قبل التشغيل. أعِد استخدام الاسم نفسه لتعبئته في عدة أماكن دفعة واحدة.",
+      "commandVariablesDefaultNote": "استخدم {{variable=default}} لملء المطالبة بقيمة افتراضية مسبقًا."
     },
     "keyboardShortcuts": {
       "title": "اختصارات لوحة المفاتيح",

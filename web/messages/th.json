@@ -961,7 +961,11 @@
       "absolutePath": "พาธสัมบูรณ์",
       "cwdAbsolute": "ใช้ตามที่เป็น",
       "fullExample": "ตัวอย่างเต็ม",
-      "restartNew": "สร้าง workspace ใหม่ (ค่าเริ่มต้น)"
+      "restartNew": "สร้าง workspace ใหม่ (ค่าเริ่มต้น)",
+      "fieldFolder": "เส้นทางโฟลเดอร์เสริมที่คั่นด้วย / (เช่น Project/Linting) สำหรับจัดกลุ่มคำสั่งในคอมมานด์พาเลตต์",
+      "commandVariables": "ตัวแปรของคำสั่ง",
+      "commandVariablesDesc": "เพิ่มตัวยึด {{variable}} ลงในคำสั่ง แล้ว cmux จะถามค่าแต่ละค่าก่อนเรียกใช้ ใช้ชื่อเดิมซ้ำเพื่อกรอกค่าในหลายตำแหน่งพร้อมกัน",
+      "commandVariablesDefaultNote": "ใช้ {{variable=default}} เพื่อกรอกค่าเริ่มต้นในกล่องข้อความล่วงหน้า"
     },
     "keyboardShortcuts": {
       "title": "คีย์ลัด",

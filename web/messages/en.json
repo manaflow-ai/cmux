@@ -1154,7 +1154,11 @@
       "absolutePath": "Absolute path",
       "cwdAbsolute": "used as-is",
       "fullExample": "Full example",
-      "restartNew": "Create a new workspace (default)"
+      "restartNew": "Create a new workspace (default)",
+      "fieldFolder": "Optional /-separated folder path (e.g. Project/Linting) that groups the command in the Command Palette",
+      "commandVariables": "Command variables",
+      "commandVariablesDesc": "Add {{variable}} placeholders to a command and cmux prompts for each value before running it. Reuse the same placeholder name to fill it in several places at once.",
+      "commandVariablesDefaultNote": "Use {{variable=default}} to pre-fill the prompt with a default value."
     },
     "keyboardShortcuts": {
       "title": "Keyboard Shortcuts",

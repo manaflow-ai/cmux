@@ -961,7 +961,11 @@
       "absolutePath": "绝对路径",
       "cwdAbsolute": "按原样使用",
       "fullExample": "完整示例",
-      "restartNew": "创建新的 workspace（默认）"
+      "restartNew": "创建新的 workspace（默认）",
+      "fieldFolder": "可选的以 / 分隔的文件夹路径（例如 Project/Linting），用于在命令面板中对命令进行分组",
+      "commandVariables": "命令变量",
+      "commandVariablesDesc": "在命令中添加 {{variable}} 占位符，cmux 会在运行前提示输入每个值。重复使用相同的名称即可一次性填充多个位置。",
+      "commandVariablesDefaultNote": "使用 {{variable=default}} 可为提示预填默认值。"
     },
     "keyboardShortcuts": {
       "title": "快捷键",

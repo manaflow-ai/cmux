@@ -961,7 +961,11 @@
       "absolutePath": "Mutlak yol",
       "cwdAbsolute": "olduğu gibi kullanılır",
       "fullExample": "Tam örnek",
-      "restartNew": "Yeni bir workspace oluştur (varsayılan)"
+      "restartNew": "Yeni bir workspace oluştur (varsayılan)",
+      "fieldFolder": "Komutu komut paletinde gruplayan, / ile ayrılmış isteğe bağlı klasör yolu (ör. Project/Linting)",
+      "commandVariables": "Komut değişkenleri",
+      "commandVariablesDesc": "Bir komuta {{variable}} yer tutucuları ekleyin; cmux çalıştırmadan önce her değeri sorar. Aynı adı yeniden kullanarak birden çok yeri tek seferde doldurun.",
+      "commandVariablesDefaultNote": "İstemi varsayılan bir değerle önceden doldurmak için {{variable=default}} kullanın."
     },
     "keyboardShortcuts": {
       "title": "Klavye Kısayolları",

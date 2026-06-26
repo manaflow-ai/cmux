@@ -1486,6 +1486,9 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
     var terminalCommandTarget: CmuxConfigTerminalCommandTarget?
     var actionSourcePath: String?
     var iconSourcePath: String?
+    /// Optional Command Palette folder breadcrumb (e.g. `Project / Linting`),
+    /// shown as the row's trailing badge for folder-organized custom commands.
+    var folder: String?
 
     var terminalCommand: String? {
         action.terminalCommand
@@ -1617,9 +1620,29 @@ struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
     var workspace: CmuxWorkspaceDefinition?
     var command: String?
     var confirm: Bool?
+    /// Optional `/`-separated folder path used to group the command in the
+    /// Command Palette (e.g. `"Project/Linting"`). Purely organizational.
+    var folder: String?
 
     var id: String {
         "cmux.config.command." + (name.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? name)
+    }
+
+    /// The trimmed, non-empty components of ``folder`` split on `/`.
+    var folderComponents: [String] {
+        guard let folder else { return [] }
+        return folder
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// A human-readable breadcrumb for ``folderComponents`` (e.g. `Project / Linting`),
+    /// or `nil` when the command has no usable folder.
+    var folderBreadcrumb: String? {
+        let components = folderComponents
+        guard !components.isEmpty else { return nil }
+        return components.joined(separator: " / ")
     }
 
     init(
@@ -1629,7 +1652,8 @@ struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
         restart: CmuxRestartBehavior? = nil,
         workspace: CmuxWorkspaceDefinition? = nil,
         command: String? = nil,
-        confirm: Bool? = nil
+        confirm: Bool? = nil,
+        folder: String? = nil
     ) {
         self.name = name
         self.description = description
@@ -1638,6 +1662,7 @@ struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
         self.workspace = workspace
         self.command = command
         self.confirm = confirm
+        self.folder = folder
     }
 
     init(from decoder: Decoder) throws {
@@ -1649,6 +1674,7 @@ struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
         workspace = try container.decodeIfPresent(CmuxWorkspaceDefinition.self, forKey: .workspace)
         command = try container.decodeIfPresent(String.self, forKey: .command)
         confirm = try container.decodeIfPresent(Bool.self, forKey: .confirm)
+        folder = try container.decodeIfPresent(String.self, forKey: .folder)
 
         if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             throw DecodingError.dataCorrupted(
@@ -2474,15 +2500,26 @@ final class CmuxConfigStore: ObservableObject {
 
         for command in commands where registry[command.id] == nil {
             let sourcePath = commandSourcePaths[command.id]
+            let folderBreadcrumb = command.folderBreadcrumb.map { sanitizeConfigText($0) }
+            let sanitizedDescription = command.description.map { sanitizeConfigText($0) }
+            let subtitle: String
+            if let folderBreadcrumb {
+                // Fold the breadcrumb into the subtitle so the folder path is
+                // searchable and discoverable alongside any description.
+                subtitle = sanitizedDescription.map { "\(folderBreadcrumb) · \($0)" } ?? folderBreadcrumb
+            } else {
+                subtitle = sanitizedDescription
+                    ?? String(localized: "command.cmuxConfig.subtitle", defaultValue: "cmux.json")
+            }
+            let folderKeywords = command.folderComponents.map { sanitizeConfigText($0) }
             registry[command.id] = CmuxResolvedConfigAction(
                 id: command.id,
                 title: String(
                     localized: "command.cmuxConfig.customTitle",
                     defaultValue: "Custom: \(sanitizeConfigText(command.name))"
                 ),
-                subtitle: command.description.map { sanitizeConfigText($0) }
-                    ?? String(localized: "command.cmuxConfig.subtitle", defaultValue: "cmux.json"),
-                keywords: command.keywords ?? [],
+                subtitle: subtitle,
+                keywords: (command.keywords ?? []) + folderKeywords,
                 palette: true,
                 shortcut: nil,
                 icon: .symbol(command.workspace == nil ? "terminal" : "rectangle.stack.badge.plus"),
@@ -2493,7 +2530,8 @@ final class CmuxConfigStore: ObservableObject {
                 confirm: command.confirm,
                 terminalCommandTarget: command.workspace == nil ? .currentTerminal : nil,
                 actionSourcePath: sourcePath,
-                iconSourcePath: nil
+                iconSourcePath: nil,
+                folder: folderBreadcrumb
             )
         }
 

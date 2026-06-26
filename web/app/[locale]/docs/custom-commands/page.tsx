@@ -335,9 +335,23 @@ export default function CustomCommandsPage() {
         <li><code>description</code>: {t("fieldDescription")}</li>
         <li><code>keywords</code>: {t("fieldKeywords")}</li>
         <li><code>command</code>: {t("fieldCommand")}</li>
+        <li><code>folder</code>: {t("fieldFolder")}</li>
         <li><code>confirm</code>: {t("fieldConfirm")}</li>
       </ul>
       <p>{t("simpleCommandCwdNote")} <code>{"cd \"$(git rev-parse --show-toplevel)\" &&"}</code> {t("simpleCommandCwdRepoRoot")} <code>{"cd /your/path &&"}</code> {t("simpleCommandCwdCustomPath")}</p>
+
+      <DocsHeading level={3} id="command-variables">{t("commandVariables")}</DocsHeading>
+      <p>{t("commandVariablesDesc")}</p>
+      <CodeBlock title="cmux.json" lang="json">{`{
+  "commands": [
+    {
+      "name": "Deploy",
+      "folder": "Project/Deploy",
+      "command": "bin/deploy --env {{environment}} --branch {{branch}}"
+    }
+  ]
+}`}</CodeBlock>
+      <p>{t("commandVariablesDefaultNote")}</p>
 
       <DocsHeading level={2} id="workspace-commands">{t("workspaceCommands")}</DocsHeading>
       <p>{t("workspaceCommandsDesc")}</p>

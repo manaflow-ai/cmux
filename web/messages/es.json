@@ -961,7 +961,11 @@
       "absolutePath": "Ruta absoluta",
       "cwdAbsolute": "se usa tal cual",
       "fullExample": "Ejemplo completo",
-      "restartNew": "Crear un workspace nuevo (por defecto)"
+      "restartNew": "Crear un workspace nuevo (por defecto)",
+      "fieldFolder": "Ruta de carpeta opcional separada por / (p. ej. Project/Linting) que agrupa el comando en la paleta de comandos",
+      "commandVariables": "Variables del comando",
+      "commandVariablesDesc": "Añade marcadores {{variable}} a un comando y cmux pedirá cada valor antes de ejecutarlo. Reutiliza el mismo nombre para rellenarlo en varios lugares a la vez.",
+      "commandVariablesDefaultNote": "Usa {{variable=default}} para rellenar previamente el campo con un valor predeterminado."
     },
     "keyboardShortcuts": {
       "title": "Atajos de teclado",

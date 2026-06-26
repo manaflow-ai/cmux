@@ -961,7 +961,11 @@
       "absolutePath": "Absoluter Pfad",
       "cwdAbsolute": "wird unverändert verwendet",
       "fullExample": "Vollständiges Beispiel",
-      "restartNew": "Neuen Workspace erstellen (Standard)"
+      "restartNew": "Neuen Workspace erstellen (Standard)",
+      "fieldFolder": "Optionaler, durch / getrennter Ordnerpfad (z. B. Project/Linting), der den Befehl in der Befehlspalette gruppiert",
+      "commandVariables": "Befehlsvariablen",
+      "commandVariablesDesc": "Füge einem Befehl {{variable}}-Platzhalter hinzu; cmux fragt vor der Ausführung nach jedem Wert. Verwende denselben Namen erneut, um ihn an mehreren Stellen gleichzeitig auszufüllen.",
+      "commandVariablesDefaultNote": "Verwende {{variable=default}}, um die Eingabeaufforderung mit einem Standardwert vorzubelegen."
     },
     "keyboardShortcuts": {
       "title": "Tastaturkürzel",

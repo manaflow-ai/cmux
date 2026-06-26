@@ -135,6 +135,64 @@ struct CmuxConfigExecutor {
         presentingWindow: NSWindow? = nil,
         onAuthorized: @escaping (String) -> Void
     ) -> Bool {
+        // Resolve any `{{variable}}` placeholders before authorizing/dispatching.
+        // This single choke point feeds every command entrypoint (palette,
+        // surface tab-bar buttons, dock, …), so the prompt applies to all of
+        // them without per-surface duplication.
+        let variables = CmuxCommandVariableParser.variables(in: rawCommand)
+        guard !variables.isEmpty else {
+            return authorizeSanitizedShellCommand(
+                rawCommand,
+                confirm: confirm,
+                actionID: actionID,
+                target: target,
+                configSourcePath: configSourcePath,
+                globalConfigPath: globalConfigPath,
+                displayTitle: displayTitle,
+                icon: icon,
+                iconSourcePath: iconSourcePath,
+                presentingWindow: presentingWindow,
+                onAuthorized: onAuthorized
+            )
+        }
+
+        let resolvedWindow = presentingWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        return CmuxCommandVariablePrompt.present(
+            variables: variables,
+            displayTitle: displayTitle,
+            presentingWindow: resolvedWindow
+        ) { values in
+            let substituted = CmuxCommandVariableParser.substitute(rawCommand, values: values)
+            _ = authorizeSanitizedShellCommand(
+                substituted,
+                confirm: confirm,
+                actionID: actionID,
+                target: target,
+                configSourcePath: configSourcePath,
+                globalConfigPath: globalConfigPath,
+                displayTitle: displayTitle,
+                icon: icon,
+                iconSourcePath: iconSourcePath,
+                presentingWindow: resolvedWindow,
+                onAuthorized: onAuthorized
+            )
+        }
+    }
+
+    @discardableResult
+    private static func authorizeSanitizedShellCommand(
+        _ rawCommand: String,
+        confirm: Bool,
+        actionID: String,
+        target: CmuxConfigTerminalCommandTarget,
+        configSourcePath: String?,
+        globalConfigPath: String,
+        displayTitle: String?,
+        icon: CmuxButtonIcon?,
+        iconSourcePath: String?,
+        presentingWindow: NSWindow?,
+        onAuthorized: @escaping (String) -> Void
+    ) -> Bool {
         let shellCommand = sanitizeForDisplay(rawCommand)
         guard !shellCommand.isEmpty else { return false }
 
