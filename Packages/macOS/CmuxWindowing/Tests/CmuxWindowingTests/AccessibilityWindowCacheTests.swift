@@ -16,6 +16,15 @@ struct AccessibilityWindowCacheTests {
         return window
     }
 
+    private func makeHelpTagWindow() -> NSWindow {
+        HelpTagWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 253, height: 19),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+    }
+
     private func windows(_ value: Any?) -> [NSWindow]? {
         value as? [NSWindow]
     }
@@ -90,6 +99,25 @@ struct AccessibilityWindowCacheTests {
         #expect(buildCount == 2, "Expected the cache to rebuild once after the hierarchy token changes")
     }
 
+    @Test("help tag windows stay out of AXWindows snapshots")
+    func helpTagWindowsStayOutOfAXWindowsSnapshots() {
+        let window = makeWindow()
+        let helpTagWindow = makeHelpTagWindow()
+        defer {
+            window.orderOut(nil)
+            helpTagWindow.orderOut(nil)
+        }
+
+        let cache = AccessibilityWindowCache()
+        let state = AccessibilityWindowCache.StateToken(windows: [window, helpTagWindow])
+
+        let windowsValue = cache.value(for: .windows, stateToken: state) {
+            .init(windows: [window, helpTagWindow])
+        }
+
+        expectWindowsEqual(windowsValue, [window])
+    }
+
     @Test("non-.windows attributes stay passthrough")
     func nonWindowsAttributesStayPassthrough() {
         let cache = AccessibilityWindowCache()
@@ -125,5 +153,11 @@ struct AccessibilityWindowCacheTests {
         }
 
         #expect(buildCount == 2, "Expected NSWindow.willCloseNotification to invalidate the cache")
+    }
+}
+
+private final class HelpTagWindow: NSWindow {
+    override func accessibilityRole() -> NSAccessibility.Role? {
+        .helpTag
     }
 }
