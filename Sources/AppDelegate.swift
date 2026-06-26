@@ -8778,10 +8778,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         restartSocketListenerIfEnabled(source: "menu.command")
     }
 
+    /// All open workspaces across every window, for the Sleepy Mode pet census
+    /// (counts the coding agents the user currently has running).
+    func openWorkspacesForPetCensus() -> [Workspace] {
+        mainWindowContexts.values.flatMap { $0.tabManager.tabs }
+    }
+
     private func setupMenuBarExtra() {
         guard menuBarExtraController == nil else { return }
         removeTransientGlobalSearchMenuBarExtraController()
         menuBarExtraController = makeMenuBarExtraController()
+        SleepyModeController.shared.onStateChange = { [weak self] in
+            self?.menuBarExtraController?.refreshForDebugControls()
+        }
     }
 
     private func makeMenuBarExtraController() -> MenuBarExtraController {
@@ -8805,6 +8814,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             },
             onOpenTaskManager: {
                 TaskManagerWindowController.shared.show()
+            },
+            onToggleSleepyMode: {
+                SleepyModeController.shared.toggle()
             },
             onCheckForUpdates: { [weak self] in
                 self?.checkForUpdates(nil)
@@ -13139,6 +13151,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                shortcuts: configuredCmuxShortcutActions.compactMap(\.shortcut)
            ) {
             return true
+        }
+
+        // Focused browser web content owns document-editing command equivalents
+        // (copy/cut/select-all/italic). Yield them so e.g. Cmd+I italicizes in web
+        // writing apps (Notion, Google Docs, …) instead of opening Show
+        // Notifications. This special-cases only the editing collision: the action
+        // stays generally available, so non-colliding custom bindings (e.g.
+        // Cmd+Shift+I) still open notifications from a browser pane. Gated to the
+        // actual web view owning first responder — not just the browser being the
+        // selected pane — so Cmd+I keeps working when the sidebar, address bar, or
+        // other chrome holds focus, and to the no-active-chord case so a configured
+        // chord whose second stroke is Cmd+I/C/X/A still completes (issue #6776).
+        if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+           shouldRouteBrowserDocumentEditingCommandEquivalentThroughWebContentFirst(event),
+           shortcutEventFirstResponderOwnsBrowserWebView(event) {
+            return false
         }
 
         if !hasFocusedAddressBarInShortcutContext,
