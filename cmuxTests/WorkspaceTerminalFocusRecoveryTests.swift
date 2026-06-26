@@ -13,6 +13,45 @@ import CmuxTerminal
 struct WorkspaceTerminalFocusRecoverySwiftTests {
 #if DEBUG
     @Test
+    func moveFocusRevealsHiddenDestinationTerminalPane() throws {
+        let workspace = Workspace()
+        let leftPanelId = try #require(workspace.focusedPanelId, "Expected focused panel in new workspace")
+        let leftPanel = try #require(
+            workspace.terminalPanel(for: leftPanelId),
+            "Expected initial focused panel to be a terminal"
+        )
+        let rightPanel = try #require(
+            workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
+            "Expected split terminal panel"
+        )
+
+        workspace.focusPanel(leftPanel.id)
+        #expect(workspace.focusedPanelId == leftPanel.id)
+
+        leftPanel.hostedView.setVisibleInUI(true)
+        leftPanel.hostedView.setActive(true)
+        rightPanel.hostedView.setVisibleInUI(false)
+        rightPanel.hostedView.setActive(false)
+        #expect(!rightPanel.hostedView.debugPortalVisibleInUI)
+
+        workspace.moveFocus(direction: .right)
+
+        #expect(workspace.focusedPanelId == rightPanel.id)
+        #expect(
+            rightPanel.hostedView.debugPortalVisibleInUI,
+            "Keyboard pane focus should reveal a hidden destination terminal portal"
+        )
+        #expect(
+            rightPanel.hostedView.debugPortalActive,
+            "Keyboard pane focus should mark the destination terminal portal active"
+        )
+        #expect(
+            !leftPanel.hostedView.debugPortalActive,
+            "Keyboard pane focus should clear active state from the origin terminal portal"
+        )
+    }
+
+    @Test
     func hiddenTinyFirstResponderReappliesGhosttyFocusAfterGeometrySettles() throws {
         let originalAppDelegate = AppDelegate.shared
         let appDelegate = originalAppDelegate ?? AppDelegate()
