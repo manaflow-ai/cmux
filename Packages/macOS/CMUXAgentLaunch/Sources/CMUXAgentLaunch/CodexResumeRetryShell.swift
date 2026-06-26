@@ -36,14 +36,33 @@ public struct CodexResumeRetryShell: Sendable, Equatable {
 
     private func retryScript(command: String) -> String {
         """
+        _cmux_codex_retry_stderr=""
+        _cmux_codex_retry_pipe=""
+        _cmux_codex_retry_cleanup() {
+          if [ -n "$_cmux_codex_retry_pipe" ]; then
+            rm -f "$_cmux_codex_retry_pipe" 2>/dev/null || true
+          fi
+          if [ -n "$_cmux_codex_retry_stderr" ]; then
+            rm -f "$_cmux_codex_retry_stderr" 2>/dev/null || true
+          fi
+        }
+        trap '_cmux_codex_retry_cleanup; exit 130' INT TERM
+        trap '_cmux_codex_retry_cleanup' EXIT
         _cmux_codex_retry_attempt=1
         _cmux_codex_retry_limit=\(maxAttempts)
         while true; do
           _cmux_codex_retry_stderr="$(mktemp "${TMPDIR:-/tmp}/cmux-codex-resume.XXXXXX")" || exit 1
-          { \(command); } 2> >(tee "$_cmux_codex_retry_stderr" >&2)
+          _cmux_codex_retry_pipe="${_cmux_codex_retry_stderr}.pipe"
+          mkfifo "$_cmux_codex_retry_pipe" || exit 1
+          tee "$_cmux_codex_retry_stderr" <"$_cmux_codex_retry_pipe" >&2 &
+          _cmux_codex_retry_tee_pid=$!
+          { \(command); } 2>"$_cmux_codex_retry_pipe"
           _cmux_codex_retry_status=$?
+          wait "$_cmux_codex_retry_tee_pid" 2>/dev/null || true
           _cmux_codex_retry_output="$(cat "$_cmux_codex_retry_stderr" 2>/dev/null)"
-          rm -f "$_cmux_codex_retry_stderr" 2>/dev/null || true
+          rm -f "$_cmux_codex_retry_stderr" "$_cmux_codex_retry_pipe" 2>/dev/null || true
+          _cmux_codex_retry_stderr=""
+          _cmux_codex_retry_pipe=""
           if [ "$_cmux_codex_retry_status" -eq 0 ]; then
             exit 0
           fi
