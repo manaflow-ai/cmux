@@ -29,6 +29,8 @@ on:
         options:
           - macos
           - ios
+          - ios-video
+          - sync-video
       runner:
         description: >-
           macOS runner label to build on. Blacksmith (blacksmith-6vcpu-macos-26),
@@ -43,6 +45,19 @@ on:
         required: false
         default: ""
         type: string
+      test_filter:
+        description: XCUITest class or class/method used for ios-video/sync-video.
+        required: false
+        default: cmuxUITests/cmuxUITests/testStackAuthEntryUsesStableIdentifiers
+        type: string
+      device_family:
+        description: Simulator family used for ios-video/sync-video.
+        required: false
+        default: iphone
+        type: choice
+        options:
+          - iphone
+          - ipad
 
 # Surface tag/platform/nonce in the run title so the dispatcher can match its run
 # by the nonce it passed (gh workflow run does not return a run id).
@@ -115,7 +130,7 @@ jobs:
       # source refs that predate the crate are a no-op (scripts come from
       # inputs.ref, not this workflow's ref). install-rust-ci.sh is idempotent.
       - name: Provision cmux-iroh FFI (iOS)
-        if: ${{ inputs.platform == 'ios' }}
+        if: ${{ inputs.platform == 'ios' || inputs.platform == 'ios-video' || inputs.platform == 'sync-video' }}
         run: |
           set -euo pipefail
           if [ -f scripts/ensure-cmux-iroh.sh ]; then
@@ -170,6 +185,146 @@ jobs:
           [ -d "$archive" ] || { echo "archive not produced: $archive" >&2; exit 1; }
           mkdir -p artifact
           ( cd "$out" && ditto -c -k --keepParent "$(basename "$archive")" "$GITHUB_WORKSPACE/artifact/archive.zip" )
+
+      # --- iOS video: drive an XCUITest on a Simulator while recording pixels ---
+      - name: Record iOS simulator video
+        if: ${{ inputs.platform == 'ios-video' || inputs.platform == 'sync-video' }}
+        env:
+          BUILD_TAG: ${{ inputs.tag }}
+          DEVICE_FAMILY: ${{ inputs.device_family }}
+          TEST_FILTER: ${{ inputs.test_filter }}
+          VIDEO_PLATFORM: ${{ inputs.platform }}
+        run: |
+          set -euo pipefail
+          case "$DEVICE_FAMILY" in iphone|ipad) ;; *) echo "invalid device_family: $DEVICE_FAMILY" >&2; exit 1 ;; esac
+          if [ -z "${TEST_FILTER:-}" ]; then
+            echo "test_filter is required for $VIDEO_PLATFORM" >&2
+            exit 1
+          fi
+
+          ios_ready() { xcrun simctl runtime list 2>/dev/null | grep -qiE "iOS [0-9].*\(Ready\)"; }
+          if ! ios_ready; then
+            echo "iOS platform not registered; installing via downloadPlatform iOS"
+            xcodebuild -downloadPlatform iOS 2>&1 | tr '\r' '\n' | grep -ivE 'Preparing to download|registering download' | tail -8 || true
+            ios_ready || { echo "iOS platform still not registered; simulator recording would fail" >&2; exit 1; }
+          fi
+
+          ./scripts/ensure-ghosttykit.sh
+
+          SIMULATOR_ENV="$RUNNER_TEMP/simulator-$DEVICE_FAMILY.env"
+          python3 - <<'PY' > "$SIMULATOR_ENV"
+          import json
+          import os
+          import subprocess
+
+          def simctl_json(*args):
+              return json.loads(subprocess.check_output(["xcrun", "simctl", "list", *args, "-j"]))
+
+          def version_key(runtime):
+              parts = []
+              for part in str(runtime.get("version") or "").split("."):
+                  try:
+                      parts.append(int(part))
+                  except ValueError:
+                      parts.append(0)
+              return tuple(parts)
+
+          family = os.environ["DEVICE_FAMILY"]
+          prefix = "iPad" if family == "ipad" else "iPhone"
+          preferred = ["iPad Pro 13-inch (M4)", "iPad Air 13-inch (M3)"] if family == "ipad" else ["iPhone 17", "iPhone 16"]
+          data = simctl_json("devices", "available")
+          devices = [
+              device
+              for runtimes in data.get("devices", {}).values()
+              for device in runtimes
+              if device.get("isAvailable", True)
+          ]
+          selected = next((d for name in preferred for d in devices if d.get("name") == name), None)
+          selected = selected or next((d for d in devices if d.get("name", "").startswith(prefix)), None)
+          if selected is None:
+              runtimes = [
+                  runtime
+                  for runtime in simctl_json("runtimes").get("runtimes", [])
+                  if runtime.get("isAvailable", True)
+                  and (
+                      runtime.get("platform") == "iOS"
+                      or "iOS" in runtime.get("name", "")
+                      or runtime.get("identifier", "").startswith("com.apple.CoreSimulator.SimRuntime.iOS")
+                  )
+              ]
+              device_types = [
+                  device_type
+                  for device_type in simctl_json("devicetypes").get("devicetypes", [])
+                  if device_type.get("name", "").startswith(prefix)
+              ]
+              runtime = max(runtimes, key=version_key, default=None)
+              device_type = next((d for name in preferred for d in device_types if d.get("name") == name), None)
+              device_type = device_type or (device_types[-1] if device_types else None)
+              if runtime is None or device_type is None:
+                  raise SystemExit(f"No available {family} simulator or creatable iOS runtime/device type found")
+              udid = subprocess.check_output([
+                  "xcrun",
+                  "simctl",
+                  "create",
+                  f"cmux video {device_type['name']}",
+                  device_type["identifier"],
+                  runtime["identifier"],
+              ], text=True).strip()
+              selected = {"udid": udid, "name": f"cmux video {device_type['name']}"}
+          print(f"SIMULATOR_ID={selected['udid']}")
+          print(f"SIMULATOR_NAME={selected['name']}")
+          PY
+          # shellcheck source=/dev/null
+          . "$SIMULATOR_ENV"
+          cat "$SIMULATOR_ENV"
+
+          IOS_DERIVED_DATA="$RUNNER_TEMP/cmux-ios-video-$DEVICE_FAMILY"
+          rm -rf "$IOS_DERIVED_DATA"
+          mkdir -p "$IOS_DERIVED_DATA/logs" artifact
+
+          xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
+          xcrun simctl erase "$SIMULATOR_ID"
+          xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
+          xcrun simctl bootstatus "$SIMULATOR_ID" -b
+
+          video_path="$GITHUB_WORKSPACE/artifact/cmux-$VIDEO_PLATFORM-$BUILD_TAG-$DEVICE_FAMILY.mp4"
+          record_log="$RUNNER_TEMP/sim-record.log"
+          xcrun simctl io "$SIMULATOR_ID" recordVideo --codec=h264 --force "$video_path" >"$record_log" 2>&1 &
+          record_pid=$!
+          cleanup_recording() {
+            if kill -0 "$record_pid" >/dev/null 2>&1; then
+              kill -INT "$record_pid" >/dev/null 2>&1 || true
+              wait "$record_pid" >/dev/null 2>&1 || true
+            fi
+          }
+          trap cleanup_recording EXIT
+
+          for _ in $(seq 1 60); do
+            grep -q "Recording started" "$record_log" 2>/dev/null && break
+            sleep 1
+          done
+
+          test_log="$IOS_DERIVED_DATA/logs/video-test.log"
+          xcodebuild \
+            -workspace ios/cmux.xcworkspace \
+            -scheme cmux-ios \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -derivedDataPath "$IOS_DERIVED_DATA" \
+            -only-testing:"$TEST_FILTER" \
+            test 2>&1 | tee "$test_log"
+
+          cleanup_recording
+          trap - EXIT
+          [ -s "$video_path" ] || { echo "recording missing or empty: $video_path" >&2; cat "$record_log" >&2 || true; exit 1; }
+          ffprobe -v error -show_entries format=duration,size -of json "$video_path" > "artifact/video-metadata.json" || true
+          {
+            echo "tag=$BUILD_TAG"
+            echo "platform=$VIDEO_PLATFORM"
+            echo "device_family=$DEVICE_FAMILY"
+            echo "simulator_id=$SIMULATOR_ID"
+            echo "simulator_name=$SIMULATOR_NAME"
+            echo "test_filter=$TEST_FILTER"
+          } > artifact/video.env
 
       - name: Write timings.json
         if: ${{ always() }}
