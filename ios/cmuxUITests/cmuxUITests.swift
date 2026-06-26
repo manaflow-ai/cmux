@@ -1010,6 +1010,40 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testAgentChatTopScrollEdgeUnderlapsNavigationBarEvidence() throws {
+        guard #available(iOS 26.0, *) else {
+            throw XCTSkip("Top scroll-edge underlap uses iOS 26 UIScrollEdgeElementContainerInteraction.")
+        }
+
+        let app = launchAgentChatInlinePreviewApp()
+        let table = app.tables["ChatTranscriptTableView"]
+        XCTAssertTrue(table.waitForExistence(timeout: 8))
+        let navigationBar = app.navigationBars.firstMatch
+        XCTAssertTrue(navigationBar.waitForExistence(timeout: 8))
+
+        let loadedMetrics = try waitForTranscriptMetrics(table, timeout: 8) {
+            $0.frameHeight > 240 && $0.contentHeight > $0.boundsHeight * 1.6
+        }
+        let navigationFrame = navigationBar.frame
+        XCTAssertLessThan(
+            loadedMetrics.frameMinY,
+            navigationFrame.maxY - 8,
+            "The chat transcript table must extend under the navigation bar so the native top scroll-edge effect can blend content into the toolbar. metrics=\(loadedMetrics) navigationBar=\(navigationFrame)"
+        )
+
+        captureKeyboardEvidenceFrame(
+            prefix: "top-edge-loaded",
+            index: 0,
+            startedAt: Date(),
+            metrics: loadedMetrics
+        )
+        try scrollTranscript(table, direction: .down, timeout: 8) {
+            $0.offsetY < 80 && $0.contentHeight > $0.boundsHeight * 1.6
+        }
+        captureTopScrollEdgeEvidenceFrames(table: table, prefix: "top-edge")
+    }
+
+    @MainActor
     private func assertChatComposerControlsVisible(
         in app: XCUIApplication,
         file: StaticString = #filePath,
@@ -1957,6 +1991,27 @@ final class cmuxUITests: XCTestCase {
         metricsAttachment.name = "\(basename).metrics"
         metricsAttachment.lifetime = .keepAlways
         add(metricsAttachment)
+    }
+
+    @MainActor
+    private func captureTopScrollEdgeEvidenceFrames(table: XCUIElement, prefix: String) {
+        let captureStart = Date()
+        for index in 0..<8 {
+            if let metrics = transcriptMetrics(from: table) {
+                captureKeyboardEvidenceFrame(
+                    prefix: prefix,
+                    index: index,
+                    startedAt: captureStart,
+                    metrics: metrics
+                )
+            }
+            if index.isMultiple(of: 2) {
+                table.swipeUp(velocity: .slow)
+            } else {
+                table.swipeDown(velocity: .slow)
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.08))
+        }
     }
 
     @MainActor
