@@ -641,6 +641,17 @@ final class CommandPaletteOpenShortcutConsumptionTests: XCTestCase {
         )
     }
 
+    func testAllowsSystemIMESwitchShortcutForPaletteTextEditing() {
+        XCTAssertFalse(
+            shouldConsumeShortcutWhileCommandPaletteVisible(
+                isCommandPaletteVisible: true,
+                normalizedFlags: [.command],
+                chars: " ",
+                keyCode: 49
+            )
+        )
+    }
+
     func testAllowsArrowAndDeleteEditingCommandsForPaletteTextEditing() {
         XCTAssertFalse(
             shouldConsumeShortcutWhileCommandPaletteVisible(
