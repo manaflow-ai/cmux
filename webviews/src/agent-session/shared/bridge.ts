@@ -19,6 +19,9 @@ declare global {
         agentSession?: {
           postMessage(message: unknown): Promise<NativeReply<unknown>>;
         };
+        cmuxHome?: {
+          postMessage(message: unknown): Promise<NativeReply<unknown>>;
+        };
       };
     };
   }

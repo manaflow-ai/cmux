@@ -31,13 +31,31 @@ write_agent_session_html() {
   } > "$out_dir/agent-session.html"
 }
 
+write_home_html() {
+  out_dir="$1"
+  {
+    printf '<!doctype html>\n'
+    printf '<html lang="en" data-cmux-webview-kind="home">\n'
+    printf '  <head>\n'
+    printf '    <meta charset="UTF-8" />\n'
+    printf '    <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n'
+    printf '    <title>Home</title>\n'
+    printf '  </head>\n'
+    printf '  <body data-cmux-webview-kind="home">\n'
+    printf '    <main id="root"></main>\n'
+    printf '    <script type="module" src="./main.mjs"></script>\n'
+    printf '  </body>\n'
+    printf '</html>\n'
+  } > "$out_dir/home.html"
+}
+
 strip_trailing_line_whitespace() {
   /usr/bin/perl -0pi -e 's/[ \t]+(?=\r?\n)//g; s/[ \t]+\z//' "$@"
 }
 
 normalize_webviews_output() {
   out_dir="$1"
-  strip_trailing_line_whitespace "$out_dir/main.mjs" "$out_dir/agent-session.html"
+  strip_trailing_line_whitespace "$out_dir/main.mjs" "$out_dir/agent-session.html" "$out_dir/home.html"
 }
 
 if [ "${1:-}" = "--check" ]; then
@@ -48,6 +66,7 @@ if [ "${1:-}" = "--check" ]; then
     bun install --frozen-lockfile
     CMUX_WEBVIEWS_OUT_DIR="$tmp_dir" bun run build
     write_agent_session_html "$tmp_dir"
+    write_home_html "$tmp_dir"
     normalize_webviews_output "$tmp_dir"
   )
   diff_output="$(mktemp)"
@@ -75,4 +94,5 @@ fi
   bun run build
 )
 write_agent_session_html "$OUT_DIR"
+write_home_html "$OUT_DIR"
 normalize_webviews_output "$OUT_DIR"

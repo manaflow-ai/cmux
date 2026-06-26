@@ -703,7 +703,7 @@ enum MinimalModeSidebarTitlebarControlsMetrics {
         MinimalModeTitlebarDebugSettings.leftControlsTopInset(defaults: defaults)
     }
 
-    static let hostWidth: CGFloat = 164
+    static let hostWidth: CGFloat = 194
     static let hostHeight: CGFloat = 28
     static let singleButtonHostWidth: CGFloat = hostHeight
 
@@ -808,11 +808,14 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
     case toggleSidebar
     case showNotifications
     case newTab
+    case home
     case focusHistoryBack
     case focusHistoryForward
 
     var accessibilityIdentifier: String {
         switch self {
+        case .home:
+            return "titlebarControl.home"
         case .toggleSidebar:
             return "titlebarControl.toggleSidebar"
         case .showNotifications:
@@ -828,6 +831,8 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
 
     var accessibilityLabel: String {
         switch self {
+        case .home:
+            return String(localized: "titlebar.home.accessibilityLabel", defaultValue: "Home")
         case .toggleSidebar:
             return String(localized: "titlebar.sidebar.accessibilityLabel", defaultValue: "Toggle Sidebar")
         case .showNotifications:
@@ -843,6 +848,8 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
 
     var debugName: String {
         switch self {
+        case .home:
+            return "home"
         case .toggleSidebar:
             return "toggleSidebar"
         case .showNotifications:
@@ -858,7 +865,7 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
 
     var acceptsContextMenu: Bool {
         switch self {
-        case .toggleSidebar, .newTab, .focusHistoryBack, .focusHistoryForward:
+        case .home, .toggleSidebar, .newTab, .focusHistoryBack, .focusHistoryForward:
             return true
         case .showNotifications:
             return false

@@ -1,6 +1,12 @@
-type WebviewKind = "agent-session" | "diff";
+type WebviewKind = "agent-session" | "diff" | "home";
 
 function resolveWebviewKind(): WebviewKind {
+  if (
+    document.documentElement.dataset.cmuxWebviewKind === "home" ||
+    document.body.dataset.cmuxWebviewKind === "home"
+  ) {
+    return "home";
+  }
   if (
     document.documentElement.dataset.cmuxWebviewKind === "agent-session" ||
     document.body.dataset.cmuxWebviewKind === "agent-session" ||
@@ -23,6 +29,10 @@ if (!rootElement) {
 if (resolveWebviewKind() === "agent-session") {
   void import("./surfaces/agentSessionSurface").then((surface) => {
     surface.mountAgentSessionSurface(rootElement);
+  });
+} else if (resolveWebviewKind() === "home") {
+  void import("./surfaces/homeSurface").then((surface) => {
+    surface.mountHomeSurface(rootElement);
   });
 } else {
   void import("./surfaces/diffSurface").then((surface) => {

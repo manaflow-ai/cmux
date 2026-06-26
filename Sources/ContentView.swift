@@ -1781,7 +1781,6 @@ struct ContentView: View {
         let mountedWorkspaces = tabManager.tabs.filter { mountedWorkspaceIdSet.contains($0.id) }
         let selectedWorkspaceId = tabManager.selectedTabId
         let retiringWorkspaceId = self.retiringWorkspaceId
-
         return ZStack {
             ZStack {
                 ForEach(mountedWorkspaces) { tab in
@@ -1795,11 +1794,12 @@ struct ContentView: View {
                     // Allowing both selected+retiring workspaces to be input-active lets the
                     // old workspace steal first responder (notably with WKWebView), which can
                     // delay handoff completion and make browser returns feel laggy.
+                    let isPanelVisible = presentation.isPanelVisible
                     let isInputActive = isSelectedWorkspace
                     let portalPriority = isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0)
                     WorkspaceContentView(
                         workspace: tab,
-                        isWorkspaceVisible: presentation.isPanelVisible,
+                        isWorkspaceVisible: isPanelVisible,
                         isWorkspaceInputActive: isInputActive,
                         isFullScreen: isFullScreen,
                         workspacePortalPriority: portalPriority,
@@ -2012,6 +2012,7 @@ struct ContentView: View {
             notificationStore: TerminalNotificationStore.shared,
             viewModel: fullscreenControlsViewModel,
             onToggleSidebar: { sidebarState.toggle() },
+            onShowHome: showHome,
             onToggleNotifications: { [fullscreenControlsViewModel] in
                 AppDelegate.shared?.toggleNotificationsPopover(
                     animated: true,
@@ -2037,6 +2038,12 @@ struct ContentView: View {
             visibilityMode: .alwaysVisible
         )
         .offset(y: -TitlebarControlsVisualMetrics.verticalLift)
+    }
+
+    private func showHome() {
+        if AppDelegate.shared?.showHomeInActiveMainWindow(preferredWindow: observedWindow) != true {
+            NSSound.beep()
+        }
     }
 
     /// Intrinsic width of ``fullscreenControls`` for the current controls style.
@@ -10635,6 +10642,11 @@ struct VerticalTabsSidebar: View {
                         HiddenTitlebarSidebarControlsView(
                             notificationStore: notificationStore,
                             onToggleSidebar: onToggleSidebar,
+                            onShowHome: {
+                                if AppDelegate.shared?.showHomeInActiveMainWindow(preferredWindow: observedWindow) != true {
+                                    NSSound.beep()
+                                }
+                            },
                             onToggleNotifications: { anchorView in
                                 AppDelegate.shared?.toggleNotificationsPopover(
                                     animated: true,
@@ -10722,11 +10734,17 @@ struct VerticalTabsSidebar: View {
                           model === tabManager.sidebarMultiSelection,
                           let event = SidebarMultiSelectionShouldCollapseEvent(notification) else { return }
                     let focusedId = event.focusedWorkspaceId
-                    let next: Set<UUID> = tabManager.tabs.contains(where: { $0.id == focusedId }) ? [focusedId] : []
+                    let containsFocusedWorkspace = tabManager.tabs.contains { workspace in
+                        workspace.id == focusedId
+                    }
+                    let next: Set<UUID> = containsFocusedWorkspace ? [focusedId] : []
                     if selectedTabIds != next {
                         selectedTabIds = next
                     }
-                    if let index = tabManager.tabs.firstIndex(where: { $0.id == focusedId }) {
+                    let focusedIndex = tabManager.tabs.firstIndex { workspace in
+                        workspace.id == focusedId
+                    }
+                    if let index = focusedIndex {
                         lastSidebarSelectionIndex = index
                     }
                 }
@@ -10903,6 +10921,11 @@ struct VerticalTabsSidebar: View {
                     HiddenTitlebarSidebarControlsView(
                         notificationStore: notificationStore,
                         onToggleSidebar: onToggleSidebar,
+                        onShowHome: {
+                            if AppDelegate.shared?.showHomeInActiveMainWindow(preferredWindow: observedWindow) != true {
+                                NSSound.beep()
+                            }
+                        },
                         onToggleNotifications: { anchorView in
                             AppDelegate.shared?.toggleNotificationsPopover(
                                 animated: true,
