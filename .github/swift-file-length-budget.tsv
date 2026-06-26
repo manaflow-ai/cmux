@@ -17,8 +17,8 @@
 6317	cmuxTests/SessionPersistenceTests.swift
 6217	cmuxTests/GhosttyConfigTests.swift
 6187	Sources/TabManager.swift
-5916	Sources/TextBoxInput.swift
 5915	cmuxTests/TerminalAndGhosttyTests.swift
+5904	Sources/TextBoxInput.swift
 5573	cmuxTests/BrowserConfigTests.swift
 5507	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 4487	Sources/Panels/FilePreviewPanel.swift
@@ -107,7 +107,7 @@
 859	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Workspace/ControlCommandCoordinator+Workspace.swift
 847	cmuxTests/AgentSessionAutoResumeSettingsTests.swift
 845	cmuxTests/SSHStartupSignalLifecycleTests.swift
-837	cmuxTests/TextBoxSubmitActionTests.swift
+842	cmuxTests/TextBoxSubmitActionTests.swift
 830	Sources/TaskManagerTypes.swift
 825	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/TerminalComposerView.swift
 824	Sources/MainWindowFocusController.swift

@@ -2498,11 +2498,7 @@ struct TextBoxInputContainer: View {
             hasPendingAttachmentUpload: hasPendingAttachmentUpload,
             hasMarkedText: hasMarkedText
         )
-        let canSend = baseCanSend && !Self.shouldAwaitCommandTemplateReadiness(
-            action: selectedSubmitAction,
-            shouldForceTextEntrySubmit: shouldForceTextEntrySubmit,
-            allowsCommandTemplateSubmit: allowsCommandTemplateSubmit
-        ) && !isPendingProviderLaunchAwaitingAgent
+        let canSend = baseCanSend && !isPendingProviderLaunchAwaitingAgent
 
         VStack(alignment: .leading, spacing: 6) {
             if pendingCommentCount > 0 {
@@ -2735,14 +2731,6 @@ struct TextBoxInputContainer: View {
         let poolWorkspaceId = surface.owningWorkspace()?.id
         let hasTypedContent = TextBoxSubmissionFormatter.hasSubmittableContent(submittedParts)
         guard hasTypedContent || pendingCommentCount > 0 else {
-            NSSound.beep()
-            return
-        }
-        if Self.shouldAwaitCommandTemplateReadiness(
-            action: selectedSubmitAction,
-            shouldForceTextEntrySubmit: shouldForceTextEntrySubmit,
-            allowsCommandTemplateSubmit: allowsCommandTemplateSubmit
-        ) {
             NSSound.beep()
             return
         }

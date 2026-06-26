@@ -114,7 +114,15 @@ extension TextBoxInputContainer {
         shellActivityState == .promptIdle
     }
 
-    static func shouldAwaitCommandTemplateReadiness(
+    var shouldUseTextEntryFallbackForCommandTemplate: Bool {
+        Self.shouldUseTextEntryFallbackForCommandTemplate(
+            action: selectedSubmitAction,
+            shouldForceTextEntrySubmit: shouldForceTextEntrySubmit,
+            allowsCommandTemplateSubmit: allowsCommandTemplateSubmit
+        )
+    }
+
+    static func shouldUseTextEntryFallbackForCommandTemplate(
         action: TextBoxSubmitAction,
         shouldForceTextEntrySubmit: Bool,
         allowsCommandTemplateSubmit: Bool
@@ -147,7 +155,8 @@ extension TextBoxInputContainer {
     }
 
     var effectiveSubmitAction: TextBoxSubmitAction {
-        guard !shouldForceTextEntrySubmit else {
+        guard !shouldForceTextEntrySubmit,
+              !shouldUseTextEntryFallbackForCommandTemplate else {
             return TextBoxSubmitAction.textEntryAction
         }
         return selectedSubmitAction
@@ -156,7 +165,8 @@ extension TextBoxInputContainer {
     var submitActionPresentation: TextBoxSubmitActionPresentation {
         Self.submitActionPresentation(
             selectedSubmitAction: selectedSubmitAction,
-            shouldForceTextEntrySubmit: shouldForceTextEntrySubmit
+            shouldForceTextEntrySubmit: shouldForceTextEntrySubmit ||
+                shouldUseTextEntryFallbackForCommandTemplate
         )
     }
 

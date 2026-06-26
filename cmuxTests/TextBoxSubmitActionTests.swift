@@ -637,7 +637,7 @@ struct TextBoxSubmitActionTests {
     }
 
     @Test
-    func testUnknownShellStateBlocksProviderSubmitWithoutBlockingCycle() throws {
+    func testUnknownShellStateFallsBackToTextEntryWithoutBlockingCycle() throws {
         let codex = try #require(TextBoxSubmitAction.builtInActions.first { $0.id == "codex" })
         let shouldForceTextEntry = TextBoxInputContainer.shouldForceTextEntrySubmit(
             allowsCommandTemplateSubmit: false,
@@ -645,10 +645,15 @@ struct TextBoxSubmitActionTests {
         )
 
         #expect(!shouldForceTextEntry)
-        #expect(TextBoxInputContainer.shouldAwaitCommandTemplateReadiness(
+        #expect(TextBoxInputContainer.shouldUseTextEntryFallbackForCommandTemplate(
             action: codex,
             shouldForceTextEntrySubmit: shouldForceTextEntry,
             allowsCommandTemplateSubmit: false
+        ))
+        #expect(!TextBoxInputContainer.shouldUseTextEntryFallbackForCommandTemplate(
+            action: codex,
+            shouldForceTextEntrySubmit: shouldForceTextEntry,
+            allowsCommandTemplateSubmit: true
         ))
         XCTAssertEqual(
             TextBoxInputContainer.nextCycledSubmitActionID(
