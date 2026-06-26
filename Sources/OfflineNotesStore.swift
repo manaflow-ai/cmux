@@ -176,12 +176,14 @@ final class OfflineNotesStore {
     @ObservationIgnored private var pendingSnapshot: [OfflineNote]?
     @ObservationIgnored private var persistTask: Task<Void, Never>?
 
-    /// Caps so the app-lifetime queue and its backing file stay bounded.
-    /// A single note is truncated to ``maxNoteLength`` characters, and at most
-    /// ``maxRetainedSentNotes`` already-sent notes are kept (oldest evicted
-    /// first); pending and failed notes are never auto-evicted.
+    /// Bounds so the app-lifetime queue and its backing file stay finite: a note
+    /// is truncated to ``maxNoteLength`` chars, at most ``maxRetainedSentNotes``
+    /// sent notes are kept (oldest first), and the queue holds ``maxTotalNotes``
+    /// total — past which ``addNote`` refuses new captures (never evicting unsent
+    /// work) rather than growing unbounded.
     static let maxNoteLength = 100_000
     static let maxRetainedSentNotes = 200
+    static let maxTotalNotes = 1_000
 
     init(
         fileURL: URL? = OfflineNotesStore.defaultFileURL(),
@@ -232,10 +234,14 @@ final class OfflineNotesStore {
     func addNote(_ text: String) -> OfflineNote? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
+        // Reclaim space from old sent notes first, then apply backpressure:
+        // refuse the capture once the queue is full so pending/failed notes
+        // cannot grow without bound. Existing unsent notes are preserved.
+        pruneSentNotes()
+        guard notes.count < Self.maxTotalNotes else { return nil }
         let capped = String(trimmed.prefix(Self.maxNoteLength))
         let note = OfflineNote(text: capped)
         notes.append(note)
-        pruneSentNotes()
         persist()
         return note
     }
@@ -344,7 +350,18 @@ final class OfflineNotesStore {
                     applyInMemory(failed)
                 }
             }
+            // Durably record this note's terminal state (off the main actor)
+            // before dispatching the next one, so a crash can't replay a note
+            // that was already staged into the composer.
+            await persistAndWait()
         }
+    }
+
+    /// Persists the current queue and awaits the off-main write. Used inside
+    /// ``flush()`` so each successful hand-off is durable before the next runs.
+    private func persistAndWait() async {
+        persist()
+        await waitForPendingPersist()
     }
 
     // MARK: - Internal helpers

@@ -228,6 +228,19 @@ struct OfflineNotesStoreTests {
     }
 
     @Test
+    func queueAppliesBackpressureWhenFull() {
+        let store = makeStore(fileURL: nil, reachability: FakeReachability(isOnline: false))
+        for index in 0..<OfflineNotesStore.maxTotalNotes {
+            _ = store.addNote("note \(index)")
+        }
+        #expect(store.notes.count == OfflineNotesStore.maxTotalNotes)
+        // The queue is full of pending notes (none sent to reclaim), so further
+        // captures are refused rather than growing unbounded.
+        #expect(store.addNote("one too many") == nil)
+        #expect(store.notes.count == OfflineNotesStore.maxTotalNotes)
+    }
+
+    @Test
     func sentNotesArePrunedToCapPreservingOldestEviction() async throws {
         let dispatcher = FakeDispatcher()
         let reachability = FakeReachability(isOnline: false)
