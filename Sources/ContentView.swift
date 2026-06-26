@@ -163,6 +163,11 @@ final class WindowCommandPaletteOverlayController: NSObject {
         installWindowKeyObservers()
     }
 
+    isolated deinit {
+        uninstallWindowKeyObservers()
+        stopFocusLockTimer()
+    }
+
     @discardableResult
     private func ensureInstalled() -> Bool {
         guard let window,
@@ -438,6 +443,7 @@ final class WindowCommandPaletteOverlayController: NSObject {
 
     private func installWindowKeyObservers() {
         guard let window else { return }
+        uninstallWindowKeyObservers()
         windowDidBecomeKeyObserver = notificationCenter.addObserver(
             forName: NSWindow.didBecomeKeyNotification,
             object: window,
@@ -455,6 +461,17 @@ final class WindowCommandPaletteOverlayController: NSObject {
             Task { @MainActor [weak self] in
                 self?.updateFocusLockForWindowState()
             }
+        }
+    }
+
+    private func uninstallWindowKeyObservers() {
+        if let windowDidBecomeKeyObserver {
+            notificationCenter.removeObserver(windowDidBecomeKeyObserver)
+            self.windowDidBecomeKeyObserver = nil
+        }
+        if let windowDidResignKeyObserver {
+            notificationCenter.removeObserver(windowDidResignKeyObserver)
+            self.windowDidResignKeyObserver = nil
         }
     }
 
