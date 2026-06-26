@@ -13500,41 +13500,51 @@ struct TabItemView: View, Equatable {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)
 
-                // Loading spinner on the trailing edge of the row. Just the
-                // spinner (no count badge); shown while any coding agent or
-                // manual `cmux workspace loading` loader is running.
-                if showsAgentActivity, !settings.hidesAllDetails, workspaceSnapshot.activeCodingAgentCount > 0 {
+                // Trailing corner. The loading spinner (no count badge) lives in
+                // the far-right close-button slot so it sits flush at the row's
+                // right edge; on hover the close x takes over the same corner.
+                // The slot always reserves its width so hover never re-lays-out
+                // the row. (Matches the group-header plus-button pattern.)
+                let showsLoadingSpinner = showsAgentActivity
+                    && !settings.hidesAllDetails
+                    && workspaceSnapshot.activeCodingAgentCount > 0
+                if canCloseWorkspace {
+                    ZStack {
+                        if showsLoadingSpinner {
+                            SidebarAgentActivityIndicator(
+                                spinnerColor: activeCodingAgentSpinnerNSColor,
+                                fontScale: fontScale
+                            )
+                            .safeHelp(activeCodingAgentTooltip)
+                            .accessibilityLabel(Text(activeCodingAgentTooltip))
+                            .opacity(showCloseButton ? 0 : 1)
+                        }
+                        Button(action: {
+                            #if DEBUG
+                            cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
+                            #endif
+                            tabManager.closeWorkspaceWithConfirmation(tab)
+                        }) {
+                            Image(systemName: "xmark")
+                                .cmuxSymbolRasterSize(scaledFontSize(9), weight: .medium)
+                                .foregroundColor(activeSecondaryColor(0.7))
+                                .frame(width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, alignment: .center)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .safeHelp(closeButtonTooltip)
+                        .opacity(showCloseButton ? 1 : 0)
+                        .allowsHitTesting(showCloseButton)
+                        .accessibilityHidden(!showCloseButton)
+                    }
+                    .frame(width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize)
+                } else if showsLoadingSpinner {
                     SidebarAgentActivityIndicator(
                         spinnerColor: activeCodingAgentSpinnerNSColor,
                         fontScale: fontScale
                     )
                     .safeHelp(activeCodingAgentTooltip)
                     .accessibilityLabel(Text(activeCodingAgentTooltip))
-                }
-
-                // The close button is a sibling that always reserves its width
-                // when the workspace is closable, so the title wraps/truncates
-                // before this corner instead of flowing under the hover x. Its
-                // visibility toggles via opacity so hover never re-lays-out the
-                // row. (Matches the group-header plus-button pattern.)
-                if canCloseWorkspace {
-                    Button(action: {
-                        #if DEBUG
-                        cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
-                        #endif
-                        tabManager.closeWorkspaceWithConfirmation(tab)
-                    }) {
-                        Image(systemName: "xmark")
-                            .cmuxSymbolRasterSize(scaledFontSize(9), weight: .medium)
-                            .foregroundColor(activeSecondaryColor(0.7))
-                            .frame(width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, alignment: .center)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .safeHelp(closeButtonTooltip)
-                    .opacity(showCloseButton ? 1 : 0)
-                    .allowsHitTesting(showCloseButton)
-                    .accessibilityHidden(!showCloseButton)
                 }
             }
 
