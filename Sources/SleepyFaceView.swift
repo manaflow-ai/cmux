@@ -15,6 +15,9 @@ struct SleepyFaceView: View {
     var agentCensus: any SleepyAgentCensusing
     var statusProvider: any SleepyStatusProviding
     @State private var lowPowerOn = false
+    /// In-flight gate so overlapping clicks can't issue concurrent privileged
+    /// power mutations (which could race the restore mode). MainActor-isolated.
+    @State private var lowPowerBusy = false
 
     // Easter-egg reactions: timeIntervalSinceReferenceDate when poked.
     @State private var mascotReactAt: Double?
@@ -151,11 +154,18 @@ struct SleepyFaceView: View {
                 .buttonStyle(SleepyPixelButtonStyle(tint: Color(red: 0.28, green: 0.40, blue: 0.62)))
 
                 Button {
-                    // The runner does the blocking pmset/admin-prompt work off-main;
-                    // this MainActor task just suspends on await, then applies state.
+                    // Gate on MainActor: ignore clicks while a mutation is in
+                    // flight so two privileged toggles can't overlap and race the
+                    // saved restore mode. The runner does the blocking pmset/
+                    // admin-prompt work off-main; this task just suspends on await.
+                    guard !lowPowerBusy else { return }
+                    lowPowerBusy = true
                     let turnOn = !lowPowerOn
                     let power = power
-                    Task { lowPowerOn = await power.setLowPowerMode(turnOn) }
+                    Task {
+                        lowPowerOn = await power.setLowPowerMode(turnOn)
+                        lowPowerBusy = false
+                    }
                 } label: {
                     Label(
                         lowPowerOn
@@ -165,6 +175,7 @@ struct SleepyFaceView: View {
                     )
                 }
                 .buttonStyle(SleepyPixelButtonStyle(tint: lowPowerOn ? Color(red: 0.24, green: 0.56, blue: 0.32) : Color(red: 0.30, green: 0.42, blue: 0.46)))
+                .disabled(lowPowerBusy)
             }
             Spacer().frame(height: 50)
             Text(hintText)
