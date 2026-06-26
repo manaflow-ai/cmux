@@ -40,11 +40,12 @@ public final class AccessibilityWindowCache: AccessibilityWindowCaching, @unchec
     public struct StateToken: Equatable {
         let windows: [WindowToken]
 
-        /// Builds a state token from the current window list. `@MainActor`
-        /// because it reads main-actor-isolated `NSWindow` properties.
+        /// Builds a state token from the current window list, ignoring the
+        /// same help-tag windows the snapshot omits. `@MainActor` because it
+        /// reads main-actor-isolated `NSWindow` properties.
         @MainActor
         public init(windows: [NSWindow]) {
-            self.windows = windows.map {
+            self.windows = windows.filter(AccessibilityWindowCache.isPublishableAXWindow).map {
                 WindowToken(
                     identity: ObjectIdentifier($0),
                     windowNumber: $0.windowNumber,
