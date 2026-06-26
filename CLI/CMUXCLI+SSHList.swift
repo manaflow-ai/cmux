@@ -216,7 +216,10 @@ extension CMUXCLI {
     private static func isRegularFile(_ path: String) -> Bool {
         var info = stat()
         guard path.withCString({ stat($0, &info) }) == 0 else { return false }
-        return (Int32(info.st_mode) & S_IFMT) == S_IFREG
+        // `st_mode`, `S_IFMT`, and `S_IFREG` must share a type; coerce the
+        // masks to `mode_t` (the type of `st_mode`) so this compiles regardless
+        // of whether the SDK imports the S_IF* macros as Int32 or mode_t.
+        return (info.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG)
     }
 
     private static func sshHostJSON(_ host: SSHConfigHost) -> [String: Any] {
