@@ -43,6 +43,26 @@ struct AgentForkArgvTests {
         )
     }
 
+    @Test("Codex fork captures preserve prompt tags")
+    func codexForkCapturesPreservePromptTags() {
+        #expect(
+            AgentForkArgv().builtInKind(
+                kind: "codex",
+                sessionId: "CHILD",
+                executablePath: "/opt/bin/codex",
+                arguments: [
+                    "/opt/bin/codex",
+                    "fork",
+                    "019ef275-74e3-7777-9773-9dcb118ed5ad",
+                    "tag-one",
+                    "tag two",
+                    "--model",
+                    "gpt-5"
+                ]
+            ) == ["/opt/bin/codex", "fork", "CHILD", "tag-one", "tag two", "--model", "gpt-5"]
+        )
+    }
+
     @Test("cmux wrapper launchers use fork verbs")
     func launcherWrappersUseForkVerbs() {
         #expect(
