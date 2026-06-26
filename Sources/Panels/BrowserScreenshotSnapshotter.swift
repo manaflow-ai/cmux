@@ -8,39 +8,6 @@ private struct BrowserScreenshotWebContentMetrics {
     let scrollOffset: NSPoint
 }
 
-struct BrowserScreenshotTileDrawRects: Equatable {
-    let source: NSRect
-    let destination: NSRect
-}
-
-enum BrowserScreenshotTilePlacement {
-    static func drawRects(
-        tileSize: NSSize,
-        origin: NSPoint,
-        contentSize: NSSize,
-        viewportSize: NSSize
-    ) -> BrowserScreenshotTileDrawRects? {
-        let drawWidth = min(viewportSize.width, tileSize.width, max(0, contentSize.width - origin.x))
-        let drawHeight = min(viewportSize.height, tileSize.height, max(0, contentSize.height - origin.y))
-        guard drawWidth > 0, drawHeight > 0 else { return nil }
-
-        return BrowserScreenshotTileDrawRects(
-            source: NSRect(
-                x: 0,
-                y: max(0, tileSize.height - drawHeight),
-                width: drawWidth,
-                height: drawHeight
-            ),
-            destination: NSRect(
-                x: origin.x,
-                y: contentSize.height - origin.y - drawHeight,
-                width: drawWidth,
-                height: drawHeight
-            )
-        )
-    }
-}
-
 enum BrowserScreenshotCaptureBounds {
     static let maximumFullPagePixels: CGFloat = 100_000_000
 
@@ -135,8 +102,9 @@ enum BrowserScreenshotWebViewSnapshotter {
         }
         try BrowserScreenshotCaptureBounds.validateFullPageSize(contentSize)
 
-        let xPositions = tileOrigins(contentLength: contentSize.width, viewportLength: viewportSize.width)
-        let yPositions = tileOrigins(contentLength: contentSize.height, viewportLength: viewportSize.height)
+        let placement = BrowserScreenshotTilePlacement(contentSize: contentSize, viewportSize: viewportSize)
+        let xPositions = placement.horizontalTileOrigins
+        let yPositions = placement.verticalTileOrigins
         var captureError: Error?
         var didCaptureTile = false
         let output = blankImage(size: contentSize)
@@ -403,23 +371,6 @@ enum BrowserScreenshotWebViewSnapshotter {
         return widthMatches && heightMatches
     }
 
-    private static func tileOrigins(contentLength: CGFloat, viewportLength: CGFloat) -> [CGFloat] {
-        guard contentLength > 0, viewportLength > 0 else { return [0] }
-        guard contentLength > viewportLength else { return [0] }
-
-        var origins: [CGFloat] = []
-        var next: CGFloat = 0
-        let last = max(0, contentLength - viewportLength)
-        while next < last {
-            origins.append(next)
-            next += viewportLength
-        }
-        if origins.last.map({ abs($0 - last) > 0.5 }) ?? true {
-            origins.append(last)
-        }
-        return origins
-    }
-
     private static func blankImage(size: NSSize) -> NSImage {
         let output = NSImage(size: size)
         output.lockFocus()
@@ -436,12 +387,10 @@ enum BrowserScreenshotWebViewSnapshotter {
         contentSize: NSSize,
         viewportSize: NSSize
     ) {
-        guard let rects = BrowserScreenshotTilePlacement.drawRects(
-            tileSize: tile.size,
-            origin: origin,
+        guard let rects = BrowserScreenshotTilePlacement(
             contentSize: contentSize,
             viewportSize: viewportSize
-        ) else {
+        ).drawRects(tileSize: tile.size, origin: origin) else {
             return
         }
 

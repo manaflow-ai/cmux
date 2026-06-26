@@ -171,6 +171,7 @@ final class ClosedItemHistoryStore {
     private let capacity: Int?
     private let fileURL: URL?
     private let persistsRecordsSynchronously: Bool
+    private let persistenceActor: ClosedItemHistoryPersistenceActor
     private var didFinishPersistedRecordsLoad: Bool
     private var needsPersistenceAfterPersistedRecordsLoad = false
     private var shouldDiscardPersistedRecordsOnLoad = false
@@ -192,11 +193,13 @@ final class ClosedItemHistoryStore {
         fileURL: URL? = nil,
         loadPersisted: Bool = true,
         loadsPersistedRecordsSynchronously: Bool = false,
-        persistsRecordsSynchronously: Bool = false
+        persistsRecordsSynchronously: Bool = false,
+        persistenceActor: ClosedItemHistoryPersistenceActor = ClosedItemHistoryPersistenceActor()
     ) {
         self.capacity = capacity.map { max(1, $0) }
         self.fileURL = fileURL
         self.persistsRecordsSynchronously = persistsRecordsSynchronously
+        self.persistenceActor = persistenceActor
         self.didFinishPersistedRecordsLoad = !loadPersisted || fileURL == nil
         if loadPersisted, let fileURL {
             if loadsPersistedRecordsSynchronously {
@@ -400,7 +403,7 @@ final class ClosedItemHistoryStore {
             Self.saveRecords(recordsSnapshot, fileURL: fileURL)
         } else {
             Task {
-                await ClosedItemHistoryPersistenceActor.shared.save(
+                await persistenceActor.save(
                     recordsSnapshot,
                     fileURL: fileURL,
                     revision: revisionSnapshot
@@ -422,8 +425,9 @@ final class ClosedItemHistoryStore {
             return
         }
         let semaphore = DispatchSemaphore(value: 0)
+        let persistenceActor = persistenceActor
         Task.detached(priority: .userInitiated) {
-            await ClosedItemHistoryPersistenceActor.shared.save(
+            await persistenceActor.save(
                 recordsSnapshot,
                 fileURL: fileURL,
                 revision: revisionSnapshot
@@ -434,8 +438,9 @@ final class ClosedItemHistoryStore {
     }
 
     private func loadPersistedRecordsAsync(from fileURL: URL) {
+        let persistenceActor = persistenceActor
         Task { @MainActor [weak self] in
-            let loadedRecords = await ClosedItemHistoryPersistenceActor.shared.load(fileURL: fileURL)
+            let loadedRecords = await persistenceActor.load(fileURL: fileURL)
             guard let self, !didFinishPersistedRecordsLoad else { return }
             finishPersistedRecordsLoad(loadedRecords)
             if needsPersistenceAfterPersistedRecordsLoad {
@@ -622,7 +627,7 @@ final class ClosedItemHistoryStore {
         revision &+= 1
     }
 
-    nonisolated fileprivate static func loadRecords(fileURL: URL) -> [ClosedItemHistoryRecord] {
+    nonisolated static func loadRecords(fileURL: URL) -> [ClosedItemHistoryRecord] {
         guard let data = try? Data(contentsOf: fileURL) else { return [] }
         let decoder = JSONDecoder()
         if let snapshot = try? decoder.decode(ClosedItemHistoryPersistenceSnapshot.self, from: data),
@@ -632,7 +637,7 @@ final class ClosedItemHistoryStore {
         return (try? decoder.decode([ClosedItemHistoryRecord].self, from: data)) ?? []
     }
 
-    nonisolated fileprivate static func saveRecords(_ records: [ClosedItemHistoryRecord], fileURL: URL) {
+    nonisolated static func saveRecords(_ records: [ClosedItemHistoryRecord], fileURL: URL) {
         guard !records.isEmpty else {
             do {
                 try FileManager.default.removeItem(at: fileURL)
@@ -810,23 +815,4 @@ private struct ClosedItemHistoryPersistenceSnapshot: Codable {
 
     var version: Int = currentVersion
     var records: [ClosedItemHistoryRecord]
-}
-
-private actor ClosedItemHistoryPersistenceActor {
-    static let shared = ClosedItemHistoryPersistenceActor()
-
-    private var latestRevisionByPath: [String: UInt64] = [:]
-
-    func load(fileURL: URL) -> [ClosedItemHistoryRecord] {
-        ClosedItemHistoryStore.loadRecords(fileURL: fileURL)
-    }
-
-    func save(_ records: [ClosedItemHistoryRecord], fileURL: URL, revision: UInt64) {
-        let path = fileURL.standardizedFileURL.path
-        if let latestRevision = latestRevisionByPath[path], revision < latestRevision {
-            return
-        }
-        latestRevisionByPath[path] = revision
-        ClosedItemHistoryStore.saveRecords(records, fileURL: fileURL)
-    }
 }

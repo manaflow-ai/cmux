@@ -187,6 +187,7 @@
 		C12984000000000000000004 /* CLIStdioSIGPIPERegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12984000000000000000003 /* CLIStdioSIGPIPERegressionTests.swift */; };
 		B05553B10000000000000001 /* CLITmuxCompatRemoteSplitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B05553B10000000000000002 /* CLITmuxCompatRemoteSplitTests.swift */; };
 		C10D51700000000000000002 /* ClosedItemHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D51700000000000000001 /* ClosedItemHistory.swift */; };
+		C10D51710000000000000002 /* ClosedItemHistoryPersistenceActor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D51710000000000000001 /* ClosedItemHistoryPersistenceActor.swift */; };
 		B9000025A1B2C3D4E5F60719 /* CloseWindowConfirmDialogUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000026A1B2C3D4E5F60719 /* CloseWindowConfirmDialogUITests.swift */; };
 		B9000023A1B2C3D4E5F60719 /* CloseWorkspaceCmdDUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000022A1B2C3D4E5F60719 /* CloseWorkspaceCmdDUITests.swift */; };
 		B900001AA1B2C3D4E5F60719 /* CloseWorkspaceConfirmDialogUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000019A1B2C3D4E5F60719 /* CloseWorkspaceConfirmDialogUITests.swift */; };
@@ -663,6 +664,7 @@
 		A1B2C3D4E5F60718293A4B5C /* RemoteTmuxControlCommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6C7D8E9F0A1B2C3D4E5F607 /* RemoteTmuxControlCommandBuilder.swift */; };
 		477796B44AAC7290AA9EFB6C /* RemoteTmuxControlCommandKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAD58EFBF501E599E6D9E9A /* RemoteTmuxControlCommandKind.swift */; };
 		1A8D46CE776340BB6BC49FC2 /* RemoteTmuxControlConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 602197314BF2C4CC53565BBC /* RemoteTmuxControlConnection.swift */; };
+		0E17C0DF0E17C0DF0E17C002 /* RemoteTmuxControlConnectionRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E17C0DF0E17C0DF0E17C001 /* RemoteTmuxControlConnectionRegistry.swift */; };
 		42FBA382CDEAEC146FA5A895 /* RemoteTmuxControlConnectionSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2587F4E278EFECB84E2ED34B /* RemoteTmuxControlConnectionSnapshot.swift */; };
 		F67BABC493A488943ED1DB90 /* RemoteTmuxController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50FE16F529BD6FBA4FBDECFC /* RemoteTmuxController.swift */; };
 		DCCD118CAFF7B3B9C6F184B4 /* RemoteTmuxControlMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07A7B144E94D24E7E1A99106 /* RemoteTmuxControlMessage.swift */; };
@@ -997,6 +999,7 @@
 		E3309A05 /* Workspace+EqualizeSplitsSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A06 /* Workspace+EqualizeSplitsSupport.swift */; };
 		C3744E010000000000000001 /* Workspace+PanelLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */; };
 		FB0CA0510000000000000007 /* Workspace+ReactGrabWorkspaceContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB0CA0510000000000000008 /* Workspace+ReactGrabWorkspaceContext.swift */; };
+		E3B7A40000000000000006B0 /* Workspace+RemoteRelaySessionHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A40000000000000006B1 /* Workspace+RemoteRelaySessionHosting.swift */; };
 		E3B7A40000000000000006A0 /* Workspace+RemoteSurfaceHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A40000000000000006A1 /* Workspace+RemoteSurfaceHosting.swift */; };
 		E30798000000000000000004 /* Workspace+SessionRestoreHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30798000000000000000003 /* Workspace+SessionRestoreHosting.swift */; };
 		E3B7A4000000000000000C10 /* Workspace+SplitCloseHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000C11 /* Workspace+SplitCloseHosting.swift */; };
@@ -1315,6 +1318,7 @@
 		C12984000000000000000003 /* CLIStdioSIGPIPERegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIStdioSIGPIPERegressionTests.swift; sourceTree = "<group>"; };
 		B05553B10000000000000002 /* CLITmuxCompatRemoteSplitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLITmuxCompatRemoteSplitTests.swift; sourceTree = "<group>"; };
 		C10D51700000000000000001 /* ClosedItemHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedItemHistory.swift; sourceTree = "<group>"; };
+		C10D51710000000000000001 /* ClosedItemHistoryPersistenceActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedItemHistoryPersistenceActor.swift; sourceTree = "<group>"; };
 		B9000026A1B2C3D4E5F60719 /* CloseWindowConfirmDialogUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseWindowConfirmDialogUITests.swift; sourceTree = "<group>"; };
 		B9000022A1B2C3D4E5F60719 /* CloseWorkspaceCmdDUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseWorkspaceCmdDUITests.swift; sourceTree = "<group>"; };
 		B9000019A1B2C3D4E5F60719 /* CloseWorkspaceConfirmDialogUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseWorkspaceConfirmDialogUITests.swift; sourceTree = "<group>"; };
@@ -1732,6 +1736,7 @@
 		B6C7D8E9F0A1B2C3D4E5F607 /* RemoteTmuxControlCommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxControlCommandBuilder.swift; sourceTree = "<group>"; };
 		AAAD58EFBF501E599E6D9E9A /* RemoteTmuxControlCommandKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxControlCommandKind.swift; sourceTree = "<group>"; };
 		602197314BF2C4CC53565BBC /* RemoteTmuxControlConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxControlConnection.swift; sourceTree = "<group>"; };
+		0E17C0DF0E17C0DF0E17C001 /* RemoteTmuxControlConnectionRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxControlConnectionRegistry.swift; sourceTree = "<group>"; };
 		2587F4E278EFECB84E2ED34B /* RemoteTmuxControlConnectionSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxControlConnectionSnapshot.swift; sourceTree = "<group>"; };
 		50FE16F529BD6FBA4FBDECFC /* RemoteTmuxController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxController.swift; sourceTree = "<group>"; };
 		07A7B144E94D24E7E1A99106 /* RemoteTmuxControlMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxControlMessage.swift; sourceTree = "<group>"; };
@@ -2060,6 +2065,7 @@
 		E3309A06 /* Workspace+EqualizeSplitsSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+EqualizeSplitsSupport.swift"; sourceTree = "<group>"; };
 		C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+PanelLifecycle.swift"; sourceTree = "<group>"; };
 		FB0CA0510000000000000008 /* Workspace+ReactGrabWorkspaceContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ReactGrabWorkspaceContext.swift"; sourceTree = "<group>"; };
+		E3B7A40000000000000006B1 /* Workspace+RemoteRelaySessionHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteRelaySessionHosting.swift"; sourceTree = "<group>"; };
 		E3B7A40000000000000006A1 /* Workspace+RemoteSurfaceHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteSurfaceHosting.swift"; sourceTree = "<group>"; };
 		E30798000000000000000003 /* Workspace+SessionRestoreHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SessionRestoreHosting.swift"; sourceTree = "<group>"; };
 		E3B7A4000000000000000C11 /* Workspace+SplitCloseHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SplitCloseHosting.swift"; sourceTree = "<group>"; };
@@ -2544,6 +2550,7 @@
 				F0C05170000000000000001 /* FocusHistory.swift */,
 				C0DEFB100000000000000002 /* FocusSurfaceBroadcaster.swift */,
 				C10D51700000000000000001 /* ClosedItemHistory.swift */,
+				C10D51710000000000000001 /* ClosedItemHistoryPersistenceActor.swift */,
 				D1FFC0DE000000000000D001 /* DiffCommentSubmissionPool.swift */,
 				D1FFC0DE000000000000A001 /* DiffCommentStore.swift */,
 				E3309A04 /* TabManager+EqualizeSplits.swift */,
@@ -2582,6 +2589,7 @@
 				E3B7A40000000000000005E1 /* Workspace+AgentForkHosting.swift */,
 				E3D40D0000000000000000A1 /* Workspace+WorkspaceDropHosting.swift */,
 				E3B7A40000000000000006A1 /* Workspace+RemoteSurfaceHosting.swift */,
+				E3B7A40000000000000006B1 /* Workspace+RemoteRelaySessionHosting.swift */,
 				A5001511 /* UITestRecorder.swift */,
 				A5001520 /* PostHogAnalytics.swift */,
 				A5001416 /* Workspace.swift */,
@@ -2906,6 +2914,7 @@
 				D7D5CC45BBE157F3EF880936 /* RemoteTmuxSessionMirror.swift */,
 				B6C7D8E9F0A1B2C3D4E5F607 /* RemoteTmuxControlCommandBuilder.swift */,
 				602197314BF2C4CC53565BBC /* RemoteTmuxControlConnection.swift */,
+				0E17C0DF0E17C0DF0E17C001 /* RemoteTmuxControlConnectionRegistry.swift */,
 				AAAD58EFBF501E599E6D9E9A /* RemoteTmuxControlCommandKind.swift */,
 				2587F4E278EFECB84E2ED34B /* RemoteTmuxControlConnectionSnapshot.swift */,
 				9420A497CBC16357FF3F2C9A /* RemoteTmuxControlPipeWriter.swift */,
@@ -3880,6 +3889,7 @@
 				A9F200000000000000000015 /* ClaudeStreamJSONAccumulator.swift in Sources */,
 				C46790000000000000000003 /* CLIForwardingLaunchRouter.swift in Sources */,
 				C10D51700000000000000002 /* ClosedItemHistory.swift in Sources */,
+				C10D51710000000000000002 /* ClosedItemHistoryPersistenceActor.swift in Sources */,
 				C10D00010000000000000001 /* CloudVMActionLauncher.swift in Sources */,
 				A5001654 /* CmuxActionTrust.swift in Sources */,
 				E3309A07 /* cmuxApp+EqualizeSplitsMenu.swift in Sources */,
@@ -4134,6 +4144,7 @@
 				A1B2C3D4E5F60718293A4B5C /* RemoteTmuxControlCommandBuilder.swift in Sources */,
 				477796B44AAC7290AA9EFB6C /* RemoteTmuxControlCommandKind.swift in Sources */,
 				1A8D46CE776340BB6BC49FC2 /* RemoteTmuxControlConnection.swift in Sources */,
+				0E17C0DF0E17C0DF0E17C002 /* RemoteTmuxControlConnectionRegistry.swift in Sources */,
 				42FBA382CDEAEC146FA5A895 /* RemoteTmuxControlConnectionSnapshot.swift in Sources */,
 				F67BABC493A488943ED1DB90 /* RemoteTmuxController.swift in Sources */,
 				DCCD118CAFF7B3B9C6F184B4 /* RemoteTmuxControlMessage.swift in Sources */,
@@ -4371,6 +4382,7 @@
 				E3309A05 /* Workspace+EqualizeSplitsSupport.swift in Sources */,
 				C3744E010000000000000001 /* Workspace+PanelLifecycle.swift in Sources */,
 				FB0CA0510000000000000007 /* Workspace+ReactGrabWorkspaceContext.swift in Sources */,
+				E3B7A40000000000000006B0 /* Workspace+RemoteRelaySessionHosting.swift in Sources */,
 				E3B7A40000000000000006A0 /* Workspace+RemoteSurfaceHosting.swift in Sources */,
 				E30798000000000000000004 /* Workspace+SessionRestoreHosting.swift in Sources */,
 				E3B7A4000000000000000C10 /* Workspace+SplitCloseHosting.swift in Sources */,

@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxControlSocket
 import Foundation
 
@@ -18,10 +19,14 @@ extension TerminalController: ControlFeedContext {
 
     func controlFeedSnapshotItems(pendingOnly: Bool) -> [JSONValue] {
         FeedCoordinator.shared.snapshot(pendingOnly: pendingOnly).map { item in
-            // `FeedSocketEncoding.itemDict` only ever produces valid JSON
-            // (strings, bools, arrays, nested dicts), so the bridge never fails;
-            // the empty-object fallback exists solely to keep the map total.
-            JSONValue(foundationObject: FeedSocketEncoding.itemDict(item)) ?? .object([:])
+            // `WorkstreamItem.socketEncodedDictionary` only ever produces valid
+            // JSON (strings, bools, arrays, nested dicts), so the bridge never
+            // fails; the empty-object fallback exists solely to keep the map total.
+            JSONValue(
+                foundationObject: item.socketEncodedDictionary(
+                    codexCapabilityToolInputJSON: FeedPermissionActionPolicy.codexCapabilityToolInputJSON
+                )
+            ) ?? .object([:])
         }
     }
 }

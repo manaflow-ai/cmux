@@ -5,6 +5,7 @@ import CmuxCommandPaletteUI
 import CmuxCore
 import CmuxFeedback
 import CmuxFoundation
+import CmuxNotifications
 import CmuxPanes
 import CmuxSettings
 import CmuxWorkspaces

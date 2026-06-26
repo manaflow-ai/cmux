@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import CmuxBrowser
 import WebKit
 import ObjectiveC.runtime
 
@@ -400,11 +401,12 @@ final class BrowserScreenshotPipelineTests: XCTestCase {
 
     func testTilePlacementUsesTopOfOversizedTileWhenClampingSourceRect() throws {
         let rects = try XCTUnwrap(
-            BrowserScreenshotTilePlacement.drawRects(
-                tileSize: NSSize(width: 100, height: 160),
-                origin: NSPoint(x: 0, y: 100),
+            BrowserScreenshotTilePlacement(
                 contentSize: NSSize(width: 100, height: 300),
                 viewportSize: NSSize(width: 100, height: 100)
+            ).drawRects(
+                tileSize: NSSize(width: 100, height: 160),
+                origin: NSPoint(x: 0, y: 100)
             )
         )
 

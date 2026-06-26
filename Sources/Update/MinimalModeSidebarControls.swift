@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import CmuxSidebar
 import CmuxTestSupport
+import CmuxWindowing
 import SwiftUI
 
 struct MinimalModeSidebarControlActionProxyView: NSViewRepresentable {
