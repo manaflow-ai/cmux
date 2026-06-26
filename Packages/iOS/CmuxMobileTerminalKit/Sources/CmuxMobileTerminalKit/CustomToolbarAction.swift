@@ -6,7 +6,7 @@ public import Foundation
 /// shown, and hidden through the same ``TerminalAccessoryLayoutReducer``. Each
 /// carries a stable ``id`` (so reordering and per-item enable state survive
 /// edits), a short ``title`` for its button face, an optional SF Symbol
-/// ``symbolName``, and the ``payload`` it sends.
+/// ``symbolName``, and either a direct ``payload`` or a dropdown menu payload.
 ///
 /// ```swift
 /// let launch = CustomToolbarAction(
@@ -23,7 +23,7 @@ public struct CustomToolbarAction: Codable, Equatable, Sendable, Identifiable {
     public var title: String
     /// Optional SF Symbol name shown on the button face instead of ``title``.
     public var symbolName: String?
-    /// The bytes this action sends when tapped.
+    /// The bytes this action sends when tapped, or the menu it opens.
     public var payload: ToolbarActionPayload
 
     /// Creates a custom toolbar action.
@@ -60,6 +60,20 @@ public struct CustomToolbarAction: Codable, Equatable, Sendable, Identifiable {
             return Data(normalized.utf8)
         case let .keyCombo(modifiers, key):
             return TerminalKeyEncoder.encode(specialKey: key, modifiers: modifiers)
+        case .menu:
+            return nil
         }
+    }
+
+    /// Child rows when this action opens a dropdown menu.
+    public var menuItems: [ToolbarMenuItem] {
+        if case let .menu(items) = payload { return items }
+        return []
+    }
+
+    /// Whether this action opens a dropdown menu instead of sending bytes
+    /// directly.
+    public var isMenu: Bool {
+        payload.isMenu
     }
 }
