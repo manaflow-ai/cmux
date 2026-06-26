@@ -2229,6 +2229,7 @@ final class BrowserDefaultsNormalizationTests: XCTestCase {
         defaults.set(999, forKey: BrowserToolbarAccessorySpacingDebugSettings.key)
         defaults.set(999.0, forKey: BrowserProfilePopoverDebugSettings.horizontalPaddingKey)
         defaults.set(-5.0, forKey: BrowserProfilePopoverDebugSettings.verticalPaddingKey)
+        defaults.set(999.0, forKey: BrowserPageZoomPreference.storageKey)
 
         BrowserPanel.normalizeBrowserDefaults(defaults: defaults)
 
@@ -2237,6 +2238,7 @@ final class BrowserDefaultsNormalizationTests: XCTestCase {
         XCTAssertEqual(defaults.integer(forKey: BrowserToolbarAccessorySpacingDebugSettings.key), BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing)
         XCTAssertEqual(defaults.double(forKey: BrowserProfilePopoverDebugSettings.horizontalPaddingKey), BrowserProfilePopoverDebugSettings.defaultHorizontalPadding, accuracy: 0.0001)
         XCTAssertEqual(defaults.double(forKey: BrowserProfilePopoverDebugSettings.verticalPaddingKey), BrowserProfilePopoverDebugSettings.defaultVerticalPadding, accuracy: 0.0001)
+        XCTAssertEqual(defaults.double(forKey: BrowserPageZoomPreference.storageKey), Double(BrowserPageZoomPreference.maximumZoom), accuracy: 0.0001)
 
         // Registered fallbacks are available for keys that were never set.
         XCTAssertEqual(defaults.string(forKey: BrowserSearchSettingsStore.searchEngineKey), BrowserSearchSettingsStore.defaultSearchEngine.rawValue)
@@ -2250,17 +2252,20 @@ final class BrowserDefaultsNormalizationTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let validSpacing = BrowserToolbarAccessorySpacingDebugSettings.supportedValues.last ?? BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
+        let validPageZoom = 0.8
         // Resolve the app-target theme mode via the app-only settings type; the bare
         // `BrowserThemeMode` is ambiguous here because this file also imports
         // `CmuxSettings`, which declares a same-named enum.
         let validThemeRaw = BrowserThemeSettings.mode(for: "dark").rawValue
         defaults.set(validThemeRaw, forKey: BrowserThemeSettings.modeKey)
         defaults.set(validSpacing, forKey: BrowserToolbarAccessorySpacingDebugSettings.key)
+        defaults.set(validPageZoom, forKey: BrowserPageZoomPreference.storageKey)
 
         BrowserPanel.normalizeBrowserDefaults(defaults: defaults)
 
         XCTAssertEqual(defaults.string(forKey: BrowserThemeSettings.modeKey), validThemeRaw)
         XCTAssertEqual(defaults.integer(forKey: BrowserToolbarAccessorySpacingDebugSettings.key), validSpacing)
+        XCTAssertEqual(defaults.double(forKey: BrowserPageZoomPreference.storageKey), validPageZoom, accuracy: 0.0001)
     }
 }
 
