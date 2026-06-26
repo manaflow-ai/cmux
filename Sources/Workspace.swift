@@ -687,9 +687,9 @@ extension Workspace {
         // thread. Fall back to a fresh load only when the cache has not loaded yet (the
         // brief window after launch before the first refresh completes; the cache is
         // prewarmed at launch so this is rare). A cached entry at most one refresh stale
-        // is acceptable here because restore prefers the always-fresh in-memory
-        // resumeBinding and only consults this agent snapshot when no binding exists, so
-        // cmux-launched agents reopen correctly regardless of cache freshness.
+        // is acceptable here because restore reconciles stale resume bindings against
+        // fresher launch snapshots, so cmux-launched agents reopen correctly regardless
+        // of cache freshness.
         let agentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
             ?? RestorableAgentSessionIndex.load()
         let restorableAgent = agentIndex.snapshot(workspaceId: id, panelId: panelId)
@@ -898,7 +898,12 @@ extension Workspace {
         _ binding: SurfaceResumeBindingSnapshot?,
         restorableAgent: SessionRestorableAgentSnapshot?
     ) -> SurfaceResumeBindingSnapshot? {
-        guard let binding, binding.isAgentHookBinding, let restorableAgent else {
+        guard let binding else { return nil }
+        if binding.isAgentHookBinding,
+           shouldPreferRestorableAgentSnapshot(restorableAgent, over: binding) {
+            return nil
+        }
+        guard binding.isAgentHookBinding, let restorableAgent else {
             return binding
         }
         guard binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines) == restorableAgent.sessionId else {
@@ -923,6 +928,16 @@ extension Workspace {
             return binding
         }
         return binding.retargetingWorkingDirectory(resolvedWorkingDirectory)
+    }
+
+    nonisolated private static func shouldPreferRestorableAgentSnapshot(
+        _ restorableAgent: SessionRestorableAgentSnapshot?,
+        over binding: SurfaceResumeBindingSnapshot
+    ) -> Bool {
+        guard let capturedAt = restorableAgent?.launchCommand?.capturedAt else {
+            return false
+        }
+        return capturedAt > binding.updatedAt
     }
 
     nonisolated private static func restorableAgentForSessionRestore(

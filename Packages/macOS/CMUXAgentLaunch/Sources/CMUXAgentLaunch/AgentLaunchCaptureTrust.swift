@@ -36,6 +36,18 @@ public enum AgentLaunchCaptureTrust {
         "rovodev": ["rovodev", "rovo", "rovo-dev"],
     ]
 
+    private static let shellExecutableBasenames: Set<String> = [
+        "bash",
+        "csh",
+        "dash",
+        "fish",
+        "ksh",
+        "login",
+        "sh",
+        "tcsh",
+        "zsh",
+    ]
+
     /// True when `launcher` plausibly describes a launch of agent `kind`.
     /// A nil/empty launcher is trusted: hooks fall back to their own kind.
     public static func launcherDescribesKind(_ launcher: String?, kind: String) -> Bool {
@@ -51,6 +63,18 @@ public enum AgentLaunchCaptureTrust {
         return wrapperLaunchersByKind[normalizedKind]?.contains(normalizedLauncher) == true
     }
 
+    /// True when `executable` is a known shell or login executable, not an agent binary.
+    public static func executableLooksLikeShell(_ executable: String?) -> Bool {
+        guard let executable = executable?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !executable.isEmpty else {
+            return false
+        }
+        let basename = (executable as NSString).lastPathComponent
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+            .lowercased()
+        return shellExecutableBasenames.contains(basename)
+    }
+
     /// True when a captured argv describes a shell dispatcher (`sh -c …`,
     /// `zsh -lc …`) rather than an agent launch. This happens when the
     /// launch-capture PID fallback resolves to the hook's own dispatch shell
@@ -58,17 +82,13 @@ public enum AgentLaunchCaptureTrust {
     /// a command-string flag, so an agent that merely shares a shell's name
     /// (e.g. a wrapper script named `fish`) is not misclassified.
     public static func argvLooksLikeShellWrapper(_ arguments: [String]) -> Bool {
-        guard let argv0 = arguments.first?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !argv0.isEmpty else {
-            return false
-        }
-        let name = (argv0 as NSString).lastPathComponent.lowercased()
-        let shells: Set<String> = ["sh", "bash", "zsh", "dash", "fish", "csh", "tcsh", "ksh"]
-        guard shells.contains(name) else { return false }
-        guard arguments.count >= 2 else { return false }
+        guard executableLooksLikeShell(arguments.first) else { return false }
         // A combined short option whose letters are shell mode flags and that
         // includes `c` (-c, -lc, -ic, -lic, …): the command-string form.
-        let flag = arguments[1]
+        return arguments.dropFirst().contains(where: shellCommandStringFlag)
+    }
+
+    private static func shellCommandStringFlag(_ flag: String) -> Bool {
         guard flag.hasPrefix("-"), !flag.hasPrefix("--") else { return false }
         let letters = flag.dropFirst()
         return !letters.isEmpty
