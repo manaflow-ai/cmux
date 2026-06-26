@@ -261,6 +261,27 @@ import Testing
         #expect(hosts.map(\.alias) == ["work"])
     }
 
+    @Test func hostScopedIncludeWildcardDirectiveDoesNotLeak() {
+        // `Include snippet` under `Host work` is conditional on work, and the
+        // snippet's `Host *` therefore applies only to the intersection
+        // (work ∧ *). Verified against `ssh -G`: `ssh work` gets User deploy,
+        // `ssh other` does not.
+        let main = """
+        Host work
+            HostName work.example.com
+            Include snippet
+        Host other
+            HostName other.example.com
+        """
+        let snippet = "Host *\n    User deploy\n"
+        let hosts = parser.hosts(configText: main) { path in
+            path == "snippet" ? [snippet] : []
+        }
+        #expect(hosts.map(\.alias) == ["work", "other"])
+        #expect(hosts.first { $0.alias == "work" }?.user == "deploy")
+        #expect(hosts.first { $0.alias == "other" }?.user == nil)
+    }
+
     @Test func wildcardHostScopedIncludeListsReachableAliases() {
         // `Host *` matches every target, so its Include is effectively global
         // and the included host is reachable and listed.

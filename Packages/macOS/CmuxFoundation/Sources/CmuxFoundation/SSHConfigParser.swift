@@ -40,7 +40,7 @@ public struct SSHConfigParser: Sendable {
         var directives: [ScopedDirective] = []
         collect(
             configText: configText,
-            enclosingScope: .global,
+            enclosingConditions: [],
             depth: 0,
             includeResolver: includeResolver,
             aliases: &aliases,
@@ -54,14 +54,19 @@ public struct SSHConfigParser: Sendable {
 
     // MARK: - Scoped directives
 
-    /// The matching context a directive was seen in.
+    /// The matching context a directive was seen in: a conjunction of `Host`
+    /// condition sets that must ALL match, or an unevaluable `Match` block.
+    ///
+    /// Conditions compound across conditional includes. A `Host` line inside a
+    /// file `Include`d under `Host work` carries both `work` and its own
+    /// patterns, so its directives reach only hosts in the intersection — the
+    /// way ssh reads that include only for work-matching targets.
     enum Scope {
-        /// Applies to every host (directives before any `Host`/`Match`).
-        case global
-        /// Applies to hosts matching these `Host` patterns.
-        case host([HostPattern])
-        /// A `Match` block (or anything we cannot evaluate statically); its
-        /// directives are ignored and it contributes no aliases.
+        /// A conjunction of `Host`-line condition sets; an alias matches only if
+        /// it matches every set. `[]` matches every host (global).
+        case conditions([[HostPattern]])
+        /// A `Match` block (or anything we cannot evaluate statically); never
+        /// matches, and contributes no aliases.
         case ignored
     }
 
@@ -77,17 +82,19 @@ public struct SSHConfigParser: Sendable {
     }
 
     /// Collect aliases and scoped directives from one config file's text.
-    /// `enclosingScope` is the scope this file was reached under (`.global` for
-    /// the top-level config, the enclosing `Host` scope for an included file).
+    /// `enclosingConditions` is the conjunction of `Host` conditions this file
+    /// was reached under (`[]` for the top-level config; the enclosing `Host`
+    /// conditions for a conditionally-included file).
     private func collect(
         configText: String,
-        enclosingScope: Scope,
+        enclosingConditions: [[HostPattern]],
         depth: Int,
         includeResolver: (_ path: String) -> [String],
         aliases: inout [String],
         seenAliases: inout Set<String>,
         directives: inout [ScopedDirective]
     ) {
+        let enclosingScope: Scope = .conditions(enclosingConditions)
         var currentScope = enclosingScope
         // `isNewline` covers LF, CR, and the CRLF grapheme cluster (Swift treats
         // "\r\n" as one Character, so splitting on "\n" alone would miss it).
@@ -96,13 +103,15 @@ public struct SSHConfigParser: Sendable {
             switch key {
             case "host":
                 let patterns = Self.parsePatterns(value)
-                currentScope = .host(patterns)
+                // AND this `Host` line onto the conditions the file was included
+                // under: ssh reads a conditional include only for targets that
+                // match the enclosing condition, so directives here apply to the
+                // intersection, not to every listed alias.
+                currentScope = .conditions(enclosingConditions + [patterns])
                 for pattern in patterns where !pattern.negated && !Self.isWildcard(pattern.glob) {
-                    // Only list an alias that is actually reachable. A `Host`
-                    // line inside a file `Include`d under an enclosing `Host X`
-                    // is conditional on X (verified against `ssh -G`), so the
-                    // alias must match that enclosing scope to be a standalone
-                    // host. At the top level (`.global`) every alias is reachable.
+                    // List the alias only if it is reachable under the enclosing
+                    // condition (verified against `ssh -G`). At the top level
+                    // the enclosing condition is empty, so every alias is listed.
                     guard Self.scope(enclosingScope, matches: pattern.glob) else { continue }
                     if seenAliases.insert(pattern.glob).inserted {
                         aliases.append(pattern.glob)
@@ -113,18 +122,16 @@ public struct SSHConfigParser: Sendable {
             case "include":
                 guard depth < Self.maxIncludeDepth else { continue }
                 // An `Include` inside a `Match` block we cannot evaluate is
-                // itself conditional; skip it (and the whole included file)
-                // rather than leaking its `Host` entries into the static listing.
-                if case .ignored = currentScope { continue }
-                // ssh reads an `Include` only when its enclosing scope matches
-                // the target, so the included file inherits `currentScope`.
+                // itself conditional; skip it (and the whole included file). The
+                // included file inherits the current conjunction of conditions.
+                guard case .conditions(let childConditions) = currentScope else { continue }
                 // Multiple whitespace-separated paths are allowed and a path
                 // with spaces may be double-quoted, so tokenize and resolve each.
                 for path in Self.tokenize(value) {
                     for includedText in includeResolver(path) {
                         collect(
                             configText: includedText,
-                            enclosingScope: currentScope,
+                            enclosingConditions: childConditions,
                             depth: depth + 1,
                             includeResolver: includeResolver,
                             aliases: &aliases,
@@ -168,22 +175,27 @@ public struct SSHConfigParser: Sendable {
         return host
     }
 
+    /// Whether `alias` matches `scope`: every condition in the conjunction must
+    /// match (an empty conjunction is global). A `Match`/ignored scope never
+    /// matches.
     private static func scope(_ scope: Scope, matches alias: String) -> Bool {
         switch scope {
-        case .global:
-            return true
         case .ignored:
             return false
-        case .host(let patterns):
-            // ssh matches a Host line when the host matches at least one
-            // positive pattern and no negated pattern.
-            var matched = false
-            for pattern in patterns where glob(pattern.glob, matches: alias) {
-                if pattern.negated { return false }
-                matched = true
-            }
-            return matched
+        case .conditions(let conditionSets):
+            return conditionSets.allSatisfy { hostLineMatches($0, alias) }
         }
+    }
+
+    /// Whether `alias` satisfies one `Host`-line condition set: it matches at
+    /// least one positive pattern and no negated pattern (ssh `Host` semantics).
+    private static func hostLineMatches(_ patterns: [HostPattern], _ alias: String) -> Bool {
+        var matched = false
+        for pattern in patterns where glob(pattern.glob, matches: alias) {
+            if pattern.negated { return false }
+            matched = true
+        }
+        return matched
     }
 
     // MARK: - Line parsing
