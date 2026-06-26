@@ -260,6 +260,7 @@ class TerminalController {
     private var v2BrowserInitStylesBySurface: [UUID: [String]] = [:]
     private var v2BrowserDialogQueueBySurface: [UUID: [V2BrowserPendingDialog]] = [:]
     private var v2BrowserDownloadEventsBySurface: [UUID: [[String: Any]]] = [:]
+    private var v2ConsumedBrowserDownloadIDsBySurface: [UUID: Set<String>] = [:]
     private var v2BrowserUnsupportedNetworkRequestsBySurface: [UUID: [[String: Any]]] = [:]
     private nonisolated let v2BrowserUndefinedSentinel = V2BrowserUndefinedSentinel()
     /// Stateless browser-control logic (JS builders, value normalization,
@@ -282,6 +283,7 @@ class TerminalController {
             v2BrowserInitStylesBySurface.removeValue(forKey: surfaceId)
             v2BrowserDialogQueueBySurface.removeValue(forKey: surfaceId)
             v2BrowserDownloadEventsBySurface.removeValue(forKey: surfaceId)
+            v2ConsumedBrowserDownloadIDsBySurface.removeValue(forKey: surfaceId)
             v2BrowserUnsupportedNetworkRequestsBySurface.removeValue(forKey: surfaceId)
             v2BrowserElementRefs = v2BrowserElementRefs.filter { $0.value.surfaceId != surfaceId }
 
@@ -338,9 +340,7 @@ class TerminalController {
                   let event = note.userInfo?["event"] as? [String: Any] else { return }
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                var queue = self.v2BrowserDownloadEventsBySurface[surfaceId] ?? []
-                queue.append(event)
-                self.v2BrowserDownloadEventsBySurface[surfaceId] = queue
+                self.v2RecordBrowserDownloadEvent(surfaceId: surfaceId, event: event)
             }
         }
     }
@@ -8611,14 +8611,44 @@ class TerminalController {
         }
     }
 
-    private func v2PopBrowserDownloadEvent(surfaceId: UUID) -> [String: Any]? {
+    func v2RecordBrowserDownloadEvent(surfaceId: UUID, event: [String: Any]) {
+        guard v2ShouldStoreBrowserDownloadEvent(event, surfaceId: surfaceId) else { return }
+        var queue = v2BrowserDownloadEventsBySurface[surfaceId] ?? []
+        queue.append(event)
+        v2BrowserDownloadEventsBySurface[surfaceId] = queue
+    }
+
+    func v2PopBrowserDownloadEvent(surfaceId: UUID) -> [String: Any]? {
         var remaining = v2BrowserDownloadEventsBySurface[surfaceId] ?? []
         while !remaining.isEmpty {
             let first = remaining.removeFirst()
             v2BrowserDownloadEventsBySurface[surfaceId] = remaining
-            if (first["type"] as? String) != "started" { return first }
+            guard v2ShouldStoreBrowserDownloadEvent(first, surfaceId: surfaceId) else { continue }
+            if (first["type"] as? String) != "started" {
+                v2MarkBrowserDownloadEventConsumed(first, surfaceId: surfaceId)
+                return first
+            }
         }
         return nil
+    }
+
+    private func v2DownloadID(from event: [String: Any]) -> String? {
+        (event["download_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    }
+
+    private func v2ShouldStoreBrowserDownloadEvent(_ event: [String: Any], surfaceId: UUID) -> Bool {
+        guard let downloadID = v2DownloadID(from: event) else { return true }
+        return !(v2ConsumedBrowserDownloadIDsBySurface[surfaceId]?.contains(downloadID) ?? false)
+    }
+
+    func v2MarkBrowserDownloadEventConsumed(_ event: [String: Any], surfaceId: UUID) {
+        guard let downloadID = v2DownloadID(from: event) else { return }
+        var consumed = v2ConsumedBrowserDownloadIDsBySurface[surfaceId] ?? []
+        consumed.insert(downloadID)
+        v2ConsumedBrowserDownloadIDsBySurface[surfaceId] = consumed
+        v2BrowserDownloadEventsBySurface[surfaceId]?.removeAll {
+            v2DownloadID(from: $0) == downloadID
+        }
     }
 
     private nonisolated func v2WaitForDownloadFile(path: String, timeout: TimeInterval) -> V2DownloadFileWaitResult {
@@ -8722,6 +8752,11 @@ class TerminalController {
         }
         if let observer {
             NotificationCenter.default.removeObserver(observer)
+        }
+        if let event {
+            v2MainSync {
+                v2MarkBrowserDownloadEventConsumed(event, surfaceId: surfaceId)
+            }
         }
         return event
     }

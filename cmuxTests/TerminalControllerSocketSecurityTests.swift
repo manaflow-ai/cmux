@@ -118,6 +118,45 @@ private func XCTFail(
 final class TerminalControllerSocketSecurityTests {
     private var teardownBlocks: [() -> Void] = []
 
+    @Test func browserDownloadQueueDropsCompletionForConsumedPromptedDownload() {
+        let controller = TerminalController.shared
+        let surfaceId = UUID()
+        controller.cleanupSurfaceState(surfaceIds: [surfaceId])
+        defer { controller.cleanupSurfaceState(surfaceIds: [surfaceId]) }
+
+        controller.v2RecordBrowserDownloadEvent(
+            surfaceId: surfaceId,
+            event: [
+                "type": "started",
+                "download_id": "download-1",
+                "filename": "report.csv",
+            ]
+        )
+        controller.v2RecordBrowserDownloadEvent(
+            surfaceId: surfaceId,
+            event: [
+                "type": "ready_to_save",
+                "download_id": "download-1",
+                "filename": "report.csv",
+            ]
+        )
+
+        let returned = controller.v2PopBrowserDownloadEvent(surfaceId: surfaceId)
+        XCTAssertEqual(returned?["type"] as? String, "ready_to_save")
+
+        controller.v2RecordBrowserDownloadEvent(
+            surfaceId: surfaceId,
+            event: [
+                "type": "saved",
+                "download_id": "download-1",
+                "filename": "report.csv",
+                "path": "/tmp/report.csv",
+            ]
+        )
+
+        XCTAssertNil(controller.v2PopBrowserDownloadEvent(surfaceId: surfaceId))
+    }
+
     init() {
         TerminalController.shared.stop()
     }

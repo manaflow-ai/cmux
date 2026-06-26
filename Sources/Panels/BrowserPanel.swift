@@ -3996,7 +3996,7 @@ final class BrowserPanel: Panel, ObservableObject {
         dlDelegate.savePanelParentWindow = { [weak self] in
             self?.webView.window
         }
-        dlDelegate.onDownloadStarted = { [weak self] filename in
+        dlDelegate.onDownloadStarted = { [weak self] filename, downloadID in
             guard let self else { return }
             self.beginDownloadActivity()
             NotificationCenter.default.post(
@@ -4007,12 +4007,13 @@ final class BrowserPanel: Panel, ObservableObject {
                     "workspaceId": self.workspaceId,
                     "event": [
                         "type": "started",
+                        "download_id": downloadID,
                         "filename": filename
                     ]
                 ]
             )
         }
-        dlDelegate.onDownloadReadyToSave = { [weak self] filename in
+        dlDelegate.onDownloadReadyToSave = { [weak self] filename, downloadID in
             guard let self else { return }
             self.endDownloadActivity()
             NotificationCenter.default.post(
@@ -4023,12 +4024,13 @@ final class BrowserPanel: Panel, ObservableObject {
                     "workspaceId": self.workspaceId,
                     "event": [
                         "type": "ready_to_save",
+                        "download_id": downloadID,
                         "filename": filename
                     ]
                 ]
             )
         }
-        dlDelegate.onDownloadSaved = { [weak self] filename, destinationURL, shouldEndActivity in
+        dlDelegate.onDownloadSaved = { [weak self] filename, destinationURL, shouldEndActivity, downloadID in
             guard let self else { return }
             if shouldEndActivity { self.endDownloadActivity() }
             NotificationCenter.default.post(
@@ -4039,13 +4041,14 @@ final class BrowserPanel: Panel, ObservableObject {
                     "workspaceId": self.workspaceId,
                     "event": [
                         "type": "saved",
+                        "download_id": downloadID,
                         "filename": filename,
                         "path": destinationURL.path
                     ]
                 ]
             )
         }
-        dlDelegate.onDownloadCancelled = { [weak self] filename, shouldEndActivity in
+        dlDelegate.onDownloadCancelled = { [weak self] filename, shouldEndActivity, downloadID in
             guard let self else { return }
             if shouldEndActivity { self.endDownloadActivity() }
             NotificationCenter.default.post(
@@ -4056,24 +4059,29 @@ final class BrowserPanel: Panel, ObservableObject {
                     "workspaceId": self.workspaceId,
                     "event": [
                         "type": "cancelled",
+                        "download_id": downloadID,
                         "filename": filename
                     ]
                 ]
             )
         }
-        dlDelegate.onDownloadFailed = { [weak self] error, shouldEndActivity in
+        dlDelegate.onDownloadFailed = { [weak self] error, shouldEndActivity, downloadID in
             guard let self else { return }
             if shouldEndActivity { self.endDownloadActivity() }
+            var event: [String: Any] = [
+                "type": "failed",
+                "error": error.localizedDescription
+            ]
+            if let downloadID {
+                event["download_id"] = downloadID
+            }
             NotificationCenter.default.post(
                 name: .browserDownloadEventDidArrive,
                 object: self,
                 userInfo: [
                     "surfaceId": self.id,
                     "workspaceId": self.workspaceId,
-                    "event": [
-                        "type": "failed",
-                        "error": error.localizedDescription
-                    ]
+                    "event": event
                 ]
             )
         }
@@ -8293,6 +8301,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
     private nonisolated static let maxDownloadDestinationCollisionRetries = 100
 
     private struct DownloadState: Sendable {
+        let downloadID: String
         let tempURL: URL
         let suggestedFilename: String
         let sourceURL: URL
@@ -8302,11 +8311,11 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
     private var activeDownloads: [ObjectIdentifier: DownloadState] = [:]
     private var suggestedFilenameOverrides: [ObjectIdentifier: String] = [:]
     private let activeDownloadsLock = NSLock()
-    var onDownloadStarted: ((String) -> Void)?
-    var onDownloadReadyToSave: ((String) -> Void)?
-    var onDownloadSaved: ((String, URL, Bool) -> Void)?
-    var onDownloadCancelled: ((String, Bool) -> Void)?
-    var onDownloadFailed: ((Error, Bool) -> Void)?
+    var onDownloadStarted: ((String, String) -> Void)?
+    var onDownloadReadyToSave: ((String, String) -> Void)?
+    var onDownloadSaved: ((String, URL, Bool, String) -> Void)?
+    var onDownloadCancelled: ((String, Bool, String) -> Void)?
+    var onDownloadFailed: ((Error, Bool, String?) -> Void)?
     var savePanelParentWindow: (() -> NSWindow?)?
 
     private static let tempDir: URL = {
@@ -8384,12 +8393,13 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
 
     @MainActor
     private func presentSavePanel(
+        downloadID: String,
         tempURL: URL,
         suggestedFilename: String,
         sourceURL: URL,
         filenameResolver: BrowserDownloadFilenameResolver
     ) {
-        onDownloadReadyToSave?(suggestedFilename)
+        onDownloadReadyToSave?(suggestedFilename, downloadID)
         let savePanel = NSSavePanel()
         savePanel.nameFieldStringValue = suggestedFilename
         savePanel.canCreateDirectories = true
@@ -8397,7 +8407,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         let completion: (NSApplication.ModalResponse) -> Void = { [weak self] result in
             guard result == .OK, let destURL = savePanel.url else {
                 try? FileManager.default.removeItem(at: tempURL)
-                self?.onDownloadCancelled?(suggestedFilename, false)
+                self?.onDownloadCancelled?(suggestedFilename, false, downloadID)
                 return
             }
             do {
@@ -8407,10 +8417,10 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
                 } else {
                     try FileManager.default.moveItem(at: tempURL, to: destURL)
                 }
-                self?.onDownloadSaved?(suggestedFilename, destURL, false)
+                self?.onDownloadSaved?(suggestedFilename, destURL, false, downloadID)
             } catch {
                 try? FileManager.default.removeItem(at: tempURL)
-                self?.onDownloadFailed?(error, false)
+                self?.onDownloadFailed?(error, false, downloadID)
             }
         }
         if let parentWindow = savePanelParentWindow?() {
@@ -8438,10 +8448,11 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         let safeFilename = filenameResolver.suggestedFilename(suggestedFilename: preferredSuggestedFilename, response: response, sourceURL: sourceURL, imageType: nil)
         let tempFilename = "\(UUID().uuidString)-\(safeFilename)"
         let destURL = Self.tempDir.appendingPathComponent(tempFilename, isDirectory: false)
+        let downloadID = UUID().uuidString
         try? FileManager.default.removeItem(at: destURL)
-        storeState(DownloadState(tempURL: destURL, suggestedFilename: safeFilename, sourceURL: sourceURL), for: download)
+        storeState(DownloadState(downloadID: downloadID, tempURL: destURL, suggestedFilename: safeFilename, sourceURL: sourceURL), for: download)
         notifyOnMain { [weak self] in
-            self?.onDownloadStarted?(safeFilename)
+            self?.onDownloadStarted?(safeFilename, downloadID)
         }
         #if DEBUG
         cmuxDebugLog("download.decideDestination file=<redacted>")
@@ -8468,6 +8479,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
 
             if filenameResolver.shouldAskWhereToSaveDownloads() {
                 self.presentSavePanel(
+                    downloadID: info.downloadID,
                     tempURL: info.tempURL,
                     suggestedFilename: suggestedFilename,
                     sourceURL: info.sourceURL,
@@ -8488,23 +8500,27 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
             }.value
             switch saveResult {
             case .success(let destinationURL):
-                self.onDownloadSaved?(suggestedFilename, destinationURL, true)
+                self.onDownloadSaved?(suggestedFilename, destinationURL, true, info.downloadID)
                 #if DEBUG
                 cmuxDebugLog("download.saved path=<redacted>")
                 #endif
             case .failure(let error):
                 try? FileManager.default.removeItem(at: info.tempURL)
-                self.onDownloadFailed?(error, true)
+                self.onDownloadFailed?(error, true, info.downloadID)
             }
         }
     }
 
     func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+        let downloadID: String?
         if let info = removeState(for: download) {
             try? FileManager.default.removeItem(at: info.tempURL)
+            downloadID = info.downloadID
+        } else {
+            downloadID = nil
         }
         notifyOnMain { [weak self] in
-            self?.onDownloadFailed?(error, true)
+            self?.onDownloadFailed?(error, true, downloadID)
         }
         #if DEBUG
         cmuxDebugLog("download.failed error=\(error.localizedDescription)")

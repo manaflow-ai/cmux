@@ -240,18 +240,20 @@ import WebKit
         defer { NotificationCenter.default.removeObserver(observer) }
 
         let savedURL = URL(fileURLWithPath: "/tmp/cmux-download-report.csv")
-        delegate.onDownloadSaved?("report.csv", savedURL, false)
-        delegate.onDownloadCancelled?("cancelled.txt", false)
+        delegate.onDownloadSaved?("report.csv", savedURL, false, "download-1")
+        delegate.onDownloadCancelled?("cancelled.txt", false, "download-1")
         delegate.onDownloadFailed?(
             NSError(domain: "cmux.download.test", code: 7, userInfo: [
                 NSLocalizedDescriptionKey: "disk full"
             ]),
-            false
+            false,
+            "download-1"
         )
 
         let events = capture.snapshot()
         try #require(events.count == 3)
         #expect(events.map { $0["type"] as? String } == ["saved", "cancelled", "failed"])
+        #expect(events.map { $0["download_id"] as? String } == ["download-1", "download-1", "download-1"])
         #expect(events[0]["filename"] as? String == "report.csv")
         #expect(events[0]["path"] as? String == savedURL.path)
         #expect(events[1]["filename"] as? String == "cancelled.txt")
