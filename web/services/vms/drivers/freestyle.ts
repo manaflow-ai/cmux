@@ -44,6 +44,7 @@ const CMUXD_WS_RPC_LEASE_TTL_SECONDS = 12 * 60 * 60;
 const CMUXD_WS_RPC_RENEW_BEFORE_SECONDS = 60;
 const FREESTYLE_WS_PORTS = [{ port: 443, targetPort: 7777 }];
 const FREESTYLE_DAEMON_ADMIN_TOKEN_METADATA_KEY = "freestyleDaemonAdminToken";
+const CMUX_CLOUD_SHELL_PATH = "/usr/local/bin/cmux-cloud-shell";
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 const CREATE_TIMEOUT_MS = 15 * 60 * 1000;
@@ -747,7 +748,7 @@ function freestyleWebSocketService(adminToken: string) {
         "--rpc-auth-lease-file",
         CMUXD_WS_RPC_LEASE_PATH,
         "--shell",
-        "/bin/bash",
+        CMUX_CLOUD_SHELL_PATH,
       ].map(shellQuote).join(" "),
     ],
   };
@@ -782,21 +783,42 @@ async function ensureFreestyleWebSocketHealthyOrRepair(
   adminToken: string | null,
   signedAdmin: FreestyleAdminSigningConfig | null,
 ): Promise<void> {
+  const canRepair = !!adminToken || !!signedAdmin;
+  let healthError: unknown = null;
   try {
     await ensureFreestyleWebSocketHealthy(domain);
+  } catch (err) {
+    healthError = err;
+  }
+
+  if (!healthError && canRepair) {
+    const state = await readFreestyleCloudShellState(vm).catch((err: unknown) => ({
+      ok: false,
+      reason: errorMessage(err),
+    }));
+    if (!state.ok) {
+      await repairFreestyleWebSocketService(vm, adminToken, signedAdmin).catch((repairErr: unknown) => {
+        throw new Error(
+          `Cloud VM terminal service shell repair failed (${state.reason}): ${errorMessage(repairErr)}`,
+        );
+      });
+      await waitForFreestyleWebSocketHealthy(domain);
+    }
     return;
-  } catch (initialErr) {
-    if (!adminToken && !signedAdmin) {
-      throw initialErr;
+  }
+
+  if (healthError) {
+    if (!canRepair) {
+      throw healthError;
     }
     await repairFreestyleWebSocketService(vm, adminToken, signedAdmin).catch((repairErr: unknown) => {
       throw new Error(
-        `Cloud VM terminal service repair failed after health check failed (${errorMessage(initialErr)}): ${errorMessage(repairErr)}`,
+        `Cloud VM terminal service repair failed after health check failed (${errorMessage(healthError)}): ${errorMessage(repairErr)}`,
       );
     });
     await waitForFreestyleWebSocketHealthy(domain).catch((healthErr: unknown) => {
       throw new Error(
-        `Cloud VM terminal service stayed unavailable after repair (${errorMessage(initialErr)}): ${errorMessage(healthErr)}`,
+        `Cloud VM terminal service stayed unavailable after repair (${errorMessage(healthError)}): ${errorMessage(healthErr)}`,
       );
     });
   }
@@ -813,17 +835,63 @@ async function repairFreestyleWebSocketService(
   });
   const encodedService = Buffer.from(service).toString("base64");
   const commands = [
+    ...freestyleCloudShellSetupCommands(),
     "mkdir -p /tmp/cmux /usr/local/bin /etc/systemd/system /etc/systemd/system/multi-user.target.wants",
     "chmod 700 /tmp/cmux",
-    "cat > /usr/local/bin/cmux-cloud-shell <<'CMUX_CLOUD_SHELL'\n#!/bin/sh\ncd /home/cmux 2>/dev/null || true\nexport HOME=/home/cmux\nexport USER=cmux\nexport LOGNAME=cmux\nif command -v zsh >/dev/null 2>&1; then\n  export SHELL=\"$(command -v zsh)\"\n  exec runuser -u cmux -- \"$SHELL\" -l\nfi\nexport SHELL=/bin/bash\nexec runuser -u cmux -- /bin/bash -l\nCMUX_CLOUD_SHELL",
-    "chmod 0755 /usr/local/bin/cmux-cloud-shell",
     `printf '%s' '${encodedService}' | base64 -d > /etc/systemd/system/cmuxd-ws.service`,
     "ln -sf /etc/systemd/system/cmuxd-ws.service /etc/systemd/system/multi-user.target.wants/cmuxd-ws.service",
     "(systemctl daemon-reload >/dev/null 2>&1 || true)",
     "(systemctl enable cmuxd-ws >/dev/null 2>&1 || true)",
     "(systemctl restart cmuxd-ws >/dev/null 2>&1 || systemctl start cmuxd-ws >/dev/null 2>&1 || true)",
   ];
-  await execFreestyleOrThrow(vm, commands.join(" && "));
+  await execFreestyleCommandsOrThrow(vm, commands, 180_000);
+}
+
+function freestyleCloudShellSetupCommands(): string[] {
+  return [
+    "export PATH=\"/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}\"",
+    "if command -v apt-get >/dev/null 2>&1 && { ! command -v zsh >/dev/null 2>&1 || ! command -v gh >/dev/null 2>&1 || ! command -v htop >/dev/null 2>&1 || ! command -v btop >/dev/null 2>&1 || ! command -v tmux >/dev/null 2>&1; }; then apt-get update >/dev/null 2>&1 || true; DEBIAN_FRONTEND=noninteractive apt-get install -y zsh zsh-autosuggestions gh htop btop tmux >/dev/null 2>&1 || true; fi",
+    "id -u cmux >/dev/null 2>&1 || useradd -m -s \"$(command -v zsh 2>/dev/null || printf /bin/bash)\" cmux",
+    "printf 'cmux ALL=(ALL) NOPASSWD:ALL\\n' > /etc/sudoers.d/90-cmux-nopasswd 2>/dev/null || true",
+    "chmod 0440 /etc/sudoers.d/90-cmux-nopasswd 2>/dev/null || true",
+    "mkdir -p /etc/cmux /home/cmux/.config/cmux /home/cmux/.cmux /tmp/cmux /usr/local/bin",
+    "chmod 700 /tmp/cmux",
+    "chown cmux:cmux /tmp/cmux /home/cmux/.config /home/cmux/.config/cmux /home/cmux/.cmux 2>/dev/null || true",
+    "if [ ! -x /usr/local/bin/cmux ] && [ -x /usr/local/bin/cmuxd-remote ]; then ln -sf /usr/local/bin/cmuxd-remote /usr/local/bin/cmux >/dev/null 2>&1 || true; fi",
+    "cat > /etc/cmux/zshrc <<'CMUX_ZSHRC'\n# cmux default zsh profile. Put personal overrides in ~/.zshrc.local.\nexport PATH=\"/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}\"\nexport SHELL=\"$(command -v zsh 2>/dev/null || printf /bin/bash)\"\nmkdir -p \"$HOME/.cmux\" 2>/dev/null || true\nprintf '%s' '/tmp/cmux-cloud-cli.sock' > \"$HOME/.cmux/socket_addr\" 2>/dev/null || true\nexport CMUX_SOCKET_PATH=\"${CMUX_SOCKET_PATH:-/tmp/cmux-cloud-cli.sock}\"\nautoload -Uz colors 2>/dev/null && colors\nsetopt prompt_subst interactivecomments no_beep hist_ignore_dups share_history 2>/dev/null || true\nPROMPT_EOL_MARK=''\nunsetopt prompt_sp 2>/dev/null || true\nHISTFILE=\"${HISTFILE:-$HOME/.zsh_history}\"\nHISTSIZE=\"${HISTSIZE:-50000}\"\nSAVEHIST=\"${SAVEHIST:-50000}\"\nbindkey -e 2>/dev/null || true\nif [ -r /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh ]; then\n  source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh\n  ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE=\"${ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE:-fg=8}\"\nfi\n: ${CMUX_PROMPT_USER:=cmux-cloud}\n: ${CMUX_PROMPT_CHAR:=$'\\u03bb'}\nPROMPT='%F{magenta}${CMUX_PROMPT_USER}%f in %F{green}%~%f ${CMUX_PROMPT_CHAR} '\nCMUX_ZSHRC",
+    "if [ ! -e /home/cmux/.zshrc ] || grep -q \"cmux-managed zsh defaults\" /home/cmux/.zshrc 2>/dev/null; then cat > /home/cmux/.zshrc <<'CMUX_USER_ZSHRC'\n# cmux-managed zsh defaults. Edit ~/.zshrc.local for personal overrides.\nmkdir -p \"$HOME/.cmux\" 2>/dev/null || true\nprintf '%s' '/tmp/cmux-cloud-cli.sock' > \"$HOME/.cmux/socket_addr\" 2>/dev/null || true\nexport CMUX_SOCKET_PATH=\"${CMUX_SOCKET_PATH:-/tmp/cmux-cloud-cli.sock}\"\n[ -r /etc/cmux/zshrc ] && source /etc/cmux/zshrc\n[ -r \"$HOME/.zshrc.local\" ] && source \"$HOME/.zshrc.local\"\nif [ \"${CMUX_CLOUD_WELCOME:-1}\" != \"0\" ] && [ -z \"${CMUX_CLOUD_WELCOME_SHOWN:-}\" ] && [ -t 1 ]; then\n  export CMUX_CLOUD_WELCOME_SHOWN=1\n  printf '\\033[38;2;0;212;255m  ::\\033[0m\\n'\n  printf '\\033[38;2;24;181;250m    ::::              \\033[38;2;0;212;255mc\\033[38;2;24;181;250mm\\033[38;2;48;150;245mu\\033[38;2;124;58;237mx cloud\\033[0m\\n'\n  printf '\\033[38;2;48;150;245m      ::::::\\033[0m\\n'\n  printf '\\033[38;2;72;119;241m        ::::::\\033[0m        \\033[38;2;130;130;140mpersistent cloud VM\\033[0m\\n'\n  printf '\\033[38;2;96;88;239m      ::::::\\033[0m          \\033[38;2;130;130;140mready for coding agents\\033[0m\\n'\n  printf '\\033[38;2;110;73;238m    ::::\\033[0m\\n'\n  printf '\\033[38;2;124;58;237m  ::\\033[0m\\n'\n  printf '\\n'\nfi\nCMUX_USER_ZSHRC\nfi",
+    "if [ ! -e /home/cmux/.zshrc.local ]; then cat > /home/cmux/.zshrc.local <<'CMUX_LOCAL_ZSHRC'\n# Personal zsh overrides for this cloud VM.\n# Examples:\n#   CMUX_CLOUD_WELCOME=0\n#   CMUX_PROMPT_USER='cmux-cloud'\n#   CMUX_PROMPT_CHAR='>'\n#   PROMPT='%F{cyan}%n%f:%F{green}%~%f %# '\nCMUX_LOCAL_ZSHRC\nfi",
+    "cat > /usr/local/bin/cmux-cloud-shell <<'CMUX_CLOUD_SHELL'\n#!/bin/sh\ncd /home/cmux 2>/dev/null || true\nexport HOME=/home/cmux\nexport USER=cmux\nexport LOGNAME=cmux\nif command -v zsh >/dev/null 2>&1; then\n  export SHELL=\"$(command -v zsh)\"\n  exec runuser -u cmux -- \"$SHELL\" -l\nfi\nexport SHELL=/bin/bash\nexec runuser -u cmux -- /bin/bash -l\nCMUX_CLOUD_SHELL",
+    "chmod 0755 /usr/local/bin/cmux-cloud-shell",
+    "touch /home/cmux/.hushlogin /etc/cmux/zsh-bootstrap-v6 2>/dev/null || true",
+    "chown cmux:cmux /home/cmux/.zshrc /home/cmux/.zshrc.local /home/cmux/.hushlogin 2>/dev/null || true",
+    "chsh -s \"$(command -v zsh 2>/dev/null || printf /bin/bash)\" cmux >/dev/null 2>&1 || true",
+  ];
+}
+
+async function readFreestyleCloudShellState(vm: FreestyleVmRef): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const command = [
+    "set -u",
+    "service_shell=\"\"",
+    "service_text=\"$(cat /etc/systemd/system/cmuxd-ws.service 2>/dev/null; cat /lib/systemd/system/cmuxd-ws.service 2>/dev/null; ps auxww | grep cmuxd-remote | grep -v grep || true)\"",
+    "case \"$service_text\" in *'--shell /usr/local/bin/cmux-cloud-shell'*|*'--shell=/usr/local/bin/cmux-cloud-shell'*) service_shell=ok ;; esac",
+    "test \"$service_shell\" = ok || { printf '%s\\n' service-shell-not-managed; exit 10; }",
+    "test -x /usr/local/bin/cmux-cloud-shell || { printf '%s\\n' cloud-shell-missing; exit 11; }",
+    "id -u cmux >/dev/null 2>&1 || { printf '%s\\n' cmux-user-missing; exit 12; }",
+    "test -r /etc/cmux/zshrc || { printf '%s\\n' etc-zshrc-missing; exit 13; }",
+    "test -r /home/cmux/.zshrc || { printf '%s\\n' home-zshrc-missing; exit 14; }",
+    "command -v zsh >/dev/null 2>&1 || { printf '%s\\n' zsh-missing; exit 15; }",
+    "printf '%s\\n' ok",
+  ].join(" && ");
+  const result = await vm.exec({ command, timeoutMs: 30_000 });
+  const exitCode = (result as { statusCode?: number }).statusCode ?? 0;
+  if (exitCode === 0) {
+    return { ok: true };
+  }
+  return {
+    ok: false,
+    reason: ((result.stdout ?? result.stderr ?? "").trim() || `cloud shell state check exited ${exitCode}`),
+  };
 }
 
 async function waitForFreestyleWebSocketHealthy(domain: string): Promise<void> {
@@ -938,8 +1006,22 @@ async function readReusableRpcLease(
 
 type FreestyleVmRef = ReturnType<ReturnType<typeof client>["vms"]["ref"]>;
 
-async function execFreestyleOrThrow(vm: FreestyleVmRef, command: string) {
-  const result = await vm.exec({ command, timeoutMs: 30_000 });
+async function execFreestyleCommandsOrThrow(
+  vm: FreestyleVmRef,
+  commands: readonly string[],
+  timeoutMs = 30_000,
+): Promise<void> {
+  for (const command of commands) {
+    await execFreestyleOrThrow(
+      vm,
+      `export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:\${PATH:-}"; ${command}`,
+      timeoutMs,
+    );
+  }
+}
+
+async function execFreestyleOrThrow(vm: FreestyleVmRef, command: string, timeoutMs = 30_000) {
+  const result = await vm.exec({ command, timeoutMs });
   const exitCode = (result as { statusCode?: number }).statusCode ?? 0;
   if (exitCode !== 0) {
     throw new Error(`Freestyle exec failed with status ${exitCode}: ${(result.stderr ?? "").trim()}`);
