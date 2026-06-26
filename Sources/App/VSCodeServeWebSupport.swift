@@ -493,17 +493,11 @@ final class VSCodeServeWebController {
     private var activeLaunchGeneration: UInt64?
     private var lifecycleGeneration: UInt64 = 0
 
-    private init(launchProcessOverride: ((URL, UInt64) -> (process: Process, url: URL)?)? = nil) {
+    // Internal (not private) so tests can inject `launchProcessOverride` via
+    // `@testable import` instead of a `#if DEBUG` production test seam.
+    init(launchProcessOverride: ((URL, UInt64) -> (process: Process, url: URL)?)? = nil) {
         self.launchProcessOverride = launchProcessOverride
     }
-
-#if DEBUG
-    static func makeForTesting(
-        launchProcessOverride: @escaping (URL, UInt64) -> (process: Process, url: URL)?
-    ) -> VSCodeServeWebController {
-        VSCodeServeWebController(launchProcessOverride: launchProcessOverride)
-    }
-#endif
 
     func ensureServeWebURL(vscodeApplicationURL: URL, completion: @escaping (URL?) -> Void) {
         queue.async {

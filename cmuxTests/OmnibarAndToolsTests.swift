@@ -673,7 +673,7 @@ final class VSCodeServeWebControllerTests: XCTestCase {
         let launchCallLock = NSLock()
         var launchCallCount = 0
 
-        let controller = VSCodeServeWebController.makeForTesting { _, _ in
+        let controller = VSCodeServeWebController(launchProcessOverride: { _, _ in
             launchCallLock.lock()
             launchCallCount += 1
             let callNumber = launchCallCount
@@ -684,7 +684,7 @@ final class VSCodeServeWebControllerTests: XCTestCase {
                 _ = launchGate.wait(timeout: .now() + 1)
             }
             return nil
-        }
+        })
 
         let callbackLock = NSLock()
         var firstGenerationCallbacks: [URL?] = []
