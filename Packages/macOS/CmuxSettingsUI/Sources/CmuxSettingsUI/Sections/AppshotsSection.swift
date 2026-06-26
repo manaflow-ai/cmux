@@ -17,8 +17,10 @@ public struct AppshotsSection: View {
     @State private var screenRecordingGranted = false
     @State private var accessibilityGranted = false
 
+    /// Creates the Appshots settings section.
     public init() {}
 
+    /// The section's content: the permission status card plus an explanatory note.
     public var body: some View {
         Group {
             SettingsSectionHeader(
