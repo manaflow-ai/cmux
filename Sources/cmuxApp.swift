@@ -54,9 +54,12 @@ enum PressAndHoldDefaults {
     /// terminal. Pure with respect to the injected `defaults`, so it is
     /// unit-testable against a scratch `UserDefaults(suiteName:)`.
     static func registerDisabled(defaults: UserDefaults = .standard) {
-        // Intentionally empty in this commit so the regression test in
-        // PressAndHoldDefaultsTests goes red first, proving it catches the bug.
-        // The actual registration is added in the following commit. See #5457.
+        // Register the disabled value in the registration domain (the
+        // lowest-priority source), mirroring Ghostty/VS Code/iTerm. This
+        // provides cmux's per-app default without clobbering an explicit
+        // global override a user may have set via
+        // `defaults write -g ApplePressAndHoldEnabled -bool true`.
+        defaults.register(defaults: [pressAndHoldEnabledKey: false])
     }
 }
 
