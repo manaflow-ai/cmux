@@ -50,6 +50,12 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowNotificationMessage"
     )
 
+    public let notificationSchedulerMode = DefaultsKey<SidebarNotificationSchedulerMode>(
+        id: "sidebar.notificationSchedulerMode",
+        defaultValue: .smartUrgency,
+        userDefaultsKey: "sidebarNotificationSchedulerMode"
+    )
+
     public let showBranchDirectory = DefaultsKey<Bool>(
         id: "sidebar.showBranchDirectory",
         defaultValue: true,

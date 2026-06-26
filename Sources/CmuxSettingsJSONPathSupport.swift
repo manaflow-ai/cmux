@@ -242,6 +242,13 @@ enum SidebarSettingsFileMapping {
         ),
     ]
 
+    static let stringSettings: [SettingsFileStringMapping] = [
+        .init(
+            jsonKey: "notificationSchedulerMode",
+            defaultsKey: sidebar.notificationSchedulerMode.userDefaultsKey
+        ),
+    ]
+
     static func branchLayoutStoredValue(_ rawValue: String) -> Bool? {
         switch rawValue {
         case "vertical":
@@ -373,6 +380,7 @@ extension CmuxSettingsFileStore {
         "sidebar.stackBranchDirectory",
         "sidebar.pathLastSegmentOnly",
         "sidebar.showNotificationMessage",
+        "sidebar.notificationSchedulerMode",
         "sidebar.showBranchDirectory",
         "sidebar.showPullRequests",
         "sidebar.watchGitStatus",

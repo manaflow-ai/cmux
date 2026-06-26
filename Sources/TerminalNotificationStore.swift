@@ -167,23 +167,33 @@ enum SidebarNotificationUrgencyScheduler {
         snapshots: [SidebarNotificationSchedulerSnapshot],
         now: Date
     ) -> [UUID: SidebarNotificationUrgency] {
-        Dictionary(uniqueKeysWithValues: scheduledItems(snapshots: snapshots, now: now).map {
+        Dictionary(uniqueKeysWithValues: scheduledItems(snapshots: snapshots, now: now, mode: .smartUrgency).map {
             ($0.snapshot.workspaceId, $0.urgency)
         })
     }
 
     static func orderedWorkspaceIds(
         snapshots: [SidebarNotificationSchedulerSnapshot],
-        now: Date
+        now: Date,
+        mode: SidebarNotificationSchedulerMode = .smartUrgency,
+        roundRobinCursor: UUID? = nil
     ) -> [UUID] {
-        scheduledItems(snapshots: snapshots, now: now).map(\.snapshot.workspaceId)
+        scheduledItems(
+            snapshots: snapshots,
+            now: now,
+            mode: mode,
+            roundRobinCursor: roundRobinCursor
+        )
+        .map(\.snapshot.workspaceId)
     }
 
     private struct ScheduledItem {
         var snapshot: SidebarNotificationSchedulerSnapshot
         var urgency: SidebarNotificationUrgency
+        var signals: Set<Signal>
         var latestNotificationCreatedAt: Date?
         var originalIndex: Int
+        var roundRobinRank: Int
     }
 
     private enum Signal: Hashable {
@@ -196,26 +206,49 @@ enum SidebarNotificationUrgencyScheduler {
         case remote
     }
 
+    private struct Evaluation {
+        var urgency: SidebarNotificationUrgency
+        var signals: Set<Signal>
+    }
+
     private static func scheduledItems(
         snapshots: [SidebarNotificationSchedulerSnapshot],
-        now: Date
+        now: Date,
+        mode: SidebarNotificationSchedulerMode,
+        roundRobinCursor: UUID? = nil
     ) -> [ScheduledItem] {
-        snapshots.compactMap { snapshot in
-            guard let urgency = urgency(for: snapshot, now: now) else { return nil }
+        let roundRobinStartIndex = roundRobinStartIndex(
+            snapshots: snapshots,
+            cursor: roundRobinCursor
+        )
+        let snapshotCount = max(snapshots.count, 1)
+        return snapshots.compactMap { snapshot in
+            guard let evaluation = evaluation(for: snapshot, now: now) else { return nil }
             return ScheduledItem(
                 snapshot: snapshot,
-                urgency: urgency,
+                urgency: evaluation.urgency,
+                signals: evaluation.signals,
                 latestNotificationCreatedAt: snapshot.latestNotificationCreatedAt,
-                originalIndex: snapshot.originalIndex
+                originalIndex: snapshot.originalIndex,
+                roundRobinRank: (snapshot.originalIndex - roundRobinStartIndex + snapshotCount) % snapshotCount
             )
         }
-        .sorted(by: precedes)
+        .sorted { lhs, rhs in
+            precedes(lhs, rhs, mode: mode)
+        }
     }
 
     static func urgency(
         for snapshot: SidebarNotificationSchedulerSnapshot,
         now: Date
     ) -> SidebarNotificationUrgency? {
+        evaluation(for: snapshot, now: now)?.urgency
+    }
+
+    private static func evaluation(
+        for snapshot: SidebarNotificationSchedulerSnapshot,
+        now: Date
+    ) -> Evaluation? {
         let latestText = trimmed(snapshot.latestNotificationText)
         guard snapshot.unreadCount > 0 || snapshot.latestNotificationIsUnread else { return nil }
 
@@ -265,15 +298,66 @@ enum SidebarNotificationUrgencyScheduler {
         }
 
         let reason = reason(signals: signals)
-        return SidebarNotificationUrgency(
-            workspaceId: snapshot.workspaceId,
-            band: band(signals: signals),
-            reason: reason,
-            score: Int(score.rounded())
+        return Evaluation(
+            urgency: SidebarNotificationUrgency(
+                workspaceId: snapshot.workspaceId,
+                band: band(signals: signals),
+                reason: reason,
+                score: Int(score.rounded())
+            ),
+            signals: signals
         )
     }
 
-    private static func precedes(_ lhs: ScheduledItem, _ rhs: ScheduledItem) -> Bool {
+    private static func roundRobinStartIndex(
+        snapshots: [SidebarNotificationSchedulerSnapshot],
+        cursor: UUID?
+    ) -> Int {
+        guard !snapshots.isEmpty,
+              let cursor,
+              let cursorIndex = snapshots.first(where: { $0.workspaceId == cursor })?.originalIndex
+        else {
+            return 0
+        }
+        return (cursorIndex + 1) % snapshots.count
+    }
+
+    private static func precedes(
+        _ lhs: ScheduledItem,
+        _ rhs: ScheduledItem,
+        mode: SidebarNotificationSchedulerMode
+    ) -> Bool {
+        let lhsBlocked = isBlockedPriority(lhs)
+        let rhsBlocked = isBlockedPriority(rhs)
+        if lhsBlocked != rhsBlocked {
+            return lhsBlocked
+        }
+
+        switch mode {
+        case .smartUrgency:
+            return smartPrecedes(lhs, rhs)
+        case .blockedFirst:
+            return arrivalPrecedes(lhs, rhs)
+        case .smallWins:
+            let lhsSmall = lhs.signals.contains(.smallWin)
+            let rhsSmall = rhs.signals.contains(.smallWin)
+            if lhsSmall != rhsSmall {
+                return lhsSmall
+            }
+            return smartPrecedes(lhs, rhs)
+        case .aging:
+            return agePrecedes(lhs, rhs)
+        case .roundRobin:
+            if lhs.roundRobinRank != rhs.roundRobinRank {
+                return lhs.roundRobinRank < rhs.roundRobinRank
+            }
+            return smartPrecedes(lhs, rhs)
+        case .arrivalOrder:
+            return arrivalPrecedes(lhs, rhs)
+        }
+    }
+
+    private static func smartPrecedes(_ lhs: ScheduledItem, _ rhs: ScheduledItem) -> Bool {
         if lhs.urgency.band.rawValue != rhs.urgency.band.rawValue {
             return lhs.urgency.band.rawValue < rhs.urgency.band.rawValue
         }
@@ -290,6 +374,36 @@ enum SidebarNotificationUrgencyScheduler {
         default:
             return lhs.originalIndex < rhs.originalIndex
         }
+    }
+
+    private static func agePrecedes(_ lhs: ScheduledItem, _ rhs: ScheduledItem) -> Bool {
+        switch (lhs.latestNotificationCreatedAt, rhs.latestNotificationCreatedAt) {
+        case let (lhsDate?, rhsDate?) where lhsDate != rhsDate:
+            return lhsDate < rhsDate
+        case (_?, nil):
+            return true
+        case (nil, _?):
+            return false
+        default:
+            return smartPrecedes(lhs, rhs)
+        }
+    }
+
+    private static func arrivalPrecedes(_ lhs: ScheduledItem, _ rhs: ScheduledItem) -> Bool {
+        switch (lhs.latestNotificationCreatedAt, rhs.latestNotificationCreatedAt) {
+        case let (lhsDate?, rhsDate?) where lhsDate != rhsDate:
+            return lhsDate < rhsDate
+        case (_?, nil):
+            return true
+        case (nil, _?):
+            return false
+        default:
+            return lhs.originalIndex < rhs.originalIndex
+        }
+    }
+
+    private static func isBlockedPriority(_ item: ScheduledItem) -> Bool {
+        item.signals.contains(.blocked) || item.signals.contains(.remote)
     }
 
     private static func band(signals: Set<Signal>) -> SidebarNotificationUrgency.Band {
@@ -504,6 +618,8 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
 
 @MainActor
 final class TerminalNotificationStore: ObservableObject {
+    private var sidebarSchedulerRoundRobinCursorByTabManagerId: [ObjectIdentifier: UUID] = [:]
+
     private struct TabSurfaceKey: Hashable {
         let tabId: UUID
         let surfaceId: UUID?
@@ -1457,19 +1573,29 @@ final class TerminalNotificationStore: ObservableObject {
 #endif
             return
         }
+        let schedulerMode = UserDefaultsSettingsClient(defaults: .standard).value(
+            for: SettingCatalog().sidebar.notificationSchedulerMode
+        )
+        let tabManagerId = ObjectIdentifier(tabManager)
         let snapshots = tabManager.tabs.enumerated().map { index, workspace in
             notificationSchedulerSnapshot(for: workspace, index: index)
         }
         let orderedWorkspaceIds = SidebarNotificationUrgencyScheduler.orderedWorkspaceIds(
             snapshots: snapshots,
-            now: now
+            now: now,
+            mode: schedulerMode,
+            roundRobinCursor: sidebarSchedulerRoundRobinCursorByTabManagerId[tabManagerId]
         )
+        if schedulerMode == .roundRobin,
+           let nextCursor = orderedWorkspaceIds.first {
+            sidebarSchedulerRoundRobinCursorByTabManagerId[tabManagerId] = nextCursor
+        }
 #if DEBUG
         let orderedWorkspaceLog = orderedWorkspaceIds
             .map { String($0.uuidString.prefix(8)) }
             .joined(separator: ",")
         cmuxDebugLog(
-            "notification.scheduler.order workspace=\(notification.tabId.uuidString.prefix(8)) ordered=\(orderedWorkspaceLog)"
+            "notification.scheduler.order workspace=\(notification.tabId.uuidString.prefix(8)) mode=\(schedulerMode.rawValue) ordered=\(orderedWorkspaceLog)"
         )
 #endif
         guard orderedWorkspaceIds.contains(notification.tabId) else {

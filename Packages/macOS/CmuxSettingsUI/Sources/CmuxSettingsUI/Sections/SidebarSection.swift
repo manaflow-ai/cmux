@@ -24,6 +24,7 @@ public struct SidebarSection: View {
     @State private var stackBranchDir: DefaultsValueModel<Bool>
     @State private var pathLastOnly: DefaultsValueModel<Bool>
     @State private var showNotification: DefaultsValueModel<Bool>
+    @State private var notificationSchedulerMode: DefaultsValueModel<SidebarNotificationSchedulerMode>
     @State private var showBranchDir: DefaultsValueModel<Bool>
     @State private var showPR: DefaultsValueModel<Bool>
     @State private var watchGit: DefaultsValueModel<Bool>
@@ -50,6 +51,7 @@ public struct SidebarSection: View {
         _stackBranchDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.stackBranchDirectory))
         _pathLastOnly = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.pathLastSegmentOnly))
         _showNotification = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showNotificationMessage))
+        _notificationSchedulerMode = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.notificationSchedulerMode))
         _showBranchDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showBranchDirectory))
         _showPR = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showPullRequests))
         _watchGit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.watchGitStatus))
@@ -83,6 +85,7 @@ public struct SidebarSection: View {
             stackBranchDir,
             pathLastOnly,
             showNotification,
+            notificationSchedulerMode,
             showBranchDir,
             showPR,
             watchGit,
@@ -347,6 +350,22 @@ public struct SidebarSection: View {
             SettingsCardDivider()
 
             SettingsCardRow(
+                configurationReview: .json("sidebar.notificationSchedulerMode"),
+                String(localized: "settings.sidebar.notificationSchedulerMode", defaultValue: "Notification Scheduler"),
+                subtitle: String(localized: "settings.sidebar.notificationSchedulerMode.subtitle", defaultValue: "Choose how unread notification workspaces are prioritized in the sidebar."),
+                controlWidth: 190
+            ) {
+                Picker("", selection: Binding(get: { notificationSchedulerMode.current }, set: { notificationSchedulerMode.set($0) })) {
+                    ForEach(SidebarNotificationSchedulerMode.allCases, id: \.self) { mode in
+                        Text(notificationSchedulerModeTitle(mode)).tag(mode)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
                 configurationReview: .json("sidebar.showBranchDirectory"),
                 String(localized: "settings.app.showBranchDirectory", defaultValue: "Show Branch + Directory in Sidebar"),
                 subtitle: String(localized: "settings.app.showBranchDirectory.subtitle", defaultValue: "Display the built-in git branch and working-directory row.")
@@ -492,5 +511,22 @@ public struct SidebarSection: View {
         return openInCmux
             ? String(localized: "settings.app.openSidebarPRLinks.subtitleOn", defaultValue: "Clicks open inside cmux browser.")
             : String(localized: "settings.app.openSidebarPRLinks.subtitleOff", defaultValue: "Clicks open in your default browser.")
+    }
+
+    private func notificationSchedulerModeTitle(_ mode: SidebarNotificationSchedulerMode) -> String {
+        switch mode {
+        case .smartUrgency:
+            return String(localized: "settings.sidebar.notificationSchedulerMode.smartUrgency", defaultValue: "Smart Urgency")
+        case .blockedFirst:
+            return String(localized: "settings.sidebar.notificationSchedulerMode.blockedFirst", defaultValue: "Blocked First")
+        case .smallWins:
+            return String(localized: "settings.sidebar.notificationSchedulerMode.smallWins", defaultValue: "Small Wins")
+        case .aging:
+            return String(localized: "settings.sidebar.notificationSchedulerMode.aging", defaultValue: "Aging")
+        case .roundRobin:
+            return String(localized: "settings.sidebar.notificationSchedulerMode.roundRobin", defaultValue: "Round Robin")
+        case .arrivalOrder:
+            return String(localized: "settings.sidebar.notificationSchedulerMode.arrivalOrder", defaultValue: "Arrival Order")
+        }
     }
 }

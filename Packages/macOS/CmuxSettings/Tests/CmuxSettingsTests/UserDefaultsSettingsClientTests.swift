@@ -23,6 +23,7 @@ struct UserDefaultsSettingsClientTests {
         #expect(client.value(for: catalog.sidebar.hideAllDetails) == false)
         #expect(client.value(for: catalog.sidebar.showWorkspaceDescription) == true)
         #expect(client.value(for: catalog.sidebar.showNotificationMessage) == true)
+        #expect(client.value(for: catalog.sidebar.notificationSchedulerMode) == .smartUrgency)
         #expect(client.value(for: catalog.sidebar.branchVerticalLayout) == true)
         #expect(client.value(for: catalog.sidebar.stackBranchDirectory) == false)
         #expect(client.value(for: catalog.sidebar.pathLastSegmentOnly) == false)
@@ -61,6 +62,10 @@ struct UserDefaultsSettingsClientTests {
         client.set(.end, for: catalog.workspaceGroups.newWorkspacePlacement)
         #expect(defaults.string(forKey: "workspaceGroup.newWorkspacePlacement") == "end")
         #expect(client.value(for: catalog.workspaceGroups.newWorkspacePlacement) == .end)
+
+        client.set(.roundRobin, for: catalog.sidebar.notificationSchedulerMode)
+        #expect(defaults.string(forKey: "sidebarNotificationSchedulerMode") == "roundRobin")
+        #expect(client.value(for: catalog.sidebar.notificationSchedulerMode) == .roundRobin)
 
         client.set(true, for: catalog.terminal.titleUpdateCoalescingEnabled)
         #expect(defaults.object(forKey: "terminal.titleUpdates.coalescing.enabled") as? Bool == true)
