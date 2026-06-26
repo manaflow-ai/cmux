@@ -4768,6 +4768,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let ghosttyWroteFormattedText = generalPasteboard.changeCount != previousChangeCount
             && generalPasteboard.availableType(from: [.string]) != nil
         if ghosttyWroteFormattedText {
+            // Ghostty wrote trimmed, soft-wrap-unwrapped text. Reflow that clean
+            // text rather than the raw trim=false snapshot: a no-op for ordinary
+            // soft-wrapped prose, and a clean rejoin for genuine hard wraps.
+            reflowClipboardTextIfEnabled(generalPasteboard)
             return true
         }
 
@@ -4775,30 +4779,37 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return copied
         }
 
-        GhosttyApp.terminalPasteboard.writeString(selectedText, to: GHOSTTY_CLIPBOARD_STANDARD)
+        let text = TerminalReflowCopySettings.isEnabled() ? reflowCopiedText(selectedText) : selectedText
+        GhosttyApp.terminalPasteboard.writeString(text, to: GHOSTTY_CLIPBOARD_STANDARD)
         return true
     }
 
-    private func copyKeyboardCopyModeSelectionToClipboard(surface: ghostty_surface_t) -> Bool {
-        let reflowEnabled = TerminalReflowCopySettings.isEnabled()
+    /// When reflow is enabled, rewrite the string Ghostty just put on the
+    /// pasteboard with its reflowed form. Ghostty's copy output is already
+    /// trailing-trimmed and soft-wrap unwrapped, so reflow only rejoins genuine
+    /// application hard wrapping and is a no-op for ordinary soft-wrapped prose.
+    private func reflowClipboardTextIfEnabled(_ pasteboard: NSPasteboard) {
+        guard TerminalReflowCopySettings.isEnabled(),
+              let original = pasteboard.string(forType: .string),
+              !original.isEmpty else { return }
+        let reflowed = reflowCopiedText(original)
+        guard reflowed != original else { return }
+        pasteboard.clearContents()
+        pasteboard.setString(reflowed, forType: .string)
+    }
 
+    private func copyKeyboardCopyModeSelectionToClipboard(surface: ghostty_surface_t) -> Bool {
         if keyboardCopyModeVisualLineActive {
             guard let selectedText = readKeyboardCopyModeVisualLineSelection(surface: surface) else { return false }
-            let text = reflowEnabled ? reflowCopiedText(selectedText) : selectedText
+            // The engine right-trims each line, so per-row padding here cannot
+            // become seam gaps.
+            let text = TerminalReflowCopySettings.isEnabled() ? reflowCopiedText(selectedText) : selectedText
             GhosttyApp.terminalPasteboard.writeString(text, to: GHOSTTY_CLIPBOARD_STANDARD)
             return true
         }
 
-        // When reflow is enabled, rejoin application-hard-wrapped lines before
-        // writing to the clipboard. The selection snapshot is already soft-wrap
-        // unwrapped by Ghostty, so only residual hard wrapping is reflowed.
-        if reflowEnabled,
-           let selectedText = readSelectionSnapshot(surface: surface)?.string,
-           !selectedText.isEmpty {
-            GhosttyApp.terminalPasteboard.writeString(reflowCopiedText(selectedText), to: GHOSTTY_CLIPBOARD_STANDARD)
-            return true
-        }
-
+        // Normal selection: let Ghostty write its trimmed/unwrapped text, then
+        // reflow that clean output (see copyCurrentGhosttySelectionToClipboard).
         return copyCurrentGhosttySelectionToClipboard(surface: surface)
     }
 
