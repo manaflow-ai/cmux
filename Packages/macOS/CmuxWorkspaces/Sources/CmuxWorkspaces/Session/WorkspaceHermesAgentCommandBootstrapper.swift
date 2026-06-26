@@ -38,6 +38,9 @@ struct WorkspaceHermesAgentCommandBootstrapper {
         environment: [String: String]
     ) -> String {
         if let portableCommand = portableShellCommand(command) {
+            guard portableCommand.canRewritePayload else {
+                return command
+            }
             let innerCommand = commandByPreparingPlainHermesStartup(
                 portableCommand.innerCommand,
                 baseURL: baseURL,
@@ -260,7 +263,7 @@ struct WorkspaceHermesAgentCommandBootstrapper {
         let range: Range<String.Index>
     }
 
-    private func portableShellCommand(_ command: String) -> (innerCommand: String, innerCommandRange: Range<String.Index>)? {
+    private func portableShellCommand(_ command: String) -> (innerCommand: String, innerCommandRange: Range<String.Index>, canRewritePayload: Bool)? {
         let words = shellWords(in: command)
         let commandStartIndex = commandStartIndexAfterCwdGuard(words)
         guard commandStartIndex + 2 < words.count,
@@ -269,10 +272,16 @@ struct WorkspaceHermesAgentCommandBootstrapper {
               words[commandStartIndex + 1].value == "-c" || words[commandStartIndex + 1].value == "-lc" else {
             return nil
         }
+        let payloadWord = words[commandStartIndex + 2]
         return (
-            innerCommand: words[commandStartIndex + 2].value,
-            innerCommandRange: words[commandStartIndex + 2].range
+            innerCommand: payloadWord.value,
+            innerCommandRange: payloadWord.range,
+            canRewritePayload: isSingleQuotedShellWord(String(command[payloadWord.range]))
         )
+    }
+
+    private func isSingleQuotedShellWord(_ value: String) -> Bool {
+        value.first == "'" && value.last == "'"
     }
 
     private func shellWords(in command: String) -> [ShellWord] {

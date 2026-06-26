@@ -107,6 +107,30 @@ import Testing
         #expect(!startupInput.contains(staleExecutablePath), "\(startupInput)")
     }
 
+    @Test func agentHookBindingSkipsStaleExecutableRepairInsideDoubleQuotedPortableShellWrapper() throws {
+        let staleExecutablePath = Self.homeManagedExecutablePath(
+            executableName: "codex",
+            ".nvm",
+            "versions",
+            "node",
+            "cmux-missing-\(UUID().uuidString)",
+            "bin"
+        )
+        let command = "/bin/sh -c \"LOCAL_ONLY=$LOCAL_ONLY '\(staleExecutablePath)' resume session-double-quoted-codex\""
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: command,
+            checkpointId: "session-double-quoted-codex",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        let startupInput = try #require(binding.startupInput)
+
+        #expect(startupInput == command + "\n")
+        #expect(startupInput.contains(staleExecutablePath), "\(startupInput)")
+    }
+
     @Test func agentHookBindingWithCwdRewritesStaleClaudeExecutableInsidePortableShellWrapper() throws {
         let staleExecutablePath = Self.homeManagedExecutablePath(
             executableName: "claude",

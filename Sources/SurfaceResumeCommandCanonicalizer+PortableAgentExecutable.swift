@@ -101,7 +101,10 @@ extension SurfaceResumeBindingSnapshot {
 extension SurfaceResumeCommandCanonicalizer {
     static func replacingPortableAgentExecutable(in command: String, kind: String?) -> String {
         let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(command)
-        if let portableShellCommand = portableShellCommand(in: words) {
+        if let portableShellCommand = portableShellCommand(in: words, command: command) {
+            guard portableShellCommand.canRewritePayload else {
+                return command
+            }
             let repairedInnerCommand = replacingPortableAgentExecutable(
                 in: portableShellCommand.innerCommand,
                 kind: kind
@@ -147,8 +150,9 @@ extension SurfaceResumeCommandCanonicalizer {
     }
 
     private static func portableShellCommand(
-        in words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange]
-    ) -> (innerCommand: String, innerCommandRange: Range<String.Index>)? {
+        in words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange],
+        command: String
+    ) -> (innerCommand: String, innerCommandRange: Range<String.Index>, canRewritePayload: Bool)? {
         let commandStartIndex = commandStartWordIndex(in: words)
         guard commandStartIndex + 2 < words.count,
               words.count == commandStartIndex + 3,
@@ -156,14 +160,20 @@ extension SurfaceResumeCommandCanonicalizer {
               words[commandStartIndex + 1].value == "-c" || words[commandStartIndex + 1].value == "-lc" else {
             return nil
         }
+        let payloadWord = words[commandStartIndex + 2]
         return (
-            innerCommand: words[commandStartIndex + 2].value,
-            innerCommandRange: words[commandStartIndex + 2].range
+            innerCommand: payloadWord.value,
+            innerCommandRange: payloadWord.range,
+            canRewritePayload: isSingleQuotedShellWord(String(command[payloadWord.range]))
         )
     }
 
     private static func literalSingleQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private static func isSingleQuotedShellWord(_ value: String) -> Bool {
+        value.first == "'" && value.last == "'"
     }
 
     private static func portableAgentExecutableName(for kind: String?, executableBasename: String) -> String? {
