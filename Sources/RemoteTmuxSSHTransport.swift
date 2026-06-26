@@ -190,44 +190,33 @@ actor RemoteTmuxSSHTransport {
     /// the authoritative "ready now" signal that closes it.
     ///
     /// Idempotent and best-effort: returns `true` at once when a master is already
-    /// live (warm path); otherwise opens it exactly once — a single connection can't
-    /// lose the creation race — then polls `ssh -O check` (LOCAL socket, no network)
-    /// until ready, bounded by `pollAttempts`×`pollInterval` (~1s; tests shrink it).
+    /// live (warm path). Otherwise it opens the master exactly once with
+    /// `run(["true"])` — a single connection can't lose the creation race — and a
+    /// successful open IS the readiness signal: the mux connection was accepted and
+    /// `ControlPersist` keeps the master alive, so no extra wait is needed. Only a
+    /// *failed* open falls back to one `ssh -O check` probe (a concurrent discovery
+    /// connection may have just finished its background hand-off). No timers or
+    /// polling: readiness comes from the SSH connection lifecycle, not a wall clock.
     /// Callers may proceed on `false` (no worse than today's ungated burst).
     ///
     /// - Throws: `CancellationError` if the caller is cancelled (e.g. a v2VmCall
-    ///   timeout) so it aborts instead of spinning; other failures collapse to `false`.
+    ///   timeout) so it aborts here; other failures collapse to `false`.
     @discardableResult
-    func ensureMasterReady(
-        pollAttempts: Int = 8,
-        pollInterval: Duration = .milliseconds(125)
-    ) async throws -> Bool {
+    func ensureMasterReady() async throws -> Bool {
         try? host.ensureControlSocketDirectory()
         if try await masterIsRunning() { return true }
-        // Open the shared master exactly once. `run` connects with
-        // `ControlMaster=auto`, so this single connection becomes the master (or
-        // attaches to discovery's still-settling one) — it cannot lose the multi
-        // session creation race the way the concurrent attach burst does.
+        // Open the shared master exactly once. A successful `run` means ssh
+        // established (or reused) the master and ran the remote command over it, so
+        // the master is live and accepting mux sessions — return immediately.
         do {
-            _ = try await run(["true"])
+            if try await run(["true"]).succeeded { return true }
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            // Couldn't open it cleanly; still poll below in case discovery's master
-            // is mid-hand-off and about to start accepting sessions.
+            // Launch failure — fall through to one control-socket probe below.
         }
-        return try await pollMasterReady(attempts: pollAttempts, interval: pollInterval)
-    }
-
-    /// Polls ``masterIsRunning()`` until it confirms the shared master, bounded so a
-    /// genuinely-down master can't stall the attach. The window we're covering is
-    /// the brief gap between a cold master being created and it accepting
-    /// multiplexed sessions, so short, frequent checks beat one long wait.
-    private func pollMasterReady(attempts: Int, interval: Duration) async throws -> Bool {
-        for _ in 0..<max(0, attempts) {
-            if try await masterIsRunning() { return true }
-            try await ContinuousClock().sleep(for: interval)
-        }
+        // The open didn't confirm a live master; probe once in case discovery's
+        // connection just finished bringing the shared master up.
         return try await masterIsRunning()
     }
 
