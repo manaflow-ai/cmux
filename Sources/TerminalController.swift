@@ -8444,8 +8444,7 @@ class TerminalController {
         case "browser.addscript": return v2BrowserAddScript(params: params)
         case "browser.addstyle": return v2BrowserAddStyle(params: params)
         case "browser.viewport.set":
-            assertionFailure("browser.viewport.set must stay on the main actor")
-            return v2MainSync { v2BrowserViewportSet(params: params) }
+            preconditionFailure("browser.viewport.set must stay on the main actor")
         default:
             return .err(code: "invalid_dispatch", message: "Unhandled socket-worker browser method \(method)", data: nil)
         }
