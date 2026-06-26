@@ -324,7 +324,7 @@ struct CMUXMobileRootView: View {
     }
 
     private var shouldShowRestoringStoredMac: Bool {
-        MobileRootAuthGate.shouldShowRestoringStoredMac(
+        store.workspaceListConnectionStatus != .connected && MobileRootAuthGate.shouldShowRestoringStoredMac(
             authenticated: isAuthenticated,
             connectionState: store.connectionState,
             isReconnectingStoredMac: store.isReconnectingStoredMac,
