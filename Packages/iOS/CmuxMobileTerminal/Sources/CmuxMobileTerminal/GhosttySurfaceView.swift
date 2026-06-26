@@ -638,12 +638,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// grid under the surface lock; running it per frame would load the
     /// typing-latency render path.
     private var gridDivergenceChecker = MobileTerminalRenderGridDivergenceChecker()
-    /// Gate for the detection-only divergence check. ON: it reads the applied
-    /// grid back (throttled) and logs when it disagrees with the producer's
-    /// stamped hash. It performs no repair, so it has no scroll or rendering side
-    /// effect; it only measures how often a delta leaves the iOS grid stale, to
-    /// inform the scroll-safe repair follow-up.
+    /// Gate for the detection-only divergence check. It reads the applied grid
+    /// back (throttled) and logs when it disagrees with the producer's stamped
+    /// hash, to measure how often a delta leaves the iOS grid stale and inform
+    /// the scroll-safe repair follow-up. It performs no repair.
+    ///
+    /// Default OFF in release: the read-back runs `render_grid_json` + JSON decode
+    /// on the serial `outputQueue` shared with `process_output`, so paying that on
+    /// the terminal hot path for production users with no recovery benefit is not
+    /// worth it. Enabled by default only in DEBUG, where the measurement is
+    /// useful; release can still opt in by setting this.
+    #if DEBUG
     public static var gridDivergenceCheckEnabled = true
+    #else
+    public static var gridDivergenceCheckEnabled = false
+    #endif
     /// Serial background queue for `ghostty_surface_process_output`, which
     /// blocks on libghostty's internal renderer/IO futex. Running it on the
     /// main thread hangs the app until the scene-update watchdog kills it.
