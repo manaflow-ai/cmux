@@ -1924,6 +1924,13 @@ enum SessionScrollbackReplayStore {
     private static let ansiEscape = "\u{001B}"
     private static let ansiReset = "\u{001B}[0m"
 
+    /// OSC 133 ; A semantic prompt-start marker (matching cmux's shell
+    /// integration emission `\e]133;A;cl=line\a`) that we re-inject into
+    /// replayed scrollback so a rebuilt screen regains the per-row
+    /// semantic-prompt metadata that Ghostty's `write_screen_file:copy,vt`
+    /// export drops. See https://github.com/manaflow-ai/cmux/issues/6691.
+    static let semanticPromptStartMark = "\u{001B}]133;A;cl=line\u{0007}"
+
     static func replayEnvironment(
         for scrollback: String?,
         tempDirectory: URL = FileManager.default.temporaryDirectory
@@ -2054,6 +2061,24 @@ enum SessionScrollbackReplayStore {
         case 110...119: return true      // dynamic color resets
         default: return false
         }
+    }
+
+    /// Re-injects an OSC 133 ; A semantic prompt-start marker immediately
+    /// before the last occurrence of `lastUserMessage` in the replayed
+    /// scrollback, so the rebuilt screen regains a semantic-prompt row at the
+    /// user's most recent prompt.
+    ///
+    /// Ghostty's `write_screen_file:copy,vt` export (used to capture session
+    /// scrollback) drops OSC 133 markers, and agents such as Claude Code emit
+    /// the prompt-start mark only once at process startup — so after an
+    /// auto-resume rebuild the marker never returns and prompt-navigation
+    /// affordances (jump-to-prompt, click-to-move) stay broken. See
+    /// https://github.com/manaflow-ai/cmux/issues/6691.
+    ///
+    /// Stub: the matching/injection logic lands in the follow-up commit so CI
+    /// proves the regression test fails without it.
+    static func reinjectingLastPromptMark(into scrollback: String, lastUserMessage: String?) -> String {
+        scrollback
     }
 
     private static func writeReplayFile(contents: String, tempDirectory: URL) -> URL? {

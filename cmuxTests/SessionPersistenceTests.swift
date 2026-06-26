@@ -648,6 +648,61 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(contents.contains(hyperlink), "non-color OSC sequences must be preserved")
     }
 
+    // Regression for https://github.com/manaflow-ai/cmux/issues/6691.
+    //
+    // Ghostty's `write_screen_file:copy,vt` export (used to capture session
+    // scrollback) drops OSC 133 semantic-prompt markers, so replayed scrollback
+    // loses the per-row prompt metadata that drives jump-to-prompt and
+    // click-to-move. Agents such as Claude Code emit the prompt-start mark only
+    // once at process startup, so after an auto-resume rebuild the affordance
+    // never returns. The replay store must re-inject an OSC 133 ; A mark before
+    // the restored last user message so the rebuilt screen regains it.
+    func testScrollbackReplayReinjectsSemanticPromptMarkForLastUserMessage() {
+        let esc = "\u{001B}"
+        let reset = "\(esc)[0m"
+        let promptPrefix = "\(esc)[2m> \(reset)" // dim "> " agent prompt prefix
+        let message = "refactor the login flow"
+        let scrollback = [
+            "\(esc)[1mWelcome to the session\(reset)",
+            "\(promptPrefix)\(message)",
+            "\(esc)[32m● Done editing files\(reset)",
+        ].joined(separator: "\n")
+
+        let marked = SessionScrollbackReplayStore.reinjectingLastPromptMark(
+            into: scrollback,
+            lastUserMessage: message
+        )
+
+        // The OSC 133 ; A marker must be present...
+        XCTAssertTrue(
+            marked.contains("\(esc)]133;A"),
+            "Expected a re-injected OSC 133 prompt-start marker, got: \(marked)"
+        )
+        // ...immediately before the line carrying the last user message, so the
+        // rebuilt screen marks that row (and only that row) as a prompt.
+        XCTAssertTrue(
+            marked.contains("\(SessionScrollbackReplayStore.semanticPromptStartMark)\(promptPrefix)\(message)"),
+            "Expected the marker to precede the last user message line, got: \(marked)"
+        )
+        // The surrounding scrollback content is preserved verbatim.
+        XCTAssertTrue(marked.contains("Welcome to the session"))
+        XCTAssertTrue(marked.contains("● Done editing files"))
+    }
+
+    // Re-injection must no-op when there is no known last user message, leaving
+    // replayed scrollback (e.g. for plain shells) untouched.
+    func testScrollbackReplayLeavesScrollbackUntouchedWithoutLastUserMessage() {
+        let scrollback = "$ ls\nfile-a\nfile-b\n"
+        XCTAssertEqual(
+            SessionScrollbackReplayStore.reinjectingLastPromptMark(into: scrollback, lastUserMessage: nil),
+            scrollback
+        )
+        XCTAssertEqual(
+            SessionScrollbackReplayStore.reinjectingLastPromptMark(into: scrollback, lastUserMessage: "   "),
+            scrollback
+        )
+    }
+
     func testSessionScrollbackPersistenceHonorsReportedShellState() {
         XCTAssertTrue(
             Workspace.shouldPersistSessionScrollback(
