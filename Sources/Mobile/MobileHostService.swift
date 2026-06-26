@@ -315,15 +315,6 @@ final class MobileHostService {
         return (1...65535).contains(raw) ? raw : nil
     }
 
-    /// Whether `error` means the address/port cannot be bound (in use, not
-    /// available, or permission denied) versus a transient waiting reason.
-    nonisolated static func isAddressUnavailable(_ error: NWError) -> Bool {
-        if case let .posix(code) = error {
-            return code == .EADDRINUSE || code == .EADDRNOTAVAIL || code == .EACCES
-        }
-        return false
-    }
-
     /// Applies an explicitly-requested pairing port.
     ///
     /// Make-before-break: when a running listener must move to a different port, a
@@ -397,7 +388,7 @@ final class MobileHostService {
                 case .failed, .cancelled:
                     finish(false)
                 case let .waiting(error):
-                    if Self.isAddressUnavailable(error) { finish(false) }
+                    if MobileHostListenerNetworkPolicy().isAddressUnavailable(error) { finish(false) }
                 default:
                     break
                 }
@@ -744,7 +735,7 @@ final class MobileHostService {
             // process (or a browser that somehow framed the binary protocol), never
             // the real client, so refuse it outright. DEBUG keeps loopback so the
             // iOS Simulator (which reaches the Mac via 127.0.0.1) can still pair.
-            if Self.isLoopbackConnection(connection) {
+            if MobileHostListenerNetworkPolicy().isLoopbackConnection(connection) {
                 mobileHostLog.error("mobile host rejected loopback connection in release build")
                 connection.cancel()
                 MobileHostService.sharedRequestActivity.endConnection()
@@ -904,37 +895,6 @@ final class MobileHostService {
         )
         activeConnections[id] = session
         Task { await session.start() }
-    }
-
-    /// Whether an incoming connection's remote peer is on the loopback interface.
-    ///
-    /// Used to refuse local connections in release builds, where no legitimate
-    /// client ever connects via `127.0.0.1`/`::1`.
-    nonisolated static func isLoopbackConnection(_ connection: NWConnection) -> Bool {
-        isLoopbackEndpoint(connection.endpoint) || isLoopbackEndpoint(connection.currentPath?.remoteEndpoint)
-    }
-
-    nonisolated static func isLoopbackEndpoint(_ endpoint: NWEndpoint?) -> Bool {
-        guard case let .hostPort(host, _)? = endpoint else { return false }
-        switch host {
-        case let .ipv4(address):
-            // 127.0.0.0/8
-            return address.rawValue.first == 127
-        case let .ipv6(address):
-            let bytes = Array(address.rawValue)
-            guard bytes.count == 16 else { return false }
-            // ::1
-            let isV6Loopback = bytes[0..<15].allSatisfy { $0 == 0 } && bytes[15] == 1
-            // IPv4-mapped loopback ::ffff:127.0.0.0/8
-            let isV4MappedLoopback = bytes[0..<10].allSatisfy { $0 == 0 }
-                && bytes[10] == 0xff && bytes[11] == 0xff && bytes[12] == 127
-            return isV6Loopback || isV4MappedLoopback
-        case let .name(name, _):
-            let lowered = name.lowercased()
-            return lowered == "localhost" || lowered.hasSuffix(".localhost")
-        @unknown default:
-            return false
-        }
     }
 
     private func removeConnection(id: UUID) {
@@ -1161,7 +1121,7 @@ final class MobileHostService {
             // `.waiting(.posix(.EADDRINUSE))` rather than `.failed`, and NWListener
             // would otherwise wait forever; treat address-unavailable the same as
             // a failure so the ephemeral fallback (and bound-port warning) fire.
-            if Self.isAddressUnavailable(error) {
+            if MobileHostListenerNetworkPolicy().isAddressUnavailable(error) {
                 handleListenerBindFailure(error: error, context: "in use (waiting)")
             } else {
                 listenerPort = nil

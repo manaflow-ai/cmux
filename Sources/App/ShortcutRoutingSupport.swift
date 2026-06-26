@@ -150,31 +150,6 @@ func shouldDispatchBrowserOmnibarArrowViaFirstResponderKeyDown(
     return normalizedFlags.isEmpty
 }
 
-struct BrowserAddressBarTrackingContext {
-    let trackedPanelMatchesWebView: Bool
-    let omnibarResponderActive: Bool
-    let preferredFocusIntentIsAddressBar: Bool
-    let suppressesWebViewFocus: Bool
-    let pointerInitiatedWebFocus: Bool
-    let liveOmnibarFieldExists: Bool
-}
-
-/// Decision order:
-/// 1. Reject WebView focus from another panel.
-/// 2. Preserve if an omnibar responder is already active.
-/// 3. Require address-bar focus intent.
-/// 4. Let pointer-initiated WebView focus clear tracking.
-/// 5. Preserve if WebView focus is suppressed or a live omnibar field exists.
-func shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(
-    _ context: BrowserAddressBarTrackingContext
-) -> Bool {
-    guard context.trackedPanelMatchesWebView else { return false }
-    if context.omnibarResponderActive { return true }
-    guard context.preferredFocusIntentIsAddressBar else { return false }
-    guard !context.pointerInitiatedWebFocus else { return false }
-    return context.suppressesWebViewFocus || context.liveOmnibarFieldExists
-}
-
 func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
     flags: NSEvent.ModifierFlags,
     chars: String,

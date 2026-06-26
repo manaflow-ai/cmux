@@ -114,6 +114,12 @@ struct cmuxApp: App {
     // `KeyboardShortcutSettingsObserver.shared` accessor read by the remaining view
     // sites resolves to this same object instead of a self-vivified `static let shared`.
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    // De-singletonization: this `@State` is the composition-root owner of the
+    // single Task Manager window controller. It seeds from the transitional
+    // `.shared` accessor (which self-vivifies the lazy instance) and is recorded
+    // as the composition-root instance in `appDelegate.configure`, so the menu,
+    // menu-bar extra, and command-palette call sites all reach this one object.
+    @State private var taskManagerWindowController = TaskManagerWindowController.shared
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyle = TitlebarControlsStyle.classic.rawValue
     @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
@@ -244,6 +250,7 @@ struct cmuxApp: App {
             tabManager: tabManager,
             notificationStore: notificationStore,
             keyboardShortcutSettingsObserver: keyboardShortcutSettingsObserver,
+            taskManagerWindowController: taskManagerWindowController,
             sidebarState: sidebarState,
             settingsRuntime: settingsRuntime,
             auth: authComposition
@@ -766,7 +773,7 @@ struct cmuxApp: App {
     private var windowAndViewCommands: some Commands {
         CommandGroup(after: .windowArrangement) {
             Button(String(localized: "menu.window.taskManager", defaultValue: "Task Manager...")) {
-                TaskManagerWindowController.shared.show()
+                taskManagerWindowController.show()
             }
         }
         helpCommands

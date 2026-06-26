@@ -376,13 +376,11 @@ private struct DockControlsLayoutView: View {
     let onKeyboardFocusIntent: (String, NSWindow?) -> Void
     let onTriggerFlash: (String) -> Void
 
-    private let headerHeight: CGFloat = 30
-    private let dividerHeight: CGFloat = 1
-    private let minimumTerminalHeight: CGFloat = 160
+    private let heightLayout = DockTerminalHeightLayout()
 
     var body: some View {
         GeometryReader { proxy in
-            let heights = terminalHeights(availableHeight: proxy.size.height)
+            let heights = heightLayout.terminalHeights(availableHeight: proxy.size.height, snapshots: snapshots)
             ScrollView {
                 VStack(spacing: 0) {
                     ForEach(Array(snapshots.enumerated()), id: \.element.id) { index, snapshot in
@@ -406,7 +404,7 @@ private struct DockControlsLayoutView: View {
                         )
                         if index < snapshots.count - 1 {
                             Divider()
-                                .frame(height: dividerHeight)
+                                .frame(height: heightLayout.dividerHeight)
                         }
                     }
                 }
@@ -414,42 +412,6 @@ private struct DockControlsLayoutView: View {
             }
             .dockZeroScrollContentMargins()
         }
-    }
-
-    private func terminalHeights(availableHeight: CGFloat) -> [CGFloat] {
-        guard !snapshots.isEmpty else { return [] }
-
-        let chromeHeight = CGFloat(snapshots.count) * headerHeight
-            + CGFloat(max(snapshots.count - 1, 0)) * dividerHeight
-        let availableTerminalHeight = max(availableHeight - chromeHeight, 0)
-        var heights = Array(repeating: CGFloat.zero, count: snapshots.count)
-        var flexibleIndexes: [Int] = []
-        var fixedHeightTotal: CGFloat = 0
-
-        for (index, snapshot) in snapshots.enumerated() {
-            if let requestedHeight = snapshot.requestedHeight {
-                let fixedHeight = max(CGFloat(requestedHeight), minimumTerminalHeight)
-                heights[index] = fixedHeight
-                fixedHeightTotal += fixedHeight
-            } else {
-                flexibleIndexes.append(index)
-            }
-        }
-
-        if flexibleIndexes.isEmpty {
-            let extraHeight = max(availableTerminalHeight - fixedHeightTotal, 0)
-            guard extraHeight > 0 else { return heights }
-            let extraHeightPerControl = extraHeight / CGFloat(snapshots.count)
-            return heights.map { $0 + extraHeightPerControl }
-        }
-
-        let remaining = max(availableTerminalHeight - fixedHeightTotal, 0)
-        let sharedHeight = max(remaining / CGFloat(flexibleIndexes.count), minimumTerminalHeight)
-        for index in flexibleIndexes {
-            heights[index] = sharedHeight
-        }
-
-        return heights
     }
 }
 

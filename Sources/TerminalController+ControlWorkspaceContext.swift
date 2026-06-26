@@ -398,7 +398,7 @@ extension TerminalController: ControlWorkspaceContext {
     // MARK: - Set auto title
 
     func controlWorkspaceAutoNamingEnabled() -> Bool {
-        AutomationCatalogSection().workspaceAutoNaming.value(in: .standard)
+        AutomationCatalogSection().workspaceAutoNamingSettings(in: .standard).enabled
     }
 
     func controlWorkspaceAutoTitleProbe(
@@ -406,9 +406,9 @@ extension TerminalController: ControlWorkspaceContext {
         hasWorkspaceID: Bool,
         workspaceID: UUID?
     ) -> ControlWorkspaceAutoTitleProbe {
-        let enabled = AutomationCatalogSection().workspaceAutoNaming.value(in: .standard)
-        let agentSlug = AutomationCatalogSection().autoNamingAgent.value(in: .standard)
-        let summarizer = agentSlug == AutoNamingAgentCatalog.autoSlug ? nil : agentSlug
+        let autoNaming = AutomationCatalogSection().workspaceAutoNamingSettings(in: .standard)
+        let enabled = autoNaming.enabled
+        let summarizer = autoNaming.summarizerAgentSlug
 
         // The user-owned key is only present when the request carried a
         // `workspace_id` AND a TabManager resolved; its value is nil (JSON null)

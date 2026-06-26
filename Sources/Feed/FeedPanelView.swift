@@ -12,39 +12,6 @@ private func feedDebugResponderSummary(_ responder: NSResponder?) -> String {
 }
 #endif
 
-private extension WorkstreamPermissionMode {
-    var displayLabel: String {
-        switch self {
-        case .once:
-            return String(localized: "feed.permission.mode.once", defaultValue: "once")
-        case .always:
-            return String(localized: "feed.permission.mode.always", defaultValue: "always")
-        case .all:
-            return String(localized: "feed.permission.mode.all", defaultValue: "all tools")
-        case .bypass:
-            return String(localized: "feed.permission.mode.bypass", defaultValue: "bypass")
-        case .deny:
-            return String(localized: "feed.permission.mode.deny", defaultValue: "denied")
-        }
-    }
-}
-
-private extension WorkstreamExitPlanMode {
-    var displayLabel: String {
-        switch self {
-        case .ultraplan:
-            return String(localized: "feed.exitplan.mode.ultraplan", defaultValue: "ultraplan")
-        case .bypassPermissions:
-            return String(localized: "feed.exitplan.mode.bypass", defaultValue: "bypass")
-        case .autoAccept:
-            return String(localized: "feed.exitplan.mode.autoAccept", defaultValue: "auto")
-        case .manual:
-            return String(localized: "feed.exitplan.mode.manual", defaultValue: "manual")
-        case .deny:
-            return String(localized: "feed.exitplan.mode.deny", defaultValue: "denied")
-        }
-    }
-}
 /// Right-sidebar Feed view. Matches the Sessions page visual language:
 /// compact rows with SF Symbol + 13pt title + secondary metadata,
 /// full-width hover backgrounds, and control-bar pill buttons styled
