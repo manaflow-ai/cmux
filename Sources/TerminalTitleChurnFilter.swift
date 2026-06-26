@@ -16,21 +16,29 @@ import Foundation
 ///   1. **Collapse** — a leading run of Unicode Braille Pattern glyphs
 ///      (`U+2800…U+28FF`) plus the whitespace separating them from their label
 ///      is stripped, so every animation frame maps to the same stable string.
-///   2. **Dedup** — a collapsed title equal to the one last dispatched for this
-///      surface is dropped, so a steady spinner emits a single post instead of
-///      one per frame.
+///      A title with no leading spinner is returned exactly as given.
+///   2. **Dedup** — a collapsed title equal to the one last dispatched *for the
+///      same surface* is dropped, so a steady spinner emits a single post.
+///
+/// Isolation is `@MainActor`: `lastDispatchedTitle` is mutable per-surface state
+/// touched from the Ghostty title callback (which may arrive off-main), so the
+/// type enforces that the dedup runs on the main actor.
 ///
 /// Scoped to Braille on purpose: most other spinner glyphs (`|`, `/`, `-`, `*`,
 /// `▶`, `●`, …) can legitimately begin a real title, so stripping them would
 /// corrupt it. Braille patterns never legitimately *lead* a human-readable
-/// terminal title. See `TerminalTitleChurnFilterTests`.
+/// terminal title. Behavior is covered by `TerminalTitleChurnFilterTests`.
+@MainActor
 struct TerminalTitleChurnFilter {
+    private var lastSurfaceID: UUID?
     private var lastDispatchedTitle: String?
 
-    /// Returns the stable title to post for `rawTitle`, or `nil` when this is a
-    /// redundant spinner frame / duplicate that should not be posted at all.
-    /// Mutating; keep one filter per surface and call it on the main actor.
-    mutating func titleToDispatch(for rawTitle: String) -> String? {
+    /// Returns the stable title to post for `rawTitle` on `surfaceID`, or `nil`
+    /// when this is a redundant spinner frame / duplicate that should not be
+    /// posted at all. `surfaceID` is part of the dedup key so a view reused for
+    /// a new surface always dispatches that surface's first title — even when
+    /// its collapsed label matches the previous surface's last one.
+    mutating func titleToDispatch(for rawTitle: String, surfaceID: UUID) -> String? {
         let stable = Self.collapseSpinnerFrames(rawTitle)
         // A frame that is *only* a spinner glyph (no label survives the
         // collapse) carries no title of its own; dropping it avoids blanking a
@@ -39,23 +47,43 @@ struct TerminalTitleChurnFilter {
            !rawTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return nil
         }
-        guard stable != lastDispatchedTitle else { return nil }
+        if surfaceID == lastSurfaceID, stable == lastDispatchedTitle {
+            return nil
+        }
+        lastSurfaceID = surfaceID
         lastDispatchedTitle = stable
         return stable
     }
 
     /// Strips a leading run of Braille spinner glyphs and the whitespace that
-    /// follows them, then trims. Pure and side-effect free; exposed for tests.
-    static func collapseSpinnerFrames(_ rawTitle: String) -> String {
-        // NOTE (commit 1 of the regression pair): no spinner collapse yet, so
-        // `TerminalTitleChurnFilterTests` fails — proving the test catches the
-        // churn. The real collapse lands in the following commit.
-        return rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+    /// separates them from their label, returning the label untouched. A title
+    /// with no leading spinner is returned **exactly** as given — plain OSC
+    /// titles keep any intentional padding; only spinner frames are rewritten.
+    /// Private: behavior is exercised through `titleToDispatch` in tests.
+    private static func collapseSpinnerFrames(_ rawTitle: String) -> String {
+        var cursor = Substring(rawTitle)
+        // A spinner frame may carry leading whitespace before the glyph; peek
+        // past it to detect the spinner without disturbing non-spinner titles.
+        while let character = cursor.first, character.isWhitespace {
+            cursor = cursor.dropFirst()
+        }
+        guard let first = cursor.first, isBrailleSpinnerGlyph(first) else {
+            return rawTitle
+        }
+        // Strip the spinner-glyph run and the whitespace separating it from the
+        // label; the label itself (including any trailing content) is kept.
+        while let character = cursor.first, isBrailleSpinnerGlyph(character) {
+            cursor = cursor.dropFirst()
+        }
+        while let character = cursor.first, character.isWhitespace {
+            cursor = cursor.dropFirst()
+        }
+        return String(cursor)
     }
 
     /// A spinner frame is a single Braille Pattern code point. Multi-scalar
     /// graphemes (emoji, combining sequences) are never spinner glyphs.
-    static func isBrailleSpinnerGlyph(_ character: Character) -> Bool {
+    private static func isBrailleSpinnerGlyph(_ character: Character) -> Bool {
         guard character.unicodeScalars.count == 1,
               let scalar = character.unicodeScalars.first else {
             return false
