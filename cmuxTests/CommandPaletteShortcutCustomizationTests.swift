@@ -500,19 +500,19 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
 
         let newWindow = try XCTUnwrap(resolved["palette.newWindow"])
         XCTAssertFalse(newWindow.hasChord)
-        XCTAssertEqual(newWindow.first.key, "y")
-        XCTAssertTrue(newWindow.first.command)
-        XCTAssertTrue(newWindow.first.control)
-        XCTAssertTrue(newWindow.first.option)
-        XCTAssertFalse(newWindow.first.shift)
+        XCTAssertEqual(newWindow.firstStroke.key, "y")
+        XCTAssertTrue(newWindow.firstStroke.command)
+        XCTAssertTrue(newWindow.firstStroke.control)
+        XCTAssertTrue(newWindow.firstStroke.option)
+        XCTAssertFalse(newWindow.firstStroke.shift)
 
         XCTAssertNil(resolved["palette.openFolder"], "Chord bindings are not allowed for command shortcuts")
         XCTAssertNil(resolved["palette.newWorkspace"], "A null binding clears the command shortcut")
         XCTAssertNil(resolved["palette.bareSpace"], "A bare Space must be rejected — command shortcuts require a modifier")
 
         let modifierSpace = try XCTUnwrap(resolved["palette.modifierSpace"], "Space with a modifier is allowed")
-        XCTAssertEqual(modifierSpace.first.key, "space")
-        XCTAssertTrue(modifierSpace.first.command)
+        XCTAssertEqual(modifierSpace.firstStroke.key, "space")
+        XCTAssertTrue(modifierSpace.firstStroke.command)
     }
 
     func testCommandShortcutDispatchPostsRunCommandRequest() throws {
