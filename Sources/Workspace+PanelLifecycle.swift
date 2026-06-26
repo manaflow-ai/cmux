@@ -97,6 +97,8 @@ extension Workspace {
 
     @discardableResult
     func recordAgentPID(key: String, pid: pid_t, panelId: UUID?, refreshPorts: Bool = true) -> Bool {
+        let previousPID = agentPIDs[key]
+        let previousPanelId = agentPIDPanelIdsByKey[key]
         var didClearOtherStructuredAgentRuntime = false
         if let panelId {
             didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(onPanel: panelId, keeping: key)
@@ -109,6 +111,11 @@ extension Workspace {
         }
         if refreshPorts {
             refreshTrackedAgentPorts()
+        }
+        if didClearOtherStructuredAgentRuntime ||
+            previousPID != pid ||
+            previousPanelId != panelId {
+            sidebarAgentRuntimeObservationToken &+= 1
         }
         return didClearOtherStructuredAgentRuntime
     }
@@ -239,6 +246,9 @@ extension Workspace {
         }
         if didChange, refreshPorts {
             refreshTrackedAgentPorts()
+        }
+        if didChange {
+            sidebarAgentRuntimeObservationToken &+= 1
         }
         return didChange
     }

@@ -39,6 +39,7 @@ private struct SidebarObservationState: Equatable {
     let remoteConnectionDetail: String?
     let activeRemoteTerminalSessionCount: Int
     let listeningPorts: [Int]
+    let agentRuntimeObservationToken: UInt64
     let browserMediaActivity: BrowserMediaActivity
 }
 
@@ -99,6 +100,10 @@ extension Workspace {
             $remoteConnectionDetail,
             $activeRemoteTerminalSessionCount
         )
+        let presentationInvalidationFields = Publishers.CombineLatest(
+            $listeningPorts,
+            $sidebarAgentRuntimeObservationToken
+        )
 
         return Publishers.CombineLatest4(
             workspaceFields,
@@ -106,13 +111,15 @@ extension Workspace {
             gitFields,
             remoteFields
         )
-            .combineLatest($listeningPorts)
-            .compactMap { [weak self] groupedFields, listeningPorts -> SidebarObservationState? in
+            .combineLatest(presentationInvalidationFields)
+            .compactMap { [weak self] groupedFields, presentationInvalidationFields -> SidebarObservationState? in
                 guard let self else { return nil }
                 let workspaceFields = groupedFields.0
                 let metadataFields = groupedFields.1
                 let gitFields = groupedFields.2
                 let remoteFields = groupedFields.3
+                let listeningPorts = presentationInvalidationFields.0
+                let agentRuntimeObservationToken = presentationInvalidationFields.1
                 return SidebarObservationState(
                     currentDirectory: workspaceFields.0,
                     extensionSidebarProjectRootPath: workspaceFields.1,
@@ -131,6 +138,7 @@ extension Workspace {
                     remoteConnectionDetail: remoteFields.2,
                     activeRemoteTerminalSessionCount: remoteFields.3,
                     listeningPorts: listeningPorts,
+                    agentRuntimeObservationToken: agentRuntimeObservationToken,
                     browserMediaActivity: self.browserMediaActivity
                 )
             }
