@@ -85,8 +85,8 @@
 1093	Sources/RemoteTmuxController.swift
 1093	cmuxUITests/BonsplitTabDragUITests.swift
 1087	Packages/macOS/CmuxCommandPalette/Sources/CmuxCommandPalette/Search/CommandPaletteFuzzyMatcher.swift
+1047	cmuxTests/TextBoxSubmitActionTests.swift
 1021	cmuxUITests/TerminalCmdClickUITests.swift
-1019	cmuxTests/TextBoxSubmitActionTests.swift
 1009	cmuxTests/CmuxTopSnapshotScopeTests.swift
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
 951	Sources/App/TerminalDirectoryOpenSupport.swift

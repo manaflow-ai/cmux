@@ -1111,7 +1111,7 @@ class TabManager: ObservableObject {
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalEnvironment: initialTerminalEnvironment,
                 workspaceEnvironment: workspaceEnvironment,
-                allowTextBoxFocusDefault: allowTextBoxFocusDefault
+                allowTextBoxFocusDefault: select && allowTextBoxFocusDefault
             )
             applyCreationChromeInheritance(
                 to: newWorkspace,

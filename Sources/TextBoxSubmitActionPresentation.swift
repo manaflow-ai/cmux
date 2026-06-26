@@ -29,6 +29,10 @@ struct TextBoxSubmitActionPresentation: Equatable {
     }
 
     static func localizedTitle(for action: TextBoxSubmitAction) -> String {
+        let matchesBuiltInDefinition = TextBoxSubmitAction.selectableActions.first { $0.id == action.id } == action
+        guard matchesBuiltInDefinition else {
+            return action.title
+        }
         switch action.id {
         case TextBoxSubmitAction.textEntryAction.id:
             return String(localized: "textbox.submitAction.textEntry", defaultValue: "Text Entry")

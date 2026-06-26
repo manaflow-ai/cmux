@@ -311,6 +311,25 @@ struct TextBoxSubmitActionTests {
         )
     }
 
+    @Test
+    func testCustomTextBoxSubmitActionOverrideKeepsConfiguredPresentationTitle() {
+        let customCodex = TextBoxSubmitAction(
+            id: "codex",
+            title: "Codex Custom",
+            kind: .commandTemplate,
+            commandTemplate: "codex --model custom {{prompt}}",
+            systemImage: "sparkles",
+            backgroundColorHex: "#FFFFFF"
+        )
+
+        let action = TextBoxSubmitAction.normalizedCatalog([customCodex]).first { $0.id == "codex" }
+
+        XCTAssertEqual(action?.title, "Codex Custom")
+        if let action {
+            XCTAssertEqual(TextBoxSubmitActionPresentation.localizedTitle(for: action), "Codex Custom")
+        }
+    }
+
 
     @Test
     func testTextBoxCustomDefaultFallsBackToTextEntryWhenConfiguredActionIsMissing() {
@@ -922,6 +941,15 @@ struct TextBoxSubmitActionTests {
 
             XCTAssertTrue(automationWorkspacePanel.isTextBoxActive)
             #expect(automationWorkspacePanel.preferredFocusIntentForActivation() != .terminal(.textBoxInput))
+
+            let backgroundWorkspace = manager.addWorkspace(select: false)
+            guard let backgroundWorkspacePanel = backgroundWorkspace.focusedTerminalPanel else {
+                XCTFail("Expected background workspace terminal")
+                return
+            }
+
+            XCTAssertTrue(backgroundWorkspacePanel.isTextBoxActive)
+            #expect(backgroundWorkspacePanel.preferredFocusIntentForActivation() != .terminal(.textBoxInput))
 
             guard let respawnSourcePanel = workspace.focusedTerminalPanel,
                   let respawnedPanel = workspace.respawnTerminalSurface(
