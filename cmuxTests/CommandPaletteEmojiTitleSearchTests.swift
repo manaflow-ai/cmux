@@ -92,7 +92,40 @@ struct CommandPaletteEmojiTitleSearchTests {
 
         #expect(ContentView.commandPaletteWorkspaceDisplayName(
             customTitle: anchor.customTitle,
-            resolvedTitle: manager.resolvedWorkspaceDisplayTitle(for: anchor)
+            resolvedTitle: manager.resolvedWorkspaceDisplayTitle(for: anchor),
+            preferResolvedTitle: true
         ) == "AUSTIN GENERAL INTELLIGENCE")
+    }
+
+    @Test func commandPaletteWorkspaceNamePreservesCustomTitlesForRegularWorkspaces() {
+        #expect(ContentView.commandPaletteWorkspaceDisplayName(
+            customTitle: "Custom Workspace",
+            resolvedTitle: "Workspace",
+            preferResolvedTitle: false
+        ) == "Custom Workspace")
+    }
+
+    @Test func searchCanFindWorkspaceGroupsByKindKeywords() {
+        let entries = [
+            CommandPaletteSearchCorpusEntry(
+                payload: "workspace.group",
+                rank: 0,
+                title: "AUSTIN GENERAL INTELLIGENCE",
+                searchableTexts: ["AUSTIN GENERAL INTELLIGENCE", "Workspace group", "workspace group", "group"]
+            ),
+            CommandPaletteSearchCorpusEntry(
+                payload: "workspace.regular",
+                rank: 1,
+                title: "Regular Workspace",
+                searchableTexts: ["Regular Workspace", "Workspace", "workspace"]
+            ),
+        ]
+
+        let results = CommandPaletteSearchEngine(entries: entries).search(
+            query: "workspace group",
+            resultLimit: 5
+        ) { _, _ in 0 }
+
+        #expect(results.first?.payload == "workspace.group")
     }
 }

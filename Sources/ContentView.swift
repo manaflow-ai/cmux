@@ -5144,14 +5144,17 @@ struct ContentView: View {
     private func commandPaletteSwitcherEntriesFingerprint(includeSurfaces: Bool) -> Int {
         let windowContexts = commandPaletteSwitcherWindowContexts()
         let fingerprintContexts = windowContexts.map { context in
-            CommandPaletteSwitcherFingerprintContext(
+            let groupNameByAnchorWorkspaceId = Dictionary(uniqueKeysWithValues: context.tabManager.workspaceGroups.map { ($0.anchorWorkspaceId, $0.name) })
+            return CommandPaletteSwitcherFingerprintContext(
                 windowId: context.windowId,
                 windowLabel: context.windowLabel,
                 selectedWorkspaceId: context.selectedWorkspaceId,
                 workspaces: commandPaletteOrderedSwitcherWorkspaces(for: context).map { workspace in
-                    CommandPaletteSwitcherFingerprintWorkspace(
+                    let groupName = groupNameByAnchorWorkspaceId[workspace.id]
+                    let displayName = Self.commandPaletteWorkspaceDisplayName(customTitle: workspace.customTitle, resolvedTitle: groupName ?? workspace.title, preferResolvedTitle: groupName != nil)
+                    return CommandPaletteSwitcherFingerprintWorkspace(
                         id: workspace.id,
-                        displayName: workspaceDisplayName(workspace) + (context.tabManager.workspaceGroups.contains(where: { $0.anchorWorkspaceId == workspace.id }) ? "\u{0}group" : ""),
+                        displayName: displayName + (groupName != nil ? "\u{0}group" : ""),
                         metadata: commandPaletteWorkspaceSearchMetadata(for: workspace),
                         surfaces: includeSurfaces
                             ? commandPaletteOrderedSwitcherPanels(for: workspace).compactMap { panelId in
@@ -5269,9 +5272,13 @@ struct ContentView: View {
             let windowId = context.windowId
             let windowTabManager = context.tabManager
             let windowKeywords = commandPaletteWindowKeywords(windowLabel: context.windowLabel)
+            let groupNameByAnchorWorkspaceId = Dictionary(uniqueKeysWithValues: windowTabManager.workspaceGroups.map { ($0.anchorWorkspaceId, $0.name) })
             for workspace in workspaces {
-                let workspaceName = workspaceDisplayName(workspace)
-                let isWorkspaceGroupAnchor = windowTabManager.workspaceGroups.contains { $0.anchorWorkspaceId == workspace.id }
+                let groupName = groupNameByAnchorWorkspaceId[workspace.id]
+                let isWorkspaceGroupAnchor = groupName != nil
+                let workspaceName = Self.commandPaletteWorkspaceDisplayName(customTitle: workspace.customTitle, resolvedTitle: groupName ?? workspace.title, preferResolvedTitle: isWorkspaceGroupAnchor)
+                let workspaceKindLabel = isWorkspaceGroupAnchor ? String(localized: "commandPalette.kind.workspaceGroup", defaultValue: "Workspace group") : String(localized: "commandPalette.kind.workspace", defaultValue: "Workspace")
+                let groupKeywords = isWorkspaceGroupAnchor ? ["workspace group", "group", workspaceKindLabel] : []
                 let workspaceCommandId = "switcher.workspace.\(workspace.id.uuidString.lowercased())"
                 let workspaceKeywords = CommandPaletteSwitcherSearchIndexer(
                     baseKeywords: [
@@ -5280,7 +5287,7 @@ struct ContentView: View {
                         "go",
                         "open",
                         workspaceName
-                    ] + windowKeywords,
+                    ] + groupKeywords + windowKeywords,
                     metadata: commandPaletteWorkspaceSearchMetadata(for: workspace),
                     detail: .workspace
                 ).keywords
@@ -5292,7 +5299,7 @@ struct ContentView: View {
                         title: workspaceName,
                         subtitle: Self.commandPaletteSwitcherSubtitle(base: String(localized: "commandPalette.switcher.workspaceLabel", defaultValue: "Workspace"), windowLabel: context.windowLabel),
                         shortcutHint: nil,
-                        kindLabel: isWorkspaceGroupAnchor ? String(localized: "commandPalette.kind.workspaceGroup", defaultValue: "Workspace group") : String(localized: "commandPalette.kind.workspace", defaultValue: "Workspace"),
+                        kindLabel: workspaceKindLabel,
                         keywords: workspaceKeywords,
                         dismissOnRun: true,
                         action: {
@@ -8169,22 +8176,26 @@ struct ContentView: View {
         return (workspace, panelId, panel)
     }
 
-    static func commandPaletteWorkspaceDisplayName(
-        customTitle: String?,
-        resolvedTitle: String
-    ) -> String {
-        let custom = customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !custom.isEmpty {
-            return custom
-        }
+    static func commandPaletteWorkspaceDisplayName(customTitle: String?, resolvedTitle: String, preferResolvedTitle: Bool = false) -> String {
         let title = resolvedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if preferResolvedTitle {
+            return title.isEmpty ? String(localized: "workspace.displayName.fallback", defaultValue: "Workspace") : title
+        }
+
+        let custom = customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !custom.isEmpty { return custom }
         return title.isEmpty ? String(localized: "workspace.displayName.fallback", defaultValue: "Workspace") : title
     }
 
     private func workspaceDisplayName(_ workspace: Workspace) -> String {
-        Self.commandPaletteWorkspaceDisplayName(
+        workspaceDisplayName(workspace, tabManager: tabManager)
+    }
+
+    private func workspaceDisplayName(_ workspace: Workspace, tabManager: TabManager, preferResolvedTitle: Bool = false) -> String {
+        return Self.commandPaletteWorkspaceDisplayName(
             customTitle: workspace.customTitle,
-            resolvedTitle: tabManager.resolvedWorkspaceDisplayTitle(for: workspace)
+            resolvedTitle: tabManager.resolvedWorkspaceDisplayTitle(for: workspace),
+            preferResolvedTitle: preferResolvedTitle
         )
     }
 
