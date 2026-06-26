@@ -152,7 +152,8 @@ import CmuxGit
         #expect(pullRequestProbing.scheduledRefreshes.isEmpty)
     }
 
-    @Test func filesystemEventGenerationIsPassedToMetadataReader() async throws {
+    @Test(.timeLimit(.minutes(1)))
+    func filesystemEventGenerationIsPassedToMetadataReader() async throws {
         let directory = "/tmp/repo"
         let host = RecordingSidebarGitHost()
         let (workspaceId, panelId) = host.addWorkspace(panelDirectory: directory)
@@ -175,11 +176,10 @@ import CmuxGit
         )
         await clock.waitForSleeper()
         await clock.resumeNext()
-        while await reader.probedTrackedPathEventGenerations.isEmpty {
-            await Task.yield()
-        }
+        await reader.waitForTrackedPathEventGenerationProbe()
 
         let generations = await reader.probedTrackedPathEventGenerations
+        _ = try #require(generations.first)
         #expect(generations == [eventGeneration])
     }
 

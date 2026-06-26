@@ -9,6 +9,7 @@ actor GatedMetadataReader: WorkspaceGitMetadataReading {
     private let metadata: GitWorkspaceMetadata
     private let gated: Bool
     private var gateWaiters: [CheckedContinuation<Void, Never>] = []
+    private var probeWaiters: [CheckedContinuation<Void, Never>] = []
     private var isOpen = false
     private(set) var probedDirectories: [String] = []
     private(set) var probedTrackedPathEventGenerations: [UInt64?] = []
@@ -26,6 +27,19 @@ actor GatedMetadataReader: WorkspaceGitMetadataReading {
         }
     }
 
+    func waitForTrackedPathEventGenerationProbe() async {
+        if !probedTrackedPathEventGenerations.isEmpty {
+            return
+        }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            if !probedTrackedPathEventGenerations.isEmpty {
+                continuation.resume()
+            } else {
+                probeWaiters.append(continuation)
+            }
+        }
+    }
+
     func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata {
         await workspaceMetadata(for: directory, trackedPathEventGeneration: nil)
     }
@@ -36,6 +50,9 @@ actor GatedMetadataReader: WorkspaceGitMetadataReading {
     ) async -> GitWorkspaceMetadata {
         probedDirectories.append(directory)
         probedTrackedPathEventGenerations.append(trackedPathEventGeneration)
+        while !probeWaiters.isEmpty {
+            probeWaiters.removeFirst().resume()
+        }
         if !isOpen {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 if isOpen {

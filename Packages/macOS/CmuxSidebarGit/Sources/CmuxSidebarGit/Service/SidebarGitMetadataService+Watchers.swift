@@ -115,10 +115,11 @@ extension SidebarGitMetadataService {
             workspaceGitTrackedDirectoryByKey[key] else {
             return
         }
-        workspaceGitMetadataFilesystemEventGeneration &+= 1
-        if workspaceGitSnapshotCacheGenerationByDirectory[directory] != nil {
-            workspaceGitSnapshotCacheGenerationByDirectory[directory] = workspaceGitMetadataFilesystemEventGeneration
+        guard workspaceGitSnapshotCacheGenerationByDirectory[directory] != nil else {
+            return
         }
+        workspaceGitMetadataFilesystemEventGeneration &+= 1
+        workspaceGitSnapshotCacheGenerationByDirectory[directory] = workspaceGitMetadataFilesystemEventGeneration
     }
 
     private func removeWorkspaceGitSnapshotCacheEligibilityIfUnused(directory: String?) {
