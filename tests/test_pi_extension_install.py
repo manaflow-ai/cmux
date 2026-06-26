@@ -108,10 +108,10 @@ def main() -> int:
             fake_cmux,
             """#!/usr/bin/env bash
 set -euo pipefail
-printf '%s\n' "$*" >> "$FAKE_CMUX_ARGS_LOG"
+printf '%s\n' "$*" >> "$CMUX_TEST_PI_ARGS_LOG"
 payload="$(cat)"
-printf '%s' "$payload" >> "$FAKE_CMUX_STDIN_LOG"
-printf '\n---\n' >> "$FAKE_CMUX_STDIN_LOG"
+printf '%s' "$payload" >> "$CMUX_TEST_PI_STDIN_LOG"
+printf '\n---\n' >> "$CMUX_TEST_PI_STDIN_LOG"
 {
   printf 'kind=%s\n' "${CMUX_AGENT_LAUNCH_KIND-}"
   printf 'cwd=%s\n' "${CMUX_AGENT_LAUNCH_CWD-}"
@@ -120,21 +120,22 @@ printf '\n---\n' >> "$FAKE_CMUX_STDIN_LOG"
   if [ -n "${ANTHROPIC_AUTH_TOKEN-}" ]; then printf 'ANTHROPIC_AUTH_TOKEN=present\n'; fi
   if [ -n "${CUSTOM_PASSWORD-}" ]; then printf 'CUSTOM_PASSWORD=present\n'; fi
   if [ -n "${AMP_API_KEY-}" ]; then printf 'AMP_API_KEY=present\n'; fi
-} >> "$FAKE_CMUX_ENV_LOG"
+  if [ -n "${CMUX_LEAK_TOKEN-}" ]; then printf 'CMUX_LEAK_TOKEN=present\n'; fi
+} >> "$CMUX_TEST_PI_ENV_LOG"
 case "$*" in
   *"surface resume get"*)
-    if [ -f "$FAKE_CMUX_BINDING_FILE" ]; then
-      cat "$FAKE_CMUX_BINDING_FILE"
+    if [ -f "$CMUX_TEST_PI_BINDING_FILE" ]; then
+      cat "$CMUX_TEST_PI_BINDING_FILE"
     else
       printf '{"resume_binding":null}\n'
     fi
     ;;
   *"surface resume set"*)
-    printf '{"resume_binding":{"kind":"pi","checkpoint_id":"pi-session-test","source":"agent-hook","command":"pi --session pi-session-test"}}\n' > "$FAKE_CMUX_BINDING_FILE"
+    printf '{"resume_binding":{"kind":"pi","checkpoint_id":"pi-session-test","source":"agent-hook","command":"pi --session pi-session-test"}}\n' > "$CMUX_TEST_PI_BINDING_FILE"
     printf '{"ok":true}\n'
     ;;
   *"surface resume clear"*)
-    rm -f "$FAKE_CMUX_BINDING_FILE"
+    rm -f "$CMUX_TEST_PI_BINDING_FILE"
     printf '{"ok":true}\n'
     ;;
   *)
@@ -150,14 +151,15 @@ esac
         check_env["CMUX_SURFACE_ID"] = "surface-pi-test"
         check_env["CMUX_WORKSPACE_ID"] = "workspace-pi-test"
         check_env["CMUX_PI_CMUX_BIN"] = str(fake_cmux)
-        check_env["FAKE_CMUX_ARGS_LOG"] = str(fake_args_log)
-        check_env["FAKE_CMUX_STDIN_LOG"] = str(fake_stdin_log)
-        check_env["FAKE_CMUX_ENV_LOG"] = str(fake_env_log)
-        check_env["FAKE_CMUX_BINDING_FILE"] = str(fake_binding)
+        check_env["CMUX_TEST_PI_ARGS_LOG"] = str(fake_args_log)
+        check_env["CMUX_TEST_PI_STDIN_LOG"] = str(fake_stdin_log)
+        check_env["CMUX_TEST_PI_ENV_LOG"] = str(fake_env_log)
+        check_env["CMUX_TEST_PI_BINDING_FILE"] = str(fake_binding)
         check_env["OPENAI_API_KEY"] = "openai-secret-should-not-leak"
         check_env["ANTHROPIC_AUTH_TOKEN"] = "anthropic-secret-should-not-leak"
         check_env["CUSTOM_PASSWORD"] = "password-should-not-leak"
         check_env["AMP_API_KEY"] = "amp-secret-should-not-leak"
+        check_env["CMUX_LEAK_TOKEN"] = "cmux-secret-should-not-leak"
         check_source = """
 const extensionPath = process.env.CMUX_TEST_PI_EXTENSION_PATH;
 const mod = await import(extensionPath);
@@ -230,9 +232,9 @@ await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
             print(f"stderr={check.stderr.strip()}")
             return 1
 
-        args_log = wait_for_text(fake_args_log, 8, timeout=20.0)
+        args_log = wait_for_text(fake_args_log, 10, timeout=20.0)
         stdin_log = wait_for_text(fake_stdin_log, 16, timeout=20.0)
-        env_log = wait_for_text(fake_env_log, 8 * 4, timeout=20.0)
+        env_log = wait_for_text(fake_env_log, 10 * 3, timeout=20.0)
         for expected in [
             "hooks pi session-start",
             "hooks pi prompt-submit",
@@ -280,7 +282,7 @@ await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
             return 1
         leaked = [
             name
-            for name in ["OPENAI_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CUSTOM_PASSWORD", "AMP_API_KEY"]
+            for name in ["OPENAI_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CUSTOM_PASSWORD", "AMP_API_KEY", "CMUX_LEAK_TOKEN"]
             if f"{name}=present" in env_log
         ]
         if leaked:
