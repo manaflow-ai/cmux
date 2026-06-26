@@ -110,12 +110,21 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowProgress"
     )
 
-    /// Whether sidebar workspace rows show a spinner and count for running
-    /// coding agents (`sidebar.showAgentActivity`). Defaults to on.
+    /// Whether sidebar workspace rows show the loading spinner for running
+    /// coding agents and manual `cmux workspace loading` loaders
+    /// (`sidebar.showAgentActivity`). Defaults to on.
     public let showAgentActivity = DefaultsKey<Bool>(
         id: "sidebar.showAgentActivity",
         defaultValue: true,
         userDefaultsKey: "sidebarShowAgentActivity"
+    )
+
+    /// Which side of the workspace row the loading spinner appears on
+    /// (`sidebar.loadingSpinnerPosition`). Defaults to trailing (right).
+    public let loadingSpinnerPosition = DefaultsKey<SidebarLoadingIndicatorPosition>(
+        id: "sidebar.loadingSpinnerPosition",
+        defaultValue: .trailing,
+        userDefaultsKey: "sidebarLoadingSpinnerPosition"
     )
 
     public let showCustomMetadata = DefaultsKey<Bool>(

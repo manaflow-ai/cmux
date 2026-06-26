@@ -757,7 +757,13 @@
         "showAgentActivity": {
           "type": "boolean",
           "default": true,
-          "description": "Show a spinner and count on workspaces with running coding agents."
+          "description": "Show the loading spinner on workspaces with running coding agents or active loaders."
+        },
+        "loadingSpinnerPosition": {
+          "type": "string",
+          "enum": ["leading", "trailing"],
+          "default": "trailing",
+          "description": "Which side of the workspace row the loading spinner appears on: leading (left, sharing the unread-badge slot) or trailing (right)."
         },
         "showCustomMetadata": {
           "type": "boolean",

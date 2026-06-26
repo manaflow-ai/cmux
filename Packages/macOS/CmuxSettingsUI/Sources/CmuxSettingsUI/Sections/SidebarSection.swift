@@ -35,6 +35,7 @@ public struct SidebarSection: View {
     @State private var showLog: DefaultsValueModel<Bool>
     @State private var showProgress: DefaultsValueModel<Bool>
     @State private var showAgentActivity: DefaultsValueModel<Bool>
+    @State private var loadingSpinnerPosition: DefaultsValueModel<SidebarLoadingIndicatorPosition>
     @State private var showMetadata: DefaultsValueModel<Bool>
     @State private var rightMaxWidth: DefaultsValueModel<Double>
     @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
@@ -62,6 +63,7 @@ public struct SidebarSection: View {
         _showLog = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showLog))
         _showProgress = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showProgress))
         _showAgentActivity = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showAgentActivity))
+        _loadingSpinnerPosition = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.loadingSpinnerPosition))
         _showMetadata = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showCustomMetadata))
         _rightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rightMaxWidth))
         _rememberedRightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rememberedRightMaxWidth))
@@ -474,12 +476,32 @@ public struct SidebarSection: View {
 
             SettingsCardRow(
                 configurationReview: .json("sidebar.showAgentActivity"),
-                String(localized: "settings.app.showAgentActivity", defaultValue: "Show Active Agents in Sidebar"),
-                subtitle: String(localized: "settings.app.showAgentActivity.subtitle", defaultValue: "Show a loading spinner on workspaces with running coding agents. Stays visible even when sidebar details are hidden.")
+                String(localized: "settings.app.showAgentActivity", defaultValue: "Show Loading Spinner"),
+                subtitle: String(localized: "settings.app.showAgentActivity.subtitle", defaultValue: "Show a loading spinner on workspaces with running coding agents or active loaders. Stays visible even when sidebar details are hidden.")
             ) {
                 Toggle("", isOn: Binding(get: { showAgentActivity.current }, set: { showAgentActivity.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.loadingSpinnerPosition"),
+                String(localized: "settings.app.loadingSpinnerPosition", defaultValue: "Loading Spinner Position"),
+                subtitle: String(localized: "settings.app.loadingSpinnerPosition.subtitle", defaultValue: "Show the spinner on the left (sharing the unread badge slot) or the right of the workspace row.")
+            ) {
+                Picker("", selection: Binding(
+                    get: { loadingSpinnerPosition.current },
+                    set: { loadingSpinnerPosition.set($0) }
+                )) {
+                    ForEach(SidebarLoadingIndicatorPosition.allCases, id: \.self) { position in
+                        Text(loadingSpinnerPositionLabel(position)).tag(position)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .fixedSize()
+                .disabled(!showAgentActivity.current)
             }
             SettingsCardDivider()
 
@@ -493,6 +515,15 @@ public struct SidebarSection: View {
                     .controlSize(.small)
             }
             .disabled(hideAll.current)
+        }
+    }
+
+    private func loadingSpinnerPositionLabel(_ position: SidebarLoadingIndicatorPosition) -> String {
+        switch position {
+        case .leading:
+            return String(localized: "settings.app.loadingSpinnerPosition.left", defaultValue: "Left")
+        case .trailing:
+            return String(localized: "settings.app.loadingSpinnerPosition.right", defaultValue: "Right")
         }
     }
 

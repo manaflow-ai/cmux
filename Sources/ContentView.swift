@@ -9551,6 +9551,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let openPortLinksInCmuxBrowser: Bool
     let showsNotificationMessage: Bool
     let activeTabIndicatorStyle: WorkspaceIndicatorStyle
+    let loadingSpinnerPosition: SidebarLoadingIndicatorPosition
     let selectionColorHex: String?
     let notificationBadgeColorHex: String?
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
@@ -9607,6 +9608,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         )
 
         activeTabIndicatorStyle = settings.value(for: catalog.workspaceColors.indicatorStyle)
+        loadingSpinnerPosition = settings.value(for: catalog.sidebar.loadingSpinnerPosition)
         selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
         notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
@@ -13431,17 +13433,44 @@ struct TabItemView: View, Equatable {
             scaledCloseButtonHitSize
         )
 
+        // The loading spinner is a live status signal, so it ignores Hide All
+        // Sidebar Details (unlike the verbose detail rows).
+        let showsLoadingSpinner = showsAgentActivity && workspaceSnapshot.activeCodingAgentCount > 0
+        let spinnerOnLeading = showsLoadingSpinner && settings.loadingSpinnerPosition == .leading
+        let spinnerOnTrailing = showsLoadingSpinner && settings.loadingSpinnerPosition == .trailing
+        // Leading status slot is occupied by the unread badge and/or the
+        // left-positioned spinner; when present it pushes the title to the right.
+        let leadingSlotActive = unreadCount > 0 || spinnerOnLeading
+
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top, spacing: 8) {
-                if unreadCount > 0 {
+                // Leading status slot. The unread badge and the left-positioned
+                // loading spinner share this one fixed-size slot and cross-fade
+                // into each other; the slot fades + the title slides right as it
+                // appears (animated via the value-scoped .animation below).
+                if leadingSlotActive {
                     ZStack {
-                        Circle()
-                            .fill(activeUnreadBadgeFillColor)
-                        Text("\(unreadCount)")
-                            .font(magnifiedFont(scaledFontSize(9), weight: .semibold))
-                            .foregroundColor(activeUnreadBadgeTextColor)
+                        if unreadCount > 0 {
+                            ZStack {
+                                Circle()
+                                    .fill(activeUnreadBadgeFillColor)
+                                Text("\(unreadCount)")
+                                    .font(magnifiedFont(scaledFontSize(9), weight: .semibold))
+                                    .foregroundColor(activeUnreadBadgeTextColor)
+                            }
+                            .opacity(spinnerOnLeading ? 0 : 1)
+                        }
+                        if spinnerOnLeading {
+                            SidebarAgentActivityIndicator(
+                                spinnerColor: activeCodingAgentSpinnerNSColor,
+                                side: scaledUnreadBadgeSize
+                            )
+                            .safeHelp(activeCodingAgentTooltip)
+                            .accessibilityLabel(Text(activeCodingAgentTooltip))
+                        }
                     }
                     .frame(width: scaledUnreadBadgeSize, height: scaledUnreadBadgeSize)
+                    .transition(.opacity)
                 }
 
                 if workspaceSnapshot.isPinned {
@@ -13500,27 +13529,24 @@ struct TabItemView: View, Equatable {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)
 
-                // Trailing corner. The loading spinner (no count badge) lives in
-                // the far-right close-button slot so it sits flush at the row's
-                // right edge; on hover the close x takes over the same corner.
-                // The slot always reserves its width so hover never re-lays-out
-                // the row. (Matches the group-header plus-button pattern.)
-                //
-                // The spinner is a live status signal, not a verbose detail, so
-                // it intentionally ignores Hide All Sidebar Details and stays
-                // visible while a loader/agent is running.
-                let showsLoadingSpinner = showsAgentActivity
-                    && workspaceSnapshot.activeCodingAgentCount > 0
+                // Trailing corner. When the spinner is right-positioned it lives
+                // in the far-right close-button slot so it sits flush at the
+                // row's right edge; on hover the close x takes over the same
+                // corner. The slot always reserves its width so hover never
+                // re-lays-out the row. (Matches the group-header plus-button
+                // pattern.)
+                let trailingSpinnerSide = max(14, 14 * fontScale)
                 if canCloseWorkspace {
                     ZStack {
-                        if showsLoadingSpinner {
+                        if spinnerOnTrailing {
                             SidebarAgentActivityIndicator(
                                 spinnerColor: activeCodingAgentSpinnerNSColor,
-                                fontScale: fontScale
+                                side: trailingSpinnerSide
                             )
                             .safeHelp(activeCodingAgentTooltip)
                             .accessibilityLabel(Text(activeCodingAgentTooltip))
                             .opacity(showCloseButton ? 0 : 1)
+                            .transition(.opacity)
                         }
                         Button(action: {
                             #if DEBUG
@@ -13541,15 +13567,19 @@ struct TabItemView: View, Equatable {
                         .accessibilityHidden(!showCloseButton)
                     }
                     .frame(width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize)
-                } else if showsLoadingSpinner {
+                } else if spinnerOnTrailing {
                     SidebarAgentActivityIndicator(
                         spinnerColor: activeCodingAgentSpinnerNSColor,
-                        fontScale: fontScale
+                        side: trailingSpinnerSide
                     )
                     .safeHelp(activeCodingAgentTooltip)
                     .accessibilityLabel(Text(activeCodingAgentTooltip))
+                    .transition(.opacity)
                 }
             }
+            .animation(.easeInOut(duration: 0.22), value: leadingSlotActive)
+            .animation(.easeInOut(duration: 0.2), value: spinnerOnLeading)
+            .animation(.easeInOut(duration: 0.2), value: spinnerOnTrailing)
 
             if let description = workspaceSnapshot.customDescription {
                 SidebarWorkspaceDescriptionText(

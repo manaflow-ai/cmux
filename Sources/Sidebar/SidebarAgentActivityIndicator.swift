@@ -2,14 +2,12 @@ import AppKit
 import QuartzCore
 import SwiftUI
 
-/// The trailing-edge loading spinner on a sidebar workspace row. Just the
-/// native-style GPU spokes spinner, no count badge, sized a bit larger than the
-/// inline glyphs so it reads as a loading indicator.
+/// The loading spinner shown on a sidebar workspace row. Just the native-style
+/// GPU spokes spinner, no count badge. The caller sizes it for its slot
+/// (trailing close-button corner, or the leading unread-badge slot).
 struct SidebarAgentActivityIndicator: View {
     let spinnerColor: NSColor
-    let fontScale: CGFloat
-
-    private var side: CGFloat { max(14, 14 * fontScale) }
+    let side: CGFloat
 
     var body: some View {
         GPUSpinner(style: .macOSSpokes, color: spinnerColor)
