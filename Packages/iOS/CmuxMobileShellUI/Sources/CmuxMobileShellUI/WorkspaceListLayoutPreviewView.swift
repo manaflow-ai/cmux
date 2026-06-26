@@ -28,9 +28,9 @@ final class ScreenshotNotificationPresenter: NSObject, UNUserNotificationCenterD
             content.title = "Agent needs your input"
             content.body = "Claude is asking: which database should I use, Postgres or SQLite?"
             content.sound = .default
-            // Short delay so the app has settled on the workspace list when the
-            // banner appears.
-            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1.5, repeats: false)
+            // Fire soon after authorization is granted; the UITest snapshots the
+            // banner the instant it appears (iOS banners auto-dismiss in ~5s).
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 0.6, repeats: false)
             center.add(UNNotificationRequest(
                 identifier: "cmux-screenshot-agent",
                 content: content,

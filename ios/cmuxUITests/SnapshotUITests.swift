@@ -102,13 +102,14 @@ final class SnapshotUITests: XCTestCase {
         // The app requests notification authorization on appear; approve the
         // springboard system alert so the banner can be delivered.
         let allow = springboard.buttons["Allow"]
-        if allow.waitForExistence(timeout: 8) {
+        if allow.waitForExistence(timeout: 10) {
             allow.tap()
         }
-        // The scheduled local notification fires ~1.5s later; wait for the real
-        // banner and leave it up for the snapshot (do NOT swipe it away).
-        let banner = springboard.otherElements["NotificationShortLookView"]
-        _ = banner.waitForExistence(timeout: 12)
-        Thread.sleep(forTimeInterval: 1.0)
+        // The scheduled local notification fires ~0.6s after the grant and the
+        // foreground banner is on screen for ~5s. Querying the banner element is
+        // unreliable (it's a system-process overlay, and waiting past its
+        // lifetime captures an empty screen), so snapshot at a fixed time inside
+        // the banner's visible window.
+        Thread.sleep(forTimeInterval: 2.5)
     }
 }
