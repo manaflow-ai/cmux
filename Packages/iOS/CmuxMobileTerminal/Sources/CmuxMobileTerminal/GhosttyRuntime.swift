@@ -219,9 +219,21 @@ public final class GhosttyRuntime {
         palette = 14=#66d9ef
         palette = 15=#fdfff1
         """
+        // Screenshot-only background override (DEBUG). Some agent TUIs (OpenCode)
+        // paint their content on their own near-black bg; with the Monokai
+        // #272822 default, any unpainted / reset cell shows as an olive box. For
+        // those shots we set the terminal's *default* background to match the
+        // agent (e.g. #0a0a0a) so the whole surface is uniform. Each screenshot
+        // is its own app launch, so this env only affects that one shot.
+        var configText = monokai
+        if let bg = ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_BG"],
+           !bg.isEmpty {
+            let hex = bg.hasPrefix("#") ? bg : "#\(bg)"
+            configText += "\nbackground = \(hex)\npalette = 0=\(hex)\n"
+        }
         let tmpFile = FileManager.default.temporaryDirectory.appendingPathComponent("ghostty-ios-config-\(ProcessInfo.processInfo.processIdentifier)")
         do {
-            try monokai.write(to: tmpFile, atomically: true, encoding: .utf8)
+            try configText.write(to: tmpFile, atomically: true, encoding: .utf8)
             tmpFile.path.withCString { path in
                 ghostty_config_load_file(config, path)
             }

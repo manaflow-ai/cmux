@@ -20,6 +20,18 @@ struct TerminalLayoutPreviewView: View {
     /// screen (`WorkspaceDetailView.navigationTitle(workspace.name)`).
     private let title = ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_TITLE"] ?? "cmux"
 
+    /// Chrome (status-bar + nav-bar) fill color. Matches the libghostty default
+    /// background so the header blends with the terminal. Overridable per shot
+    /// via CMUX_UITEST_TERMINAL_BG (see GhosttyRuntime) so an agent rendered on a
+    /// non-default background stays seamless.
+    private var chromeBackground: Color {
+        if let bg = ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_BG"],
+           let c = Color(hexString: bg.hasPrefix("#") ? bg : "#\(bg)") {
+            return c
+        }
+        return TerminalPalette.background
+    }
+
     var body: some View {
         NavigationStack {
             TerminalLayoutPreviewSurface()
@@ -29,7 +41,7 @@ struct TerminalLayoutPreviewView: View {
                 // WorkspaceDetailView. Without `.top` the header region falls back
                 // to black, which does not match the running app.
                 .background {
-                    TerminalPalette.background
+                    chromeBackground
                         .ignoresSafeArea(.container, edges: [.horizontal, .top, .bottom])
                 }
                 .ignoresSafeArea(.container, edges: .bottom)
