@@ -335,7 +335,7 @@ final class AgentChatSessionRegistry {
         let kind = record.agentKind
         Task.detached { [weak self] in
             let livePID = Self.liveAgentPID(surfaceID: surfaceID, kind: kind)
-            await MainActor.run {
+            await MainActor.run { [weak self] in
                 guard let self,
                       let current = self.records[sessionID],
                       current.pid == pid,
