@@ -184,7 +184,7 @@ struct BrowserPanelView: View {
     @AppStorage(BrowserImportHintSettings.variantKey) private var browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
     @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
     @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    private let keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @State private var omnibarSuggestionRefreshScheduler = OmnibarSuggestionRefreshScheduler()
     @State private var omnibarSuggestionRefreshConsumerTask: Task<Void, Never>?
@@ -2636,7 +2636,7 @@ struct BrowserPanelView: View {
     /// The pure omnibar ranking engine, wired to the app's navigable-URL
     /// resolver so URL-intent classification matches address-bar navigation.
     private var omnibarSuggestionEngine: BrowserOmnibarSuggestionEngine {
-        BrowserOmnibarSuggestionEngine(resolveNavigableURL: { resolveBrowserNavigableURL($0) })
+        BrowserOmnibarSuggestionEngine(resolveNavigableURL: { $0.omnibarNavigableURL })
     }
 
     private func staleRemoteSuggestionsForDisplay(

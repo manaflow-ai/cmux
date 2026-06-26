@@ -323,28 +323,13 @@ final class AgentSessionProcessStore {
     }
 
     static func openCodeProcessOutputDisposition(text: String, stream: String) -> OpenCodeProcessOutputDisposition {
-        if let baseURL = openCodeServerURL(from: text) {
+        if let baseURL = OpenCodeServerClient.serverURL(from: text) {
             return .serverURL(baseURL)
         }
         if stream == "stdout" {
             return .suppress
         }
         return .emit
-    }
-
-    private static func openCodeServerURL(from text: String) -> URL? {
-        let marker = "opencode server listening on "
-        guard let range = text.range(of: marker) else { return nil }
-        let rawURL = text[range.upperBound...]
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .split(separator: " ")
-            .first
-            .map(String.init)
-        guard let url = rawURL.flatMap(URL.init(string:)),
-              agentSessionIsLoopbackURL(url) else {
-            return nil
-        }
-        return url
     }
 
     private func createOpenCodeSession(_ session: AgentSessionRunningSession) {
@@ -356,11 +341,11 @@ final class AgentSessionProcessStore {
         session.isOpenCodeSessionCreateInFlight = true
         Task { @MainActor in
             do {
-                let response = try await self.postJSON(
-                    to: self.openCodeURL(baseURL: baseURL, path: "session", workingDirectory: session.workingDirectory),
-                    body: [:],
-                    authorizationHeader: session.openCodeAuthorizationHeader
-                )
+                let response = try await OpenCodeServerClient(
+                    baseURL: baseURL,
+                    authorizationHeader: session.openCodeAuthorizationHeader,
+                    workingDirectory: session.workingDirectory
+                ).postJSON(path: "session", body: [:])
                 guard let id = response["id"] as? String, !id.isEmpty else {
                     throw AgentSessionBridgeError.providerNotReady(session.providerID.displayName)
                 }
@@ -403,23 +388,11 @@ final class AgentSessionProcessStore {
               let openCodeSessionID = session.openCodeSessionID else {
             throw AgentSessionBridgeError.providerNotReady(session.providerID.displayName)
         }
-        let url = openCodeURL(
+        try await OpenCodeServerClient(
             baseURL: baseURL,
-            path: "session/\(openCodeSessionID)/prompt_async",
+            authorizationHeader: session.openCodeAuthorizationHeader,
             workingDirectory: session.workingDirectory
-        )
-        _ = try await postJSON(
-            to: url,
-            body: [
-                "parts": [
-                    [
-                        "type": "text",
-                        "text": text
-                    ]
-                ]
-            ],
-            authorizationHeader: session.openCodeAuthorizationHeader
-        )
+        ).sendPrompt(text, sessionID: openCodeSessionID)
     }
 
     private func startOpenCodeEventStream(_ session: AgentSessionRunningSession) {
@@ -428,12 +401,17 @@ final class AgentSessionProcessStore {
               let openCodeSessionID = session.openCodeSessionID else {
             return
         }
-        let url = openCodeURL(baseURL: baseURL, path: "event", workingDirectory: session.workingDirectory)
+        let client = OpenCodeServerClient(
+            baseURL: baseURL,
+            authorizationHeader: session.openCodeAuthorizationHeader,
+            workingDirectory: session.workingDirectory
+        )
+        let url = client.url(path: "event")
         let authorizationHeader = session.openCodeAuthorizationHeader
         let sessionId = session.sessionId
 
         session.openCodeEventTask = Task.detached(priority: .utility) { [weak self] in
-            await Self.consumeOpenCodeEventStream(
+            await OpenCodeServerClient.consumeEventStream(
                 sessionId: sessionId,
                 openCodeSessionID: openCodeSessionID,
                 url: url,
@@ -455,52 +433,6 @@ final class AgentSessionProcessStore {
                     )
                 }
             )
-        }
-    }
-
-    nonisolated private static func consumeOpenCodeEventStream(
-        sessionId: String,
-        openCodeSessionID: String,
-        url: URL,
-        authorizationHeader: String?,
-        handleEvent: ([String: Any]) async -> Void,
-        shouldFailOnEOF: () async -> Bool,
-        failStream: () async -> Void
-    ) async {
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 3600
-        if let authorizationHeader {
-            request.setValue(authorizationHeader, forHTTPHeaderField: "Authorization")
-        }
-
-        do {
-            let (bytes, response) = try await URLSession.shared.bytes(for: request)
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-            guard (200..<300).contains(statusCode) else {
-                throw AgentSessionBridgeError.providerNotReady(AgentSessionProviderID.opencode.displayName)
-            }
-
-            var parser = OpenCodeEventStreamParser()
-            for try await line in bytes.lines {
-                guard !Task.isCancelled else { return }
-                for event in parser.consumeLine(line) {
-                    await handleEvent(event)
-                }
-            }
-            for event in parser.flush() {
-                await handleEvent(event)
-            }
-            guard !Task.isCancelled,
-                  await shouldFailOnEOF() else {
-                return
-            }
-            await failStream()
-        } catch {
-            guard !Task.isCancelled else { return }
-#if DEBUG
-            cmuxDebugLog("agentSession.opencode.eventStream.failed error=\(error.localizedDescription)")
-#endif
-            await failStream()
         }
     }
 
@@ -557,40 +489,6 @@ final class AgentSessionProcessStore {
                 providerID: session.providerID
             )
         }
-    }
-
-    private func openCodeURL(baseURL: URL, path: String, workingDirectory: String?) -> URL {
-        let url = path.split(separator: "/").reduce(baseURL) { partialURL, component in
-            partialURL.appendingPathComponent(String(component))
-        }
-        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        if let workingDirectory {
-            components?.queryItems = [URLQueryItem(name: "directory", value: workingDirectory)]
-        }
-        return components?.url ?? url
-    }
-
-    private func postJSON(
-        to url: URL,
-        body: [String: Any],
-        authorizationHeader: String? = nil
-    ) async throws -> [String: Any] {
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 30
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let authorizationHeader {
-            request.setValue(authorizationHeader, forHTTPHeaderField: "Authorization")
-        }
-        request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
-        let (data, response) = try await URLSession.shared.data(for: request)
-        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard (200..<300).contains(statusCode) else {
-            throw AgentSessionBridgeError.providerNotReady("OpenCode")
-        }
-        guard !data.isEmpty else { return [:] }
-        let decoded = try JSONSerialization.jsonObject(with: data, options: [])
-        return decoded as? [String: Any] ?? [:]
     }
 
     private func writeClaudeStreamJSON(_ text: String, to inputWriter: AgentSessionInputWriter) async throws {

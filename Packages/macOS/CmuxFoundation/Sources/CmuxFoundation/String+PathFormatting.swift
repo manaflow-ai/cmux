@@ -44,4 +44,25 @@ extension String {
         }
         return self
     }
+
+    /// Interpreting `self` as a filesystem path, returns its canonical absolute
+    /// path when it names an existing directory, or `nil` otherwise. The path is
+    /// trimmed of surrounding whitespace and newlines, tilde-expanded, and
+    /// standardized; an empty (post-trim) path, a non-existent path, or a path that
+    /// is not a directory yields `nil`. Call through optional chaining
+    /// (`maybePath?.canonicalDirectoryPath()`) so a `nil` input maps to a `nil`
+    /// result, matching the original `String?`-in helper. `fileManager` is injected
+    /// for testability and defaults to `.default`.
+    public func canonicalDirectoryPath(fileManager: FileManager = .default) -> String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let expanded = (trimmed as NSString).expandingTildeInPath
+        let url = URL(fileURLWithPath: expanded, isDirectory: true).standardizedFileURL
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return nil
+        }
+        return url.path
+    }
 }
