@@ -129,6 +129,7 @@ extension Workspace {
             hasUnreadIndicator: hasWorkspaceUnreadIndicator,
             notifications: workspaceNotificationSnapshots.isEmpty ? nil : workspaceNotificationSnapshots,
             defaultWorkingDirectory: defaultWorkingDirectory,
+            workspaceProfileDefaultWorkingDirectory: workspaceProfileDefaultWorkingDirectory,
             workspaceProfileName: workspaceProfileName,
             currentDirectory: currentDirectory,
             focusedPanelId: focusedPanelId,
@@ -189,6 +190,9 @@ extension Workspace {
         if defaultWorkingDirectory == nil, !normalizedCurrentDirectory.isEmpty {
             currentDirectory = normalizedCurrentDirectory
         }
+        workspaceProfileDefaultWorkingDirectory = Self.normalizedTerminalWorkingDirectory(
+            snapshot.workspaceProfileDefaultWorkingDirectory
+        )
         setWorkspaceProfileName(snapshot.workspaceProfileName)
 
         // Restore the per-workspace environment before any surface is rebuilt so
@@ -2202,6 +2206,9 @@ final class Workspace: Identifiable, ObservableObject {
     /// created with an explicit cwd. Live terminal PWD reports update
     /// `panelDirectories` but do not replace this value.
     private(set) var defaultWorkingDirectory: String?
+    /// Last cwd supplied by the bound workspace profile. Reconciliation uses
+    /// this to avoid overwriting a user-set default cwd on config reload.
+    private(set) var workspaceProfileDefaultWorkingDirectory: String?
     /// Stable binding for a workspace created or managed by `workspaceProfiles`.
     /// This survives user renames so config reload can update the intended
     /// workspace without matching unrelated titles.
@@ -3025,6 +3032,7 @@ final class Workspace: Identifiable, ObservableObject {
         self.customTitleSource = nil
         self.customDescription = nil
         self.workspaceProfileName = nil
+        self.workspaceProfileDefaultWorkingDirectory = nil
 
         let trimmedWorkingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let hasWorkingDirectory = !trimmedWorkingDirectory.isEmpty
@@ -4497,6 +4505,19 @@ final class Workspace: Identifiable, ObservableObject {
         if workspaceProfileName != normalized {
             workspaceProfileName = normalized
         }
+    }
+
+    func applyWorkspaceProfile(name: String, defaultWorkingDirectory profileDefaultWorkingDirectory: String) {
+        let previousProfileDefault = workspaceProfileDefaultWorkingDirectory
+        let normalizedProfileDefault = Self.normalizedTerminalWorkingDirectory(profileDefaultWorkingDirectory)
+        let currentDefault = Self.normalizedTerminalWorkingDirectory(defaultWorkingDirectory)
+        let shouldUseProfileDefault = currentDefault == nil || currentDefault == previousProfileDefault
+
+        setWorkspaceProfileName(name)
+        if shouldUseProfileDefault {
+            setDefaultWorkingDirectory(normalizedProfileDefault)
+        }
+        workspaceProfileDefaultWorkingDirectory = normalizedProfileDefault
     }
 
     private enum PanelDirectoryUpdateSource {

@@ -804,6 +804,51 @@ final class CmuxConfigDecodingTests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceProfilesPreserveManualDefaultCwdOverrideOnReload() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let projects = root.appendingPathComponent("projects", isDirectory: true)
+        try FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        try """
+        {
+          "workspaceProfiles": [
+            { "name": "coding", "cwd": "projects/coding", "pinned": true }
+          ]
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let store = CmuxConfigStore(globalConfigPath: configURL.path, startFileWatchers: false)
+        store.wireDirectoryTracking(tabManager: manager)
+        store.loadAll()
+
+        let coding = try XCTUnwrap(manager.tabs.first { $0.customTitle == "coding" })
+        let firstWorkspaceCount = manager.tabs.count
+        let manualDirectory = projects.appendingPathComponent("manual").path
+        coding.setDefaultWorkingDirectory(manualDirectory, syncCurrentDirectory: false)
+
+        try """
+        {
+          "workspaceProfiles": [
+            { "name": "coding", "cwd": "projects/coding-v2", "pinned": false }
+          ]
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+        store.loadAll()
+
+        XCTAssertEqual(manager.tabs.count, firstWorkspaceCount)
+        XCTAssertTrue(manager.tabs.contains { $0 === coding })
+        XCTAssertEqual(coding.defaultWorkingDirectory, manualDirectory)
+        XCTAssertEqual(coding.workspaceProfileDefaultWorkingDirectory, projects.appendingPathComponent("coding-v2").path)
+        XCTAssertFalse(coding.isPinned)
+    }
+
+    @MainActor
     func testWorkspaceProfilesDoNotMutateUnboundTitleCollisions() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",

@@ -2508,7 +2508,7 @@ final class CmuxConfigStore: ObservableObject {
         let workspacesByProfileName = Dictionary(tabManager.tabs.compactMap { workspace in workspace.workspaceProfileName.map { ($0, workspace) } }, uniquingKeysWith: { first, _ in first })
         for profile in profiles {
             if let existing = workspacesByProfileName[profile.name] {
-                existing.setDefaultWorkingDirectory(profile.cwd)
+                existing.applyWorkspaceProfile(name: profile.name, defaultWorkingDirectory: profile.cwd)
                 existing.setCustomTitle(profile.name, source: .auto)
                 existing.isPinned = profile.pinned
                 continue
@@ -2521,9 +2521,8 @@ final class CmuxConfigStore: ObservableObject {
                 select: false,
                 autoWelcomeIfNeeded: false
             )
-            workspace.setWorkspaceProfileName(profile.name)
+            workspace.applyWorkspaceProfile(name: profile.name, defaultWorkingDirectory: profile.cwd)
             workspace.setCustomTitle(profile.name, source: .auto)
-            workspace.setDefaultWorkingDirectory(profile.cwd)
             workspace.isPinned = profile.pinned
         }
     }
