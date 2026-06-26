@@ -21,6 +21,8 @@ import struct CmuxSettings.FileRouteSettingsStore
 // CmuxWindowing also exports generic names (Snapshot/StateToken/WindowID/...), so a
 // blanket import would shadow app-target types here. Import only the moved symbol used.
 import struct CmuxWindowing.TerminalDefaultFileOpenRequest
+import struct CmuxWindowing.MinimalModeTitlebarBand
+import struct CmuxWindowing.MinimalModeTitlebarClickRecord
 // CmuxWorkspaces owns the lifted tmux pane-overlay exact-rect geometry; import only
 // the moved type to avoid shadowing app-target names with a blanket import.
 import struct CmuxWorkspaces.TmuxPaneOverlayGeometry
@@ -1401,12 +1403,11 @@ final class WindowDragHandleHitTests: XCTestCase {
 
         let point = NSPoint(x: controlRegion.frame.minX + 14, y: controlRegion.frame.minY + 1)
         XCTAssertFalse(
-            isPointInMinimalModeTitlebarBand(
+            MinimalModeTitlebarBand(
                 isEnabled: true,
-                point: point,
                 bounds: contentView.bounds,
                 topStripHeight: MinimalModeChromeMetrics.titlebarHeight
-            ),
+            ).contains(point),
             "The regression point should sit inside the visual control host but outside the hard-coded fallback band."
         )
         XCTAssertEqual(
@@ -1541,72 +1542,79 @@ final class WindowDragHandleHitTests: XCTestCase {
         )
 
         XCTAssertTrue(
-            minimalModeTitlebarClickFormsDoubleClick(
-                clickCount: 1,
-                timestamp: 10.2,
-                locationInWindow: NSPoint(x: 201, y: 291),
+            MinimalModeTitlebarClickRecord(
                 windowNumber: 42,
+                timestamp: 10.2,
+                locationInWindow: NSPoint(x: 201, y: 291)
+            ).formsDoubleClick(
+                clickCount: 1,
                 previous: previous,
                 doubleClickInterval: 0.5
             )
         )
         XCTAssertFalse(
-            minimalModeTitlebarClickFormsDoubleClick(
-                clickCount: 1,
-                timestamp: 10.65,
-                locationInWindow: NSPoint(x: 201, y: 291),
+            MinimalModeTitlebarClickRecord(
                 windowNumber: 42,
+                timestamp: 10.65,
+                locationInWindow: NSPoint(x: 201, y: 291)
+            ).formsDoubleClick(
+                clickCount: 1,
                 previous: previous,
                 doubleClickInterval: 0.5
             )
         )
         XCTAssertTrue(
-            minimalModeTitlebarClickFormsDoubleClick(
-                clickCount: 1,
-                timestamp: 10.62,
-                locationInWindow: NSPoint(x: 201, y: 291),
+            MinimalModeTitlebarClickRecord(
                 windowNumber: 42,
+                timestamp: 10.62,
+                locationInWindow: NSPoint(x: 201, y: 291)
+            ).formsDoubleClick(
+                clickCount: 1,
                 previous: previous,
                 doubleClickInterval: 0.5,
                 doubleClickIntervalTolerance: 0.15
             )
         )
         XCTAssertTrue(
-            minimalModeTitlebarClickFormsDoubleClick(
-                clickCount: 2,
-                timestamp: 20,
-                locationInWindow: NSPoint(x: 20, y: 20),
+            MinimalModeTitlebarClickRecord(
                 windowNumber: 99,
+                timestamp: 20,
+                locationInWindow: NSPoint(x: 20, y: 20)
+            ).formsDoubleClick(
+                clickCount: 2,
                 previous: nil,
                 doubleClickInterval: 0.5
             )
         )
         XCTAssertFalse(
-            minimalModeTitlebarClickFormsDoubleClick(
-                clickCount: 1,
+            MinimalModeTitlebarClickRecord(
+                windowNumber: 42,
                 timestamp: 10.8,
-                locationInWindow: NSPoint(x: 201, y: 291),
-                windowNumber: 42,
+                locationInWindow: NSPoint(x: 201, y: 291)
+            ).formsDoubleClick(
+                clickCount: 1,
                 previous: previous,
                 doubleClickInterval: 0.5
             )
         )
         XCTAssertFalse(
-            minimalModeTitlebarClickFormsDoubleClick(
-                clickCount: 1,
-                timestamp: 10.2,
-                locationInWindow: NSPoint(x: 240, y: 292),
+            MinimalModeTitlebarClickRecord(
                 windowNumber: 42,
+                timestamp: 10.2,
+                locationInWindow: NSPoint(x: 240, y: 292)
+            ).formsDoubleClick(
+                clickCount: 1,
                 previous: previous,
                 doubleClickInterval: 0.5
             )
         )
         XCTAssertFalse(
-            minimalModeTitlebarClickFormsDoubleClick(
-                clickCount: 1,
-                timestamp: 10.2,
-                locationInWindow: NSPoint(x: 201, y: 291),
+            MinimalModeTitlebarClickRecord(
                 windowNumber: 43,
+                timestamp: 10.2,
+                locationInWindow: NSPoint(x: 201, y: 291)
+            ).formsDoubleClick(
+                clickCount: 1,
                 previous: previous,
                 doubleClickInterval: 0.5
             )
