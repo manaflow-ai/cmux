@@ -14,6 +14,8 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     case app
     case terminal
     case textBox
+    /// Sleepy Mode screensaver + keep-awake lock.
+    case sleepyMode
     /// Mobile pairing and sync settings.
     case mobile
     case sidebarAppearance
@@ -40,6 +42,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .app: return "App"
         case .terminal: return "Terminal"
         case .textBox: return String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)")
+        case .sleepyMode: return String(localized: "settings.section.sleepyMode", defaultValue: "Sleepy Mode")
         case .mobile: return String(localized: "settings.section.mobile", defaultValue: "Mobile")
         case .sidebarAppearance: return "Sidebar"
         case .customSidebars: return String(localized: "settings.section.customSidebars", defaultValue: "Custom Sidebars")
@@ -63,6 +66,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .app: return "gearshape"
         case .terminal: return "terminal"
         case .textBox: return "textformat"
+        case .sleepyMode: return "moon.zzz"
         case .mobile: return "iphone"
         case .sidebarAppearance: return "sidebar.left"
         case .customSidebars: return "sidebar.squares.left"
@@ -88,6 +92,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .app: return "appearance language workspace notifications menu bar telemetry"
         case .terminal: return "scrollbar copy on select agent resume hibernation"
         case .textBox: return "textbox text box rich input prompt default new terminal workspace split tab focus show beta"
+        case .sleepyMode: return "sleepy mode screensaver caffeinate keep awake lock touch id battery wifi clock mascot theme glow pixel"
         case .mobile: return "ios iphone ipad mobile pairing local network sync"
         case .sidebarAppearance: return "sidebar details branches material terminal background"
         case .customSidebars: return "custom sidebars vibe swift json interpreted renderer in-process remote worker isolated"
