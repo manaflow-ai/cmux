@@ -236,6 +236,30 @@ struct TerminalAccessoryConfigurationTests {
         #expect(config.isEnabled(id(.zoomIn)))
     }
 
+    @Test("custom macro action persists, stays enabled, and sends all steps")
+    func customMacroActionPersists() throws {
+        let defaults = freshDefaults()
+        let custom = CustomToolbarAction(
+            title: "Rotate",
+            payload: .macro([
+                .keyCombo(modifiers: [.shift], key: .tab),
+                .keyCombo(modifiers: [.shift], key: .tab),
+                .text("status\n"),
+            ])
+        )
+
+        let config = TerminalAccessoryConfiguration(defaults: defaults)
+        config.addCustomAction(custom)
+
+        let reloaded = TerminalAccessoryConfiguration(defaults: defaults)
+        let restored = try #require(reloaded.customActions.first { $0.id == custom.id })
+
+        #expect(restored == custom)
+        #expect(reloaded.isEnabled(custom.itemID))
+        #expect(reloaded.enabledItems.contains { $0.id == custom.itemID })
+        #expect(restored.output == Data([0x1B, 0x5B, 0x5A, 0x1B, 0x5B, 0x5A]) + Data("status\r".utf8))
+    }
+
     // MARK: - Gating test #3: existing v3 layout gains ⇧
 
     @Test("an existing v3 layout without ⇧ gains it force-enabled right after ⌘")

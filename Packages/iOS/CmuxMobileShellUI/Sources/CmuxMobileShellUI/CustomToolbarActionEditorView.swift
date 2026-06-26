@@ -5,11 +5,9 @@ import SwiftUI
 
 /// Create or edit a user-defined terminal toolbar action.
 ///
-/// A custom action sends literal text when its bar button is tapped — a command
-/// like `claude --dangerously-skip-permissions`, a snippet, or any keystrokes.
-/// The "Run after typing" toggle appends a Return so the action submits a
-/// command instead of only typing it. Saving hands a ``CustomToolbarAction``
-/// back to the caller, which persists it through ``TerminalAccessoryConfiguration``.
+/// A custom action can send literal text, one modified terminal key, or a
+/// multi-step macro. Saving hands a ``CustomToolbarAction`` back to the caller,
+/// which persists it through ``TerminalAccessoryConfiguration``.
 struct CustomToolbarActionEditorView: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -17,8 +15,12 @@ struct CustomToolbarActionEditorView: View {
     private let onSave: (CustomToolbarAction) -> Void
 
     @State private var title: String
+    @State private var mode: ToolbarActionEditorMode
     @State private var commandText: String
     @State private var runAfterTyping: Bool
+    @State private var keyModifiers: TerminalKeyModifier
+    @State private var selectedKey: TerminalSpecialKey
+    @State private var macroSteps: [ToolbarMacroStepDraft]
 
     /// Creates the editor.
     /// - Parameters:
@@ -29,8 +31,12 @@ struct CustomToolbarActionEditorView: View {
         self.onSave = onSave
         let seed = Self.seed(from: action)
         _title = State(initialValue: seed.title)
+        _mode = State(initialValue: seed.mode)
         _commandText = State(initialValue: seed.text)
         _runAfterTyping = State(initialValue: seed.runAfterTyping)
+        _keyModifiers = State(initialValue: seed.keyModifiers)
+        _selectedKey = State(initialValue: seed.selectedKey)
+        _macroSteps = State(initialValue: seed.macroSteps)
     }
 
     var body: some View {
@@ -53,28 +59,26 @@ struct CustomToolbarActionEditorView: View {
                 }
 
                 Section {
-                    TextField(
-                        L10n.string("mobile.toolbar.editor.commandPlaceholder", defaultValue: "claude --dangerously-skip-permissions"),
-                        text: $commandText,
-                        axis: .vertical
-                    )
-                    .lineLimit(1...6)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-                    .font(.system(.body, design: .monospaced))
-                    .accessibilityIdentifier("CustomActionCommandField")
-
-                    Toggle(isOn: $runAfterTyping) {
-                        Text(L10n.string("mobile.toolbar.editor.runAfterTyping", defaultValue: "Run after typing"))
+                    Picker(
+                        L10n.string("mobile.toolbar.editor.typeHeader", defaultValue: "Action Type"),
+                        selection: $mode
+                    ) {
+                        ForEach(ToolbarActionEditorMode.allCases) { mode in
+                            Text(mode.title).tag(mode)
+                        }
                     }
-                    .accessibilityIdentifier("CustomActionRunToggle")
+                    .pickerStyle(.segmented)
                 } header: {
-                    Text(L10n.string("mobile.toolbar.editor.commandHeader", defaultValue: "Sends"))
-                } footer: {
-                    Text(L10n.string(
-                        "mobile.toolbar.editor.commandFooter",
-                        defaultValue: "The text typed into the terminal when tapped. Turn on Run after typing to press Return automatically."
-                    ))
+                    Text(L10n.string("mobile.toolbar.editor.typeHeader", defaultValue: "Action Type"))
+                }
+
+                switch mode {
+                case .text:
+                    textSection
+                case .keyCombo:
+                    keyComboSection
+                case .macro:
+                    macroSection
                 }
             }
             .navigationTitle(navigationTitle)
@@ -97,6 +101,120 @@ struct CustomToolbarActionEditorView: View {
         }
     }
 
+    private var textSection: some View {
+        Section {
+            TextField(
+                L10n.string("mobile.toolbar.editor.commandPlaceholder", defaultValue: "claude --dangerously-skip-permissions"),
+                text: $commandText,
+                axis: .vertical
+            )
+            .lineLimit(1...6)
+            .autocorrectionDisabled()
+            .textInputAutocapitalization(.never)
+            .font(.system(.body, design: .monospaced))
+            .accessibilityIdentifier("CustomActionCommandField")
+
+            Toggle(isOn: $runAfterTyping) {
+                Text(L10n.string("mobile.toolbar.editor.runAfterTyping", defaultValue: "Run after typing"))
+            }
+            .accessibilityIdentifier("CustomActionRunToggle")
+        } header: {
+            Text(L10n.string("mobile.toolbar.editor.commandHeader", defaultValue: "Sends"))
+        } footer: {
+            Text(L10n.string(
+                "mobile.toolbar.editor.commandFooter",
+                defaultValue: "The text typed into the terminal when tapped. Turn on Run after typing to press Return automatically."
+            ))
+        }
+    }
+
+    private var keyComboSection: some View {
+        Section {
+            ToolbarKeyComboFields(modifiers: $keyModifiers, key: $selectedKey)
+                .accessibilityIdentifier("CustomActionKeyComboFields")
+
+            if keyComboPayload?.output == nil {
+                Text(L10n.string(
+                    "mobile.toolbar.editor.unsupportedCombo",
+                    defaultValue: "This key combo is not supported yet."
+                ))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            }
+        } header: {
+            Text(L10n.string("mobile.toolbar.editor.keyComboHeader", defaultValue: "Key Combo"))
+        } footer: {
+            Text(L10n.string(
+                "mobile.toolbar.editor.keyComboFooter",
+                defaultValue: "Sends one modified terminal key, such as Shift-Tab or Option-Left."
+            ))
+        }
+    }
+
+    private var macroSection: some View {
+        Section {
+            ForEach($macroSteps) { step in
+                ToolbarMacroStepEditor(step: step)
+            }
+            .onDelete { offsets in
+                macroSteps.remove(atOffsets: offsets)
+            }
+
+            Button {
+                macroSteps.append(.textStep())
+            } label: {
+                Label(
+                    L10n.string("mobile.toolbar.editor.addTextStep", defaultValue: "Add Text Step"),
+                    systemImage: "text.cursor"
+                )
+            }
+            .accessibilityIdentifier("CustomActionAddTextStepButton")
+
+            Button {
+                macroSteps.append(.keyComboStep())
+            } label: {
+                Label(
+                    L10n.string("mobile.toolbar.editor.addKeyStep", defaultValue: "Add Key Step"),
+                    systemImage: "keyboard"
+                )
+            }
+            .accessibilityIdentifier("CustomActionAddKeyStepButton")
+        } header: {
+            Text(L10n.string("mobile.toolbar.editor.macroHeader", defaultValue: "Macro Steps"))
+        } footer: {
+            Text(L10n.string(
+                "mobile.toolbar.editor.macroFooter",
+                defaultValue: "Runs each step in order. Text steps type exactly what you enter; key steps send one key combo."
+            ))
+        }
+    }
+
+    private var keyComboPayload: ToolbarActionPayload? {
+        let payload = ToolbarActionPayload.keyCombo(modifiers: keyModifiers, key: selectedKey)
+        guard payload.output != nil else { return nil }
+        return payload
+    }
+
+    private var macroPayload: ToolbarActionPayload? {
+        let steps = macroSteps.compactMap(\.macroStep)
+        guard steps.count == macroSteps.count else { return nil }
+        let payload = ToolbarActionPayload.macro(steps)
+        guard payload.output != nil else { return nil }
+        return payload
+    }
+
+    private var payload: ToolbarActionPayload? {
+        switch mode {
+        case .text:
+            guard !commandText.isEmpty else { return nil }
+            return .text(runAfterTyping ? commandText + "\n" : commandText)
+        case .keyCombo:
+            return keyComboPayload
+        case .macro:
+            return macroPayload
+        }
+    }
+
     private var navigationTitle: String {
         existing == nil
             ? L10n.string("mobile.toolbar.editor.addTitle", defaultValue: "Add Action")
@@ -108,17 +226,16 @@ struct CustomToolbarActionEditorView: View {
     }
 
     private var isValid: Bool {
-        !trimmedTitle.isEmpty && !commandText.isEmpty
+        !trimmedTitle.isEmpty && payload != nil
     }
 
     private func save() {
-        guard isValid else { return }
-        let text = runAfterTyping ? commandText + "\n" : commandText
+        guard let payload, isValid else { return }
         let action = CustomToolbarAction(
             id: existing?.id ?? UUID(),
             title: trimmedTitle,
             symbolName: nil,
-            payload: .text(text)
+            payload: payload
         )
         onSave(action)
         dismiss()
@@ -126,14 +243,61 @@ struct CustomToolbarActionEditorView: View {
 
     private static func seed(
         from action: CustomToolbarAction?
-    ) -> (title: String, text: String, runAfterTyping: Bool) {
-        guard let action, case let .text(stored) = action.payload else {
-            return (action?.title ?? "", "", true)
+    ) -> (
+        mode: ToolbarActionEditorMode,
+        title: String,
+        text: String,
+        runAfterTyping: Bool,
+        keyModifiers: TerminalKeyModifier,
+        selectedKey: TerminalSpecialKey,
+        macroSteps: [ToolbarMacroStepDraft]
+    ) {
+        guard let action else {
+            return (
+                .text,
+                "",
+                "",
+                true,
+                [.shift],
+                .tab,
+                [.keyComboStep()]
+            )
         }
-        if stored.hasSuffix("\n") {
-            return (action.title, String(stored.dropLast()), true)
+
+        switch action.payload {
+        case let .text(stored):
+            let seed = ToolbarMacroStepDraft.textSeed(from: stored)
+            return (
+                .text,
+                action.title,
+                seed.text,
+                seed.runAfterTyping,
+                [.shift],
+                .tab,
+                [.keyComboStep()]
+            )
+        case let .keyCombo(modifiers, key):
+            return (
+                .keyCombo,
+                action.title,
+                "",
+                true,
+                modifiers,
+                key,
+                [.keyComboStep()]
+            )
+        case let .macro(steps):
+            let drafts = steps.map(ToolbarMacroStepDraft.init(step:))
+            return (
+                .macro,
+                action.title,
+                "",
+                true,
+                [.shift],
+                .tab,
+                drafts.isEmpty ? [.keyComboStep()] : drafts
+            )
         }
-        return (action.title, stored, false)
     }
 }
 #endif
