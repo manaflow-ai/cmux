@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxBrowser
+import CmuxSettings
 import ObjectiveC
 import WebKit
 
@@ -104,17 +105,18 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         // Screen-clamping: use opener's screen or main screen
         let screen = openerPanel?.webView.window?.screen ?? NSScreen.main ?? NSScreen.screens.first
         let visibleFrame = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let contentRect = BrowserPopupGeometry(
-            requestedWidth: w,
-            requestedHeight: h,
-            requestedX: windowFeatures.x.map { CGFloat($0.doubleValue) },
-            requestedTopY: windowFeatures.y.map { CGFloat($0.doubleValue) },
-            visibleFrame: visibleFrame,
+        let contentRect = BrowserPopupContentGeometry(
             defaultWidth: defaultWidth,
             defaultHeight: defaultHeight,
             minWidth: minWidth,
             minHeight: minHeight
-        ).contentRect
+        ).contentRect(
+            requestedWidth: w,
+            requestedHeight: h,
+            requestedX: windowFeatures.x.map { CGFloat($0.doubleValue) },
+            requestedTopY: windowFeatures.y.map { CGFloat($0.doubleValue) },
+            visibleFrame: visibleFrame
+        )
 
         // Style mask: titled + closable + resizable by default.
         // allowsResizing is a separate property from chrome-visibility flags

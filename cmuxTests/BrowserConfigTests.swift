@@ -15,14 +15,13 @@ import CmuxSidebar
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
-// The app target still declares a legacy duplicate of BrowserThemeMode; with
-// CmuxSettings imported unconditionally the name is ambiguous. Pin the app
-// type for theme tests and the package type for browser search settings.
-private typealias BrowserThemeMode = cmux_DEV.BrowserThemeMode
+// BrowserThemeMode and BrowserSearchEngine are shared CmuxSettings value types;
+// pin them to the package so the names are unambiguous here.
+private typealias BrowserThemeMode = CmuxSettings.BrowserThemeMode
 private typealias BrowserSearchEngine = CmuxSettings.BrowserSearchEngine
 #elseif canImport(cmux)
 @testable import cmux
-private typealias BrowserThemeMode = cmux.BrowserThemeMode
+private typealias BrowserThemeMode = CmuxSettings.BrowserThemeMode
 private typealias BrowserSearchEngine = CmuxSettings.BrowserSearchEngine
 #endif
 
@@ -2380,13 +2379,13 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
 final class BrowserPopupContentRectTests: XCTestCase {
     func testExplicitTopOriginCoordinatesConvertToAppKitBottomOrigin() {
-        let rect = BrowserPopupGeometry(
+        let rect = BrowserPopupContentGeometry().contentRect(
             requestedWidth: 400,
             requestedHeight: 300,
             requestedX: 150,
             requestedTopY: 120,
             visibleFrame: NSRect(x: 100, y: 50, width: 1000, height: 800)
-        ).contentRect
+        )
 
         XCTAssertEqual(rect.origin.x, 150, accuracy: 0.01)
         XCTAssertEqual(rect.origin.y, 430, accuracy: 0.01)
@@ -2395,13 +2394,13 @@ final class BrowserPopupContentRectTests: XCTestCase {
     }
 
     func testExplicitCoordinatesClampToVisibleFrame() {
-        let rect = BrowserPopupGeometry(
+        let rect = BrowserPopupContentGeometry().contentRect(
             requestedWidth: 1400,
             requestedHeight: 1200,
             requestedX: 900,
             requestedTopY: -25,
             visibleFrame: NSRect(x: 100, y: 50, width: 1000, height: 800)
-        ).contentRect
+        )
 
         XCTAssertEqual(rect.origin.x, 100, accuracy: 0.01)
         XCTAssertEqual(rect.origin.y, 50, accuracy: 0.01)
@@ -2410,13 +2409,13 @@ final class BrowserPopupContentRectTests: XCTestCase {
     }
 
     func testMissingCoordinatesCentersPopup() {
-        let rect = BrowserPopupGeometry(
+        let rect = BrowserPopupContentGeometry().contentRect(
             requestedWidth: 300,
             requestedHeight: 200,
             requestedX: nil,
             requestedTopY: nil,
             visibleFrame: NSRect(x: 100, y: 50, width: 1000, height: 800)
-        ).contentRect
+        )
 
         XCTAssertEqual(rect.origin.x, 450, accuracy: 0.01)
         XCTAssertEqual(rect.origin.y, 350, accuracy: 0.01)

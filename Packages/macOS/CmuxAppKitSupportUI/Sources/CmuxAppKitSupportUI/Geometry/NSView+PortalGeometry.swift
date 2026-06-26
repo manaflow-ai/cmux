@@ -14,6 +14,18 @@ extension NSView {
         return false
     }
 
+    /// The view's frame expressed in its window's base coordinate space, or
+    /// `nil` when the view is not currently in a window. Prefers the view's
+    /// frame as laid out by its superview, because some AppKit views (notably
+    /// scroll views) can temporarily report stale bounds during reparenting.
+    public var frameInWindow: CGRect? {
+        guard window != nil else { return nil }
+        if let superview {
+            return superview.convert(frame, to: nil)
+        }
+        return convert(bounds, to: nil)
+    }
+
     /// Whether `self` is ordered above `reference` in `container`'s subview
     /// stack (i.e. drawn later, so on top). Returns false if either view is not
     /// a direct subview of `container`.
