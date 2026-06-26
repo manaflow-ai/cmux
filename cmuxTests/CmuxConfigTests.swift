@@ -1,4 +1,5 @@
 import Combine
+import CmuxSettings
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -83,6 +84,27 @@ final class CmuxConfigDecodingTests: XCTestCase {
         let config = try decode(json)
         XCTAssertEqual(config.commands.count, 3)
         XCTAssertEqual(config.commands.map(\.name), ["Build", "Test", "Lint"])
+    }
+
+    func testDecodeVaultClaudeDiscoveryConfigWithoutAgents() throws {
+        let json = """
+        {
+          "vault": {
+            "claudeSessionRoots": ["~/mounted-claude"],
+            "pathMappings": [
+              { "remotePrefix": "/workspace", "localPrefix": "/Users/alice" }
+            ]
+          }
+        }
+        """
+
+        let config = try decode(json)
+
+        XCTAssertEqual(config.vault?.agents, [])
+        XCTAssertEqual(config.vault?.claudeSessionRoots, ["~/mounted-claude"])
+        XCTAssertEqual(config.vault?.pathMappings, [
+            VaultPathMapping(remotePrefix: "/workspace", localPrefix: "/Users/alice")
+        ])
     }
 
     func testDecodeNewWorkspaceCommand() throws {

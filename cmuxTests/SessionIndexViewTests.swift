@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import Combine
 import SQLite3
 import SwiftUI
@@ -116,6 +117,50 @@ final class SessionIndexViewTests: XCTestCase {
             entry.resumeCommand,
             posixShWrappedForTest("env CLAUDE_CONFIG_DIR='\(configDir.path)' CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" --resume claude-session-123")
         )
+    }
+
+    func testClaudeVaultPathMappingMatchesMountedRemoteTranscript() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-index-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("mounted-claude", isDirectory: true)
+        let remoteCwd = "/workspace/p/x"
+        let localRoot = root.appendingPathComponent("local-home", isDirectory: true)
+        let localCwd = localRoot
+            .appendingPathComponent("p", isDirectory: true)
+            .appendingPathComponent("x", isDirectory: true)
+        let transcriptURL = configDir
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent(RestorableAgentSessionIndex.encodeClaudeProjectDir(remoteCwd), isDirectory: true)
+            .appendingPathComponent("remote-session.jsonl", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try """
+        {"cwd":"/workspace/p/x","type":"user","message":{"role":"user","content":"mounted remote transcript"}}
+        """.write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let mapping = VaultPathMapping(remotePrefix: "/workspace", localPrefix: localRoot.path)
+        let first = await SessionIndexStore.loadClaudeEntriesForTesting(
+            configDirectories: [configDir.path],
+            pathMappings: [mapping],
+            cwdFilter: localCwd.path,
+            limit: 10
+        )
+
+        XCTAssertEqual(first.map(\.sessionId), ["remote-session"])
+        XCTAssertEqual(first.first?.cwd, remoteCwd)
+
+        let cached = await SessionIndexStore.loadClaudeEntriesForTesting(
+            configDirectories: [configDir.path],
+            pathMappings: [mapping],
+            cwdFilter: localCwd.path,
+            limit: 10
+        )
+
+        XCTAssertEqual(cached.map(\.sessionId), ["remote-session"])
     }
 
     func testGrokResumeCommandPreservesSpecifics() {

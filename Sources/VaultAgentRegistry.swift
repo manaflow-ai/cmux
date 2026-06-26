@@ -1,11 +1,33 @@
 import Foundation
+import CmuxSettings
 import OSLog
 
 struct CmuxVaultConfigDefinition: Codable, Hashable, Sendable {
     var agents: [CmuxVaultAgentRegistration]
+    var claudeSessionRoots: [String]
+    var pathMappings: [VaultPathMapping]
 
-    init(agents: [CmuxVaultAgentRegistration] = []) {
+    private enum CodingKeys: String, CodingKey {
+        case agents
+        case claudeSessionRoots
+        case pathMappings
+    }
+
+    init(
+        agents: [CmuxVaultAgentRegistration] = [],
+        claudeSessionRoots: [String] = [],
+        pathMappings: [VaultPathMapping] = []
+    ) {
         self.agents = agents
+        self.claudeSessionRoots = claudeSessionRoots
+        self.pathMappings = pathMappings
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        agents = try container.decodeIfPresent([CmuxVaultAgentRegistration].self, forKey: .agents) ?? []
+        claudeSessionRoots = try container.decodeIfPresent([String].self, forKey: .claudeSessionRoots) ?? []
+        pathMappings = try container.decodeIfPresent([VaultPathMapping].self, forKey: .pathMappings) ?? []
     }
 }
 

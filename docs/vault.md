@@ -4,6 +4,42 @@ Vault restores built-in agent sessions and can also read custom agent registrati
 `cmux.json`. Registrations define how cmux detects a running terminal process, where the
 agent's native session id comes from, and which command resumes that session.
 
+## Mounted Claude Code transcripts
+
+When Claude Code runs in a container or remote shell whose filesystem is mounted
+on the Mac, the Vault can scan that mounted Claude config directory directly and
+treat remote cwd prefixes as equivalent to local workspace prefixes:
+
+```jsonc
+{
+  "vault": {
+    "claudeSessionRoots": [
+      "/Users/alice/mounted-container-home/.claude"
+    ],
+    "pathMappings": [
+      {
+        "remotePrefix": "/workspace",
+        "localPrefix": "/Users/alice"
+      }
+    ]
+  }
+}
+```
+
+`claudeSessionRoots` entries point at Claude config directories such as
+`~/.claude`; a direct `projects` directory is also accepted. cmux scans these in
+addition to the built-in Claude roots.
+
+`pathMappings` are bidirectional prefix mappings. In the example above, a
+transcript cwd of `/workspace/p/x` matches the local folder filter
+`/Users/alice/p/x`, and the same mapping is also used when Vault picks the
+Claude project-directory slug to scan for a scoped folder query.
+
+The shorter aliases `remote` and `local` are accepted for `remotePrefix` and
+`localPrefix`.
+
+## Custom agents
+
 Pi Coding Agent and OMP are registered by default:
 
 ```jsonc
