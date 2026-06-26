@@ -30,9 +30,6 @@ extension TerminalController: ControlSidebarContext {
     ) {
         let appFormat = SidebarMetadataFormat(rawValue: format.rawValue) ?? .plain
         controlSidebarSchedulePanelScopedMutation(target: target, panelID: panelID) { _, tab in
-            if let panelId = panelID, !tab.panels.keys.contains(panelId) {
-                return
-            }
             guard Self.shouldReplaceStatusEntry(
                 current: tab.statusEntries[key],
                 key: key,
@@ -67,9 +64,6 @@ extension TerminalController: ControlSidebarContext {
 
     func controlSidebarScheduleStatusClear(target: ControlSidebarTabTarget, key: String, panelID: UUID?) {
         controlSidebarSchedulePanelScopedMutation(target: target, panelID: panelID) { _, tab in
-            if let panelId = panelID, !tab.panels.keys.contains(panelId) {
-                return
-            }
             _ = tab.statusEntries.removeValue(forKey: key)
             tab.clearAgentPID(key: key)
         }
@@ -82,9 +76,6 @@ extension TerminalController: ControlSidebarContext {
         panelID: UUID?
     ) {
         controlSidebarSchedulePanelScopedMutation(target: target, panelID: panelID) { _, tab in
-            if let panelId = panelID, !tab.panels.keys.contains(panelId) {
-                return
-            }
             let didReplaceAgentRuntime = tab.recordAgentPID(
                 key: key,
                 pid: pid,
@@ -112,7 +103,7 @@ extension TerminalController: ControlSidebarContext {
         if AgentHibernationLifecycleStatusKeys.isAllowed(key) {
             return true
         }
-        guard let tab = controlSidebarResolveMutationTab(target),
+        guard let tab = controlSidebarResolvePanelScopedMutationTab(target: target, panelID: panelID),
               CmuxVaultAgentRegistration.isValidID(key) else {
             return false
         }
@@ -152,9 +143,6 @@ extension TerminalController: ControlSidebarContext {
             return
         }
         controlSidebarSchedulePanelScopedMutation(target: target, panelID: panelID) { _, tab in
-            if let panelId = panelID, !tab.panels.keys.contains(panelId) {
-                return
-            }
             tab.setAgentLifecycle(key: key, panelId: panelID, lifecycle: lifecycle)
         }
     }
@@ -170,9 +158,6 @@ extension TerminalController: ControlSidebarContext {
         clearStatus: Bool
     ) {
         controlSidebarSchedulePanelScopedMutation(target: target, panelID: panelID) { _, tab in
-            if let panelId = panelID, !tab.panels.keys.contains(panelId) {
-                return
-            }
             tab.clearAgentPID(
                 key: key,
                 panelId: panelID,

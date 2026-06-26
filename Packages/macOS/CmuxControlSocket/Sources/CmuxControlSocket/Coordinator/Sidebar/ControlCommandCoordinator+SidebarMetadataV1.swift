@@ -9,7 +9,7 @@ extension ControlCommandCoordinator {
     // MARK: - Status / metadata entries
 
     /// The shared `set_status`/`report_meta` upsert body.
-    func sidebarUpsertMetadata(_ args: String, missingError: String) -> String {
+    func sidebarUpsertMetadata(_ args: String, usage: String, missingError: String) -> String {
         let parsed = sidebarParseOptionsNoStop(args)
         guard parsed.positional.count >= 2 else { return missingError }
 
@@ -51,7 +51,7 @@ extension ControlCommandCoordinator {
         }
         let panelResolution = sidebarParseOptionalPanelIdOption(
             options: parsed.options,
-            usage: "set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] [--panel=ID]"
+            usage: usage
         )
         if let error = panelResolution.error {
             return error
@@ -106,28 +106,32 @@ extension ControlCommandCoordinator {
 
     /// `set_status` — upsert a status entry.
     func sidebarSetStatus(_ args: String) -> String {
-        sidebarUpsertMetadata(
+        let usage = "set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] [--panel=ID]"
+        return sidebarUpsertMetadata(
             args,
-            missingError: "ERROR: Missing status key or value — usage: set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X]"
+            usage: usage,
+            missingError: "ERROR: Missing status key or value — usage: \(usage)"
         )
     }
 
     /// `report_meta` — upsert a metadata entry.
     func sidebarReportMeta(_ args: String) -> String {
-        sidebarUpsertMetadata(
+        let usage = "report_meta <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] [--panel=ID]"
+        return sidebarUpsertMetadata(
             args,
-            missingError: "ERROR: Missing metadata key or value — usage: report_meta <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X]"
+            usage: usage,
+            missingError: "ERROR: Missing metadata key or value — usage: \(usage)"
         )
     }
 
     /// `clear_status` — remove a status entry.
     func sidebarClearStatus(_ args: String) -> String {
-        sidebarClearMetadata(args, usage: "clear_status <key> [--tab=X]")
+        sidebarClearMetadata(args, usage: "clear_status <key> [--tab=X] [--panel=ID]")
     }
 
     /// `clear_meta` — remove a metadata entry.
     func sidebarClearMeta(_ args: String) -> String {
-        sidebarClearMetadata(args, usage: "clear_meta <key> [--tab=X]")
+        sidebarClearMetadata(args, usage: "clear_meta <key> [--tab=X] [--panel=ID]")
     }
 
     /// The shared `list_status`/`list_meta` body.

@@ -99,31 +99,34 @@ extension TerminalController {
         }
     }
 
+    func controlSidebarResolvePanelScopedMutationTab(
+        target: ControlSidebarTabTarget,
+        panelID: UUID?
+    ) -> Workspace? {
+        let preferredTab = controlSidebarResolveMutationTab(target)
+        guard let panelID else { return preferredTab }
+        if let preferredTab, preferredTab.panels[panelID] != nil {
+            return preferredTab
+        }
+        return AppDelegate.shared?.workspaceContainingPanel(
+            panelId: panelID,
+            preferredWorkspaceId: controlSidebarPreferredWorkspaceID(
+                for: target,
+                resolvedTab: preferredTab
+            )
+        )?.workspace
+    }
+
     func controlSidebarSchedulePanelScopedMutation(
         target: ControlSidebarTabTarget,
         panelID: UUID?,
         mutation: @escaping (TerminalController, Workspace) -> Void
     ) {
         TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
-            guard let self else { return }
-            let preferredTab = self.controlSidebarResolveMutationTab(target)
-            let tab: Workspace?
-            if let panelID {
-                if let preferredTab, preferredTab.panels[panelID] != nil {
-                    tab = preferredTab
-                } else {
-                    tab = AppDelegate.shared?.workspaceContainingPanel(
-                        panelId: panelID,
-                        preferredWorkspaceId: self.controlSidebarPreferredWorkspaceID(
-                            for: target,
-                            resolvedTab: preferredTab
-                        )
-                    )?.workspace
-                }
-            } else {
-                tab = preferredTab
+            guard let self,
+                  let tab = self.controlSidebarResolvePanelScopedMutationTab(target: target, panelID: panelID) else {
+                return
             }
-            guard let tab else { return }
             mutation(self, tab)
         }
     }
