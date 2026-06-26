@@ -91,7 +91,7 @@ public struct AttentionQueueSidebar: CmuxSidebarProvider {
     }
 
     private static func isAgentStatusNotification(_ text: String) -> Bool {
-        let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalized = text.lowercased()
         return normalized == "waiting for input"
             || normalized == "needs input"
             || normalized.hasSuffix(" needs input")
