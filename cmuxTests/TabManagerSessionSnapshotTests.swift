@@ -1,6 +1,7 @@
 import CmuxWorkspaces
 import Darwin
 import CmuxCore
+import CmuxFoundation
 import XCTest
 import CmuxTerminal
 
@@ -2202,7 +2203,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(terminalStartupCommand.contains(restoredForegroundAuthToken), terminalStartupCommand)
         XCTAssertFalse(terminalStartupCommand.contains(expectedSessionID), terminalStartupCommand)
         XCTAssertFalse(terminalStartupCommand.contains("--require-existing"), terminalStartupCommand)
-        XCTAssertTrue(terminalStartupCommand.contains("--command-b64 "), terminalStartupCommand)
+        XCTAssertTrue(terminalStartupCommand.contains("--command-zb64 "), terminalStartupCommand)
+        XCTAssertFalse(terminalStartupCommand.contains("--command-b64 "), terminalStartupCommand)
         XCTAssertTrue(terminalStartupCommand.contains("254|255"), terminalStartupCommand)
         let restoredDefaultRemoteCommand = try XCTUnwrap(
             Self.decodedSSHPTYCommandB64(in: terminalStartupCommand)
@@ -2275,6 +2277,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(restoredInitialCommand.contains("254|255"), restoredInitialCommand)
         XCTAssertTrue(restoredInitialCommand.contains(expectedSessionID), restoredInitialCommand)
         XCTAssertTrue(restoredInitialCommand.contains("CMUX_SURFACE_ID"), restoredInitialCommand)
+        XCTAssertFalse(restoredInitialCommand.contains("--command-zb64 "), restoredInitialCommand)
         XCTAssertFalse(restoredInitialCommand.contains("--command-b64 "), restoredInitialCommand)
 
         let roundTrip = restoredWorkspace.sessionSnapshot(includeScrollback: false)
@@ -2385,7 +2388,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
 
         let workspaceDefaultCommand = try XCTUnwrap(restoredWorkspace.remoteConfiguration?.terminalStartupCommand)
-        XCTAssertTrue(workspaceDefaultCommand.contains("--command-b64 "), workspaceDefaultCommand)
+        XCTAssertTrue(workspaceDefaultCommand.contains("--command-zb64 "), workspaceDefaultCommand)
         XCTAssertFalse(workspaceDefaultCommand.contains("--require-existing"), workspaceDefaultCommand)
 
         for panelSnapshot in restoredTerminalPanels {
@@ -2393,6 +2396,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             let command = try XCTUnwrap(panel.surface.debugInitialCommand())
             XCTAssertTrue(command.contains("ssh-pty-attach"), command)
             XCTAssertTrue(command.contains("--require-existing"), command)
+            XCTAssertFalse(command.contains("--command-zb64 "), command)
             XCTAssertFalse(command.contains("--command-b64 "), command)
             XCTAssertTrue(
                 expectedSessionIDs.contains { command.contains($0) },
@@ -3337,13 +3341,23 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     private static func decodedSSHPTYCommandB64(in command: String) -> String? {
-        let marker = "--command-b64 "
+        // Prefer the compressed flag (deflate+base64) the producers now emit; fall
+        // back to plain base64 for legacy/restored commands (manaflow-ai/cmux#6738).
+        if let token = tokenAfterMarker("--command-zb64 ", in: command) {
+            return String(deflatedBase64: token)
+        }
+        guard let token = tokenAfterMarker("--command-b64 ", in: command),
+              let data = Data(base64Encoded: token) else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private static func tokenAfterMarker(_ marker: String, in command: String) -> String? {
         guard let markerRange = command.range(of: marker) else { return nil }
         let suffix = command[markerRange.upperBound...]
         guard let token = suffix.split(whereSeparator: { $0.isWhitespace }).first else { return nil }
-        let encoded = String(token).trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
-        guard let data = Data(base64Encoded: encoded) else { return nil }
-        return String(data: data, encoding: .utf8)
+        return String(token).trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
     }
 
     private func waitForClosedHistoryCount(
