@@ -163,7 +163,8 @@ public struct MobileAuthComposition {
            !override.isEmpty {
             return CMUXAuthEnvironment(rawValue: override.lowercased()) ?? buildEnvironment
         }
-        if let override = bundle.object(forInfoDictionaryKey: "CMUXAuthEnvironment") as? String {
+        if buildEnvironment == .development,
+           let override = bundle.object(forInfoDictionaryKey: "CMUXAuthEnvironment") as? String {
             let trimmed = override.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
                 return CMUXAuthEnvironment(rawValue: trimmed.lowercased()) ?? buildEnvironment
