@@ -706,11 +706,6 @@ struct TextBoxSubmitActionTests {
             ).events,
             TextBoxSubmit.dispatchEvents(for: [.text("ordinary shell input")], terminalAgentContext: "")
         )
-        XCTAssertTrue(TextBoxInputContainer.shouldBlockSubmitForCommandTemplateFallback(
-            action: codex,
-            shouldForceTextEntrySubmit: shouldForceTextEntry,
-            allowsCommandTemplateSubmit: false
-        ))
         XCTAssertEqual(
             TextBoxInputContainer.nextCycledSubmitActionID(
                 defaultSubmitActionID: codex.id,

@@ -137,27 +137,7 @@ extension TextBoxInputContainer {
         )
     }
 
-    var shouldBlockSubmitForCommandTemplateFallback: Bool {
-        Self.shouldBlockSubmitForCommandTemplateFallback(
-            action: selectedSubmitAction,
-            shouldForceTextEntrySubmit: shouldForceTextEntrySubmit,
-            allowsCommandTemplateSubmit: allowsCommandTemplateSubmit
-        )
-    }
-
     static func shouldUseTextEntryFallbackForCommandTemplate(
-        action: TextBoxSubmitAction,
-        shouldForceTextEntrySubmit: Bool,
-        allowsCommandTemplateSubmit: Bool
-    ) -> Bool {
-        shouldBlockSubmitForCommandTemplateFallback(
-            action: action,
-            shouldForceTextEntrySubmit: shouldForceTextEntrySubmit,
-            allowsCommandTemplateSubmit: allowsCommandTemplateSubmit
-        )
-    }
-
-    static func shouldBlockSubmitForCommandTemplateFallback(
         action: TextBoxSubmitAction,
         shouldForceTextEntrySubmit: Bool,
         allowsCommandTemplateSubmit: Bool
