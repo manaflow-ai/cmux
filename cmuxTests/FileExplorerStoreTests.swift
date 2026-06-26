@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCore
 import Testing
 
 #if canImport(cmux_DEV)
@@ -349,6 +350,48 @@ struct FileExplorerStoreTests {
         #expect(transport.downloadedPaths == ["/srv/app/README.md"])
         #expect(try String(contentsOf: localURL, encoding: .utf8) == "# Remote\n")
         #expect(localURL.path.contains("cmux-remote-file-previews"))
+    }
+
+    @Test
+    func testRightSidebarFilesRevertsToLocalRootAfterNonPersistentSSHSessionEnds() throws {
+        let localURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-local-files-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: localURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: localURL) }
+
+        let workspace = Workspace()
+        workspace.currentDirectory = localURL.path
+        let remotePanelID = try #require(workspace.focusedTerminalPanel?.id)
+        let panel = RightSidebarToolPanel(workspace: workspace, mode: .files)
+        let store = panel.fileExplorerStore
+
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "dev@ubuntu-host",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: nil,
+                relayID: nil,
+                relayToken: nil,
+                localSocketPath: nil,
+                terminalStartupCommand: "ssh dev@ubuntu-host"
+            ),
+            autoConnect: false
+        )
+        workspace.currentDirectory = "/home/dev/project"
+        panel.syncWorkspaceRoot(from: workspace)
+        #expect(store.provider is SSHFileExplorerProvider)
+        #expect(store.displayRootPath.hasPrefix("ssh://dev@ubuntu-host"))
+
+        workspace.markRemoteTerminalSessionEnded(surfaceId: remotePanelID, relayPort: nil)
+        workspace.currentDirectory = localURL.path
+        panel.syncWorkspaceRoot(from: workspace)
+
+        #expect(store.provider is LocalFileExplorerProvider)
+        #expect(store.rootPath == localURL.path)
+        #expect(!store.displayRootPath.hasPrefix("ssh://"))
     }
 
     @Test
