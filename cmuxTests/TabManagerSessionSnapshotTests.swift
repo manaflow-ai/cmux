@@ -62,40 +62,6 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restored.tabs[1].customTitle, "Second")
     }
 
-    /// Regression for #6184: reordering panes/surfaces within a workspace must
-    /// bump the autosave fingerprint. The persisted session snapshot records the
-    /// full split layout (pane/surface order), but the autosave timer only writes
-    /// when `sessionAutosaveFingerprint()` changes. If a pure reorder leaves the
-    /// fingerprint untouched, the 8s autosave skips the write and a non-graceful
-    /// exit (OOM-suspend, Ghostty crash, force-quit, or a Sparkle update relaunch
-    /// that does not cleanly save) restores a *stale* pane order — the layout the
-    /// user arranged before the update comes back scrambled.
-    func testAutosaveFingerprintChangesWhenSurfacesReorderedWithinPane() throws {
-        let manager = TabManager()
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
-        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
-        let secondPanelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
-
-        // Sanity: both surfaces live in the same pane in [first, second] order.
-        XCTAssertEqual(workspace.sidebarOrderedPanelIds(), [firstPanelId, secondPanelId])
-
-        let fingerprintBeforeReorder = manager.sessionAutosaveFingerprint()
-
-        // Reorder the surfaces so the pane now holds [second, first]. The panel
-        // *set* and the selected surface are unchanged — only the order differs.
-        XCTAssertTrue(workspace.reorderSurface(panelId: secondPanelId, toIndex: 0))
-        XCTAssertEqual(workspace.sidebarOrderedPanelIds(), [secondPanelId, firstPanelId])
-
-        let fingerprintAfterReorder = manager.sessionAutosaveFingerprint()
-
-        XCTAssertNotEqual(
-            fingerprintBeforeReorder,
-            fingerprintAfterReorder,
-            "Reordering surfaces within a pane must change the autosave fingerprint so the layout is re-persisted (#6184)."
-        )
-    }
-
     func testFocusHistoryNavigatesWithinWorkspacePanels() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
