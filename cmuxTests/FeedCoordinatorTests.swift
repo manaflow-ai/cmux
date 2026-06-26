@@ -648,7 +648,7 @@ struct FeedCoordinatorTests {
                 ]
             ]
         ]
-        let spawned = CMUXCLI.codexTeamsSpawnedSubagents(fromItemNotification: message)
+        let spawned = CodexTeamsApprovalBridge.codexTeamsSpawnedSubagents(fromItemNotification: message)
         #expect(spawned?.parentThreadId == "thread-parent")
         #expect(spawned?.childThreadIds == ["thread-child"])
     }
@@ -667,7 +667,7 @@ struct FeedCoordinatorTests {
                 ]
             ]
         ]
-        let spawned = CMUXCLI.codexTeamsSpawnedSubagents(fromItemNotification: message)
+        let spawned = CodexTeamsApprovalBridge.codexTeamsSpawnedSubagents(fromItemNotification: message)
         #expect(spawned?.parentThreadId == "thread-parent")
         #expect(spawned?.childThreadIds == ["thread-child-a", "thread-child-b"])
     }
@@ -685,7 +685,7 @@ struct FeedCoordinatorTests {
                 ]
             ]
         ]
-        let spawned = CMUXCLI.codexTeamsSpawnedSubagents(fromItemNotification: message)
+        let spawned = CodexTeamsApprovalBridge.codexTeamsSpawnedSubagents(fromItemNotification: message)
         #expect(spawned?.parentThreadId == "thread-parent")
         #expect(spawned?.childThreadIds == ["thread-child"])
     }
@@ -705,7 +705,7 @@ struct FeedCoordinatorTests {
                 ]
             ]
         ]
-        let spawned = CMUXCLI.codexTeamsSpawnedSubagents(fromItemNotification: message)
+        let spawned = CodexTeamsApprovalBridge.codexTeamsSpawnedSubagents(fromItemNotification: message)
         #expect(spawned?.parentThreadId == "thread-parent")
         #expect(spawned?.childThreadIds == ["thread-child"])
     }
@@ -726,7 +726,7 @@ struct FeedCoordinatorTests {
                 ]
             ]
         ]
-        #expect(CMUXCLI.codexTeamsSpawnedSubagents(fromItemNotification: message) == nil)
+        #expect(CodexTeamsApprovalBridge.codexTeamsSpawnedSubagents(fromItemNotification: message) == nil)
     }
 
     @Test func codexTeamsSpawnIgnoresNonSpawnCollabTools() {
@@ -742,7 +742,7 @@ struct FeedCoordinatorTests {
                 ]
             ]
         ]
-        #expect(CMUXCLI.codexTeamsSpawnedSubagents(fromItemNotification: message) == nil)
+        #expect(CodexTeamsApprovalBridge.codexTeamsSpawnedSubagents(fromItemNotification: message) == nil)
     }
 
     @Test func codexTeamsSpawnIgnoresNonCollabItems() {
@@ -756,7 +756,7 @@ struct FeedCoordinatorTests {
                 ]
             ]
         ]
-        #expect(CMUXCLI.codexTeamsSpawnedSubagents(fromItemNotification: message) == nil)
+        #expect(CodexTeamsApprovalBridge.codexTeamsSpawnedSubagents(fromItemNotification: message) == nil)
     }
 
     @Test func codexTeamsSpawnIgnoresNonCompletedNotifications() {
@@ -774,7 +774,7 @@ struct FeedCoordinatorTests {
                 ]
             ]
         ]
-        #expect(CMUXCLI.codexTeamsSpawnedSubagents(fromItemNotification: message) == nil)
+        #expect(CodexTeamsApprovalBridge.codexTeamsSpawnedSubagents(fromItemNotification: message) == nil)
     }
 }
 

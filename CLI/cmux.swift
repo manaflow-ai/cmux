@@ -19851,7 +19851,7 @@ struct CMUXCLI {
             connection: CodexTeamsAppServerConnection,
             allowThreadSubscribe: Bool
         ) throws {
-            guard let spawned = CMUXCLI.codexTeamsSpawnedSubagents(fromItemNotification: message) else {
+            guard let spawned = CodexTeamsApprovalBridge.codexTeamsSpawnedSubagents(fromItemNotification: message) else {
                 return
             }
             stateLock.lock()
@@ -20401,70 +20401,6 @@ struct CMUXCLI {
             agentNickname: spawn["agent_nickname"] as? String ?? spawn["agentNickname"] as? String,
             agentRole: spawn["agent_role"] as? String ?? spawn["agentRole"] as? String
         )
-    }
-
-    /// The spawning (parent) thread id and the newly spawned child thread ids
-    /// carried by a Codex app-server `spawnAgent` collab-agent tool call.
-    struct CodexTeamsSpawnedSubagents: Equatable {
-        let parentThreadId: String
-        let childThreadIds: [String]
-    }
-
-    /// Parses a Codex app-server `item/completed` notification for a successful
-    /// `spawnAgent` collab-agent tool call. Codex carries the spawned child
-    /// thread id(s) in `receiverThreadIds` (populated only when the spawn
-    /// succeeds) and the spawning parent in `senderThreadId`; the codex-teams
-    /// watcher relies on this to open a split for the new subagent.
-    static func codexTeamsSpawnedSubagents(
-        fromItemNotification message: [String: Any]
-    ) -> CodexTeamsSpawnedSubagents? {
-        guard let method = message["method"] as? String,
-              method == "item/completed",
-              let params = message["params"] as? [String: Any],
-              let item = params["item"] as? [String: Any] else {
-            return nil
-        }
-        let fallbackParent = stringValue(in: params, keys: ["threadId", "thread_id"])
-        return codexTeamsSpawnedSubagents(fromItem: item, fallbackParentThreadId: fallbackParent)
-    }
-
-    static func codexTeamsSpawnedSubagents(
-        fromItem item: [String: Any],
-        fallbackParentThreadId: String?
-    ) -> CodexTeamsSpawnedSubagents? {
-        guard codexTeamsStringEquals(item["type"], "collabAgentToolCall"),
-              codexTeamsStringEquals(item["tool"], "spawnAgent") else {
-            return nil
-        }
-        let rawReceivers = (item["receiverThreadIds"] as? [Any])
-            ?? (item["receiver_thread_ids"] as? [Any])
-            ?? []
-        let childThreadIds = rawReceivers
-            .compactMap { $0 as? String }
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        guard !childThreadIds.isEmpty else { return nil }
-        guard let parentThreadId = stringValue(in: item, keys: ["senderThreadId", "sender_thread_id"])
-                ?? fallbackParentThreadId?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !parentThreadId.isEmpty else {
-            return nil
-        }
-        return CodexTeamsSpawnedSubagents(
-            parentThreadId: parentThreadId,
-            childThreadIds: childThreadIds
-        )
-    }
-
-    // Matches a Codex discriminator value (e.g. "spawnAgent", "collabAgentToolCall")
-    // tolerantly across camelCase and snake_case spellings, mirroring the
-    // normalization used for thread status in `codexTeamsThreadMayBeAttachable`.
-    private static func codexTeamsStringEquals(_ value: Any?, _ expected: String) -> Bool {
-        guard let string = value as? String else { return false }
-        return codexTeamsNormalizedIdentifier(string) == codexTeamsNormalizedIdentifier(expected)
-    }
-
-    private static func codexTeamsNormalizedIdentifier(_ value: String) -> String {
-        value.replacingOccurrences(of: "_", with: "").lowercased()
     }
 
     private static func codexTeamsResumeCommandText(
