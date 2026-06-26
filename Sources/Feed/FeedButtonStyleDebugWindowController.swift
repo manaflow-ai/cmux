@@ -294,214 +294,6 @@ enum FeedButtonDebugPalettePreset: String, CaseIterable, Identifiable {
     }
 }
 
-enum FeedButtonDebugSettings {
-    static let styleKey = "feed.button.debug.style"
-    static let paletteKey = "feed.button.debug.palette"
-    static let compactCornerRadiusKey = "feed.button.debug.compactCornerRadius"
-    static let mediumCornerRadiusKey = "feed.button.debug.mediumCornerRadius"
-    static let compactHorizontalPaddingKey = "feed.button.debug.compactHorizontalPadding"
-    static let mediumHorizontalPaddingKey = "feed.button.debug.mediumHorizontalPadding"
-    static let compactVerticalPaddingKey = "feed.button.debug.compactVerticalPadding"
-    static let mediumVerticalPaddingKey = "feed.button.debug.mediumVerticalPadding"
-    static let glassTintOpacityKey = "feed.button.debug.glassTintOpacity"
-    static let borderWidthKey = "feed.button.debug.borderWidth"
-    static let generationKey = "feed.button.debug.generation"
-
-    private static let defaults = UserDefaults.standard
-
-    static var visualStyle: FeedButtonDebugVisualStyle {
-        FeedButtonDebugVisualStyle(
-            rawValue: defaults.string(forKey: styleKey) ?? FeedButtonDebugVisualStyle.solid.rawValue
-        ) ?? .solid
-    }
-
-    static var palettePreset: FeedButtonDebugPalettePreset {
-        FeedButtonDebugPalettePreset(
-            rawValue: defaults.string(forKey: paletteKey) ?? FeedButtonDebugPalettePreset.system.rawValue
-        ) ?? .system
-    }
-
-    static var compactCornerRadius: Double {
-        double(forKey: compactCornerRadiusKey, defaultValue: 5)
-    }
-
-    static var mediumCornerRadius: Double {
-        double(forKey: mediumCornerRadiusKey, defaultValue: 6)
-    }
-
-    static var compactHorizontalPadding: Double {
-        double(forKey: compactHorizontalPaddingKey, defaultValue: 8)
-    }
-
-    static var mediumHorizontalPadding: Double {
-        double(forKey: mediumHorizontalPaddingKey, defaultValue: 12)
-    }
-
-    static var compactVerticalPadding: Double {
-        double(forKey: compactVerticalPaddingKey, defaultValue: 4)
-    }
-
-    static var mediumVerticalPadding: Double {
-        double(forKey: mediumVerticalPaddingKey, defaultValue: 5)
-    }
-
-    static var glassTintOpacity: Double {
-        double(forKey: glassTintOpacityKey, defaultValue: 0.42)
-    }
-
-    static var borderWidth: Double {
-        double(forKey: borderWidthKey, defaultValue: 0.9)
-    }
-
-    static func color(
-        for kind: FeedButton.Kind,
-        role: FeedButtonDebugColorRole,
-        colorScheme: ColorScheme
-    ) -> Color? {
-        guard let raw = defaults.string(forKey: colorKey(kind: kind, role: role)),
-              let nsColor = NSColor(hex: raw)
-        else {
-            return palettePreset.color(for: kind, role: role, colorScheme: colorScheme)
-        }
-        return Color(nsColor: nsColor)
-    }
-
-    static func setColor(
-        _ color: Color,
-        for kind: FeedButton.Kind,
-        role: FeedButtonDebugColorRole
-    ) {
-        defaults.set(NSColor(color).hexString(), forKey: colorKey(kind: kind, role: role))
-        bumpGeneration()
-    }
-
-    static func defaultColor(
-        for kind: FeedButton.Kind,
-        role: FeedButtonDebugColorRole,
-        colorScheme: ColorScheme
-    ) -> Color {
-        palettePreset.color(for: kind, role: role, colorScheme: colorScheme)
-            ?? fallbackColor(for: kind, role: role, colorScheme: colorScheme)
-    }
-
-    static func applyRaycastGlassPreset() {
-        apply(.raycastGlass)
-    }
-
-    static func applyPalette(_ palette: FeedButtonDebugPalettePreset) {
-        defaults.set(palette.rawValue, forKey: paletteKey)
-        clearCustomColors()
-        bumpGeneration()
-    }
-
-    static func apply(_ preset: FeedButtonDebugPreset) {
-        defaults.set(preset.style.rawValue, forKey: styleKey)
-        defaults.set(preset.compactCornerRadius, forKey: compactCornerRadiusKey)
-        defaults.set(preset.mediumCornerRadius, forKey: mediumCornerRadiusKey)
-        defaults.set(preset.compactHorizontalPadding, forKey: compactHorizontalPaddingKey)
-        defaults.set(preset.mediumHorizontalPadding, forKey: mediumHorizontalPaddingKey)
-        defaults.set(preset.compactVerticalPadding, forKey: compactVerticalPaddingKey)
-        defaults.set(preset.mediumVerticalPadding, forKey: mediumVerticalPaddingKey)
-        defaults.set(preset.glassTintOpacity, forKey: glassTintOpacityKey)
-        defaults.set(preset.borderWidth, forKey: borderWidthKey)
-        if let palette = preset.palette {
-            defaults.set(palette.rawValue, forKey: paletteKey)
-            clearCustomColors()
-        }
-        bumpGeneration()
-    }
-
-    static func reset() {
-        let keys = [
-            styleKey,
-            paletteKey,
-            compactCornerRadiusKey,
-            mediumCornerRadiusKey,
-            compactHorizontalPaddingKey,
-            mediumHorizontalPaddingKey,
-            compactVerticalPaddingKey,
-            mediumVerticalPaddingKey,
-            glassTintOpacityKey,
-            borderWidthKey,
-        ]
-        for key in keys {
-            defaults.removeObject(forKey: key)
-        }
-        clearCustomColors()
-        bumpGeneration()
-    }
-
-    static func bumpGeneration() {
-        defaults.set(defaults.integer(forKey: generationKey) + 1, forKey: generationKey)
-    }
-
-    private static func double(forKey key: String, defaultValue: Double) -> Double {
-        guard defaults.object(forKey: key) != nil else { return defaultValue }
-        return defaults.double(forKey: key)
-    }
-
-    private static func colorKey(kind: FeedButton.Kind, role: FeedButtonDebugColorRole) -> String {
-        "feed.button.debug.color.\(kind.rawValue).\(role.rawValue)"
-    }
-
-    private static func clearCustomColors() {
-        for kind in FeedButton.Kind.allCases {
-            for role in [
-                FeedButtonDebugColorRole.background,
-                .hoverBackground,
-                .foreground,
-            ] {
-                defaults.removeObject(forKey: colorKey(kind: kind, role: role))
-            }
-        }
-    }
-
-    static func fallbackColor(
-        for kind: FeedButton.Kind,
-        role: FeedButtonDebugColorRole,
-        colorScheme: ColorScheme
-    ) -> Color {
-        Color(nsColor: NSColor(hex: defaultHex(kind: kind, role: role, colorScheme: colorScheme)) ?? .systemBlue)
-    }
-
-    private static func defaultHex(
-        kind: FeedButton.Kind,
-        role: FeedButtonDebugColorRole,
-        colorScheme: ColorScheme
-    ) -> String {
-        switch role {
-        case .background:
-            switch kind {
-            case .ghost: return colorScheme == .dark ? "#1F2933" : "#E7ECF2"
-            case .soft: return colorScheme == .dark ? "#3D4148" : "#E5E7EB"
-            case .dark: return colorScheme == .dark ? "#1F1F1F" : "#374151"
-            case .light: return colorScheme == .dark ? "#F3F4F6" : "#FFFFFF"
-            case .primary: return "#3D7AE0"
-            case .success: return "#2E9E59"
-            case .warning: return colorScheme == .dark ? "#EA894A" : "#B95A00"
-            case .destructive: return "#BF3838"
-            }
-        case .hoverBackground:
-            switch kind {
-            case .ghost: return colorScheme == .dark ? "#2E3744" : "#F3F4F6"
-            case .soft: return colorScheme == .dark ? "#4B515A" : "#EEF0F3"
-            case .dark: return colorScheme == .dark ? "#2B2B2B" : "#4B5563"
-            case .light: return colorScheme == .dark ? "#FFFFFF" : "#F9FAFB"
-            case .primary: return "#478CF2"
-            case .success: return "#38B86B"
-            case .warning: return colorScheme == .dark ? "#F28C2E" : "#D96C00"
-            case .destructive: return "#D94747"
-            }
-        case .foreground:
-            switch kind {
-            case .light: return "#111111"
-            case .ghost, .soft: return colorScheme == .dark ? "#EDEDED" : "#111827"
-            default: return "#FFFFFF"
-            }
-        }
-    }
-}
-
 struct FeedButtonDebugPalette {
     let background: String
     let hoverBackground: String
@@ -857,25 +649,26 @@ private struct FeedButtonDebugPresetSection: Identifiable {
 
 private struct FeedButtonStyleDebugView: View {
     @Environment(\.colorScheme) private var colorScheme
-    @AppStorage(FeedButtonDebugSettings.styleKey)
+    @Environment(\.feedButtonDebugStore) private var debugStore
+    @AppStorage(FeedButtonDebugStore.styleKey)
     private var styleRaw = FeedButtonDebugVisualStyle.solid.rawValue
-    @AppStorage(FeedButtonDebugSettings.paletteKey)
+    @AppStorage(FeedButtonDebugStore.paletteKey)
     private var paletteRaw = FeedButtonDebugPalettePreset.system.rawValue
-    @AppStorage(FeedButtonDebugSettings.compactCornerRadiusKey)
+    @AppStorage(FeedButtonDebugStore.compactCornerRadiusKey)
     private var compactCornerRadius = 5.0
-    @AppStorage(FeedButtonDebugSettings.mediumCornerRadiusKey)
+    @AppStorage(FeedButtonDebugStore.mediumCornerRadiusKey)
     private var mediumCornerRadius = 6.0
-    @AppStorage(FeedButtonDebugSettings.compactHorizontalPaddingKey)
+    @AppStorage(FeedButtonDebugStore.compactHorizontalPaddingKey)
     private var compactHorizontalPadding = 8.0
-    @AppStorage(FeedButtonDebugSettings.mediumHorizontalPaddingKey)
+    @AppStorage(FeedButtonDebugStore.mediumHorizontalPaddingKey)
     private var mediumHorizontalPadding = 12.0
-    @AppStorage(FeedButtonDebugSettings.compactVerticalPaddingKey)
+    @AppStorage(FeedButtonDebugStore.compactVerticalPaddingKey)
     private var compactVerticalPadding = 4.0
-    @AppStorage(FeedButtonDebugSettings.mediumVerticalPaddingKey)
+    @AppStorage(FeedButtonDebugStore.mediumVerticalPaddingKey)
     private var mediumVerticalPadding = 5.0
-    @AppStorage(FeedButtonDebugSettings.glassTintOpacityKey)
+    @AppStorage(FeedButtonDebugStore.glassTintOpacityKey)
     private var glassTintOpacity = 0.42
-    @AppStorage(FeedButtonDebugSettings.borderWidthKey)
+    @AppStorage(FeedButtonDebugStore.borderWidthKey)
     private var borderWidth = 0.9
     @State private var selectedKind: FeedButton.Kind = .primary
     private let palettePreviewKinds: [FeedButton.Kind] = [.ghost, .primary, .success, .warning, .destructive]
@@ -894,16 +687,16 @@ private struct FeedButtonStyleDebugView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.regularMaterial)
-        .onChange(of: styleRaw) { _, _ in FeedButtonDebugSettings.bumpGeneration() }
-        .onChange(of: paletteRaw) { _, _ in FeedButtonDebugSettings.bumpGeneration() }
-        .onChange(of: compactCornerRadius) { _, _ in FeedButtonDebugSettings.bumpGeneration() }
-        .onChange(of: mediumCornerRadius) { _, _ in FeedButtonDebugSettings.bumpGeneration() }
-        .onChange(of: compactHorizontalPadding) { _, _ in FeedButtonDebugSettings.bumpGeneration() }
-        .onChange(of: mediumHorizontalPadding) { _, _ in FeedButtonDebugSettings.bumpGeneration() }
-        .onChange(of: compactVerticalPadding) { _, _ in FeedButtonDebugSettings.bumpGeneration() }
-        .onChange(of: mediumVerticalPadding) { _, _ in FeedButtonDebugSettings.bumpGeneration() }
-        .onChange(of: glassTintOpacity) { _, _ in FeedButtonDebugSettings.bumpGeneration() }
-        .onChange(of: borderWidth) { _, _ in FeedButtonDebugSettings.bumpGeneration() }
+        .onChange(of: styleRaw) { _, _ in debugStore.bumpGeneration() }
+        .onChange(of: paletteRaw) { _, _ in debugStore.bumpGeneration() }
+        .onChange(of: compactCornerRadius) { _, _ in debugStore.bumpGeneration() }
+        .onChange(of: mediumCornerRadius) { _, _ in debugStore.bumpGeneration() }
+        .onChange(of: compactHorizontalPadding) { _, _ in debugStore.bumpGeneration() }
+        .onChange(of: mediumHorizontalPadding) { _, _ in debugStore.bumpGeneration() }
+        .onChange(of: compactVerticalPadding) { _, _ in debugStore.bumpGeneration() }
+        .onChange(of: mediumVerticalPadding) { _, _ in debugStore.bumpGeneration() }
+        .onChange(of: glassTintOpacity) { _, _ in debugStore.bumpGeneration() }
+        .onChange(of: borderWidth) { _, _ in debugStore.bumpGeneration() }
     }
 
     private var header: some View {
@@ -922,7 +715,7 @@ private struct FeedButtonStyleDebugView: View {
             }
             Spacer()
             Button(String(localized: "feed.buttonDebug.reset", defaultValue: "Reset")) {
-                FeedButtonDebugSettings.reset()
+                debugStore.reset()
                 styleRaw = FeedButtonDebugVisualStyle.solid.rawValue
                 paletteRaw = FeedButtonDebugPalettePreset.system.rawValue
                 compactCornerRadius = 5.0
@@ -1025,7 +818,7 @@ private struct FeedButtonStyleDebugView: View {
         colorScheme: ColorScheme
     ) -> Color {
         palette.color(for: kind, role: .background, colorScheme: colorScheme)
-            ?? FeedButtonDebugSettings.fallbackColor(
+            ?? debugStore.fallbackColor(
                 for: kind,
                 role: .background,
                 colorScheme: colorScheme
@@ -1280,15 +1073,15 @@ private struct FeedButtonStyleDebugView: View {
     ) -> Binding<Color> {
         Binding(
             get: {
-                FeedButtonDebugSettings.color(for: kind, role: role, colorScheme: colorScheme)
-                    ?? FeedButtonDebugSettings.defaultColor(
+                debugStore.color(for: kind, role: role, colorScheme: colorScheme)
+                    ?? debugStore.defaultColor(
                         for: kind,
                         role: role,
                         colorScheme: colorScheme
                     )
             },
             set: { newValue in
-                FeedButtonDebugSettings.setColor(newValue, for: kind, role: role)
+                debugStore.setColor(newValue, for: kind, role: role)
             }
         )
     }
@@ -1312,12 +1105,12 @@ private struct FeedButtonStyleDebugView: View {
     }
 
     private func applyPalette(_ palette: FeedButtonDebugPalettePreset) {
-        FeedButtonDebugSettings.applyPalette(palette)
+        debugStore.applyPalette(palette)
         paletteRaw = palette.rawValue
     }
 
     private func applyPreset(_ preset: FeedButtonDebugPreset) {
-        FeedButtonDebugSettings.apply(preset)
+        debugStore.apply(preset)
         styleRaw = preset.style.rawValue
         if let palette = preset.palette {
             paletteRaw = palette.rawValue

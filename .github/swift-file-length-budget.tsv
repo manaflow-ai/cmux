@@ -24,7 +24,7 @@
 4467	Sources/Panels/FilePreviewPanel.swift
 4401	cmuxTests/BrowserPanelTests.swift
 4225	Sources/BrowserWindowPortal.swift
-3937	Sources/Feed/FeedPanelView.swift
+3938	Sources/Feed/FeedPanelView.swift
 3926	cmuxTests/TabManagerUnitTests.swift
 3866	cmuxTests/WindowAndDragTests.swift
 3734	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
@@ -69,7 +69,7 @@
 1373	cmuxTests/AppDelegateIssue2907RoutingTests.swift
 1362	Sources/CMUXInstalledExtensionSidebarHostView.swift
 1361	cmuxTests/KeyboardShortcutSettingsFileStoreStartupTests.swift
-1360	Sources/Feed/FeedButtonStyleDebugWindowController.swift
+1153	Sources/Feed/FeedButtonStyleDebugWindowController.swift
 1342	Sources/cmuxApp.swift
 1295	cmuxTests/MobileHostAuthorizationTests.swift
 1292	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/Config/GhosttyConfig.swift

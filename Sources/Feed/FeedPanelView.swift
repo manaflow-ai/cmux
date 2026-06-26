@@ -1645,7 +1645,8 @@ struct FeedButton: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var isHovered: Bool = false
 #if DEBUG
-    @AppStorage(FeedButtonDebugSettings.generationKey) private var debugStyleGeneration = 0
+    @Environment(\.feedButtonDebugStore) private var debugStore
+    @AppStorage(FeedButtonDebugStore.generationKey) private var debugStyleGeneration = 0
 #endif
 
     var body: some View {
@@ -1743,7 +1744,7 @@ struct FeedButton: View {
 #if DEBUG
     private var usesSystemGlassButtonStyle: Bool {
         _ = debugStyleGeneration
-        switch FeedButtonDebugSettings.visualStyle {
+        switch debugStore.visualStyle {
         case .standardGlass, .standardTintedGlass, .nativeGlass, .nativeProminentGlass, .commandLight:
             return true
         case .solid, .glass, .liquid, .halo, .command, .outline, .flat:
@@ -1755,14 +1756,14 @@ struct FeedButton: View {
         @available(macOS 26.0, *)
         @ViewBuilder
         private var systemGlassButton: some View {
-            if FeedButtonDebugSettings.visualStyle == .standardGlass {
+            if debugStore.visualStyle == .standardGlass {
                 standardSystemGlassButtonBase
                     .buttonStyle(.glass)
-            } else if FeedButtonDebugSettings.visualStyle == .standardTintedGlass {
+            } else if debugStore.visualStyle == .standardTintedGlass {
                 standardSystemGlassButtonBase
                     .buttonStyle(.glass)
                     .tint(systemGlassTint)
-            } else if FeedButtonDebugSettings.visualStyle == .nativeProminentGlass {
+            } else if debugStore.visualStyle == .nativeProminentGlass {
                 systemGlassButtonBase
                     .buttonStyle(.glassProminent)
             } else {
@@ -1815,11 +1816,11 @@ struct FeedButton: View {
     #endif
 
     private var systemGlassTint: Color {
-        glassEffectTint.opacity(FeedButtonDebugSettings.glassTintOpacity)
+        glassEffectTint.opacity(debugStore.glassTintOpacity)
     }
 
     private var systemGlassForeground: Color {
-        if let color = FeedButtonDebugSettings.color(
+        if let color = debugStore.color(
             for: kind,
             role: .foreground,
             colorScheme: colorScheme
@@ -1827,7 +1828,7 @@ struct FeedButton: View {
             return color
         }
 
-        switch FeedButtonDebugSettings.visualStyle {
+        switch debugStore.visualStyle {
         case .nativeProminentGlass:
             return kind == .light ? .black : .white
         case .nativeGlass:
@@ -1847,8 +1848,8 @@ struct FeedButton: View {
 #if DEBUG
         _ = debugStyleGeneration
         return size == .compact
-            ? CGFloat(FeedButtonDebugSettings.compactCornerRadius)
-            : CGFloat(FeedButtonDebugSettings.mediumCornerRadius)
+            ? CGFloat(debugStore.compactCornerRadius)
+            : CGFloat(debugStore.mediumCornerRadius)
 #else
         return size == .compact ? 5 : 6
 #endif
@@ -1857,8 +1858,8 @@ struct FeedButton: View {
 #if DEBUG
         _ = debugStyleGeneration
         return size == .compact
-            ? CGFloat(FeedButtonDebugSettings.compactHorizontalPadding)
-            : CGFloat(FeedButtonDebugSettings.mediumHorizontalPadding)
+            ? CGFloat(debugStore.compactHorizontalPadding)
+            : CGFloat(debugStore.mediumHorizontalPadding)
 #else
         return size == .compact ? 8 : 12
 #endif
@@ -1867,8 +1868,8 @@ struct FeedButton: View {
 #if DEBUG
         _ = debugStyleGeneration
         return size == .compact
-            ? CGFloat(FeedButtonDebugSettings.compactVerticalPadding)
-            : CGFloat(FeedButtonDebugSettings.mediumVerticalPadding)
+            ? CGFloat(debugStore.compactVerticalPadding)
+            : CGFloat(debugStore.mediumVerticalPadding)
 #else
         return size == .compact ? 4 : 5
 #endif
@@ -1877,7 +1878,7 @@ struct FeedButton: View {
     private var foreground: Color {
 #if DEBUG
         _ = debugStyleGeneration
-        if let color = FeedButtonDebugSettings.color(
+        if let color = debugStore.color(
             for: kind,
             role: .foreground,
             colorScheme: colorScheme
@@ -1901,7 +1902,7 @@ struct FeedButton: View {
     private var backgroundFill: Color {
 #if DEBUG
         _ = debugStyleGeneration
-        if let color = FeedButtonDebugSettings.color(
+        if let color = debugStore.color(
             for: kind,
             role: isHovered ? .hoverBackground : .background,
             colorScheme: colorScheme
@@ -1942,7 +1943,7 @@ struct FeedButton: View {
 #if DEBUG
     private var glassEffectTint: Color {
         _ = debugStyleGeneration
-        if let color = FeedButtonDebugSettings.color(
+        if let color = debugStore.color(
             for: kind,
             role: isHovered ? .hoverBackground : .background,
             colorScheme: colorScheme
@@ -1968,7 +1969,7 @@ struct FeedButton: View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
 #if DEBUG
         let generation = debugStyleGeneration
-        switch generation >= 0 ? FeedButtonDebugSettings.visualStyle : .solid {
+        switch generation >= 0 ? debugStore.visualStyle : .solid {
         case .solid:
             shape.fill(backgroundFill)
         case .standardGlass:
@@ -1979,7 +1980,7 @@ struct FeedButton: View {
                 .overlay(
                     shape.fill(
                         backgroundFill.opacity(
-                            FeedButtonDebugSettings.glassTintOpacity
+                            debugStore.glassTintOpacity
                         )
                     )
                 )
@@ -1989,7 +1990,7 @@ struct FeedButton: View {
                 .overlay(
                     shape.fill(
                         backgroundFill.opacity(
-                            FeedButtonDebugSettings.glassTintOpacity
+                            debugStore.glassTintOpacity
                         )
                     )
                 )
@@ -2000,7 +2001,7 @@ struct FeedButton: View {
                     .fill(Color.clear)
                     .glassEffect(
                         .regular
-                            .tint(glassEffectTint.opacity(FeedButtonDebugSettings.glassTintOpacity))
+                            .tint(glassEffectTint.opacity(debugStore.glassTintOpacity))
                             .interactive(!dimmed),
                         in: shape
                     )
@@ -2021,7 +2022,7 @@ struct FeedButton: View {
                     .fill(Color.clear)
                     .glassEffect(
                         .regular
-                            .tint(glassEffectTint.opacity(FeedButtonDebugSettings.glassTintOpacity))
+                            .tint(glassEffectTint.opacity(debugStore.glassTintOpacity))
                             .interactive(!dimmed),
                         in: shape
                     )
@@ -2046,7 +2047,7 @@ struct FeedButton: View {
                 .overlay(
                     shape.fill(
                         backgroundFill.opacity(
-                            FeedButtonDebugSettings.glassTintOpacity
+                            debugStore.glassTintOpacity
                         )
                     )
                 )
@@ -2070,7 +2071,7 @@ struct FeedButton: View {
                 .overlay(
                     shape.fill(
                         backgroundFill.opacity(
-                            FeedButtonDebugSettings.glassTintOpacity
+                            debugStore.glassTintOpacity
                         )
                     )
                 )
@@ -2095,7 +2096,7 @@ struct FeedButton: View {
                 .overlay(
                     shape.fill(
                         backgroundFill.opacity(
-                            FeedButtonDebugSettings.glassTintOpacity
+                            debugStore.glassTintOpacity
                         )
                     )
                 )
@@ -2106,7 +2107,7 @@ struct FeedButton: View {
                 .overlay(
                     shape.fill(
                         backgroundFill.opacity(
-                            FeedButtonDebugSettings.glassTintOpacity
+                            debugStore.glassTintOpacity
                         )
                     )
                 )
@@ -2125,19 +2126,19 @@ struct FeedButton: View {
 #if DEBUG
         let generation = debugStyleGeneration
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        switch generation >= 0 ? FeedButtonDebugSettings.visualStyle : .solid {
+        switch generation >= 0 ? debugStore.visualStyle : .solid {
         case .solid:
             EmptyView()
         case .standardGlass:
-            shape.stroke(Color.white.opacity(0.12), lineWidth: FeedButtonDebugSettings.borderWidth)
+            shape.stroke(Color.white.opacity(0.12), lineWidth: debugStore.borderWidth)
         case .standardTintedGlass:
-            shape.stroke(backgroundFill.opacity(0.22), lineWidth: FeedButtonDebugSettings.borderWidth)
+            shape.stroke(backgroundFill.opacity(0.22), lineWidth: debugStore.borderWidth)
         case .glass:
             shape.stroke(Color.white.opacity(0.16), lineWidth: 0.75)
         case .nativeGlass:
-            shape.stroke(Color.white.opacity(0.14), lineWidth: FeedButtonDebugSettings.borderWidth)
+            shape.stroke(Color.white.opacity(0.14), lineWidth: debugStore.borderWidth)
         case .nativeProminentGlass:
-            shape.stroke(Color.white.opacity(0.18), lineWidth: FeedButtonDebugSettings.borderWidth)
+            shape.stroke(Color.white.opacity(0.18), lineWidth: debugStore.borderWidth)
         case .liquid:
             shape.stroke(
                 LinearGradient(
@@ -2149,19 +2150,19 @@ struct FeedButton: View {
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 ),
-                lineWidth: FeedButtonDebugSettings.borderWidth
+                lineWidth: debugStore.borderWidth
             )
         case .halo:
             shape.stroke(
                 backgroundFill.opacity(isHovered || isSelected ? 0.55 : 0.34),
-                lineWidth: FeedButtonDebugSettings.borderWidth
+                lineWidth: debugStore.borderWidth
             )
         case .command:
-            shape.stroke(Color.white.opacity(0.12), lineWidth: FeedButtonDebugSettings.borderWidth)
+            shape.stroke(Color.white.opacity(0.12), lineWidth: debugStore.borderWidth)
         case .commandLight:
-            shape.stroke(Color.black.opacity(0.12), lineWidth: FeedButtonDebugSettings.borderWidth)
+            shape.stroke(Color.black.opacity(0.12), lineWidth: debugStore.borderWidth)
         case .outline:
-            shape.stroke(backgroundFill.opacity(0.75), lineWidth: FeedButtonDebugSettings.borderWidth)
+            shape.stroke(backgroundFill.opacity(0.75), lineWidth: debugStore.borderWidth)
         case .flat:
             EmptyView()
         }
@@ -2173,7 +2174,7 @@ struct FeedButton: View {
     private var buttonShadowColor: Color {
 #if DEBUG
         _ = debugStyleGeneration
-        switch FeedButtonDebugSettings.visualStyle {
+        switch debugStore.visualStyle {
         case .halo:
             return backgroundFill.opacity(isHovered || isSelected ? 0.44 : 0.24)
         case .liquid:
@@ -2195,7 +2196,7 @@ struct FeedButton: View {
     private var buttonShadowRadius: CGFloat {
 #if DEBUG
         _ = debugStyleGeneration
-        switch FeedButtonDebugSettings.visualStyle {
+        switch debugStore.visualStyle {
         case .halo: return isHovered || isSelected ? 9 : 6
         case .liquid: return isHovered || isSelected ? 5 : 3
         case .nativeProminentGlass: return isHovered || isSelected ? 5 : 3
@@ -2211,7 +2212,7 @@ struct FeedButton: View {
     private var buttonShadowY: CGFloat {
 #if DEBUG
         _ = debugStyleGeneration
-        switch FeedButtonDebugSettings.visualStyle {
+        switch debugStore.visualStyle {
         case .halo: return 2
         case .liquid, .nativeProminentGlass, .command, .commandLight: return 1
         case .standardGlass, .standardTintedGlass, .solid, .glass, .nativeGlass, .outline, .flat: return 0
