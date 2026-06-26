@@ -106,6 +106,7 @@ export default {
       const parsed = parsePairedMacBackup(body.value);
       if (!parsed.ok) return json({ error: parsed.error }, 400);
       const result = await team.stub.backupPairedMacs(team.teamId, team.user.id, parsed.ops, clientScope);
+      if (!result.ok) return json({ error: result.error }, result.status);
       return json(result);
     }
 

@@ -128,6 +128,13 @@ export type PairedMacBackupParse =
   | { ok: true; ops: PairedMacBackupOp[] }
   | { ok: false; error: string };
 
+export class PairedMacBackupApplyError extends Error {
+  constructor(readonly code: "too_many_client_scopes") {
+    super(code);
+    this.name = "PairedMacBackupApplyError";
+  }
+}
+
 function trimmedString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -347,7 +354,7 @@ export async function applyBackupOps(
   const collection = pairedMacsCollection(userId, clientScope);
   const scope = normalizeClientScope(clientScope);
   if (scope && !(await hasScopedCollectionCapacity(storage, userId, collection))) {
-    return [];
+    throw new PairedMacBackupApplyError("too_many_client_scopes");
   }
   if (scope) {
     await seedScopedBackupFromUnscopedIfNeeded(storage, userId, collection, nowMs);

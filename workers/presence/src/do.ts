@@ -57,6 +57,7 @@ import {
   listBackupSnapshotWithUnscopedFallback,
   normalizeClientScope,
   pairedMacsCollection,
+  PairedMacBackupApplyError,
   PAIRED_MACS_COLLECTION,
   PAIRED_MACS_COLLECTION_TOMBSTONE_PREFIXES,
   relabelDelta,
@@ -334,9 +335,17 @@ export class TeamPresence extends DurableObject {
     userId: string,
     ops: readonly PairedMacBackupOp[],
     clientScope?: string | null,
-  ): Promise<{ ok: true; changed: number }> {
+  ): Promise<{ ok: true; changed: number } | { ok: false; error: string; status: number }> {
     await this.rememberTeamId(teamId);
-    const deltas = await applyBackupOps(this.syncStorage(), userId, ops, Date.now(), clientScope);
+    let deltas;
+    try {
+      deltas = await applyBackupOps(this.syncStorage(), userId, ops, Date.now(), clientScope);
+    } catch (error) {
+      if (error instanceof PairedMacBackupApplyError) {
+        return { ok: false, error: error.code, status: 409 };
+      }
+      throw error;
+    }
     if (!normalizeClientScope(clientScope)) {
       for (const delta of deltas) this.broadcastSyncToUser(userId, delta);
     }

@@ -16,6 +16,7 @@ import {
   MAX_PAIRED_MAC_RECORDS_PER_USER,
   MAX_PAIRED_MACS_PER_USER,
   normalizeClientScope,
+  PairedMacBackupApplyError,
   pairedMacsCollection,
   PAIRED_MACS_COLLECTION,
   PAIRED_MACS_COLLECTION_TOMBSTONE_PREFIXES,
@@ -158,14 +159,20 @@ describe("applyBackupOps", () => {
       expect(deltas).toHaveLength(1);
     }
 
-    const over = await applyBackupOps(
-      storage,
-      "user-1",
-      [{ kind: "upsert", id: "blocked", record: record("blocked", "10.0.0.2", 22) }],
-      T0 + 1000,
-      "ios:blocked",
-    );
-    expect(over).toEqual([]);
+    let overError: unknown;
+    try {
+      await applyBackupOps(
+        storage,
+        "user-1",
+        [{ kind: "upsert", id: "blocked", record: record("blocked", "10.0.0.2", 22) }],
+        T0 + 1000,
+        "ios:blocked",
+      );
+    } catch (error) {
+      overError = error;
+    }
+    expect(overError).toBeInstanceOf(PairedMacBackupApplyError);
+    expect((overError as PairedMacBackupApplyError).code).toBe("too_many_client_scopes");
     expect((await listBackupSnapshot(storage, "user-1", "ios:blocked")).records).toEqual([]);
 
     const existingScopeUpdate = await applyBackupOps(
