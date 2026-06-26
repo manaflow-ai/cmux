@@ -191,7 +191,7 @@ def test_shell_integration_preserves_empty_path_components(failures: list[str]) 
         base_env["CMUX_SHELL_INTEGRATION_DIR"] = str(SHELL_INTEGRATION_DIR)
         base_env["CMUX_SURFACE_ID"] = surface_id
         base_env["TMPDIR"] = str(tmpdir)
-        base_env["PATH"] = f":{first}::{shim_root}:{last}:"
+        base_env["CMUX_TEST_PATH"] = f":{first}::{shim_root}:{last}:"
         base_env.pop("CMUX_SOCKET_PATH", None)
         base_env.pop("GHOSTTY_BIN_DIR", None)
 
@@ -201,13 +201,13 @@ def test_shell_integration_preserves_empty_path_components(failures: list[str]) 
                 "--noprofile",
                 "--norc",
                 "-c",
-                'source "$CMUX_SHELL_INTEGRATION_DIR/cmux-bash-integration.bash"; printf "%s\\n" "$PATH"',
+                'PATH="$CMUX_TEST_PATH"; export PATH; source "$CMUX_SHELL_INTEGRATION_DIR/cmux-bash-integration.bash"; printf "%s\\n" "$PATH"',
             ],
             [
                 "/bin/zsh",
                 "-f",
                 "-c",
-                'source "$CMUX_SHELL_INTEGRATION_DIR/cmux-zsh-integration.zsh"; printf "%s\\n" "$PATH"',
+                'PATH="$CMUX_TEST_PATH"; export PATH; source "$CMUX_SHELL_INTEGRATION_DIR/cmux-zsh-integration.zsh"; printf "%s\\n" "$PATH"',
             ],
         ]
         for argv in shell_commands:
