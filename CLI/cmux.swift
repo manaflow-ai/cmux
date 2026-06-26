@@ -275,6 +275,33 @@ final class ClaudeHookSessionStore {
         }
     }
 
+    func lookupLatestSession(workspaceId: String?, surfaceId: String?) throws -> ClaudeHookSessionRecord? {
+        let normalizedWorkspace = normalizeOptional(workspaceId)
+        let normalizedSurface = normalizeOptional(surfaceId)
+        guard normalizedWorkspace != nil || normalizedSurface != nil else {
+            return nil
+        }
+        return try withLockedState { state in
+            let matches = state.sessions.values.filter { record in
+                if let normalizedWorkspace, normalizeOptional(record.workspaceId) != normalizedWorkspace {
+                    return false
+                }
+                if let normalizedSurface, normalizeOptional(record.surfaceId) != normalizedSurface {
+                    return false
+                }
+                return true
+            }
+            guard !matches.isEmpty else { return nil }
+            if let normalizedSurface,
+               let nonSurfaceSession = matches
+                   .filter({ normalizeOptional($0.sessionId) != normalizedSurface })
+                   .max(by: { $0.updatedAt < $1.updatedAt }) {
+                return nonSurfaceSession
+            }
+            return matches.max(by: { $0.updatedAt < $1.updatedAt })
+        }
+    }
+
     struct AutoNamingRecentMessagesSnapshot {
         var messages: [AutoNamingTranscriptMessage]
         var totalMessageCount: Int
@@ -29592,8 +29619,51 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let hookCwd = input.cwd
             ?? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"])
             ?? normalizedHookValue(env["PWD"])
-        let sessionId = resolvedAgentHookSessionId(def: def, input: input, env: env, cwd: hookCwd)
+        let inputSessionId = normalizedHookValue(input.sessionId)
+        var sessionId = resolvedAgentHookSessionId(def: def, input: input, env: env, cwd: hookCwd)
         let action = Self.subcommandActions[subcommand] ?? .noop
+        func shouldAdoptSurfaceSessionForIdlessHook(action: AgentHookAction) -> Bool {
+            guard def.name == "gemini", inputSessionId == nil else {
+                return false
+            }
+            switch action {
+            case .promptSubmit, .stop:
+                return true
+            case .sessionStart, .notification, .approvalResponse, .sessionEnd, .sessionFinalize, .noop:
+                return false
+            }
+        }
+        func idlessHookSurfaceLookupTarget() -> (workspaceId: String, surfaceId: String)? {
+            if let workspaceId = resolvedDirectWorkspaceArg {
+                if let surfaceId = resolvedDirectSurfaceArg {
+                    return (workspaceId, surfaceId)
+                }
+                if let bindingSurface = processBinding()?.surfaceId,
+                   let surfaceId = resolveAccessibleSurfaceId(bindingSurface, workspaceId: workspaceId) {
+                    return (workspaceId, surfaceId)
+                }
+                if let surfaceId = resolveDefaultSurfaceId(workspaceId: workspaceId) {
+                    return (workspaceId, surfaceId)
+                }
+            }
+            guard let binding = processBinding(),
+                  let workspaceId = resolveAccessibleWorkspaceId(binding.workspaceId) else {
+                return nil
+            }
+            if let surfaceId = resolveAccessibleSurfaceId(binding.surfaceId, workspaceId: workspaceId)
+                ?? resolveDefaultSurfaceId(workspaceId: workspaceId) {
+                return (workspaceId, surfaceId)
+            }
+            return nil
+        }
+        if shouldAdoptSurfaceSessionForIdlessHook(action: action),
+           let target = idlessHookSurfaceLookupTarget(),
+           let existing = try? store.lookupLatestSession(
+                workspaceId: target.workspaceId,
+                surfaceId: target.surfaceId
+           ) {
+            sessionId = existing.sessionId
+        }
 #if DEBUG
         agentHookDebugLog(
             "agentHook.start agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) inputSession=\(agentHookDebugShort(input.sessionId)) rawBytes=\(rawInput.utf8.count) hasCwd=\(hookCwd == nil ? 0 : 1) envWorkspace=\(env["CMUX_WORKSPACE_ID"] == nil ? 0 : 1) envSurface=\(env["CMUX_SURFACE_ID"] == nil ? 0 : 1) directWorkspace=\(directWorkspaceArg == nil ? 0 : 1) directSurface=\(directSurfaceArg == nil ? 0 : 1) invalidDirect=\(hasUnusableDirectBinding ? 1 : 0) processBinding=\(processBindingDebugState()) socketName=\(agentHookDebugSocketName(client.socketPath))",
