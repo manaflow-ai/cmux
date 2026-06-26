@@ -38,7 +38,6 @@ public actor UserDefaultsSettingsStore {
         String: [(source: UserDefaultsSettingsMutationSource, sequence: UInt64)]
     ] = [:]
     private var acceptedMutationLogicalOrders: [String: UInt64] = [:]
-    private var acceptedMutationSourceSequences: [String: [UUID: UInt64]] = [:]
     private var mutationSourceSequences: [String: UInt64] = [:]
     private let maximumSupersededMutationSourcesPerKey = 64
 
@@ -176,16 +175,11 @@ public actor UserDefaultsSettingsStore {
     ) -> Bool {
         guard let source else { return true }
 
-        if let acceptedOrder = acceptedMutationLogicalOrders[storageKey],
-           source.logicalOrder <= acceptedOrder {
-            return false
-        }
-
-        guard let acceptedSequence = acceptedMutationSourceSequences[storageKey]?[source.ownerID] else {
+        guard let acceptedOrder = acceptedMutationLogicalOrders[storageKey] else {
             return true
         }
 
-        return source.sequence > acceptedSequence
+        return source.logicalOrder > acceptedOrder
     }
 
     private func recordAcceptedMutation(
@@ -197,16 +191,6 @@ public actor UserDefaultsSettingsStore {
             acceptedMutationLogicalOrders[storageKey] ?? 0,
             logicalOrder
         )
-
-        guard let source else { return }
-
-        var ownerSequences = acceptedMutationSourceSequences[storageKey] ?? [:]
-        if let acceptedSequence = ownerSequences[source.ownerID] {
-            ownerSequences[source.ownerID] = max(acceptedSequence, source.sequence)
-        } else {
-            ownerSequences[source.ownerID] = source.sequence
-        }
-        acceptedMutationSourceSequences[storageKey] = ownerSequences
     }
 
     private func recordSupersededMutationSource(

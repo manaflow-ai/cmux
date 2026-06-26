@@ -31,6 +31,11 @@ import Testing
         var didTerminate = false
     }
 
+    @MainActor
+    private final class CallbackFlag {
+        var didRun = false
+    }
+
     private func event<Value: SettingCodable>(
         _ value: Value,
         source: UserDefaultsSettingsMutationSource? = nil,
@@ -472,6 +477,35 @@ import Testing
         }
 
         #expect(valueObservedAfterCommit == true)
+    }
+
+    @Test func setAfterCommitSkipsCallbackWhenStoreRejectsStaleWrite() async {
+        let suiteName = "defaults-value-model-after-commit-stale"
+        UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
+        let store = UserDefaultsSettingsStore(
+            defaults: UserDefaults(suiteName: suiteName)!
+        )
+        let key = SettingCatalog().betaFeatures.extensions
+        let (stream, _) = AsyncStream<DefaultsEvent<Bool>>.makeStream()
+        let model = DefaultsValueModel(
+            store: store,
+            key: key,
+            makeStream: { _ in stream }
+        )
+        let flag = CallbackFlag()
+
+        model.set(true) {
+            flag.didRun = true
+        }
+        await store.set(false, for: key)
+
+        for _ in 0..<100 {
+            await Task.yield()
+        }
+
+        let storedValue = await store.value(for: key)
+        #expect(storedValue == false)
+        #expect(!flag.didRun)
     }
 
     private func waitUntil(_ condition: () -> Bool) async {

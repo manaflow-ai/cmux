@@ -51,9 +51,10 @@ struct UserDefaultsSettingsStoreSourceOrderingTests {
             await store.set("#OTHER", for: key, source: source)
         }
 
-        await store.set("#STALE-LATE", for: key, source: staleSource)
+        let acceptedSource = await store.set("#STALE-LATE", for: key, source: staleSource)
 
         let value = await store.value(for: key)
+        #expect(acceptedSource == nil)
         #expect(value == "#OTHER")
     }
 
@@ -73,9 +74,10 @@ struct UserDefaultsSettingsStoreSourceOrderingTests {
         )
 
         await store.reset(key, source: newerSource)
-        await store.set("#STALE-LATE", for: key, source: staleSource)
+        let acceptedSource = await store.set("#STALE-LATE", for: key, source: staleSource)
 
         let value = await store.value(for: key)
+        #expect(acceptedSource == nil)
         #expect(value == key.defaultValue)
     }
 
@@ -90,9 +92,10 @@ struct UserDefaultsSettingsStoreSourceOrderingTests {
         )
 
         await store.set("#SOURCELESS", for: key)
-        await store.set("#STALE-LATE", for: key, source: staleSource)
+        let acceptedSource = await store.set("#STALE-LATE", for: key, source: staleSource)
 
         let value = await store.value(for: key)
+        #expect(acceptedSource == nil)
         #expect(value == "#SOURCELESS")
     }
 }

@@ -145,7 +145,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         updateCurrent(value)
         Task { @MainActor [self, store, key, source, value, afterCommit] in
             guard shouldCommitStoreWrite(for: source) else { return }
-            await store.set(value, for: key, source: source)
+            guard await store.set(value, for: key, source: source) != nil else { return }
             afterCommit()
         }
         return source

@@ -33,7 +33,7 @@ final class SettingReadDriver<Value: Sendable> {
     ///     weakly here so the forwarding task does not retain it.
     func activate(
         _ makeStream: () -> AsyncStream<Value>,
-        sink: @escaping @MainActor @Sendable (Value) -> Void
+        sink: @escaping @MainActor (Value) -> Void
     ) {
         guard task == nil else { return }
         let stream = makeStream()
