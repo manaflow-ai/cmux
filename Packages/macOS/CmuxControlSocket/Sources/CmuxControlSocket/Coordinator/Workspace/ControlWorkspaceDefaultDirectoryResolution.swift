@@ -2,7 +2,7 @@ public import Foundation
 
 /// The outcome of `workspace.get_cwd` and `workspace.set_cwd`.
 public enum ControlWorkspaceDefaultDirectoryResolution: Sendable, Equatable {
-    /// No TabManager resolved (legacy `unavailable` / "TabManager not available").
+    /// No workspace context resolved (`unavailable` / "Workspace unavailable").
     case tabManagerUnavailable
     /// A TabManager resolved but had no selected workspace.
     case noWorkspaceSelected

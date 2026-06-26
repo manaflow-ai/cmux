@@ -109,7 +109,7 @@ extension ControlCommandCoordinator {
             ?? .tabManagerUnavailable
         switch resolution {
         case .tabManagerUnavailable:
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: "Workspace unavailable", data: nil)
         case .resolved(let windowID, let workspaces, let selectedIndex):
             let rows: [JSONValue] = workspaces.enumerated().map { index, summary in
                 workspaceSummaryPayload(summary, index: index, selected: index == selectedIndex)
@@ -128,7 +128,7 @@ extension ControlCommandCoordinator {
             ?? .tabManagerUnavailable
         switch resolution {
         case .tabManagerUnavailable:
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: "Workspace unavailable", data: nil)
         case .noWorkspaceSelected:
             return .err(code: "not_found", message: "No workspace selected", data: nil)
         case .resolved(let windowID, let workspaceID, let index, let summary):
@@ -154,7 +154,7 @@ extension ControlCommandCoordinator {
     /// `ControlCallResult`, like `surface.move` / `debug.terminals`.
     func workspaceCreate(_ params: [String: JSONValue]) -> ControlCallResult {
         context?.controlWorkspaceCreate(params: params)
-            ?? .err(code: "unavailable", message: "TabManager not available", data: nil)
+            ?? .err(code: "unavailable", message: "Workspace unavailable", data: nil)
     }
 
     // MARK: - Default cwd
@@ -227,7 +227,7 @@ extension ControlCommandCoordinator {
         // Legacy resolved the TabManager BEFORE param validation, so unresolvable
         // routing wins over a missing/invalid param (`unavailable` first).
         guard context?.controlWorkspaceRoutingResolvesTabManager(routing: routing) ?? false else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: "Workspace unavailable", data: nil)
         }
         guard let workspaceID = uuid(params, "workspace_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
@@ -238,7 +238,7 @@ extension ControlCommandCoordinator {
         ) ?? .tabManagerUnavailable
         switch resolution {
         case .tabManagerUnavailable:
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: "Workspace unavailable", data: nil)
         case .notFound:
             return .err(code: "not_found", message: "Workspace not found", data: .object([
                 "workspace_id": .string(workspaceID.uuidString),
@@ -260,7 +260,7 @@ extension ControlCommandCoordinator {
         // Legacy resolved the TabManager BEFORE param validation, so unresolvable
         // routing wins over a missing/invalid param (`unavailable` first).
         guard context?.controlWorkspaceRoutingResolvesTabManager(routing: routing) ?? false else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: "Workspace unavailable", data: nil)
         }
         guard let workspaceID = uuid(params, "workspace_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
@@ -271,7 +271,7 @@ extension ControlCommandCoordinator {
         ) ?? .tabManagerUnavailable
         switch resolution {
         case .tabManagerUnavailable:
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: "Workspace unavailable", data: nil)
         case .protected(let windowID):
             let message = context?.controlWorkspaceStrings().closeProtected ?? ""
             return .err(code: "protected", message: message, data: .object([
@@ -352,7 +352,7 @@ extension ControlCommandCoordinator {
     /// `workspace.reorder` — move one workspace to an index/relative target.
     func workspaceReorder(_ params: [String: JSONValue]) -> ControlCallResult {
         guard context?.controlWorkspaceRoutingResolvesTabManager(routing: routingSelectors(params)) ?? false else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: "Workspace unavailable", data: nil)
         }
         guard let workspaceID = uuid(params, "workspace_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
@@ -583,7 +583,7 @@ extension ControlCommandCoordinator {
         ) ?? .tabManagerUnavailable
         switch resolution {
         case .tabManagerUnavailable:
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: "Workspace unavailable", data: nil)
         case .notFound:
             return .err(code: "not_found", message: "Workspace not found", data: .object([
                 "workspace_id": .string(workspaceID.uuidString),
@@ -609,7 +609,7 @@ extension ControlCommandCoordinator {
         // Legacy resolved the TabManager BEFORE param validation, so unresolvable
         // routing wins over a missing/invalid param (`unavailable` first).
         guard context?.controlWorkspaceRoutingResolvesTabManager(routing: routing) ?? false else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: "Workspace unavailable", data: nil)
         }
         guard let workspaceID = uuid(params, "workspace_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
@@ -624,7 +624,7 @@ extension ControlCommandCoordinator {
         ) ?? .tabManagerUnavailable
         switch resolution {
         case .tabManagerUnavailable:
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: "Workspace unavailable", data: nil)
         case .notFound:
             return .err(code: "not_found", message: "Workspace not found", data: .object([
                 "workspace_id": .string(workspaceID.uuidString),
@@ -650,7 +650,7 @@ extension ControlCommandCoordinator {
     ) -> ControlCallResult {
         switch resolution ?? .tabManagerUnavailable {
         case .tabManagerUnavailable:
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: "Workspace unavailable", data: nil)
         case .notFound:
             return .err(code: "not_found", message: notFoundMessage, data: nil)
         case .resolved(let workspaceID, let windowID):
@@ -697,7 +697,7 @@ extension ControlCommandCoordinator {
         ) ?? .tabManagerUnavailable
         switch resolution {
         case .tabManagerUnavailable:
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: "Workspace unavailable", data: nil)
         case .notFound:
             return .err(code: "not_found", message: "Workspace not found", data: nil)
         case .resolved(let workspaceID, let equalized):
