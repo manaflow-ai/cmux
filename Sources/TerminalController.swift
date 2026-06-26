@@ -9545,7 +9545,10 @@ class TerminalController {
               height <= Double(BrowserPanel.maximumMinimumViewportDimension) else {
             return .err(
                 code: "invalid_params",
-                message: "browser.viewport.set requires width and height from 0 to \(Int(BrowserPanel.maximumMinimumViewportDimension))",
+                message: String(
+                    localized: "browser.viewport.automation.error.invalidSize",
+                    defaultValue: "browser.viewport.set requires width and height from 0 to \(Int(BrowserPanel.maximumMinimumViewportDimension))"
+                ),
                 data: nil
             )
         }
@@ -9558,7 +9561,10 @@ class TerminalController {
                 (requestedHeight > 0 && requestedHeight > maximumReachable.height) {
                 return .err(
                     code: "invalid_params",
-                    message: "browser.viewport.set exceeds the current pane's maximum emulated viewport size",
+                    message: String(
+                        localized: "browser.viewport.automation.error.exceedsPaneLimit",
+                        defaultValue: "browser.viewport.set exceeds the current pane's maximum emulated viewport size"
+                    ),
                     data: [
                         "max_width": Int(maximumReachable.width.rounded(.down)),
                         "max_height": Int(maximumReachable.height.rounded(.down))
