@@ -12,7 +12,7 @@ actor GatedMetadataReader: WorkspaceGitMetadataReading {
     private var probeWaiters: [(minimumCount: Int, continuation: CheckedContinuation<Void, Never>)] = []
     private var isOpen = false
     private(set) var probedDirectories: [String] = []
-    private(set) var probedTrackedPathEventGenerations: [UInt64?] = []
+    private(set) var probedTrackedPathEventGenerations: [GitTrackedPathEventGeneration?] = []
 
     init(metadata: GitWorkspaceMetadata, gated: Bool = false) {
         self.metadata = metadata
@@ -46,7 +46,7 @@ actor GatedMetadataReader: WorkspaceGitMetadataReading {
 
     func workspaceMetadata(
         for directory: String,
-        trackedPathEventGeneration: UInt64?
+        trackedPathEventGeneration: GitTrackedPathEventGeneration?
     ) async -> GitWorkspaceMetadata {
         probedDirectories.append(directory)
         probedTrackedPathEventGenerations.append(trackedPathEventGeneration)

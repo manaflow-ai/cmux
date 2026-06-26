@@ -1,4 +1,5 @@
 import Foundation
+internal import CmuxGit
 
 // MARK: - Per-directory snapshot task bookkeeping.
 
@@ -28,11 +29,20 @@ extension SidebarGitMetadataService {
         workspaceGitSnapshotDirectoryByProbeKey.removeAll()
     }
 
-    func trackedPathEventGenerationForSnapshot(directory: String, reason: String) -> UInt64? {
+    func trackedPathEventGenerationForSnapshot(
+        directory: String,
+        reason: String
+    ) -> GitTrackedPathEventGeneration? {
         guard shouldUseTrackedSnapshotCache(reason: reason) else {
             return nil
         }
-        return workspaceGitSnapshotCacheGeneration(directory: directory)
+        guard let generation = workspaceGitSnapshotCacheGeneration(directory: directory) else {
+            return nil
+        }
+        return GitTrackedPathEventGeneration(
+            namespace: workspaceGitSnapshotCacheNamespace,
+            generation: generation
+        )
     }
 
     private func shouldUseTrackedSnapshotCache(reason: String) -> Bool {

@@ -179,8 +179,10 @@ import CmuxGit
         await reader.waitForTrackedPathEventGenerationProbe()
 
         let generations = await reader.probedTrackedPathEventGenerations
-        _ = try #require(generations.first)
-        #expect(generations == [eventGeneration])
+        let generation = try #require(generations.first ?? nil)
+        #expect(generations.count == 1)
+        #expect(generation.namespace == service.workspaceGitSnapshotCacheNamespace)
+        #expect(generation.generation == eventGeneration)
     }
 
     @Test func reusedWatcherMovesCacheGenerationToNewDirectory() throws {
@@ -311,6 +313,7 @@ import CmuxGit
         let host = RecordingSidebarGitHost()
         host.pollingEnabled = true
         let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/repo")
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
         host.workspaces[0].state.panels[panelId]?.branch = SidebarPanelGitBranch(
             branch: "feature/x",
             isDirty: true
@@ -340,6 +343,11 @@ import CmuxGit
         )
         await clock.waitForSleeper()
         await clock.resumeNext()
+        for _ in 0..<500 {
+            if service.workspaceGitProbeRerunPending(for: key) { break }
+            await Task.yield()
+        }
+        #expect(service.workspaceGitProbeRerunPending(for: key))
         await reader.openGate()
 
         for _ in 0..<500 {

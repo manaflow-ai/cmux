@@ -69,6 +69,7 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     var workspaceGitMetadataWatcherDescriptorRequestsByKey: [WorkspaceGitProbeKey: WorkspaceGitMetadataWatcherDescriptorRequest] = [:]
     var workspaceGitMetadataWatcherDescriptorGeneration: UInt64 = 0
     var workspaceGitMetadataFilesystemEventGeneration: UInt64 = 0
+    let workspaceGitSnapshotCacheNamespace = UUID()
     var workspaceGitSnapshotCacheGenerationByDirectory: [String: UInt64] = [:]
     var workspaceGitSnapshotRequestsByDirectory: [String: [WorkspaceGitProbeKey: WorkspaceGitSnapshotProbeRequest]] = [:]
     var workspaceGitSnapshotTasksByDirectory: [String: Task<Void, Never>] = [:]

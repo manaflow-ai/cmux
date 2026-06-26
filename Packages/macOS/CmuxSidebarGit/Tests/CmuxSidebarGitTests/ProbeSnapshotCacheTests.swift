@@ -124,7 +124,10 @@ import CmuxGit
 
         let generations = await reader.probedTrackedPathEventGenerations
         #expect(secondGeneration != firstGeneration)
-        #expect(generations == [firstGeneration])
+        let generation = try #require(generations.first ?? nil)
+        #expect(generations.count == 1)
+        #expect(generation.namespace == service.workspaceGitSnapshotCacheNamespace)
+        #expect(generation.generation == firstGeneration)
         #expect(service.workspaceGitProbeRerunPending(for: firstKey))
         #expect(service.workspaceGitProbeRerunPending(for: secondKey))
         await reader.openGate()

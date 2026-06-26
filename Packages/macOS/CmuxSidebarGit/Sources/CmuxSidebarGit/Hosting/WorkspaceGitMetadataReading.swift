@@ -12,14 +12,14 @@ public protocol WorkspaceGitMetadataReading: Sendable {
     /// only when the supplied watcher generation has not changed.
     func workspaceMetadata(
         for directory: String,
-        trackedPathEventGeneration: UInt64?
+        trackedPathEventGeneration: GitTrackedPathEventGeneration?
     ) async -> GitWorkspaceMetadata
 }
 
 public extension WorkspaceGitMetadataReading {
     func workspaceMetadata(
         for directory: String,
-        trackedPathEventGeneration: UInt64?
+        trackedPathEventGeneration: GitTrackedPathEventGeneration?
     ) async -> GitWorkspaceMetadata {
         await workspaceMetadata(for: directory)
     }

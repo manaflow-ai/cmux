@@ -31,7 +31,7 @@ struct InitialWorkspaceGitMetadataSnapshot: Equatable, Sendable {
     init(
         probing directory: String,
         reader: any WorkspaceGitMetadataReading,
-        trackedPathEventGeneration: UInt64? = nil
+        trackedPathEventGeneration: GitTrackedPathEventGeneration? = nil
     ) async {
         let metadata = await reader.workspaceMetadata(
             for: directory,

@@ -62,19 +62,20 @@ public struct GitMetadataService: Sendable {
     }
 
     /// Reads a point-in-time git snapshot for `directory`, allowing callers
-    /// with a repository filesystem-event generation to enable tracked-change
-    /// reuse when no relevant event has arrived.
+    /// with a repository filesystem-event generation token to enable
+    /// tracked-change reuse when no relevant event has arrived.
     ///
     /// - Parameters:
     ///   - directory: An absolute path to inspect.
-    ///   - trackedPathEventGeneration: A caller-owned generation that changes
-    ///     whenever the watched repository paths report a filesystem event.
-    ///     Pass `nil` when no watcher is active; the read then avoids reuse.
+    ///   - trackedPathEventGeneration: A caller-owned, namespaced generation
+    ///     that changes whenever the watched repository paths report a
+    ///     filesystem event. Pass `nil` when no watcher is active; the read
+    ///     then avoids reuse.
     /// - Returns: The git metadata for the enclosing repository, or
     ///   ``GitWorkspaceMetadata/notARepository`` when there is none.
     public nonisolated func workspaceMetadata(
         for directory: String,
-        trackedPathEventGeneration: UInt64?
+        trackedPathEventGeneration: GitTrackedPathEventGeneration?
     ) async -> GitWorkspaceMetadata {
         guard let repository = Self.resolveGitRepository(containing: directory) else {
             return .notARepository
@@ -95,7 +96,7 @@ public struct GitMetadataService: Sendable {
 
     nonisolated func gitTrackedChangesSnapshot(
         repository: ResolvedGitRepository,
-        trackedPathEventGeneration: UInt64?
+        trackedPathEventGeneration: GitTrackedPathEventGeneration?
     ) async -> GitTrackedChangesSnapshot {
         let indexURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("index")
         guard let trackedPathEventGeneration,

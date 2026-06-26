@@ -1,7 +1,7 @@
 import Foundation
 
 /// Bounded cache of tracked-change scans keyed by repository, index stat, and
-/// caller-owned filesystem-event generation.
+/// namespaced caller-owned filesystem-event generation.
 actor GitTrackedChangesSnapshotCache {
     private let maximumEntryCount: Int
     private var entriesByKey: [
@@ -16,7 +16,7 @@ actor GitTrackedChangesSnapshotCache {
     func snapshot(
         repository: ResolvedGitRepository,
         indexStatSignature: GitIndexStatSignature,
-        trackedPathEventGeneration: UInt64
+        trackedPathEventGeneration: GitTrackedPathEventGeneration
     ) -> GitTrackedChangesSnapshot? {
         let key = GitTrackedChangesSnapshotCacheKey(
             repository: repository,
@@ -30,7 +30,7 @@ actor GitTrackedChangesSnapshotCache {
         _ snapshot: GitTrackedChangesSnapshot,
         repository: ResolvedGitRepository,
         indexStatSignature: GitIndexStatSignature,
-        trackedPathEventGeneration: UInt64
+        trackedPathEventGeneration: GitTrackedPathEventGeneration
     ) {
         let key = GitTrackedChangesSnapshotCacheKey(
             repository: repository,

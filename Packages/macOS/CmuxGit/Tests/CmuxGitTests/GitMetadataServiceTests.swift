@@ -156,14 +156,15 @@ import Testing
         let filePath = fixture.root.appendingPathComponent("file.txt").path
         let reader = CountingGitFileStatusReader()
         let service = GitMetadataService(fileStatusReader: reader)
+        let generation = GitTrackedPathEventGeneration(namespace: UUID(), generation: 10)
 
         let first = await service.gitTrackedChangesSnapshot(
             repository: repository,
-            trackedPathEventGeneration: 10
+            trackedPathEventGeneration: generation
         )
         let second = await service.gitTrackedChangesSnapshot(
             repository: repository,
-            trackedPathEventGeneration: 10
+            trackedPathEventGeneration: generation
         )
 
         #expect(first == second)
@@ -179,15 +180,16 @@ import Testing
         let fileURL = fixture.root.appendingPathComponent("file.txt")
         let reader = CountingGitFileStatusReader()
         let service = GitMetadataService(fileStatusReader: reader)
+        let namespace = UUID()
 
         let clean = await service.gitTrackedChangesSnapshot(
             repository: repository,
-            trackedPathEventGeneration: 20
+            trackedPathEventGeneration: GitTrackedPathEventGeneration(namespace: namespace, generation: 20)
         )
         try "hello, dirty".write(to: fileURL, atomically: true, encoding: .utf8)
         let dirty = await service.gitTrackedChangesSnapshot(
             repository: repository,
-            trackedPathEventGeneration: 21
+            trackedPathEventGeneration: GitTrackedPathEventGeneration(namespace: namespace, generation: 21)
         )
 
         #expect(clean.isDirty == false)
@@ -204,15 +206,17 @@ import Testing
         let fileURL = fixture.root.appendingPathComponent("file.txt")
         let reader = CountingGitFileStatusReader()
         let service = GitMetadataService(fileStatusReader: reader)
+        let firstOwner = UUID()
+        let secondOwner = UUID()
 
         let clean = await service.gitTrackedChangesSnapshot(
             repository: repository,
-            trackedPathEventGeneration: 1
+            trackedPathEventGeneration: GitTrackedPathEventGeneration(namespace: firstOwner, generation: 1)
         )
         try "hello, dirty".write(to: fileURL, atomically: true, encoding: .utf8)
         let dirty = await service.gitTrackedChangesSnapshot(
             repository: repository,
-            trackedPathEventGeneration: 1
+            trackedPathEventGeneration: GitTrackedPathEventGeneration(namespace: secondOwner, generation: 1)
         )
 
         #expect(clean.isDirty == false)
@@ -230,10 +234,11 @@ import Testing
         let filePath = fixture.root.appendingPathComponent("file.txt").path
         let reader = CountingGitFileStatusReader()
         let service = GitMetadataService(fileStatusReader: reader)
+        let generation = GitTrackedPathEventGeneration(namespace: UUID(), generation: 30)
 
         _ = await service.gitTrackedChangesSnapshot(
             repository: repository,
-            trackedPathEventGeneration: 30
+            trackedPathEventGeneration: generation
         )
         var changedIndexStatus = try #require(reader.statusWithoutRecording(atPath: indexPath))
         changedIndexStatus = GitFileStatus(
@@ -245,7 +250,7 @@ import Testing
         reader.overrideStatus(changedIndexStatus, atPath: indexPath)
         _ = await service.gitTrackedChangesSnapshot(
             repository: repository,
-            trackedPathEventGeneration: 30
+            trackedPathEventGeneration: generation
         )
 
         #expect(reader.callCount(atPath: filePath) == 2)
