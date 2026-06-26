@@ -36,6 +36,7 @@ public actor UserDefaultsSettingsStore {
     private var supersededMutationSources: [
         String: [(source: UserDefaultsSettingsMutationSource, sequence: UInt64)]
     ] = [:]
+    private var acceptedMutationLogicalOrders: [String: UInt64] = [:]
     private var acceptedMutationSourceSequences: [String: [UUID: UInt64]] = [:]
     private var mutationSourceSequences: [String: UInt64] = [:]
     private let maximumSupersededMutationSourcesPerKey = 64
@@ -78,9 +79,8 @@ public actor UserDefaultsSettingsStore {
 
     /// Writes a value for the key.
     ///
-    /// If `source` is older than a source from the same owner that this key has
-    /// already accepted or superseded, the stale write is ignored and `nil` is
-    /// returned.
+    /// If `source` is older than a logical write that this key has already
+    /// accepted, the stale write is ignored and `nil` is returned.
     @discardableResult
     public func set<Value>(
         _ value: Value,
@@ -90,7 +90,7 @@ public actor UserDefaultsSettingsStore {
         guard shouldAcceptMutationSource(source, for: key.userDefaultsKey) else {
             return nil
         }
-        recordAcceptedMutationSource(source, for: key.userDefaultsKey)
+        recordAcceptedMutation(source, for: key.userDefaultsKey)
         recordMutationSource(source, value: value, for: key.userDefaultsKey)
         storage.set(value, for: key)
         return source
@@ -99,9 +99,8 @@ public actor UserDefaultsSettingsStore {
     /// Removes the stored override for the key. After this call ``value(for:)``
     /// returns the key's default value until something writes a new override.
     ///
-    /// If `source` is older than a source from the same owner that this key has
-    /// already accepted or superseded, the stale reset is ignored and `nil` is
-    /// returned.
+    /// If `source` is older than a logical write that this key has already
+    /// accepted, the stale reset is ignored and `nil` is returned.
     @discardableResult
     public func reset<Value>(
         _ key: DefaultsKey<Value>,
@@ -110,7 +109,7 @@ public actor UserDefaultsSettingsStore {
         guard shouldAcceptMutationSource(source, for: key.userDefaultsKey) else {
             return nil
         }
-        recordAcceptedMutationSource(source, for: key.userDefaultsKey)
+        recordAcceptedMutation(source, for: key.userDefaultsKey)
         recordMutationSource(source, value: key.defaultValue, for: key.userDefaultsKey)
         storage.removeObject(forKey: key.userDefaultsKey)
         return source
@@ -176,6 +175,11 @@ public actor UserDefaultsSettingsStore {
     ) -> Bool {
         guard let source else { return true }
 
+        if let acceptedOrder = acceptedMutationLogicalOrders[storageKey],
+           source.logicalOrder <= acceptedOrder {
+            return false
+        }
+
         guard let acceptedSequence = acceptedMutationSourceSequences[storageKey]?[source.ownerID] else {
             return true
         }
@@ -183,10 +187,16 @@ public actor UserDefaultsSettingsStore {
         return source.sequence > acceptedSequence
     }
 
-    private func recordAcceptedMutationSource(
+    private func recordAcceptedMutation(
         _ source: UserDefaultsSettingsMutationSource?,
         for storageKey: String
     ) {
+        let logicalOrder = source?.logicalOrder ?? UserDefaultsSettingsMutationSource.nextLogicalOrder()
+        acceptedMutationLogicalOrders[storageKey] = max(
+            acceptedMutationLogicalOrders[storageKey] ?? 0,
+            logicalOrder
+        )
+
         guard let source else { return }
 
         var ownerSequences = acceptedMutationSourceSequences[storageKey] ?? [:]
