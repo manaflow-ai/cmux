@@ -21,7 +21,6 @@ struct SignInView: View {
     @State private var isGoogleSigningIn = false
     @State private var shouldAutofocusCode = false
     @State private var shouldAutofocusEmail = false
-    @State private var signInTask: Task<Void, Never>?
     private let errorPresentation = SignInErrorPresentation()
     @FocusState private var isEmailFocused: Bool
     @FocusState private var isCodeFocused: Bool
@@ -77,7 +76,7 @@ struct SignInView: View {
                 SignInAuthRestoreStatusView()
 
                 Button {
-                    signInTask = Task {
+                    Task {
                         await signInWithApple()
                     }
                 } label: {
@@ -94,7 +93,7 @@ struct SignInView: View {
                 .accessibilityIdentifier("signin.apple")
 
                 Button {
-                    signInTask = Task {
+                    Task {
                         await signInWithGoogle()
                     }
                 } label: {
@@ -132,7 +131,7 @@ struct SignInView: View {
 
                     Button {
                         let autofocusCodeOnSuccess = isEmailFocused
-                        signInTask = Task {
+                        Task {
                             await sendCode(autofocusCodeOnSuccess: autofocusCodeOnSuccess)
                         }
                     } label: {
@@ -149,8 +148,6 @@ struct SignInView: View {
                 if let error {
                     errorText(error)
                 }
-
-                cancelSignInButton
             }
         }
         .opacity(isAuthInProgress ? 0.6 : 1.0)
@@ -189,7 +186,7 @@ struct SignInView: View {
                             case let .assign(normalizedCode):
                                 code = normalizedCode
                             case .verify:
-                                signInTask = Task {
+                                Task {
                                     await verifyCode()
                                 }
                             case .none:
@@ -210,10 +207,8 @@ struct SignInView: View {
                     errorText(error)
                 }
 
-                cancelSignInButton
-
                 Button {
-                    signInTask = Task {
+                    Task {
                         await verifyCode()
                     }
                 } label: {
@@ -249,24 +244,6 @@ struct SignInView: View {
 
     private var isAuthInProgress: Bool {
         isInteractiveAuthInProgress || authManager.isRestoringSession
-    }
-
-    /// Escape hatch while a sign-in flow is in flight: cancels the running
-    /// task, which tears down any presented system auth sheet and ends the
-    /// loading state silently (no error). Without this, a stuck flow left the
-    /// whole screen disabled with no way out.
-    @ViewBuilder
-    private var cancelSignInButton: some View {
-        if isInteractiveAuthInProgress {
-            Button {
-                signInTask?.cancel()
-            } label: {
-                Text(L10n.string("mobile.signIn.cancel", defaultValue: "Cancel"))
-                    .font(.subheadline)
-            }
-            .foregroundStyle(.secondary)
-            .accessibilityIdentifier("signin.cancel")
-        }
     }
 
     private func sendCode(autofocusCodeOnSuccess: Bool) async {
