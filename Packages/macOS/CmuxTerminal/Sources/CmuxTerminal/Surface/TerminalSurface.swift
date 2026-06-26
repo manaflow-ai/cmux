@@ -463,6 +463,84 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         surfaceView.tabId = newTabId
     }
 
+    // MARK: - Terminal title normalization (issue #6291)
+
+    /// The last spinner-normalized title published to `.ghosttyDidSetTitle` for
+    /// this surface. CLI tools animate spinners by rewriting the terminal title
+    /// every frame, so frame-by-frame updates that collapse to the same stable
+    /// title are dropped before they reach the workspace title coalescer and the
+    /// toolbar command-text updater. Mutated only through the main-actor
+    /// `publishableTerminalTitle(forRawTitle:)`, matching this type's unannotated
+    /// stored-property convention.
+    private var lastPublishedTerminalTitle: String?
+
+    /// Unicode scalars that CLI tools cycle through purely to animate a spinner in
+    /// the terminal title (`pnpm`, `npm`, `cargo`, generic braille spinners, …).
+    /// They carry no information — only the current animation frame — so two
+    /// titles that differ solely by these scalars denote the same logical state.
+    public static let terminalTitleSpinnerScalars: Set<Unicode.Scalar> = {
+        var scalars = Set<Unicode.Scalar>()
+        // The entire Braille Patterns block (U+2800…U+28FF). Every popular CLI
+        // spinner style (`dots`, `dots2`, …, and the `⣾⣽⣻⢿⡿⣟⣯⣷` family) is built
+        // from these code points, and braille never legitimately appears in a
+        // terminal title, so removing them is safe.
+        for value in 0x2800...0x28FF {
+            if let scalar = Unicode.Scalar(value) { scalars.insert(scalar) }
+        }
+        // Non-braille rotating glyphs used by other common spinner styles.
+        let extras: [Unicode.Scalar] = [
+            "◐", "◓", "◑", "◒",
+            "◴", "◷", "◶", "◵",
+            "◰", "◱", "◲", "◳",
+            "▖", "▘", "▝", "▗",
+        ]
+        for scalar in extras { scalars.insert(scalar) }
+        return scalars
+    }()
+
+    /// Returns `raw` with spinner animation glyphs removed and the whitespace they
+    /// bordered collapsed, so successive animation frames of a CLI spinner title
+    /// reduce to one stable string (`"⠋ pnpm install"` and `"⠙ pnpm install"` both
+    /// become `"pnpm install"`). Titles that contain no spinner glyph are returned
+    /// unchanged (fast path), so ordinary titles keep their exact text.
+    public static func stableTerminalNotificationTitle(_ raw: String) -> String {
+        guard raw.unicodeScalars.contains(where: { terminalTitleSpinnerScalars.contains($0) }) else {
+            return raw
+        }
+        let whitespace = CharacterSet.whitespacesAndNewlines
+        var normalized = ""
+        var pendingWhitespace = false
+        var emittedNonWhitespace = false
+        for scalar in raw.unicodeScalars {
+            if terminalTitleSpinnerScalars.contains(scalar) { continue }
+            if whitespace.contains(scalar) {
+                // Defer whitespace so the spaces that surrounded a removed spinner
+                // glyph collapse instead of leaving a double space.
+                if emittedNonWhitespace { pendingWhitespace = true }
+                continue
+            }
+            if pendingWhitespace {
+                normalized.append(" ")
+                pendingWhitespace = false
+            }
+            normalized.unicodeScalars.append(scalar)
+            emittedNonWhitespace = true
+        }
+        return normalized
+    }
+
+    /// Returns the spinner-normalized title to publish for `rawTitle`, or `nil`
+    /// when it equals the previously published title (so the caller skips posting
+    /// `.ghosttyDidSetTitle` entirely). Main-actor isolated so the dedup state is
+    /// updated without locking.
+    @MainActor
+    public func publishableTerminalTitle(forRawTitle rawTitle: String) -> String? {
+        let stable = Self.stableTerminalNotificationTitle(rawTitle)
+        guard stable != lastPublishedTerminalTitle else { return nil }
+        lastPublishedTerminalTitle = stable
+        return stable
+    }
+
     deinit {
         claudeCommandShimInstallTask?.cancel()
         claudeCommandShimCompletionTask?.cancel()

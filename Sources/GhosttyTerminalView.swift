@@ -2886,13 +2886,26 @@ class GhosttyApp {
                 .flatMap { String(cString: $0) } ?? ""
             if let tabId = surfaceView.tabId,
                let sourceSurface = surfaceView.terminalSurface {
-                let change = GhosttyTitleChange(tabId: tabId, surfaceId: sourceSurface.id, title: title)
                 DispatchQueue.main.async {
-                    NotificationCenter.default.post(
-                        name: .ghosttyDidSetTitle,
-                        object: sourceSurface,
-                        userInfo: change.userInfo
-                    )
+                    // Collapse frame-by-frame spinner titles at the source
+                    // (issue #6291): drop posts whose spinner-normalized title is
+                    // unchanged so the workspace title coalescer, sidebar layout,
+                    // and toolbar command-text updater are not flooded.
+                    MainActor.assumeIsolated {
+                        guard let stableTitle = sourceSurface.publishableTerminalTitle(forRawTitle: title) else {
+                            return
+                        }
+                        let change = GhosttyTitleChange(
+                            tabId: tabId,
+                            surfaceId: sourceSurface.id,
+                            title: stableTitle
+                        )
+                        NotificationCenter.default.post(
+                            name: .ghosttyDidSetTitle,
+                            object: sourceSurface,
+                            userInfo: change.userInfo
+                        )
+                    }
                 }
             }
             return true

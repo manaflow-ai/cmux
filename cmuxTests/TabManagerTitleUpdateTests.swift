@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import CmuxSettings
+import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -499,6 +500,26 @@ struct TabManagerTitleUpdateTests {
         #expect(workspace.panelTitles[focusedPanelId] == "pnpm install")
         #expect(workspace.title == "pnpm install")
         #expect(workspaceTitleChangeCount == 1)
+    }
+
+    @Test
+    func stableTerminalNotificationTitleStripsSpinnerGlyphs() {
+        // Braille spinner frames of the same logical title collapse to one string.
+        let frames = ["⠋ pnpm install", "⠙ pnpm install", "⠹ pnpm install", "⠸ pnpm install"]
+        let normalized = Set(frames.map { TerminalSurface.stableTerminalNotificationTitle($0) })
+        #expect(normalized == ["pnpm install"])
+
+        // Trailing / embedded spinner glyphs are removed and the bordering
+        // whitespace collapses instead of leaving a double space.
+        #expect(TerminalSurface.stableTerminalNotificationTitle("Building ⠧ project") == "Building project")
+        #expect(TerminalSurface.stableTerminalNotificationTitle("deploying ⣾") == "deploying")
+
+        // Titles with no spinner glyph are returned unchanged (fast path), so
+        // ordinary titles — including ones with em dashes or double spaces — keep
+        // their exact text.
+        #expect(TerminalSurface.stableTerminalNotificationTitle("~/code/cmux — zsh") == "~/code/cmux — zsh")
+        #expect(TerminalSurface.stableTerminalNotificationTitle("a/b-c  d") == "a/b-c  d")
+        #expect(TerminalSurface.stableTerminalNotificationTitle("").isEmpty)
     }
 
     private func drainMainQueue() async {
