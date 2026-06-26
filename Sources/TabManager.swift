@@ -1701,9 +1701,13 @@ class TabManager: ObservableObject {
         setCustomTitle(tabId: tabId, title: nil)
     }
 
-    func setCustomDescription(tabId: UUID, description: String?) {
+    func setCustomDescription(
+        tabId: UUID,
+        description: String?,
+        source: Workspace.CustomDescriptionSource = .user
+    ) {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
-        tabs[index].setCustomDescription(description)
+        tabs[index].setCustomDescription(description, source: source)
     }
 
     func clearCustomDescription(tabId: UUID) {

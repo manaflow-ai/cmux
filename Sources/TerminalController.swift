@@ -4084,7 +4084,7 @@ class TerminalController {
                     result = .err(code: "invalid_params", message: "Missing or invalid description", data: nil)
                     return
                 }
-                tabManager.setCustomDescription(tabId: workspace.id, description: descriptionRaw)
+                tabManager.setCustomDescription(tabId: workspace.id, description: descriptionRaw, source: .agent)
                 finish(["description": v2OrNull(workspace.customDescription)])
 
             case "clear_description":
