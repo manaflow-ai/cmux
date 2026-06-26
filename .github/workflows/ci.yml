@@ -249,7 +249,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Typecheck
-        run: bun tsc --noEmit
+        run: bun run typecheck
 
       - name: Web tests
         run: bun test
