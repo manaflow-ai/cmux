@@ -87,4 +87,21 @@ public struct CommandPaletteRenameTarget: Equatable {
             return String(localized: "commandPalette.rename.tabConfirmHint", defaultValue: "Press Enter to apply this tab name, or Escape to cancel.", bundle: .main)
         }
     }
+
+    /// Whether submitting an empty name is a valid rename action.
+    public var allowsEmptyName: Bool {
+        switch kind {
+        case .workspace, .tab:
+            return true
+        case .workspaceGroup:
+            return false
+        }
+    }
+
+    /// Label shown if a confirmation state displays an empty proposed name.
+    public var emptyNameConfirmationLabel: String {
+        allowsEmptyName
+            ? String(localized: "commandPalette.rename.clearCustomName", defaultValue: "(clear custom name)", bundle: .main)
+            : currentName
+    }
 }

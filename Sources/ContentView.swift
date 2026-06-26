@@ -3646,7 +3646,7 @@ struct ContentView: View {
         proposedName: String
     ) -> some View {
         let trimmedName = proposedName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let nextName = trimmedName.isEmpty ? String(localized: "commandPalette.rename.clearCustomName", defaultValue: "(clear custom name)") : trimmedName
+        let nextName = trimmedName.isEmpty ? target.emptyNameConfirmationLabel : trimmedName
 
         return VStack(spacing: 0) {
             Text(nextName)
@@ -6665,11 +6665,7 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.renameWorkspace",
-                title: { context in
-                    context.bool(CommandPaletteContextKeys.workspaceIsGroupAnchor)
-                        ? String(localized: "workspaceGroup.contextMenu.rename", defaultValue: "Rename Group…")
-                        : String(localized: "command.renameWorkspace.title", defaultValue: "Rename Workspace…")
-                },
+                title: { $0.bool(CommandPaletteContextKeys.workspaceIsGroupAnchor) ? String(localized: "workspaceGroup.contextMenu.rename", defaultValue: "Rename Group…") : String(localized: "command.renameWorkspace.title", defaultValue: "Rename Workspace…") },
                 subtitle: workspaceSubtitle,
                 keywords: ["rename", "workspace", "group", "title"],
                 dismissOnRun: false,
@@ -9273,11 +9269,7 @@ struct ContentView: View {
             return
         }
         if let group = tabManager.workspaceGroups.first(where: { $0.anchorWorkspaceId == workspace.id }) {
-            let target = CommandPaletteRenameTarget(
-                kind: .workspaceGroup(groupId: group.id),
-                currentName: group.name
-            )
-            startRenameFlow(target)
+            startRenameFlow(CommandPaletteRenameTarget(kind: .workspaceGroup(groupId: group.id), currentName: group.name))
             return
         }
         let target = CommandPaletteRenameTarget(
@@ -9357,6 +9349,13 @@ struct ContentView: View {
     private func applyRenameFlow(target: CommandPaletteRenameTarget, proposedName: String) {
         let trimmedName = proposedName.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedName: String? = trimmedName.isEmpty ? nil : trimmedName
+        guard target.allowsEmptyName || !trimmedName.isEmpty else {
+            NSSound.beep()
+            commandPaletteMode = .renameInput(target)
+            resetCommandPaletteRenameFocus()
+            syncCommandPaletteDebugStateForObservedWindow()
+            return
+        }
 
         switch target.kind {
         case .workspace(let workspaceId):

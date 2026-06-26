@@ -15,5 +15,7 @@ import Testing
         #expect(target.placeholder == "Group name")
         #expect(target.inputHint == "Enter a workspace group name. Press Enter to rename, Escape to cancel.")
         #expect(target.confirmHint == "Press Enter to apply this workspace group name, or Escape to cancel.")
+        #expect(!target.allowsEmptyName)
+        #expect(target.emptyNameConfirmationLabel == "Backend")
     }
 }
