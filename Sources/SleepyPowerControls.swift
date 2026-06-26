@@ -31,26 +31,13 @@ enum SleepyPowerControls {
         run("/usr/bin/pmset", ["displaysleepnow"])
     }
 
-    // The real macOS login lock. This is the only genuinely secure, unbypassable
-    // lock available to an app — it's Apple's loginwindow, not our overlay.
-    // SACLockScreenImmediate is a private login.framework symbol, loaded
-    // dynamically (it's unavailable in Swift directly). No privileges needed.
-    nonisolated(unsafe) private static let lockScreenFn: (@convention(c) () -> Void)? = {
-        guard let handle = dlopen("/System/Library/PrivateFrameworks/login.framework/Versions/Current/login", RTLD_LAZY),
-              let symbol = dlsym(handle, "SACLockScreenImmediate") else { return nil }
-        return unsafeBitCast(symbol, to: (@convention(c) () -> Void).self)
-    }()
-
-    /// Engages the real macOS login lock (account password / Touch ID). If the
-    /// private symbol is unavailable, falls back to `CGSession -suspend`, which
-    /// genuinely locks the session (switches to loginwindow) — never to a plain
-    /// display sleep, which would not lock and would be a false security claim.
+    /// Engages the real macOS login lock via the supported `CGSession -suspend`
+    /// mechanism (fast-user-switch to loginwindow; returning to the session
+    /// requires the account password / Touch ID). This is the genuinely secure
+    /// boundary — Apple's loginwindow, not our overlay — and it avoids depending
+    /// on any private/undocumented login.framework symbol.
     static func lockMacNow() {
-        if let lockScreenFn {
-            lockScreenFn()
-        } else {
-            run("/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession", ["-suspend"])
-        }
+        run("/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession", ["-suspend"])
     }
 
     /// Reads the current energy mode without elevated privileges.
@@ -165,9 +152,13 @@ enum SleepyPowerControls {
     // One long-lived authorization for the whole app session. Reusing it (rather
     // than creating + destroying one per call) lets macOS keep the admin
     // credential cached (~5 min), so back-to-back toggles don't re-prompt.
+    // `privilegedLock` serializes the lazy init and every privileged call, since
+    // the toggle is invoked from detached tasks across one-overlay-per-display.
     nonisolated(unsafe) private static var sharedAuthorization: AuthorizationRef?
+    private static let privilegedLock = NSLock()
 
-    private static func authorizationRef() -> AuthorizationRef? {
+    // Caller must hold `privilegedLock`.
+    private static func authorizationRefLocked() -> AuthorizationRef? {
         if let sharedAuthorization { return sharedAuthorization }
         var ref: AuthorizationRef?
         guard AuthorizationCreate(nil, nil, [], &ref) == errAuthorizationSuccess, let ref else { return nil }
@@ -177,7 +168,9 @@ enum SleepyPowerControls {
 
     @discardableResult
     private static func runPrivileged(_ tool: String, _ args: [String]) -> Bool {
-        guard let authExec, let authorization = authorizationRef() else { return false }
+        privilegedLock.lock()
+        defer { privilegedLock.unlock() }
+        guard let authExec, let authorization = authorizationRefLocked() else { return false }
 
         var cArgs: [UnsafeMutablePointer<CChar>?] = args.map { strdup($0) }
         cArgs.append(nil)
