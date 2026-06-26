@@ -77,6 +77,30 @@ struct AttentionQueueSidebarTests {
     }
 
     @Test
+    func needsInputAgentStatusWithoutNotificationNeedsAttention() throws {
+        let waiting = workspace(
+            title: "Waiting",
+            customDescription: "Agent workspace",
+            remoteDisplayTarget: nil,
+            remoteConnectionState: nil,
+            agentStatus: .needsInput,
+            agentStatusText: "入力が必要です"
+        )
+        let snapshot = CmuxSidebarProviderSnapshot(
+            sequence: 1,
+            selectedWorkspaceId: nil,
+            workspaces: [waiting]
+        )
+
+        let model = AttentionQueueSidebar().render(snapshot: snapshot)
+
+        let attention = try #require(model.sections.first { $0.id == "attention" })
+        #expect(attention.rows.map(\.workspaceId) == [waiting.id])
+        #expect(attention.rows.first?.subtitle == .plain("入力が必要です"))
+        #expect(attention.rows.first?.subtitleRole == .agentStatus)
+    }
+
+    @Test
     func genericNotificationSubtitleKeepsProviderRole() throws {
         let notified = workspace(
             title: "Build",
@@ -84,7 +108,8 @@ struct AttentionQueueSidebarTests {
             remoteDisplayTarget: nil,
             remoteConnectionState: nil,
             latestNotificationText: "Build failed in deploy step",
-            agentStatus: .needsInput
+            agentStatus: .needsInput,
+            agentStatusText: "Needs input"
         )
         let snapshot = CmuxSidebarProviderSnapshot(
             sequence: 1,

@@ -26,7 +26,7 @@ public struct CmuxSidebarProviderWorkspace: Identifiable, Codable, Equatable, Se
     public var latestNotificationText: String?
     /// Current structured agent status for this workspace.
     public var agentStatus: CmuxSidebarProviderWorkspaceAgentStatus?
-    /// Structured agent status text, if the host has one for this workspace.
+    /// Structured agent status text paired with ``agentStatus``, if the host has one.
     public var agentStatusText: String?
     /// Latest submitted prompt text.
     public var latestSubmittedMessage: String?

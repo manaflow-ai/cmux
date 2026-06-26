@@ -63,6 +63,7 @@ public struct AttentionQueueSidebar: CmuxSidebarProvider {
     private func needsAttention(_ workspace: CmuxSidebarProviderWorkspace) -> Bool {
         workspace.unreadCount > 0
             || trimmed(workspace.latestNotificationText) != nil
+            || (workspace.agentStatus == .needsInput && trimmed(workspace.agentStatusText) != nil)
             || (hasRemoteTarget(workspace) && (
                 workspace.remoteConnectionState == "connecting"
                     || workspace.remoteConnectionState == "reconnecting"
@@ -71,12 +72,17 @@ public struct AttentionQueueSidebar: CmuxSidebarProvider {
     }
 
     private func rowSubtitle(_ workspace: CmuxSidebarProviderWorkspace) -> CmuxSidebarProviderText? {
+        if let notification = trimmed(workspace.latestNotificationText) {
+            if workspace.agentStatus == .needsInput,
+               let statusText = trimmed(workspace.agentStatusText),
+               notification == statusText {
+                return .plain(statusText)
+            }
+            return .plain(notification)
+        }
         if workspace.agentStatus == .needsInput,
            let statusText = trimmed(workspace.agentStatusText) {
             return .plain(statusText)
-        }
-        if let notification = trimmed(workspace.latestNotificationText) {
-            return .plain(notification)
         }
         if hasRemoteTarget(workspace),
            let remoteState = trimmed(workspace.remoteConnectionState),
@@ -87,8 +93,12 @@ public struct AttentionQueueSidebar: CmuxSidebarProvider {
     }
 
     private func rowSubtitleRole(_ workspace: CmuxSidebarProviderWorkspace) -> CmuxSidebarProviderRowSubtitleRole? {
-        guard trimmed(workspace.agentStatusText) != nil,
-              workspace.agentStatus == .needsInput else {
+        guard workspace.agentStatus == .needsInput,
+              let statusText = trimmed(workspace.agentStatusText) else {
+            return nil
+        }
+        if let notification = trimmed(workspace.latestNotificationText),
+           notification != statusText {
             return nil
         }
         return .agentStatus

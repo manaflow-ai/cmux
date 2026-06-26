@@ -11296,6 +11296,7 @@ struct VerticalTabsSidebar: View {
 
     private func extensionWorkspaceSnapshot(for workspace: Workspace) -> CmuxSidebarProviderWorkspace {
         let rootPath = extensionSidebarRootPath(for: workspace)
+        let agentStatusSnapshot = workspace.agentStatusIndicatorSnapshot()
         return CmuxSidebarProviderWorkspace(
             id: workspace.id,
             title: workspace.title,
@@ -11308,7 +11309,7 @@ struct VerticalTabsSidebar: View {
             remoteConnectionState: workspace.remoteConnectionState.rawValue,
             unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id),
             latestNotificationText: sidebarUnread.latestNotificationText(forWorkspaceId: workspace.id),
-            agentStatus: CmuxSidebarProviderWorkspaceAgentStatus(rawValue: extensionSidebarAgentLifecycleState(for: workspace)?.rawValue ?? ""), agentStatusText: workspace.sidebarStatusEntriesInDisplayOrder().first { AgentHibernationLifecycleStatusKeys.isAllowed($0.key) }?.value,
+            agentStatus: CmuxSidebarProviderWorkspaceAgentStatus(rawValue: agentStatusSnapshot?.state.rawValue ?? ""), agentStatusText: agentStatusSnapshot?.text,
             latestSubmittedMessage: workspace.latestSubmittedMessage,
             latestSubmittedAt: workspace.latestSubmittedAt,
             listeningPorts: workspace.listeningPorts,
@@ -11319,7 +11320,6 @@ struct VerticalTabsSidebar: View {
             }
         )
     }
-
     private func extensionSidebarRootPath(for workspace: Workspace) -> String? {
         workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
     }

@@ -102,4 +102,35 @@ struct WorkspaceSidebarObservationTests {
             ) == .needsInput
         )
     }
+
+    @Test
+    func agentStatusIndicatorTextMatchesDominantLifecycleKey() {
+        let workspace = Workspace()
+        let runningPanelId = UUID()
+        let waitingPanelId = UUID()
+        workspace.agentLifecycleStatesByPanelId[runningPanelId] = ["codex": .running]
+        workspace.agentLifecycleStatesByPanelId[waitingPanelId] = ["claude_code": .needsInput]
+        workspace.statusEntries["codex"] = SidebarStatusEntry(key: "codex", value: "Running")
+        workspace.statusEntries["claude_code"] = SidebarStatusEntry(key: "claude_code", value: "Needs input")
+
+        let snapshot = workspace.agentStatusIndicatorSnapshot()
+
+        #expect(snapshot?.state == .needsInput)
+        #expect(snapshot?.text == "Needs input")
+    }
+
+    @Test
+    func agentStatusIndicatorTextIgnoresAmbiguousSharedStatusKey() {
+        let workspace = Workspace()
+        let runningPanelId = UUID()
+        let waitingPanelId = UUID()
+        workspace.agentLifecycleStatesByPanelId[runningPanelId] = ["codex": .running]
+        workspace.agentLifecycleStatesByPanelId[waitingPanelId] = ["codex": .needsInput]
+        workspace.statusEntries["codex"] = SidebarStatusEntry(key: "codex", value: "Running")
+
+        let snapshot = workspace.agentStatusIndicatorSnapshot()
+
+        #expect(snapshot?.state == .needsInput)
+        #expect(snapshot?.text == nil)
+    }
 }

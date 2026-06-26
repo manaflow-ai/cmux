@@ -145,6 +145,28 @@ extension Workspace {
         }
     }
 
+    func agentStatusIndicatorSnapshot() -> (state: AgentHibernationLifecycleState, text: String?)? {
+        var statesByKey: [String: [AgentHibernationLifecycleState]] = [:]
+        for panelStates in agentLifecycleStatesByPanelId.values {
+            for (key, state) in panelStates {
+                statesByKey[key, default: []].append(state)
+            }
+        }
+        let states = statesByKey.values.flatMap { $0 }
+        guard !states.isEmpty else { return nil }
+        let state = AgentHibernationLifecycleState.dominantForStatusIndicator(in: states, fallback: .unknown)
+        let text = statesByKey.compactMap { key, keyStates -> SidebarStatusEntry? in
+            guard keyStates.allSatisfy({ $0 == state }),
+                  AgentHibernationLifecycleStatusKeys.isAllowed(key) else {
+                return nil
+            }
+            return statusEntries[key]
+        }.max {
+            isSidebarStatusEntryLessCurrent($0, than: $1)
+        }?.value
+        return (state, text)
+    }
+
     private func shouldDisplaySidebarStatusEntry(
         _ entry: SidebarStatusEntry,
         visibleStructuredStatusKeys: Set<String>
