@@ -278,6 +278,15 @@ import WebKit
         }
 
         if navigationAction.shouldPerformDownload {
+            if navigationAction.targetFrame?.isMainFrame == false,
+               let url = navigationAction.request.url,
+               shouldBlockInsecureHTTPNavigation?(url) == true {
+                #if DEBUG
+                cmuxDebugLog("browser.nav.decidePolicy.action kind=cancelDownload reason=insecureHTTPSubframe url=\(url.absoluteString)")
+                #endif
+                decisionHandler(.cancel)
+                return
+            }
             decisionHandler(.download)
             return
         }
