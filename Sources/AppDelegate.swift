@@ -1817,6 +1817,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             PostHogAnalytics.shared.trackActive(reason: "didBecomeActive")
         }
 
+        if !isRunningUnderXCTestCached, RightSidebarBetaFeatureSettings.isNotesEnabled() {
+            // Windows are up now, so deliver any offline notes left pending by an
+            // earlier flush that ran before windows/workspaces were ready. No-ops
+            // when offline or when nothing is pending.
+            Task { await OfflineNotesStore.shared.flush() }
+        }
+
         guard let notificationStore else { return }
         notificationStore.handleApplicationDidBecomeActive()
         guard let tabManager else { return }

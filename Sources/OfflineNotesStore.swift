@@ -188,7 +188,11 @@ final class OfflineNotesStore {
             persist()
         }
 
-        while isOnline, let index = notes.firstIndex(where: { $0.status == .pending }) {
+        // Notes deferred this pass (their target workspace isn't visible yet) are
+        // skipped so they don't block deliverable notes, and excluded from
+        // re-selection so the loop can't spin.
+        var deferred = Set<UUID>()
+        while isOnline, let index = notes.firstIndex(where: { $0.status == .pending && !deferred.contains($0.id) }) {
             var note = notes[index]
             note.status = .sending
             note.attemptCount += 1
@@ -205,18 +209,20 @@ final class OfflineNotesStore {
                     applyInMemory(delivered)
                 }
             } catch OfflineNoteDispatchError.noActiveWorkspace {
-                // No cmux window is available yet (e.g. at launch, before windows
-                // are restored, or with every window closed). This is transient
-                // and applies to the whole queue, so revert this note to pending
-                // and stop — a later flush (reconnect, or opening Notes once a
-                // window exists) retries it. Notes are never stranded as failed.
+                // The note's captured workspace isn't deliverable-and-visible right
+                // now — no window yet at launch, the workspace was closed, or the
+                // user switched away. This is transient: revert to pending, defer
+                // it this pass, and keep trying other notes. A later flush
+                // (app activation, reselecting the workspace, reconnect, or opening
+                // Notes) retries it. Notes are never stranded as failed.
                 if var deferredNote = self.note(id: note.id) {
                     deferredNote.status = .pending
                     deferredNote.attemptCount = max(0, deferredNote.attemptCount - 1)
                     deferredNote.updatedAt = Date()
                     applyInMemory(deferredNote)
                 }
-                break
+                deferred.insert(note.id)
+                continue
             } catch {
 #if DEBUG
                 cmuxDebugLog("offlineNotes.dispatch.failed error=\(error.localizedDescription)")

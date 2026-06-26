@@ -24,30 +24,26 @@ import Foundation
 /// the queue.
 @MainActor
 final class OfflineNoteAgentDispatcher: OfflineNoteDispatching {
-    /// Whether any cmux window currently exists. Injectable for tests.
-    private let hasAnyWindow: @MainActor () -> Bool
-    /// Resolves the workspace a note should be delivered to. Injectable for tests.
-    private let resolveWorkspace: @MainActor (UUID?) -> Workspace?
+    /// Resolves the **visible** target workspace for a note. Injectable for tests.
+    private let resolveVisibleWorkspace: @MainActor (UUID?) -> Workspace?
 
-    init(
-        hasAnyWindow: @escaping @MainActor () -> Bool = OfflineNoteAgentDispatcher.defaultHasAnyWindow,
-        resolveWorkspace: @escaping @MainActor (UUID?) -> Workspace? = OfflineNoteAgentDispatcher.defaultResolveWorkspace
-    ) {
-        self.hasAnyWindow = hasAnyWindow
-        self.resolveWorkspace = resolveWorkspace
+    init(resolveVisibleWorkspace: @escaping @MainActor (UUID?) -> Workspace? = OfflineNoteAgentDispatcher.defaultResolveVisibleWorkspace) {
+        self.resolveVisibleWorkspace = resolveVisibleWorkspace
     }
 
     func dispatch(_ note: OfflineNote) async throws {
-        // No window yet (e.g. at launch before windows are restored). Signal a
-        // transient condition so the store keeps the note pending and retries,
-        // rather than marking it failed.
-        guard hasAnyWindow() else {
+        // Deliver only when the captured workspace is currently visible (the
+        // selected workspace in one of the open windows). Otherwise — no window
+        // yet at launch, the workspace was closed, or the user switched away —
+        // signal a transient condition so the store keeps the note pending and
+        // retries when it becomes visible, rather than staging it into a hidden
+        // draft the user would never notice (which would falsely read as "sent").
+        guard let workspace = resolveVisibleWorkspace(note.workspaceID) else {
             throw OfflineNoteDispatchError.noActiveWorkspace
         }
-        // A window exists but the captured workspace is gone or has no focused
-        // terminal: undeliverable now, surfaced as a (retryable) failure.
-        guard let workspace = resolveWorkspace(note.workspaceID),
-              let terminal = workspace.focusedTerminalPanel else {
+        // The workspace is visible but has no focused terminal to stage into:
+        // surfaced as a retryable failure (the user can focus a terminal + retry).
+        guard let terminal = workspace.focusedTerminalPanel else {
             throw OfflineNoteDispatchError.noComposerTarget
         }
 
@@ -65,23 +61,19 @@ final class OfflineNoteAgentDispatcher: OfflineNoteDispatching {
         )
     }
 
-    private static func defaultHasAnyWindow() -> Bool {
-        !(AppDelegate.shared?.mainWindowContexts.isEmpty ?? true)
-    }
-
-    /// Default resolver: deliver only to the workspace the note was captured in.
-    /// Searches every open window for that workspace; returns `nil` (fail closed)
-    /// when it no longer exists. Legacy notes without a binding fall back to the
-    /// active workspace.
-    private static func defaultResolveWorkspace(_ workspaceID: UUID?) -> Workspace? {
+    /// Returns the captured workspace only when it is the workspace currently
+    /// selected in one of the open windows, so the staged note is visible to the
+    /// user. Returns `nil` (transient) when there is no window, the workspace is
+    /// gone, or it is not the selected workspace. Legacy notes without a binding
+    /// fall back to the active workspace.
+    private static func defaultResolveVisibleWorkspace(_ workspaceID: UUID?) -> Workspace? {
         guard let appDelegate = AppDelegate.shared else { return nil }
         guard let workspaceID else {
             return appDelegate.activeTabManagerForCommands()?.selectedWorkspace
         }
-        for context in appDelegate.mainWindowContexts.values {
-            if let workspace = context.tabManager.tabs.first(where: { $0.id == workspaceID }) {
-                return workspace
-            }
+        for context in appDelegate.mainWindowContexts.values
+        where context.tabManager.selectedWorkspace?.id == workspaceID {
+            return context.tabManager.selectedWorkspace
         }
         return nil
     }
