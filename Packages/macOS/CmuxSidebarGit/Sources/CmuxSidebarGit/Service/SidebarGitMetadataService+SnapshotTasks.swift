@@ -37,7 +37,7 @@ extension SidebarGitMetadataService {
 
     private func shouldUseTrackedSnapshotCache(reason: String) -> Bool {
         switch reason {
-        case "fallbackTimer", "mobileHostDeferred", "rerunPending":
+        case "fallbackTimer", "mobileHostDeferred", "rerunPending", "branchChange":
             return false
         default:
             return true
