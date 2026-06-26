@@ -15,12 +15,11 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
     @ObservationIgnored
     private var changeObservers: [UUID: AsyncStream<Void>.Continuation] = [:]
 
-    /// Emits immediately on subscription and again whenever any runtime map changes.
+    /// Emits whenever any runtime map changes.
     func changes() -> AsyncStream<Void> {
         AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let id = UUID()
             changeObservers[id] = continuation
-            continuation.yield(())
             continuation.onTermination = { [weak self] _ in
                 Task { @MainActor in self?.changeObservers[id] = nil }
             }
