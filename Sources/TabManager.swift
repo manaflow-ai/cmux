@@ -3283,32 +3283,21 @@ class TabManager: ObservableObject {
     func dismissNotificationOnTerminalInteraction(tabId: UUID, surfaceId: UUID?) -> Bool {
         notificationDismissal.dismissNotificationOnTerminalInteraction(workspaceId: tabId, surfaceId: surfaceId)
     }
-    /// Collapses a raw terminal title to its spinner-free, stable form so
-    /// frame-by-frame spinner updates do not each mutate the workspace title.
-    /// Shares one normalization algorithm with `TerminalSurface` (issue #6291).
-    func stableTerminalPanelTitle(_ rawTitle: String) -> String {
-        TerminalSurface.stableTerminalNotificationTitle(rawTitle)
-    }
-
     private func enqueuePanelTitleUpdate(_ change: GhosttyTitleChange, sourceSurface: TerminalSurface) {
-        let trimmed = stableTerminalPanelTitle(change.title).trimmingCharacters(in: .whitespacesAndNewlines)
+        // Collapse spinner animation frames to one stable title (issue #6291)
+        // using the same normalization as the source-level dedup in
+        // `TerminalSurface`, so any post that bypasses that dedup still cannot
+        // thrash the sidebar.
+        let trimmed = TerminalSurface.stableTerminalNotificationTitle(change.title)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         guard workspacesById[change.tabId]?.terminalPanel(for: change.surfaceId)?.surface === sourceSurface else { return }
         let key = PanelTitleUpdateKey(tabId: change.tabId, panelId: change.surfaceId)
-        // Drop redundant spinner frames before they reach the coalescer and the
-        // sidebar (issue #6291). If a flush is already scheduled for this panel
-        // with the same stable title, it will apply the same value — re-arming
-        // is pointless. With no flush pending, a title the workspace already
-        // shows is a genuine no-op. A *different* pending title still falls
+        // If a flush is already scheduled for this panel with the same stable
+        // title, re-arming the coalescer would only repeat identical work, so
+        // drop the redundant frame. A *different* pending title still falls
         // through so the latest title wins.
-        if let pending = pendingPanelTitleUpdates[key] {
-            if pending.title == trimmed { return }
-        } else if workspacesById[change.tabId]?.alreadyReflectsPanelTitleUpdate(
-            panelId: change.surfaceId,
-            title: trimmed
-        ) == true {
-            return
-        }
+        if pendingPanelTitleUpdates[key]?.title == trimmed { return }
 #if DEBUG
         if PanelTitleUpdateCoalescingSettings.diagnosticsEnabled(settings: settings) {
             cmuxDebugLog(

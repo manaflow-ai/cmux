@@ -498,33 +498,47 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         return scalars
     }()
 
-    /// Returns `raw` with spinner animation glyphs removed and the whitespace they
-    /// bordered collapsed, so successive animation frames of a CLI spinner title
-    /// reduce to one stable string (`"⠋ pnpm install"` and `"⠙ pnpm install"` both
-    /// become `"pnpm install"`). Titles that contain no spinner glyph are returned
-    /// unchanged (fast path), so ordinary titles keep their exact text.
+    /// Returns `raw` with standalone spinner animation frames removed, so
+    /// successive frames of a CLI spinner title reduce to one stable string
+    /// (`"⠋ pnpm install"` and `"⠙ pnpm install"` both become `"pnpm install"`).
+    ///
+    /// Only whitespace-delimited tokens made up *entirely* of spinner glyphs — a
+    /// standalone animation frame at any position — are dropped. Every other
+    /// token is preserved verbatim, including one that merely contains a Braille
+    /// scalar inside a larger word (e.g. a path component like `~/work/⠋-proj`),
+    /// so legitimate titles are never corrupted. Titles with no spinner glyph
+    /// take a fast path and are returned byte-for-byte unchanged.
     public static func stableTerminalNotificationTitle(_ raw: String) -> String {
         guard raw.unicodeScalars.contains(where: { terminalTitleSpinnerScalars.contains($0) }) else {
             return raw
         }
         let whitespace = CharacterSet.whitespacesAndNewlines
         var normalized = ""
-        var pendingWhitespace = false
-        var emittedNonWhitespace = false
+        var token = ""
+        var tokenHasNonSpinnerScalar = false
+        var wroteToken = false
         for scalar in raw.unicodeScalars {
-            if terminalTitleSpinnerScalars.contains(scalar) { continue }
             if whitespace.contains(scalar) {
-                // Defer whitespace so the spaces that surrounded a removed spinner
-                // glyph collapse instead of leaving a double space.
-                if emittedNonWhitespace { pendingWhitespace = true }
+                // End of a token: keep it only if it is not a pure spinner frame.
+                if !token.isEmpty {
+                    if tokenHasNonSpinnerScalar {
+                        if wroteToken { normalized.append(" ") }
+                        normalized.append(token)
+                        wroteToken = true
+                    }
+                    token = ""
+                    tokenHasNonSpinnerScalar = false
+                }
                 continue
             }
-            if pendingWhitespace {
-                normalized.append(" ")
-                pendingWhitespace = false
+            token.unicodeScalars.append(scalar)
+            if !terminalTitleSpinnerScalars.contains(scalar) {
+                tokenHasNonSpinnerScalar = true
             }
-            normalized.unicodeScalars.append(scalar)
-            emittedNonWhitespace = true
+        }
+        if !token.isEmpty, tokenHasNonSpinnerScalar {
+            if wroteToken { normalized.append(" ") }
+            normalized.append(token)
         }
         return normalized
     }

@@ -5038,25 +5038,6 @@ final class Workspace: Identifiable, ObservableObject {
         return didMutate
     }
 
-    /// Whether the workspace already displays `title` for `panelId`, so a repeated
-    /// `updatePanelTitle` (plus the focused-panel `applyProcessTitle` push) would
-    /// be a no-op. Mirrors the mutation conditions in those methods so redundant
-    /// spinner-frame title updates can be dropped before they are queued
-    /// (issue #6291).
-    func alreadyReflectsPanelTitleUpdate(panelId: UUID, title: String) -> Bool {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, panels[panelId] != nil else { return false }
-        guard panelTitles[panelId] == trimmed else { return false }
-        // The single-panel branch of `updatePanelTitle` and `applyProcessTitle`
-        // (run for the focused panel) also push the title into the workspace and
-        // process titles. If this panel drives them, those must already match too.
-        if panels.count == 1 || focusedPanelId == panelId {
-            if processTitle != trimmed { return false }
-            if customTitle == nil, self.title != trimmed { return false }
-        }
-        return true
-    }
-
     func pruneSurfaceMetadata(validSurfaceIds: Set<UUID>) {
         for panelId in Array(pendingTerminalInputObserversByPanelId.keys) where !validSurfaceIds.contains(panelId) {
             removePendingTerminalInputObservers(forPanelId: panelId)

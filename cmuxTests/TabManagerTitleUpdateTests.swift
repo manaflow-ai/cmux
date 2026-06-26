@@ -504,19 +504,25 @@ struct TabManagerTitleUpdateTests {
 
     @Test
     func stableTerminalNotificationTitleStripsSpinnerGlyphs() {
-        // Braille spinner frames of the same logical title collapse to one string.
+        // Leading braille spinner frames of the same logical title collapse to one
+        // string — the standalone spinner token is dropped.
         let frames = ["⠋ pnpm install", "⠙ pnpm install", "⠹ pnpm install", "⠸ pnpm install"]
         let normalized = Set(frames.map { TerminalSurface.stableTerminalNotificationTitle($0) })
         #expect(normalized == ["pnpm install"])
 
-        // Trailing / embedded spinner glyphs are removed and the bordering
-        // whitespace collapses instead of leaving a double space.
+        // A standalone spinner token is dropped wherever it appears (leading,
+        // embedded, trailing).
         #expect(TerminalSurface.stableTerminalNotificationTitle("Building ⠧ project") == "Building project")
         #expect(TerminalSurface.stableTerminalNotificationTitle("deploying ⣾") == "deploying")
 
-        // Titles with no spinner glyph are returned unchanged (fast path), so
-        // ordinary titles — including ones with em dashes or double spaces — keep
-        // their exact text.
+        // Only *standalone* spinner tokens are removed: a Braille scalar inside a
+        // larger word (e.g. a path component) is preserved verbatim, so a real
+        // title is never corrupted — even when a leading spinner is also stripped.
+        #expect(TerminalSurface.stableTerminalNotificationTitle("~/work/⠋-project") == "~/work/⠋-project")
+        #expect(TerminalSurface.stableTerminalNotificationTitle("⠋ ~/work/⠧-proj") == "~/work/⠧-proj")
+
+        // Titles with no spinner glyph take the fast path and are returned
+        // byte-for-byte unchanged, double spaces and em dashes included.
         #expect(TerminalSurface.stableTerminalNotificationTitle("~/code/cmux — zsh") == "~/code/cmux — zsh")
         #expect(TerminalSurface.stableTerminalNotificationTitle("a/b-c  d") == "a/b-c  d")
         #expect(TerminalSurface.stableTerminalNotificationTitle("").isEmpty)
