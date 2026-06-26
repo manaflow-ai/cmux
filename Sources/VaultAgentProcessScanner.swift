@@ -178,7 +178,7 @@ extension RestorableAgentSessionIndex {
             arguments: arguments,
             environment: environment
         )
-        return openCodeExecutablePath(observed: observed, environment: environment)
+        return OpenCodeProcessResolver().executablePath(observed: observed, environment: environment)
     }
 
     static func openCodeLaunchArgumentsForProcess(
@@ -191,8 +191,9 @@ extension RestorableAgentSessionIndex {
             arguments: arguments,
             environment: environment
         )
-        let executablePath = openCodeExecutablePath(observed: observed, environment: environment)
-        return openCodeLaunchArguments(observed: observed, executablePath: executablePath)
+        let resolver = OpenCodeProcessResolver()
+        let executablePath = resolver.executablePath(observed: observed, environment: environment)
+        return resolver.launchArguments(observed: observed, executablePath: executablePath)
     }
 
     static func openCodeWorkingDirectoryForProcess(
@@ -205,7 +206,7 @@ extension RestorableAgentSessionIndex {
             arguments: arguments,
             environment: environment
         )
-        return openCodeWorkingDirectory(observed: observed)
+        return OpenCodeProcessResolver().workingDirectory(observed: observed)
     }
 
     static func openCodeFallbackSessionIdForProcess(
@@ -453,6 +454,7 @@ extension RestorableAgentSessionIndex {
         fileManager: FileManager,
         scopedProcessIDsByPanelKey: [PanelKey: Set<Int>]
     ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
+        let openCodeResolver = OpenCodeProcessResolver()
         var resolved: [PanelKey: ProcessDetectedSnapshotEntry] = [:]
         var sessionByWorkingDirectoryAndParent: [String: String] = [:]
         var sessionMissesByWorkingDirectoryAndParent = Set<String>()
@@ -481,7 +483,7 @@ extension RestorableAgentSessionIndex {
             )
             guard observed.isOpenCodeProcess else { continue }
 
-            let cwd = openCodeWorkingDirectory(observed: observed)
+            let cwd = openCodeResolver.workingDirectory(observed: observed)
             let cwdKey = cwd.map { ($0 as NSString).standardizingPath } ?? ""
             let panelKey = PanelKey(workspaceId: workspaceId, panelId: panelId)
             openCodeProcesses.append((
@@ -526,11 +528,11 @@ extension RestorableAgentSessionIndex {
                 sameWorkingDirectoryPanelCount: sameWorkingDirectoryPanelCount
             ) else { continue }
 
-            let executablePath = openCodeExecutablePath(
+            let executablePath = openCodeResolver.executablePath(
                 observed: process.observed,
                 environment: process.environment
             )
-            guard let launchArguments = openCodeLaunchArguments(
+            guard let launchArguments = openCodeResolver.launchArguments(
                 observed: process.observed,
                 executablePath: executablePath
             ) else { continue }
@@ -555,187 +557,6 @@ extension RestorableAgentSessionIndex {
         }
 
         return resolved
-    }
-
-    private static func openCodeExecutablePath(
-        observed: VaultObservedAgentProcess,
-        environment: [String: String]
-    ) -> String {
-        let argumentExecutable = observed.openCodeExecutableArgument
-        if let argumentExecutable,
-           argumentExecutable.contains("/") {
-            return argumentExecutable
-        }
-        if let argumentExecutable,
-           let resolved = executablePath(named: argumentExecutable, environment: environment) {
-            return resolved
-        }
-        if let processPath = observed.processPath,
-           processPath.contains("/"),
-           VaultObservedAgentProcess.argumentLooksLikeOpenCode(processPath) {
-            return processPath
-        }
-        if let resolved = executablePath(named: "opencode", environment: environment) {
-            return resolved
-        }
-        return argumentExecutable ?? "opencode"
-    }
-
-    private static func openCodeLaunchArguments(
-        observed: VaultObservedAgentProcess,
-        executablePath: String
-    ) -> [String]? {
-        let tail = openCodeLaunchTail(observed: observed)
-        guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: tail) else {
-            return nil
-        }
-        return [executablePath] + preserved
-    }
-
-    private static func openCodeLaunchTail(observed: VaultObservedAgentProcess) -> [String] {
-        let arguments = observed.arguments
-        guard !arguments.isEmpty else { return [] }
-        if let executableIndex = observed.openCodeExecutableArgumentIndex {
-            return Array(arguments.dropFirst(executableIndex + 1))
-        }
-        let processIdentityLooksLikeOpenCode = observed.executableBasenames.contains { basename in
-            VaultObservedAgentProcess.argumentLooksLikeOpenCode(basename)
-        }
-        guard processIdentityLooksLikeOpenCode else { return [] }
-        if arguments[0].hasPrefix("-") {
-            return arguments
-        }
-        return Array(arguments.dropFirst())
-    }
-
-    private static func openCodeWorkingDirectory(observed: VaultObservedAgentProcess) -> String? {
-        let fallbackWorkingDirectory = normalized(
-            observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"]
-        )
-        return openCodeProjectWorkingDirectory(
-            observed: observed,
-            fallbackWorkingDirectory: fallbackWorkingDirectory
-        ) ?? fallbackWorkingDirectory
-    }
-
-    private static func openCodeProjectWorkingDirectory(
-        observed: VaultObservedAgentProcess,
-        fallbackWorkingDirectory: String?
-    ) -> String? {
-        guard let project = openCodeProjectArgument(in: openCodeLaunchTail(observed: observed)) else {
-            return nil
-        }
-        return resolvedOpenCodeProjectPath(project, fallbackWorkingDirectory: fallbackWorkingDirectory)
-    }
-
-    private static func openCodeProjectArgument(in arguments: [String]) -> String? {
-        let commandNames: Set<String> = [
-            "completion",
-            "acp",
-            "mcp",
-            "attach",
-            "run",
-            "debug",
-            "providers",
-            "auth",
-            "agent",
-            "upgrade",
-            "uninstall",
-            "serve",
-            "web",
-            "models",
-            "stats",
-            "export",
-            "import",
-            "github",
-            "pr",
-            "session",
-            "plugin",
-            "plug",
-            "db"
-        ]
-        var index = 0
-        while index < arguments.count {
-            let argument = arguments[index]
-            if argument == "--" {
-                let nextIndex = index + 1
-                return nextIndex < arguments.count ? arguments[nextIndex] : nil
-            }
-            if argument.hasPrefix("-") {
-                index += openCodeOptionWidth(arguments, index: index)
-                continue
-            }
-            return commandNames.contains(argument) ? nil : argument
-        }
-        return nil
-    }
-
-    private static func openCodeOptionWidth(_ arguments: [String], index: Int) -> Int {
-        guard index < arguments.count else { return 1 }
-        let argument = arguments[index]
-        if argument.contains("=") {
-            return 1
-        }
-        let valueOptions: Set<String> = [
-            "--log-level",
-            "--port",
-            "--hostname",
-            "--mdns-domain",
-            "--cors",
-            "--model",
-            "-m",
-            "--session",
-            "-s",
-            "--prompt",
-            "--agent"
-        ]
-        guard valueOptions.contains(argument),
-              index + 1 < arguments.count else {
-            return 1
-        }
-        if argument == "--cors" {
-            var end = index + 1
-            while end < arguments.count, !arguments[end].hasPrefix("-") {
-                end += 1
-            }
-            return max(1, end - index)
-        }
-        return 2
-    }
-
-    private static func resolvedOpenCodeProjectPath(
-        _ rawValue: String,
-        fallbackWorkingDirectory: String?
-    ) -> String? {
-        guard let project = normalized(rawValue) else { return nil }
-        let expandedProject = (project as NSString).expandingTildeInPath
-        if expandedProject.hasPrefix("/") {
-            return (expandedProject as NSString).standardizingPath
-        }
-        guard let fallbackWorkingDirectory = normalized(fallbackWorkingDirectory) else {
-            return (expandedProject as NSString).standardizingPath
-        }
-        return URL(fileURLWithPath: fallbackWorkingDirectory, isDirectory: true)
-            .appendingPathComponent(expandedProject)
-            .standardizedFileURL
-            .path
-    }
-
-    private static func executablePath(
-        named name: String,
-        environment: [String: String]
-    ) -> String? {
-        let executableName = (name as NSString).lastPathComponent
-        guard !executableName.isEmpty else { return nil }
-        for path in (environment["PATH"] ?? "").split(separator: ":") {
-            let candidate = URL(fileURLWithPath: String(path), isDirectory: true)
-                .appendingPathComponent(executableName, isDirectory: false)
-                .path
-            if FileManager.default.isExecutableFile(atPath: candidate) {
-                return candidate
-            }
-        }
-        return nil
     }
 
     private static func latestOpenCodeSessionId(

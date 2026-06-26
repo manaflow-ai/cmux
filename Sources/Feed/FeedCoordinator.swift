@@ -123,8 +123,8 @@ final class FeedCoordinator: @unchecked Sendable {
         // caps the pending lifetime to the agent process lifetime
         // — no polling, no leaked cards when the agent is killed.
         let itemIdSlot = UnsafeItemIdSlot()
-        let resolvedAttentionTarget = Self.isBlockingDecisionEvent(event.hookEventName)
-            ? Self.resolveAttentionTarget(event: event)
+        let resolvedAttentionTarget = event.hookEventName.isBlockingDecision
+            ? event.resolveAttentionTarget()
             : nil
         DispatchQueue.main.sync {
             MainActor.assumeIsolated {
@@ -289,34 +289,6 @@ final class FeedCoordinator: @unchecked Sendable {
 // MARK: - In-app attention surfacing
 
 extension FeedCoordinator {
-    /// The blocking-decision hook events that warrant pulling the user's
-    /// attention to the owning workspace: a tool permission, a plan
-    /// approval, or a question. Keeping this as one predicate (rather than
-    /// branching per event at each call site) is what makes the attention
-    /// surface uniform across every event type and agent routed through
-    /// `feed.push` — a new blocking event type only has to be added here.
-    static func isBlockingDecisionEvent(_ hookEventName: WorkstreamEvent.HookEventName) -> Bool {
-        switch hookEventName {
-        case .permissionRequest, .exitPlanMode, .askUserQuestion:
-            return true
-        default:
-            return false
-        }
-    }
-
-    /// Maps a feed `source` (agent id) to the agent-lifecycle status key the
-    /// sidebar reads. Claude reports under `claude_code`; every other agent
-    /// keys its status by its own source name. Returning the agent's own key
-    /// is what lets the existing per-agent resume hooks (e.g. Claude's
-    /// `pre-tool-use`) clear the needs-input badge once the agent continues.
-    private static let lifecycleStatusKeyOverrides = [
-        "claude": "claude_code",
-    ]
-
-    static func lifecycleStatusKey(forSource source: String) -> String {
-        lifecycleStatusKeyOverrides[source] ?? source
-    }
-
     /// Identifies the sidebar slot an attention overlay lights up. Overlays
     /// are refcounted by this key so overlapping blocking decisions on the
     /// same agent/panel don't clear each other's needs-input badge.
@@ -360,7 +332,7 @@ extension FeedCoordinator {
         event: WorkstreamEvent,
         resolved: (workspaceId: UUID, surfaceId: UUID?)?
     ) -> AttentionTarget? {
-        guard Self.isBlockingDecisionEvent(event.hookEventName) else { return nil }
+        guard event.hookEventName.isBlockingDecision else { return nil }
 
         #if DEBUG
         if let observer = FeedCoordinatorTestHooks.attentionSurfaceObserver {
@@ -390,7 +362,7 @@ extension FeedCoordinator {
         }
 
         let panelId = Self.resolvePanelId(surfaceId: resolved.surfaceId, tab: tab) ?? tab.focusedPanelId
-        let statusKey = Self.lifecycleStatusKey(forSource: event.source)
+        let statusKey = WorkstreamEvent.lifecycleStatusKey(forSource: event.source)
         let target = AttentionTarget(
             workspaceId: resolved.workspaceId,
             panelId: panelId,
@@ -459,38 +431,6 @@ extension FeedCoordinator {
            tab.statusEntries[target.statusKey]?.value == Self.needsInputStatusValue {
             tab.statusEntries.removeValue(forKey: target.statusKey)
         }
-    }
-
-    /// Resolves the `(workspace, surface)` an attention overlay should target.
-    /// The workspace prefers the event's live `workspace_id` (the running
-    /// terminal's CMUX_WORKSPACE_ID, a raw UUID) so a stale hook-session map
-    /// can't redirect attention to the wrong workspace; it falls back to the
-    /// session store when the event omits a parseable id. The surface comes
-    /// from the session store only when its workspace matches the resolved
-    /// workspace, so a stale entry can't point the panel elsewhere.
-    private static func resolveAttentionTarget(
-        event: WorkstreamEvent
-    ) -> (workspaceId: UUID, surfaceId: UUID?)? {
-        let sessionMatch: (workspaceId: UUID, surfaceId: UUID?)? = {
-            let resolver = HookSessionResolver()
-            guard let parsed = resolver.parse(event.sessionId),
-                  let resolved = resolver.lookup(agent: parsed.agent, sessionId: parsed.sessionId),
-                  let workspaceId = UUID(uuidString: resolved.workspaceId)
-            else { return nil }
-            return (workspaceId, UUID(uuidString: resolved.surfaceId))
-        }()
-
-        let eventWorkspaceId = event.workspaceId.flatMap {
-            UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-
-        guard let workspaceId = eventWorkspaceId ?? sessionMatch?.workspaceId else {
-            return nil
-        }
-        // Only trust the session store's surface if it belongs to the
-        // workspace we're actually targeting.
-        let surfaceId = (sessionMatch?.workspaceId == workspaceId) ? sessionMatch?.surfaceId : nil
-        return (workspaceId, surfaceId)
     }
 
     /// Maps a surface id from the hook-session store to its owning panel id,

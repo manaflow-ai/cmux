@@ -644,6 +644,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private lazy var updateController = UpdateController(log: updateLog)
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(updateLog: updateLog, settingsRuntime: settingsRuntime)
     private let windowDecorationsController = WindowDecorationsController()
+    private let systemWideHotkeyController = SystemWideHotkeyController()
     private var menuBarExtraController: MenuBarExtraController?
     private var transientGlobalSearchMenuBarExtraController: MenuBarExtraController?
     private var lastMenuBarExtraShouldInstall: Bool?
@@ -1612,7 +1613,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             GlobalSearchCoordinator.shared.start()
             sentryStartMemoryContextRefresh()
         }
-        SystemWideHotkeyController.shared.start()
+        systemWideHotkeyController.actionHandler = self
+        systemWideHotkeyController.start()
         AgentHibernationController.shared.start()
         RendererRealizationController.shared.start()
         NSApp.servicesProvider = self
@@ -6302,7 +6304,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialWorkspaceTitle: initialWorkspaceTitle,
             initialWorkingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
-            autoWelcomeIfNeeded: initialTerminalInput == nil
+            autoWelcomeIfNeeded: initialTerminalInput == nil,
+            closedItemHistory: closedItemHistory
         )
         tabManager.windowId = windowId
         if let sessionWindowSnapshot {
@@ -6347,7 +6350,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // ContentView.onAppear eventually runs syncTrafficLightInset (#2737).
         let initialTabBarLeadingInset: CGFloat =
             (WorkspacePresentationModeSettings.isMinimal() && !sidebarState.isVisible)
-                ? MinimalModeTitlebarDebugSettings.trafficLightTabBarLeadingInset()
+                ? MinimalModeTitlebarDebugSnapshot.trafficLightTabBarLeadingInset()
                 : 0
         tabManager.syncWorkspaceTabBarLeadingInset(initialTabBarLeadingInset)
         let notificationStore = TerminalNotificationStore.shared
@@ -8907,7 +8910,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             action: .focusLeft,
             arrowGlyph: "←",
             arrowKeyCode: 123
-        ) || (ghosttyGotoSplitLeftShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "←", arrowKeyCode: 123) } ?? false) {
+        ) || (ghosttyGotoSplitLeftShortcut.map { $0.matchesDirectionalShortcut(event: event, arrowGlyph: "←", arrowKeyCode: 123, layoutCharacterProvider: shortcutCoordinator.layoutCharacter(forKeyCode:modifierFlags:)) } ?? false) {
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutRoutingKeyWindow); tabManager?.movePaneFocus(direction: .left)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .left)
@@ -8919,7 +8922,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             action: .focusRight,
             arrowGlyph: "→",
             arrowKeyCode: 124
-        ) || (ghosttyGotoSplitRightShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "→", arrowKeyCode: 124) } ?? false) {
+        ) || (ghosttyGotoSplitRightShortcut.map { $0.matchesDirectionalShortcut(event: event, arrowGlyph: "→", arrowKeyCode: 124, layoutCharacterProvider: shortcutCoordinator.layoutCharacter(forKeyCode:modifierFlags:)) } ?? false) {
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutRoutingKeyWindow); tabManager?.movePaneFocus(direction: .right)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .right)
@@ -8931,7 +8934,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             action: .focusUp,
             arrowGlyph: "↑",
             arrowKeyCode: 126
-        ) || (ghosttyGotoSplitUpShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "↑", arrowKeyCode: 126) } ?? false) {
+        ) || (ghosttyGotoSplitUpShortcut.map { $0.matchesDirectionalShortcut(event: event, arrowGlyph: "↑", arrowKeyCode: 126, layoutCharacterProvider: shortcutCoordinator.layoutCharacter(forKeyCode:modifierFlags:)) } ?? false) {
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutRoutingKeyWindow); tabManager?.movePaneFocus(direction: .up)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .up)
@@ -8943,7 +8946,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             action: .focusDown,
             arrowGlyph: "↓",
             arrowKeyCode: 125
-        ) || (ghosttyGotoSplitDownShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "↓", arrowKeyCode: 125) } ?? false) {
+        ) || (ghosttyGotoSplitDownShortcut.map { $0.matchesDirectionalShortcut(event: event, arrowGlyph: "↓", arrowKeyCode: 125, layoutCharacterProvider: shortcutCoordinator.layoutCharacter(forKeyCode:modifierFlags:)) } ?? false) {
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutRoutingKeyWindow); tabManager?.movePaneFocus(direction: .down)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .down)
@@ -9018,11 +9021,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // Surface navigation (legacy Ctrl+Tab support)
-        if matchTabShortcut(event: event, shortcut: StoredShortcut(key: "\t", command: false, shift: false, option: false, control: true)) {
+        if StoredShortcut(key: "\t", command: false, shift: false, option: false, control: true).matchesTabShortcut(event: event) {
             tabManager?.selectNextSurface()
             return true
         }
-        if matchTabShortcut(event: event, shortcut: StoredShortcut(key: "\t", command: false, shift: true, option: false, control: true)) {
+        if StoredShortcut(key: "\t", command: false, shift: true, option: false, control: true).matchesTabShortcut(event: event) {
             tabManager?.selectPreviousSurface()
             return true
         }
@@ -10269,19 +10272,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                   shortcut.firstStroke == prefix else {
                 return false
             }
-            return matchDirectionalShortcut(
+            return secondStroke.matchesDirectionalShortcut(
                 event: event,
-                stroke: secondStroke,
                 arrowGlyph: arrowGlyph,
-                arrowKeyCode: arrowKeyCode
+                arrowKeyCode: arrowKeyCode,
+                layoutCharacterProvider: shortcutCoordinator.layoutCharacter(forKeyCode:modifierFlags:)
             )
         }
         guard !shortcut.hasChord else { return false }
-        return matchDirectionalShortcut(
+        return shortcut.firstStroke.matchesDirectionalShortcut(
             event: event,
-            stroke: shortcut.firstStroke,
             arrowGlyph: arrowGlyph,
-            arrowKeyCode: arrowKeyCode
+            arrowKeyCode: arrowKeyCode,
+            layoutCharacterProvider: shortcutCoordinator.layoutCharacter(forKeyCode:modifierFlags:)
         )
     }
 
@@ -10651,55 +10654,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func numberedShortcutDigit(event: NSEvent, shortcut: StoredShortcut) -> Int? {
         guard !shortcut.isUnbound, !shortcut.hasChord else { return nil }
         return numberedShortcutDigit(event: event, stroke: shortcut.firstStroke)
-    }
-
-
-    /// Match arrow key shortcuts using keyCode
-    /// Arrow keys include .numericPad and .function in their modifierFlags, so strip those before comparing.
-    private func matchArrowShortcut(event: NSEvent, stroke: ShortcutStroke, keyCode: UInt16) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function])
-        return event.keyCode == keyCode && flags == stroke.modifierFlags
-    }
-
-    /// Match tab key shortcuts using keyCode 48
-    private func matchTabShortcut(event: NSEvent, stroke: ShortcutStroke) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        return event.keyCode == 48 && flags == stroke.modifierFlags
-    }
-
-    private func matchTabShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
-        guard !shortcut.hasChord else { return false }
-        return matchTabShortcut(event: event, stroke: shortcut.firstStroke)
-    }
-
-    /// Directional shortcuts default to arrow keys, but the shortcut recorder only supports letter/number keys.
-    /// Support both so users can customize pane navigation (e.g. Cmd+Ctrl+H/J/K/L).
-    private func matchDirectionalShortcut(
-        event: NSEvent,
-        stroke: ShortcutStroke,
-        arrowGlyph: String,
-        arrowKeyCode: UInt16
-    ) -> Bool {
-        if stroke.key == arrowGlyph {
-            return matchArrowShortcut(event: event, stroke: stroke, keyCode: arrowKeyCode)
-        }
-        return matchShortcutStroke(event: event, stroke: stroke)
-    }
-
-    private func matchDirectionalShortcut(
-        event: NSEvent,
-        shortcut: StoredShortcut,
-        arrowGlyph: String,
-        arrowKeyCode: UInt16
-    ) -> Bool {
-        guard !shortcut.hasChord else { return false }
-        return matchDirectionalShortcut(
-            event: event,
-            stroke: shortcut.firstStroke,
-            arrowGlyph: arrowGlyph,
-            arrowKeyCode: arrowKeyCode
-        )
     }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
@@ -12164,11 +12118,10 @@ private extension NSWindow {
 
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             if !flags.contains(.command) {
-                if shouldDispatchTerminalArrowViaFirstResponderKeyDown(
+                if event.modifierFlags.shouldDispatchTerminalArrowViaFirstResponderKeyDown(
                     keyCode: event.keyCode,
                     firstResponderIsTerminal: true,
-                    firstResponderHasMarkedText: ghosttyView.hasMarkedText(),
-                    flags: event.modifierFlags
+                    firstResponderHasMarkedText: ghosttyView.hasMarkedText()
                 ) {
                     if cmuxForceDispatchKeyDownOnce(event, to: ghosttyView, reason: "terminal arrow") {
                         return true
@@ -12221,11 +12174,10 @@ private extension NSWindow {
             return true
         }
 
-        if shouldDispatchCommandPaletteHorizontalArrowViaFirstResponderKeyDown(
+        if event.modifierFlags.shouldDispatchCommandPaletteHorizontalArrowViaFirstResponderKeyDown(
             keyCode: event.keyCode,
             firstResponderIsCommandPaletteFieldEditor: firstResponderIsCommandPaletteFieldEditor,
-            firstResponderHasMarkedText: firstResponderHasMarkedText,
-            flags: event.modifierFlags
+            firstResponderHasMarkedText: firstResponderHasMarkedText
         ) {
             guard let target = self.firstResponder,
                   cmuxForceDispatchKeyDownOnce(event, to: target, reason: "command palette arrow")
@@ -12254,11 +12206,10 @@ private extension NSWindow {
             return cmux_performKeyEquivalent(with: event)
         }
 
-        if shouldDispatchTextBoxInputArrowViaFirstResponderKeyDown(
+        if event.modifierFlags.shouldDispatchTextBoxInputArrowViaFirstResponderKeyDown(
             keyCode: event.keyCode,
             firstResponderIsTextBoxInput: firstResponderIsTextBoxInput,
-            firstResponderHasMarkedText: firstResponderHasMarkedText,
-            flags: event.modifierFlags
+            firstResponderHasMarkedText: firstResponderHasMarkedText
         ) {
             guard let target = self.firstResponder,
                   cmuxForceDispatchKeyDownOnce(event, to: target, reason: "text-box input arrow")
@@ -12268,11 +12219,10 @@ private extension NSWindow {
             return true
         }
 
-        if shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
+        if event.modifierFlags.shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
             charactersIgnoringModifiers: KeyboardLayout.normalizedCharacters(for: event),
             firstResponderIsTextBoxInput: firstResponderIsTextBoxInput,
-            firstResponderHasMarkedText: firstResponderHasMarkedText,
-            flags: event.modifierFlags
+            firstResponderHasMarkedText: firstResponderHasMarkedText
         ) {
             guard let target = self.firstResponder,
                   cmuxForceDispatchKeyDownOnce(event, to: target, reason: "text-box input control nav")
@@ -12286,11 +12236,10 @@ private extension NSWindow {
         // would otherwise lose plain/selection/word/line arrows to the original
         // NSWindow.performKeyEquivalent. Route them to the text view's keyDown so
         // arrow navigation works as in any text editor (manaflow-ai/cmux#5227).
-        if shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
+        if event.modifierFlags.shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
             keyCode: event.keyCode,
             firstResponderIsEditableTextView: firstResponderIsStandaloneEditableTextView,
-            firstResponderHasMarkedText: firstResponderHasMarkedText,
-            flags: event.modifierFlags
+            firstResponderHasMarkedText: firstResponderHasMarkedText
         ) {
             guard let target = self.firstResponder,
                   cmuxForceDispatchKeyDownOnce(event, to: target, reason: "editable text view arrow")
@@ -12854,6 +12803,13 @@ extension AppDelegate: BrowserDebugContext {
 // `performScheduledAutosave(source:)` (the app-coupled snapshot save) are
 // declared on `AppDelegate` above; the scheduler drives them through this seam.
 extension AppDelegate: SessionAutosaveScheduling {}
+
+// `toggleApplicationVisibilityFromGlobalHotkey()`,
+// `toggleGlobalSearchPaletteFromGlobalHotkey()`, and
+// `captureMainWindowVisibilityRestoreTargetsForApplicationHide()` are declared on
+// `AppDelegate` above; `SystemWideHotkeyController` invokes them through this
+// injected seam instead of reaching back through the `AppDelegate.shared` singleton.
+extension AppDelegate: SystemWideHotkeyActionHandling {}
 
 #if DEBUG
 // MARK: - CmuxTestSupport diagnostics seam conformance

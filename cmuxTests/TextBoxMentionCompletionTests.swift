@@ -3,6 +3,7 @@ import Carbon.HIToolbox
 import Foundation
 import SwiftUI
 import Testing
+import CmuxShortcuts
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -15,25 +16,21 @@ import Testing
 struct TextBoxMentionCompletionTests {
     @Test
     func testTextBoxControlNavigationRoutingUsesTranslatedCharacters() {
-        #expect(shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
+        #expect(([.control] as NSEvent.ModifierFlags).shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
             charactersIgnoringModifiers: "n",
-            firstResponderIsTextBoxInput: true,
-            flags: [.control]
+            firstResponderIsTextBoxInput: true
         ))
-        #expect(shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
+        #expect(([.control] as NSEvent.ModifierFlags).shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
             charactersIgnoringModifiers: "p",
-            firstResponderIsTextBoxInput: true,
-            flags: [.control]
+            firstResponderIsTextBoxInput: true
         ))
-        #expect(!(shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
+        #expect(!(([.control] as NSEvent.ModifierFlags).shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
             charactersIgnoringModifiers: "b",
-            firstResponderIsTextBoxInput: true,
-            flags: [.control]
+            firstResponderIsTextBoxInput: true
         )))
-        #expect(!(shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
+        #expect(!(([.control, .command] as NSEvent.ModifierFlags).shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
             charactersIgnoringModifiers: "n",
-            firstResponderIsTextBoxInput: true,
-            flags: [.control, .command]
+            firstResponderIsTextBoxInput: true
         )))
     }
 

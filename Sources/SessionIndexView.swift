@@ -726,7 +726,7 @@ func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) -> Void)
 
 private struct SessionTranscriptPreviewView: View {
     let entry: SessionEntry
-    @ObservedObject var sizeModel: SessionTranscriptPopoverSizeModel
+    let sizeModel: SessionTranscriptPopoverSizeModel
     let onResize: (CGSize) -> Void
     let onDismiss: () -> Void
 
@@ -862,14 +862,6 @@ private struct SessionTranscriptPreviewView: View {
             guard !Task.isCancelled else { return }
             loadState = .failed
         }
-    }
-}
-
-private final class SessionTranscriptPopoverSizeModel: ObservableObject {
-    @Published var size: CGSize
-
-    init(size: CGSize = SessionTranscriptPreviewLayout.standard.defaultSize) {
-        self.size = size
     }
 }
 

@@ -5,17 +5,6 @@ import Bonsplit
 import Observation
 import SwiftUI
 
-private struct DockConfigFile: Codable {
-    let controls: [DockControlDefinition]
-}
-
-private struct DockConfigResolution {
-    let controls: [DockControlDefinition]
-    let sourceURL: URL?
-    let baseDirectory: String
-    let isProjectSource: Bool
-}
-
 struct DockTrustRequest: Identifiable {
     var id: String { descriptor.fingerprint }
     let descriptor: CmuxActionTrustDescriptor
@@ -125,6 +114,21 @@ final class DockControlsStore {
     private var hasLoadedConfiguration = false
     private var controlsVisibleInUI = false
 
+    // `DockConfigResolver` lives in CmuxSidebar, which has no localization
+    // bundle, so the resolved error and source-label strings are localized here
+    // (app bundle) and injected. Resolving once at construction is faithful: the
+    // locale is fixed for the app's lifetime.
+    private let configResolver = DockConfigResolver(
+        decodingStrings: DockControlDecodingStrings(
+            blankControlID: String(localized: "dock.error.blankControlID", defaultValue: "Dock control id must not be blank."),
+            blankControlCommand: String(localized: "dock.error.blankControlCommand", defaultValue: "Dock control command must not be blank.")
+        ),
+        duplicateControlMessage: String(localized: "dock.error.duplicateControl", defaultValue: "Dock control ids must be unique."),
+        sourceTitle: String(localized: "dock.source.title", defaultValue: "Dock"),
+        sourceProject: String(localized: "dock.source.project", defaultValue: "Project Dock"),
+        sourceGlobal: String(localized: "dock.source.global", defaultValue: "Global Dock")
+    )
+
     fileprivate var controlSnapshots: [DockControlSnapshot] {
         controls.map(\.snapshot)
     }
@@ -175,7 +179,7 @@ final class DockControlsStore {
         }
 
         do {
-            let resolution = try Self.resolve(rootDirectory: rootDirectory)
+            let resolution = try configResolver.resolve(rootDirectory: rootDirectory)
             activeConfigURL = resolution.sourceURL
             if let request = trustRequestIfNeeded(for: resolution) {
                 replaceControls(with: [])
@@ -190,7 +194,7 @@ final class DockControlsStore {
                 DockControlRuntime(definition: $0, baseDirectory: resolution.baseDirectory, workspaceId: workspaceId)
             }
             replaceControls(with: resolvedControls)
-            sourceLabel = Self.sourceLabel(for: resolution)
+            sourceLabel = configResolver.sourceLabel(for: resolution)
         } catch {
             replaceControls(with: [])
             sourceLabel = String(localized: "dock.source.error", defaultValue: "Dock")
@@ -217,10 +221,10 @@ final class DockControlsStore {
             if let activeConfigURL {
                 target = activeConfigURL
             } else {
-                target = try Self.preferredEditableConfigURL(rootDirectory: lastRootDirectory)
+                target = try configResolver.preferredEditableConfigURL(rootDirectory: lastRootDirectory)
             }
             if !FileManager.default.fileExists(atPath: target.path) {
-                try Self.writeTemplate(to: target)
+                try configResolver.writeTemplate(to: target)
             }
             NSWorkspace.shared.open(target)
         } catch {
@@ -276,148 +280,6 @@ final class DockControlsStore {
             descriptor: descriptor,
             configPath: sourceURL.path
         )
-    }
-
-    private static func resolve(rootDirectory: String?) throws -> DockConfigResolution {
-        if let projectURL = projectConfigURL(rootDirectory: rootDirectory) {
-            return try loadConfig(
-                from: projectURL,
-                baseDirectory: projectBaseDirectory(for: projectURL),
-                isProjectSource: true
-            )
-        }
-
-        let globalURL = globalConfigURL()
-        if FileManager.default.fileExists(atPath: globalURL.path) {
-            return try loadConfig(
-                from: globalURL,
-                baseDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
-                isProjectSource: false
-            )
-        }
-
-        return DockConfigResolution(
-            controls: [],
-            sourceURL: nil,
-            baseDirectory: rootDirectory.flatMap(Self.existingDirectory) ?? FileManager.default.homeDirectoryForCurrentUser.path,
-            isProjectSource: false
-        )
-    }
-
-    private static func loadConfig(
-        from url: URL,
-        baseDirectory: String,
-        isProjectSource: Bool
-    ) throws -> DockConfigResolution {
-        let data = try Data(contentsOf: url)
-        let decoder = JSONDecoder()
-        decoder.userInfo[.dockControlDecodingStrings] = DockControlDecodingStrings(
-            blankControlID: String(localized: "dock.error.blankControlID", defaultValue: "Dock control id must not be blank."),
-            blankControlCommand: String(localized: "dock.error.blankControlCommand", defaultValue: "Dock control command must not be blank.")
-        )
-        let file = try decoder.decode(DockConfigFile.self, from: data)
-        var seen = Set<String>()
-        for control in file.controls {
-            guard seen.insert(control.id).inserted else {
-                throw NSError(
-                    domain: "cmux.dock",
-                    code: 1,
-                    userInfo: [
-                        NSLocalizedDescriptionKey: String(
-                            localized: "dock.error.duplicateControl",
-                            defaultValue: "Dock control ids must be unique."
-                        )
-                    ]
-                )
-            }
-        }
-        return DockConfigResolution(
-            controls: file.controls,
-            sourceURL: url,
-            baseDirectory: baseDirectory,
-            isProjectSource: isProjectSource
-        )
-    }
-
-    private static func sourceLabel(for resolution: DockConfigResolution) -> String {
-        if resolution.sourceURL == nil {
-            return String(localized: "dock.source.title", defaultValue: "Dock")
-        }
-        return resolution.isProjectSource
-            ? String(localized: "dock.source.project", defaultValue: "Project Dock")
-            : String(localized: "dock.source.global", defaultValue: "Global Dock")
-    }
-
-    private static func projectConfigURL(rootDirectory: String?) -> URL? {
-        guard let rootDirectory = rootDirectory.flatMap(existingDirectory) else { return nil }
-        var candidate = URL(fileURLWithPath: rootDirectory, isDirectory: true)
-        let homePath = FileManager.default.homeDirectoryForCurrentUser.path
-        while true {
-            let configURL = candidate
-                .appendingPathComponent(".cmux", isDirectory: true)
-                .appendingPathComponent("dock.json", isDirectory: false)
-            if FileManager.default.fileExists(atPath: configURL.path) {
-                return configURL
-            }
-            let parent = candidate.deletingLastPathComponent()
-            if parent.path == candidate.path || candidate.path == homePath {
-                return nil
-            }
-            candidate = parent
-        }
-    }
-
-    private static func projectBaseDirectory(for configURL: URL) -> String {
-        let cmuxDirectory = configURL.deletingLastPathComponent()
-        return cmuxDirectory.deletingLastPathComponent().path
-    }
-
-    private static func globalConfigURL() -> URL {
-        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1",
-           let testPath = ProcessInfo.processInfo.environment["CMUX_UI_TEST_DOCK_CONFIG_PATH"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !testPath.isEmpty {
-            return URL(fileURLWithPath: testPath)
-        }
-        return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/cmux/dock.json", isDirectory: false)
-    }
-
-    private static func preferredEditableConfigURL(rootDirectory: String?) throws -> URL {
-        if let rootDirectory = rootDirectory.flatMap(existingDirectory) {
-            return URL(fileURLWithPath: rootDirectory, isDirectory: true)
-                .appendingPathComponent(".cmux", isDirectory: true)
-                .appendingPathComponent("dock.json", isDirectory: false)
-        }
-        return globalConfigURL()
-    }
-
-    private static func existingDirectory(_ rawPath: String) -> String? {
-        let expanded = (rawPath as NSString).expandingTildeInPath
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: expanded, isDirectory: &isDirectory) else {
-            return nil
-        }
-        return isDirectory.boolValue ? expanded : (expanded as NSString).deletingLastPathComponent
-    }
-
-    private static func writeTemplate(to url: URL) throws {
-        try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        let file = DockConfigFile(controls: [
-            DockControlDefinition(
-                id: "git",
-                title: "Git",
-                command: "lazygit",
-                height: 300
-            )
-        ])
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        let data = try encoder.encode(file)
-        try data.write(to: url, options: .atomic)
     }
 
     private static func trustDescriptor(for resolution: DockConfigResolution) -> CmuxActionTrustDescriptor {

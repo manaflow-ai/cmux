@@ -1,5 +1,6 @@
 import AppKit
 import CmuxFoundation
+import CmuxSidebar
 import CmuxTerminal
 
 @MainActor
@@ -8,19 +9,6 @@ final class MainWindowFocusController {
         case mainPanel
         case rightSidebar
         case unknown
-    }
-
-    private enum RightSidebarFocusTarget: Equatable {
-        case host
-        case outline
-        case searchField
-        case firstItem
-    }
-
-    private struct RightSidebarFocusRequest: Equatable {
-        let id: UInt64
-        let mode: RightSidebarMode
-        let target: RightSidebarFocusTarget
     }
 
     private enum RightSidebarFocusState: Equatable {

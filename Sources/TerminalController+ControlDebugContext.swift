@@ -559,7 +559,7 @@ extension TerminalController: ControlDebugContext {
 
         var types: [NSPasteboard.PasteboardType] = []
         for token in tokens {
-            guard let mapped = Self.dragPasteboardType(from: token) else {
+            guard let mapped = NSPasteboard.PasteboardType.cmuxDebugDragType(from: token) else {
                 return "ERROR: Unknown drag type '\(token)'"
             }
             if !types.contains(mapped) {
@@ -581,7 +581,7 @@ extension TerminalController: ControlDebugContext {
     }
 
     func controlDebugOverlayHitGate(eventToken: ControlDebugOverlayEventToken) -> Bool {
-        let eventType = Self.eventType(for: eventToken)
+        let eventType = eventToken.nsEventType
         var shouldCapture = false
         v2MainSync {
             let pb = NSPasteboard(name: .drag)
@@ -606,7 +606,7 @@ extension TerminalController: ControlDebugContext {
     }
 
     func controlDebugPortalHitGate(eventToken: ControlDebugOverlayEventToken) -> Bool {
-        let eventType = Self.eventType(for: eventToken)
+        let eventType = eventToken.nsEventType
         var shouldPassThrough = false
         v2MainSync {
             let pb = NSPasteboard(name: .drag)
@@ -730,7 +730,7 @@ extension TerminalController: ControlDebugContext {
             var current: NSView? = hit
             var depth = 0
             while let view = current, depth < 8 {
-                chain.append(Self.debugDragHitViewDescriptor(view))
+                chain.append(view.cmuxDebugDragHitDescriptor)
                 current = view.superview
                 depth += 1
             }
@@ -738,75 +738,6 @@ extension TerminalController: ControlDebugContext {
         }
         return result
     }
-
-    // MARK: - v1-only probe helpers (relocated with their sole callers)
-
-    /// Maps a recognized overlay-gate event token (the token recognition + the
-    /// usage/unknown `ERROR` strings now live in the `CmuxControlSocket`
-    /// coordinator) to its `NSEvent.EventType`, with `.none` resolving to `nil`.
-    /// This is the irreducible AppKit half the control-plane package cannot host.
-    private static func eventType(for token: ControlDebugOverlayEventToken) -> NSEvent.EventType? {
-        switch token {
-        case .leftMouseDragged: return .leftMouseDragged
-        case .rightMouseDragged: return .rightMouseDragged
-        case .otherMouseDragged: return .otherMouseDragged
-        case .mouseMoved: return .mouseMoved
-        case .mouseEntered: return .mouseEntered
-        case .mouseExited: return .mouseExited
-        case .flagsChanged: return .flagsChanged
-        case .cursorUpdate: return .cursorUpdate
-        case .appKitDefined: return .appKitDefined
-        case .systemDefined: return .systemDefined
-        case .applicationDefined: return .applicationDefined
-        case .periodic: return .periodic
-        case .leftMouseDown: return .leftMouseDown
-        case .leftMouseUp: return .leftMouseUp
-        case .rightMouseDown: return .rightMouseDown
-        case .rightMouseUp: return .rightMouseUp
-        case .otherMouseDown: return .otherMouseDown
-        case .otherMouseUp: return .otherMouseUp
-        case .scrollWheel: return .scrollWheel
-        case .none: return nil
-        }
-    }
-
-    /// Maps a drag-type token (named alias or explicit UTI) to the matching
-    /// pasteboard type, or `nil` for an unknown bare token.
-    private static func dragPasteboardType(from token: String) -> NSPasteboard.PasteboardType? {
-        let normalized = token.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        switch normalized {
-        case "fileurl", "file-url", "public.file-url":
-            return .fileURL
-        case "tabtransfer", "tab-transfer", "com.splittabbar.tabtransfer":
-            return DragOverlayRoutingPolicy.bonsplitTabTransferType
-        case "sidebarreorder", "sidebar-reorder", "sidebar_tab_reorder",
-            "com.cmux.sidebar-tab-reorder":
-            return DragOverlayRoutingPolicy.sidebarTabReorderType
-        default:
-            // Allow explicit UTI strings for ad-hoc debug probes.
-            guard token.contains(".") else { return nil }
-            return NSPasteboard.PasteboardType(token)
-        }
-    }
-
-    /// Renders one hit-tested view as `<class>@<pointer>{dragTypes=…}` for the
-    /// `drag_hit_chain` probe (capping the rendered drag-type list at four).
-    private static func debugDragHitViewDescriptor(_ view: NSView) -> String {
-        let className = String(describing: type(of: view))
-        let pointer = String(describing: Unmanaged.passUnretained(view).toOpaque())
-        let types = view.registeredDraggedTypes
-        let renderedTypes: String
-        if types.isEmpty {
-            renderedTypes = "-"
-        } else {
-            let raw = types.map(\.rawValue)
-            renderedTypes = raw.count <= 4
-                ? raw.joined(separator: ",")
-                : raw.prefix(4).joined(separator: ",") + ",+\(raw.count - 4)"
-        }
-        return "\(className)@\(pointer){dragTypes=\(renderedTypes)}"
-    }
-
 
     func setShortcut(_ args: String) -> String {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)

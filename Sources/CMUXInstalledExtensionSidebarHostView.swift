@@ -706,14 +706,14 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         identity: AppExtensionIdentity,
         effectiveGrant: CMUXSidebarExtensionEffectiveGrant
     ) -> Bool {
-        effectiveGrant.needsAdditionalApproval && !keptLimitedManifestKeys.contains(limitedChoiceKey(identity: identity, effectiveGrant: effectiveGrant))
+        effectiveGrant.needsAdditionalApproval && !keptLimitedManifestKeys.contains(effectiveGrant.limitedChoiceKey(bundleIdentifier: identity.bundleIdentifier))
     }
 
     private func grantRequestedAccess(
         identity: AppExtensionIdentity,
         effectiveGrant: CMUXSidebarExtensionEffectiveGrant
     ) {
-        let key = limitedChoiceKey(identity: identity, effectiveGrant: effectiveGrant)
+        let key = effectiveGrant.limitedChoiceKey(bundleIdentifier: identity.bundleIdentifier)
         keptLimitedManifestKeys.remove(key)
         CMUXSidebarExtensionLimitedChoiceStore().remove(key)
         xpcHost.grantRequestedAccess(bundleIdentifier: identity.bundleIdentifier)
@@ -725,21 +725,12 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         identity: AppExtensionIdentity,
         effectiveGrant: CMUXSidebarExtensionEffectiveGrant
     ) {
-        let key = limitedChoiceKey(identity: identity, effectiveGrant: effectiveGrant)
+        let key = effectiveGrant.limitedChoiceKey(bundleIdentifier: identity.bundleIdentifier)
         keptLimitedManifestKeys.insert(key)
         CMUXSidebarExtensionLimitedChoiceStore().insert(key)
         xpcHost.revokeSensitiveAccess(bundleIdentifier: identity.bundleIdentifier)
         self.effectiveGrant = xpcHost.currentEffectiveGrant
         xpcHost.sendSnapshotDidChange()
-    }
-
-    private func limitedChoiceKey(
-        identity: AppExtensionIdentity,
-        effectiveGrant: CMUXSidebarExtensionEffectiveGrant
-    ) -> String {
-        let readScopes = effectiveGrant.manifest.readScopes.map(\.rawValue).sorted().joined(separator: ",")
-        let actionScopes = effectiveGrant.manifest.actionScopes.map(\.rawValue).sorted().joined(separator: ",")
-        return "\(identity.bundleIdentifier)|\(effectiveGrant.manifest.id)|\(effectiveGrant.manifest.minimumAPIVersion.major).\(effectiveGrant.manifest.minimumAPIVersion.minor)|\(readScopes)|\(actionScopes)"
     }
 
     private func pendingPermissionDescriptions(

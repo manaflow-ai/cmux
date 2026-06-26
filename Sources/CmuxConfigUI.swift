@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxWorkspaces
 
 struct CmuxConfigUIDefinition: Codable, Sendable, Hashable {
     var newWorkspace: CmuxConfigButtonPlacement?

@@ -595,23 +595,23 @@ struct FeedCoordinatorTests {
 
     @Test func blockingDecisionEventPredicateCoversEveryDecisionKind() {
         // The three blocking-decision kinds must all surface attention…
-        #expect(FeedCoordinator.isBlockingDecisionEvent(.permissionRequest))
-        #expect(FeedCoordinator.isBlockingDecisionEvent(.exitPlanMode))
-        #expect(FeedCoordinator.isBlockingDecisionEvent(.askUserQuestion))
+        #expect(WorkstreamEvent.HookEventName.permissionRequest.isBlockingDecision)
+        #expect(WorkstreamEvent.HookEventName.exitPlanMode.isBlockingDecision)
+        #expect(WorkstreamEvent.HookEventName.askUserQuestion.isBlockingDecision)
         // …and pure telemetry must not.
-        #expect(!FeedCoordinator.isBlockingDecisionEvent(.preToolUse))
-        #expect(!FeedCoordinator.isBlockingDecisionEvent(.stop))
-        #expect(!FeedCoordinator.isBlockingDecisionEvent(.notification))
-        #expect(!FeedCoordinator.isBlockingDecisionEvent(.userPromptSubmit))
+        #expect(!WorkstreamEvent.HookEventName.preToolUse.isBlockingDecision)
+        #expect(!WorkstreamEvent.HookEventName.stop.isBlockingDecision)
+        #expect(!WorkstreamEvent.HookEventName.notification.isBlockingDecision)
+        #expect(!WorkstreamEvent.HookEventName.userPromptSubmit.isBlockingDecision)
     }
 
     @Test func lifecycleStatusKeyMatchesAgentReportedKey() {
         // Claude reports its lifecycle under `claude_code`; reusing that key is
         // what lets Claude's own resume hooks clear the needs-input badge.
-        #expect(FeedCoordinator.lifecycleStatusKey(forSource: "claude") == "claude_code")
+        #expect(WorkstreamEvent.lifecycleStatusKey(forSource: "claude") == "claude_code")
         // Every other agent keys its status by its own source name.
-        #expect(FeedCoordinator.lifecycleStatusKey(forSource: "codex") == "codex")
-        #expect(FeedCoordinator.lifecycleStatusKey(forSource: "opencode") == "opencode")
+        #expect(WorkstreamEvent.lifecycleStatusKey(forSource: "codex") == "codex")
+        #expect(WorkstreamEvent.lifecycleStatusKey(forSource: "opencode") == "opencode")
     }
 
     private static func resetFeedCoordinatorTestHooks() {

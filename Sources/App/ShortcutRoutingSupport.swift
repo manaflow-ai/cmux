@@ -148,17 +148,6 @@ func shouldDispatchBrowserOmnibarArrowViaFirstResponderKeyDown(
     return normalizedFlags.isEmpty
 }
 
-/// Returns true when a terminal arrow key-equivalent should be sent through keyDown.
-func shouldDispatchTerminalArrowViaFirstResponderKeyDown(
-    keyCode: UInt16,
-    firstResponderIsTerminal: Bool,
-    firstResponderHasMarkedText: Bool = false,
-    flags: NSEvent.ModifierFlags
-) -> Bool {
-    guard firstResponderIsTerminal, !firstResponderHasMarkedText, (123...126).contains(keyCode) else { return false }
-    return !browserOmnibarNormalizedModifierFlags(flags).contains(.command)
-}
-
 struct BrowserAddressBarTrackingContext {
     let trackedPanelMatchesWebView: Bool
     let omnibarResponderActive: Bool
@@ -182,113 +171,6 @@ func shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(
     guard context.preferredFocusIntentIsAddressBar else { return false }
     guard !context.pointerInitiatedWebFocus else { return false }
     return context.suppressesWebViewFocus || context.liveOmnibarFieldExists
-}
-
-func shouldDispatchCommandPaletteHorizontalArrowViaFirstResponderKeyDown(
-    keyCode: UInt16,
-    firstResponderIsCommandPaletteFieldEditor: Bool,
-    firstResponderHasMarkedText: Bool = false,
-    flags: NSEvent.ModifierFlags
-) -> Bool {
-    guard firstResponderIsCommandPaletteFieldEditor else { return false }
-    guard !firstResponderHasMarkedText else { return false }
-    guard keyCode == 123 || keyCode == 124 else { return false }
-
-    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
-    switch normalizedFlags {
-    case [], [.shift], [.option], [.option, .shift], [.command], [.command, .shift]:
-        return true
-    default:
-        return false
-    }
-}
-
-/// Whether an arrow keyDown belongs to a focused standalone editable text
-/// responder (text-box input, file-preview editor, …) so it should be
-/// forwarded to `firstResponder.keyDown` rather than swallowed by the original
-/// `NSWindow.performKeyEquivalent`.
-///
-/// Owns the four arrows (keyCodes 123–126) for the modifier combos a text
-/// editor handles itself: plain (move), Shift (extend selection), Option
-/// (word/paragraph), and Command (line/document boundary) plus their Shift
-/// combos. Cmd+Option+Arrow is excluded so it still reaches cmux's pane-focus
-/// shortcuts. Marked text (IME composition) is left to the input method.
-private func standaloneTextResponderOwnsArrowKeyDown(
-    keyCode: UInt16,
-    firstResponderHasMarkedText: Bool,
-    flags: NSEvent.ModifierFlags
-) -> Bool {
-    guard !firstResponderHasMarkedText else { return false }
-    guard (123...126).contains(keyCode) else { return false }
-
-    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
-    switch normalizedFlags {
-    case [], [.shift], [.option], [.option, .shift], [.command], [.command, .shift]:
-        return true
-    default:
-        return false
-    }
-}
-
-func shouldDispatchTextBoxInputArrowViaFirstResponderKeyDown(
-    keyCode: UInt16,
-    firstResponderIsTextBoxInput: Bool,
-    firstResponderHasMarkedText: Bool = false,
-    flags: NSEvent.ModifierFlags
-) -> Bool {
-    guard firstResponderIsTextBoxInput else { return false }
-    return standaloneTextResponderOwnsArrowKeyDown(
-        keyCode: keyCode,
-        firstResponderHasMarkedText: firstResponderHasMarkedText,
-        flags: flags
-    )
-}
-
-/// Whether an arrow keyDown should be forwarded straight to the focused
-/// standalone editable text view instead of falling through to the original
-/// `NSWindow.performKeyEquivalent`, which swallows plain arrows before the
-/// view's `keyDown` runs.
-///
-/// This generalizes the per-surface arrow-forwarding seam (browser, omnibar,
-/// command palette, text-box input) to cover the whole class of standalone
-/// editable `NSTextView`s cmux hosts, the file-preview editor today, any
-/// future one tomorrow. Field editors (the omnibar / command-palette / find
-/// field editors) are excluded by the caller because they have their own
-/// dedicated routing or work through the normal field-editor path. Shares the
-/// keyCode/modifier policy with ``shouldDispatchTextBoxInputArrowViaFirstResponderKeyDown``
-/// via ``standaloneTextResponderOwnsArrowKeyDown(keyCode:firstResponderHasMarkedText:flags:)``.
-func shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
-    keyCode: UInt16,
-    firstResponderIsEditableTextView: Bool,
-    firstResponderHasMarkedText: Bool = false,
-    flags: NSEvent.ModifierFlags
-) -> Bool {
-    guard firstResponderIsEditableTextView else { return false }
-    return standaloneTextResponderOwnsArrowKeyDown(
-        keyCode: keyCode,
-        firstResponderHasMarkedText: firstResponderHasMarkedText,
-        flags: flags
-    )
-}
-
-/// Ctrl-N / Ctrl-P navigate the mention-completion popover (and emacs-style line
-/// movement) inside the terminal textbox. Like plain arrows, the window's
-/// `performKeyEquivalent` claims these before they reach the textbox `keyDown`, so
-/// they must be routed to the first responder explicitly. Scoped to the textbox so
-/// terminal/browser Ctrl-N/Ctrl-P are unaffected.
-func shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
-    charactersIgnoringModifiers: String?,
-    firstResponderIsTextBoxInput: Bool,
-    firstResponderHasMarkedText: Bool = false,
-    flags: NSEvent.ModifierFlags
-) -> Bool {
-    guard firstResponderIsTextBoxInput else { return false }
-    guard !firstResponderHasMarkedText else { return false }
-
-    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
-    guard normalizedFlags == [.control] else { return false }
-    let key = charactersIgnoringModifiers?.lowercased()
-    return key == "n" || key == "p"
 }
 
 func shouldToggleMainWindowFullScreenForCommandControlFShortcut(

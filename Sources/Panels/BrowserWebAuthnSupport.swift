@@ -7,22 +7,6 @@ import Foundation
 import ObjectiveC.runtime
 import WebKit
 
-func browserWebAuthnAdvertisedPlatformPasskeyAvailability(
-    authorizationState: ASAuthorizationWebBrowserPublicKeyCredentialManager.AuthorizationState,
-    deviceConfiguredForPasskeys: Bool?,
-    callerMayPromptForPlatformAuthorization: Bool
-) -> Bool? {
-    if authorizationState == .denied {
-        return false
-    }
-
-    if authorizationState == .notDetermined && !callerMayPromptForPlatformAuthorization {
-        return false
-    }
-
-    return deviceConfiguredForPasskeys
-}
-
 @MainActor
 private struct BrowserBluetoothAuthorizationState {
     let authorization: CBManagerAuthorization
@@ -714,8 +698,7 @@ private extension BrowserWebAuthnCoordinator {
         let platformRequestSupport = supportsPlatformCredentialRequests
         let securityKeySupport = supportsSecurityKeyCredentialRequests
         let deviceConfiguredForPasskeys = denied ? nil : self.deviceConfiguredForPasskeys()
-        let platformPasskeyAvailability = browserWebAuthnAdvertisedPlatformPasskeyAvailability(
-            authorizationState: state,
+        let platformPasskeyAvailability = state.browserAdvertisedPlatformPasskeyAvailability(
             deviceConfiguredForPasskeys: deviceConfiguredForPasskeys,
             callerMayPromptForPlatformAuthorization: callerMayPromptForPlatformAuthorization
         )

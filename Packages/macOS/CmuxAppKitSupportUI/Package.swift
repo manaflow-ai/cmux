@@ -22,6 +22,8 @@ let package = Package(
         .package(path: "../CmuxSettings"),
         // CMUXDebugLog backs the ReleasingWindowController close-teardown logging.
         .package(path: "../CMUXDebugLog"),
+        // GitFileStatus backs FileExplorerStyle.gitColor(for:) git-status tinting.
+        .package(path: "../CmuxGit"),
         // GhosttyStartupAppearancePreviewProfile/State back the Startup Appearance
         // Debug panel's profile selection and synthetic preview config contents.
         .package(path: "../CmuxTerminalCore"),
@@ -37,6 +39,7 @@ let package = Package(
                 .product(name: "CmuxSidebar", package: "CmuxSidebar"),
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
+                .product(name: "CmuxGit", package: "CmuxGit"),
                 .product(name: "CmuxTerminalCore", package: "CmuxTerminalCore"),
                 .product(name: "Bonsplit", package: "bonsplit"),
             ],

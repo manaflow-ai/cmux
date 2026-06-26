@@ -8,6 +8,7 @@ import CmuxFoundation
 import CmuxNotifications
 import CmuxPanes
 import CmuxSettings
+import CmuxWindowing
 import CmuxWorkspaces
 import Bonsplit
 import Combine
@@ -126,10 +127,10 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyleRawValue = TitlebarControlsStyle.classic.rawValue
     @AppStorage(RightSidebarWidthSettings.maxWidthKey) private var rightSidebarMaxWidthSetting = RightSidebarWidthSettings.noOverrideValue
     @AppStorage(SessionPersistencePolicy.sidebarMinimumWidthKey) private var sidebarMinimumWidthSetting = SessionPersistencePolicy.defaultMinimumSidebarWidth
-    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey) private var titlebarLeftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey) private var titlebarLeftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTabBarInsetKey) private var titlebarTrafficLightTabBarInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInsetKey) private var titlebarTrafficLightTitlebarLeadingInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
+    @AppStorage(MinimalModeTitlebarDebugSnapshot.leftControlsLeadingInsetKey) private var titlebarLeftControlsLeadingInset = MinimalModeTitlebarDebugSnapshot.defaultLeftControlsLeadingInset
+    @AppStorage(MinimalModeTitlebarDebugSnapshot.leftControlsTopInsetKey) private var titlebarLeftControlsTopInset = MinimalModeTitlebarDebugSnapshot.defaultLeftControlsTopInset
+    @AppStorage(MinimalModeTitlebarDebugSnapshot.trafficLightTabBarInsetKey) private var titlebarTrafficLightTabBarInset = MinimalModeTitlebarDebugSnapshot.defaultTrafficLightTabBarInset
+    @AppStorage(MinimalModeTitlebarDebugSnapshot.trafficLightTitlebarLeadingInsetKey) private var titlebarTrafficLightTitlebarLeadingInset = MinimalModeTitlebarDebugSnapshot.defaultTrafficLightTitlebarLeadingInset
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @State private var sidebarWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
     @State private var selectedTabIds: Set<UUID> = []
@@ -1012,21 +1013,21 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
 
     private var titlebarDebugChromeSnapshot: MinimalModeTitlebarDebugSnapshot {
         MinimalModeTitlebarDebugSnapshot(
-            leftControlsLeadingInset: MinimalModeTitlebarDebugSettings.clamped(
+            leftControlsLeadingInset: MinimalModeTitlebarDebugSnapshot.clamped(
                 titlebarLeftControlsLeadingInset,
-                range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
+                range: MinimalModeTitlebarDebugSnapshot.horizontalInsetRange
             ),
-            leftControlsTopInset: MinimalModeTitlebarDebugSettings.clamped(
+            leftControlsTopInset: MinimalModeTitlebarDebugSnapshot.clamped(
                 titlebarLeftControlsTopInset,
-                range: MinimalModeTitlebarDebugSettings.topInsetRange
+                range: MinimalModeTitlebarDebugSnapshot.topInsetRange
             ),
-            trafficLightTabBarLeadingInset: MinimalModeTitlebarDebugSettings.clamped(
+            trafficLightTabBarLeadingInset: MinimalModeTitlebarDebugSnapshot.clamped(
                 titlebarTrafficLightTabBarInset,
-                range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
+                range: MinimalModeTitlebarDebugSnapshot.horizontalInsetRange
             ),
-            trafficLightTitlebarLeadingInset: MinimalModeTitlebarDebugSettings.clamped(
+            trafficLightTitlebarLeadingInset: MinimalModeTitlebarDebugSnapshot.clamped(
                 titlebarTrafficLightTitlebarLeadingInset,
-                range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
+                range: MinimalModeTitlebarDebugSnapshot.horizontalInsetRange
             )
         )
     }
@@ -1047,7 +1048,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
 
             TitlebarLeadingInsetReader(
                 inset: $titlebarLeadingInset,
-                baseLeadingInset: { MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInset() }
+                baseLeadingInset: { MinimalModeTitlebarDebugSnapshot.trafficLightTitlebarLeadingInset() }
             )
                 .allowsHitTesting(false)
 
@@ -6111,10 +6112,10 @@ struct VerticalTabsSidebar: View {
     }
     @AppStorage("sidebarMatchTerminalBackground")
     private var sidebarMatchTerminalBackground = false
-    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey)
-    private var titlebarLeftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey)
-    private var titlebarLeftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
+    @AppStorage(MinimalModeTitlebarDebugSnapshot.leftControlsLeadingInsetKey)
+    private var titlebarLeftControlsLeadingInset = MinimalModeTitlebarDebugSnapshot.defaultLeftControlsLeadingInset
+    @AppStorage(MinimalModeTitlebarDebugSnapshot.leftControlsTopInsetKey)
+    private var titlebarLeftControlsTopInset = MinimalModeTitlebarDebugSnapshot.defaultLeftControlsTopInset
 
     let tabRowSpacing: CGFloat = 2
     private static let extensionSidebarObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(40)
@@ -6199,16 +6200,16 @@ struct VerticalTabsSidebar: View {
 
     private var titlebarDebugChromeSnapshot: MinimalModeTitlebarDebugSnapshot {
         MinimalModeTitlebarDebugSnapshot(
-            leftControlsLeadingInset: MinimalModeTitlebarDebugSettings.clamped(
+            leftControlsLeadingInset: MinimalModeTitlebarDebugSnapshot.clamped(
                 titlebarLeftControlsLeadingInset,
-                range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
+                range: MinimalModeTitlebarDebugSnapshot.horizontalInsetRange
             ),
-            leftControlsTopInset: MinimalModeTitlebarDebugSettings.clamped(
+            leftControlsTopInset: MinimalModeTitlebarDebugSnapshot.clamped(
                 titlebarLeftControlsTopInset,
-                range: MinimalModeTitlebarDebugSettings.topInsetRange
+                range: MinimalModeTitlebarDebugSnapshot.topInsetRange
             ),
-            trafficLightTabBarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset,
-            trafficLightTitlebarLeadingInset: MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
+            trafficLightTabBarLeadingInset: MinimalModeTitlebarDebugSnapshot.defaultTrafficLightTabBarInset,
+            trafficLightTitlebarLeadingInset: MinimalModeTitlebarDebugSnapshot.defaultTrafficLightTitlebarLeadingInset
         )
     }
 

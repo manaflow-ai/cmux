@@ -553,7 +553,7 @@ extension TitlebarControlsStyleConfig {
         trafficLightFrame _: NSRect?,
         debugSnapshot: MinimalModeTitlebarDebugSnapshot
     ) -> CGFloat {
-        MinimalModeTitlebarDebugSettings.leftControlsXOffset(
+        MinimalModeTitlebarDebugSnapshot.leftControlsXOffset(
             leadingInset: debugSnapshot.leftControlsLeadingInset
         )
     }
@@ -571,7 +571,7 @@ extension TitlebarControlsStyleConfig {
             baseYOffset = max(0, (containerHeight - contentHeight) / 2.0)
         }
         let debugYOffset = CGFloat(
-            MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
+            MinimalModeTitlebarDebugSnapshot.defaultLeftControlsTopInset
                 - debugSnapshot.leftControlsTopInset
         )
         return TitlebarControlsVisualMetrics.standard.liftedYOffset(baseYOffset + debugYOffset)
@@ -1824,7 +1824,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             contentHeight: contentSize.height,
             titlebarHeight: titlebarHeight
         )
-        let debugSnapshot = MinimalModeTitlebarDebugSettings.snapshot()
+        let debugSnapshot = MinimalModeTitlebarDebugSnapshot.snapshot()
         let xOffset = TitlebarControlsStyleConfig.leadingOffset(
             trafficLightFrame: trafficLightFrame,
             debugSnapshot: debugSnapshot

@@ -17,6 +17,8 @@ let package = Package(
         .package(path: "../../../vendor/bonsplit"),
         // CMUXDebugLog backs the ReactGrab/ toggle DEBUG logging (#if DEBUG only).
         .package(path: "../CMUXDebugLog"),
+        // CmuxSettings owns BrowserSearchEngine, consumed by the suggestion service.
+        .package(path: "../CmuxSettings"),
     ],
     targets: [
         .target(
@@ -24,6 +26,7 @@ let package = Package(
             dependencies: [
                 .product(name: "Bonsplit", package: "bonsplit"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
+                .product(name: "CmuxSettings", package: "CmuxSettings"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
