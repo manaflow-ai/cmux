@@ -12,7 +12,9 @@ import Foundation
 // (CmuxFoundation) so it is unit-tested independently of this presentation
 // layer; this file owns only the filesystem glue and the printed output.
 extension CMUXCLI {
-    static let sshListUsage = """
+    static let sshListUsage = String(
+        localized: "cli.help.ssh-list",
+        defaultValue: """
         Usage: cmux ssh list [--config <path>] [--json]
 
         List the SSH hosts defined in your ssh_config — the "external" machines
@@ -27,6 +29,7 @@ extension CMUXCLI {
         `list` (and its alias `ls`) is reserved here; to open an alias literally
         named "list", connect with its full destination, e.g. `cmux ssh user@list`.
         """
+    )
 
     /// Whether `cmux ssh ...` is the local `list`/`ls` subcommand (handled
     /// without a socket because it only reads the local ssh_config) rather than
@@ -54,22 +57,22 @@ extension CMUXCLI {
         // value. Either way the user named the flag but no file, so fail loudly
         // instead of silently reading the default config.
         if rest.contains("--config") || configOverride?.trimmingCharacters(in: .whitespaces).isEmpty == true {
-            throw CLIError(message: """
-                ssh list: --config requires a path.
-
-                \(Self.sshListUsage)
-                """)
+            let detail = String(
+                localized: "cli.sshlist.configRequiresPath",
+                defaultValue: "ssh list: --config requires a path."
+            )
+            throw CLIError(message: "\(detail)\n\n\(Self.sshListUsage)")
         }
         // The only expected token is the `list`/`ls` verb (global `--json` was
         // consumed before this). Anything else — an unknown or misspelled flag
         // like `--bogus`/`--jsno`, or an extra positional — is a user error,
         // not a silently-ignored argument.
         for token in rest where token.lowercased() != "list" && token.lowercased() != "ls" {
-            throw CLIError(message: """
-                ssh list: unexpected argument '\(token)'.
-
-                \(Self.sshListUsage)
-                """)
+            let detail = String(
+                localized: "cli.sshlist.unexpectedArgument",
+                defaultValue: "ssh list: unexpected argument '\(token)'."
+            )
+            throw CLIError(message: "\(detail)\n\n\(Self.sshListUsage)")
         }
 
         let configPath = Self.resolveSSHConfigPath(configOverride)
@@ -85,7 +88,10 @@ extension CMUXCLI {
         }
 
         if hosts.isEmpty {
-            print("No SSH hosts found in \(configPath).")
+            print(String(
+                localized: "cli.sshlist.noHosts",
+                defaultValue: "No SSH hosts found in \(configPath)."
+            ))
             return
         }
         printSSHHostsTable(hosts)
@@ -116,7 +122,10 @@ extension CMUXCLI {
         // --config that is missing or non-regular is a user error.
         guard Self.isRegularFile(configPath) else {
             if requireReadable {
-                throw CLIError(message: "ssh list: --config \(configPath) is not a readable file.")
+                throw CLIError(message: String(
+                    localized: "cli.sshlist.configNotReadable",
+                    defaultValue: "ssh list: --config \(configPath) is not a readable file."
+                ))
             }
             return []
         }
@@ -125,7 +134,10 @@ extension CMUXCLI {
             contents = try String(contentsOfFile: configPath, encoding: .utf8)
         } catch {
             if requireReadable {
-                throw CLIError(message: "ssh list: cannot read --config \(configPath): \(error.localizedDescription)")
+                throw CLIError(message: String(
+                    localized: "cli.sshlist.configReadError",
+                    defaultValue: "ssh list: cannot read --config \(configPath): \(error.localizedDescription)"
+                ))
             }
             return []
         }
