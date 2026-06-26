@@ -1,5 +1,5 @@
 import Foundation
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -43,8 +43,8 @@ private final class FakeDispatcher: OfflineNoteDispatching {
     }
 }
 
-@MainActor
-final class OfflineNotesStoreTests: XCTestCase {
+@Suite @MainActor
+struct OfflineNotesStoreTests {
     private func tempFileURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("offline-notes-tests-\(UUID().uuidString)", isDirectory: true)
@@ -79,26 +79,28 @@ final class OfflineNotesStoreTests: XCTestCase {
 
     // MARK: - Persistence
 
-    func testNotesSurviveRestartAndIgnoreWhitespace() async throws {
+    @Test
+    func notesSurviveRestartAndIgnoreWhitespace() async throws {
         let url = tempFileURL()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
         let first = makeStore(fileURL: url, reachability: FakeReachability(isOnline: false), autostart: false)
-        XCTAssertNil(first.addNote("   \n  "))
+        #expect(first.addNote("   \n  ") == nil)
         let note = first.addNote("ship the offline notes feature")
-        XCTAssertNotNil(note)
-        XCTAssertEqual(first.notes.count, 1)
+        #expect(note != nil)
+        #expect(first.notes.count == 1)
         // Persistence is coalesced + off-main; wait for the write to land on disk.
         await first.waitForPendingPersist()
 
         // A fresh store instance (simulating an app restart) reloads from disk.
         let reloaded = makeStore(fileURL: url, reachability: FakeReachability(isOnline: false), autostart: false)
-        XCTAssertEqual(reloaded.notes.count, 1)
-        XCTAssertEqual(reloaded.notes.first?.text, "ship the offline notes feature")
-        XCTAssertEqual(reloaded.notes.first?.status, .pending)
+        #expect(reloaded.notes.count == 1)
+        #expect(reloaded.notes.first?.text == "ship the offline notes feature")
+        #expect(reloaded.notes.first?.status == .pending)
     }
 
-    func testSendingNotesResetToPendingOnLoad() throws {
+    @Test
+    func sendingNotesResetToPendingOnLoad() throws {
         let url = tempFileURL()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
@@ -112,23 +114,25 @@ final class OfflineNotesStoreTests: XCTestCase {
         try data.write(to: url)
 
         let store = makeStore(fileURL: url, reachability: FakeReachability(isOnline: false), autostart: false)
-        XCTAssertEqual(store.notes.first?.status, .pending)
+        #expect(store.notes.first?.status == .pending)
     }
 
     // MARK: - Connectivity-gated flush
 
-    func testOfflineDoesNotFlush() async throws {
+    @Test
+    func offlineDoesNotFlush() async throws {
         let dispatcher = FakeDispatcher()
         let store = makeStore(fileURL: nil, dispatcher: dispatcher, reachability: FakeReachability(isOnline: false))
         store.addNote("queued while offline")
 
         await store.flush() // no-op while offline
 
-        XCTAssertTrue(dispatcher.dispatched.isEmpty)
-        XCTAssertEqual(store.notes.first?.status, .pending)
+        #expect(dispatcher.dispatched.isEmpty)
+        #expect(store.notes.first?.status == .pending)
     }
 
-    func testRegainingConnectivityFlushesPendingNotes() async throws {
+    @Test
+    func regainingConnectivityFlushesPendingNotes() async throws {
         let dispatcher = FakeDispatcher()
         let reachability = FakeReachability(isOnline: false)
         let store = makeStore(fileURL: nil, dispatcher: dispatcher, reachability: reachability)
@@ -138,43 +142,45 @@ final class OfflineNotesStoreTests: XCTestCase {
         reachability.setOnline(true) // triggers the auto-flush on reconnect
 
         await waitUntil { store.notes.allSatisfy { $0.status == .sent } }
-        XCTAssertEqual(dispatcher.dispatched.count, 2)
-        XCTAssertEqual(store.sentCount, 2)
-        XCTAssertEqual(store.pendingCount, 0)
-        XCTAssertNotNil(store.notes.first?.sentAt)
+        #expect(dispatcher.dispatched.count == 2)
+        #expect(store.sentCount == 2)
+        #expect(store.pendingCount == 0)
+        #expect(store.notes.first?.sentAt != nil)
     }
 
     // MARK: - Failure + retry
 
-    func testFailedDispatchIsRetryable() async throws {
+    @Test
+    func failedDispatchIsRetryable() async throws {
         let dispatcher = FakeDispatcher()
         dispatcher.shouldFail = true
         let reachability = FakeReachability(isOnline: false)
         let store = makeStore(fileURL: nil, dispatcher: dispatcher, reachability: reachability)
         let note = store.addNote("flaky note")
-        let id = try XCTUnwrap(note?.id)
+        let id = try #require(note?.id)
 
         reachability.setOnline(true)
         await waitUntil { store.notes.first?.status == .failed }
 
-        XCTAssertEqual(store.notes.first?.status, .failed)
-        XCTAssertEqual(store.notes.first?.attemptCount, 1)
-        XCTAssertNotNil(store.notes.first?.lastError)
-        XCTAssertEqual(store.failedCount, 1)
+        #expect(store.notes.first?.status == .failed)
+        #expect(store.notes.first?.attemptCount == 1)
+        #expect(store.notes.first?.lastError != nil)
+        #expect(store.failedCount == 1)
 
         // Recover and retry.
         dispatcher.shouldFail = false
         store.retry(id: id)
         await waitUntil { store.notes.first?.status == .sent }
 
-        XCTAssertEqual(store.notes.first?.status, .sent)
-        XCTAssertEqual(store.notes.first?.attemptCount, 2)
-        XCTAssertEqual(dispatcher.dispatched.count, 2)
+        #expect(store.notes.first?.status == .sent)
+        #expect(store.notes.first?.attemptCount == 2)
+        #expect(dispatcher.dispatched.count == 2)
     }
 
     // MARK: - Reentrancy
 
-    func testConcurrentFlushesDispatchEachNoteOnce() async throws {
+    @Test
+    func concurrentFlushesDispatchEachNoteOnce() async throws {
         let dispatcher = FakeDispatcher()
         let reachability = FakeReachability(isOnline: false)
         let store = makeStore(fileURL: nil, dispatcher: dispatcher, reachability: reachability)
@@ -188,12 +194,13 @@ final class OfflineNotesStoreTests: XCTestCase {
         _ = await (firstFlush, secondFlush)
 
         await waitUntil { store.notes.allSatisfy { $0.status == .sent } }
-        XCTAssertEqual(dispatcher.dispatched.count, 2)
+        #expect(dispatcher.dispatched.count == 2)
     }
 
     // MARK: - Housekeeping
 
-    func testClearSentRemovesOnlySentNotes() async throws {
+    @Test
+    func clearSentRemovesOnlySentNotes() async throws {
         let dispatcher = FakeDispatcher()
         let reachability = FakeReachability(isOnline: false)
         let store = makeStore(fileURL: nil, dispatcher: dispatcher, reachability: reachability)
@@ -205,8 +212,42 @@ final class OfflineNotesStoreTests: XCTestCase {
         store.addNote("still pending")
 
         store.clearSent()
-        XCTAssertEqual(store.notes.count, 1)
-        XCTAssertEqual(store.notes.first?.text, "still pending")
-        XCTAssertEqual(store.notes.first?.status, .pending)
+        #expect(store.notes.count == 1)
+        #expect(store.notes.first?.text == "still pending")
+        #expect(store.notes.first?.status == .pending)
+    }
+
+    // MARK: - Bounded growth
+
+    @Test
+    func longNoteIsTruncatedToCap() {
+        let store = makeStore(fileURL: nil, reachability: FakeReachability(isOnline: false))
+        let huge = String(repeating: "a", count: OfflineNotesStore.maxNoteLength + 50)
+        let note = store.addNote(huge)
+        #expect(note?.text.count == OfflineNotesStore.maxNoteLength)
+    }
+
+    @Test
+    func sentNotesArePrunedToCapPreservingOldestEviction() async throws {
+        let dispatcher = FakeDispatcher()
+        let reachability = FakeReachability(isOnline: false)
+        let store = makeStore(fileURL: nil, dispatcher: dispatcher, reachability: reachability)
+
+        let total = OfflineNotesStore.maxRetainedSentNotes + 5
+        var oldestID: UUID?
+        for index in 0..<total {
+            let note = store.addNote("note \(index)")
+            if index == 0 { oldestID = note?.id }
+        }
+
+        reachability.setOnline(true)
+        await waitUntil(timeout: 8.0) { store.sentCount == OfflineNotesStore.maxRetainedSentNotes }
+
+        #expect(dispatcher.dispatched.count == total)
+        #expect(store.sentCount == OfflineNotesStore.maxRetainedSentNotes)
+        #expect(store.notes.count == OfflineNotesStore.maxRetainedSentNotes)
+        // The oldest sent note is the one evicted.
+        let evicted = try #require(oldestID)
+        #expect(!store.notes.contains { $0.id == evicted })
     }
 }

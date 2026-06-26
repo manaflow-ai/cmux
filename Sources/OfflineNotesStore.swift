@@ -176,6 +176,13 @@ final class OfflineNotesStore {
     @ObservationIgnored private var pendingSnapshot: [OfflineNote]?
     @ObservationIgnored private var persistTask: Task<Void, Never>?
 
+    /// Caps so the app-lifetime queue and its backing file stay bounded.
+    /// A single note is truncated to ``maxNoteLength`` characters, and at most
+    /// ``maxRetainedSentNotes`` already-sent notes are kept (oldest evicted
+    /// first); pending and failed notes are never auto-evicted.
+    static let maxNoteLength = 100_000
+    static let maxRetainedSentNotes = 200
+
     init(
         fileURL: URL? = OfflineNotesStore.defaultFileURL(),
         dispatcher: any OfflineNoteDispatching = OfflineNoteAgentDispatcher(),
@@ -225,8 +232,10 @@ final class OfflineNotesStore {
     func addNote(_ text: String) -> OfflineNote? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        let note = OfflineNote(text: trimmed)
+        let capped = String(trimmed.prefix(Self.maxNoteLength))
+        let note = OfflineNote(text: capped)
         notes.append(note)
+        pruneSentNotes()
         persist()
         return note
     }
@@ -304,6 +313,7 @@ final class OfflineNotesStore {
         isFlushing = true
         defer {
             isFlushing = false
+            pruneSentNotes()
             persist()
         }
 
@@ -348,6 +358,19 @@ final class OfflineNotesStore {
     private func applyInMemory(_ note: OfflineNote) {
         guard let index = notes.firstIndex(where: { $0.id == note.id }) else { return }
         notes[index] = note
+    }
+
+    /// Evicts the oldest already-sent notes beyond ``maxRetainedSentNotes`` so
+    /// the queue cannot grow without bound across the app's lifetime. Pending
+    /// and failed notes are preserved. Does not persist on its own — callers
+    /// persist after their mutation.
+    private func pruneSentNotes() {
+        let sentIDs = notes.filter { $0.status == .sent }.map(\.id)
+        guard sentIDs.count > Self.maxRetainedSentNotes else { return }
+        let evictCount = sentIDs.count - Self.maxRetainedSentNotes
+        // `notes` is in capture order, so the leading sent ids are the oldest.
+        let evicted = Set(sentIDs.prefix(evictCount))
+        notes.removeAll { evicted.contains($0.id) }
     }
 
     /// Maps a dispatch failure to a fixed, localized message. Only our own
