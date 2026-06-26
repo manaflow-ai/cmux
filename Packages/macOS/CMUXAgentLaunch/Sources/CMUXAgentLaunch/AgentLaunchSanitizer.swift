@@ -27,6 +27,7 @@ public enum AgentLaunchSanitizer {
         var promptBoundaryOptions: Set<String> = []
         var resumeSubcommand: String?
         var preserveFirstPositional: Bool = false
+        var preservePositionals: Bool = false
         var skipClaudeHookSettings: Bool = false
     }
     public static func sanitizedLaunchArguments(
@@ -201,12 +202,13 @@ public enum AgentLaunchSanitizer {
         }
         return false
     }
-    public static func preservedCodexForkArguments(args: [String]) -> [String]? {
+    public static func preservedCodexForkArguments(args: [String], preservePromptTags: Bool = false) -> [String]? {
         var tail = args
         if let forkCommand = codexForkCommand(in: tail) {
             tail = dropCodexForkPositionals(tail, forkCommand: forkCommand)
         }
-        return preserveOptions(tail, policy: codexPolicy)
+        var policy = codexPolicy; policy.preservePositionals = preservePromptTags
+        return preserveOptions(tail, policy: policy)
     }
 
     public static func removingSavedWorkingDirectoryOptions(
@@ -350,6 +352,7 @@ public enum AgentLaunchSanitizer {
                 if policy.nonRestorableCommands.contains(arg) {
                     return nil
                 }
+                if policy.preservePositionals { result.append(arg); index += 1; continue }
                 if policy.preserveFirstPositional, !consumedFirstPositional {
                     result.append(arg)
                     consumedFirstPositional = true
@@ -393,6 +396,7 @@ public enum AgentLaunchSanitizer {
     private static func dropCodexForkPositionals(_ args: [String], forkCommand: CodexForkCommand) -> [String] {
         var result: [String] = []
         var index = 0
+        var skippedSession = false
 
         while index < args.count {
             let arg = args[index]
@@ -403,14 +407,9 @@ public enum AgentLaunchSanitizer {
                 index += 1
                 continue
             }
-            if index == forkCommand.sessionIndex {
-                index += 1
-                while index < args.count, !args[index].hasPrefix("-") {
-                    index += 1
-                }
-                continue
-            }
+            if index == forkCommand.sessionIndex { skippedSession = true; index += 1; continue }
             if !arg.hasPrefix("-") || arg == "-" {
+                if skippedSession { result.append(arg) }
                 index += 1
                 continue
             }
