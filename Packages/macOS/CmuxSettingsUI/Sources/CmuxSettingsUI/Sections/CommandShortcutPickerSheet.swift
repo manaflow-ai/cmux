@@ -212,10 +212,10 @@ struct CommandShortcutPickerSheet: View {
         }
         if let conflictMessage {
             let format = String(
-                localized: "shortcut.recorder.error.conflictsWithAction",
-                defaultValue: "This shortcut conflicts with %@ (%@)."
+                localized: "shortcut.recorder.error.conflictsWithBinding",
+                defaultValue: "This shortcut conflicts with %@."
             )
-            return String.localizedStringWithFormat(format, conflictMessage, "")
+            return String.localizedStringWithFormat(format, conflictMessage)
         }
         return nil
     }

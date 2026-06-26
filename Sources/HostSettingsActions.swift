@@ -45,6 +45,13 @@ final class HostSettingsActions: SettingsHostActions {
     private var configWindow: NSWindow?
     private var configWindowCloseObserver: WindowCloseObserver?
 
+    /// Memoized bindable command catalog + its prepared search engine. The
+    /// catalog is static for the process lifetime (locale changes restart the
+    /// app), so both are built once and reused across the picker's per-keystroke
+    /// searches rather than rebuilt each call.
+    private var cachedCommandShortcutCatalog: [CommandShortcutCatalogEntry]?
+    private var cachedCommandShortcutSearchEngine: CommandPaletteSearchEngine<CommandShortcutCatalogEntry>?
+
     init(configFileURL: URL) {
         self.configFileURL = configFileURL
         startObservingAppIconMode()
@@ -325,7 +332,15 @@ final class HostSettingsActions: SettingsHostActions {
     /// regardless of the current window's focus. Config-derived `actions` are
     /// intentionally excluded: those already support a `shortcut` field directly
     /// in cmux.json, so surfacing them here would offer two ways to bind one thing.
+    ///
+    /// Built once and memoized: the contributions are static (the only variable,
+    /// the active locale, requires a process restart), and the Settings picker
+    /// calls this on every keystroke, so rebuilding the list each time is wasted
+    /// work.
     func commandShortcutCatalog() -> [CommandShortcutCatalogEntry] {
+        if let cachedCommandShortcutCatalog {
+            return cachedCommandShortcutCatalog
+        }
         let neutralContext = CommandPaletteContextSnapshot()
         var seen = Set<String>()
         var entries: [CommandShortcutCatalogEntry] = []
@@ -342,6 +357,7 @@ final class HostSettingsActions: SettingsHostActions {
                 )
             )
         }
+        cachedCommandShortcutCatalog = entries
         return entries
     }
 
@@ -349,28 +365,81 @@ final class HostSettingsActions: SettingsHostActions {
     /// reader (``KeyboardShortcutSettings/commandShortcuts()``) so a binding
     /// written in any documented form — `"cmd+n"`, the package's object form, or
     /// an unbind marker — resolves the same way the runtime dispatcher sees it.
-    func commandShortcuts() -> [String: StoredShortcut] {
-        KeyboardShortcutSettings.commandShortcuts()
+    ///
+    /// The return type is the **package** ``CmuxSettings/StoredShortcut`` (the
+    /// protocol's type), not the app's identically-named flat struct; the app
+    /// type would make this a non-witness and silently fall back to the
+    /// protocol's empty default. ``Self/packageStoredShortcut(from:)`` bridges.
+    func commandShortcuts() -> [String: CmuxSettings.StoredShortcut] {
+        KeyboardShortcutSettings.commandShortcuts().mapValues(Self.packageStoredShortcut(from:))
+    }
+
+    /// The effective (override-or-default) binding for every built-in cmux
+    /// action, keyed by action id, read through the app's lenient resolver so a
+    /// string-form `shortcuts.bindings` override is honored. Bridged to the
+    /// package ``CmuxSettings/StoredShortcut`` for the protocol witness.
+    ///
+    /// Includes explicitly-unbound actions as the package unbound marker (rather
+    /// than omitting them) so the package conflict checker — which falls back to
+    /// an action's built-in default for any *absent* id — treats a user-unbound
+    /// action as free rather than as still occupying its default keystroke.
+    func effectiveActionShortcuts() -> [String: CmuxSettings.StoredShortcut] {
+        var result: [String: CmuxSettings.StoredShortcut] = [:]
+        for action in KeyboardShortcutSettings.Action.allCases {
+            result[action.rawValue] = Self.packageStoredShortcut(
+                from: KeyboardShortcutSettings.shortcut(for: action)
+            )
+        }
+        return result
+    }
+
+    /// Bridges the app's flat ``StoredShortcut`` to the package
+    /// ``CmuxSettings/StoredShortcut`` (first/second strokes) the Settings
+    /// package speaks. Field-by-field — the two Codable shapes differ (flat vs
+    /// nested), so a JSON round-trip would not bridge them.
+    private static func packageStoredShortcut(from shortcut: StoredShortcut) -> CmuxSettings.StoredShortcut {
+        func packageStroke(_ stroke: ShortcutStroke) -> CmuxSettings.ShortcutStroke {
+            CmuxSettings.ShortcutStroke(
+                key: stroke.key,
+                command: stroke.command,
+                shift: stroke.shift,
+                option: stroke.option,
+                control: stroke.control,
+                keyCode: stroke.keyCode
+            )
+        }
+        return CmuxSettings.StoredShortcut(
+            first: packageStroke(shortcut.firstStroke),
+            second: shortcut.secondStroke.map(packageStroke)
+        )
     }
 
     /// Ranks ``commandShortcutCatalog()`` for `query` with the Command Palette's
     /// own ``CommandPaletteSearchEngine`` so the Settings picker matches palette
     /// search exactly. An empty query yields the default order capped to `limit`.
+    /// The corpus + engine are built once (the catalog is static) and reused so a
+    /// per-keystroke search does not re-prepare the whole corpus.
     func searchCommandShortcutCatalog(query: String, limit: Int) -> [CommandShortcutCatalogEntry] {
         let entries = commandShortcutCatalog()
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             return limit >= 0 ? Array(entries.prefix(limit)) : entries
         }
-        let corpus = entries.enumerated().map { index, entry in
-            CommandPaletteSearchCorpusEntry(
-                payload: entry,
-                rank: index,
-                title: entry.title,
-                searchableTexts: [entry.title, entry.subtitle] + entry.keywords
-            )
+        let engine: CommandPaletteSearchEngine<CommandShortcutCatalogEntry>
+        if let cachedCommandShortcutSearchEngine {
+            engine = cachedCommandShortcutSearchEngine
+        } else {
+            let corpus = entries.enumerated().map { index, entry in
+                CommandPaletteSearchCorpusEntry(
+                    payload: entry,
+                    rank: index,
+                    title: entry.title,
+                    searchableTexts: [entry.title, entry.subtitle] + entry.keywords
+                )
+            }
+            engine = CommandPaletteSearchEngine(entries: corpus)
+            cachedCommandShortcutSearchEngine = engine
         }
-        let engine = CommandPaletteSearchEngine(entries: corpus)
         let results = engine.search(
             query: trimmed,
             resultLimit: limit >= 0 ? limit : nil,

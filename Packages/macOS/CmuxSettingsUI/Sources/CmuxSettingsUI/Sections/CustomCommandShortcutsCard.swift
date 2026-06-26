@@ -27,13 +27,12 @@ struct CustomCommandShortcutsCard: View {
     /// string form `"cmd+n"` is resolved rather than dropped. Updated
     /// optimistically on each edit; the per-entry write is lossless regardless.
     @State private var commandShortcuts: [String: StoredShortcut] = [:]
-    /// Built-in action overrides streamed from `shortcuts.bindings`, used (with
-    /// each action's default) for conflict detection against built-in actions.
+    /// Effective built-in action bindings (override-or-default), read through the
+    /// host's lenient resolver for conflict detection against built-in actions.
     @State private var actionBindings: [String: StoredShortcut] = [:]
     /// The full command catalog (id → title/subtitle/keywords), loaded once from
     /// the host so bound rows can resolve a command id back to a title.
     @State private var catalogEntries: [CommandShortcutCatalogEntry] = []
-    @State private var bindingStreamTask: Task<Void, Never>?
 
     @State private var isPickerPresented = false
     /// Per-command re-record conflict banner: command id → conflicting label.
@@ -85,26 +84,16 @@ struct CustomCommandShortcutsCard: View {
             .padding(.leading, 2)
             .accessibilityIdentifier("CustomCommandShortcutsHint")
         }
-        .task { await streamActionBindings() }
         .onAppear {
             reloadCatalogIfNeeded()
-            seedCommandShortcuts()
-        }
-        .onDisappear {
-            bindingStreamTask?.cancel()
+            seedFromHost()
         }
         .sheet(isPresented: $isPickerPresented) {
             CommandShortcutPickerSheet(
                 search: { hostActions.searchCommandShortcutCatalog(query: $0, limit: 60) },
                 alreadyBoundCommandIds: Set(commandShortcuts.keys),
                 conflictLabel: { stroke, excluding in
-                    commandShortcutConflictLabel(
-                        stroke: stroke,
-                        excludingCommandId: excluding,
-                        actionBindings: actionBindings,
-                        commandShortcuts: commandShortcuts,
-                        title: title(for:)
-                    )
+                    conflictChecker().conflictLabel(stroke: stroke, excludingCommandId: excluding)
                 },
                 onAssign: { commandId, shortcut in
                     Task { await assign(shortcut, to: commandId) }
@@ -154,10 +143,10 @@ struct CustomCommandShortcutsCard: View {
             }
             if let conflict {
                 let messageFormat = String(
-                    localized: "shortcut.recorder.error.conflictsWithAction",
-                    defaultValue: "This shortcut conflicts with %@ (%@)."
+                    localized: "shortcut.recorder.error.conflictsWithBinding",
+                    defaultValue: "This shortcut conflicts with %@."
                 )
-                return String.localizedStringWithFormat(messageFormat, conflict, "")
+                return String.localizedStringWithFormat(messageFormat, conflict)
             }
             return nil
         }()
@@ -220,30 +209,29 @@ struct CustomCommandShortcutsCard: View {
         catalogEntries.first { $0.commandId == commandId }?.title ?? commandId
     }
 
+    private func conflictChecker() -> CommandShortcutConflictChecker {
+        CommandShortcutConflictChecker(
+            actionBindings: actionBindings,
+            commandShortcuts: commandShortcuts,
+            title: title(for:)
+        )
+    }
+
     private func reloadCatalogIfNeeded() {
         if catalogEntries.isEmpty {
             catalogEntries = hostActions.commandShortcutCatalog()
         }
     }
 
-    /// Loads the current bound shortcuts from the host's lenient parser. Done on
-    /// appear (and after each edit completes) rather than streamed through the
-    /// package's typed decode, which would drop string-form bindings.
-    private func seedCommandShortcuts() {
+    /// Loads the bound command shortcuts and the effective built-in action
+    /// bindings from the host's lenient parser. Both go through the host rather
+    /// than the package's object-only typed decode, which is all-or-nothing and
+    /// would drop a single string-form binding (blanking the whole map and
+    /// bypassing conflict detection).
+    private func seedFromHost() {
         commandShortcuts = hostActions.commandShortcuts()
+        actionBindings = hostActions.effectiveActionShortcuts()
         pruneStaleRejections()
-    }
-
-    private func streamActionBindings() async {
-        bindingStreamTask?.cancel()
-        let task = Task {
-            for await dictionary in jsonStore.values(for: catalog.shortcuts.bindings) {
-                if Task.isCancelled { break }
-                actionBindings = dictionary
-            }
-        }
-        bindingStreamTask = task
-        await task.value
     }
 
     private func pruneStaleRejections() {
@@ -259,13 +247,7 @@ struct CustomCommandShortcutsCard: View {
     /// conflict check as the picker.
     private func reassign(stroke: ShortcutStroke, to commandId: String) async {
         let proposed = StoredShortcut(first: stroke)
-        if let conflict = commandShortcutConflictLabel(
-            stroke: proposed,
-            excludingCommandId: commandId,
-            actionBindings: actionBindings,
-            commandShortcuts: commandShortcuts,
-            title: title(for:)
-        ) {
+        if let conflict = conflictChecker().conflictLabel(stroke: proposed, excludingCommandId: commandId) {
             rowConflicts[commandId] = conflict
             rowBareKeyRejections.remove(commandId)
             return
@@ -338,36 +320,46 @@ struct ShortcutValidationBanner: View {
     }
 }
 
-/// The label of the first existing binding a proposed command shortcut collides
-/// with — a built-in action's display name or another command's title — or
-/// `nil` when the keystroke is free. Built-in actions are checked with
-/// numbered-digit family semantics so binding `⌃5` is blocked by the `⌃1…9`
-/// workspace selector. The proposed command stroke is never a numbered family.
+/// Detects whether a proposed single-stroke command shortcut collides with an
+/// existing built-in action binding or another command binding.
+///
+/// A value type constructed with the current bindings (rather than a free
+/// function) so the conflict surface is owned, testable, and not ambient module
+/// API. Built-in actions are checked with numbered-digit family semantics so
+/// binding `⌃5` is blocked by the `⌃1…9` workspace selector; the proposed
+/// command stroke is never itself a numbered family.
 @MainActor
-func commandShortcutConflictLabel(
-    stroke: StoredShortcut,
-    excludingCommandId: String?,
-    actionBindings: [String: StoredShortcut],
-    commandShortcuts: [String: StoredShortcut],
-    title: (String) -> String
-) -> String? {
-    for action in ShortcutAction.allCases {
-        let effective = actionBindings[action.rawValue] ?? action.defaultShortcut
-        guard let effective, !effective.isUnbound else { continue }
-        if numberedAwareStrokesConflict(
-            stroke.first,
-            numbered: false,
-            effective.first,
-            numbered: action.usesNumberedDigitMatching
-        ) {
-            return action.displayName
+struct CommandShortcutConflictChecker {
+    /// Built-in action overrides from `shortcuts.bindings`.
+    let actionBindings: [String: StoredShortcut]
+    /// Other commands' bindings from `shortcuts.commands`.
+    let commandShortcuts: [String: StoredShortcut]
+    /// Resolves a command id to its display title for the banner.
+    let title: (String) -> String
+
+    /// The display label of the first conflicting binding — a built-in action's
+    /// display name or another command's title — or `nil` when `stroke` is free.
+    /// Pass the command id being rebound as `excludingCommandId` so a command's
+    /// own existing binding is not treated as a self-conflict.
+    func conflictLabel(stroke: StoredShortcut, excludingCommandId: String?) -> String? {
+        for action in ShortcutAction.allCases {
+            let effective = actionBindings[action.rawValue] ?? action.defaultShortcut
+            guard let effective, !effective.isUnbound else { continue }
+            if numberedAwareStrokesConflict(
+                stroke.first,
+                numbered: false,
+                effective.first,
+                numbered: action.usesNumberedDigitMatching
+            ) {
+                return action.displayName
+            }
         }
-    }
-    for (commandId, existing) in commandShortcuts where commandId != excludingCommandId {
-        guard !existing.isUnbound else { continue }
-        if numberedAwareStrokesConflict(stroke.first, numbered: false, existing.first, numbered: false) {
-            return title(commandId)
+        for (commandId, existing) in commandShortcuts where commandId != excludingCommandId {
+            guard !existing.isUnbound else { continue }
+            if numberedAwareStrokesConflict(stroke.first, numbered: false, existing.first, numbered: false) {
+                return title(commandId)
+            }
         }
+        return nil
     }
-    return nil
 }
