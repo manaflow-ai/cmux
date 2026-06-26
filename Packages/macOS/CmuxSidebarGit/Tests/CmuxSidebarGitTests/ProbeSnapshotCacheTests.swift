@@ -76,6 +76,40 @@ import CmuxGit
         #expect(generations == [nil])
     }
 
+    @Test func sharedWatchedPathsEventAssignsSameGenerationToEveryDirectory() throws {
+        let firstDirectory = "/tmp/repo/frontend"
+        let secondDirectory = "/tmp/repo/backend"
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, firstPanelId) = host.addWorkspace(panelDirectory: firstDirectory)
+        let secondPanelId = UUID()
+        let firstKey = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: firstPanelId)
+        let secondKey = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: secondPanelId)
+        let watchedPathsKey = WorkspaceGitMetadataWatchedPathsKey(paths: ["/tmp/repo/.git/index"])
+        let service = makeService(
+            host: host,
+            reader: GatedMetadataReader(metadata: .repository(branch: "feature/x")),
+            clock: ManualGitPollClock()
+        )
+
+        service.setWorkspaceGitMetadataWatcherSourceDirectory(firstDirectory, for: firstKey)
+        service.setWorkspaceGitMetadataWatcherSourceDirectory(secondDirectory, for: secondKey)
+        service.setWorkspaceGitMetadataWatcherWatchedPathsKey(watchedPathsKey, for: firstKey)
+        service.setWorkspaceGitMetadataWatcherWatchedPathsKey(watchedPathsKey, for: secondKey)
+        service.markWorkspaceGitSnapshotCacheEligible(directory: firstDirectory)
+        service.markWorkspaceGitSnapshotCacheEligible(directory: secondDirectory)
+        let initialGeneration = service.workspaceGitMetadataFilesystemEventGeneration
+
+        let refreshedKeys = service.recordWorkspaceGitMetadataFilesystemEvent(
+            forWatchedPathsKey: watchedPathsKey
+        )
+        let firstGeneration = try #require(service.workspaceGitSnapshotCacheGeneration(directory: firstDirectory))
+        let secondGeneration = try #require(service.workspaceGitSnapshotCacheGeneration(directory: secondDirectory))
+
+        #expect(Set(refreshedKeys) == Set([firstKey, secondKey]))
+        #expect(service.workspaceGitMetadataFilesystemEventGeneration == initialGeneration + 1)
+        #expect(firstGeneration == secondGeneration)
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func joinedSnapshotWithNewGenerationQueuesFreshFollowUpProbe() async throws {
         let directory = "/tmp/repo"
