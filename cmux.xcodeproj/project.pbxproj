@@ -389,6 +389,7 @@
 		C0DEF0A90000000000000001 /* ContentView+ForkAgentConversation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0A90000000000000002 /* ContentView+ForkAgentConversation.swift */; };
 		D7AB00000000000000000003 /* ContentView+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000004 /* ContentView+MoveTabToNewWorkspace.swift */; };
 		C3408A000000000000000001 /* ContentView+RightSidebarCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3408A000000000000000002 /* ContentView+RightSidebarCommandPalette.swift */; };
+		5685C0DE5685C0DE56850002 /* ContentView+SelectedWorkspaceDirectoryObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5685C0DE5685C0DE56850001 /* ContentView+SelectedWorkspaceDirectoryObserver.swift */; };
 		C3408A000000000000000005 /* ContentView+ViewCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3408A000000000000000006 /* ContentView+ViewCommandPalette.swift */; };
 		A5001002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001012 /* ContentView.swift */; };
 		C0DE32470000000000000001 /* ContentViewIdentifierCopyCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE32470000000000000002 /* ContentViewIdentifierCopyCommands.swift */; };
@@ -1070,6 +1071,7 @@
 		D7AB00000000000000000015 /* Workspace+DetachedSurfaceTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000016 /* Workspace+DetachedSurfaceTransfer.swift */; };
 		E3309A05 /* Workspace+EqualizeSplitsSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A06 /* Workspace+EqualizeSplitsSupport.swift */; };
 		C3744E010000000000000001 /* Workspace+PanelLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */; };
+		5685C0DE5685C0DE56850004 /* Workspace+SidebarRoots.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5685C0DE5685C0DE56850003 /* Workspace+SidebarRoots.swift */; };
 		CA52B0170000000000000000 /* Workspace+SurfaceNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0170000000000000000 /* Workspace+SurfaceNavigation.swift */; };
 		E3B7A400000000000000020A /* Workspace+WorkspaceSurfaceTreeReading.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000020B /* Workspace+WorkspaceSurfaceTreeReading.swift */; };
 		A5001406 /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001416 /* Workspace.swift */; };
@@ -1531,6 +1533,7 @@
 		C0DEF0A90000000000000002 /* ContentView+ForkAgentConversation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+ForkAgentConversation.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000004 /* ContentView+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
 		C3408A000000000000000002 /* ContentView+RightSidebarCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+RightSidebarCommandPalette.swift"; sourceTree = "<group>"; };
+		5685C0DE5685C0DE56850001 /* ContentView+SelectedWorkspaceDirectoryObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+SelectedWorkspaceDirectoryObserver.swift"; sourceTree = "<group>"; };
 		C3408A000000000000000006 /* ContentView+ViewCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+ViewCommandPalette.swift"; sourceTree = "<group>"; };
 		A5001012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		C0DE32470000000000000002 /* ContentViewIdentifierCopyCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentViewIdentifierCopyCommands.swift; sourceTree = "<group>"; };
@@ -2197,6 +2200,7 @@
 		D7AB00000000000000000016 /* Workspace+DetachedSurfaceTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+DetachedSurfaceTransfer.swift"; sourceTree = "<group>"; };
 		E3309A06 /* Workspace+EqualizeSplitsSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+EqualizeSplitsSupport.swift"; sourceTree = "<group>"; };
 		C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+PanelLifecycle.swift"; sourceTree = "<group>"; };
+		5685C0DE5685C0DE56850003 /* Workspace+SidebarRoots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SidebarRoots.swift"; sourceTree = "<group>"; };
 		CA52C0170000000000000000 /* Workspace+SurfaceNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SurfaceNavigation.swift"; sourceTree = "<group>"; };
 		E3B7A400000000000000020B /* Workspace+WorkspaceSurfaceTreeReading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+WorkspaceSurfaceTreeReading.swift"; sourceTree = "<group>"; };
 		A5001416 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
@@ -2571,6 +2575,7 @@
 				C3408A000000000000000006 /* ContentView+ViewCommandPalette.swift */,
 				C0DEF0A90000000000000002 /* ContentView+ForkAgentConversation.swift */,
 				D7AB00000000000000000004 /* ContentView+MoveTabToNewWorkspace.swift */,
+				5685C0DE5685C0DE56850001 /* ContentView+SelectedWorkspaceDirectoryObserver.swift */,
 				EA1F00000000000000000002 /* SidebarPathFormatter.swift */,
 				EA1F00000000000000000004 /* SidebarDirectoryText.swift */,
 				D7AB34300000000000000004 /* SidebarBonsplitTabWorkspaceDropOverlay.swift */,
@@ -2695,6 +2700,7 @@
 				5659B0025659B0025659B002 /* WorkspaceSidebarLogEntryLimitProvider.swift */,
 				D7AB3605C10DEF0000000004 /* WorkspaceCloseTabsBatching.swift */,
 				C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */,
+				5685C0DE5685C0DE56850003 /* Workspace+SidebarRoots.swift */,
 				42C2726A34F27E7A43B77368 /* Workspace+CustomSidebarPullRequests.swift */,
 				E30780000000000000000011 /* SSHPTYAttachStartupCommandBuilder.swift */,
 				EE30D5000000000000000001 /* RemoteDaemonStrings+App.swift */,
@@ -4114,6 +4120,7 @@
 				C0DEF0A90000000000000001 /* ContentView+ForkAgentConversation.swift in Sources */,
 				D7AB00000000000000000003 /* ContentView+MoveTabToNewWorkspace.swift in Sources */,
 				C3408A000000000000000001 /* ContentView+RightSidebarCommandPalette.swift in Sources */,
+				5685C0DE5685C0DE56850002 /* ContentView+SelectedWorkspaceDirectoryObserver.swift in Sources */,
 				C3408A000000000000000005 /* ContentView+ViewCommandPalette.swift in Sources */,
 				A5001002 /* ContentView.swift in Sources */,
 				C0DE32470000000000000001 /* ContentViewIdentifierCopyCommands.swift in Sources */,
@@ -4561,6 +4568,7 @@
 				D7AB00000000000000000015 /* Workspace+DetachedSurfaceTransfer.swift in Sources */,
 				E3309A05 /* Workspace+EqualizeSplitsSupport.swift in Sources */,
 				C3744E010000000000000001 /* Workspace+PanelLifecycle.swift in Sources */,
+				5685C0DE5685C0DE56850004 /* Workspace+SidebarRoots.swift in Sources */,
 				CA52B0170000000000000000 /* Workspace+SurfaceNavigation.swift in Sources */,
 				E3B7A400000000000000020A /* Workspace+WorkspaceSurfaceTreeReading.swift in Sources */,
 				A5001406 /* Workspace.swift in Sources */,
