@@ -353,11 +353,6 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
       return NextResponse.redirect(new URL(afterAuth, request.url));
     }
 
-    if (refreshToken && accessCookie) {
-      const fallback = buildNativeHref(null, refreshToken, accessCookie);
-      if (fallback) return nativeReturnResponse(fallback, localizedMessages, false);
-    }
-
     return NextResponse.redirect(new URL("/", request.url));
   };
 }
