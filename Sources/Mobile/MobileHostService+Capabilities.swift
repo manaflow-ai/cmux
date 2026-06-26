@@ -32,6 +32,11 @@ extension MobileHostService {
             // workspace.group.collapse/expand from mobile. iOS feature-detects
             // this to render collapsible groups only against a Mac that emits them.
             "workspace.groups.v1",
+            // Mac power control: the phone can read keep-awake status
+            // (mac.power.status), sleep the Mac (mac.power.sleep), and disable
+            // caffeinate (mac.power.keep_awake.disable). iOS feature-detects this
+            // to show the Mac Power controls only against a Mac that handles them.
+            "mac.power.control.v1",
         ]
     }
 }

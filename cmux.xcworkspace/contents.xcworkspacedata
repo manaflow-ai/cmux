@@ -124,6 +124,9 @@
          location = "group:CmuxLiveEval">
       </FileRef>
       <FileRef
+         location = "group:CmuxMacPower">
+      </FileRef>
+      <FileRef
          location = "group:CmuxNotifications">
       </FileRef>
       <FileRef
