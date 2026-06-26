@@ -76,8 +76,12 @@ struct CmuxConfigExecutor {
         presentingWindow: NSWindow? = nil,
         onExecuted: (() -> Void)? = nil
     ) -> Bool {
-        if let commandName = action.workspaceCommandName,
-           let command = commands.first(where: { $0.name == commandName }) {
+        if let commandReference = action.workspaceCommandName,
+           // Resolve by the folder-aware id first (self-generated custom-command
+           // actions store it) and fall back to the display name (user config
+           // references commands by name).
+           let command = commands.first(where: { $0.id == commandReference })
+               ?? commands.first(where: { $0.name == commandReference }) {
             guard command.workspace != nil else { return false }
             return execute(
                 command: command,
@@ -121,6 +125,22 @@ struct CmuxConfigExecutor {
         }
     }
 
+    /// Authorizes a command, then resolves any `{{variable}}` placeholders and
+    /// dispatches it. This single choke point feeds every command entrypoint
+    /// (palette, surface tab-bar buttons, dock, …), so variable prompting and
+    /// trust handling apply to all of them without per-surface duplication.
+    ///
+    /// The trust/confirm prompt is keyed on the command *template* (with its
+    /// `{{…}}` placeholders) and shown **before** any variable values are
+    /// collected, so an untrusted project config cannot solicit input ahead of
+    /// the provenance warning, and trusting the action persists across values.
+    ///
+    /// - Returns: `true` when the request was accepted for handling — either it
+    ///   was authorized and dispatched, or an asynchronous confirm/variable
+    ///   sheet was presented. As with the existing confirm-dialog path, a
+    ///   `true` result does not guarantee execution: `onAuthorized` is invoked
+    ///   later only if the action is authorized and the user fills in the
+    ///   prompt, and is never called if the user cancels.
     @discardableResult
     static func prepareShellInputIfAuthorized(
         _ rawCommand: String,
@@ -135,11 +155,13 @@ struct CmuxConfigExecutor {
         presentingWindow: NSWindow? = nil,
         onAuthorized: @escaping (String) -> Void
     ) -> Bool {
-        let shellCommand = sanitizeForDisplay(rawCommand)
-        guard !shellCommand.isEmpty else { return false }
+        let template = CmuxCommandTemplate(rawValue: rawCommand)
+        let variables = template.variables
+        let displayCommand = sanitizeForDisplay(rawCommand)
+        guard !displayCommand.isEmpty else { return false }
 
         let descriptor = terminalTrustDescriptor(
-            command: shellCommand,
+            command: displayCommand,
             actionID: actionID,
             target: target,
             configSourcePath: configSourcePath,
@@ -147,16 +169,26 @@ struct CmuxConfigExecutor {
             iconSourcePath: iconSourcePath,
             globalConfigPath: globalConfigPath
         )
+        let resolvedWindow = presentingWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
         return authorizeProjectActionIfNeeded(
             descriptor: descriptor,
             confirm: confirm,
             configSourcePath: configSourcePath,
             globalConfigPath: globalConfigPath,
-            displayCommand: shellCommand,
+            displayCommand: displayCommand,
             displayTitle: displayTitle,
-            presentingWindow: presentingWindow
+            presentingWindow: resolvedWindow
         ) {
-            onAuthorized(shellCommand + "\n")
+            guard !variables.isEmpty else {
+                onAuthorized(displayCommand + "\n")
+                return
+            }
+            CmuxCommandVariablePrompt(variables: variables, displayTitle: displayTitle)
+                .present(in: resolvedWindow) { values in
+                    let resolved = sanitizeForDisplay(template.substituting(values))
+                    guard !resolved.isEmpty else { return }
+                    onAuthorized(resolved + "\n")
+                }
         }
     }
 

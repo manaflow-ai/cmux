@@ -961,7 +961,12 @@
       "absolutePath": "Caminho absoluto",
       "cwdAbsolute": "usado como está",
       "fullExample": "Exemplo completo",
-      "restartNew": "Criar um novo workspace (padrão)"
+      "restartNew": "Criar um novo workspace (padrão)",
+      "fieldFolder": "Caminho de pasta opcional separado por / (ex.: Project/Linting) que agrupa o comando na paleta de comandos",
+      "commandVariables": "Variáveis do comando",
+      "commandVariablesDesc": "Adicione marcadores a um comando e o cmux solicitará cada valor antes de executá-lo. Reutilize o mesmo nome para preenchê-lo em vários lugares de uma vez.",
+      "commandVariablesDefaultNote": "Adicione um valor padrão após um sinal de igual dentro de um marcador para preencher o prompt previamente.",
+      "commandVariablesTemplateNote": "Apenas marcadores com identificador simples e sem aspas viram variáveis; marcadores dentro de aspas (e outro texto de template) são executados sem alteração."
     },
     "keyboardShortcuts": {
       "title": "Atalhos de Teclado",

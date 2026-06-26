@@ -1154,7 +1154,12 @@
       "absolutePath": "Absolute path",
       "cwdAbsolute": "used as-is",
       "fullExample": "Full example",
-      "restartNew": "Create a new workspace (default)"
+      "restartNew": "Create a new workspace (default)",
+      "fieldFolder": "Optional /-separated folder path (e.g. Project/Linting) that groups the command in the Command Palette",
+      "commandVariables": "Command variables",
+      "commandVariablesDesc": "Add placeholders to a command and cmux prompts for each value before running it. Reuse the same placeholder name to fill it in several places at once.",
+      "commandVariablesDefaultNote": "Add a default value after an equals sign inside a placeholder to pre-fill the prompt.",
+      "commandVariablesTemplateNote": "Only unquoted bare-identifier placeholders become variables; placeholders inside quotes (and other template text) run unchanged."
     },
     "keyboardShortcuts": {
       "title": "Keyboard Shortcuts",

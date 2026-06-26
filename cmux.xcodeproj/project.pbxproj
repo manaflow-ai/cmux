@@ -273,6 +273,10 @@
 		C0DE64950000000000000003 /* CMUXCLITestAssertions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE64950000000000000004 /* CMUXCLITestAssertions.swift */; };
 		5E55500000000000000000E3 /* CmuxCommandPalette in Frameworks */ = {isa = PBXBuildFile; productRef = 5E55500000000000000000E2 /* CmuxCommandPalette */; };
 		5E55500000000000000000E4 /* CmuxCommandPalette in Frameworks */ = {isa = PBXBuildFile; productRef = 5E55500000000000000000E2 /* CmuxCommandPalette */; };
+		C1A2B3C4D5E6F70800006559 /* CmuxCommandTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4D5E6F7080000655A /* CmuxCommandTemplate.swift */; };
+		C1A2B3C4D5E6F7080000655D /* CmuxCommandVariable.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4D5E6F7080000655E /* CmuxCommandVariable.swift */; };
+		C1A2B3C4D5E6F7080000655B /* CmuxCommandVariablePrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4D5E6F7080000655C /* CmuxCommandVariablePrompt.swift */; };
+		C1A2B3C4D5E6F70800006557 /* CmuxCommandVariableTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4D5E6F70800006558 /* CmuxCommandVariableTests.swift */; };
 		A5001650 /* CmuxConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001651 /* CmuxConfig.swift */; };
 		C0DEF0A40000000000000001 /* CmuxConfigContextMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0A40000000000000002 /* CmuxConfigContextMenuTests.swift */; };
 		A5001652 /* CmuxConfigExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001653 /* CmuxConfigExecutor.swift */; };
@@ -1453,6 +1457,10 @@
 		C12985000000000000000003 /* CMUXCLISentryTelemetryRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXCLISentryTelemetryRegressionTests.swift; sourceTree = "<group>"; };
 		C0DE64950000000000000006 /* CMUXCLISessionsListTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXCLISessionsListTests.swift; sourceTree = "<group>"; };
 		C0DE64950000000000000004 /* CMUXCLITestAssertions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXCLITestAssertions.swift; sourceTree = "<group>"; };
+		C1A2B3C4D5E6F7080000655A /* CmuxCommandTemplate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxCommandTemplate.swift; sourceTree = "<group>"; };
+		C1A2B3C4D5E6F7080000655E /* CmuxCommandVariable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxCommandVariable.swift; sourceTree = "<group>"; };
+		C1A2B3C4D5E6F7080000655C /* CmuxCommandVariablePrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxCommandVariablePrompt.swift; sourceTree = "<group>"; };
+		C1A2B3C4D5E6F70800006558 /* CmuxCommandVariableTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxCommandVariableTests.swift; sourceTree = "<group>"; };
 		A5001651 /* CmuxConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfig.swift; sourceTree = "<group>"; };
 		C0DEF0A40000000000000002 /* CmuxConfigContextMenuTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigContextMenuTests.swift; sourceTree = "<group>"; };
 		A5001653 /* CmuxConfigExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigExecutor.swift; sourceTree = "<group>"; };
@@ -3079,6 +3087,9 @@
 				A5001642 /* RemoteInteractiveShellBootstrapBuilder.swift */,
 				A5001641 /* RemoteRelayZshBootstrap.swift */,
 				A5001651 /* CmuxConfig.swift */,
+				C1A2B3C4D5E6F7080000655A /* CmuxCommandTemplate.swift */,
+				C1A2B3C4D5E6F7080000655E /* CmuxCommandVariable.swift */,
+				C1A2B3C4D5E6F7080000655C /* CmuxCommandVariablePrompt.swift */,
 				C10D00040000000000000004 /* CmuxSurfaceTabBarBuiltInAction.swift */,
 				C57B00030000000000000002 /* Workspace+CustomSidebarPane.swift */,
 				C0DEF0A10000000000000002 /* CmuxConfigUI.swift */,
@@ -3491,6 +3502,7 @@
 				A5E01204A1B2C3D4E5F60718 /* OpenCodeHookRegressionTests.swift */,
 				10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */,
 				C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */,
+				C1A2B3C4D5E6F70800006558 /* CmuxCommandVariableTests.swift */,
 				C0DEF0A40000000000000002 /* CmuxConfigContextMenuTests.swift */,
 				E30750000000000000000005 /* CmuxConfigNamedColorTests.swift */,
 				FE002001 /* FileExplorerRootResolverTests.swift */,
@@ -4063,6 +4075,9 @@
 				C4160A010000000000000001 /* cmuxApp+HistoryMenu.swift in Sources */,
 				A5001001 /* cmuxApp.swift in Sources */,
 				A72C9F4179B54DF38E99A021 /* CmuxCLIPathInstaller.swift in Sources */,
+				C1A2B3C4D5E6F70800006559 /* CmuxCommandTemplate.swift in Sources */,
+				C1A2B3C4D5E6F7080000655D /* CmuxCommandVariable.swift in Sources */,
+				C1A2B3C4D5E6F7080000655B /* CmuxCommandVariablePrompt.swift in Sources */,
 				A5001650 /* CmuxConfig.swift in Sources */,
 				A5001652 /* CmuxConfigExecutor.swift in Sources */,
 				C5D0DEC0CF00000000000A1 /* CmuxConfigStore+ConfigStoreReloading.swift in Sources */,
@@ -4776,6 +4791,7 @@
 					C12985000000000000000004 /* CMUXCLISentryTelemetryRegressionTests.swift in Sources */,
 					C0DE64950000000000000005 /* CMUXCLISessionsListTests.swift in Sources */,
 					C0DE64950000000000000003 /* CMUXCLITestAssertions.swift in Sources */,
+				C1A2B3C4D5E6F70800006557 /* CmuxCommandVariableTests.swift in Sources */,
 				C0DEF0A40000000000000001 /* CmuxConfigContextMenuTests.swift in Sources */,
 				E30750000000000000000006 /* CmuxConfigNamedColorTests.swift in Sources */,
 				C1A2B3C4D5E6F70800000001 /* CmuxConfigTests.swift in Sources */,

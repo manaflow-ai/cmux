@@ -36,7 +36,51 @@
       "type": "array",
       "items": {
         "type": "object",
-        "additionalProperties": true
+        "additionalProperties": true,
+        "required": ["name"],
+        "oneOf": [
+          {
+            "required": ["command"],
+            "not": { "required": ["workspace"] }
+          },
+          {
+            "required": ["workspace"],
+            "not": { "required": ["command"] }
+          }
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "\\S",
+            "description": "Display name shown in the Command Palette. Must not be blank."
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional subtitle shown beneath the name."
+          },
+          "keywords": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Extra search terms for the Command Palette."
+          },
+          "command": {
+            "type": "string",
+            "description": "Shell command to run. Use {{name}} placeholders (optionally {{name=default}}) at unquoted positions to prompt for values before running, for example \"bin/deploy --env {{environment}}\". Each entered value is inserted as a single POSIX-quoted shell argument. Only bare identifiers ([A-Za-z_][A-Za-z0-9_-]*) at unquoted positions are treated as variables; a placeholder inside single or double quotes (e.g. '{{tag}}') and other template expressions such as {{ .Env.FOO }} run unchanged."
+          },
+          "folder": {
+            "type": "string",
+            "description": "Optional /-separated folder path used to group the command in the Command Palette, for example \"Project/Linting\"."
+          },
+          "confirm": {
+            "type": "boolean",
+            "description": "Ask for confirmation before running the command."
+          },
+          "workspace": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Workspace layout to open instead of running a shell command. Mutually exclusive with command."
+          }
+        }
       }
     },
     "vault": {

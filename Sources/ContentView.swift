@@ -6037,7 +6037,7 @@ struct ContentView: View {
                     title: configuredPaletteAction?.title ?? contribution.title(context),
                     subtitle: configuredPaletteAction?.subtitle ?? contribution.subtitle(context),
                     shortcutHint: commandPaletteShortcutHint(for: contribution, context: context),
-                    kindLabel: nil,
+                    kindLabel: contribution.kindLabel,
                     keywords: configuredPaletteAction?.keywords.isEmpty == false
                         ? configuredPaletteAction?.keywords ?? contribution.keywords
                         : contribution.keywords,
@@ -7451,11 +7451,15 @@ struct ContentView: View {
                 .map { sanitizeCmuxConfigPaletteText($0) }
                 .flatMap { $0.isEmpty ? nil : $0 }
                 ?? cmuxConfigDefaultSubtitle
+            let folderLabel = action.folder
+                .map { sanitizeCmuxConfigPaletteText($0) }
+                .flatMap { $0.isEmpty ? nil : $0 }
             contributions.append(
                 CommandPaletteCommandContribution(
                     commandId: action.id,
                     title: constant(actionTitle),
                     subtitle: constant(subtitleText),
+                    kindLabel: folderLabel,
                     keywords: action.keywords
                 )
             )
