@@ -10279,10 +10279,6 @@ final class Workspace: Identifiable, ObservableObject {
         isAttemptingLayoutFollowUp = true
         defer { isAttemptingLayoutFollowUp = false }
 
-        // Record when this attempt ran so the next scheduling can space the
-        // forced full-window flush at least one frame out. See #6790.
-        layoutFollowUpLastAttemptUptime = ProcessInfo.processInfo.systemUptime
-
         flushWorkspaceWindowLayouts()
 
         let geometryPendingBefore = layoutFollowUpNeedsGeometryPass
@@ -10353,6 +10349,14 @@ final class Workspace: Identifiable, ObservableObject {
                 layoutFollowUpBrowserExitFocusPanelId = nil
             }
         }
+
+        // Record when this attempt finished its (potentially expensive, e.g.
+        // 254–512 ms) layout work, so the next attempt is spaced at least one
+        // frame from completion. Anchoring before flushWorkspaceWindowLayouts()
+        // or the geometry pass would let a slow pass make `sinceLastAttempt`
+        // exceed the floor, scheduling the next forced layout with delay 0 and
+        // defeating the throttle in exactly the slow case it targets. See #6790.
+        layoutFollowUpLastAttemptUptime = ProcessInfo.processInfo.systemUptime
 
         let terminalFocusPending = terminalFocusNeedsFollowUp()
         let browserPanelPending = browserPanelNeedsFollowUp()

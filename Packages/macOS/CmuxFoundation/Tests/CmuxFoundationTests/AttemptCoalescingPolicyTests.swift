@@ -29,11 +29,13 @@ import Testing
         #expect(delay == 0)
     }
 
-    /// A partially-elapsed interval is throttled by only the remaining budget.
-    @Test func partiallyElapsedIntervalThrottlesByRemainder() {
-        let elapsed = policy.minInterval / 3.0
-        let delay = policy.delay(backoff: 0, sinceLastAttempt: elapsed)
-        #expect(abs(delay - (policy.minInterval - elapsed)) < 1e-9)
+    /// A partial interval since the last attempt is throttled by only the
+    /// remaining budget. `sinceLast` is a fixed test input, not a measured clock
+    /// reading — the policy is pure, so this assertion is deterministic.
+    @Test func partialIntervalThrottlesByRemainder() {
+        let sinceLast = policy.minInterval / 3.0
+        let delay = policy.delay(backoff: 0, sinceLastAttempt: sinceLast)
+        #expect(abs(delay - (policy.minInterval - sinceLast)) < 1e-9)
     }
 
     /// The caller's stall backoff still wins when it exceeds the frame throttle,
