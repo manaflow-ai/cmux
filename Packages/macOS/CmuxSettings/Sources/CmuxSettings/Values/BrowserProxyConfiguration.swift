@@ -45,6 +45,14 @@ public enum BrowserProxyType: String, CaseIterable, Sendable, Equatable, Setting
 /// accepts a number or a numeric string, so a partial or slightly-wrong object
 /// still loads as a (possibly disabled) configuration rather than failing the
 /// whole config file.
+///
+/// Credentials are never sourced from `cmux.json`: the JSON coding deliberately
+/// drops `username`/`password` on both decode and encode so a proxy password
+/// can't leak into the shared, user-editable, copyable config (the same secret
+/// boundary the package keeps for `automation.socketPassword` via the secret
+/// store). Authenticated proxies pass credentials only through the
+/// `CMUX_BROWSER_PROXY` environment override (`socks5://user:pass@host:port`),
+/// which populates ``username``/``password`` via ``parse(environmentValue:)``.
 public struct BrowserProxyConfiguration: Sendable, Equatable, Codable, SettingCodable {
     /// The proxy protocol, or ``BrowserProxyType/off`` to apply no proxy.
     public let type: BrowserProxyType
@@ -52,9 +60,12 @@ public struct BrowserProxyConfiguration: Sendable, Equatable, Codable, SettingCo
     public let host: String
     /// Proxy server TCP port (1...65535 when enabled).
     public let port: Int
-    /// Optional username for an authenticated proxy. Empty means none.
+    /// Username for an authenticated proxy, or empty. Only set from the
+    /// `CMUX_BROWSER_PROXY` env override; never read from `cmux.json`.
     public let username: String
-    /// Optional password for an authenticated proxy. Empty means none.
+    /// Password for an authenticated proxy, or empty. Only set from the
+    /// `CMUX_BROWSER_PROXY` env override; never read from or written to
+    /// `cmux.json`.
     public let password: String
     /// Hostname suffixes that connect directly instead of through the proxy.
     public let bypass: [String]
@@ -176,9 +187,12 @@ public struct BrowserProxyConfiguration: Sendable, Equatable, Codable, SettingCo
     // MARK: - Codable (lenient)
 
     private enum CodingKeys: String, CodingKey {
-        case type, host, port, username, password, bypass
+        case type, host, port, bypass
     }
 
+    /// Decodes from `cmux.json`. `username`/`password` are intentionally NOT
+    /// decoded — proxy credentials never come from the shared config file (see
+    /// the type doc); they arrive only via the `CMUX_BROWSER_PROXY` override.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let rawType = (try? container.decode(String.self, forKey: .type)) ?? ""
@@ -192,18 +206,18 @@ public struct BrowserProxyConfiguration: Sendable, Equatable, Codable, SettingCo
         } else {
             self.port = 0
         }
-        self.username = (try? container.decode(String.self, forKey: .username)) ?? ""
-        self.password = (try? container.decode(String.self, forKey: .password)) ?? ""
+        self.username = ""
+        self.password = ""
         self.bypass = (try? container.decode([String].self, forKey: .bypass)) ?? []
     }
 
+    /// Encodes for `cmux.json`. `username`/`password` are intentionally omitted
+    /// so a proxy credential can never be written into the shared config file.
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(type.rawValue, forKey: .type)
         try container.encode(host, forKey: .host)
         try container.encode(port, forKey: .port)
-        try container.encode(username, forKey: .username)
-        try container.encode(password, forKey: .password)
         try container.encode(bypass, forKey: .bypass)
     }
 

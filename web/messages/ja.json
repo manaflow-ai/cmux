@@ -969,12 +969,10 @@
           "customSearchEngineName": "defaultSearchEngine が custom のときに使う表示名です。",
           "customSearchEngineURLTemplate": "defaultSearchEngine が custom のときに使う検索URLです。エンコード済み検索語にはクエリ用プレースホルダーまたは %s を含めます。省略すると cmux が URL に q= を追加します。",
           "proxy": {
-            "description": "ローカルの埋め込みブラウザペインを HTTP CONNECT または SOCKSv5 プロキシ（WKWebsiteDataStore.proxyConfigurations）経由でルーティングします。ローカルペインのみに適用され、リモートワークスペースのペインはワークスペーストンネルを維持します。cmux reload-config で再読み込みできます。CMUX_BROWSER_PROXY 環境変数（例: socks5://127.0.0.1:1080）がこれを上書きします。",
+            "description": "ローカルの埋め込みブラウザペインを HTTP CONNECT または SOCKSv5 プロキシ（WKWebsiteDataStore.proxyConfigurations）経由でルーティングします。ローカルペインのみに適用され、リモートワークスペースのペインはワークスペーストンネルを維持します。cmux reload-config で再読み込みできます。認証付きプロキシを使用する場合、またはこのオブジェクトを上書きする場合は、CMUX_BROWSER_PROXY 環境変数（例: socks5://user:pass@host:port）を使用します。認証情報は cmux.json からは読み取られません。",
             "type": "プロキシプロトコル。off は cmux ブラウザプロキシを適用しません（ループバック修正のため、有効な macOS システムプロキシは引き続きミラーリングされます）。socks5 は SOCKSv5 プロキシを使用し、httpConnect は HTTP CONNECT プロキシを使用します。",
             "host": "プロキシサーバーのホスト名または IP。例: 127.0.0.1。",
             "port": "プロキシサーバーのポート。例: 1080。",
-            "username": "認証付きプロキシ用のオプションのユーザー名。",
-            "password": "認証付きプロキシ用のオプションのパスワード。",
             "bypass": "プロキシ経由ではなく直接接続するホスト名のサフィックス。例: localhost, *.localhost, 127.0.0.1。ループバックおよびリンクローカルホストは常にバイパスされます。"
           }
         },

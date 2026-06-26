@@ -825,12 +825,10 @@
           "customSearchEngineName": "Nome exibido quando defaultSearchEngine é custom.",
           "customSearchEngineURLTemplate": "URL de busca usada quando defaultSearchEngine é custom. Inclua o marcador da consulta ou %s para a consulta codificada. Sem marcador, o cmux adiciona q= à URL.",
           "proxy": {
-            "description": "Roteia os painéis do navegador incorporado local através de um proxy HTTP CONNECT ou SOCKSv5 (WKWebsiteDataStore.proxyConfigurations). Aplica-se apenas aos painéis locais; os painéis de espaços de trabalho remotos mantêm o túnel do espaço de trabalho. Recarregável via cmux reload-config. A variável de ambiente CMUX_BROWSER_PROXY (por exemplo, socks5://127.0.0.1:1080) substitui isso.",
+            "description": "Roteia os painéis do navegador incorporado local através de um proxy HTTP CONNECT ou SOCKSv5 (WKWebsiteDataStore.proxyConfigurations). Aplica-se apenas aos painéis locais; os painéis de espaços de trabalho remotos mantêm o túnel do espaço de trabalho. Recarregável via cmux reload-config. Para um proxy autenticado, ou para substituir este objeto, use a variável de ambiente CMUX_BROWSER_PROXY (por exemplo, socks5://user:pass@host:port); as credenciais não são lidas do cmux.json.",
             "type": "Protocolo do proxy. off não aplica nenhum proxy de navegador do cmux (um proxy de sistema do macOS ativo ainda é espelhado para a correção de loopback). socks5 usa um proxy SOCKSv5; httpConnect usa um proxy HTTP CONNECT.",
             "host": "Nome do host ou IP do servidor proxy, por exemplo, 127.0.0.1.",
             "port": "Porta do servidor proxy, por exemplo, 1080.",
-            "username": "Nome de usuário opcional para um proxy autenticado.",
-            "password": "Senha opcional para um proxy autenticado.",
             "bypass": "Sufixos de nome de host que se conectam diretamente em vez de através do proxy, por exemplo, localhost, *.localhost, 127.0.0.1. Hosts de loopback e link-local são sempre ignorados."
           }
         },

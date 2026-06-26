@@ -1031,7 +1031,7 @@
           "type": "object",
           "additionalProperties": false,
           "descriptionKey": "schemaDescriptions.browser.proxy.description",
-          "description": "Route local embedded-browser panes through an HTTP CONNECT or SOCKSv5 proxy (WKWebsiteDataStore.proxyConfigurations). Applies to local panes only; remote-workspace panes keep their workspace tunnel. Reloadable via `cmux reload-config`. The CMUX_BROWSER_PROXY environment variable (e.g. socks5://127.0.0.1:1080, or socks5://user:pass@host:port) overrides this.",
+          "description": "Route local embedded-browser panes through an HTTP CONNECT or SOCKSv5 proxy (WKWebsiteDataStore.proxyConfigurations). Applies to local panes only; remote-workspace panes keep their workspace tunnel. Reloadable via cmux reload-config. For an authenticated proxy, or to override this object, use the CMUX_BROWSER_PROXY environment variable (e.g. socks5://user:pass@host:port); credentials are not read from cmux.json.",
           "properties": {
             "type": {
               "type": "string",
@@ -1052,18 +1052,6 @@
               "maximum": 65535,
               "descriptionKey": "schemaDescriptions.browser.proxy.port",
               "description": "Proxy server port, e.g. 1080."
-            },
-            "username": {
-              "type": "string",
-              "default": "",
-              "descriptionKey": "schemaDescriptions.browser.proxy.username",
-              "description": "Optional username for an authenticated proxy."
-            },
-            "password": {
-              "type": "string",
-              "default": "",
-              "descriptionKey": "schemaDescriptions.browser.proxy.password",
-              "description": "Optional password for an authenticated proxy."
             },
             "bypass": {
               "type": "array",

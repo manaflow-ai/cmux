@@ -92,24 +92,47 @@ struct BrowserProxyConfigurationTests {
 
     // MARK: - Lenient decoding
 
-    @Test("A full proxy object decodes from JSON")
-    func fullProxyObjectDecodesFromJSON() {
+    @Test("A proxy object decodes its non-credential fields from JSON")
+    func proxyObjectDecodesNonCredentialFieldsFromJSON() {
         let raw: [String: Any] = [
             "type": "socks5",
             "host": "127.0.0.1",
             "port": 1080,
-            "username": "alice",
-            "password": "secret",
             "bypass": ["localhost", "*.localhost"],
         ]
         let config = BrowserProxyConfiguration.decodeFromJSON(raw)
         #expect(config?.type == .socks5)
         #expect(config?.host == "127.0.0.1")
         #expect(config?.port == 1080)
-        #expect(config?.username == "alice")
-        #expect(config?.password == "secret")
         #expect(config?.bypass == ["localhost", "*.localhost"])
         #expect(config?.isEnabled == true)
+    }
+
+    @Test("Credentials in cmux.json are never read (no plaintext password in the shared config)")
+    func credentialsInJSONAreIgnored() {
+        let raw: [String: Any] = [
+            "type": "socks5",
+            "host": "127.0.0.1",
+            "port": 1080,
+            "username": "alice",
+            "password": "secret",
+        ]
+        let config = BrowserProxyConfiguration.decodeFromJSON(raw)
+        #expect(config?.username == "")
+        #expect(config?.password == "")
+        #expect(config?.hasCredentials == false)
+    }
+
+    @Test("Encoding for cmux.json never emits credentials")
+    func encodingForJSONNeverEmitsCredentials() {
+        let config = BrowserProxyConfiguration(
+            type: .socks5, host: "127.0.0.1", port: 1080,
+            username: "alice", password: "secret", bypass: []
+        )
+        let encoded = config.encodeForJSON() as? [String: Any]
+        #expect(encoded?["username"] == nil)
+        #expect(encoded?["password"] == nil)
+        #expect(encoded?["host"] as? String == "127.0.0.1")
     }
 
     @Test("A partial proxy object decodes with safe defaults")
@@ -141,16 +164,16 @@ struct BrowserProxyConfigurationTests {
         #expect(BrowserProxyConfiguration.decodeFromJSON(NSNull()) == nil)
     }
 
-    @Test("A configuration round-trips through JSON encoding")
+    @Test("A credential-free configuration round-trips through JSON encoding")
     func configurationRoundTripsThroughJSON() {
         let original = BrowserProxyConfiguration(
             type: .httpConnect, host: "proxy.example.com", port: 8080,
-            username: "u", password: "p", bypass: ["corp.example"]
+            username: "", password: "", bypass: ["corp.example"]
         )
         #expect(BrowserProxyConfiguration.decodeFromJSON(original.encodeForJSON()) == original)
     }
 
-    @Test("A configuration round-trips through UserDefaults encoding")
+    @Test("A credential-free configuration round-trips through UserDefaults encoding")
     func configurationRoundTripsThroughUserDefaults() {
         let original = BrowserProxyConfiguration(
             type: .socks5, host: "127.0.0.1", port: 1080,

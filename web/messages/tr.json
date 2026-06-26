@@ -825,12 +825,10 @@
           "customSearchEngineName": "defaultSearchEngine custom olduğunda kullanılan görünen ad.",
           "customSearchEngineURLTemplate": "defaultSearchEngine custom olduğunda kullanılan arama URL’si. Kodlanmış sorgu için sorgu yer tutucusunu veya %s ekleyin. Yer tutucu yoksa cmux URL’ye q= ekler.",
           "proxy": {
-            "description": "Yerel gömülü tarayıcı bölmelerini bir HTTP CONNECT veya SOCKSv5 proxy'si (WKWebsiteDataStore.proxyConfigurations) üzerinden yönlendirir. Yalnızca yerel bölmeler için geçerlidir; uzak çalışma alanı bölmeleri kendi çalışma alanı tünelini korur. cmux reload-config ile yeniden yüklenebilir. CMUX_BROWSER_PROXY ortam değişkeni (ör. socks5://127.0.0.1:1080) bunu geçersiz kılar.",
+            "description": "Yerel gömülü tarayıcı bölmelerini bir HTTP CONNECT veya SOCKSv5 proxy'si (WKWebsiteDataStore.proxyConfigurations) üzerinden yönlendirir. Yalnızca yerel bölmeler için geçerlidir; uzak çalışma alanı bölmeleri kendi çalışma alanı tünelini korur. cmux reload-config ile yeniden yüklenebilir. Kimlik doğrulamalı bir proxy için veya bu nesneyi geçersiz kılmak için CMUX_BROWSER_PROXY ortam değişkenini kullanın (ör. socks5://user:pass@host:port); kimlik bilgileri cmux.json dosyasından okunmaz.",
             "type": "Proxy protokolü. off hiçbir cmux tarayıcı proxy'si uygulamaz (loopback düzeltmesi için etkin bir macOS sistem proxy'si yine de yansıtılır). socks5 bir SOCKSv5 proxy'si kullanır; httpConnect bir HTTP CONNECT proxy'si kullanır.",
             "host": "Proxy sunucusunun ana bilgisayar adı veya IP'si, ör. 127.0.0.1.",
             "port": "Proxy sunucusunun bağlantı noktası, ör. 1080.",
-            "username": "Kimlik doğrulamalı bir proxy için isteğe bağlı kullanıcı adı.",
-            "password": "Kimlik doğrulamalı bir proxy için isteğe bağlı parola.",
             "bypass": "Proxy üzerinden değil doğrudan bağlanan ana bilgisayar adı sonekleri, ör. localhost, *.localhost, 127.0.0.1. Loopback ve link-local ana bilgisayarları her zaman atlanır."
           }
         },

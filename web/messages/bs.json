@@ -825,12 +825,10 @@
           "customSearchEngineName": "Prikazani naziv koji se koristi kada je defaultSearchEngine custom.",
           "customSearchEngineURLTemplate": "URL pretrage koji se koristi kada je defaultSearchEngine custom. Uključite rezervirano mjesto za upit ili %s za kodirani upit. Ako nema rezerviranog mjesta, cmux dodaje q= u URL.",
           "proxy": {
-            "description": "Usmjerava lokalne ploče ugrađenog preglednika kroz HTTP CONNECT ili SOCKSv5 proxy (WKWebsiteDataStore.proxyConfigurations). Primjenjuje se samo na lokalne ploče; ploče udaljenih radnih prostora zadržavaju svoj tunel radnog prostora. Može se ponovo učitati putem cmux reload-config. Varijabla okruženja CMUX_BROWSER_PROXY (npr. socks5://127.0.0.1:1080) ovo nadjačava.",
+            "description": "Usmjerava lokalne ploče ugrađenog preglednika kroz HTTP CONNECT ili SOCKSv5 proxy (WKWebsiteDataStore.proxyConfigurations). Primjenjuje se samo na lokalne ploče; ploče udaljenih radnih prostora zadržavaju svoj tunel radnog prostora. Može se ponovo učitati putem cmux reload-config. Za autentificirani proxy ili za nadjačavanje ovog objekta koristite varijablu okruženja CMUX_BROWSER_PROXY (npr. socks5://user:pass@host:port); vjerodajnice se ne čitaju iz cmux.json.",
             "type": "Proxy protokol. off ne primjenjuje nijedan cmux proxy preglednika (aktivni macOS sistemski proxy se i dalje preslikava radi ispravke loopbacka). socks5 koristi SOCKSv5 proxy; httpConnect koristi HTTP CONNECT proxy.",
             "host": "Naziv hosta ili IP proxy servera, npr. 127.0.0.1.",
             "port": "Port proxy servera, npr. 1080.",
-            "username": "Opcionalno korisničko ime za autentificirani proxy.",
-            "password": "Opcionalna lozinka za autentificirani proxy.",
             "bypass": "Sufiksi naziva hosta koji se povezuju direktno umjesto kroz proxy, npr. localhost, *.localhost, 127.0.0.1. Loopback i link-local hostovi se uvijek zaobilaze."
           }
         },
