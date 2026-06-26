@@ -96,6 +96,13 @@ struct InlineVSCodeServeWebOptionsTests {
         #expect(values.persistServeWebState == nil) // a numeric 1 is not a valid boolean
     }
 
+    @Test func readerRejectsFractionalPortInsteadOfTruncating() {
+        // A fractional port must not silently truncate to a different bound port.
+        #expect(readValues("{ \"inlineVSCode\": { \"port\": 1.9 } }").port == nil)
+        // An integral value written as a JSON float is still accepted.
+        #expect(readValues("{ \"inlineVSCode\": { \"port\": 8123.0 } }").port == 8123)
+    }
+
     // MARK: - Resolver precedence
 
     @Test func resolverUsesDefaultsWhenNothingConfigured() {

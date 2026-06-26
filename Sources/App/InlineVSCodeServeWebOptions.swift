@@ -330,9 +330,15 @@ struct InlineVSCodeServeWebConfigurationLoader {
     }
 
     /// Extracts an integer JSON value, rejecting booleans (JSON `true`/`false`
-    /// bridge to `NSNumber` and would otherwise read as `1`/`0`) and non-numbers.
+    /// bridge to `NSNumber` and would otherwise read as `1`/`0`), non-numbers,
+    /// and non-integral numbers. Truncating a fractional `port` like `1.9` to `1`
+    /// would silently bind a different port than the schema (`type: integer`)
+    /// permits, so a fractional value is treated as absent (falls back to the
+    /// default random port) instead.
     private static func integerValue(_ value: Any?) -> Int? {
         guard let number = value as? NSNumber, !isBooleanNumber(number) else { return nil }
+        let doubleValue = number.doubleValue
+        guard doubleValue.isFinite, doubleValue.rounded() == doubleValue else { return nil }
         return number.intValue
     }
 
