@@ -1,38 +1,12 @@
 import Foundation
 
-/// Errors raised while turning a Cloud VM attach endpoint into a
-/// ``CmxAttachTicket``.
+/// Errors raised while decoding a Cloud VM attach endpoint.
 public enum CmxCloudAttachError: Error, Equatable, Sendable {
     /// The endpoint declared a transport this client cannot dial. iOS cloud
     /// attach only speaks the cmuxd-remote WebSocket; the SSH endpoint (a
     /// provider fallback) is not usable from the phone. The associated value is
     /// the transport string the backend reported.
     case unsupportedTransport(String)
-    /// The endpoint carried no RPC daemon lease. The phone drives terminals
-    /// over the cmuxd-remote JSON-RPC daemon — the same `mobile.*` protocol it
-    /// speaks to a paired Mac — so a PTY-only endpoint cannot back a mobile
-    /// session. Callers must request the daemon (`requireDaemon: true`).
-    case missingDaemon
-    /// The daemon URL was empty or not a TLS-encrypted `wss://` endpoint. The
-    /// cloud daemon route carries the lease bearer token, so a plaintext
-    /// `ws://` endpoint (which would expose the token) is rejected. The
-    /// associated value is the offending URL string.
-    case invalidDaemonURL(String)
-    /// The daemon lease carried no token. The short-lived lease token is the
-    /// host's authorization gate for a cloud session, mirroring the Mac attach
-    /// token, so a tokenless lease authorizes nothing.
-    case missingDaemonToken
-    /// The daemon lease carried WebSocket handshake headers the attach-ticket +
-    /// route model cannot yet carry (it holds a URL and a token, but no
-    /// per-route headers). E2B returns `e2b-traffic-access-token` on every
-    /// lease, and the brokered upgrade fails without it, so a header-bearing
-    /// endpoint is refused here rather than turned into a ticket that silently
-    /// drops the header and cannot connect. Freestyle, the default provider,
-    /// authorizes by token alone and carries no headers. Lifted once the route
-    /// model and a WebSocket transport can replay handshake headers (issue
-    /// #6700 follow-up). The associated value is the sorted header field names,
-    /// never their values.
-    case unsupportedHandshakeHeaders([String])
 }
 
 /// A Cloud VM attach endpoint as returned by the backend
@@ -44,9 +18,18 @@ public enum CmxCloudAttachError: Error, Equatable, Sendable {
 /// instead of Tailscale `host:port` routes to a Mac, the backend hands the
 /// phone short-lived `wss://` leases to a running Cloud VM — a terminal PTY
 /// stream (`terminal`) and, when requested, a cmuxd-remote JSON-RPC daemon
-/// (`daemon`). ``CmxCloudAttach`` turns it into a ``CmxAttachTicket`` so the
-/// existing attach-ticket + route model can drive a cloud session with no Mac
+/// (`daemon`). It lets a signed-in device drive a working terminal with no Mac
 /// and no Tailscale (issue #6700).
+///
+/// This is a **dedicated cloud payload**, not a ``CmxAttachTicket``. The cmuxd-
+/// remote WebSocket handshake authenticates with `{ token, session_id }` (see
+/// `web/scripts/test-cloud-vm-ws-auth.ts`) and some providers also require
+/// per-lease handshake `headers` (E2B's `e2b-traffic-access-token`). The
+/// Mac-oriented ``CmxAttachTicket`` / ``CmxAttachRoute`` model carries only a
+/// URL + token, with no slot for `session_id` or `headers`, so collapsing a
+/// lease into a route would silently drop fields the handshake needs. The macOS
+/// app models the same endpoint with its own `WorkspaceRemoteWebSocketDaemonEndpoint`
+/// (url + token + sessionId) for the same reason; this is the iOS analogue.
 ///
 /// The wire shape is flat for the terminal lease (its fields sit at the top
 /// level alongside `transport`) and nested for the optional `daemon`. Both
@@ -58,16 +41,28 @@ public struct CmxCloudAttachEndpoint: Codable, Equatable, Sendable {
     public struct Lease: Codable, Equatable, Sendable {
         public let url: String
         /// Handshake headers the client should send when opening the socket
-        /// (for example an `Authorization` bearer). Empty when the backend
-        /// authorizes purely by token; preserved so a future WebSocket
-        /// transport can replay them verbatim.
+        /// (for example E2B's `e2b-traffic-access-token`). Empty when the
+        /// backend authorizes purely by token (Freestyle); preserved so the
+        /// WebSocket transport can replay them verbatim.
         public let headers: [String: String]
         public let token: String
+        /// The lease session id. The cmuxd-remote handshake authenticates with
+        /// `{ type: "auth", token, session_id }`, so the transport needs this
+        /// alongside the token — it is not optional context.
         public let sessionID: String
         /// Lease expiry as a Unix timestamp in **seconds** (the backend stores
-        /// `new Date(expiresAtUnix * 1000)`), matching
-        /// `Date(timeIntervalSince1970:)`.
+        /// `new Date(expiresAtUnix * 1000)`); see ``expiresAt``.
         public let expiresAtUnix: Double
+
+        /// The lease expiry as a `Date`, or `nil` for a missing / non-positive
+        /// value so a malformed `0` is treated as non-expiring rather than
+        /// pinned to the 1970 epoch (which would read as instantly expired).
+        public var expiresAt: Date? {
+            guard expiresAtUnix.isFinite, expiresAtUnix > 0 else {
+                return nil
+            }
+            return Date(timeIntervalSince1970: expiresAtUnix)
+        }
 
         private enum CodingKeys: String, CodingKey {
             case url
@@ -164,42 +159,13 @@ public struct CmxCloudAttachEndpoint: Codable, Equatable, Sendable {
     }
 }
 
-/// Builds a ``CmxAttachTicket`` for a Cloud VM from the backend attach-endpoint
-/// response, the cloud-route counterpart to ``CmxPairingQRCode``.
-///
-/// A paired Mac hands the phone Tailscale `host:port` routes; a Cloud VM hands
-/// it a `wss://` cmuxd-remote daemon lease. Both flow through the same
-/// ``CmxAttachTicket`` + ``CmxAttachRoute`` model, so the existing connection
-/// machinery drives either backend. As with a scanned pairing QR, the ticket
-/// comes back unscoped with an empty `macDeviceID`: the host's identity arrives
-/// post-handshake from `mobile.host.status`. Unlike the QR, the ticket carries
-/// the lease token and its expiry, since a cloud lease is short-lived.
-///
-/// Trust note: the produced `.websocket` route is deliberately *not* trusted by
-/// `MobileShellRouteAuthPolicy` to carry the Stack account token. Attach
-/// tickets can arrive from scanned/pasted `cmux-ios://attach` payloads, so
-/// trusting a `.websocket` route by URL alone would let a malicious code
-/// exfiltrate the bearer token to an attacker host (and a provider-domain
-/// allowlist can't help — an attacker can rent a VM on the same provider). A
-/// cloud route is trustworthy only by *provenance*: it was minted by an
-/// authenticated `POST /api/vm/{id}/attach-endpoint` call for the caller's own
-/// VM. The route model does not yet carry that provenance, and the cloud daemon
-/// authorizes by the lease token rather than the Stack token, so wiring the
-/// route's RPC auth belongs with the WebSocket transport that dials it (issue
-/// #6700 follow-up), not with this data-contract layer.
+/// Decodes the backend Cloud VM attach-endpoint response into a
+/// ``CmxCloudAttachEndpoint``, the cloud-route counterpart to
+/// ``CmxPairingQRCode`` (issue #6700).
 public struct CmxCloudAttach: Sendable {
     /// The transport label the backend uses for a cmuxd-remote WebSocket
     /// endpoint (`web/services/vms/drivers/types.ts`).
     public static let webSocketTransport = "websocket"
-
-    /// The route id the cloud attach ticket carries for the cmuxd-remote
-    /// daemon. Stable and distinct from the Mac path's `tailscale` route ids.
-    public static let daemonRouteID = "cloud_rpc"
-
-    /// The priority assigned to the daemon route. There is a single cloud route
-    /// today; the value mirrors the first synthesized Tailscale priority so
-    /// mixed ticket inspection stays predictable.
-    public static let daemonRoutePriority = 10
 
     /// Creates the codec. It is stateless: construct one inline at the call
     /// site.
@@ -208,133 +174,22 @@ public struct CmxCloudAttach: Sendable {
     /// Decode a `POST /api/vm/{id}/attach-endpoint` response body into a
     /// ``CmxCloudAttachEndpoint``.
     ///
+    /// The transport is probed first so an SSH fallback (a differently-shaped
+    /// endpoint the phone can't dial) surfaces as a typed
+    /// ``CmxCloudAttachError/unsupportedTransport(_:)`` error rather than an
+    /// opaque `DecodingError` from the WebSocket-shaped decode. One decoder is
+    /// reused across both passes.
+    ///
     /// - Parameter data: The raw JSON response body.
-    /// - Throws: ``CmxCloudAttachError/unsupportedTransport(_:)`` when the
-    ///   backend returned a non-WebSocket endpoint (for example the SSH
-    ///   fallback, which the phone cannot dial), or a `DecodingError` when the
-    ///   payload is malformed.
+    /// - Throws: ``CmxCloudAttachError/unsupportedTransport(_:)`` for a
+    ///   non-WebSocket endpoint, or a `DecodingError` for a malformed payload.
     public func decode(_ data: Data) throws -> CmxCloudAttachEndpoint {
-        // Probe the transport first so the SSH fallback (a differently-shaped
-        // endpoint the phone can't dial) surfaces as a typed
-        // `unsupportedTransport` error rather than an opaque `DecodingError`
-        // from the WebSocket-shaped decode. One decoder is reused across both
-        // passes.
         let decoder = JSONDecoder()
         let probe = try decoder.decode(CmxCloudAttachTransportProbe.self, from: data)
         guard probe.transport == Self.webSocketTransport else {
             throw CmxCloudAttachError.unsupportedTransport(probe.transport)
         }
         return try decoder.decode(CmxCloudAttachEndpoint.self, from: data)
-    }
-
-    /// Build a ``CmxAttachTicket`` that drives a session against a Cloud VM,
-    /// reusing the same attach-ticket + route model a paired Mac uses.
-    ///
-    /// The ticket carries a single `.websocket` route to the cmuxd-remote
-    /// JSON-RPC daemon — the cloud counterpart to a Mac's Tailscale route — and
-    /// the daemon lease's token as the attach token, expiring when the lease
-    /// does. The VM is identified by the route URL itself
-    /// (`wss://{vmId}.vm.<provider>/rpc`), so no separate id need ride in the
-    /// ticket. As with a scanned pairing QR, `macDeviceID` stays empty and the
-    /// shell adopts the host-reported identity once connected.
-    ///
-    /// Header-bearing endpoints are rejected: the route model carries a token
-    /// but not the per-lease handshake headers some providers (E2B) require, so
-    /// such an endpoint is refused rather than silently degraded. Freestyle —
-    /// the default provider and the App Review demo-VM path — authorizes by
-    /// token alone and carries no headers.
-    ///
-    /// - Parameters:
-    ///   - endpoint: The decoded attach-endpoint response.
-    ///   - displayName: An optional human-readable label for the VM, shown in
-    ///     the UI before the host reports its own identity.
-    ///   - macUserID: The signed-in account's Stack user id, recorded so the
-    ///     same account gate the Mac path applies also covers cloud sessions.
-    /// - Returns: A validated unscoped attach ticket with one WebSocket route.
-    /// - Throws: ``CmxCloudAttachError`` when the endpoint cannot back a mobile
-    ///   session, or ``CmxAttachRouteError`` / ``CmxAttachTicketError`` when the
-    ///   derived route or ticket is structurally invalid.
-    public func ticket(
-        from endpoint: CmxCloudAttachEndpoint,
-        displayName: String? = nil,
-        macUserID: String? = nil
-    ) throws -> CmxAttachTicket {
-        guard endpoint.transport == Self.webSocketTransport else {
-            throw CmxCloudAttachError.unsupportedTransport(endpoint.transport)
-        }
-        guard let daemon = endpoint.daemon else {
-            throw CmxCloudAttachError.missingDaemon
-        }
-        let daemonURL = daemon.url.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard Self.isSecureWebSocketURL(daemonURL) else {
-            throw CmxCloudAttachError.invalidDaemonURL(daemon.url)
-        }
-        let token = daemon.token.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !token.isEmpty else {
-            throw CmxCloudAttachError.missingDaemonToken
-        }
-        // The route this builds carries a URL + token but no per-route handshake
-        // headers. A header-bearing lease (E2B returns `e2b-traffic-access-token`
-        // on every lease) would lose those headers here and fail the brokered
-        // WebSocket upgrade, so refuse it loudly instead of minting a ticket
-        // that cannot connect.
-        guard daemon.headers.isEmpty else {
-            throw CmxCloudAttachError.unsupportedHandshakeHeaders(daemon.headers.keys.sorted())
-        }
-
-        let route = try CmxAttachRoute(
-            id: Self.daemonRouteID,
-            kind: .websocket,
-            endpoint: .url(daemonURL),
-            priority: Self.daemonRoutePriority
-        )
-        return try CmxAttachTicket(
-            workspaceID: "",
-            terminalID: nil,
-            macDeviceID: "",
-            macDisplayName: displayName,
-            macUserEmail: nil,
-            macUserID: macUserID,
-            routes: [route],
-            expiresAt: Self.expiry(fromUnix: daemon.expiresAtUnix),
-            authToken: token
-        )
-    }
-
-    /// Convenience: decode a response body and build the attach ticket in one
-    /// step. Equivalent to ``decode(_:)`` followed by
-    /// ``ticket(from:displayName:macUserID:)``.
-    public func ticket(
-        fromResponse data: Data,
-        displayName: String? = nil,
-        macUserID: String? = nil
-    ) throws -> CmxAttachTicket {
-        let endpoint = try decode(data)
-        return try ticket(from: endpoint, displayName: displayName, macUserID: macUserID)
-    }
-}
-
-private extension CmxCloudAttach {
-    /// Whether `raw` is a TLS-encrypted WebSocket URL (`wss://`). A cloud daemon
-    /// route carries the lease bearer token, so a plaintext `ws://` endpoint —
-    /// which would expose the token — is not accepted.
-    static func isSecureWebSocketURL(_ raw: String) -> Bool {
-        guard !raw.isEmpty,
-              let url = URL(string: raw),
-              let scheme = url.scheme?.lowercased() else {
-            return false
-        }
-        return scheme == "wss"
-    }
-
-    /// Convert a Unix expiry (seconds) into a `Date`, or `nil` for a missing or
-    /// non-positive value so the ticket is treated as non-expiring rather than
-    /// instantly stale at the 1970 epoch.
-    static func expiry(fromUnix seconds: Double) -> Date? {
-        guard seconds.isFinite, seconds > 0 else {
-            return nil
-        }
-        return Date(timeIntervalSince1970: seconds)
     }
 }
 
