@@ -50,6 +50,15 @@ enum TextBoxAgentDetection: CaseIterable {
         }
     }
 
+    static func activeTextBoxLaunchContext(from context: String) -> String? {
+        context
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { line in
+                allCases.contains { $0.matchesActive(metadataLine: line) }
+            }
+    }
+
     static func isClaudeCode(context: String) -> Bool {
         claudeCode.matches(context: context)
     }

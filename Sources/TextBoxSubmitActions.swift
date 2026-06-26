@@ -163,8 +163,8 @@ extension TextBoxInputContainer {
         if let pendingContext = pendingProviderLaunchAction?.pendingTerminalAgentContext {
             return pendingContext
         }
-        if TextBoxAgentDetection.supportsActiveAgentPrefixes(context: terminalAgentContext) {
-            return terminalAgentContext
+        if let activeContext = TextBoxAgentDetection.activeTextBoxLaunchContext(from: terminalAgentContext) {
+            return activeContext
         }
         return allowsCommandTemplateSubmit ? "" : terminalAgentContext
     }

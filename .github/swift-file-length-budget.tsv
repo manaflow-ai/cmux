@@ -96,9 +96,9 @@
 934	Sources/App/ShortcutRoutingSupport.swift
 926	Sources/DockPanelView.swift
 920	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
+920	cmuxTests/TextBoxSubmitActionTests.swift
 918	cmuxTests/WorkspaceGroupTests.swift
 905	Sources/CmuxSSHURLRequest.swift
-905	cmuxTests/TextBoxSubmitActionTests.swift
 904	Sources/Panels/TerminalPanel.swift
 899	Sources/Panels/MarkdownWebRenderer.swift
 877	Packages/Shared/CmuxAgentChat/Tests/CmuxAgentChatTests/ChatConversationStoreTests.swift

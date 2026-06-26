@@ -459,6 +459,21 @@ struct TextBoxSubmitActionTests {
     }
 
     @Test
+    func testActiveTextBoxLaunchContextWinsOverStaleRestoredAgent() {
+        let context = """
+        restoredAgent:claude
+        textBoxLaunchCommand:codex
+        """
+        let activeContext = TextBoxInputContainer.textEntryTerminalAgentContext(
+            allowsCommandTemplateSubmit: true,
+            terminalAgentContext: context
+        )
+
+        XCTAssertEqual(activeContext, "textBoxLaunchCommand:codex")
+        XCTAssertFalse(TextBoxAgentDetection.isClaudeCode(context: activeContext))
+    }
+
+    @Test
     func testTextBoxPendingPromptFreeClaudeLaunchWaitsForActiveAgentContext() {
         let claude = TextBoxSubmitAction(
             id: "claude",
