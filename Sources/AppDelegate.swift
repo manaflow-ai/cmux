@@ -5253,11 +5253,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         preferredWindow: NSWindow? = nil,
         source: String = "api.commandPaletteRunCommand"
     ) {
+        // Unlike opening the palette, firing a command must not mutate focus
+        // state up front: a context-gated shortcut whose command is unavailable
+        // is a silent no-op, so exiting browser focus mode here would be a
+        // surprising side effect of pressing a dead binding. Any focus change is
+        // left to the command's own action when `ContentView` actually runs it.
         let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
-        if let targetWindow,
-           let context = contextForMainWindow(targetWindow) {
-            _ = context.tabManager.setFocusedBrowserFocusModeActive(false, reason: "commandPaletteRunCommand.\(source)")
-        }
         NotificationCenter.default.post(
             name: .commandPaletteRunCommandRequested,
             object: targetWindow,

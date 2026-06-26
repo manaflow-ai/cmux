@@ -1429,10 +1429,52 @@
           "description": "Single-stroke shortcut, for example cmd+shift+v. Command shortcuts are single-stroke only."
         },
         {
+          "$ref": "#/$defs/singleStrokeObjectBinding",
+          "description": "Object form written by Settings > Keyboard Shortcuts > Custom Commands. Prefer the string form when hand-editing."
+        },
+        {
           "type": "null",
           "description": "Unbind this command shortcut."
         }
       ]
+    },
+    "singleStrokeObjectBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["first"],
+      "description": "A single-stroke shortcut in the nested object form the Settings recorder writes (no second/chord stroke).",
+      "properties": {
+        "first": {
+          "$ref": "#/$defs/shortcutStrokeObject"
+        }
+      }
+    },
+    "shortcutStrokeObject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key"],
+      "description": "One recorded keystroke as flat fields: the key plus modifier booleans and an optional macOS virtual key code.",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "command": {
+          "type": "boolean"
+        },
+        "shift": {
+          "type": "boolean"
+        },
+        "option": {
+          "type": "boolean"
+        },
+        "control": {
+          "type": "boolean"
+        },
+        "keyCode": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
     },
     "singleBareFirstStrokeShortcutBinding": {
       "oneOf": [
