@@ -1292,11 +1292,22 @@ nonisolated enum TerminalStartupReturnShellScript {
 
     static func commandThenReturnLines(command: String, workingDirectory: String? = nil) -> [String] {
         let quotedCommand = TerminalStartupShellQuoting.singleQuoted(command)
+        // The resume command is POSIX `sh` syntax (it carries a `{ cd …; } && …` cwd-guard and may
+        // wrap the agent in `/bin/sh -c '…'`). zsh and bash parse it natively, so they run it
+        // directly under `-lic`. fish and csh/tcsh do not: fish rejects `{ …; }` command grouping
+        // outright (`'{ ... }' is not supported for grouping commands`) and csh/tcsh lack `2>` and
+        // `{ …; }`, so handing them the raw command makes the resume error out before the agent ever
+        // launches and the tab drops to a bare login-shell prompt. Hand those shells the single
+        // external `/bin/sh -c '<command>'` invocation instead. The outer quoting embeds it as one
+        // word in this zsh launcher script. https://github.com/manaflow-ai/cmux/issues/6285
+        let quotedPOSIXShellCommand = TerminalStartupShellQuoting.singleQuoted(
+            posixShellDispatchCommand(command)
+        )
         var lines = [shellLine] + zshIntegrationReentryLines + [
             #"case "${_cmux_resume_shell:t}" in"#,
             #"  zsh|bash) "$_cmux_resume_shell" -lic \#(quotedCommand) ;;"#,
-            #"  csh|tcsh) "$_cmux_resume_shell" -c \#(quotedCommand) ;;"#,
-            #"  *) "$_cmux_resume_shell" -c \#(quotedCommand) ;;"#,
+            #"  csh|tcsh) "$_cmux_resume_shell" -c \#(quotedPOSIXShellCommand) ;;"#,
+            #"  *) "$_cmux_resume_shell" -c \#(quotedPOSIXShellCommand) ;;"#,
             #"esac"#,
         ] + zshIntegrationReentryLines
         // The resume command's `cd` runs inside the child shell above, so after the resumed agent
@@ -1309,6 +1320,26 @@ nonisolated enum TerminalStartupReturnShellScript {
         }
         lines.append(#"exec -l "$_cmux_resume_shell""#)
         return lines
+    }
+
+    /// Wraps a POSIX resume `command` so a non-POSIX login shell (fish, csh, tcsh) only ever parses a
+    /// single external command instead of the resume command's sh-only syntax (`{ …; }` grouping,
+    /// `2>` redirection). Returns `/bin/sh -c '<command>'`; the dispatching shell still sources its
+    /// own config (PATH, env) before exec'ing `/bin/sh`, which inherits it. zsh/bash parse the resume
+    /// command natively and skip this wrap. https://github.com/manaflow-ai/cmux/issues/6285
+    static func posixShellDispatchCommand(_ command: String) -> String {
+        "/bin/sh -c " + posixSingleQuoted(command)
+    }
+
+    /// Single-quotes `value` as one literal POSIX `sh` word, escaping embedded quotes as `'\''`.
+    ///
+    /// Used for the inner `/bin/sh -c '<command>'` payload: plain single quotes are inert in every
+    /// dispatching shell (zsh, bash, fish, csh, tcsh all pass single-quoted text through verbatim),
+    /// so the original command reaches `/bin/sh` byte-for-byte without fish/csh re-interpreting any
+    /// `$(…)`/`{ … }` inside it. The outer quoting for embedding in this zsh launcher script is done
+    /// separately via ``TerminalStartupShellQuoting/singleQuoted(_:)``.
+    private static func posixSingleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
 

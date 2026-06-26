@@ -2108,10 +2108,9 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 + "alias claude \(shellQuotedForTest(sandbox.realClaudeURL.path))\n"
         ).write(to: sandbox.homeURL.appendingPathComponent(".tcshrc"), atomically: true, encoding: .utf8)
 
-        // No working directory: keeps the command free of the POSIX `{ cd …; } &&` guard
-        // (csh/tcsh cannot parse that prefix with or without this fix, a pre-existing
-        // limitation shared by every agent kind) so the assertion isolates the claude
-        // executable token itself.
+        // No working directory: keeps the command free of the POSIX `{ cd …; } &&` guard so the
+        // assertion isolates the claude executable token itself. The guard-bearing command is
+        // exercised separately by testClaudeResumeCommandWithWorkingDirectoryExecutesThroughWrapperInsideTcshLauncher.
         let snapshot = Self.makeClaudeRestorableSnapshot(workingDirectory: nil)
         let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
 
@@ -2131,14 +2130,61 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
-    /// Regression: fish rejects `${…}` outright ("${ is not a valid variable"), and fish
-    /// is a shipped cmux integration (`Resources/shell-integration/fish/`). The restore
-    /// launcher's `*)` branch dispatches `"$_cmux_resume_shell" -c <command>` for fish
-    /// logins, and unlike csh the ENTIRE pre-#5639 command —
-    /// `{ cd …; } && 'env' … 'claude' …` — was valid fish (fish ≥3.4 parses the brace
-    /// group), so a POSIX-only wrapper token regresses fish users from working resume to
-    /// a hard parse error. Uses a working directory so the `{ cd …; } &&` composition is
-    /// exercised too. https://github.com/manaflow-ai/cmux/issues/5639
+    /// Regression for #6285: the resume binding carries a POSIX `{ cd …; } && …` cwd-guard, but
+    /// non-POSIX login shells reject `{ …; }` command grouping (`fish: '{ ... }' is not supported
+    /// for grouping commands`; csh/tcsh likewise cannot parse `{ …; }`/`2>`). The restore launcher
+    /// must hand those shells a single external `/bin/sh -c '<command>'` invocation so the
+    /// guard-bearing resume still parses and reaches the cmux wrapper. tcsh is on every macOS runner,
+    /// so it exercises the wrapped non-POSIX dispatch end-to-end (the fish path is identical but fish
+    /// is not installed on CI). https://github.com/manaflow-ai/cmux/issues/6285
+    func testClaudeResumeCommandWithWorkingDirectoryExecutesThroughWrapperInsideTcshLauncher() throws {
+        let tcshURL = URL(fileURLWithPath: "/bin/tcsh")
+        try XCTSkipUnless(
+            FileManager.default.isExecutableFile(atPath: tcshURL.path),
+            "/bin/tcsh is required to exercise the csh|tcsh restore-launcher dispatch"
+        )
+
+        let sandbox = try makeClaudeResumeWrapperShimSandbox()
+        defer { sandbox.removeSandbox() }
+        // Hostile tcsh profile: rebuild PATH (dropping any inherited shim dir) and alias claude to
+        // the user's real binary, matching the no-cwd tcsh and fish launcher tests.
+        try (
+            "set path = (\(shellQuotedForTest(sandbox.realBinDirectoryURL.path)) /usr/bin /bin)\n"
+                + "alias claude \(shellQuotedForTest(sandbox.realClaudeURL.path))\n"
+        ).write(to: sandbox.homeURL.appendingPathComponent(".tcshrc"), atomically: true, encoding: .utf8)
+
+        // A working directory makes resumeCommand carry the `{ cd …; } &&` guard that broke fish.
+        let snapshot = Self.makeClaudeRestorableSnapshot(workingDirectory: sandbox.sandboxURL.path)
+        let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
+        XCTAssertTrue(
+            resumeCommand.contains("{ cd -- "),
+            "this regression requires the POSIX cwd-guard to be present; resumeCommand: \(resumeCommand)"
+        )
+
+        let recorded = try runClaudeResumeCommand(
+            resumeCommand,
+            shellURL: tcshURL,
+            arguments: ["-c"],
+            sandbox: sandbox
+        )
+        XCTAssertTrue(
+            recorded.hasPrefix("wrapper "),
+            "tcsh-dispatched guard-bearing resume must parse and exec the cmux wrapper. Recorded invocation: \(recorded.isEmpty ? "<none>" : recorded)"
+        )
+        XCTAssertTrue(
+            recorded.contains("--settings"),
+            "tcsh-dispatched guard-bearing resume must re-inject the hook --settings via the wrapper. Recorded invocation: \(recorded.isEmpty ? "<none>" : recorded)"
+        )
+    }
+
+    /// Regression: fish is a shipped cmux integration (`Resources/shell-integration/fish/`) and the
+    /// restore launcher's `*)` branch dispatches the resume command to fish logins. fish cannot parse
+    /// the POSIX resume command directly — it rejects both `${…}` ("${ is not a valid variable") and
+    /// `{ …; }` command grouping ("'{ ... }' is not supported for grouping commands", #6285) — so the
+    /// launcher hands fish a single external `/bin/sh -c '<command>'` invocation, exercised here via
+    /// `runClaudeResumeCommand`. This asserts the wrapped, working-directory-bearing resume parses and
+    /// reaches the cmux wrapper under fish. https://github.com/manaflow-ai/cmux/issues/5639,
+    /// https://github.com/manaflow-ai/cmux/issues/6285
     func testClaudeResumeCommandExecutesThroughWrapperInsideFishLauncher() throws {
         let fishURL = ["/usr/local/bin/fish", "/opt/homebrew/bin/fish", "/usr/bin/fish"]
             .map { URL(fileURLWithPath: $0) }
@@ -2324,7 +2370,15 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
     ) throws -> String {
         let process = Process()
         process.executableURL = shellURL
-        process.arguments = arguments + [resumeCommand]
+        // Model the restore launcher's dispatch
+        // (`TerminalStartupReturnShellScript.commandThenReturnLines`): zsh/bash parse the POSIX
+        // resume command natively, while fish/csh/tcsh receive it wrapped in `/bin/sh -c '…'` so
+        // they only parse a single external command. https://github.com/manaflow-ai/cmux/issues/6285
+        let shellLeaf = shellURL.lastPathComponent
+        let dispatchedCommand = (shellLeaf == "zsh" || shellLeaf == "bash")
+            ? resumeCommand
+            : TerminalStartupReturnShellScript.posixShellDispatchCommand(resumeCommand)
+        process.arguments = arguments + [dispatchedCommand]
         var environment = [
             "HOME": sandbox.homeURL.path,
             "CMUX_CLAUDE_WRAPPER_SHIM": sandbox.shimURL.path
