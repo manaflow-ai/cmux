@@ -43,7 +43,11 @@ struct WorkspaceShellView: View {
         if isInitialConnectionLoading || initialConnectionTimedOut {
             return .reconnecting
         }
-        return store.macConnectionStatus
+        return store.workspaceListConnectionStatus
+    }
+
+    private var canCreateWorkspaceOnForegroundConnection: Bool {
+        store.connectionState == .connected
     }
 
     var body: some View {
@@ -96,6 +100,7 @@ struct WorkspaceShellView: View {
                 profilePictureSize: displaySettings.profilePictureSize,
                 selectWorkspace: selectWorkspace,
                 createWorkspace: createWorkspaceInCompactStack,
+                canCreateWorkspace: canCreateWorkspace,
                 refresh: refreshWorkspacesClosure,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
                 signOut: signOut,
@@ -183,6 +188,7 @@ struct WorkspaceShellView: View {
                 profilePictureSize: displaySettings.profilePictureSize,
                 selectWorkspace: selectWorkspace,
                 createWorkspace: createWorkspaceIfConnected,
+                canCreateWorkspace: canCreateWorkspace,
                 refresh: refreshWorkspacesClosure,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
                 signOut: signOut,
@@ -266,7 +272,8 @@ struct WorkspaceShellView: View {
     private var refreshWorkspacesClosure: @Sendable () async -> Void {
         let store = store
         // Reconnect-or-refresh: when offline, pull-to-refresh re-attempts the saved
-        // active Mac instead of no-opping, so the offline list can recover itself.
+        // active Mac or the visible unavailable workspace owner instead of
+        // no-opping, so the offline list can recover itself.
         return { await store.reconnectOrRefresh() }
     }
 
@@ -277,7 +284,7 @@ struct WorkspaceShellView: View {
     }
 
     private var canCreateWorkspace: Bool {
-        listConnectionStatus == .connected
+        canCreateWorkspaceOnForegroundConnection
     }
 
     /// Group collapse/expand closure. Present when the Mac advertises
