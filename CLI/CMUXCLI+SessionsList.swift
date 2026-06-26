@@ -429,7 +429,7 @@ extension CMUXCLI {
         record: ClaudeHookSessionRecord
     ) -> [String: Any] {
         let storedPIDExists = sessionsListStoredPIDExists(record.pid)
-        let hookRecordRestorable = record.isRestorable != false
+        let hookRecordRestorable = sessionsListHookRecordRestorable(agent: agent, record: record)
         let forkArguments = hookRecordRestorable ? sessionsListForkArguments(agent: agent, record: record) : nil
         let forkCommandAvailable = forkArguments != nil
         let support = sessionsListForkSupport(
@@ -461,6 +461,33 @@ extension CMUXCLI {
         ]
         diagnostics["stored_pid_exists"] = storedPIDExists ?? NSNull()
         return diagnostics
+    }
+
+    private func sessionsListHookRecordRestorable(
+        agent: String,
+        record: ClaudeHookSessionRecord
+    ) -> Bool {
+        guard agent == "claude" else {
+            return record.isRestorable != false
+        }
+        if let transcriptPath = sessionsListNormalized(record.transcriptPath),
+           sessionsListRegularNonEmptyFileExists(
+               atPath: (transcriptPath as NSString).expandingTildeInPath
+           ) {
+            return true
+        }
+        return record.isRestorable != false
+    }
+
+    private func sessionsListRegularNonEmptyFileExists(atPath path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
+              !isDirectory.boolValue,
+              let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+              let size = attrs[.size] as? NSNumber else {
+            return false
+        }
+        return size.intValue > 0
     }
 
     private func sessionsListForkSupport(
