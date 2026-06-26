@@ -9576,9 +9576,28 @@ final class Workspace: Identifiable, ObservableObject {
         if let paneId = bonsplitController.focusedPaneId,
            let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
             applyTabSelection(tabId: tabId, inPane: paneId)
+            reconcilePortalVisibilityAfterFocusMove()
         }
 
     }
+
+    private func reconcilePortalVisibilityAfterFocusMove() {
+        let focusedPanelId = focusedPanelId
+        let terminalVisibilityChanged = reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
+        let browserVisibilityChanged = reconcileBrowserPortalVisibilityForCurrentRenderedLayout(
+            reason: "workspace.moveFocus"
+        )
+
+        guard terminalVisibilityChanged || browserVisibilityChanged else { return }
+
+        beginEventDrivenLayoutFollowUp(
+            reason: "workspace.moveFocus",
+            browserPanelId: focusedPanelId.flatMap { browserPanel(for: $0)?.id },
+            terminalFocusPanelId: focusedPanelId.flatMap { terminalPanel(for: $0)?.id },
+            includeGeometry: terminalVisibilityChanged
+        )
+    }
+
     /// Create a new terminal surface in the currently focused pane
     @discardableResult
     func newTerminalSurfaceInFocusedPane(focus: Bool? = nil, initialInput: String? = nil) -> TerminalPanel? {
