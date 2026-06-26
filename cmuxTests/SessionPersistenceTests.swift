@@ -4533,6 +4533,54 @@ extension SessionPersistenceTests {
     }
 
     @MainActor
+    func testSnapshotPersistsDisplacedAgentHookResumeBindingHistory() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertTrue(
+            workspace.setSurfaceResumeBinding(
+                SurfaceResumeBindingSnapshot(
+                    name: "Codex",
+                    kind: "codex",
+                    command: "codex resume real-thread",
+                    cwd: "/tmp/real",
+                    checkpointId: "real-thread",
+                    source: "agent-hook",
+                    autoResume: true,
+                    updatedAt: 10
+                ),
+                panelId: panelId
+            )
+        )
+        XCTAssertTrue(
+            workspace.setSurfaceResumeBinding(
+                SurfaceResumeBindingSnapshot(
+                    name: "Codex",
+                    kind: "codex",
+                    command: "codex resume recap-thread",
+                    cwd: "/tmp/recap",
+                    checkpointId: "recap-thread",
+                    source: "agent-hook",
+                    autoResume: true,
+                    updatedAt: 20
+                ),
+                panelId: panelId
+            )
+        )
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let encoded = try JSONEncoder().encode(snapshot)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        let panels = try XCTUnwrap(object["panels"] as? [[String: Any]])
+        let terminal = try XCTUnwrap(panels.first?["terminal"] as? [String: Any])
+        let activeBinding = try XCTUnwrap(terminal["resumeBinding"] as? [String: Any])
+        let history = try XCTUnwrap(terminal["resumeBindingHistory"] as? [[String: Any]])
+
+        XCTAssertEqual(activeBinding["checkpointId"] as? String, "recap-thread")
+        XCTAssertEqual(history.compactMap { $0["checkpointId"] as? String }, ["recap-thread", "real-thread"])
+        XCTAssertEqual(history.compactMap { $0["source"] as? String }, ["agent-hook", "agent-hook"])
+    }
+
+    @MainActor
     func testSnapshotPrefersProcessDetectedTmuxOverAgentHookBinding() throws {
         let workspace = Workspace()
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
