@@ -479,7 +479,7 @@ extension WorkspaceContentView {
 struct EmptyPanelView: View {
     var workspace: Workspace
     let paneId: PaneID
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    private let keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
 
     private struct ShortcutHint: View {
         let text: String

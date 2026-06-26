@@ -402,9 +402,10 @@ class GhosttyApp {
     // SAFETY: Ghostty C callbacks can run while GhosttyApp.shared is still initializing.
     // cmux owns one process-lifetime GhosttyApp, so the registry avoids singleton re-entry
     // without adding a teardown path for a ghostty_app_t that is never freed/recreated.
-    private static let appRegistryLock = NSLock()
-    private static var appRegistry: [UInt: GhosttyApp] = [:]
-    private static var initializingRuntimeApp: GhosttyApp?
+    // The lock-guarded lookup was drained into `CmuxTerminal` as the generic
+    // `GhosttyRuntimeAppRegistry<App>`; this process-wide instance is the documented
+    // default at the composition point, and the static helpers below forward to it.
+    private static let runtimeAppRegistry = GhosttyRuntimeAppRegistry<GhosttyApp>()
 
     private(set) var app: ghostty_app_t?
     private(set) var config: ghostty_config_t?
@@ -1684,36 +1685,19 @@ class GhosttyApp {
     }
 
     private static func registerRuntimeApp(_ runtimeApp: GhosttyApp, for app: ghostty_app_t) {
-        let key = UInt(bitPattern: app)
-        appRegistryLock.lock()
-        appRegistry[key] = runtimeApp
-        appRegistryLock.unlock()
+        runtimeAppRegistry.register(runtimeApp, for: app)
     }
 
     private static func setInitializingRuntimeApp(_ runtimeApp: GhosttyApp?) {
-        appRegistryLock.lock()
-        initializingRuntimeApp = runtimeApp
-        appRegistryLock.unlock()
+        runtimeAppRegistry.setInitializing(runtimeApp)
     }
 
     private static func runtimeApp(for app: ghostty_app_t?) -> GhosttyApp? {
-        guard let app else { return nil }
-        let key = UInt(bitPattern: app)
-        appRegistryLock.lock()
-        defer { appRegistryLock.unlock() }
-        return appRegistry[key]
+        runtimeAppRegistry.runtimeApp(for: app)
     }
 
     private static func runtimeAppForActionCallback(_ app: ghostty_app_t?) -> GhosttyApp? {
-        appRegistryLock.lock()
-        defer { appRegistryLock.unlock() }
-        if let app {
-            let key = UInt(bitPattern: app)
-            if let registered = appRegistry[key] {
-                return registered
-            }
-        }
-        return initializingRuntimeApp
+        runtimeAppRegistry.runtimeAppForActionCallback(app)
     }
 
     private func handleAction(target: ghostty_target_s, action: ghostty_action_s) -> Bool {

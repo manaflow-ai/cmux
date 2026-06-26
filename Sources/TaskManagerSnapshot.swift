@@ -11,10 +11,6 @@ struct CmuxTaskManagerSnapshot {
         memoryDiagnostic: nil
     )
 
-    /// Pure name->asset classifier seam used by the parse helpers below to map a
-    /// row's free-form name candidates to a brand-mark asset name.
-    private static let agentAssetResolver = SessionAgentAssetResolver.standard
-
     let rows: [CmuxTaskManagerRow]
     let agentRows: [CmuxTaskManagerRow]
     let aggregateRows: [CmuxTaskManagerRow]
@@ -62,20 +58,24 @@ struct CmuxTaskManagerSnapshot {
         agentRows: [CmuxTaskManagerRow] = [],
         total: CmuxTaskManagerResources,
         sampledAt: Date?,
-        memoryDiagnostic: CmuxTaskManagerMemoryDiagnostic? = nil
+        memoryDiagnostic: CmuxTaskManagerMemoryDiagnostic? = nil,
+        agentAssetResolver: SessionAgentAssetResolver = .standard
     ) {
         self.init(
             rows: rows,
             agentRows: agentRows,
-            aggregateRows: Self.programAggregateRows(from: rows),
-            childMemoryRows: Self.childMemoryRows(from: memoryDiagnostic),
+            aggregateRows: Self.programAggregateRows(from: rows, agentAssetResolver: agentAssetResolver),
+            childMemoryRows: Self.childMemoryRows(from: memoryDiagnostic, agentAssetResolver: agentAssetResolver),
             total: total,
             sampledAt: sampledAt,
             memoryDiagnostic: memoryDiagnostic
         )
     }
 
-    init(payload: [String: Any]) {
+    init(
+        payload: [String: Any],
+        agentAssetResolver: SessionAgentAssetResolver = .standard
+    ) {
         let sample = payload["sample"] as? [String: Any] ?? [:]
         self.sampledAt = CmuxTaskManagerFormat.iso8601Date(sample["sampled_at"] as? String)
         self.total = CmuxTaskManagerResources(payload["totals"] as? [String: Any] ?? [:])
@@ -83,7 +83,7 @@ struct CmuxTaskManagerSnapshot {
         var rows: [CmuxTaskManagerRow] = []
         let windows = payload["windows"] as? [[String: Any]] ?? []
         for window in windows {
-            Self.appendWindow(window, to: &rows)
+            Self.appendWindow(window, to: &rows, agentAssetResolver: agentAssetResolver)
         }
         let agentRows = Self.agentRows(from: payload["coding_agents"] as? [[String: Any]] ?? [])
         self.rows = Self.rowsWithAgentAssets(
@@ -93,14 +93,17 @@ struct CmuxTaskManagerSnapshot {
         self.agentRows = agentRows
         let programTotalPayloads = payload["program_totals"] as? [[String: Any]] ?? []
         self.aggregateRows = programTotalPayloads.isEmpty
-            ? Self.programAggregateRows(from: self.rows)
-            : Self.programAggregateRows(fromPayloads: programTotalPayloads)
+            ? Self.programAggregateRows(from: self.rows, agentAssetResolver: agentAssetResolver)
+            : Self.programAggregateRows(fromPayloads: programTotalPayloads, agentAssetResolver: agentAssetResolver)
         let memoryDiagnostic = CmuxTaskManagerMemoryDiagnostic(payload["memory_diagnostic"] as? [String: Any])
         self.memoryDiagnostic = memoryDiagnostic
-        self.childMemoryRows = Self.childMemoryRows(from: memoryDiagnostic)
+        self.childMemoryRows = Self.childMemoryRows(from: memoryDiagnostic, agentAssetResolver: agentAssetResolver)
     }
 
-    private static func childMemoryRows(from diagnostic: CmuxTaskManagerMemoryDiagnostic?) -> [CmuxTaskManagerRow] {
+    private static func childMemoryRows(
+        from diagnostic: CmuxTaskManagerMemoryDiagnostic?,
+        agentAssetResolver: SessionAgentAssetResolver
+    ) -> [CmuxTaskManagerRow] {
         guard let diagnostic else { return [] }
         return diagnostic.groups.map { group in
             let attribution = group.topAttribution
@@ -131,7 +134,7 @@ struct CmuxTaskManagerSnapshot {
                 processId: nil,
                 rootProcessIds: group.processIds,
                 foregroundProcessGroupIds: [],
-                agentAssetName: Self.agentAssetResolver.assetName(forNameCandidates: [group.name])
+                agentAssetName: agentAssetResolver.assetName(forNameCandidates: [group.name])
             )
         }
     }
@@ -258,7 +261,10 @@ struct CmuxTaskManagerSnapshot {
         }
     }
 
-    private static func programAggregateRows(from rows: [CmuxTaskManagerRow]) -> [CmuxTaskManagerRow] {
+    private static func programAggregateRows(
+        from rows: [CmuxTaskManagerRow],
+        agentAssetResolver: SessionAgentAssetResolver
+    ) -> [CmuxTaskManagerRow] {
         var aggregatesByKey: [String: ProgramAggregate] = [:]
         var seenProcessIds: Set<Int> = []
 
@@ -300,12 +306,15 @@ struct CmuxTaskManagerSnapshot {
                     processId: nil,
                     rootProcessIds: processIds,
                     foregroundProcessGroupIds: [],
-                    agentAssetName: Self.agentAssetResolver.assetName(forNameCandidates: [aggregate.title])
+                    agentAssetName: agentAssetResolver.assetName(forNameCandidates: [aggregate.title])
                 )
             }
     }
 
-    private static func programAggregateRows(fromPayloads payloads: [[String: Any]]) -> [CmuxTaskManagerRow] {
+    private static func programAggregateRows(
+        fromPayloads payloads: [[String: Any]],
+        agentAssetResolver: SessionAgentAssetResolver
+    ) -> [CmuxTaskManagerRow] {
         payloads.compactMap { payload in
             guard let title = nonEmptyString(payload["name"]) else { return nil }
             let resources = CmuxTaskManagerResources(payload["resources"] as? [String: Any] ?? [:])
@@ -325,7 +334,7 @@ struct CmuxTaskManagerSnapshot {
                 processId: nil,
                 rootProcessIds: resources.processIds,
                 foregroundProcessGroupIds: [],
-                agentAssetName: Self.agentAssetResolver.assetName(forNameCandidates: [title])
+                agentAssetName: agentAssetResolver.assetName(forNameCandidates: [title])
             )
         }
     }
@@ -340,7 +349,11 @@ struct CmuxTaskManagerSnapshot {
         ), Int64(processCount))
     }
 
-    private static func appendWindow(_ window: [String: Any], to rows: inout [CmuxTaskManagerRow]) {
+    private static func appendWindow(
+        _ window: [String: Any],
+        to rows: inout [CmuxTaskManagerRow],
+        agentAssetResolver: SessionAgentAssetResolver
+    ) {
         let handle = displayHandle(window)
         var detailParts: [String] = []
         if bool(window["key"]) {
@@ -360,16 +373,20 @@ struct CmuxTaskManagerSnapshot {
         let processes = window["processes"] as? [[String: Any]] ?? []
         let context = rowID(window, kind: .window)
         for process in processes {
-            appendProcess(process, level: 1, context: context, workspaceId: nil, terminalSurfaceId: nil, to: &rows)
+            appendProcess(process, level: 1, context: context, workspaceId: nil, terminalSurfaceId: nil, agentAssetResolver: agentAssetResolver, to: &rows)
         }
 
         let workspaces = window["workspaces"] as? [[String: Any]] ?? []
         for workspace in workspaces {
-            appendWorkspace(workspace, to: &rows)
+            appendWorkspace(workspace, to: &rows, agentAssetResolver: agentAssetResolver)
         }
     }
 
-    private static func appendWorkspace(_ workspace: [String: Any], to rows: inout [CmuxTaskManagerRow]) {
+    private static func appendWorkspace(
+        _ workspace: [String: Any],
+        to rows: inout [CmuxTaskManagerRow],
+        agentAssetResolver: SessionAgentAssetResolver
+    ) {
         let workspaceId = uuid(workspace["id"])
         let title = nonEmptyString(workspace["title"]) ?? displayHandle(workspace)
         var detailParts: [String] = []
@@ -390,19 +407,20 @@ struct CmuxTaskManagerSnapshot {
 
         let tags = workspace["tags"] as? [[String: Any]] ?? []
         for tag in tags {
-            appendTag(tag, workspaceId: workspaceId, to: &rows)
+            appendTag(tag, workspaceId: workspaceId, to: &rows, agentAssetResolver: agentAssetResolver)
         }
 
         let panes = workspace["panes"] as? [[String: Any]] ?? []
         for pane in panes {
-            appendPane(pane, workspaceId: workspaceId, to: &rows)
+            appendPane(pane, workspaceId: workspaceId, to: &rows, agentAssetResolver: agentAssetResolver)
         }
     }
 
     private static func appendTag(
         _ tag: [String: Any],
         workspaceId: UUID?,
-        to rows: inout [CmuxTaskManagerRow]
+        to rows: inout [CmuxTaskManagerRow],
+        agentAssetResolver: SessionAgentAssetResolver
     ) {
         let key = nonEmptyString(tag["key"]) ?? String(localized: "taskManager.row.unknownTag", defaultValue: "Unknown tag")
         let value = nonEmptyString(tag["value"])
@@ -418,17 +436,22 @@ struct CmuxTaskManagerSnapshot {
             detail: detail,
             isDimmed: bool(tag["visible"]) == false,
             workspaceId: workspaceId,
-            agentAssetName: Self.agentAssetResolver.assetName(forNameCandidates: [key, value])
+            agentAssetName: agentAssetResolver.assetName(forNameCandidates: [key, value])
         ))
 
         let processes = tag["processes"] as? [[String: Any]] ?? []
         let context = rowID(tag, kind: .tag)
         for process in processes {
-            appendProcess(process, level: 3, context: context, workspaceId: workspaceId, terminalSurfaceId: nil, to: &rows)
+            appendProcess(process, level: 3, context: context, workspaceId: workspaceId, terminalSurfaceId: nil, agentAssetResolver: agentAssetResolver, to: &rows)
         }
     }
 
-    private static func appendPane(_ pane: [String: Any], workspaceId: UUID?, to rows: inout [CmuxTaskManagerRow]) {
+    private static func appendPane(
+        _ pane: [String: Any],
+        workspaceId: UUID?,
+        to rows: inout [CmuxTaskManagerRow],
+        agentAssetResolver: SessionAgentAssetResolver
+    ) {
         let handle = displayHandle(pane)
         rows.append(row(
             pane,
@@ -441,11 +464,16 @@ struct CmuxTaskManagerSnapshot {
 
         let surfaces = pane["surfaces"] as? [[String: Any]] ?? []
         for surface in surfaces {
-            appendSurface(surface, workspaceId: workspaceId, to: &rows)
+            appendSurface(surface, workspaceId: workspaceId, to: &rows, agentAssetResolver: agentAssetResolver)
         }
     }
 
-    private static func appendSurface(_ surface: [String: Any], workspaceId: UUID?, to rows: inout [CmuxTaskManagerRow]) {
+    private static func appendSurface(
+        _ surface: [String: Any],
+        workspaceId: UUID?,
+        to rows: inout [CmuxTaskManagerRow],
+        agentAssetResolver: SessionAgentAssetResolver
+    ) {
         let type = (nonEmptyString(surface["type"]) ?? "unknown").lowercased()
         let title = nonEmptyString(surface["title"]) ?? displayHandle(surface)
         let surfaceId = uuid(surface["id"])
@@ -469,13 +497,13 @@ struct CmuxTaskManagerSnapshot {
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             terminalSurfaceId: terminalSurfaceId,
-            agentAssetName: Self.agentAssetResolver.assetName(forNameCandidates: [title])
+            agentAssetName: agentAssetResolver.assetName(forNameCandidates: [title])
         ))
 
         let webviews = surface["webviews"] as? [[String: Any]] ?? []
         if !webviews.isEmpty {
             for webview in webviews {
-                appendWebView(webview, workspaceId: workspaceId, surfaceId: surfaceId, to: &rows)
+                appendWebView(webview, workspaceId: workspaceId, surfaceId: surfaceId, to: &rows, agentAssetResolver: agentAssetResolver)
             }
         }
         let processes = surface["processes"] as? [[String: Any]] ?? []
@@ -488,6 +516,7 @@ struct CmuxTaskManagerSnapshot {
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 terminalSurfaceId: terminalSurfaceId,
+                agentAssetResolver: agentAssetResolver,
                 to: &rows
             )
         }
@@ -497,7 +526,8 @@ struct CmuxTaskManagerSnapshot {
         _ webview: [String: Any],
         workspaceId: UUID?,
         surfaceId: UUID?,
-        to rows: inout [CmuxTaskManagerRow]
+        to rows: inout [CmuxTaskManagerRow],
+        agentAssetResolver: SessionAgentAssetResolver
     ) {
         let title = nonEmptyString(webview["title"])
             ?? String(localized: "taskManager.row.webview", defaultValue: "WebView")
@@ -531,6 +561,7 @@ struct CmuxTaskManagerSnapshot {
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 terminalSurfaceId: nil,
+                agentAssetResolver: agentAssetResolver,
                 to: &rows
             )
         }
@@ -543,6 +574,7 @@ struct CmuxTaskManagerSnapshot {
         workspaceId: UUID?,
         surfaceId: UUID? = nil,
         terminalSurfaceId: UUID?,
+        agentAssetResolver: SessionAgentAssetResolver,
         to rows: inout [CmuxTaskManagerRow]
     ) {
         let pid = int(process["pid"])
@@ -568,7 +600,7 @@ struct CmuxTaskManagerSnapshot {
             terminalSurfaceId: processTerminalSurfaceId,
             processId: pid,
             rootProcessIds: processRootIds,
-            agentAssetName: Self.agentAssetResolver.assetName(forNameCandidates: [
+            agentAssetName: agentAssetResolver.assetName(forNameCandidates: [
                 nonEmptyString(process["name"]),
                 nonEmptyString(process["path"]).map { URL(fileURLWithPath: $0).lastPathComponent }
             ])
@@ -584,6 +616,7 @@ struct CmuxTaskManagerSnapshot {
                 workspaceId: workspaceId,
                 surfaceId: processSurfaceId,
                 terminalSurfaceId: processTerminalSurfaceId,
+                agentAssetResolver: agentAssetResolver,
                 to: &rows
             )
         }
