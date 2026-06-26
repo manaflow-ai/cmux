@@ -146,10 +146,30 @@ public protocol SettingsHostActions: AnyObject {
     ///
     /// `async` because the availability check probes a real bind.
     func applyMobilePairingPort(_ port: Int) async -> MobilePairingPortApplyResult
+
+    /// Shows the Sleepy Mode screensaver as a non-locking preview (any key/click
+    /// exits, no Touch ID). The host owns the overlay window.
+    func sleepyModePreview()
+
+    /// Starts Sleepy Mode using the user's current settings. The host owns the
+    /// overlay window.
+    func sleepyModeStart()
+
+    /// The app-owned Sleepy Mode settings store, so the Preferences section binds
+    /// to the same instance the overlay renderer reads (rather than a package
+    /// singleton). Previews/tests get a fresh isolated store via the default.
+    func sleepyModeStore() -> SleepyModeSettingsStore
 }
 
 public extension SettingsHostActions {
     func openMobilePairingWindow() {}
+
+    /// Default no-op preview action for hosts without a Sleepy Mode overlay.
+    func sleepyModePreview() {}
+    /// Default no-op start action for hosts without a Sleepy Mode overlay.
+    func sleepyModeStart() {}
+    /// Default isolated store for previews/tests with no Sleepy Mode host.
+    func sleepyModeStore() -> SleepyModeSettingsStore { SleepyModeSettingsStore() }
 
     /// Default no-op for package previews and tests that have no activation-policy host.
     func setMenuBarOnly(_ enabled: Bool) -> Bool { false }
