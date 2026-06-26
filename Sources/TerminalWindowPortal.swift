@@ -1311,7 +1311,7 @@ final class WindowTerminalPortal: NSObject {
         entry: inout Entry,
         hostedView: GhosttySurfaceScrollView,
         reason: String
-    ) -> Bool {
+    ) {
         if entry.transientRecoveryReason == nil {
             entry.transientRecoveryRetriesRemaining = Self.transientRecoveryRetryBudget
         }
@@ -1324,7 +1324,7 @@ final class WindowTerminalPortal: NSObject {
             )
         }
 #endif
-        guard entry.transientRecoveryRetriesRemaining > 0 else { return false }
+        guard entry.transientRecoveryRetriesRemaining > 0 else { return }
 
         entry.transientRecoveryRetriesRemaining -= 1
         entriesByHostedId[hostedId] = entry
@@ -1337,7 +1337,6 @@ final class WindowTerminalPortal: NSObject {
         if entry.transientRecoveryRetriesRemaining > 0 {
             scheduleDeferredFullSynchronizeAll()
         }
-        return true
     }
 
     private func synchronizeHostedView(withId hostedId: ObjectIdentifier, syncLayout: Bool = true) {
@@ -1349,7 +1348,7 @@ final class WindowTerminalPortal: NSObject {
         }
         guard let anchorView = entry.anchorView, let window else {
             if entry.visibleInUI {
-                _ = scheduleTransientRecoveryRetryIfNeeded(
+                scheduleTransientRecoveryRetryIfNeeded(
                     forHostedId: hostedId,
                     entry: &entry,
                     hostedView: hostedView,
@@ -1376,7 +1375,7 @@ final class WindowTerminalPortal: NSObject {
             }
 #endif
             if entry.visibleInUI {
-                _ = scheduleTransientRecoveryRetryIfNeeded(
+                scheduleTransientRecoveryRetryIfNeeded(
                     forHostedId: hostedId,
                     entry: &entry,
                     hostedView: hostedView,
@@ -1412,7 +1411,7 @@ final class WindowTerminalPortal: NSObject {
             )
 #endif
             if entry.visibleInUI {
-                _ = scheduleTransientRecoveryRetryIfNeeded(
+                scheduleTransientRecoveryRetryIfNeeded(
                     forHostedId: hostedId,
                     entry: &entry,
                     hostedView: hostedView,
@@ -1460,7 +1459,7 @@ final class WindowTerminalPortal: NSObject {
             return nil
         }()
         if let transientRecoveryReason {
-            _ = scheduleTransientRecoveryRetryIfNeeded(
+            scheduleTransientRecoveryRetryIfNeeded(
                 forHostedId: hostedId,
                 entry: &entry,
                 hostedView: hostedView,
