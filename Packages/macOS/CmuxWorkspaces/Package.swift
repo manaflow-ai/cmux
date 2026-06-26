@@ -23,10 +23,6 @@ let package = Package(
         // WorkspaceGroupNewPlacement (the typed setting value for new
         // in-group workspace placement) is owned by CmuxSettings.
         .package(path: "../CmuxSettings"),
-        // CmuxShortcuts owns the `cmux.json` shortcut grammar
-        // (StoredShortcut.parseConfig / ShortcutStroke.configString) the
-        // CustomLayout/ action-definition wire schema decodes and encodes.
-        .package(path: "../CmuxShortcuts"),
         // Bonsplit drives the Window/ tmux pane-overlay geometry.
         .package(path: "../../../vendor/bonsplit"),
         // CmuxPanes owns the split-tree geometry recursions
@@ -49,11 +45,6 @@ let package = Package(
         // launch service expands into a `cmux ssh` argument vector) is owned by
         // CmuxRemoteWorkspace.
         .package(path: "../CmuxRemoteWorkspace"),
-        // CmuxVaultConfigDefinition (the `cmux.json` `vault` block carried by
-        // CustomLayout/CmuxConfigFile) is owned by CMUXAgentLaunch. The edge is
-        // acyclic: CMUXAgentLaunch deps only CmuxFoundation/CmuxCore/CmuxPanes/
-        // bonsplit, none of which reach CmuxWorkspaces.
-        .package(path: "../CMUXAgentLaunch"),
     ],
     targets: [
         .target(
@@ -62,7 +53,6 @@ let package = Package(
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CmuxCore", package: "CmuxCore"),
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
-                .product(name: "CmuxShortcuts", package: "CmuxShortcuts"),
                 .product(name: "Bonsplit", package: "bonsplit"),
                 .product(name: "CmuxPanes", package: "CmuxPanes"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
@@ -70,7 +60,6 @@ let package = Package(
                 .product(name: "CmuxWindowing", package: "CmuxWindowing"),
                 .product(name: "CmuxTerminalCore", package: "CmuxTerminalCore"),
                 .product(name: "CmuxRemoteWorkspace", package: "CmuxRemoteWorkspace"),
-                .product(name: "CMUXAgentLaunch", package: "CMUXAgentLaunch"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

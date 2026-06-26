@@ -1,4 +1,3 @@
-import CmuxPanes
 import Foundation
 import CmuxSettings
 import CmuxWindowing

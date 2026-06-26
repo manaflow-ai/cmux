@@ -88,7 +88,7 @@ final class SessionPersistenceTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini"
         )
 
-        workspace.remoteConnectionCoordinator.configureRemoteConnection(configuration, autoConnect: false)
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
         workspace.surfaceListeningPorts[panelId] = [6969]
 
         let snapshot = workspace.sessionSnapshot(includeScrollback: false)
@@ -653,31 +653,27 @@ final class SessionPersistenceTests: XCTestCase {
 
     func testSessionScrollbackPersistenceHonorsReportedShellState() {
         XCTAssertTrue(
-            Workspace.makeSessionRestorePolicyService().shouldPersistSessionScrollback(
-                closeConfirmationRequired: PanelShellActivityState.promptIdle.closeConfirmationRequired(
-                    fallbackNeedsConfirmClose: true
-                )
+            Workspace.shouldPersistSessionScrollback(
+                shellActivityState: .promptIdle,
+                fallbackNeedsConfirmClose: true
             )
         )
         XCTAssertFalse(
-            Workspace.makeSessionRestorePolicyService().shouldPersistSessionScrollback(
-                closeConfirmationRequired: PanelShellActivityState.commandRunning.closeConfirmationRequired(
-                    fallbackNeedsConfirmClose: false
-                )
+            Workspace.shouldPersistSessionScrollback(
+                shellActivityState: .commandRunning,
+                fallbackNeedsConfirmClose: false
             )
         )
         XCTAssertFalse(
-            Workspace.makeSessionRestorePolicyService().shouldPersistSessionScrollback(
-                closeConfirmationRequired: PanelShellActivityState.unknown.closeConfirmationRequired(
-                    fallbackNeedsConfirmClose: true
-                )
+            Workspace.shouldPersistSessionScrollback(
+                shellActivityState: .unknown,
+                fallbackNeedsConfirmClose: true
             )
         )
         XCTAssertTrue(
-            Workspace.makeSessionRestorePolicyService().shouldPersistSessionScrollback(
-                closeConfirmationRequired: (PanelShellActivityState?.none ?? .unknown).closeConfirmationRequired(
-                    fallbackNeedsConfirmClose: false
-                )
+            Workspace.shouldPersistSessionScrollback(
+                shellActivityState: nil,
+                fallbackNeedsConfirmClose: false
             )
         )
     }
@@ -700,23 +696,23 @@ final class SessionPersistenceTests: XCTestCase {
 
     func testNormalizedExportedScreenPathAcceptsAbsoluteAndFileURL() {
         XCTAssertEqual(
-            TerminalSurface.normalizedExportedScreenPath("/tmp/cmux-screen.txt"),
+            TerminalController.normalizedExportedScreenPath("/tmp/cmux-screen.txt"),
             "/tmp/cmux-screen.txt"
         )
         XCTAssertEqual(
-            TerminalSurface.normalizedExportedScreenPath(" file:///tmp/cmux-screen.txt "),
+            TerminalController.normalizedExportedScreenPath(" file:///tmp/cmux-screen.txt "),
             "/tmp/cmux-screen.txt"
         )
     }
 
     func testNormalizedExportedScreenPathRejectsRelativeAndWhitespace() {
-        XCTAssertNil(TerminalSurface.normalizedExportedScreenPath("relative/path.txt"))
-        XCTAssertNil(TerminalSurface.normalizedExportedScreenPath("   "))
-        XCTAssertNil(TerminalSurface.normalizedExportedScreenPath(nil))
+        XCTAssertNil(TerminalController.normalizedExportedScreenPath("relative/path.txt"))
+        XCTAssertNil(TerminalController.normalizedExportedScreenPath("   "))
+        XCTAssertNil(TerminalController.normalizedExportedScreenPath(nil))
     }
 
     func testNormalizedMobileVTExportTextSplitsGhosttyCRLFRows() {
-        let normalized = TerminalSurface.normalizedMobileVTExportText("first\r\nsecond\r\nthird")
+        let normalized = TerminalController.normalizedMobileVTExportText("first\r\nsecond\r\nthird")
         let rows = normalized.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
 
         XCTAssertEqual(rows, ["first", "second", "third"])
@@ -731,13 +727,13 @@ final class SessionPersistenceTests: XCTestCase {
         let outsideFile = URL(fileURLWithPath: "/Users/example/screen.txt")
 
         XCTAssertTrue(
-            TerminalSurface.shouldRemoveExportedScreenDirectory(
+            TerminalController.shouldRemoveExportedScreenDirectory(
                 fileURL: tempFile,
                 temporaryDirectory: tempRoot
             )
         )
         XCTAssertFalse(
-            TerminalSurface.shouldRemoveExportedScreenDirectory(
+            TerminalController.shouldRemoveExportedScreenDirectory(
                 fileURL: outsideFile,
                 temporaryDirectory: tempRoot
             )
@@ -753,13 +749,13 @@ final class SessionPersistenceTests: XCTestCase {
         let outsideFile = URL(fileURLWithPath: "/Users/example/screen.txt")
 
         XCTAssertTrue(
-            TerminalSurface.shouldRemoveExportedScreenFile(
+            TerminalController.shouldRemoveExportedScreenFile(
                 fileURL: tempFile,
                 temporaryDirectory: tempRoot
             )
         )
         XCTAssertFalse(
-            TerminalSurface.shouldRemoveExportedScreenFile(
+            TerminalController.shouldRemoveExportedScreenFile(
                 fileURL: outsideFile,
                 temporaryDirectory: tempRoot
             )
@@ -1277,7 +1273,7 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     func testResolvedSnapshotTerminalScrollbackPrefersCaptured() {
-        let resolved = Workspace.makeSessionRestorePolicyService().resolvedSnapshotTerminalScrollback(
+        let resolved = Workspace.resolvedSnapshotTerminalScrollback(
             capturedScrollback: "captured-value",
             fallbackScrollback: "fallback-value"
         )
@@ -1286,7 +1282,7 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     func testResolvedSnapshotTerminalScrollbackFallsBackWhenCaptureMissing() {
-        let resolved = Workspace.makeSessionRestorePolicyService().resolvedSnapshotTerminalScrollback(
+        let resolved = Workspace.resolvedSnapshotTerminalScrollback(
             capturedScrollback: nil,
             fallbackScrollback: "fallback-value"
         )
@@ -1299,7 +1295,7 @@ final class SessionPersistenceTests: XCTestCase {
             repeating: "x",
             count: SessionPersistencePolicy.maxScrollbackCharactersPerTerminal + 37
         )
-        let resolved = Workspace.makeSessionRestorePolicyService().resolvedSnapshotTerminalScrollback(
+        let resolved = Workspace.resolvedSnapshotTerminalScrollback(
             capturedScrollback: nil,
             fallbackScrollback: oversizedFallback
         )
@@ -1311,7 +1307,7 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     func testResolvedSnapshotTerminalScrollbackSkipsFallbackWhenRestoreIsUnsafe() {
-        let resolved = Workspace.makeSessionRestorePolicyService().resolvedSnapshotTerminalScrollback(
+        let resolved = Workspace.resolvedSnapshotTerminalScrollback(
             capturedScrollback: nil,
             fallbackScrollback: "fallback-value",
             allowFallbackScrollback: false
@@ -1328,8 +1324,8 @@ final class SessionPersistenceTests: XCTestCase {
             launchCommand: nil
         )
 
-        XCTAssertFalse(Workspace.makeSessionRestorePolicyService().shouldReplaySessionScrollback(hasRestorableAgent: agent != nil))
-        XCTAssertTrue(Workspace.makeSessionRestorePolicyService().shouldReplaySessionScrollback(hasRestorableAgent: (nil as SessionRestorableAgentSnapshot?) != nil))
+        XCTAssertFalse(Workspace.shouldReplaySessionScrollback(restorableAgent: agent))
+        XCTAssertTrue(Workspace.shouldReplaySessionScrollback(restorableAgent: nil))
     }
 
     @MainActor
@@ -3358,42 +3354,42 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
     func testProcessDetectedOpenCodeRecognizesNodeWrapperAndNativeWorker() {
         XCTAssertTrue(
-            OpenCodeProcessResolver(fileManager: .default).processLooksLikeOpenCode(
+            RestorableAgentSessionIndex.processLooksLikeOpenCode(
                 processName: "node",
                 processPath: "/opt/homebrew/bin/node",
                 arguments: ["node", "/Users/lawrence/.bun/bin/opencode"]
             )
         )
         XCTAssertTrue(
-            OpenCodeProcessResolver(fileManager: .default).processLooksLikeOpenCode(
+            RestorableAgentSessionIndex.processLooksLikeOpenCode(
                 processName: ".opencode",
                 processPath: "/Users/lawrence/.bun/install/global/node_modules/opencode-ai/bin/.opencode",
                 arguments: ["/Users/lawrence/.bun/install/global/node_modules/opencode-ai/bin/.opencode"]
             )
         )
         XCTAssertTrue(
-            OpenCodeProcessResolver(fileManager: .default).processLooksLikeOpenCode(
+            RestorableAgentSessionIndex.processLooksLikeOpenCode(
                 processName: "open-code",
                 processPath: "/opt/homebrew/bin/open-code",
                 arguments: ["open-code"]
             )
         )
         XCTAssertTrue(
-            OpenCodeProcessResolver(fileManager: .default).processLooksLikeOpenCode(
+            RestorableAgentSessionIndex.processLooksLikeOpenCode(
                 processName: "node",
                 processPath: "/opt/homebrew/bin/node",
                 arguments: ["node", "/opt/homebrew/bin/open-code"]
             )
         )
         XCTAssertFalse(
-            OpenCodeProcessResolver(fileManager: .default).processLooksLikeOpenCode(
+            RestorableAgentSessionIndex.processLooksLikeOpenCode(
                 processName: "node",
                 processPath: "/opt/homebrew/bin/node",
                 arguments: ["node", "/tmp/not-opencode-ai-helper"]
             )
         )
         XCTAssertFalse(
-            OpenCodeProcessResolver(fileManager: .default).processLooksLikeOpenCode(
+            RestorableAgentSessionIndex.processLooksLikeOpenCode(
                 processName: "node",
                 processPath: "/opt/homebrew/bin/node",
                 arguments: [
@@ -3403,42 +3399,42 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            OpenCodeProcessResolver(fileManager: .default).processLooksLikeOpenCode(
+            RestorableAgentSessionIndex.processLooksLikeOpenCode(
                 processName: "node",
                 processPath: "/opt/homebrew/bin/node",
                 arguments: ["node", "/Users/lawrence/.bun/bin/codex"]
             )
         )
         XCTAssertFalse(
-            OpenCodeProcessResolver(fileManager: .default).processLooksLikeOpenCode(
+            RestorableAgentSessionIndex.processLooksLikeOpenCode(
                 processName: "tail",
                 processPath: "/usr/bin/tail",
                 arguments: ["tail", "-f", "/tmp/opencode"]
             )
         )
         XCTAssertFalse(
-            OpenCodeProcessResolver(fileManager: .default).processLooksLikeOpenCode(
+            RestorableAgentSessionIndex.processLooksLikeOpenCode(
                 processName: "node",
                 processPath: "/opt/homebrew/bin/node",
                 arguments: ["node", "/tmp/script.js", "/Users/lawrence/.bun/bin/opencode"]
             )
         )
         XCTAssertTrue(
-            OpenCodeProcessResolver(fileManager: .default).processLooksLikeOpenCode(
+            RestorableAgentSessionIndex.processLooksLikeOpenCode(
                 processName: "node",
                 processPath: "/opt/homebrew/bin/node",
                 arguments: ["node", "--require", "/tmp/hook.js", "/Users/lawrence/.bun/bin/opencode"]
             )
         )
         XCTAssertEqual(
-            OpenCodeProcessResolver(fileManager: .default).openCodeExecutablePath(
+            RestorableAgentSessionIndex.openCodeExecutablePathForProcess(
                 arguments: ["node", "/Users/lawrence/.bun/bin/opencode"],
                 environment: [:]
             ),
             "/Users/lawrence/.bun/bin/opencode"
         )
         XCTAssertNil(
-            OpenCodeProcessResolver(fileManager: .default).openCodeLaunchArguments(
+            RestorableAgentSessionIndex.openCodeLaunchArgumentsForProcess(
                 arguments: ["opencode", "run", "--session", "unsupported-session"],
                 environment: [:]
             )
@@ -3458,14 +3454,14 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
 
         XCTAssertEqual(
-            OpenCodeProcessResolver(fileManager: .default).openCodeExecutablePath(
+            RestorableAgentSessionIndex.openCodeExecutablePathForProcess(
                 arguments: ["opencode"],
                 environment: ["PATH": "\(bin.path):/usr/bin"]
             ),
             executable.path
         )
         XCTAssertEqual(
-            OpenCodeProcessResolver(fileManager: .default).openCodeExecutablePath(
+            RestorableAgentSessionIndex.openCodeExecutablePathForProcess(
                 arguments: [".opencode"],
                 environment: ["PATH": "\(bin.path):/usr/bin"]
             ),
@@ -3475,7 +3471,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
     func testProcessDetectedOpenCodeWorkingDirectoryUsesProjectPositional() {
         XCTAssertEqual(
-            OpenCodeProcessResolver(fileManager: .default).openCodeWorkingDirectory(
+            RestorableAgentSessionIndex.openCodeWorkingDirectoryForProcess(
                 arguments: [
                     "opencode",
                     "--model",
@@ -3487,7 +3483,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             "/tmp/opencode-project"
         )
         XCTAssertEqual(
-            OpenCodeProcessResolver(fileManager: .default).openCodeWorkingDirectory(
+            RestorableAgentSessionIndex.openCodeWorkingDirectoryForProcess(
                 arguments: [
                     "node",
                     "/Users/example/.bun/bin/opencode",
@@ -3498,7 +3494,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             "/tmp/shell-cwd/opencode-project"
         )
         XCTAssertEqual(
-            OpenCodeProcessResolver(fileManager: .default).openCodeWorkingDirectory(
+            RestorableAgentSessionIndex.openCodeWorkingDirectoryForProcess(
                 arguments: ["opencode", "--session", "known-session"],
                 environment: ["CMUX_AGENT_LAUNCH_CWD": "/tmp/hook-cwd", "PWD": "/tmp/shell-cwd"]
             ),
@@ -3518,7 +3514,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertTrue(fileManager.createFile(atPath: executable.path, contents: Data()))
         try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
 
-        let arguments = try XCTUnwrap(OpenCodeProcessResolver(fileManager: .default).openCodeLaunchArguments(
+        let arguments = try XCTUnwrap(RestorableAgentSessionIndex.openCodeLaunchArgumentsForProcess(
             arguments: [
                 "node",
                 "opencode",
@@ -3573,7 +3569,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
     func testProcessDetectedOpenCodeSessionFallbackAvoidsAmbiguousSameDirectoryPanels() {
         XCTAssertEqual(
-            OpenCodeProcessResolver(fileManager: .default).openCodeFallbackSessionId(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
                 arguments: ["opencode", "--session", "ses-explicit"],
                 latestSessionIdForSolePanel: "ses-latest",
                 sameWorkingDirectoryPanelCount: 2
@@ -3581,7 +3577,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             "ses-explicit"
         )
         XCTAssertEqual(
-            OpenCodeProcessResolver(fileManager: .default).openCodeFallbackSessionId(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
                 arguments: ["opencode", "--session", "ses-parent", "--fork"],
                 latestSessionIdForSolePanel: "ses-child",
                 sameWorkingDirectoryPanelCount: 1
@@ -3589,7 +3585,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             "ses-child"
         )
         XCTAssertEqual(
-            OpenCodeProcessResolver(fileManager: .default).openCodeFallbackSessionId(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
                 arguments: ["opencode", "--fork=ses-parent"],
                 latestSessionIdForSolePanel: "ses-child",
                 sameWorkingDirectoryPanelCount: 1
@@ -3597,14 +3593,14 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             "ses-child"
         )
         XCTAssertNil(
-            OpenCodeProcessResolver(fileManager: .default).openCodeFallbackSessionId(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
                 arguments: ["opencode", "--fork=ses-parent"],
                 latestSessionIdForSolePanel: "ses-parent",
                 sameWorkingDirectoryPanelCount: 1
             )
         )
         XCTAssertEqual(
-            OpenCodeProcessResolver(fileManager: .default).openCodeFallbackSessionId(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
                 arguments: ["opencode", "--session", "ses-child", "--fork=ses-parent"],
                 latestSessionIdForSolePanel: "ses-parent",
                 sameWorkingDirectoryPanelCount: 1
@@ -3612,7 +3608,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             "ses-child"
         )
         XCTAssertEqual(
-            OpenCodeProcessResolver(fileManager: .default).openCodeFallbackSessionId(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
                 arguments: ["opencode", "--session", "ses-child", "--fork=ses-parent"],
                 latestSessionIdForSolePanel: nil,
                 sameWorkingDirectoryPanelCount: 2
@@ -3620,42 +3616,42 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             "ses-child"
         )
         XCTAssertNil(
-            OpenCodeProcessResolver(fileManager: .default).openCodeFallbackSessionId(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
                 arguments: ["opencode", "--session", "ses-parent", "--fork"],
                 latestSessionIdForSolePanel: nil,
                 sameWorkingDirectoryPanelCount: 1
             )
         )
         XCTAssertNil(
-            OpenCodeProcessResolver(fileManager: .default).openCodeFallbackSessionId(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
                 arguments: ["opencode", "--session", "ses-parent", "--fork"],
                 latestSessionIdForSolePanel: "ses-parent",
                 sameWorkingDirectoryPanelCount: 1
             )
         )
         XCTAssertNil(
-            OpenCodeProcessResolver(fileManager: .default).openCodeFallbackSessionId(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
                 arguments: ["opencode"],
                 latestSessionIdForSolePanel: "ses-latest",
                 sameWorkingDirectoryPanelCount: 1
             )
         )
         XCTAssertNil(
-            OpenCodeProcessResolver(fileManager: .default).openCodeFallbackSessionId(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
                 arguments: ["opencode", "--fork"],
                 latestSessionIdForSolePanel: "ses-latest",
                 sameWorkingDirectoryPanelCount: 1
             )
         )
         XCTAssertNil(
-            OpenCodeProcessResolver(fileManager: .default).openCodeFallbackSessionId(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
                 arguments: ["opencode"],
                 latestSessionIdForSolePanel: "ses-latest",
                 sameWorkingDirectoryPanelCount: 2
             )
         )
         XCTAssertNil(
-            OpenCodeProcessResolver(fileManager: .default).openCodeFallbackSessionId(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
                 arguments: ["opencode"],
                 latestSessionIdForSolePanel: nil,
                 sameWorkingDirectoryPanelCount: 1
@@ -4255,8 +4251,10 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(
             binding.command,
-            TerminalChangeDirectoryPrefix(workingDirectory: "/tmp/project")
-                .prefixing("codex resume session")
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "codex resume session",
+                workingDirectory: "/tmp/project"
+            )
         )
 
         let decoded = try JSONDecoder().decode(
@@ -4275,8 +4273,10 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(
             decoded.command,
-            TerminalChangeDirectoryPrefix(workingDirectory: "/tmp/project")
-                .prefixing("codex resume session")
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "codex resume session",
+                workingDirectory: "/tmp/project"
+            )
         )
     }
 
@@ -4290,8 +4290,10 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(
             binding.command,
-            TerminalChangeDirectoryPrefix(workingDirectory: "/tmp/project")
-                .prefixing("codex resume session --append-system-prompt 'use C:\\tmp' --model gpt-5.4")
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "codex resume session --append-system-prompt 'use C:\\tmp' --model gpt-5.4",
+                workingDirectory: "/tmp/project"
+            )
         )
     }
 
@@ -4305,8 +4307,10 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(
             binding.command,
-            TerminalChangeDirectoryPrefix(workingDirectory: "/tmp/project")
-                .prefixing("codex resume session && echo done")
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "codex resume session && echo done",
+                workingDirectory: "/tmp/project"
+            )
         )
         XCTAssertFalse(binding.command.contains("'&&'"), binding.command)
     }
@@ -4323,8 +4327,10 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(
             binding.command,
-            TerminalChangeDirectoryPrefix(workingDirectory: cwd)
-                .prefixing("codex resume session")
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "codex resume session",
+                workingDirectory: cwd
+            )
         )
         XCTAssertFalse(binding.command.contains(legacyQuotedCwd), binding.command)
     }
@@ -5230,7 +5236,7 @@ extension SessionPersistenceTests {
             signingSecret: secret
         ))
 
-        let input = Workspace.makeSessionRestorePolicyService().surfaceResumeStartupInput(
+        let input = Workspace.surfaceResumeStartupInput(
             binding,
             autoResumeAgentSessions: true,
             approvalStoreURL: storeURL,
@@ -5255,7 +5261,7 @@ extension SessionPersistenceTests {
             signingSecret: secret
         ))
 
-        let input = Workspace.makeSessionRestorePolicyService().surfaceResumeStartupInput(
+        let input = Workspace.surfaceResumeStartupInput(
             binding,
             autoResumeAgentSessions: true,
             promptForApproval: false,
@@ -5322,11 +5328,10 @@ extension SessionPersistenceTests {
             autoResume: true
         )
 
-        let input = try XCTUnwrap(Workspace.makeSessionRestorePolicyService().surfaceResumeStartupInput(
+        let input = try XCTUnwrap(Workspace.surfaceResumeStartupInput(
             binding,
             autoResumeAgentSessions: true,
-            promptForApproval: false,
-            approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
+            promptForApproval: false
         ))
 
         XCTAssertTrue(input.contains("config set model.provider"))
@@ -5350,11 +5355,10 @@ extension SessionPersistenceTests {
             autoResume: true
         )
 
-        let input = try XCTUnwrap(Workspace.makeSessionRestorePolicyService().surfaceResumeStartupInput(
+        let input = try XCTUnwrap(Workspace.surfaceResumeStartupInput(
             binding,
             autoResumeAgentSessions: true,
-            promptForApproval: false,
-            approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
+            promptForApproval: false
         ))
 
         XCTAssertTrue(input.contains("'/opt/homebrew/bin/hermes' config set model.provider"))
@@ -5373,11 +5377,10 @@ extension SessionPersistenceTests {
             autoResume: true
         )
 
-        let input = try XCTUnwrap(Workspace.makeSessionRestorePolicyService().surfaceResumeStartupInput(
+        let input = try XCTUnwrap(Workspace.surfaceResumeStartupInput(
             binding,
             autoResumeAgentSessions: true,
-            promptForApproval: false,
-            approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
+            promptForApproval: false
         ))
 
         let cdRange = try XCTUnwrap(input.range(of: "cd --"))
@@ -5399,11 +5402,10 @@ extension SessionPersistenceTests {
             autoResume: true
         )
 
-        let input = try XCTUnwrap(Workspace.makeSessionRestorePolicyService().surfaceResumeStartupInput(
+        let input = try XCTUnwrap(Workspace.surfaceResumeStartupInput(
             binding,
             autoResumeAgentSessions: true,
-            promptForApproval: false,
-            approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
+            promptForApproval: false
         ))
 
         XCTAssertEqual(input.components(separatedBy: "config set model.provider").count - 1, 1)
@@ -5423,11 +5425,10 @@ extension SessionPersistenceTests {
             autoResume: true
         )
 
-        let input = try XCTUnwrap(Workspace.makeSessionRestorePolicyService().surfaceResumeStartupInput(
+        let input = try XCTUnwrap(Workspace.surfaceResumeStartupInput(
             binding,
             autoResumeAgentSessions: true,
-            promptForApproval: false,
-            approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
+            promptForApproval: false
         ))
 
         XCTAssertTrue(input.contains("config set model.provider"))
@@ -5445,11 +5446,10 @@ extension SessionPersistenceTests {
             autoResume: true
         )
 
-        let input = try XCTUnwrap(Workspace.makeSessionRestorePolicyService().surfaceResumeStartupInput(
+        let input = try XCTUnwrap(Workspace.surfaceResumeStartupInput(
             binding,
             autoResumeAgentSessions: true,
-            promptForApproval: false,
-            approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
+            promptForApproval: false
         ))
 
         XCTAssertFalse(input.contains("config set model.provider"))

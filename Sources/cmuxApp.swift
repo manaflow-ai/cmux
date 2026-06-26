@@ -1,7 +1,5 @@
 import AppKit
 import CmuxAppKitSupportUI
-import CmuxBrowser
-import CmuxCommandPalette
 import CmuxFoundation
 import CmuxPanes
 import CmuxSidebarInterpreterClient

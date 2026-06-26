@@ -93,16 +93,16 @@ struct MobileHostAuthorizationTests {
 
     #if DEBUG
     @Test func testDebugStackAuthTokenPolicyRequiresConfiguredToken() {
-        #expect(MobileHostAccountAuthorizer().normalizedDevToken("   ") == nil)
-        #expect(!MobileHostAccountAuthorizer().authorizeDevStackToken(
+        #expect(MobileHostDevStackAuthPolicy.normalizedToken("   ") == nil)
+        #expect(!MobileHostDevStackAuthPolicy.authorize(
             providedToken: "cmux-dev-token",
             acceptedToken: nil
         ))
-        #expect(!MobileHostAccountAuthorizer().authorizeDevStackToken(
+        #expect(!MobileHostDevStackAuthPolicy.authorize(
             providedToken: "cmux-dev-token",
             acceptedToken: "other-token"
         ))
-        #expect(MobileHostAccountAuthorizer().authorizeDevStackToken(
+        #expect(MobileHostDevStackAuthPolicy.authorize(
             providedToken: " cmux-dev-token ",
             acceptedToken: "cmux-dev-token"
         ))
@@ -672,7 +672,7 @@ struct MobileHostAuthorizationTests {
     }
     @Test func testStackUserIDAuthorizationRequiresSignedInMacUser() throws {
         #expect(throws: (any Error).self) {
-            try MobileHostAccountAuthorizer().authorizeStackUserID(
+            try MobileHostAuthorizationPolicy.authorizeStackUserID(
                 localUserID: nil,
                 remoteUserID: "user_123"
             )
@@ -680,13 +680,13 @@ struct MobileHostAuthorizationTests {
     }
     @Test func testStackUserIDAuthorizationRequiresMatchingUserID() throws {
         #expect(throws: (any Error).self) {
-            try MobileHostAccountAuthorizer().authorizeStackUserID(
+            try MobileHostAuthorizationPolicy.authorizeStackUserID(
                 localUserID: "user_local",
                 remoteUserID: "user_remote"
             )
         }
 
-        try MobileHostAccountAuthorizer().authorizeStackUserID(
+        try MobileHostAuthorizationPolicy.authorizeStackUserID(
             localUserID: " user_123 ",
             remoteUserID: "user_123"
         )
@@ -705,17 +705,16 @@ struct MobileHostAuthorizationTests {
         #expect(service.debugTrackedClientIDsForTesting(connectionID: connectionID) == nil)
     }
     @Test func testIdleMobileConnectionDoesNotKeepRequestActivityBusy() {
-        let requestActivity = MobileHostService.shared.requestActivity
-        requestActivity.resetForTesting()
-        requestActivity.beginConnection()
+        MobileHostRequestActivity.resetForTesting()
+        MobileHostRequestActivity.beginConnection()
         defer {
-            requestActivity.endConnection()
-            requestActivity.resetForTesting()
+            MobileHostRequestActivity.endConnection()
+            MobileHostRequestActivity.resetForTesting()
         }
 
-        #expect(!requestActivity.hasActiveRequest)
-        #expect(!requestActivity.hasRecentActivity(within: 60))
-        #expect(requestActivity.quietDelay(for: 60) == 0)
+        #expect(!MobileHostRequestActivity.hasActiveRequest)
+        #expect(!MobileHostRequestActivity.hasRecentActivity(within: 60))
+        #expect(MobileHostRequestActivity.quietDelay(for: 60) == 0)
     }
     @Test func testMobileHostConnectionCloseClearsOnlyClosedClientViewportReports() {
         let service = MobileHostService.shared
@@ -812,8 +811,7 @@ struct MobileHostAuthorizationTests {
             handleRequest: { _ in .ok([:]) },
             onClose: { id in
                 await recorder.record(id)
-            },
-            eventSubscriptionRegistry: MobileHostService.shared.eventSubscriptionRegistry
+            }
         )
 
         await session.debugStartFirstFrameTimeoutForTesting()
@@ -846,8 +844,7 @@ struct MobileHostAuthorizationTests {
             handleRequest: { _ in .ok([:]) },
             onClose: { id in
                 await recorder.record(id)
-            },
-            eventSubscriptionRegistry: MobileHostService.shared.eventSubscriptionRegistry
+            }
         )
 
         await session.debugStartIdleTimeoutAfterFrameForTesting()
@@ -880,8 +877,7 @@ struct MobileHostAuthorizationTests {
             handleRequest: { _ in .ok([:]) },
             onClose: { id in
                 await recorder.record(id)
-            },
-            eventSubscriptionRegistry: MobileHostService.shared.eventSubscriptionRegistry
+            }
         )
 
         await session.subscribe(streamID: "events", topics: ["terminal.updated"])
@@ -933,8 +929,7 @@ struct MobileHostAuthorizationTests {
             authorizeRequest: { _ in nil },
             onAuthorizedRequest: { _ in },
             handleRequest: { _ in .ok([:]) },
-            onClose: { _ in },
-            eventSubscriptionRegistry: MobileHostService.shared.eventSubscriptionRegistry
+            onClose: { _ in }
         )
 
         await session.subscribe(streamID: "events", topics: ["terminal.updated"])
@@ -992,8 +987,7 @@ struct MobileHostAuthorizationTests {
             handleRequest: { _ in .ok([:]) },
             onClose: { id in
                 await recorder.record(id)
-            },
-            eventSubscriptionRegistry: MobileHostService.shared.eventSubscriptionRegistry
+            }
         )
         let frame = try MobileSyncFrameCodec.encodeFrame(
             Data(#"{"id":"subscribe","method":"mobile.events.subscribe","params":{"stream_id":"events","topics":["terminal.updated"]}}"#.utf8)
@@ -1048,8 +1042,7 @@ struct MobileHostAuthorizationTests {
                 firstRecorded.fulfill()
             },
             handleRequest: { _ in .ok([:]) },
-            onClose: { _ in },
-            eventSubscriptionRegistry: MobileHostService.shared.eventSubscriptionRegistry
+            onClose: { _ in }
         )
         await sessionBox.set(session)
 
@@ -1082,7 +1075,7 @@ struct MobileHostAuthorizationTests {
 
     // MARK: - Advertised mobile host capabilities
     @Test func testMobileHostAdvertisesWorkspaceActionCapabilities() {
-        let capabilities = MobileHostStatusPayloadProjector.capabilities
+        let capabilities = MobileHostService.mobileHostCapabilities
         #expect(capabilities.contains("workspace.actions.v1"))
         #expect(capabilities.contains("workspace.read_state.v1"))
         #expect(capabilities.contains("workspace.close.v1"))

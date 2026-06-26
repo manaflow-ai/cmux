@@ -15,8 +15,6 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CmuxSidebar"),
-        // WorkspaceIndicatorStyle is carried in TabItemSettingsSnapshot.
-        .package(path: "../CmuxSettings"),
         .package(path: "../CmuxFoundation"),
         // ExtensionSidebarBrowserStackDropRow/Planner + CmuxSidebarProviderWorkspaceMove
         // back the extension browser-stack drop delegates.
@@ -25,21 +23,16 @@ let package = Package(
         .package(path: "../CmuxAppKitSupportUI"),
         // DEBUG-only drag-trace logging for the external-drop delegate.
         .package(path: "../CMUXDebugLog"),
-        // UpdatePill / UpdateStateModel / UpdateActionsHost back the sidebar
-        // footer's update pill (CmuxUpdaterUI only deps CmuxUpdater; acyclic).
-        .package(path: "../CmuxUpdaterUI"),
     ],
     targets: [
         .target(
             name: "CmuxSidebarUI",
             dependencies: [
                 .product(name: "CmuxSidebar", package: "CmuxSidebar"),
-                .product(name: "CmuxSettings", package: "CmuxSettings"),
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CmuxSidebarProviderKit", package: "CmuxSidebarProviderKit"),
                 .product(name: "CmuxAppKitSupportUI", package: "CmuxAppKitSupportUI"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
-                .product(name: "CmuxUpdaterUI", package: "CmuxUpdaterUI"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

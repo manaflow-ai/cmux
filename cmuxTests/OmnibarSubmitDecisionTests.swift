@@ -1,5 +1,4 @@
 import AppKit
-import CmuxBrowser
 import Testing
 
 #if canImport(cmux_DEV)

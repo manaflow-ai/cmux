@@ -342,6 +342,6 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         let snapshot = workspace.sessionSnapshot(includeScrollback: false)
         let panelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == panel.id })
         XCTAssertNil(panelSnapshot.terminal?.tmuxStartCommand)
-        XCTAssertNil(Workspace.makeSessionRestorePolicyService().restorableTmuxStartCommand(genericCommand))
+        XCTAssertNil(Workspace.restorableTmuxStartCommand(genericCommand))
     }
 }

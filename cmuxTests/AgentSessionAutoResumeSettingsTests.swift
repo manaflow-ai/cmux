@@ -210,7 +210,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             let source = Workspace()
             let remoteCommand = "ssh cmux-macmini"
             let expectedRestoredRemoteCommand = "ssh -tt cmux-macmini"
-            source.remoteConnectionCoordinator.configureRemoteConnection(
+            source.configureRemoteConnection(
                 WorkspaceRemoteConfiguration(
                     destination: "cmux-macmini",
                     port: nil,
@@ -239,7 +239,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
             let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
             let restoredInput = restoredPanel.surface.debugInitialInputMetadata()
-            let restoredRemoteCommand = try XCTUnwrap(restored.remoteConnectionCoordinator.state.remoteConfiguration?.terminalStartupCommand)
+            let restoredRemoteCommand = try XCTUnwrap(restored.remoteConfiguration?.terminalStartupCommand)
 
             XCTAssertEqual(restoredRemoteCommand, expectedRestoredRemoteCommand)
             XCTAssertEqual(restoredPanel.surface.debugInitialCommand(), expectedRestoredRemoteCommand)
@@ -265,7 +265,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
 
             let source = Workspace()
             let remoteCommand = "ssh cmux-macmini"
-            source.remoteConnectionCoordinator.configureRemoteConnection(
+            source.configureRemoteConnection(
                 WorkspaceRemoteConfiguration(
                     destination: "cmux-macmini",
                     port: nil,
@@ -297,7 +297,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
             let restoredInput = try XCTUnwrap(restoredPanel.surface.initialInput)
 
-            XCTAssertEqual(restoredPanel.surface.debugInitialCommand(), restored.remoteConnectionCoordinator.state.remoteConfiguration?.terminalStartupCommand)
+            XCTAssertEqual(restoredPanel.surface.debugInitialCommand(), restored.remoteConfiguration?.terminalStartupCommand)
             XCTAssertGreaterThan(restoredInput.utf8.count, SessionRestorableAgentSnapshot.maxInlineStartupInputBytes)
             XCTAssertTrue(restoredInput.contains("'resume'"), restoredInput)
             XCTAssertTrue(restoredInput.contains("codex-remote-long-running-session"), restoredInput)

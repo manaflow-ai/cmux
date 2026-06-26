@@ -1,10 +1,6 @@
 import XCTest
-import CMUXAgentLaunch
-import CmuxBrowser
-import CmuxBrowserUI
 import CmuxCommandPaletteUI
 import CmuxTerminal
-import CmuxWindowing
 import AppKit
 import Carbon.HIToolbox
 import Combine
@@ -4009,10 +4005,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         field.panelId = browserPanelId
         field.stringValue = "example"
         attachTestResponder(field, to: window)
-        let registry = BrowserOmnibarNativeFieldRegistry()
-        registry.register(field, panelId: browserPanelId)
+        BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: browserPanelId)
         defer {
-            registry.unregister(field, panelId: browserPanelId)
+            BrowserOmnibarNativeFieldRegistry.shared.unregister(field, panelId: browserPanelId)
             field.removeFromSuperview()
         }
 
@@ -4080,11 +4075,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         field.panelId = browserPanelId
         field.stringValue = "ㄉㄚˋ"
         attachTestResponder(field, to: window)
-        let registry = BrowserOmnibarNativeFieldRegistry()
-        registry.register(field, panelId: browserPanelId)
+        BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: browserPanelId)
 
         defer {
-            registry.unregister(field, panelId: browserPanelId)
+            BrowserOmnibarNativeFieldRegistry.shared.unregister(field, panelId: browserPanelId)
             field.removeFromSuperview()
         }
 
@@ -4159,11 +4153,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         field.panelId = browserPanelId
         field.stringValue = "example"
         attachTestResponder(field, to: window)
-        let registry = BrowserOmnibarNativeFieldRegistry()
-        registry.register(field, panelId: browserPanelId)
+        BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: browserPanelId)
         defer {
             NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: browserPanelId)
-            registry.unregister(field, panelId: browserPanelId)
+            BrowserOmnibarNativeFieldRegistry.shared.unregister(field, panelId: browserPanelId)
             field.removeFromSuperview()
         }
 
@@ -9328,24 +9321,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         pasteboard.clearContents()
         XCTAssertTrue(pasteboard.writeObjects([fileURL as NSURL]))
-        let token = TextBoxPasteboardRestorationToken.token(
+        let token = TextBoxPasteboardRestorationGuard.token(
             afterWritingTemporaryFileURL: fileURL,
             to: pasteboard
         )
-        XCTAssertTrue(TextBoxPasteboardRestorationToken.shouldRestore(
-            pasteboard: pasteboard,
-            token: token,
-            fileURLReader: PasteboardServiceFileURLReader()
-        ))
+        XCTAssertTrue(TextBoxPasteboardRestorationGuard.shouldRestore(pasteboard: pasteboard, token: token))
 
         pasteboard.clearContents()
         pasteboard.setString("new user clipboard", forType: .string)
 
-        XCTAssertFalse(TextBoxPasteboardRestorationToken.shouldRestore(
-            pasteboard: pasteboard,
-            token: token,
-            fileURLReader: PasteboardServiceFileURLReader()
-        ))
+        XCTAssertFalse(TextBoxPasteboardRestorationGuard.shouldRestore(pasteboard: pasteboard, token: token))
     }
 
     func testTextBoxPasteboardRestorationAllowsSameTemporaryFileAfterChangeCountAdvance() throws {
@@ -9358,7 +9343,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         pasteboard.clearContents()
         XCTAssertTrue(pasteboard.writeObjects([fileURL as NSURL]))
-        let token = TextBoxPasteboardRestorationToken.token(
+        let token = TextBoxPasteboardRestorationGuard.token(
             afterWritingTemporaryFileURL: fileURL,
             to: pasteboard
         )
@@ -9368,10 +9353,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
 
         XCTAssertTrue(
-            TextBoxPasteboardRestorationToken.shouldRestore(
+            TextBoxPasteboardRestorationGuard.shouldRestore(
                 pasteboard: pasteboard,
-                token: staleChangeCountToken,
-                fileURLReader: PasteboardServiceFileURLReader()
+                token: staleChangeCountToken
             )
         )
     }
@@ -9387,40 +9371,37 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         pasteboard.clearContents()
         XCTAssertTrue(pasteboard.writeObjects([firstURL as NSURL]))
-        let firstToken = TextBoxPasteboardRestorationToken.token(
+        let firstToken = TextBoxPasteboardRestorationGuard.token(
             afterWritingTemporaryFileURL: firstURL,
             to: pasteboard
         )
         XCTAssertTrue(
-            TextBoxPasteboardRestorationToken.isCurrentTemporaryWrite(
+            TextBoxPasteboardRestorationGuard.isCurrentTemporaryWrite(
                 pasteboard: pasteboard,
-                token: firstToken,
-                fileURLReader: PasteboardServiceFileURLReader()
+                token: firstToken
             )
         )
 
         pasteboard.clearContents()
         pasteboard.setString("new user clipboard", forType: .string)
         XCTAssertFalse(
-            TextBoxPasteboardRestorationToken.isCurrentTemporaryWrite(
+            TextBoxPasteboardRestorationGuard.isCurrentTemporaryWrite(
                 pasteboard: pasteboard,
-                token: firstToken,
-                fileURLReader: PasteboardServiceFileURLReader()
+                token: firstToken
             )
         )
         let userClipboardSnapshot = snapshotPasteboardItems(pasteboard)
 
         pasteboard.clearContents()
         XCTAssertTrue(pasteboard.writeObjects([secondURL as NSURL]))
-        let secondToken = TextBoxPasteboardRestorationToken.token(
+        let secondToken = TextBoxPasteboardRestorationGuard.token(
             afterWritingTemporaryFileURL: secondURL,
             to: pasteboard
         )
         XCTAssertTrue(
-            TextBoxPasteboardRestorationToken.isCurrentTemporaryWrite(
+            TextBoxPasteboardRestorationGuard.isCurrentTemporaryWrite(
                 pasteboard: pasteboard,
-                token: secondToken,
-                fileURLReader: PasteboardServiceFileURLReader()
+                token: secondToken
             )
         )
 
@@ -9674,17 +9655,17 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testTextBoxPlainArrowsDeferDuringIMEComposition() {
-        XCTAssertFalse(TextBoxInputTextView.shouldHandleTextBoxPlainArrowLocally(
+        XCTAssertFalse(shouldHandleTextBoxPlainArrowLocally(
             keyCode: UInt16(kVK_LeftArrow),
             firstResponderHasMarkedText: true,
             flags: []
         ))
-        XCTAssertTrue(TextBoxInputTextView.shouldHandleTextBoxPlainArrowLocally(
+        XCTAssertTrue(shouldHandleTextBoxPlainArrowLocally(
             keyCode: UInt16(kVK_LeftArrow),
             firstResponderHasMarkedText: false,
             flags: []
         ))
-        XCTAssertFalse(TextBoxInputTextView.shouldHandleTextBoxPlainArrowLocally(
+        XCTAssertFalse(shouldHandleTextBoxPlainArrowLocally(
             keyCode: UInt16(kVK_LeftArrow),
             firstResponderHasMarkedText: false,
             flags: [.command]

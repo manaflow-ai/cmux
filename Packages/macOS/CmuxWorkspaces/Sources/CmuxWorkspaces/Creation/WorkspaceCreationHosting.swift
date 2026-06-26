@@ -121,8 +121,8 @@ public protocol WorkspaceCreationHosting<Tab>: AnyObject {
         chromeInheritanceSource: Tab?
     ) -> Tab
 
-    /// The next CMUX_PORT ordinal, advancing the process-wide counter held by
-    /// the host's injected ``PortOrdinalAllocator``.
+    /// The next CMUX_PORT ordinal, incrementing the process-wide counter (legacy
+    /// `let ordinal = Self.nextPortOrdinal; Self.nextPortOrdinal += 1`).
     func nextPortOrdinal() -> Int
 
     // MARK: Post-insertion effects (over the new `Tab`)

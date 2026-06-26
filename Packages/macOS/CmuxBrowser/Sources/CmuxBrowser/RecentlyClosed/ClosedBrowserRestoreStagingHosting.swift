@@ -18,7 +18,7 @@ public import Bonsplit
 /// `panelIdFromSurfaceId`/`browserPanel(for:)` resolution, the
 /// `bonsplitController.tabs(inPane:).firstIndex(...)` index lookup, the resolved
 /// page url (`currentURL ?? preferredURLStringForOmnibar()`), the
-/// `CmuxDiffViewerURLSchemeHandler.isTemporaryHistoryURL(_:)` rejection gate, the workspace identity, the
+/// `browserIsTemporaryHistoryURL` rejection gate, the workspace identity, the
 /// browser profile id, and the `browserCloseFallbackPlan` fields computed off
 /// the Bonsplit tree snapshot.
 ///
@@ -59,7 +59,7 @@ public protocol ClosedBrowserRestoreStagingHosting: AnyObject {
     func stagingProfileID(panelId: UUID) -> UUID?
 
     /// Whether `url` is a transient history/diff-viewer url that must never be
-    /// staged for restore (`CmuxDiffViewerURLSchemeHandler.isTemporaryHistoryURL(_:)`).
+    /// staged for restore (legacy `browserIsTemporaryHistoryURL(_:)`).
     func stagingIsTemporaryHistoryURL(_ url: URL?) -> Bool
 
     /// The browser-close fallback placement for `pane`, computed off the Bonsplit

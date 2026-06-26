@@ -1,7 +1,6 @@
 import XCTest
 import AppKit
 import PDFKit
-import CmuxPanes
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -71,13 +70,13 @@ final class FilePreviewPDFThumbnailSidebarTests: XCTestCase {
 
         let scrollView = try XCTUnwrap(findScrollView(in: pdfView))
         let resolvedPage = try XCTUnwrap(
-            pdfView.filePreviewTopVisiblePage(scrollView: scrollView)
+            FilePreviewPDFVisiblePageResolver.topVisiblePage(in: pdfView, scrollView: scrollView)
         )
         XCTAssertEqual(document.index(for: resolvedPage), targetPageIndex)
     }
 
     func testVisiblePageResolverSelectsLastPageAtDocumentBottom() {
-        let pageIndex = PDFView.filePreviewVerticalDocumentEdgePageIndex(
+        let pageIndex = FilePreviewPDFVisiblePageResolver.verticalDocumentEdgePageIndex(
             pageCount: 8,
             clipBounds: CGRect(x: 0, y: 1500, width: 500, height: 500),
             documentBounds: CGRect(x: 0, y: 0, width: 500, height: 2000),
@@ -88,7 +87,7 @@ final class FilePreviewPDFThumbnailSidebarTests: XCTestCase {
     }
 
     func testVisiblePageResolverSelectsLastPageAtNonFlippedDocumentBottom() {
-        let pageIndex = PDFView.filePreviewVerticalDocumentEdgePageIndex(
+        let pageIndex = FilePreviewPDFVisiblePageResolver.verticalDocumentEdgePageIndex(
             pageCount: 8,
             clipBounds: CGRect(x: 0, y: 0, width: 500, height: 500),
             documentBounds: CGRect(x: 0, y: 0, width: 500, height: 2000),

@@ -27,19 +27,4 @@ public enum WorkstreamKind: String, Codable, Sendable, CaseIterable, Equatable {
             return false
         }
     }
-
-    /// The SF Symbol name used to represent this kind in Feed UI.
-    public var symbolName: String {
-        switch self {
-        case .permissionRequest: return "lock.shield"
-        case .exitPlan: return "list.bullet.rectangle"
-        case .question: return "questionmark.circle"
-        case .toolUse, .toolResult: return "terminal"
-        case .userPrompt: return "person"
-        case .assistantMessage: return "sparkles"
-        case .sessionStart, .sessionEnd: return "play.circle"
-        case .stop: return "stop.circle"
-        case .todos: return "checklist"
-        }
-    }
 }

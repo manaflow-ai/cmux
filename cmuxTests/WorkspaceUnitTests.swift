@@ -4011,11 +4011,11 @@ final class WorkspaceReorderTests: XCTestCase {
         _ = manager.addWorkspace()
         var observedMovedIds: [UUID] = []
         let token = NotificationCenter.default.addObserver(
-            forName: WorkspaceOrderDidChangeEvent.notificationName,
+            forName: .workspaceOrderDidChange,
             object: manager,
             queue: nil
         ) { notification in
-            observedMovedIds = WorkspaceOrderDidChangeEvent(notification)?.movedWorkspaceIds ?? []
+            observedMovedIds = notification.userInfo?[WorkspaceOrderChangeNotificationKey.movedWorkspaceIds] as? [UUID] ?? []
         }
         defer { NotificationCenter.default.removeObserver(token) }
 
@@ -4032,11 +4032,11 @@ final class WorkspaceReorderTests: XCTestCase {
         let third = manager.addWorkspace()
         var observedMovedIds: [UUID] = []
         let token = NotificationCenter.default.addObserver(
-            forName: WorkspaceOrderDidChangeEvent.notificationName,
+            forName: .workspaceOrderDidChange,
             object: manager,
             queue: nil
         ) { notification in
-            observedMovedIds = WorkspaceOrderDidChangeEvent(notification)?.movedWorkspaceIds ?? []
+            observedMovedIds = notification.userInfo?[WorkspaceOrderChangeNotificationKey.movedWorkspaceIds] as? [UUID] ?? []
         }
         defer { NotificationCenter.default.removeObserver(token) }
 
@@ -4052,7 +4052,7 @@ final class WorkspaceReorderTests: XCTestCase {
         let first = manager.tabs[0]
         var notificationCount = 0
         let token = NotificationCenter.default.addObserver(
-            forName: WorkspaceOrderDidChangeEvent.notificationName,
+            forName: .workspaceOrderDidChange,
             object: manager,
             queue: nil
         ) { _ in
@@ -4073,11 +4073,11 @@ final class WorkspaceReorderTests: XCTestCase {
         let second = manager.addWorkspace()
         var observedMovedIds: [UUID] = []
         let token = NotificationCenter.default.addObserver(
-            forName: WorkspaceOrderDidChangeEvent.notificationName,
+            forName: .workspaceOrderDidChange,
             object: manager,
             queue: nil
         ) { notification in
-            observedMovedIds = WorkspaceOrderDidChangeEvent(notification)?.movedWorkspaceIds ?? []
+            observedMovedIds = notification.userInfo?[WorkspaceOrderChangeNotificationKey.movedWorkspaceIds] as? [UUID] ?? []
         }
         defer { NotificationCenter.default.removeObserver(token) }
 
@@ -4146,7 +4146,7 @@ final class WorkspaceReorderTests: XCTestCase {
         _ = manager.addWorkspace()
         var notificationCount = 0
         let token = NotificationCenter.default.addObserver(
-            forName: WorkspaceOrderDidChangeEvent.notificationName,
+            forName: .workspaceOrderDidChange,
             object: manager,
             queue: nil
         ) { _ in
@@ -4227,11 +4227,11 @@ final class WorkspaceReorderTests: XCTestCase {
         let fourth = manager.addWorkspace()
         var observedMovedIds: [UUID] = []
         let token = NotificationCenter.default.addObserver(
-            forName: WorkspaceOrderDidChangeEvent.notificationName,
+            forName: .workspaceOrderDidChange,
             object: manager,
             queue: nil
         ) { notification in
-            observedMovedIds = WorkspaceOrderDidChangeEvent(notification)?.movedWorkspaceIds ?? []
+            observedMovedIds = notification.userInfo?[WorkspaceOrderChangeNotificationKey.movedWorkspaceIds] as? [UUID] ?? []
         }
         defer { NotificationCenter.default.removeObserver(token) }
 
@@ -5836,7 +5836,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
     func testForkAgentConversationInRemoteWorkspaceUsesRemoteStartupCommand() throws {
         let workspace = Workspace()
-        workspace.remoteConnectionCoordinator.configureRemoteConnection(
+        workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
                 port: nil,
@@ -5851,7 +5851,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             ),
             autoConnect: false
         )
-        let initialRemoteSessionCount = workspace.remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount
+        let initialRemoteSessionCount = workspace.activeRemoteTerminalSessionCount
         XCTAssertEqual(initialRemoteSessionCount, 1)
         let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
         let snapshot = SessionRestorableAgentSnapshot(
@@ -5881,12 +5881,12 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertNil(forkPanel.requestedWorkingDirectory)
         XCTAssertEqual(workspace.panelDirectories[forkPanel.id], "/Users/cmux/project")
         XCTAssertEqual(forkPanel.surface.initialInput, snapshot.forkCommand.map { $0 + "\n" })
-        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount, initialRemoteSessionCount + 1)
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, initialRemoteSessionCount + 1)
     }
 
     func testForkAgentConversationInRemoteWorkspaceUsesFallbackDirectoryInForkCommand() throws {
         let workspace = Workspace()
-        workspace.remoteConnectionCoordinator.configureRemoteConnection(
+        workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
                 port: nil,
@@ -5952,7 +5952,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         }
 
         let workspace = Workspace()
-        workspace.remoteConnectionCoordinator.configureRemoteConnection(
+        workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
                 port: nil,
@@ -5967,7 +5967,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             ),
             autoConnect: false
         )
-        let initialRemoteSessionCount = workspace.remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount
+        let initialRemoteSessionCount = workspace.activeRemoteTerminalSessionCount
         XCTAssertEqual(initialRemoteSessionCount, 1)
         let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
         let initialInput = "codex resume session-drop\n"
@@ -5984,13 +5984,13 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
         XCTAssertNil(splitPanel.surface.debugInitialCommand())
         XCTAssertEqual(splitPanel.surface.initialInput, initialInput)
-        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount, initialRemoteSessionCount)
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, initialRemoteSessionCount)
     }
 
     func testForkAgentWorkspaceLaunchInRemoteWorkspacePreservesRemoteContext() throws {
         let workspace = Workspace()
         let agentSocketPath = "/tmp/cmux-fork-agent.sock"
-        workspace.remoteConnectionCoordinator.configureRemoteConnection(
+        workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
                 port: 2222,
@@ -6051,7 +6051,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
     func testForkAgentWorkspaceLaunchFromPersistentSSHPTYDoesNotReuseParentRelayOrDaemonSlot() throws {
         let workspace = Workspace()
-        workspace.remoteConnectionCoordinator.configureRemoteConnection(
+        workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
                 port: 2222,
@@ -6110,7 +6110,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
     func testForkAgentWorkspaceLaunchInRemoteWorkspaceUsesFallbackDirectoryInForkCommand() throws {
         let workspace = Workspace()
-        workspace.remoteConnectionCoordinator.configureRemoteConnection(
+        workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
                 port: nil,
@@ -6197,7 +6197,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
     func testForkAgentConversationInRemoteConfiguredLocalWorkspaceAllowsLauncherScript() throws {
         let workspace = Workspace()
-        workspace.remoteConnectionCoordinator.configureRemoteConnection(
+        workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 transport: .websocket,
                 destination: "cloud-vm",
@@ -6266,7 +6266,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
     func testForkAgentConversationFromLocalTerminalInRemoteWorkspaceStaysLocal() throws {
         let workspace = Workspace()
-        workspace.remoteConnectionCoordinator.configureRemoteConnection(
+        workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
                 port: nil,
@@ -6281,7 +6281,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             ),
             autoConnect: false
         )
-        let initialRemoteSessionCount = workspace.remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount
+        let initialRemoteSessionCount = workspace.activeRemoteTerminalSessionCount
         let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
         let localPanel = try XCTUnwrap(
             workspace.splitPaneWithNewTerminal(
@@ -6324,7 +6324,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertNil(forkPanel.surface.debugInitialCommand())
         XCTAssertEqual(forkPanel.requestedWorkingDirectory, "/tmp/local project")
         XCTAssertTrue(forkPanel.surface.initialInput?.hasPrefix("/bin/zsh ") == true)
-        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount, initialRemoteSessionCount)
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, initialRemoteSessionCount)
 
         let launch = try XCTUnwrap(
             workspace.forkAgentWorkspaceLaunch(
@@ -6341,7 +6341,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
     func testForkAgentConversationInRemoteWorkspaceRejectsLocalLauncherScriptFallback() throws {
         let workspace = Workspace()
-        workspace.remoteConnectionCoordinator.configureRemoteConnection(
+        workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
                 port: nil,
@@ -6658,7 +6658,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
     func testRemoteSidebarDirectoryCanonicalizationDedupesTildeAndAbsoluteHomePaths() {
         let workspace = Workspace()
-        workspace.remoteConnectionCoordinator.configureRemoteConnection(
+        workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
                 port: nil,

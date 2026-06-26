@@ -145,9 +145,6 @@
          location = "group:CmuxRemoteWorkspace">
       </FileRef>
       <FileRef
-         location = "group:CmuxSession">
-      </FileRef>
-      <FileRef
          location = "group:CmuxSettings">
       </FileRef>
       <FileRef

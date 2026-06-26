@@ -2,7 +2,6 @@ import AppKit
 import Combine
 import Foundation
 import CmuxAppKitSupportUI
-import CmuxWindowing
 
 @MainActor
 final class MenuBarExtraController: NSObject, NSMenuDelegate {
@@ -500,20 +499,6 @@ enum MenuBarBuildHintFormatter {
             return name
         }
         return ProcessInfo.processInfo.processName
-    }
-}
-
-/// Bridges the app-target controller to the window-agnostic seam the
-/// ``MenuBarExtraPresentationCoordinator`` (CmuxWindowing) drives. The persistent
-/// and transient global-search toggles both map onto ``toggleGlobalSearchPalette``,
-/// which already defaults its `onDismiss` argument.
-extension MenuBarExtraController: MenuBarExtraControlling {
-    func togglePersistentGlobalSearchPalette() -> Bool {
-        toggleGlobalSearchPalette()
-    }
-
-    func toggleTransientGlobalSearchPalette(onDismiss: @escaping () -> Void) -> Bool {
-        toggleGlobalSearchPalette(onDismiss: onDismiss)
     }
 }
 

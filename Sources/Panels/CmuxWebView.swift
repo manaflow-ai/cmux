@@ -1,0 +1,2568 @@
+import AppKit
+import Bonsplit
+import ObjectiveC
+import UniformTypeIdentifiers
+import WebKit
+#if DEBUG
+import CmuxTestSupport
+#endif
+
+extension WKWebView {
+    nonisolated private static var cmuxSetPageMutedSelector: Selector {
+        NSSelectorFromString("_setPageMuted:")
+    }
+
+    nonisolated private static var cmuxMediaMutedStateAudio: Int {
+        1 << 0
+    }
+
+    @discardableResult
+    func cmuxSetPageAudioMuted(_ muted: Bool) -> Bool {
+        let selector = Self.cmuxSetPageMutedSelector
+        guard responds(to: selector),
+              let implementation = method(for: selector) else {
+            return false
+        }
+
+        typealias SetPageMutedFunction = @convention(c) (AnyObject, Selector, Int) -> Void
+        let function = unsafeBitCast(implementation, to: SetPageMutedFunction.self)
+        function(self, selector, muted ? Self.cmuxMediaMutedStateAudio : 0)
+        return true
+    }
+
+    var cmuxIsElementFullscreenActiveOrTransitioning: Bool {
+        switch fullscreenState {
+        case .notInFullscreen:
+            return false
+        case .enteringFullscreen, .inFullscreen, .exitingFullscreen:
+            return true
+        @unknown default:
+            return true
+        }
+    }
+
+    func cmuxIsManagedByExternalFullscreenWindow(relativeTo expectedWindow: NSWindow?) -> Bool {
+        guard cmuxIsElementFullscreenActiveOrTransitioning else { return false }
+        guard let expectedWindow else { return true }
+        return window !== expectedWindow
+    }
+}
+
+struct BrowserImageCopyPasteboardPayload {
+    let imageData: Data
+    let mimeType: String?
+    let sourceURL: URL?
+}
+
+enum BrowserFocusModeKeyDecision: Equatable {
+    case inactive
+    case forwardToWebView
+    case consume
+}
+
+enum BrowserImageCopyPasteboardBuilder {
+    private static let pngPasteboardType = NSPasteboard.PasteboardType(UTType.png.identifier)
+    private static let tiffPasteboardType = NSPasteboard.PasteboardType(UTType.tiff.identifier)
+    private static let urlPasteboardType = NSPasteboard.PasteboardType(UTType.url.identifier)
+
+    static func makePasteboardItems(from payload: BrowserImageCopyPasteboardPayload) -> [NSPasteboardItem] {
+        guard let imageItem = imagePasteboardItem(from: payload) else { return [] }
+
+        var items = [imageItem]
+        if let sourceURL = payload.sourceURL {
+            // Keep the URL as a secondary item so image-aware paste targets can
+            // prefer the binary image payload without losing the textual fallback.
+            items.append(urlPasteboardItem(for: sourceURL))
+        }
+        return items
+    }
+
+    private static func imagePasteboardItem(from payload: BrowserImageCopyPasteboardPayload) -> NSPasteboardItem? {
+        let item = NSPasteboardItem()
+        var wroteImageType = false
+
+        if let image = NSImage(data: payload.imageData) {
+            if let tiffData = image.tiffRepresentation, !tiffData.isEmpty {
+                item.setData(tiffData, forType: tiffPasteboardType)
+                wroteImageType = true
+            }
+            if let pngData = pngData(for: image), !pngData.isEmpty {
+                item.setData(pngData, forType: pngPasteboardType)
+                wroteImageType = true
+            }
+        }
+
+        if let sourceType = sourceImageType(mimeType: payload.mimeType, sourceURL: payload.sourceURL) {
+            item.setData(payload.imageData, forType: NSPasteboard.PasteboardType(sourceType.identifier))
+            wroteImageType = true
+        }
+
+        return wroteImageType ? item : nil
+    }
+
+    private static func urlPasteboardItem(for url: URL) -> NSPasteboardItem {
+        let item = NSPasteboardItem()
+        item.setString(url.absoluteString, forType: .string)
+        item.setString(url.absoluteString, forType: urlPasteboardType)
+        return item
+    }
+
+    private static func sourceImageType(mimeType: String?, sourceURL: URL?) -> UTType? {
+        if let mimeType,
+           let type = UTType(mimeType: mimeType),
+           type.conforms(to: .image) {
+            return type
+        }
+
+        if let pathExtension = sourceURL?.pathExtension,
+           !pathExtension.isEmpty,
+           let type = UTType(filenameExtension: pathExtension),
+           type.conforms(to: .image) {
+            return type
+        }
+
+        return nil
+    }
+
+    private static func pngData(for image: NSImage) -> Data? {
+        guard let tiffData = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData) else {
+            return nil
+        }
+        return bitmap.representation(using: .png, properties: [:])
+    }
+}
+
+/// WKWebView tends to consume some app command equivalents,
+/// preventing the app menu/SwiftUI Commands from receiving them. Route app/menu
+/// shortcuts first by default, but allow browser content to try browser-local
+/// Find-family shortcuts. The configured Find shortcut stays app-owned so cmux can
+/// choose browser find or right-sidebar file search from the current focus owner.
+final class CmuxWebView: WKWebView {
+    // Some sites/WebKit paths report middle-click link activations as
+    // WKNavigationAction.buttonNumber=4 instead of 2. Track a recent local
+    // middle-click so navigation delegates can recover intent reliably.
+    private struct MiddleClickIntent {
+        let webViewID: ObjectIdentifier
+        let uptime: TimeInterval
+    }
+
+    private static var lastMiddleClickIntent: MiddleClickIntent?
+    private static let middleClickIntentMaxAge: TimeInterval = 0.8
+    private static let pasteAsPlainTextFocusMessageHandlerName = "cmuxPasteAsPlainTextFocus"
+    private static let browserFocusModeContextMenuItemIdentifier =
+        NSUserInterfaceItemIdentifier("cmux.browserFocusMode.toggle")
+    private static var pasteAsPlainTextFocusHandlerInstalledKey: UInt8 = 0
+    private static let pasteAsPlainTextSharedHelpersScriptSource = """
+    const __cmuxPasteAsPlainTextHelpers = (() => {
+      const existing = window.__cmuxPasteAsPlainTextHelpers;
+      if (existing) return existing;
+
+      const supportedTextInputTypes = new Set([
+        "",
+        "text",
+        "search",
+        "tel",
+        "url",
+        "email",
+        "password",
+        "number",
+        "date",
+        "datetime-local",
+        "month",
+        "time",
+        "week"
+      ]);
+
+      const deepestActiveElement = (root) => {
+        let active = root?.activeElement ?? null;
+        while (active) {
+          const shadowActive = active.shadowRoot?.activeElement ?? null;
+          if (shadowActive && shadowActive !== active) {
+            active = shadowActive;
+            continue;
+          }
+
+          const tagName = typeof active.tagName === "string" ? active.tagName.toUpperCase() : "";
+          if (tagName === "IFRAME") {
+            try {
+              const frameActive = active.contentDocument?.activeElement ?? null;
+              if (frameActive && frameActive !== active) {
+                active = frameActive;
+                continue;
+              }
+            } catch (_) {}
+          }
+
+          break;
+        }
+        return active;
+      };
+
+      const isPlainTextTextControl = (el) => {
+        if (!el || el.disabled || el.readOnly) return false;
+
+        const tagName = typeof el.tagName === "string" ? el.tagName.toUpperCase() : "";
+        if (tagName === "TEXTAREA") return true;
+        if (tagName !== "INPUT") return false;
+
+        const type = typeof el.type === "string" ? el.type.toLowerCase() : "text";
+        return supportedTextInputTypes.has(type);
+      };
+
+      const isFocusedCrossOriginFrameElement = (el) => {
+        const tagName = typeof el?.tagName === "string" ? el.tagName.toUpperCase() : "";
+        if (tagName !== "IFRAME") return false;
+        try {
+          void el.contentDocument;
+          return false;
+        } catch (_) {
+          return true;
+        }
+      };
+
+      const resolvedCandidateElement = (el) => {
+        if (!el) return deepestActiveElement(document);
+
+        const shadowActive = el.shadowRoot?.activeElement ?? null;
+        if (shadowActive && shadowActive !== el) {
+          return deepestActiveElement(el.shadowRoot) ?? shadowActive;
+        }
+
+        const tagName = typeof el.tagName === "string" ? el.tagName.toUpperCase() : "";
+        if (tagName === "IFRAME") {
+          try {
+            return deepestActiveElement(el.contentDocument) ?? el;
+          } catch (_) {}
+        }
+
+        return el;
+      };
+
+      const editableTarget = (el) => {
+        const candidate = resolvedCandidateElement(el);
+        if (!candidate) return null;
+        if (isPlainTextTextControl(candidate)) return candidate;
+        if (isFocusedCrossOriginFrameElement(candidate)) return candidate;
+        if (candidate.isContentEditable) return candidate;
+        return candidate.closest?.('[contenteditable]:not([contenteditable="false"])') ?? null;
+      };
+
+      const helpers = {
+        deepestActiveElement,
+        isPlainTextTextControl,
+        isFocusedCrossOriginFrameElement,
+        resolvedCandidateElement,
+        editableTarget,
+        canPasteAsPlainTextInto(el) {
+          return !!editableTarget(el);
+        }
+      };
+      window.__cmuxPasteAsPlainTextHelpers = helpers;
+      return helpers;
+    })();
+    """
+    static let pasteAsPlainTextFocusTrackingBootstrapScriptSource = """
+    (() => {
+      try {
+        if (window.__cmuxPasteAsPlainTextFocusTrackerInstalled) return true;
+        window.__cmuxPasteAsPlainTextFocusTrackerInstalled = true;
+
+        const handler = (() => {
+          try {
+            return window.webkit?.messageHandlers?.\(pasteAsPlainTextFocusMessageHandlerName) ?? null;
+          } catch (_) {
+            return null;
+          }
+        })();
+
+        \(pasteAsPlainTextSharedHelpersScriptSource)
+
+        const publishState = { lastCanPaste: null };
+
+        const publish = (canPaste) => {
+          if (publishState.lastCanPaste === canPaste) return;
+          publishState.lastCanPaste = canPaste;
+          window.__cmuxPasteAsPlainTextTargetAvailable = canPaste;
+          try {
+            handler?.postMessage({ canPaste });
+          } catch (_) {}
+        };
+
+        window.__cmuxCanPasteAsPlainTextIntoCurrentFocus = () => {
+          return __cmuxPasteAsPlainTextHelpers.canPasteAsPlainTextInto(document.activeElement);
+        };
+
+        const publishForElement = (el) => {
+          publish(__cmuxPasteAsPlainTextHelpers.canPasteAsPlainTextInto(el));
+        };
+
+        document.addEventListener("focusin", (ev) => {
+          publishForElement(ev && ev.target ? ev.target : document.activeElement);
+        }, true);
+        document.addEventListener("focusout", () => {
+          requestAnimationFrame(() => publishForElement(document.activeElement));
+        }, true);
+        document.addEventListener("selectionchange", () => {
+          publishForElement(document.activeElement);
+        }, true);
+        document.addEventListener("input", () => {
+          publishForElement(document.activeElement);
+        }, true);
+        document.addEventListener("change", () => {
+          publishForElement(document.activeElement);
+        }, true);
+        document.addEventListener("mousedown", (ev) => {
+          const target = ev && ev.target ? ev.target : null;
+          if (!__cmuxPasteAsPlainTextHelpers.canPasteAsPlainTextInto(target)) {
+            publish(false);
+          }
+        }, true);
+        window.addEventListener("beforeunload", () => {
+          publish(false);
+        }, true);
+
+        publishForElement(document.activeElement);
+        return true;
+      } catch (_) {
+        return false;
+      }
+    })();
+    """
+    private final class PasteAsPlainTextFocusMessageHandler: NSObject, WKScriptMessageHandler {
+        func userContentController(
+            _ userContentController: WKUserContentController,
+            didReceive message: WKScriptMessage
+        ) {
+            guard let webView = message.webView as? CmuxWebView else {
+                return
+            }
+            guard let body = message.body as? [String: Any],
+                  let canPaste = body["canPaste"] as? Bool else {
+                return
+            }
+            Task { @MainActor [weak webView] in
+                webView?.updatePasteAsPlainTextTargetAvailable(canPaste)
+            }
+        }
+    }
+
+    private static let sharedPasteAsPlainTextFocusMessageHandler = PasteAsPlainTextFocusMessageHandler()
+
+    static func hasRecentMiddleClickIntent(for webView: WKWebView) -> Bool {
+        guard let webView = webView as? CmuxWebView else { return false }
+        guard let intent = lastMiddleClickIntent else { return false }
+
+        let age = ProcessInfo.processInfo.systemUptime - intent.uptime
+        if age > middleClickIntentMaxAge {
+            lastMiddleClickIntent = nil
+            return false
+        }
+
+        return intent.webViewID == ObjectIdentifier(webView)
+    }
+
+    private static func recordMiddleClickIntent(for webView: CmuxWebView) {
+        lastMiddleClickIntent = MiddleClickIntent(
+            webViewID: ObjectIdentifier(webView),
+            uptime: ProcessInfo.processInfo.systemUptime
+        )
+    }
+
+    private final class ContextMenuFallbackBox: NSObject {
+        weak var target: AnyObject?
+        let action: Selector?
+
+        init(target: AnyObject?, action: Selector?) {
+            self.target = target
+            self.action = action
+        }
+    }
+
+    private static var contextMenuFallbackKey: UInt8 = 0
+    private static let pasteAsPlainTextKeyCode: UInt16 = 9 // V key (hardware position, layout-independent)
+    var onContextMenuDownloadStateChanged: ((Bool) -> Void)?
+    /// Called when "Open Link in New Tab" context menu is selected.
+    /// Bypasses createWebViewWith so the link opens as a tab, not a popup.
+    var onContextMenuOpenLinkInNewTab: ((URL) -> Void)?
+    /// Called for physical mouse back/forward buttons so BrowserPanel can use
+    /// its restored-session history fallback instead of raw WKWebView history.
+    var onMouseBackButton: (() -> Void)?
+    var onMouseForwardButton: (() -> Void)?
+    var contextMenuLinkURLProvider: ((CmuxWebView, NSPoint, @escaping (URL?) -> Void) -> Void)?
+    var contextMenuDefaultBrowserOpener: ((URL) -> Bool)?
+    var contextMenuCanMoveTabToNewWorkspace: (() -> Bool)?; var contextMenuMoveTabToNewWorkspace: (() -> Bool)?
+    /// Guard against background panes stealing first responder (e.g. page autofocus).
+    /// BrowserPanelView updates this as pane focus state changes.
+    var allowsFirstResponderAcquisition: Bool = true
+    private var pointerFocusAllowanceDepth: Int = 0
+    private var pasteAsPlainTextTargetAvailable = false
+    private var lastPasteAsPlainTextPerformKeyEventTimestamp: TimeInterval?
+    var allowsFirstResponderAcquisitionEffective: Bool {
+        allowsFirstResponderAcquisition || pointerFocusAllowanceDepth > 0
+    }
+    var debugPointerFocusAllowanceDepth: Int { pointerFocusAllowanceDepth }
+
+    override init(frame: NSRect, configuration: WKWebViewConfiguration) {
+        super.init(frame: frame, configuration: configuration)
+        installPasteAsPlainTextFocusTracking()
+        installScriptedDownloadInterception()
+        installContextMenuLinkCapture()
+    }
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        installPasteAsPlainTextFocusTracking()
+        installScriptedDownloadInterception()
+        installContextMenuLinkCapture()
+    }
+
+    private func installPasteAsPlainTextFocusTracking() {
+        let userContentController = configuration.userContentController
+        if objc_getAssociatedObject(
+            userContentController,
+            &Self.pasteAsPlainTextFocusHandlerInstalledKey
+        ) != nil {
+            return
+        }
+
+        userContentController.add(
+            Self.sharedPasteAsPlainTextFocusMessageHandler,
+            name: Self.pasteAsPlainTextFocusMessageHandlerName
+        )
+        objc_setAssociatedObject(
+            userContentController,
+            &Self.pasteAsPlainTextFocusHandlerInstalledKey,
+            NSNumber(value: true),
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+    }
+
+    private func updatePasteAsPlainTextTargetAvailable(_ available: Bool) {
+        guard pasteAsPlainTextTargetAvailable != available else { return }
+        pasteAsPlainTextTargetAvailable = available
+#if DEBUG
+        cmuxDebugLog(
+            "browser.pasteAsPlainText.target " +
+            "web=\(ObjectIdentifier(self)) available=\(available ? 1 : 0)"
+        )
+#endif
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        PaneFirstClickFocusSettings.isEnabled()
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        guard allowsFirstResponderAcquisitionEffective else {
+#if DEBUG
+            let eventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
+            cmuxDebugLog(
+                "browser.focus.blockedBecome web=\(ObjectIdentifier(self)) " +
+                "policy=\(allowsFirstResponderAcquisition ? 1 : 0) " +
+                "pointerDepth=\(pointerFocusAllowanceDepth) eventType=\(eventType)"
+            )
+#endif
+            return false
+        }
+        let result = super.becomeFirstResponder()
+        if result {
+            let pointerInitiatedKey = BrowserFirstResponderNotificationUserInfoKey.pointerInitiated
+            NotificationCenter.default.post(
+                name: .browserDidBecomeFirstResponderWebView,
+                object: self,
+                userInfo: [pointerInitiatedKey: pointerFocusAllowanceDepth > 0]
+            )
+        }
+#if DEBUG
+        let eventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
+        cmuxDebugLog(
+            "browser.focus.become web=\(ObjectIdentifier(self)) result=\(result ? 1 : 0) " +
+            "policy=\(allowsFirstResponderAcquisition ? 1 : 0) " +
+            "pointerDepth=\(pointerFocusAllowanceDepth) eventType=\(eventType)"
+        )
+#endif
+        return result
+    }
+
+    /// Temporarily permits focus acquisition for explicit pointer-driven interactions
+    /// (mouse click into this webview) while keeping background autofocus blocked.
+    func withPointerFocusAllowance<T>(_ body: () -> T) -> T {
+        pointerFocusAllowanceDepth += 1
+#if DEBUG
+        cmuxDebugLog(
+            "browser.focus.pointerAllowance.enter web=\(ObjectIdentifier(self)) " +
+            "depth=\(pointerFocusAllowanceDepth)"
+        )
+#endif
+        defer {
+            pointerFocusAllowanceDepth = max(0, pointerFocusAllowanceDepth - 1)
+#if DEBUG
+            cmuxDebugLog(
+                "browser.focus.pointerAllowance.exit web=\(ObjectIdentifier(self)) " +
+                "depth=\(pointerFocusAllowanceDepth)"
+            )
+#endif
+        }
+        return body()
+    }
+
+    private static func isPasteAsPlainTextCommandEquivalent(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
+        return event.keyCode == pasteAsPlainTextKeyCode && normalizedFlags == [.command, .shift]
+    }
+
+    private func webKitPasteAsPlainTextFallback(_ sender: Any?) {
+        let selector = NSSelectorFromString("pasteAsPlainText:")
+        guard let method = class_getInstanceMethod(WKWebView.self, selector) else {
+            return
+        }
+
+        typealias PasteAsPlainTextFn = @convention(c) (AnyObject, Selector, Any?) -> Void
+        let implementation = method_getImplementation(method)
+        unsafeBitCast(implementation, to: PasteAsPlainTextFn.self)(self, selector, sender)
+    }
+
+    // Key-equivalent handling is synchronous, so this bounded preflight pumps the main run loop.
+    // Keep callers limited to fast, side-effect-free reads from page-owned state.
+    private func evaluateJavaScriptSynchronously(
+        _ script: String,
+        timeout: TimeInterval = 0.25
+    ) -> (completed: Bool, result: Any?, error: Error?) {
+        var completed = false
+        var result: Any?
+        var error: Error?
+
+        evaluateJavaScript(script) { jsResult, jsError in
+            result = jsResult
+            error = jsError
+            completed = true
+        }
+
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        while !completed {
+            let remaining = deadline - ProcessInfo.processInfo.systemUptime
+            guard remaining > 0 else { break }
+
+            let sliceEnd = Date(timeIntervalSinceNow: min(remaining, 0.01))
+            _ = RunLoop.current.run(mode: .default, before: sliceEnd)
+            if !completed {
+                _ = RunLoop.current.run(mode: .eventTracking, before: sliceEnd)
+            }
+        }
+
+        return (completed, result, error)
+    }
+
+    private func pageCanAcceptPlainTextPaste() -> Bool {
+        let script = """
+        (() => {
+            try {
+                const fn = window.__cmuxCanPasteAsPlainTextIntoCurrentFocus;
+                return typeof fn === 'function' ? !!fn() : false;
+            } catch (_) {
+                return false;
+            }
+        })();
+        """
+
+        let evaluation = evaluateJavaScriptSynchronously(script)
+        let canPaste = evaluation.completed && ((evaluation.result as? Bool) ?? false)
+#if DEBUG
+        let errorDescription = evaluation.completed
+            ? (evaluation.error?.localizedDescription ?? "nil")
+            : "timeout"
+        cmuxDebugLog(
+            "browser.pasteAsPlainText.preflight " +
+            "web=\(ObjectIdentifier(self)) canPaste=\(canPaste ? 1 : 0) " +
+            "error=\(errorDescription)"
+        )
+#endif
+        return canPaste
+    }
+
+    private func shouldSkipRepeatedPasteAsPlainTextPreflight(for event: NSEvent) -> Bool {
+        guard event.timestamp > 0,
+              let lastTimestamp = lastPasteAsPlainTextPerformKeyEventTimestamp else {
+            return false
+        }
+        lastPasteAsPlainTextPerformKeyEventTimestamp = nil
+        return lastTimestamp == event.timestamp
+    }
+
+    @discardableResult
+    private func performPasteAsPlainTextFromPasteboard(_ sender: Any? = nil) -> Bool {
+        guard pasteAsPlainTextTargetAvailable,
+              NSPasteboard.general.string(forType: .string) != nil,
+              pageCanAcceptPlainTextPaste() else {
+            return false
+        }
+
+        webKitPasteAsPlainTextFallback(sender)
+#if DEBUG
+        cmuxDebugLog(
+            "browser.pasteAsPlainText " +
+            "web=\(ObjectIdentifier(self)) routedNative=1"
+        )
+#endif
+        return true
+    }
+
+    @IBAction func pasteAsPlainText(_ sender: Any?) {
+        _ = sender
+        if !performPasteAsPlainTextFromPasteboard(sender) {
+            webKitPasteAsPlainTextFallback(sender)
+        }
+    }
+
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(pasteAsPlainText(_:)) {
+            return pasteAsPlainTextTargetAvailable
+                && NSPasteboard.general.string(forType: .string) != nil
+        }
+        return super.validateUserInterfaceItem(item)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+#if DEBUG
+        let typingTimingStart = CmuxTypingTiming.start()
+        var handled = false
+        defer {
+            CmuxTypingTiming.logDuration(
+                path: "browser.web.performKeyEquivalent",
+                startedAt: typingTimingStart,
+                event: event,
+                extra: "handled=\(handled ? 1 : 0)"
+            )
+        }
+        func finish(_ result: Bool) -> Bool {
+            handled = result
+            return result
+        }
+#else
+        func finish(_ result: Bool) -> Bool { result }
+#endif
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
+        if let decision = AppDelegate.shared?.handleBrowserFocusModeKeyEvent(
+            event,
+            webView: self,
+            source: "web.performKeyEquivalent"
+        ), decision != .inactive {
+            switch decision {
+            case .inactive:
+                break
+            case .forwardToWebView:
+                let isReturnKey = event.keyCode == 36 || event.keyCode == 76
+                if (normalizedFlags.isEmpty && event.keyCode == 53) ||
+                    (isReturnKey && !normalizedFlags.contains(.command)) {
+                    forwardKeyDownToWebKit(event)
+                    return finish(true)
+                }
+                let result = super.performKeyEquivalent(with: event)
+                // While focus mode is active, the page gets the shortcut once and cmux/main-menu
+                // fallback must not see unhandled command equivalents.
+                return finish(result || normalizedFlags.contains(.command))
+            case .consume:
+                return finish(true)
+            }
+        }
+
+        if event.keyCode == 36 || event.keyCode == 76 {
+            return finish(AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true)
+        }
+
+        // Menu/app shortcut routing is only needed for Command equivalents
+        // (New Tab, Close Tab, tab switching, split commands, etc).
+        guard flags.contains(.command) else {
+            return finish(super.performKeyEquivalent(with: event))
+        }
+
+        if Self.isPasteAsPlainTextCommandEquivalent(event) {
+            if event.timestamp > 0 {
+                lastPasteAsPlainTextPerformKeyEventTimestamp = event.timestamp
+            } else {
+                lastPasteAsPlainTextPerformKeyEventTimestamp = nil
+            }
+            let result = performPasteAsPlainTextFromPasteboard() || super.performKeyEquivalent(with: event)
+            if result {
+                lastPasteAsPlainTextPerformKeyEventTimestamp = nil
+            }
+            return finish(result)
+        }
+
+        var replayedBrowserDocumentEditingShortcutIntoWebContent = false
+        if shouldRouteBrowserDocumentEditingCommandEquivalentThroughWebContentFirst(
+            event,
+            responder: window?.firstResponder
+        ) {
+            replayedBrowserDocumentEditingShortcutIntoWebContent = true
+            let result = super.performKeyEquivalent(with: event)
+            if result {
+                return finish(true)
+            }
+        }
+
+        var replayedBrowserFindShortcutIntoWebContent = false
+        if shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(
+            event,
+            responder: window?.firstResponder,
+            owningWebView: self
+        ) {
+            replayedBrowserFindShortcutIntoWebContent = true
+            let result = super.performKeyEquivalent(with: event)
+            if result {
+                return finish(true)
+            }
+        }
+
+        if shouldRouteInlineVSCodeCommandPaletteShortcutThroughWebContentFirst(event, pageURL: url) {
+            _ = super.performKeyEquivalent(with: event)
+            return finish(true)
+        }
+
+        if !shouldRouteCommandEquivalentDirectlyToMainMenu(event) {
+            return finish(super.performKeyEquivalent(with: event))
+        }
+
+        if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalentBeforeMainMenu(event) == true {
+            return finish(true)
+        }
+
+        if let menu = NSApp.mainMenu, menu.performKeyEquivalent(with: event) {
+            return finish(true)
+        }
+
+        let result: Bool
+        if replayedBrowserDocumentEditingShortcutIntoWebContent || replayedBrowserFindShortcutIntoWebContent {
+            // A browser-first preflight has already exposed this shortcut to WebKit once.
+            // Avoid a second `super.performKeyEquivalent` replay when menu/app fallback does not claim it.
+            result = false
+        } else {
+            result = super.performKeyEquivalent(with: event)
+        }
+        return finish(result)
+    }
+
+    override func keyDown(with event: NSEvent) {
+#if DEBUG
+        let typingTimingStart = CmuxTypingTiming.start()
+        var route = "super"
+        defer {
+            CmuxTypingTiming.logDuration(
+                path: "browser.web.keyDown",
+                startedAt: typingTimingStart,
+                event: event,
+                extra: "route=\(route)"
+            )
+        }
+#endif
+        if let decision = AppDelegate.shared?.handleBrowserFocusModeKeyEvent(
+            event,
+            webView: self,
+            source: "web.keyDown"
+        ), decision != .inactive {
+            switch decision {
+            case .inactive:
+                break
+            case .forwardToWebView:
+#if DEBUG
+                route = "focusModeWebView"
+#endif
+                forwardKeyDownToWebKit(event)
+                return
+            case .consume:
+#if DEBUG
+                route = "focusModeExit"
+#endif
+                return
+            }
+        }
+
+        if Self.isPasteAsPlainTextCommandEquivalent(event) {
+            if shouldSkipRepeatedPasteAsPlainTextPreflight(for: event) {
+#if DEBUG
+                route = "super"
+#endif
+            } else {
+                let didPaste = performPasteAsPlainTextFromPasteboard()
+#if DEBUG
+                route = didPaste ? "pasteAsPlainText" : "super"
+#endif
+                if didPaste {
+                    return
+                }
+            }
+        }
+
+        // Inline VS Code owns Cmd+Shift+P for its in-page command palette.
+        // If this path reaches keyDown, forward it to WebKit instead of cmux.
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
+           shouldRouteInlineVSCodeCommandPaletteShortcutThroughWebContentFirst(event, pageURL: url) {
+#if DEBUG
+            route = "inlineVSCode"
+#endif
+            forwardKeyDownToWebKit(event)
+            return
+        }
+
+        // Some Cmd-based key paths in WebKit don't consistently invoke performKeyEquivalent.
+        // Route them through the same app-level shortcut handler as a fallback.
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
+           AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
+#if DEBUG
+            route = "appShortcut"
+#endif
+            return
+        }
+
+        forwardKeyDownToWebKit(event)
+    }
+
+    // MARK: - Focus on click
+
+    // The SwiftUI Color.clear overlay (.onTapGesture) that focuses panes can't receive
+    // clicks when a WKWebView is underneath — AppKit delivers the click to the deepest
+    // NSView (WKWebView), not to sibling SwiftUI overlays. Notify the panel system so
+    // bonsplit focus tracks which pane the user clicked in.
+    override func mouseDown(with event: NSEvent) {
+#if DEBUG
+        let windowNumber = window?.windowNumber ?? -1
+        let firstResponderType = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        cmuxDebugLog(
+            "browser.focus.mouseDown web=\(ObjectIdentifier(self)) " +
+            "policy=\(allowsFirstResponderAcquisition ? 1 : 0) " +
+            "pointerDepth=\(pointerFocusAllowanceDepth) win=\(windowNumber) fr=\(firstResponderType)"
+        )
+#endif
+        // Ctrl-click opens the context menu like a right-click; scope the
+        // captured link to this click so a previous click's link can't pair
+        // with the menu this click opens.
+        if event.modifierFlags.contains(.control) {
+            contextMenuCapturedLink = nil
+        }
+        performBrowserClickFocusHandoff {
+            super.mouseDown(with: event)
+        }
+    }
+
+    // Each physical right-click starts a fresh capture lifecycle: WebKit
+    // dispatches the DOM contextmenu event (which refills the capture) after
+    // this and before willOpenMenu, so clearing here guarantees the menu can
+    // only ever pair with a link captured by this exact click.
+    override func rightMouseDown(with event: NSEvent) {
+        contextMenuCapturedLink = nil
+        super.rightMouseDown(with: event)
+    }
+
+    private func performBrowserClickFocusHandoff(_ action: () -> Void) {
+        NotificationCenter.default.post(name: .webViewDidReceiveClick, object: self)
+        withPointerFocusAllowance(action)
+    }
+
+    // MARK: - Mouse back/forward buttons
+
+    private func handleMouseNavigationButton(_ event: NSEvent) -> Bool {
+        // Button 3 = back, button 4 = forward (multi-button mice like Logitech).
+        // Consume the event so WebKit/page content does not also handle it.
+        switch event.buttonNumber {
+        case 3:
+#if DEBUG
+            cmuxDebugLog("browser.mouse.navigation web=\(ObjectIdentifier(self)) kind=back canGoBack=\(canGoBack ? 1 : 0)")
+#endif
+            if let onMouseBackButton {
+                onMouseBackButton()
+            } else {
+                goBack()
+            }
+            return true
+        case 4:
+#if DEBUG
+            cmuxDebugLog("browser.mouse.navigation web=\(ObjectIdentifier(self)) kind=forward canGoForward=\(canGoForward ? 1 : 0)")
+#endif
+            if let onMouseForwardButton {
+                onMouseForwardButton()
+            } else {
+                goForward()
+            }
+            return true
+        default:
+            return false
+        }
+    }
+
+    override func otherMouseDown(with event: NSEvent) {
+        if event.buttonNumber == 2 {
+            Self.recordMiddleClickIntent(for: self)
+        }
+#if DEBUG
+        let point = convert(event.locationInWindow, from: nil)
+        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).rawValue
+        cmuxDebugLog(
+            "browser.mouse.otherDown web=\(ObjectIdentifier(self)) button=\(event.buttonNumber) " +
+            "clicks=\(event.clickCount) mods=\(mods) point=(\(Int(point.x)),\(Int(point.y)))"
+        )
+#endif
+        if event.buttonNumber == 3 || event.buttonNumber == 4 {
+            performBrowserClickFocusHandoff {
+                _ = window?.makeFirstResponder(self)
+            }
+        }
+        if handleMouseNavigationButton(event) {
+            return
+        }
+        super.otherMouseDown(with: event)
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        if event.buttonNumber == 2 {
+            Self.recordMiddleClickIntent(for: self)
+        }
+#if DEBUG
+        let point = convert(event.locationInWindow, from: nil)
+        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).rawValue
+        cmuxDebugLog(
+            "browser.mouse.otherUp web=\(ObjectIdentifier(self)) button=\(event.buttonNumber) " +
+            "clicks=\(event.clickCount) mods=\(mods) point=(\(Int(point.x)),\(Int(point.y)))"
+        )
+#endif
+        if event.buttonNumber == 3 || event.buttonNumber == 4 {
+            return
+        }
+        super.otherMouseUp(with: event)
+    }
+
+    // MARK: - Context menu download support
+
+    /// The last context-menu point in view coordinates.
+    private var lastContextMenuPoint: NSPoint = .zero
+    /// Link reported by the contextmenu capture hook for the most recent
+    /// right-click (`url` is nil when the click was not on a link). The type
+    /// and its lifecycle live in `CmuxWebView+ContextMenuLinkCapture.swift`;
+    /// only the stored property has to live in the class body.
+    var contextMenuCapturedLink: ContextMenuCapturedLink?
+    /// Uptime at which the current context menu opened, used to pair the menu
+    /// with the contextmenu capture report from the same right-click.
+    var lastContextMenuOpenUptime: TimeInterval?
+    /// `NSEvent.timestamp` of the event that opened the current context menu
+    /// (same uptime clock as `ProcessInfo.systemUptime`). The DOM contextmenu
+    /// capture for that menu is always reported after this instant, so a
+    /// capture older than it belongs to a previous click and must not pair
+    /// with this menu, even on menu-open paths that never saw a mouse event.
+    var lastContextMenuOpenEventTimestamp: TimeInterval?
+    /// Saved native WebKit action for "Download Image".
+    private var fallbackDownloadImageTarget: AnyObject?
+    private var fallbackDownloadImageAction: Selector?
+    /// Saved native WebKit action for "Copy Image".
+    private var fallbackCopyImageTarget: AnyObject?
+    private var fallbackCopyImageAction: Selector?
+    /// Saved native WebKit action for "Download Linked File".
+    private var fallbackDownloadLinkedFileTarget: AnyObject?
+    private var fallbackDownloadLinkedFileAction: Selector?
+
+    static func makeContextDownloadTraceID(prefix: String) -> String {
+#if DEBUG
+        return "\(prefix)-\(UUID().uuidString.prefix(8))"
+#else
+        return prefix
+#endif
+    }
+
+    func debugContextDownload(_ message: @autoclosure () -> String) {
+#if DEBUG
+        cmuxDebugLog(Self.redactedContextDownloadDebugMessage(message()))
+#endif
+    }
+
+    #if DEBUG
+    private static let contextDownloadFieldPattern = try! NSRegularExpression(
+        pattern: "(^| )([A-Za-z][A-Za-z0-9_-]*)=",
+        options: []
+    )
+
+    private static func redactedContextDownloadDebugMessage(_ message: String) -> String {
+        let nsMessage = message as NSString
+        let fullRange = NSRange(location: 0, length: nsMessage.length)
+        let matches = contextDownloadFieldPattern.matches(in: message, range: fullRange)
+        guard !matches.isEmpty else { return message }
+
+        var result = ""
+        var cursor = 0
+        var matchIndex = 0
+
+        while matchIndex < matches.count {
+            let match = matches[matchIndex]
+            let fieldStart = match.range.location
+            if cursor < fieldStart {
+                result += nsMessage.substring(
+                    with: NSRange(location: cursor, length: fieldStart - cursor)
+                )
+            }
+
+            let separatorRange = match.range(at: 1)
+            if separatorRange.length > 0 {
+                result += " "
+            }
+
+            let keyRange = match.range(at: 2)
+            let key = nsMessage.substring(with: keyRange)
+            let valueStart = match.range.location + match.range.length
+            let sensitive = shouldRedactContextDownloadField(key)
+            let valueEnd: Int
+
+            if sensitive && key.lowercased() == "payload" {
+                valueEnd = nsMessage.length
+                matchIndex = matches.count
+            } else {
+                valueEnd = matchIndex + 1 < matches.count
+                    ? matches[matchIndex + 1].range.location
+                    : nsMessage.length
+                matchIndex += 1
+            }
+
+            let valueLength = max(0, valueEnd - valueStart)
+            let value = nsMessage.substring(with: NSRange(location: valueStart, length: valueLength))
+
+            if sensitive {
+                result += "\(key)=\(redactedContextDownloadValue(key: key, value: value))"
+            } else {
+                result += nsMessage.substring(
+                    with: NSRange(location: keyRange.location, length: valueEnd - keyRange.location)
+                )
+            }
+
+            cursor = valueEnd
+        }
+
+        if cursor < nsMessage.length {
+            result += nsMessage.substring(
+                with: NSRange(location: cursor, length: nsMessage.length - cursor)
+            )
+        }
+
+        return result
+    }
+
+    private static func shouldRedactContextDownloadField(_ key: String) -> Bool {
+        let normalized = key.lowercased()
+        return normalized == "referer" ||
+            normalized == "path" ||
+            normalized == "payload" ||
+            normalized.hasSuffix("url")
+    }
+
+    private static func redactedContextDownloadValue(key: String, value: String) -> String {
+        guard value != "nil", !value.isEmpty else { return value }
+
+        if shouldTreatContextDownloadFieldAsURL(key),
+           let url = URL(string: value),
+           let scheme = url.scheme?.lowercased(),
+           !scheme.isEmpty {
+            switch scheme {
+            case "http", "https":
+                return "\(scheme)://\(url.host ?? "unknown")"
+            case "data":
+                return "data:<redacted>"
+            case "file":
+                return "file:<redacted>"
+            default:
+                return "\(scheme):<redacted>"
+            }
+        }
+
+        return "<redacted>"
+    }
+
+    private static func shouldTreatContextDownloadFieldAsURL(_ key: String) -> Bool {
+        let normalized = key.lowercased()
+        return normalized == "referer" || normalized.hasSuffix("url")
+    }
+    #endif
+
+    private static func selectorName(_ selector: Selector?) -> String {
+        guard let selector else { return "nil" }
+        return NSStringFromSelector(selector)
+    }
+
+    private func debugLogContextMenuDownloadCandidate(_ item: NSMenuItem, index: Int) {
+        let identifier = item.identifier?.rawValue ?? "nil"
+        let title = item.title
+        let actionName = Self.selectorName(item.action)
+        let idToken = Self.normalizedContextMenuToken(identifier)
+        let titleToken = Self.normalizedContextMenuToken(title)
+        let actionToken = Self.normalizedContextMenuToken(actionName)
+        guard idToken.contains("download")
+            || titleToken.contains("download")
+            || actionToken.contains("download") else {
+            return
+        }
+        debugContextDownload(
+            "browser.ctxdl.menu item index=\(index) id=\(identifier) title=\(title) action=\(actionName)"
+        )
+    }
+
+    private struct ParsedDataURL {
+        let data: Data
+        let mimeType: String?
+    }
+
+    private static func parseDataURL(_ url: URL) -> ParsedDataURL? {
+        let absolute = url.absoluteString
+        guard absolute.hasPrefix("data:"),
+              let commaIndex = absolute.firstIndex(of: ",") else {
+            return nil
+        }
+
+        let headerStart = absolute.index(absolute.startIndex, offsetBy: 5)
+        let header = String(absolute[headerStart..<commaIndex])
+        let payloadStart = absolute.index(after: commaIndex)
+        let payload = String(absolute[payloadStart...])
+
+        let segments = header.split(separator: ";", omittingEmptySubsequences: false).map(String.init)
+        let mimeType = segments.first.flatMap { $0.isEmpty ? nil : $0 }
+        let isBase64 = segments.dropFirst().contains { $0.caseInsensitiveCompare("base64") == .orderedSame }
+
+        if isBase64 {
+            guard let data = Data(base64Encoded: payload, options: [.ignoreUnknownCharacters]) else {
+                return nil
+            }
+            return ParsedDataURL(data: data, mimeType: mimeType)
+        }
+
+        guard let decoded = payload.removingPercentEncoding else { return nil }
+        return ParsedDataURL(data: Data(decoded.utf8), mimeType: mimeType)
+    }
+
+    private static func filenameExtension(forMIMEType mimeType: String?) -> String? {
+        guard let mimeType, !mimeType.isEmpty else { return nil }
+        if #available(macOS 11.0, *) {
+            if let preferred = UTType(mimeType: mimeType)?.preferredFilenameExtension, !preferred.isEmpty {
+                return preferred
+            }
+        }
+        switch mimeType.lowercased() {
+        case "image/jpeg":
+            return "jpg"
+        case "image/png":
+            return "png"
+        case "image/webp":
+            return "webp"
+        case "image/gif":
+            return "gif"
+        case "text/html":
+            return "html"
+        case "text/plain":
+            return "txt"
+        default:
+            return nil
+        }
+    }
+
+    private static func suggestedFilenameForDataURL(
+        mimeType: String?,
+        suggestedFilename: String?
+    ) -> String {
+        if let suggested = suggestedFilename?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !suggested.isEmpty {
+            return BrowserDownloadFilenameResolver().suggestedFilename(suggestedFilename: suggested, response: nil, sourceURL: URL(fileURLWithPath: "download"), imageType: nil)
+        }
+        let ext = filenameExtension(forMIMEType: mimeType) ?? "bin"
+        let base = (mimeType?.lowercased().hasPrefix("image/") ?? false) ? "image" : "download"
+        return "\(base).\(ext)"
+    }
+
+    private static func normalizedContextMenuToken(_ value: String?) -> String {
+        guard let value else { return "" }
+        let lowered = value.lowercased()
+        let alphanumerics = CharacterSet.alphanumerics
+        let scalars = lowered.unicodeScalars.filter { alphanumerics.contains($0) }
+        return String(String.UnicodeScalarView(scalars))
+    }
+
+    private func isDownloadImageMenuItem(_ item: NSMenuItem) -> Bool {
+        let identifier = Self.normalizedContextMenuToken(item.identifier?.rawValue)
+        if identifier.contains("downloadimage") {
+            return true
+        }
+
+        let title = Self.normalizedContextMenuToken(item.title)
+        if title.contains("downloadimage") {
+            return true
+        }
+
+        if let action = item.action {
+            let actionName = Self.normalizedContextMenuToken(NSStringFromSelector(action))
+            if actionName.contains("downloadimage") {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func isDownloadLinkedFileMenuItem(_ item: NSMenuItem) -> Bool {
+        let identifier = Self.normalizedContextMenuToken(item.identifier?.rawValue)
+        if identifier.contains("downloadlinkedfile")
+            || identifier.contains("downloadlinktodisk") {
+            return true
+        }
+
+        let title = Self.normalizedContextMenuToken(item.title)
+        if title.contains("downloadlinkedfile")
+            || title.contains("downloadlinktodisk") {
+            return true
+        }
+
+        if let action = item.action {
+            let actionName = Self.normalizedContextMenuToken(NSStringFromSelector(action))
+            if actionName.contains("downloadlinkedfile")
+                || actionName.contains("downloadlinktodisk") {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func isCopyImageMenuItem(_ item: NSMenuItem) -> Bool {
+        let tokens = [
+            Self.normalizedContextMenuToken(item.identifier?.rawValue),
+            Self.normalizedContextMenuToken(item.title),
+            item.action.map { Self.normalizedContextMenuToken(NSStringFromSelector($0)) } ?? "",
+        ]
+
+        for token in tokens where !token.isEmpty {
+            if token.contains("copyimageaddress")
+                || token.contains("copyimageurl")
+                || token.contains("copyimagelocation") {
+                return false
+            }
+            if token == "copyimage"
+                || token.contains("copyimagetoclipboard")
+                || token.contains("copyimage") {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func isDownloadableScheme(_ url: URL) -> Bool {
+        let scheme = url.scheme?.lowercased() ?? ""
+        return scheme == "http" || scheme == "https" || scheme == "file"
+    }
+
+    private func isDataURLScheme(_ url: URL) -> Bool {
+        let scheme = url.scheme?.lowercased() ?? ""
+        return scheme == "data"
+    }
+
+    private func isDownloadSupportedScheme(_ url: URL) -> Bool {
+        return isDownloadableScheme(url) || isDataURLScheme(url)
+    }
+
+    private func isOurContextMenuAction(target: AnyObject?, action: Selector?) -> Bool {
+        guard target === self else { return false }
+        if action == #selector(contextMenuToggleBrowserFocusMode(_:)) {
+            return true
+        }
+        if action == #selector(contextMenuCopyImage(_:)) {
+            return true
+        }
+        return action == #selector(contextMenuDownloadImage(_:))
+            || action == #selector(contextMenuDownloadLinkedFile(_:))
+    }
+
+    private func resolveGoogleRedirectURL(_ url: URL) -> URL? {
+        guard let host = url.host?.lowercased(), host.contains("google.") else { return nil }
+        guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let queryItems = comps.queryItems else { return nil }
+        let map = Dictionary(uniqueKeysWithValues: queryItems.map { ($0.name.lowercased(), $0.value ?? "") })
+        let candidates = ["imgurl", "mediaurl", "url", "q"]
+        for key in candidates {
+            guard let raw = map[key], !raw.isEmpty,
+                  let decoded = raw.removingPercentEncoding ?? raw as String?,
+                  let candidate = URL(string: decoded),
+                  isDownloadableScheme(candidate) else {
+                continue
+            }
+            return candidate
+        }
+        // Some links are wrapped as /url?...
+        if comps.path.lowercased() == "/url" {
+            for key in ["url", "q"] {
+                if let raw = map[key], let candidate = URL(string: raw), isDownloadableScheme(candidate) {
+                    return candidate
+                }
+            }
+        }
+        return nil
+    }
+
+    private func normalizedLinkedDownloadURL(_ url: URL) -> URL {
+        resolveGoogleRedirectURL(url) ?? url
+    }
+
+    private func isLikelyFaviconURL(_ url: URL) -> Bool {
+        let lower = url.absoluteString.lowercased()
+        if lower.contains("favicon") { return true }
+        let name = url.lastPathComponent.lowercased()
+        return name.hasPrefix("favicon")
+    }
+
+    private func isLikelyImageURL(_ url: URL) -> Bool {
+        if isDataURLScheme(url) {
+            guard let parsed = Self.parseDataURL(url),
+                  let mime = parsed.mimeType?.lowercased() else {
+                return false
+            }
+            return mime.hasPrefix("image/")
+        }
+        guard isDownloadableScheme(url) else { return false }
+        let ext = url.pathExtension.lowercased()
+        if [
+            "jpg", "jpeg", "png", "webp", "gif", "bmp",
+            "svg", "avif", "heic", "heif", "tif", "tiff", "ico"
+        ].contains(ext) {
+            return true
+        }
+        let lower = url.absoluteString.lowercased()
+        if lower.contains("imgurl=")
+            || lower.contains("mediaurl=")
+            || lower.contains("encrypted-tbn")
+            || lower.contains("format=jpg")
+            || lower.contains("format=jpeg")
+            || lower.contains("format=png")
+            || lower.contains("format=webp")
+            || lower.contains("format=gif") {
+            return true
+        }
+        return false
+    }
+
+    private func captureFallbackForMenuItemIfNeeded(_ item: NSMenuItem) {
+        let target = item.target as AnyObject?
+        let action = item.action
+        if isOurContextMenuAction(target: target, action: action) {
+            return
+        }
+        let box = ContextMenuFallbackBox(target: target, action: action)
+        objc_setAssociatedObject(
+            item,
+            &Self.contextMenuFallbackKey,
+            box,
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+    }
+
+    private func fallbackFromSender(
+        _ sender: Any?,
+        defaultAction: Selector?,
+        defaultTarget: AnyObject?
+    ) -> (action: Selector?, target: AnyObject?) {
+        if let item = sender as? NSMenuItem,
+           let box = objc_getAssociatedObject(item, &Self.contextMenuFallbackKey) as? ContextMenuFallbackBox {
+            return (box.action, box.target)
+        }
+        return (defaultAction, defaultTarget)
+    }
+
+    /// Resolve the topmost image URL near a point, accounting for overlay layers.
+    private func findImageURLAtPoint(_ point: NSPoint, completion: @escaping (URL?) -> Void) {
+        let cssPoint = cssViewportPoint(for: point)
+        let js = """
+        (() => {
+            const x = \(cssPoint.x);
+            const y = \(cssPoint.y);
+            const normalize = (raw) => {
+                if (!raw || typeof raw !== 'string') return '';
+                const trimmed = raw.trim();
+                if (!trimmed) return '';
+                if (trimmed.startsWith('//')) return window.location.protocol + trimmed;
+                return trimmed;
+            };
+            const firstSrcsetURL = (srcset) => {
+                if (!srcset || typeof srcset !== 'string') return '';
+                const first = srcset.split(',').map((part) => part.trim()).find(Boolean);
+                if (!first) return '';
+                const urlPart = first.split(/\\s+/)[0];
+                return normalize(urlPart);
+            };
+            const firstBackgroundURL = (value) => {
+                if (!value || value === 'none') return '';
+                const match = /url\\((['"]?)(.*?)\\1\\)/.exec(value);
+                if (!match || !match[2]) return '';
+                return normalize(match[2]);
+            };
+            const collectChain = (start) => {
+                const out = [];
+                const seen = new Set();
+                const pushParents = (node) => {
+                    while (node && !seen.has(node)) {
+                        seen.add(node);
+                        out.push(node);
+                        node = node.parentElement;
+                    }
+                };
+                pushParents(start);
+                if (start && start.tagName === 'PICTURE' && start.querySelector) {
+                    const img = start.querySelector('img');
+                    if (img) pushParents(img);
+                }
+                return out;
+            };
+            const candidateFromElement = (el) => {
+                if (!el) return '';
+                const attr = (name) => normalize(el.getAttribute ? el.getAttribute(name) : '');
+                if (el.tagName === 'IMG') {
+                    const imageCandidates = [
+                        normalize(el.currentSrc || ''),
+                        attr('src'),
+                        firstSrcsetURL(attr('srcset')),
+                        attr('data-src'),
+                        attr('data-iurl'),
+                        attr('data-lazy-src'),
+                        attr('data-original'),
+                    ];
+                    const foundImage = imageCandidates.find(Boolean);
+                    if (foundImage) return foundImage;
+                }
+                const genericAttrs = [
+                    'src', 'data-src', 'data-iurl', 'data-lazy-src',
+                    'data-original', 'data-image', 'data-image-url',
+                    'data-thumb', 'data-thumbnail-url', 'content'
+                ];
+                for (const name of genericAttrs) {
+                    const v = attr(name);
+                    if (v) return v;
+                }
+                const inlineBg = firstBackgroundURL(el.style && el.style.backgroundImage ? el.style.backgroundImage : '');
+                if (inlineBg) return inlineBg;
+                try {
+                    const computed = window.getComputedStyle(el);
+                    const computedBg = firstBackgroundURL(computed ? computed.backgroundImage : '');
+                    if (computedBg) return computedBg;
+                } catch (_) {}
+                if (el.querySelector) {
+                    const nestedImg = el.querySelector('img[src],img[srcset],img[data-src],img[data-iurl],source[srcset]');
+                    if (nestedImg) {
+                        const nestedCandidates = [
+                            normalize(nestedImg.currentSrc || ''),
+                            normalize(nestedImg.getAttribute ? nestedImg.getAttribute('src') : ''),
+                            firstSrcsetURL(nestedImg.getAttribute ? nestedImg.getAttribute('srcset') : ''),
+                            normalize(nestedImg.getAttribute ? (nestedImg.getAttribute('data-src') || nestedImg.getAttribute('data-iurl') || '') : '')
+                        ];
+                        const foundNested = nestedCandidates.find(Boolean);
+                        if (foundNested) return foundNested;
+                    }
+                    const nestedBg = el.querySelector('[style*="background-image"]');
+                    if (nestedBg) {
+                        const styleValue = nestedBg.getAttribute ? nestedBg.getAttribute('style') : '';
+                        const bgURL = firstBackgroundURL(styleValue || '');
+                        if (bgURL) return bgURL;
+                    }
+                }
+                return '';
+            };
+            const tryNodes = (nodes) => {
+                for (const start of nodes) {
+                    for (const el of collectChain(start)) {
+                        const found = candidateFromElement(el);
+                        if (found) return found;
+                    }
+                    if (start && start.shadowRoot && start.shadowRoot.elementFromPoint) {
+                        const inner = start.shadowRoot.elementFromPoint(x, y);
+                        if (inner) {
+                            for (const el of collectChain(inner)) {
+                                const found = candidateFromElement(el);
+                                if (found) return found;
+                            }
+                        }
+                    }
+                }
+                return '';
+            };
+            const all = document.elementsFromPoint ? document.elementsFromPoint(x, y) : [];
+            const foundFromAll = tryNodes(all);
+            if (foundFromAll) return foundFromAll;
+            const single = document.elementFromPoint ? document.elementFromPoint(x, y) : null;
+            return candidateFromElement(single) || '';
+        })();
+        """
+        evaluateJavaScript(js) { result, _ in
+            guard let src = result as? String, !src.isEmpty,
+                  let url = URL(string: src) else {
+                completion(nil)
+                return
+            }
+            completion(url)
+        }
+    }
+
+    private func debugInspectElementsAtPoint(_ point: NSPoint, traceID: String, kind: String) {
+#if DEBUG
+        let cssPoint = cssViewportPoint(for: point)
+        let js = """
+        (() => {
+            const clip = (value, max = 180) => {
+                if (value == null) return '';
+                const s = String(value);
+                return s.length > max ? s.slice(0, max) + '…' : s;
+            };
+            const x = \(cssPoint.x);
+            const y = \(cssPoint.y);
+            const nodes = document.elementsFromPoint ? document.elementsFromPoint(x, y) : [];
+            const entries = [];
+            const limit = Math.min(nodes.length, 8);
+            for (let i = 0; i < limit; i++) {
+                const el = nodes[i];
+                if (!el) continue;
+                entries.push({
+                    tag: clip((el.tagName || '').toLowerCase()),
+                    id: clip(el.id || ''),
+                    cls: clip(typeof el.className === 'string' ? el.className : ''),
+                    href: clip(el.href || ''),
+                    src: clip(el.src || ''),
+                    currentSrc: clip(el.currentSrc || ''),
+                    dataHref: clip(el.getAttribute ? el.getAttribute('data-href') : ''),
+                    dataSrc: clip(el.getAttribute ? el.getAttribute('data-src') : '')
+                });
+            }
+            return JSON.stringify({count: nodes.length, entries});
+        })();
+        """
+        evaluateJavaScript(js) { [weak self] result, _ in
+            guard let self,
+                  let payload = result as? String,
+                  !payload.isEmpty else { return }
+            self.debugContextDownload(
+                "browser.ctxdl.inspect trace=\(traceID) kind=\(kind) payload=\(payload)"
+            )
+        }
+#endif
+    }
+
+    private func appendBrowserFocusModeContextMenuItem(to menu: NSMenu) {
+        let state = AppDelegate.shared?.browserFocusModeContextMenuState(for: self) ?? (isActive: false, canToggle: false)
+        guard state.isActive || state.canToggle else { return }
+
+        let title = state.isActive
+            ? String(localized: "browser.focusMode.context.exit", defaultValue: "Exit Browser Focus Mode")
+            : String(localized: "browser.focusMode.context.enter", defaultValue: "Enter Browser Focus Mode")
+        if let item = menu.items.first(where: { $0.identifier == Self.browserFocusModeContextMenuItemIdentifier }) {
+            item.title = title
+            item.target = self
+            item.action = #selector(contextMenuToggleBrowserFocusMode(_:))
+            item.state = state.isActive ? NSControl.StateValue.on : NSControl.StateValue.off
+            return
+        }
+
+        if menu.items.last?.isSeparatorItem == false {
+            menu.addItem(.separator())
+        }
+        let item = NSMenuItem(
+            title: title,
+            action: #selector(contextMenuToggleBrowserFocusMode(_:)),
+            keyEquivalent: ""
+        )
+        item.identifier = Self.browserFocusModeContextMenuItemIdentifier
+        item.target = self
+        item.state = state.isActive ? NSControl.StateValue.on : NSControl.StateValue.off
+        menu.addItem(item)
+    }
+
+    private func runContextMenuFallback(
+        action: Selector?,
+        target: AnyObject?,
+        sender: Any?,
+        traceID: String? = nil,
+        reason: String? = nil
+    ) {
+        let trace = traceID ?? "unknown"
+        guard let action else {
+            debugContextDownload(
+                "browser.ctxdl.fallback trace=\(trace) reason=\(reason ?? "none") action=nil target=\(String(describing: target))"
+            )
+            return
+        }
+        // Guard against accidental self-recursion if fallback gets overwritten.
+        if isOurContextMenuAction(target: target, action: action) {
+            debugContextDownload(
+                "browser.ctxdl.fallback trace=\(trace) reason=\(reason ?? "none") skipped=recursive action=\(Self.selectorName(action))"
+            )
+            return
+        }
+        let dispatched = NSApp.sendAction(action, to: target, from: sender)
+        debugContextDownload(
+            "browser.ctxdl.fallback trace=\(trace) reason=\(reason ?? "none") dispatched=\(dispatched ? 1 : 0) action=\(Self.selectorName(action)) target=\(String(describing: target))"
+        )
+    }
+
+    private func notifyContextMenuDownloadState(_ downloading: Bool) {
+        if Thread.isMainThread {
+            onContextMenuDownloadStateChanged?(downloading)
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.onContextMenuDownloadStateChanged?(downloading)
+            }
+        }
+    }
+
+    func downloadURLViaSession(
+        _ url: URL,
+        suggestedFilename: String?,
+        sender: Any?,
+        fallbackAction: Selector?,
+        fallbackTarget: AnyObject?,
+        traceID: String
+    ) {
+        guard isDownloadSupportedScheme(url) else {
+            debugContextDownload(
+                "browser.ctxdl.request trace=\(traceID) stage=rejectUnsupportedScheme url=\(url.absoluteString)"
+            )
+            runContextMenuFallback(
+                action: fallbackAction,
+                target: fallbackTarget,
+                sender: sender,
+                traceID: traceID,
+                reason: "unsupported_scheme"
+            )
+            return
+        }
+        let scheme = url.scheme?.lowercased() ?? ""
+        debugContextDownload(
+            "browser.ctxdl.request trace=\(traceID) stage=start scheme=\(scheme) url=\(url.absoluteString)"
+        )
+        notifyContextMenuDownloadState(true)
+        debugContextDownload("browser.ctxdl.state trace=\(traceID) downloading=1")
+
+        if scheme == "data" {
+            DispatchQueue.main.async {
+                guard let parsed = Self.parseDataURL(url) else {
+                    self.notifyContextMenuDownloadState(false)
+                    self.debugContextDownload(
+                        "browser.ctxdl.data trace=\(traceID) stage=parseFailure urlLength=\(url.absoluteString.count)"
+                    )
+                    self.runContextMenuFallback(
+                        action: fallbackAction,
+                        target: fallbackTarget,
+                        sender: sender,
+                        traceID: traceID,
+                        reason: "data_url_parse_error"
+                    )
+                    return
+                }
+
+                let saveName = Self.suggestedFilenameForDataURL(
+                    mimeType: parsed.mimeType,
+                    suggestedFilename: suggestedFilename
+                )
+                self.debugContextDownload(
+                    "browser.ctxdl.data trace=\(traceID) stage=parseSuccess mime=\(parsed.mimeType ?? "nil") bytes=\(parsed.data.count)"
+                )
+
+                let savePanel = NSSavePanel()
+                savePanel.nameFieldStringValue = saveName
+                savePanel.canCreateDirectories = true
+                savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+                self.notifyContextMenuDownloadState(false)
+                self.debugContextDownload(
+                    "browser.ctxdl.data trace=\(traceID) stage=savePrompt shown=1 defaultName=\(saveName)"
+                )
+                savePanel.begin { result in
+                    guard result == .OK, let destURL = savePanel.url else {
+                        self.debugContextDownload(
+                            "browser.ctxdl.data trace=\(traceID) stage=savePrompt result=cancel"
+                        )
+                        return
+                    }
+                    do {
+                        try parsed.data.write(to: destURL, options: .atomic)
+                        self.debugContextDownload(
+                            "browser.ctxdl.data trace=\(traceID) stage=saveSuccess path=\(destURL.path)"
+                        )
+                    } catch {
+                        self.debugContextDownload(
+                            "browser.ctxdl.data trace=\(traceID) stage=saveFailure error=\(error.localizedDescription)"
+                        )
+                        self.runContextMenuFallback(
+                            action: fallbackAction,
+                            target: fallbackTarget,
+                            sender: sender,
+                            traceID: traceID,
+                            reason: "data_save_write_error"
+                        )
+                    }
+                }
+            }
+            return
+        }
+
+        if scheme == "file" {
+            DispatchQueue.main.async {
+                do {
+                    let data = try Data(contentsOf: url)
+                    self.debugContextDownload(
+                        "browser.ctxdl.file trace=\(traceID) stage=readSuccess bytes=\(data.count) path=\(url.path)"
+                    )
+                    let filename = suggestedFilename?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let saveName = (filename?.isEmpty == false ? filename! : url.lastPathComponent.isEmpty ? "download" : url.lastPathComponent)
+                    let savePanel = NSSavePanel()
+                    savePanel.nameFieldStringValue = saveName
+                    savePanel.canCreateDirectories = true
+                    savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+                    // Download is already complete; we're now waiting for user save choice.
+                    self.notifyContextMenuDownloadState(false)
+                    self.debugContextDownload(
+                        "browser.ctxdl.file trace=\(traceID) stage=savePrompt shown=1 defaultName=\(saveName)"
+                    )
+                    savePanel.begin { result in
+                        guard result == .OK, let destURL = savePanel.url else {
+                            self.debugContextDownload(
+                                "browser.ctxdl.file trace=\(traceID) stage=savePrompt result=cancel"
+                            )
+                            return
+                        }
+                        do {
+                            try data.write(to: destURL, options: .atomic)
+                            self.debugContextDownload(
+                                "browser.ctxdl.file trace=\(traceID) stage=saveSuccess path=\(destURL.path)"
+                            )
+                        } catch {
+                            self.debugContextDownload(
+                                "browser.ctxdl.file trace=\(traceID) stage=saveFailure error=\(error.localizedDescription)"
+                            )
+                        }
+                    }
+                } catch {
+                    self.notifyContextMenuDownloadState(false)
+                    self.debugContextDownload(
+                        "browser.ctxdl.file trace=\(traceID) stage=readFailure error=\(error.localizedDescription)"
+                    )
+                    self.runContextMenuFallback(
+                        action: fallbackAction,
+                        target: fallbackTarget,
+                        sender: sender,
+                        traceID: traceID,
+                        reason: "file_read_error"
+                    )
+                }
+            }
+            return
+        }
+
+        let cookieStore = configuration.websiteDataStore.httpCookieStore
+        cookieStore.getAllCookies { cookies in
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            let cookieHeaders = HTTPCookie.requestHeaderFields(with: Self.cookiesForDownloadRequest(cookies, url: url))
+            for (key, value) in cookieHeaders {
+                request.setValue(value, forHTTPHeaderField: key)
+            }
+            if let referer = self.url?.absoluteString, !referer.isEmpty {
+                request.setValue(referer, forHTTPHeaderField: "Referer")
+            }
+            if let ua = self.customUserAgent, !ua.isEmpty {
+                request.setValue(ua, forHTTPHeaderField: "User-Agent")
+            }
+            self.debugContextDownload(
+                "browser.ctxdl.request trace=\(traceID) stage=dispatch method=\(request.httpMethod ?? "GET") cookies=\(cookies.count) referer=\(request.value(forHTTPHeaderField: "Referer") ?? "nil") uaSet=\(request.value(forHTTPHeaderField: "User-Agent") == nil ? 0 : 1)"
+            )
+
+            URLSession.shared.dataTask(with: request) { data, response, error in
+                DispatchQueue.main.async {
+                    guard let data, error == nil else {
+                        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+                        let mime = response?.mimeType ?? "nil"
+                        let hasResponse = response == nil ? 0 : 1
+                        self.debugContextDownload(
+                            "browser.ctxdl.response trace=\(traceID) stage=failure hasResponse=\(hasResponse) status=\(statusCode) mime=\(mime) error=\(error?.localizedDescription ?? "unknown")"
+                        )
+                        self.notifyContextMenuDownloadState(false)
+                        self.runContextMenuFallback(
+                            action: fallbackAction,
+                            target: fallbackTarget,
+                            sender: sender,
+                            traceID: traceID,
+                            reason: "network_error"
+                        )
+                        return
+                    }
+                    let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+                    let mime = response?.mimeType ?? "nil"
+                    let expectedLength = response?.expectedContentLength ?? -1
+                    self.debugContextDownload("browser.ctxdl.response trace=\(traceID) stage=success hasResponse=1 status=\(statusCode) mime=\(mime) bytes=\(data.count) expected=\(expectedLength)")
+                    let filenameResolver = BrowserDownloadFilenameResolver()
+                    if case .reject = filenameResolver.httpStatusDecision(for: response) {
+                        self.notifyContextMenuDownloadState(false)
+                        self.runContextMenuFallback(action: fallbackAction, target: fallbackTarget, sender: sender, traceID: traceID, reason: "http_status")
+                        return
+                    }
+                    let saveName = filenameResolver.suggestedFilename(suggestedFilename: suggestedFilename, response: response, sourceURL: url, imageData: data)
+
+                    let savePanel = NSSavePanel()
+                    savePanel.nameFieldStringValue = saveName
+                    savePanel.canCreateDirectories = true
+                    savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+                    self.notifyContextMenuDownloadState(false)
+                    self.debugContextDownload(
+                        "browser.ctxdl.response trace=\(traceID) stage=savePrompt shown=1 defaultName=\(saveName)"
+                    )
+                    savePanel.begin { result in
+                        guard result == .OK, let destURL = savePanel.url else {
+                            self.debugContextDownload(
+                                "browser.ctxdl.response trace=\(traceID) stage=savePrompt result=cancel"
+                            )
+                            return
+                        }
+                        do {
+                            try data.write(to: destURL, options: .atomic)
+                            self.debugContextDownload(
+                                "browser.ctxdl.response trace=\(traceID) stage=saveSuccess path=\(destURL.path)"
+                            )
+                        } catch {
+                            self.debugContextDownload(
+                                "browser.ctxdl.response trace=\(traceID) stage=saveFailure error=\(error.localizedDescription)"
+                            )
+                            self.runContextMenuFallback(
+                                action: fallbackAction,
+                                target: fallbackTarget,
+                                sender: sender,
+                                traceID: traceID,
+                                reason: "save_write_error"
+                            )
+                        }
+                    }
+                }
+            }.resume()
+        }
+    }
+
+    private func startContextMenuDownload(
+        _ url: URL,
+        sender: Any?,
+        fallbackAction: Selector?,
+        fallbackTarget: AnyObject?,
+        traceID: String
+    ) {
+        debugContextDownload("browser.ctxdl.start trace=\(traceID) url=\(url.absoluteString)")
+        downloadURLViaSession(
+            url,
+            suggestedFilename: nil,
+            sender: sender,
+            fallbackAction: fallbackAction,
+            fallbackTarget: fallbackTarget,
+            traceID: traceID
+        )
+    }
+
+    private func inferredImageMIMEType(from url: URL) -> String? {
+        guard !url.pathExtension.isEmpty,
+              let type = UTType(filenameExtension: url.pathExtension),
+              type.conforms(to: .image) else {
+            return nil
+        }
+        return type.preferredMIMEType
+    }
+
+    private func resolveContextMenuCopyImageSourceURL(
+        at point: NSPoint,
+        completion: @escaping (URL?) -> Void
+    ) {
+        findImageURLAtPoint(point) { [weak self] imageURL in
+            guard let self else { return completion(nil) }
+
+            if let imageURL {
+                let normalized = self.normalizedLinkedDownloadURL(imageURL)
+                if self.isDownloadSupportedScheme(normalized) {
+                    completion(normalized)
+                    return
+                }
+            }
+
+            self.findLinkURLAtPoint(point) { fallbackLinkURL in
+                guard let fallbackLinkURL else {
+                    completion(nil)
+                    return
+                }
+
+                let normalized = self.normalizedLinkedDownloadURL(fallbackLinkURL)
+                guard self.isDownloadSupportedScheme(normalized),
+                      self.isLikelyImageURL(normalized) else {
+                    completion(nil)
+                    return
+                }
+
+                completion(normalized)
+            }
+        }
+    }
+
+    private func fetchContextMenuImageCopyPayload(
+        from sourceURL: URL,
+        traceID: String,
+        completion: @escaping (BrowserImageCopyPasteboardPayload?) -> Void
+    ) {
+        let scheme = sourceURL.scheme?.lowercased() ?? ""
+        debugContextDownload(
+            "browser.ctxcopy.fetch trace=\(traceID) stage=start scheme=\(scheme) url=\(sourceURL.absoluteString)"
+        )
+
+        if scheme == "data" {
+            guard let parsed = Self.parseDataURL(sourceURL), !parsed.data.isEmpty else {
+                debugContextDownload(
+                    "browser.ctxcopy.fetch trace=\(traceID) stage=dataParseFailure"
+                )
+                completion(nil)
+                return
+            }
+            debugContextDownload(
+                "browser.ctxcopy.fetch trace=\(traceID) stage=dataParseSuccess mime=\(parsed.mimeType ?? "nil") bytes=\(parsed.data.count)"
+            )
+            completion(
+                BrowserImageCopyPasteboardPayload(
+                    imageData: parsed.data,
+                    mimeType: parsed.mimeType,
+                    sourceURL: nil
+                )
+            )
+            return
+        }
+
+        if scheme == "file" {
+            DispatchQueue.global(qos: .userInitiated).async {
+                let data = try? Data(contentsOf: sourceURL)
+                DispatchQueue.main.async {
+                    guard let data, !data.isEmpty else {
+                        self.debugContextDownload(
+                            "browser.ctxcopy.fetch trace=\(traceID) stage=fileReadFailure path=\(sourceURL.path)"
+                        )
+                        completion(nil)
+                        return
+                    }
+
+                    self.debugContextDownload(
+                        "browser.ctxcopy.fetch trace=\(traceID) stage=fileReadSuccess bytes=\(data.count) path=\(sourceURL.path)"
+                    )
+                    completion(
+                        BrowserImageCopyPasteboardPayload(
+                            imageData: data,
+                            mimeType: self.inferredImageMIMEType(from: sourceURL),
+                            sourceURL: nil
+                        )
+                    )
+                }
+            }
+            return
+        }
+
+        guard scheme == "http" || scheme == "https" else {
+            debugContextDownload(
+                "browser.ctxcopy.fetch trace=\(traceID) stage=unsupportedScheme url=\(sourceURL.absoluteString)"
+            )
+            completion(nil)
+            return
+        }
+
+        let cookieStore = configuration.websiteDataStore.httpCookieStore
+        cookieStore.getAllCookies { cookies in
+            var request = URLRequest(url: sourceURL)
+            request.httpMethod = "GET"
+            let cookieHeaders = HTTPCookie.requestHeaderFields(with: cookies)
+            for (key, value) in cookieHeaders {
+                request.setValue(value, forHTTPHeaderField: key)
+            }
+            if let referer = self.url?.absoluteString, !referer.isEmpty {
+                request.setValue(referer, forHTTPHeaderField: "Referer")
+            }
+            if let ua = self.customUserAgent, !ua.isEmpty {
+                request.setValue(ua, forHTTPHeaderField: "User-Agent")
+            }
+
+            self.debugContextDownload(
+                "browser.ctxcopy.fetch trace=\(traceID) stage=dispatch cookies=\(cookies.count) referer=\(request.value(forHTTPHeaderField: "Referer") ?? "nil") uaSet=\(request.value(forHTTPHeaderField: "User-Agent") == nil ? 0 : 1)"
+            )
+
+            URLSession.shared.dataTask(with: request) { data, response, error in
+                DispatchQueue.main.async {
+                    guard let data, !data.isEmpty, error == nil else {
+                        self.debugContextDownload(
+                            "browser.ctxcopy.fetch trace=\(traceID) stage=networkFailure status=\((response as? HTTPURLResponse)?.statusCode ?? -1) mime=\(response?.mimeType ?? "nil") error=\(error?.localizedDescription ?? "unknown")"
+                        )
+                        completion(nil)
+                        return
+                    }
+
+                    let resolvedURL = response?.url.flatMap {
+                        let scheme = $0.scheme?.lowercased() ?? ""
+                        return (scheme == "http" || scheme == "https") ? $0 : nil
+                    } ?? sourceURL
+                    let mimeType = response?.mimeType ?? self.inferredImageMIMEType(from: resolvedURL)
+                    self.debugContextDownload(
+                        "browser.ctxcopy.fetch trace=\(traceID) stage=networkSuccess status=\((response as? HTTPURLResponse)?.statusCode ?? -1) mime=\(mimeType ?? "nil") bytes=\(data.count)"
+                    )
+                    completion(
+                        BrowserImageCopyPasteboardPayload(
+                            imageData: data,
+                            mimeType: mimeType,
+                            sourceURL: resolvedURL
+                        )
+                    )
+                }
+            }.resume()
+        }
+    }
+
+    private func writeContextMenuImageCopyPayload(
+        _ payload: BrowserImageCopyPasteboardPayload,
+        expectedPasteboardChangeCount: Int,
+        traceID: String
+    ) -> (wrote: Bool, shouldFallback: Bool) {
+        let pasteboard = NSPasteboard.general
+        if pasteboard.changeCount != expectedPasteboardChangeCount {
+            debugContextDownload(
+                "browser.ctxcopy.write trace=\(traceID) stage=skipPasteboardRace expected=\(expectedPasteboardChangeCount) actual=\(pasteboard.changeCount)"
+            )
+            return (false, false)
+        }
+
+        let items = BrowserImageCopyPasteboardBuilder.makePasteboardItems(from: payload)
+        guard !items.isEmpty else {
+            debugContextDownload(
+                "browser.ctxcopy.write trace=\(traceID) stage=buildFailure mime=\(payload.mimeType ?? "nil") url=\(payload.sourceURL?.absoluteString ?? "nil") bytes=\(payload.imageData.count)"
+            )
+            return (false, true)
+        }
+
+        _ = pasteboard.clearContents()
+        let wrote = pasteboard.writeObjects(items)
+        debugContextDownload(
+            "browser.ctxcopy.write trace=\(traceID) stage=finish wrote=\(wrote ? 1 : 0) itemCount=\(items.count) types=\(items.map { $0.types.map(\.rawValue).joined(separator: ",") }.joined(separator: "|"))"
+        )
+        return (wrote, !wrote)
+    }
+
+    // MARK: - Drag-and-drop passthrough
+
+    // WKWebView inherently calls registerForDraggedTypes with public.text (and others).
+    // Bonsplit tab drags use NSString (public.utf8-plain-text) which conforms to public.text,
+    // so AppKit's view-hierarchy-based drag routing delivers the session to WKWebView instead
+    // of SwiftUI's sibling .onDrop overlays. Rejecting in draggingEntered doesn't help because
+    // AppKit only bubbles up through superviews, not siblings.
+    //
+    // Fix: filter out text-based types that conflict with bonsplit tab drags, but keep
+    // file URL types so Finder file drops and HTML drag-and-drop work.
+    private static let blockedDragTypes: Set<NSPasteboard.PasteboardType> = [
+        .string, // public.utf8-plain-text — matches bonsplit's NSString tab drags
+        NSPasteboard.PasteboardType("public.text"),
+        NSPasteboard.PasteboardType("public.plain-text"),
+        NSPasteboard.PasteboardType("com.splittabbar.tabtransfer"),
+        NSPasteboard.PasteboardType("com.cmux.sidebar-tab-reorder"),
+    ]
+
+    static func shouldRejectInternalPaneDrag(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
+        DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
+            || DragOverlayRoutingPolicy.hasSidebarTabReorder(pasteboardTypes)
+    }
+
+    override func registerForDraggedTypes(_ newTypes: [NSPasteboard.PasteboardType]) {
+        let filtered = newTypes.filter { !Self.blockedDragTypes.contains($0) }
+        if !filtered.isEmpty {
+            super.registerForDraggedTypes(filtered)
+        }
+    }
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        guard !Self.shouldRejectInternalPaneDrag(sender.draggingPasteboard.types) else { return [] }
+        return super.draggingEntered(sender)
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        guard !Self.shouldRejectInternalPaneDrag(sender.draggingPasteboard.types) else { return [] }
+        return super.draggingUpdated(sender)
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        guard !Self.shouldRejectInternalPaneDrag(sender.draggingPasteboard.types) else { return false }
+        return super.performDragOperation(sender)
+    }
+
+    override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        guard !Self.shouldRejectInternalPaneDrag(sender.draggingPasteboard.types) else { return false }
+        return super.prepareForDragOperation(sender)
+    }
+
+    override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
+        guard !Self.shouldRejectInternalPaneDrag(sender?.draggingPasteboard.types) else { return }
+        super.concludeDragOperation(sender)
+    }
+
+    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+        super.willOpenMenu(menu, with: event)
+        lastContextMenuPoint = convert(event.locationInWindow, from: nil)
+        lastContextMenuOpenUptime = ProcessInfo.processInfo.systemUptime
+        lastContextMenuOpenEventTimestamp = event.timestamp
+        debugContextDownload(
+            "browser.ctxdl.menu open itemCount=\(menu.items.count) point=(\(Int(lastContextMenuPoint.x)),\(Int(lastContextMenuPoint.y)))"
+        )
+        var openLinkInsertionIndex: Int?
+        var hasDefaultBrowserOpenLinkItem = false
+
+        for (index, item) in menu.items.enumerated() {
+            debugLogContextMenuDownloadCandidate(item, index: index)
+            if !hasDefaultBrowserOpenLinkItem,
+               (item.action == #selector(contextMenuOpenLinkInDefaultBrowser(_:))
+                || item.title == String(localized: "browser.contextMenu.openLinkInDefaultBrowser", defaultValue: "Open Link in Default Browser")) {
+                hasDefaultBrowserOpenLinkItem = true
+            }
+
+            if openLinkInsertionIndex == nil,
+               (item.identifier?.rawValue == "WKMenuItemIdentifierOpenLink"
+                || item.title == "Open Link") {
+                openLinkInsertionIndex = index + 1
+            }
+
+            // Retarget "Open Link in New Window" to open as a tab, not a popup.
+            // Without this, WebKit's default action calls createWebViewWith with
+            // navigationType .other, which our classifier would treat as a scripted
+            // popup request.
+            if item.identifier?.rawValue == "WKMenuItemIdentifierOpenLinkInNewWindow"
+                || item.title.contains("Open Link in New Window") {
+                item.title = String(localized: "browser.contextMenu.openLinkInNewTab", defaultValue: "Open Link in New Tab")
+                item.target = self
+                item.action = #selector(contextMenuOpenLinkInNewTab(_:))
+            }
+
+            if isDownloadImageMenuItem(item) {
+                debugContextDownload(
+                    "browser.ctxdl.menu hook kind=image index=\(index) id=\(item.identifier?.rawValue ?? "nil") title=\(item.title) action=\(Self.selectorName(item.action))"
+                )
+                captureFallbackForMenuItemIfNeeded(item)
+                // Keep global fallback as a secondary safety net.
+                if let box = objc_getAssociatedObject(item, &Self.contextMenuFallbackKey) as? ContextMenuFallbackBox {
+                    fallbackDownloadImageTarget = box.target
+                    fallbackDownloadImageAction = box.action
+                } else if !isOurContextMenuAction(target: item.target as AnyObject?, action: item.action) {
+                    fallbackDownloadImageTarget = item.target as AnyObject?
+                    fallbackDownloadImageAction = item.action
+                }
+                item.target = self
+                item.action = #selector(contextMenuDownloadImage(_:))
+            }
+
+            if isCopyImageMenuItem(item) {
+                debugContextDownload(
+                    "browser.ctxcopy.menu hook kind=image index=\(index) id=\(item.identifier?.rawValue ?? "nil") title=\(item.title) action=\(Self.selectorName(item.action))"
+                )
+                captureFallbackForMenuItemIfNeeded(item)
+                if let box = objc_getAssociatedObject(item, &Self.contextMenuFallbackKey) as? ContextMenuFallbackBox {
+                    fallbackCopyImageTarget = box.target
+                    fallbackCopyImageAction = box.action
+                } else if !isOurContextMenuAction(target: item.target as AnyObject?, action: item.action) {
+                    fallbackCopyImageTarget = item.target as AnyObject?
+                    fallbackCopyImageAction = item.action
+                }
+                item.target = self
+                item.action = #selector(contextMenuCopyImage(_:))
+            }
+
+            if isDownloadLinkedFileMenuItem(item) {
+                debugContextDownload(
+                    "browser.ctxdl.menu hook kind=linked index=\(index) id=\(item.identifier?.rawValue ?? "nil") title=\(item.title) action=\(Self.selectorName(item.action))"
+                )
+                captureFallbackForMenuItemIfNeeded(item)
+                // Keep global fallback as a secondary safety net.
+                if let box = objc_getAssociatedObject(item, &Self.contextMenuFallbackKey) as? ContextMenuFallbackBox {
+                    fallbackDownloadLinkedFileTarget = box.target
+                    fallbackDownloadLinkedFileAction = box.action
+                } else if !isOurContextMenuAction(target: item.target as AnyObject?, action: item.action) {
+                    fallbackDownloadLinkedFileTarget = item.target as AnyObject?
+                    fallbackDownloadLinkedFileAction = item.action
+                }
+                item.target = self
+                item.action = #selector(contextMenuDownloadLinkedFile(_:))
+            }
+        }
+
+        if let openLinkInsertionIndex, !hasDefaultBrowserOpenLinkItem {
+            let item = NSMenuItem(
+                title: String(localized: "browser.contextMenu.openLinkInDefaultBrowser", defaultValue: "Open Link in Default Browser"),
+                action: #selector(contextMenuOpenLinkInDefaultBrowser(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            menu.insertItem(item, at: min(openLinkInsertionIndex, menu.items.count))
+        }
+        appendScreenshotContextMenuItems(to: menu)
+        appendMoveTabToNewWorkspaceContextMenuItem(to: menu)
+        appendBrowserFocusModeContextMenuItem(to: menu)
+    }
+
+    @objc private func contextMenuToggleBrowserFocusMode(_ sender: Any?) {
+        _ = sender
+        if AppDelegate.shared?.toggleBrowserFocusModeFromContextMenu(for: self) != true {
+            NSSound.beep()
+        }
+    }
+
+    @objc private func contextMenuOpenLinkInDefaultBrowser(_ sender: Any?) {
+        _ = sender
+        let point = lastContextMenuPoint
+        resolveContextMenuLinkURL(at: point) { [weak self] url in
+            guard let self, let url, self.canOpenInDefaultBrowser(url) else { return }
+            self.openContextMenuLinkInDefaultBrowser(url)
+        }
+    }
+
+    @objc private func contextMenuOpenLinkInNewTab(_ sender: Any?) {
+        let point = lastContextMenuPoint
+        resolveContextMenuLinkURL(at: point) { [weak self] url in
+            guard let self, let url else { return }
+            self.onContextMenuOpenLinkInNewTab?(url)
+        }
+    }
+
+    @objc private func contextMenuCopyImage(_ sender: Any?) {
+        let traceID = Self.makeContextDownloadTraceID(prefix: "cpy")
+        let point = lastContextMenuPoint
+        let pasteboardChangeCount = NSPasteboard.general.changeCount
+        debugContextDownload(
+            "browser.ctxcopy.click trace=\(traceID) point=(\(Int(point.x)),\(Int(point.y)))"
+        )
+
+        let fallback = fallbackFromSender(
+            sender,
+            defaultAction: fallbackCopyImageAction,
+            defaultTarget: fallbackCopyImageTarget
+        )
+        debugContextDownload(
+            "browser.ctxcopy.click trace=\(traceID) fallback action=\(Self.selectorName(fallback.action)) target=\(String(describing: fallback.target))"
+        )
+
+        resolveContextMenuCopyImageSourceURL(at: point) { [weak self] sourceURL in
+            guard let self else { return }
+            guard let sourceURL else {
+                self.debugContextDownload(
+                    "browser.ctxcopy.resolve trace=\(traceID) stage=noSourceURL"
+                )
+                self.debugInspectElementsAtPoint(point, traceID: traceID, kind: "copy")
+                self.runContextMenuFallback(
+                    action: fallback.action,
+                    target: fallback.target,
+                    sender: sender,
+                    traceID: traceID,
+                    reason: "no_copy_image_url"
+                )
+                return
+            }
+
+            self.debugContextDownload(
+                "browser.ctxcopy.resolve trace=\(traceID) stage=resolved url=\(sourceURL.absoluteString)"
+            )
+            self.fetchContextMenuImageCopyPayload(from: sourceURL, traceID: traceID) { payload in
+                guard let payload else {
+                    self.debugContextDownload(
+                        "browser.ctxcopy.resolve trace=\(traceID) stage=noPayload"
+                    )
+                    self.runContextMenuFallback(
+                        action: fallback.action,
+                        target: fallback.target,
+                        sender: sender,
+                        traceID: traceID,
+                        reason: "copy_image_fetch_failed"
+                    )
+                    return
+                }
+
+                let writeResult = self.writeContextMenuImageCopyPayload(
+                    payload,
+                    expectedPasteboardChangeCount: pasteboardChangeCount,
+                    traceID: traceID
+                )
+                if writeResult.wrote {
+                    return
+                }
+                if !writeResult.shouldFallback {
+                    return
+                }
+
+                self.runContextMenuFallback(
+                    action: fallback.action,
+                    target: fallback.target,
+                    sender: sender,
+                    traceID: traceID,
+                    reason: "copy_image_write_failed"
+                )
+            }
+        }
+    }
+
+    @objc private func contextMenuDownloadImage(_ sender: Any?) {
+        let traceID = Self.makeContextDownloadTraceID(prefix: "img")
+        let point = lastContextMenuPoint
+        debugContextDownload(
+            "browser.ctxdl.click trace=\(traceID) kind=image point=(\(Int(point.x)),\(Int(point.y)))"
+        )
+        let fallback = fallbackFromSender(
+            sender,
+            defaultAction: fallbackDownloadImageAction,
+            defaultTarget: fallbackDownloadImageTarget
+        )
+        debugContextDownload(
+            "browser.ctxdl.click trace=\(traceID) fallback action=\(Self.selectorName(fallback.action)) target=\(String(describing: fallback.target))"
+        )
+        findImageURLAtPoint(point) { [weak self] url in
+            guard let self else { return }
+            self.debugContextDownload(
+                "browser.ctxdl.resolve trace=\(traceID) kind=image imageURL=\(url?.absoluteString ?? "nil")"
+            )
+            var dataImageURL: URL?
+            var weakImageURL: URL?
+            if let url {
+                let scheme = url.scheme?.lowercased() ?? ""
+                if scheme == "data" {
+                    dataImageURL = url
+                    self.debugContextDownload(
+                        "browser.ctxdl.resolve trace=\(traceID) kind=image dataURLDetected length=\(url.absoluteString.count)"
+                    )
+                } else if scheme == "http" || scheme == "https" || scheme == "file" {
+                    let normalized = self.normalizedLinkedDownloadURL(url)
+                    self.debugContextDownload(
+                        "browser.ctxdl.resolve trace=\(traceID) kind=image normalizedImageURL=\(normalized.absoluteString)"
+                    )
+                    if self.isLikelyImageURL(normalized) {
+                        if !self.isLikelyFaviconURL(normalized) {
+                            self.startContextMenuDownload(
+                                normalized,
+                                sender: sender,
+                                fallbackAction: fallback.action,
+                                fallbackTarget: fallback.target,
+                                traceID: traceID
+                            )
+                            return
+                        }
+                        weakImageURL = normalized
+                        self.debugContextDownload(
+                            "browser.ctxdl.resolve trace=\(traceID) kind=image weakCandidateURL=\(normalized.absoluteString) reason=favicon_or_low_confidence"
+                        )
+                    } else if self.isDownloadableScheme(normalized), !self.isLikelyFaviconURL(normalized) {
+                        // Some image CDNs use extensionless URLs; keep as last-resort candidate.
+                        weakImageURL = normalized
+                        self.debugContextDownload(
+                            "browser.ctxdl.resolve trace=\(traceID) kind=image weakCandidateURL=\(normalized.absoluteString) reason=unclassified_direct_image_src"
+                        )
+                    }
+                    self.debugContextDownload(
+                        "browser.ctxdl.resolve trace=\(traceID) kind=image rejectedPrimaryImageURL=\(normalized.absoluteString)"
+                    )
+                }
+            }
+
+            // Google Images and similar sites often expose blob:/data: image URLs.
+            // If image URL is not directly downloadable, fall back to the nearby link URL.
+            self.findLinkURLAtPoint(point) { linkURL in
+                self.debugContextDownload(
+                    "browser.ctxdl.resolve trace=\(traceID) kind=image fallbackLinkURL=\(linkURL?.absoluteString ?? "nil")"
+                )
+                if let linkURL {
+                    let normalizedLink = self.normalizedLinkedDownloadURL(linkURL)
+                    self.debugContextDownload(
+                        "browser.ctxdl.resolve trace=\(traceID) kind=image normalizedFallbackLinkURL=\(normalizedLink.absoluteString)"
+                    )
+                    if self.isDownloadableScheme(normalizedLink),
+                       self.isLikelyImageURL(normalizedLink),
+                       !self.isLikelyFaviconURL(normalizedLink) {
+                        self.startContextMenuDownload(
+                            normalizedLink,
+                            sender: sender,
+                            fallbackAction: fallback.action,
+                            fallbackTarget: fallback.target,
+                            traceID: traceID
+                        )
+                        return
+                    }
+                }
+
+                if let dataImageURL {
+                    self.debugContextDownload(
+                        "browser.ctxdl.resolve trace=\(traceID) kind=image fallbackToDataURL=1"
+                    )
+                    self.startContextMenuDownload(
+                        dataImageURL,
+                        sender: sender,
+                        fallbackAction: fallback.action,
+                        fallbackTarget: fallback.target,
+                        traceID: traceID
+                    )
+                    return
+                }
+
+                if let weakImageURL {
+                    self.debugContextDownload(
+                        "browser.ctxdl.resolve trace=\(traceID) kind=image fallbackToWeakCandidate=1"
+                    )
+                    self.startContextMenuDownload(
+                        weakImageURL,
+                        sender: sender,
+                        fallbackAction: fallback.action,
+                        fallbackTarget: fallback.target,
+                        traceID: traceID
+                    )
+                    return
+                }
+
+                if linkURL != nil {
+                    self.debugInspectElementsAtPoint(point, traceID: traceID, kind: "image")
+                    self.runContextMenuFallback(
+                        action: fallback.action,
+                        target: fallback.target,
+                        sender: sender,
+                        traceID: traceID,
+                        reason: "fallback_link_not_image"
+                    )
+                    return
+                }
+
+                self.debugInspectElementsAtPoint(point, traceID: traceID, kind: "image")
+                self.runContextMenuFallback(
+                    action: fallback.action,
+                    target: fallback.target,
+                    sender: sender,
+                    traceID: traceID,
+                    reason: "no_image_or_link_url"
+                )
+            }
+        }
+    }
+
+    @objc private func contextMenuDownloadLinkedFile(_ sender: Any?) {
+        let traceID = Self.makeContextDownloadTraceID(prefix: "lnk")
+        let point = lastContextMenuPoint
+        debugContextDownload(
+            "browser.ctxdl.click trace=\(traceID) kind=linked point=(\(Int(point.x)),\(Int(point.y)))"
+        )
+        let fallback = fallbackFromSender(
+            sender,
+            defaultAction: fallbackDownloadLinkedFileAction,
+            defaultTarget: fallbackDownloadLinkedFileTarget
+        )
+        debugContextDownload(
+            "browser.ctxdl.click trace=\(traceID) fallback action=\(Self.selectorName(fallback.action)) target=\(String(describing: fallback.target))"
+        )
+        // Shared link resolution with the Open Link actions: prefer the link
+        // captured at contextmenu time (correct under page zoom and inside
+        // iframes), coordinate hit test only as fallback.
+        resolveContextMenuLinkURL(at: point) { [weak self] url in
+            guard let self else { return }
+            self.debugContextDownload(
+                "browser.ctxdl.resolve trace=\(traceID) kind=linked linkURL=\(url?.absoluteString ?? "nil")"
+            )
+            if let url {
+                let normalized = self.normalizedLinkedDownloadURL(url)
+                self.debugContextDownload(
+                    "browser.ctxdl.resolve trace=\(traceID) kind=linked normalizedLinkURL=\(normalized.absoluteString)"
+                )
+                if self.isDownloadSupportedScheme(normalized) {
+                    self.startContextMenuDownload(
+                        normalized,
+                        sender: sender,
+                        fallbackAction: fallback.action,
+                        fallbackTarget: fallback.target,
+                        traceID: traceID
+                    )
+                    return
+                }
+            }
+
+            // Fallback 1: image URL under cursor (useful on image-heavy result pages).
+            self.findImageURLAtPoint(point) { imageURL in
+                self.debugContextDownload(
+                    "browser.ctxdl.resolve trace=\(traceID) kind=linked fallbackImageURL=\(imageURL?.absoluteString ?? "nil")"
+                )
+                var dataImageURL: URL?
+                if let imageURL, self.isDownloadableScheme(imageURL) {
+                    self.startContextMenuDownload(
+                        imageURL,
+                        sender: sender,
+                        fallbackAction: fallback.action,
+                        fallbackTarget: fallback.target,
+                        traceID: traceID
+                    )
+                    return
+                }
+                if let imageURL, self.isDataURLScheme(imageURL) {
+                    dataImageURL = imageURL
+                    self.debugContextDownload(
+                        "browser.ctxdl.resolve trace=\(traceID) kind=linked fallbackDataURLDetected length=\(imageURL.absoluteString.count)"
+                    )
+                }
+
+                // Fallback 2: simpler nearest-anchor lookup.
+                self.findLinkAtPoint(point) { fallbackURL in
+                    self.debugContextDownload(
+                        "browser.ctxdl.resolve trace=\(traceID) kind=linked nearestAnchorURL=\(fallbackURL?.absoluteString ?? "nil")"
+                    )
+                    guard let fallbackURL else {
+                        if let dataImageURL {
+                            self.debugContextDownload(
+                                "browser.ctxdl.resolve trace=\(traceID) kind=linked fallbackToDataURL=1"
+                            )
+                            self.startContextMenuDownload(
+                                dataImageURL,
+                                sender: sender,
+                                fallbackAction: fallback.action,
+                                fallbackTarget: fallback.target,
+                                traceID: traceID
+                            )
+                            return
+                        }
+                        self.debugInspectElementsAtPoint(point, traceID: traceID, kind: "linked")
+                        self.runContextMenuFallback(
+                            action: fallback.action,
+                            target: fallback.target,
+                            sender: sender,
+                            traceID: traceID,
+                            reason: "no_link_or_image_url"
+                        )
+                        return
+                    }
+                    let normalized = self.normalizedLinkedDownloadURL(fallbackURL)
+                    self.debugContextDownload(
+                        "browser.ctxdl.resolve trace=\(traceID) kind=linked normalizedNearestAnchorURL=\(normalized.absoluteString)"
+                    )
+                    guard self.isDownloadSupportedScheme(normalized) else {
+                        if let dataImageURL {
+                            self.debugContextDownload(
+                                "browser.ctxdl.resolve trace=\(traceID) kind=linked fallbackToDataURL=1"
+                            )
+                            self.startContextMenuDownload(
+                                dataImageURL,
+                                sender: sender,
+                                fallbackAction: fallback.action,
+                                fallbackTarget: fallback.target,
+                                traceID: traceID
+                            )
+                            return
+                        }
+                        self.debugInspectElementsAtPoint(point, traceID: traceID, kind: "linked")
+                        self.runContextMenuFallback(
+                            action: fallback.action,
+                            target: fallback.target,
+                            sender: sender,
+                            traceID: traceID,
+                            reason: "nearest_anchor_unsupported_scheme"
+                        )
+                        return
+                    }
+                    self.startContextMenuDownload(
+                        normalized,
+                        sender: sender,
+                        fallbackAction: fallback.action,
+                        fallbackTarget: fallback.target,
+                        traceID: traceID
+                    )
+                }
+            }
+        }
+    }
+}

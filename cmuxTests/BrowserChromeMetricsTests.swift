@@ -1,8 +1,6 @@
 import CoreGraphics
 import Testing
 
-import CmuxBrowser
-
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -10,12 +8,6 @@ import CmuxBrowser
 #endif
 
 @Suite struct BrowserChromeMetricsTests {
-    /// The shipped default tab bar font size the app injects as the byte-identical
-    /// anchor (`GhosttyConfig.defaultSurfaceTabBarFontSize`). `referenceFontSize`
-    /// is now injected at construction rather than read inside the package, so the
-    /// tests pin the same default the app passes at the call site.
-    private static let referenceFontSize: CGFloat = 11
-
     /// The legacy hardcoded chrome sizes the layout must reproduce exactly at the
     /// default tab bar font size, so default appearance stays byte-identical.
     private static let legacy = (
@@ -28,12 +20,8 @@ import CmuxBrowser
         buttonHitSize: CGFloat(26)
     )
 
-    private static func metrics(_ tabBarFontSize: CGFloat) -> BrowserChromeMetrics {
-        BrowserChromeMetrics(tabBarFontSize: tabBarFontSize, referenceFontSize: referenceFontSize)
-    }
-
     @Test func defaultFontSizeReproducesLegacySizesByteIdentical() {
-        let metrics = Self.metrics(Self.referenceFontSize)
+        let metrics = BrowserChromeMetrics(tabBarFontSize: BrowserChromeMetrics.referenceFontSize)
 
         #expect(metrics.scale == 1)
         #expect(metrics.omnibarFontSize == Self.legacy.omnibarFontSize)
@@ -48,13 +36,13 @@ import CmuxBrowser
     @Test func referenceFontSizeMatchesShippedDefault() {
         // The byte-identical anchor must be the actual shipped default (11.0),
         // not an arbitrary constant.
-        #expect(Self.referenceFontSize == 11)
+        #expect(BrowserChromeMetrics.referenceFontSize == 11)
     }
 
     @Test func largerFontScalesEverySizeUpProportionally() {
-        let larger = Self.referenceFontSize + 2 // 13: a valid in-range size
-        let metrics = Self.metrics(larger)
-        let expectedScale = larger / Self.referenceFontSize
+        let larger = BrowserChromeMetrics.referenceFontSize + 2 // 13: a valid in-range size
+        let metrics = BrowserChromeMetrics(tabBarFontSize: larger)
+        let expectedScale = larger / BrowserChromeMetrics.referenceFontSize
 
         #expect(metrics.scale > 1)
         #expect(metrics.scale == expectedScale)
@@ -65,9 +53,9 @@ import CmuxBrowser
     }
 
     @Test func smallerFontScalesEverySizeDownProportionally() {
-        let smaller = Self.referenceFontSize - 3 // 8: the minimum valid tab bar font size
-        let metrics = Self.metrics(smaller)
-        let expectedScale = smaller / Self.referenceFontSize
+        let smaller = BrowserChromeMetrics.referenceFontSize - 3 // 8: the minimum valid tab bar font size
+        let metrics = BrowserChromeMetrics(tabBarFontSize: smaller)
+        let expectedScale = smaller / BrowserChromeMetrics.referenceFontSize
 
         #expect(metrics.scale < 1)
         #expect(metrics.scale == expectedScale)
@@ -76,20 +64,20 @@ import CmuxBrowser
     }
 
     @Test func absurdlyLargeFontClampsToMaximumScale() {
-        let metrics = Self.metrics(10_000)
+        let metrics = BrowserChromeMetrics(tabBarFontSize: 10_000)
         #expect(metrics.scale == BrowserChromeMetrics.maximumScale)
         #expect(metrics.buttonIconSize == Self.legacy.buttonIconSize * BrowserChromeMetrics.maximumScale)
     }
 
     @Test func nearZeroFontClampsToMinimumScale() {
-        let metrics = Self.metrics(0.001)
+        let metrics = BrowserChromeMetrics(tabBarFontSize: 0.001)
         #expect(metrics.scale == BrowserChromeMetrics.minimumScale)
         #expect(metrics.omnibarFontSize == Self.legacy.omnibarFontSize * BrowserChromeMetrics.minimumScale)
     }
 
     @Test(arguments: [CGFloat(0), CGFloat(-5), CGFloat.nan, CGFloat.infinity, -CGFloat.infinity])
     func nonPositiveOrNonFiniteFontFallsBackToNeutralScale(_ value: CGFloat) {
-        let metrics = Self.metrics(value)
+        let metrics = BrowserChromeMetrics(tabBarFontSize: value)
         #expect(metrics.scale == 1)
         #expect(metrics.buttonIconSize == Self.legacy.buttonIconSize)
     }

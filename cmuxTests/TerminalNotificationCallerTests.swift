@@ -125,7 +125,7 @@ final class TerminalNotificationCallerTests: XCTestCase {
 
         let targetSurfaceId = try XCTUnwrap(targetWorkspace.focusedPanelId)
         let targetPaneId = targetWorkspace.paneId(forPanelId: targetSurfaceId)?.id
-        let refs = TerminalController.shared.controlCommandCoordinator.workspacePaneAndSurfaceRefs(
+        let refs = TerminalController.shared.v2WorkspacePaneAndSurfaceRefs(
             workspaceId: targetWorkspace.id,
             paneId: targetPaneId,
             surfaceId: targetSurfaceId

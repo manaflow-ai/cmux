@@ -110,29 +110,5 @@ public protocol DebugStressWorkspaceHosting: AnyObject {
 
     /// A short, prefixed identifier for `handle` used only in timeout log lines.
     func logIdentifier(for handle: DebugStressLoadTargetHandle) -> String
-
-    // MARK: Debug menu content / agent-session / color-comparison openers
-
-    /// The terminal's currently configured scrollback limit in bytes, read so
-    /// the driver can size the scrollback content payload. Mirrors the legacy
-    /// `GhosttyConfig.load().scrollbackLimit` read.
-    func currentScrollbackLimit() -> Int
-
-    /// Creates a fresh tab and streams `text` into its terminal surface when it
-    /// is ready. Mirrors the legacy `tabManager.addTab()` +
-    /// `sendTextWhenReady(_:to:)` pair used by the scrollback / Lorem openers.
-    func openDebugContentTab(text: String)
-
-    /// Creates a Codex agent-session surface using `rendererKind` in the focused
-    /// pane of the selected workspace. Mirrors the legacy
-    /// `Workspace.newAgentSessionSurface(...)` call, mapping `rendererKind` onto
-    /// the app's own renderer-kind type.
-    func openDebugAgentSession(rendererKind: DebugAgentSessionRendererKind)
-
-    /// Creates (or retitles / recolors) one workspace per tab-color palette
-    /// entry, titled `titlePrefix` + the color's name. Mirrors the legacy
-    /// palette enumeration over `WorkspaceTabColorSettings.palette()` and the
-    /// `tabManager` title / color mutations.
-    func openDebugColorComparisonWorkspaces(titlePrefix: String)
 }
 #endif

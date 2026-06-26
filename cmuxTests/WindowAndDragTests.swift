@@ -1,6 +1,5 @@
 import XCTest
 import AppKit
-import CmuxWorkspaces
 import CmuxAppKitSupportUI
 import CmuxFoundation
 import Carbon.HIToolbox
@@ -22,20 +21,6 @@ import struct CmuxSettings.FileRouteSettingsStore
 // CmuxWindowing also exports generic names (Snapshot/StateToken/WindowID/...), so a
 // blanket import would shadow app-target types here. Import only the moved symbol used.
 import struct CmuxWindowing.TerminalDefaultFileOpenRequest
-import enum CmuxPanes.FilePreviewPDFKeyboardAction
-// CmuxPanes exports generic names (Panel/SplitDirection/ResizeDirection/...) that
-// collide with app-target types, so import only the moved file-preview types.
-import enum CmuxPanes.FilePreviewMode
-import struct CmuxPanes.FileExternalOpenApplication
-import struct CmuxPanes.FileExternalOpenApplicationResolver
-import struct CmuxPanes.FileExternalOpenMenuBuilder
-import struct CmuxPanes.FileExternalOpenStrings
-import enum CmuxPanes.FilePreviewPDFChromeStyleVariant
-import class CmuxPanes.FilePreviewPDFChromeHostView
-import class CmuxPanes.FilePreviewPDFChromeHostingView
-import class CmuxPanes.FilePreviewPDFContainerView
-import class CmuxPanes.FilePreviewPDFThumbnailSidebarView
-import struct CmuxPanes.FilePreviewPDFSizing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -2476,12 +2461,8 @@ final class FilePreviewPDFChromeTests: XCTestCase {
         let defaults = UserDefaults.standard
         let previousValue = defaults.string(forKey: FilePreviewPDFChromeStyleVariant.defaultsKey)
         let notificationFlag = FilePreviewPDFChromeNotificationFlag()
-        // The `.filePreviewPDFChromeStyleDidChange` extension now lives in CmuxPanes;
-        // this test can't `import CmuxPanes` wholesale (its generic exports collide
-        // with app-target names), and selective type imports don't surface
-        // extension members. Reference the identical raw name directly.
         let observer = NotificationCenter.default.addObserver(
-            forName: Notification.Name("filePreviewPDFChromeStyleDidChange"),
+            forName: .filePreviewPDFChromeStyleDidChange,
             object: nil,
             queue: nil
         ) { _ in
@@ -2606,36 +2587,36 @@ final class FilePreviewPDFChromeTests: XCTestCase {
     func testThumbnailSidebarPreferredWidthShrinksToPortraitContent() throws {
         let document = try makePDFDocument(pageSizes: [NSSize(width: 80, height: 160)])
 
-        let width = FilePreviewPDFSizing.preview.preferredThumbnailSidebarWidth(for: document)
+        let width = FilePreviewPDFSizing.preferredThumbnailSidebarWidth(for: document)
 
-        XCTAssertEqual(width, FilePreviewPDFSizing.preview.minimumThumbnailSidebarWidth, accuracy: 0.001)
+        XCTAssertEqual(width, FilePreviewPDFSizing.minimumThumbnailSidebarWidth, accuracy: 0.001)
     }
 
     func testThumbnailSidebarPreferredWidthUsesThumbnailMinimumWithoutDocument() {
-        let width = FilePreviewPDFSizing.preview.preferredThumbnailSidebarWidth(for: nil)
+        let width = FilePreviewPDFSizing.preferredThumbnailSidebarWidth(for: nil)
 
-        XCTAssertEqual(width, FilePreviewPDFSizing.preview.minimumThumbnailSidebarWidth, accuracy: 0.001)
+        XCTAssertEqual(width, FilePreviewPDFSizing.minimumThumbnailSidebarWidth, accuracy: 0.001)
     }
 
     func testThumbnailSidebarPreferredWidthExpandsForLandscapeContent() throws {
         let document = try makePDFDocument(pageSizes: [NSSize(width: 160, height: 90)])
 
-        let width = FilePreviewPDFSizing.preview.preferredThumbnailSidebarWidth(for: document)
+        let width = FilePreviewPDFSizing.preferredThumbnailSidebarWidth(for: document)
 
         XCTAssertGreaterThan(width, 200)
-        XCTAssertLessThan(width, FilePreviewPDFSizing.preview.maximumSidebarWidth)
+        XCTAssertLessThan(width, FilePreviewPDFSizing.maximumSidebarWidth)
     }
 
     func testSidebarWidthClampReservesMinimumContentWidth() {
-        let width = FilePreviewPDFSizing.preview.clampedSidebarWidth(
+        let width = FilePreviewPDFSizing.clampedSidebarWidth(
             240,
-            containerWidth: FilePreviewPDFSizing.preview.minimumSidebarWidth
-                + FilePreviewPDFSizing.preview.minimumContentWidth
+            containerWidth: FilePreviewPDFSizing.minimumSidebarWidth
+                + FilePreviewPDFSizing.minimumContentWidth
                 - 40,
             dividerThickness: 1
         )
 
-        XCTAssertEqual(width, FilePreviewPDFSizing.preview.minimumSidebarWidth, accuracy: 0.001)
+        XCTAssertEqual(width, FilePreviewPDFSizing.minimumSidebarWidth, accuracy: 0.001)
     }
 
     func testThumbnailSidebarKeepsSingleSelectionWhenProgrammaticallyChangingPage() throws {
@@ -2665,7 +2646,7 @@ final class FilePreviewPDFChromeTests: XCTestCase {
     }
 
     func testPDFViewportOriginUsesVisibleClipWidth() {
-        let origin = CGPoint.filePreviewClampedClipOrigin(
+        let origin = FilePreviewViewport.clampedClipOrigin(
             documentPoint: CGPoint(x: 500, y: 700),
             anchorOffsetInClip: CGPoint(x: 200, y: 300),
             documentBounds: CGRect(x: 0, y: 0, width: 1_000, height: 1_400),
@@ -2677,7 +2658,7 @@ final class FilePreviewPDFChromeTests: XCTestCase {
     }
 
     func testPDFViewportOriginCentersSmallerDocuments() {
-        let origin = CGPoint.filePreviewClampedClipOrigin(
+        let origin = FilePreviewViewport.clampedClipOrigin(
             documentPoint: CGPoint(x: 54, y: 224.5),
             anchorOffsetInClip: CGPoint(x: 300, y: 400),
             documentBounds: CGRect(x: 0, y: 0, width: 108, height: 449),
@@ -2736,7 +2717,7 @@ private final class FilePreviewFocusTestView: NSView {
 final class FilePreviewFocusCoordinatorTests: XCTestCase {
     func testPDFKeyboardRoutingUsesFocusedRegion() {
         XCTAssertEqual(
-            FilePreviewPDFKeyboardAction.action(
+            FilePreviewPDFKeyboardRouting.action(
                 keyCode: UInt16(kVK_UpArrow),
                 modifiers: [],
                 region: .pdfThumbnails
@@ -2744,7 +2725,7 @@ final class FilePreviewFocusCoordinatorTests: XCTestCase {
             .navigatePage(-1)
         )
         XCTAssertEqual(
-            FilePreviewPDFKeyboardAction.action(
+            FilePreviewPDFKeyboardRouting.action(
                 keyCode: UInt16(kVK_DownArrow),
                 modifiers: [],
                 region: .pdfThumbnails
@@ -2752,7 +2733,7 @@ final class FilePreviewFocusCoordinatorTests: XCTestCase {
             .navigatePage(1)
         )
         XCTAssertEqual(
-            FilePreviewPDFKeyboardAction.action(
+            FilePreviewPDFKeyboardRouting.action(
                 keyCode: UInt16(kVK_UpArrow),
                 modifiers: [],
                 region: .pdfCanvas
@@ -2760,7 +2741,7 @@ final class FilePreviewFocusCoordinatorTests: XCTestCase {
             .native
         )
         XCTAssertEqual(
-            FilePreviewPDFKeyboardAction.action(
+            FilePreviewPDFKeyboardRouting.action(
                 keyCode: UInt16(kVK_DownArrow),
                 modifiers: [],
                 region: .pdfOutline
@@ -2768,7 +2749,7 @@ final class FilePreviewFocusCoordinatorTests: XCTestCase {
             .native
         )
         XCTAssertEqual(
-            FilePreviewPDFKeyboardAction.action(
+            FilePreviewPDFKeyboardRouting.action(
                 keyCode: UInt16(kVK_PageDown),
                 modifiers: .command,
                 region: .pdfThumbnails
@@ -3276,16 +3257,16 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
         try Data("%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n".utf8).write(to: url)
 
-        XCTAssertEqual(FilePreviewMode.resolved(for: url), .pdf)
-        XCTAssertEqual(FilePreviewMode.tabIconName(for: url), "doc.richtext")
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .pdf)
+        XCTAssertEqual(FilePreviewKindResolver.tabIconName(for: url), "doc.richtext")
     }
 
     func testUTF16TextWithBOMStillResolvesAsText() throws {
         let url = try temporaryTextFile(contents: "hello", encoding: .utf16)
         defer { try? FileManager.default.removeItem(at: url) }
 
-        XCTAssertEqual(FilePreviewMode.resolved(for: url), .text)
-        XCTAssertEqual(FilePreviewMode.tabIconName(for: url), "doc.text")
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
+        XCTAssertEqual(FilePreviewKindResolver.tabIconName(for: url), "doc.text")
     }
 
     func testExtensionlessTextFileResolvesToTextAfterFastInitialClassification() async throws {
@@ -3294,8 +3275,8 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         try "extensionless text".write(to: url, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
 
-        XCTAssertEqual(FilePreviewMode.initial(for: url), .quickLook)
-        XCTAssertEqual(FilePreviewMode.resolved(for: url), .text)
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
         defer { panel.close() }
@@ -3312,8 +3293,8 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
         try Data("bplist00".utf8).write(to: url)
 
-        XCTAssertEqual(FilePreviewMode.initial(for: url), .quickLook)
-        XCTAssertNotEqual(FilePreviewMode.resolved(for: url), .text)
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
+        XCTAssertNotEqual(FilePreviewKindResolver.mode(for: url), .text)
     }
 
     func testExternalOpenApplicationResolverOrdersDefaultAppFirstAndDeduplicates() {
@@ -3369,8 +3350,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
             isDefault: false
         )
 
-        let strings = FileExternalOpenStrings.live
-        let menu = FileExternalOpenMenuBuilder(strings: strings).makeMenu(
+        let menu = FileExternalOpenMenuFactory.makeMenu(
             fileURL: fileURL,
             primaryApplication: primaryApplication,
             otherApplications: [otherApplication]
@@ -3378,12 +3358,12 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
         let topLevelTitles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
         XCTAssertEqual(topLevelTitles, [
-            strings.openInApplication("Preview"),
-            strings.revealInFinder,
-            strings.openWithMenu,
+            FileExternalOpenText.openInApplication("Preview"),
+            FileExternalOpenText.revealInFinder,
+            FileExternalOpenText.openWithMenu,
         ])
 
-        let openWithItem = try XCTUnwrap(menu.items.first { $0.title == strings.openWithMenu })
+        let openWithItem = try XCTUnwrap(menu.items.first { $0.title == FileExternalOpenText.openWithMenu })
         let openWithTitles = try XCTUnwrap(openWithItem.submenu?.items.map(\.title))
         XCTAssertEqual(openWithTitles, ["Pixelmator Pro"])
     }
@@ -3391,8 +3371,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
     func testExternalOpenMenuKeepsFinderTopLevelWithoutResolvedApplications() {
         let fileURL = URL(fileURLWithPath: "/tmp/cmux-sample.bin")
 
-        let strings = FileExternalOpenStrings.live
-        let menu = FileExternalOpenMenuBuilder(strings: strings).makeMenu(
+        let menu = FileExternalOpenMenuFactory.makeMenu(
             fileURL: fileURL,
             primaryApplication: nil,
             otherApplications: []
@@ -3400,8 +3379,8 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
         let topLevelTitles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
         XCTAssertEqual(topLevelTitles, [
-            strings.openExternally,
-            strings.revealInFinder,
+            FileExternalOpenText.openExternally,
+            FileExternalOpenText.revealInFinder,
         ])
     }
 
@@ -3879,7 +3858,7 @@ final class TmuxWorkspacePaneOverlayTests: XCTestCase {
         contentView.addSubview(targetView)
 
         XCTAssertEqual(
-            TmuxPaneOverlayGeometry.exactRect(for: targetView, in: contentView),
+            ContentView.tmuxWorkspacePaneExactRect(for: targetView, in: contentView),
             CGRect(x: 120, y: 48, width: 300, height: 200)
         )
     }

@@ -1,5 +1,4 @@
 import CmuxCommandPalette
-import CmuxNotifications
 import XCTest
 import AppKit
 
@@ -2106,7 +2105,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
 
     func testShouldShowUnreadIndicatorWhenNotificationIsUnread() {
         XCTAssertTrue(
-            WorkspaceUnreadModel.shouldShowUnreadIndicator(
+            Workspace.shouldShowUnreadIndicator(
                 hasUnreadNotification: true,
                 hasPanelUnreadIndicator: false
             )
@@ -2115,7 +2114,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
 
     func testShouldShowUnreadIndicatorWhenManualUnreadIsSet() {
         XCTAssertTrue(
-            WorkspaceUnreadModel.shouldShowUnreadIndicator(
+            Workspace.shouldShowUnreadIndicator(
                 hasUnreadNotification: false,
                 hasPanelUnreadIndicator: true
             )
@@ -2124,7 +2123,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
 
     func testShouldShowUnreadIndicatorWhenWorkspaceManualUnreadTargetsRepresentativePanel() {
         XCTAssertTrue(
-            WorkspaceUnreadModel.shouldShowUnreadIndicator(
+            Workspace.shouldShowUnreadIndicator(
                 hasUnreadNotification: false,
                 hasPanelUnreadIndicator: false,
                 isWorkspaceManuallyUnread: true,
@@ -2135,7 +2134,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
 
     func testShouldHideWorkspaceManualUnreadIndicatorOnNonRepresentativePanel() {
         XCTAssertFalse(
-            WorkspaceUnreadModel.shouldShowUnreadIndicator(
+            Workspace.shouldShowUnreadIndicator(
                 hasUnreadNotification: false,
                 hasPanelUnreadIndicator: false,
                 isWorkspaceManuallyUnread: true,
@@ -2146,7 +2145,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
 
     func testShouldHideUnreadIndicatorWhenNeitherNotificationNorManualUnreadExists() {
         XCTAssertFalse(
-            WorkspaceUnreadModel.shouldShowUnreadIndicator(
+            Workspace.shouldShowUnreadIndicator(
                 hasUnreadNotification: false,
                 hasPanelUnreadIndicator: false
             )
@@ -2438,20 +2437,20 @@ final class CommandPaletteRequestRoutingTests: XCTestCase {
         let windowB = makeWindow()
 
         XCTAssertTrue(
-            CommandPaletteWindowDispatchPolicy(
+            ContentView.shouldHandleCommandPaletteRequest(
                 observedWindow: windowA,
                 requestedWindow: windowA,
                 keyWindow: windowA,
                 mainWindow: windowA
-            ).shouldHandle
+            )
         )
         XCTAssertFalse(
-            CommandPaletteWindowDispatchPolicy(
+            ContentView.shouldHandleCommandPaletteRequest(
                 observedWindow: windowB,
                 requestedWindow: windowA,
                 keyWindow: windowA,
                 mainWindow: windowA
-            ).shouldHandle
+            )
         )
     }
 
@@ -2460,20 +2459,20 @@ final class CommandPaletteRequestRoutingTests: XCTestCase {
         let other = makeWindow()
 
         XCTAssertTrue(
-            CommandPaletteWindowDispatchPolicy(
+            ContentView.shouldHandleCommandPaletteRequest(
                 observedWindow: key,
                 requestedWindow: nil,
                 keyWindow: key,
                 mainWindow: nil
-            ).shouldHandle
+            )
         )
         XCTAssertFalse(
-            CommandPaletteWindowDispatchPolicy(
+            ContentView.shouldHandleCommandPaletteRequest(
                 observedWindow: other,
                 requestedWindow: nil,
                 keyWindow: key,
                 mainWindow: nil
-            ).shouldHandle
+            )
         )
     }
 
@@ -2482,31 +2481,31 @@ final class CommandPaletteRequestRoutingTests: XCTestCase {
         let other = makeWindow()
 
         XCTAssertTrue(
-            CommandPaletteWindowDispatchPolicy(
+            ContentView.shouldHandleCommandPaletteRequest(
                 observedWindow: main,
                 requestedWindow: nil,
                 keyWindow: nil,
                 mainWindow: main
-            ).shouldHandle
+            )
         )
         XCTAssertFalse(
-            CommandPaletteWindowDispatchPolicy(
+            ContentView.shouldHandleCommandPaletteRequest(
                 observedWindow: other,
                 requestedWindow: nil,
                 keyWindow: nil,
                 mainWindow: main
-            ).shouldHandle
+            )
         )
     }
 
     func testNoObservedWindowNeverHandlesRequest() {
         XCTAssertFalse(
-            CommandPaletteWindowDispatchPolicy(
+            ContentView.shouldHandleCommandPaletteRequest(
                 observedWindow: nil,
                 requestedWindow: makeWindow(),
                 keyWindow: makeWindow(),
                 mainWindow: makeWindow()
-            ).shouldHandle
+            )
         )
     }
 }
@@ -2514,7 +2513,7 @@ final class CommandPaletteRequestRoutingTests: XCTestCase {
 final class CommandPaletteBackNavigationTests: XCTestCase {
     func testBackspaceOnEmptyRenameInputReturnsToCommandList() {
         XCTAssertTrue(
-            CommandPaletteCommandRunPolicy().shouldPopRenameInputOnDelete(
+            ContentView.commandPaletteShouldPopRenameInputOnDelete(
                 renameDraft: "",
                 modifiers: []
             )
@@ -2523,7 +2522,7 @@ final class CommandPaletteBackNavigationTests: XCTestCase {
 
     func testBackspaceWithRenameTextDoesNotReturnToCommandList() {
         XCTAssertFalse(
-            CommandPaletteCommandRunPolicy().shouldPopRenameInputOnDelete(
+            ContentView.commandPaletteShouldPopRenameInputOnDelete(
                 renameDraft: "Terminal 1",
                 modifiers: []
             )
@@ -2532,13 +2531,13 @@ final class CommandPaletteBackNavigationTests: XCTestCase {
 
     func testModifiedBackspaceDoesNotReturnToCommandList() {
         XCTAssertFalse(
-            CommandPaletteCommandRunPolicy().shouldPopRenameInputOnDelete(
+            ContentView.commandPaletteShouldPopRenameInputOnDelete(
                 renameDraft: "",
                 modifiers: [.control]
             )
         )
         XCTAssertFalse(
-            CommandPaletteCommandRunPolicy().shouldPopRenameInputOnDelete(
+            ContentView.commandPaletteShouldPopRenameInputOnDelete(
                 renameDraft: "",
                 modifiers: [.command]
             )

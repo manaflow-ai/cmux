@@ -1,7 +1,5 @@
 import AppKit
-import CmuxPanes
 import CmuxSettings
-import CmuxShortcuts
 import WebKit
 
 struct ShortcutEventFocusContext {
@@ -23,6 +21,11 @@ struct ShortcutEventFocusContext {
             sidebar: rightSidebarFocused
         )
     }
+}
+
+struct ShortcutEventFocusContextCache {
+    let event: NSEvent
+    let context: ShortcutEventFocusContext
 }
 
 extension KeyboardShortcutSettings.Action {
@@ -191,15 +194,10 @@ extension AppDelegate {
     }
 
     func shortcutEventFocusContext(_ event: NSEvent) -> ShortcutEventFocusContext {
-        if let cache = liveShortcutEventFocusContextCache, cache.event === event {
+        if let cache = shortcutEventFocusContextCache, cache.event === event {
             return cache.context
         }
-        let context = computeShortcutEventFocusContext(event)
-        liveShortcutEventFocusContextCache = (event, context)
-        return context
-    }
 
-    private func computeShortcutEventFocusContext(_ event: NSEvent) -> ShortcutEventFocusContext {
         let shortcutWindow = shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
         let browserPanel = shortcutEventFocusedBrowserPanel(event) ?? shortcutWebInspectorFocusedBrowserPanel(in: shortcutWindow)
         // Only treat a markdown panel as focused when no browser panel owns the
@@ -217,28 +215,14 @@ extension AppDelegate {
             rightSidebarFocused: rightSidebarFocused,
             shortcutContext: buildShortcutContext(focusState: focusState, window: shortcutWindow)
         )
+        shortcutEventFocusContextCache = ShortcutEventFocusContextCache(event: event, context: context)
         return context
-    }
-
-    /// Resolves the value-typed focus snapshot the `CmuxShortcuts` router caches
-    /// per event. Conforms ``AppDelegate`` to `FocusContextReading`: it projects
-    /// the live ``ShortcutEventFocusContext`` (which still carries the
-    /// `BrowserPanel`/`MarkdownPanel` references the app-side dispatch acts on)
-    /// down to the `Sendable` ``ShortcutEventFocusSnapshot`` the router holds.
-    func resolveFocusSnapshot(for event: NSEvent) -> ShortcutEventFocusSnapshot {
-        let context = shortcutEventFocusContext(event)
-        return ShortcutEventFocusSnapshot(
-            browserFocused: context.browserPanel != nil,
-            markdownFocused: context.markdownPanel != nil,
-            rightSidebarFocused: context.rightSidebarFocused,
-            shortcutContext: context.shortcutContext
-        )
     }
 
     /// Builds the full ``ShortcutContext`` for a shortcut event: the focus atoms
     /// (via ``ShortcutFocusState/context``) plus the non-focus context keys read
     /// synchronously from the shortcut window's state. Called once per event (the
-    /// result is cached by `ShortcutRouter`'s focus-snapshot cache).
+    /// result is cached in ``shortcutEventFocusContextCache``).
     private func buildShortcutContext(focusState: ShortcutFocusState, window: NSWindow?) -> ShortcutContext {
         var context = focusState.context
         context.setBool(
@@ -284,17 +268,9 @@ extension AppDelegate {
         return tabManager?.focusedMarkdownPanel
     }
 
-    /// Drops the app-side live focus context (the cache carrying the
-    /// `BrowserPanel`/`MarkdownPanel` references the dispatch acts on) for
-    /// `event`. Conforms ``AppDelegate`` to the host's `clearLiveFocusCache`
-    /// member, which ``ShortcutRouter`` calls in its per-event `defer` alongside
-    /// its own value-snapshot cache clear, so both caches share one lifetime
-    /// keyed on event identity. This clears only the live cache; the router owns
-    /// its snapshot cache and clears that itself (calling back into the router
-    /// here would recurse).
-    func clearLiveShortcutEventFocusContextCache(for event: NSEvent) {
-        if liveShortcutEventFocusContextCache?.event === event {
-            liveShortcutEventFocusContextCache = nil
+    func clearShortcutEventFocusContextCache(for event: NSEvent) {
+        if shortcutEventFocusContextCache?.event === event {
+            shortcutEventFocusContextCache = nil
         }
     }
 

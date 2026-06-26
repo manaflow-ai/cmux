@@ -31,22 +31,4 @@ public enum PanelShellActivityState: String, Sendable, Equatable {
             return nil
         }
     }
-
-    /// Whether closing a panel in this shell-activity state should prompt for
-    /// confirmation.
-    ///
-    /// An idle prompt (``promptIdle``) never needs confirmation; a running
-    /// foreground command (``commandRunning``) always does. When the state is
-    /// ``unknown`` (no shell-integration report received), the decision defers
-    /// to `fallbackNeedsConfirmClose`, the panel's own heuristic.
-    public func closeConfirmationRequired(fallbackNeedsConfirmClose: Bool) -> Bool {
-        switch self {
-        case .promptIdle:
-            return false
-        case .commandRunning:
-            return true
-        case .unknown:
-            return fallbackNeedsConfirmClose
-        }
-    }
 }

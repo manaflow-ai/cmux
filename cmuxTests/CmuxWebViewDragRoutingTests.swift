@@ -2,7 +2,6 @@ import XCTest
 import AppKit
 import WebKit
 import ObjectiveC.runtime
-import CmuxBrowser
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -158,7 +157,7 @@ final class CmuxWebViewDragRoutingTests: XCTestCase {
 
     func testRejectsInternalPaneDragEvenWhenFilePromiseTypesArePresent() {
         XCTAssertTrue(
-            BrowserInternalPaneDragRoutingPolicy().shouldRejectInternalPaneDrag([
+            CmuxWebView.shouldRejectInternalPaneDrag([
                 DragOverlayRoutingPolicy.bonsplitTabTransferType,
                 NSPasteboard.PasteboardType("com.apple.pasteboard.promised-file-url"),
             ])
@@ -166,7 +165,6 @@ final class CmuxWebViewDragRoutingTests: XCTestCase {
     }
 
     func testAllowsRegularExternalFileImageAndURLDrops() {
-        let policy = BrowserInternalPaneDragRoutingPolicy()
         let externalPayloads: [[NSPasteboard.PasteboardType]] = [
             [.fileURL],
             [.URL],
@@ -179,7 +177,7 @@ final class CmuxWebViewDragRoutingTests: XCTestCase {
 
         for pasteboardTypes in externalPayloads {
             XCTAssertFalse(
-                policy.shouldRejectInternalPaneDrag(pasteboardTypes),
+                CmuxWebView.shouldRejectInternalPaneDrag(pasteboardTypes),
                 "Browser web view should not reject external drag payload: \(pasteboardTypes)"
             )
         }

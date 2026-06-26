@@ -1,4 +1,3 @@
-import CmuxRemoteSession
 import AppKit
 import CmuxCore
 import Darwin
@@ -292,7 +291,7 @@ final class TerminalControllerSocketSecurityTests {
         let tabManager = TabManager()
         let workspace = tabManager.addWorkspace(select: false, eagerLoadTerminal: false)
 
-        workspace.remoteConnectionCoordinator.configureRemoteConnection(
+        workspace.configureRemoteConnection(
             .init(
                 destination: "example.com",
                 port: 2222,
@@ -308,7 +307,7 @@ final class TerminalControllerSocketSecurityTests {
             autoConnect: false
         )
 
-        let payload = workspace.remoteConnectionCoordinator.remoteStatusPayload()
+        let payload = workspace.remoteStatusPayload()
         XCTAssertNil(payload["identity_file"])
         XCTAssertNil(payload["ssh_options"])
         XCTAssertEqual(payload["has_identity_file"] as? Bool, true)
@@ -363,9 +362,9 @@ final class TerminalControllerSocketSecurityTests {
         )
 
         XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
-        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConfiguration?.preserveAfterTerminalExit, true)
+        XCTAssertEqual(workspace.remoteConfiguration?.preserveAfterTerminalExit, true)
         XCTAssertEqual(
-            workspace.remoteConnectionCoordinator.state.remoteConfiguration?.persistentDaemonSlot,
+            workspace.remoteConfiguration?.persistentDaemonSlot,
             "ssh-\(workspace.id.uuidString.lowercased())"
         )
     }
@@ -409,9 +408,9 @@ final class TerminalControllerSocketSecurityTests {
         )
 
         XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
-        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConfiguration?.agentSocketPath, agentSocketPath)
-        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConfiguration?.sshTerminalStartupEnvironment?["SSH_AUTH_SOCK"], agentSocketPath)
-        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"], agentSocketPath)
+        XCTAssertEqual(workspace.remoteConfiguration?.agentSocketPath, agentSocketPath)
+        XCTAssertEqual(workspace.remoteConfiguration?.sshTerminalStartupEnvironment?["SSH_AUTH_SOCK"], agentSocketPath)
+        XCTAssertEqual(workspace.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"], agentSocketPath)
     }
 
     @Test func testRemoteConfigureExplicitEmptyAgentSocketSuppressesForwardAgentFallback() throws {
@@ -454,9 +453,9 @@ final class TerminalControllerSocketSecurityTests {
         )
 
         XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
-        XCTAssertNil(workspace.remoteConnectionCoordinator.state.remoteConfiguration?.agentSocketPath)
-        XCTAssertNil(workspace.remoteConnectionCoordinator.state.remoteConfiguration?.sshTerminalStartupEnvironment?["SSH_AUTH_SOCK"])
-        XCTAssertNil(workspace.remoteConnectionCoordinator.state.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"])
+        XCTAssertNil(workspace.remoteConfiguration?.agentSocketPath)
+        XCTAssertNil(workspace.remoteConfiguration?.sshTerminalStartupEnvironment?["SSH_AUTH_SOCK"])
+        XCTAssertNil(workspace.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"])
     }
 
     @Test func testRemoteConfigureUsesLastForwardAgentOption() throws {
@@ -498,9 +497,9 @@ final class TerminalControllerSocketSecurityTests {
         )
 
         XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
-        XCTAssertNil(workspace.remoteConnectionCoordinator.state.remoteConfiguration?.agentSocketPath)
-        XCTAssertNil(workspace.remoteConnectionCoordinator.state.remoteConfiguration?.sshTerminalStartupEnvironment?["SSH_AUTH_SOCK"])
-        XCTAssertNil(workspace.remoteConnectionCoordinator.state.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"])
+        XCTAssertNil(workspace.remoteConfiguration?.agentSocketPath)
+        XCTAssertNil(workspace.remoteConfiguration?.sshTerminalStartupEnvironment?["SSH_AUTH_SOCK"])
+        XCTAssertNil(workspace.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"])
     }
 
     @Test func testRemoteConfigureRejectsPersistentDaemonSlotWithoutPreserve() throws {
@@ -718,8 +717,8 @@ final class TerminalControllerSocketSecurityTests {
         XCTAssertEqual(result["surface_id"] as? String, moved.panel.id.uuidString)
         XCTAssertEqual(result["cleared_remote_pty_session"] as? Bool, true)
         XCTAssertEqual(result["untracked_remote_terminal"] as? Bool, true)
-        XCTAssertFalse(moved.destination.remoteSurfaceCoordinator.isRemoteTerminalSurface(moved.panel.id))
-        XCTAssertEqual(moved.destination.remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount, 0)
+        XCTAssertFalse(moved.destination.isRemoteTerminalSurface(moved.panel.id))
+        XCTAssertEqual(moved.destination.activeRemoteTerminalSessionCount, 0)
     }
 
     @Test func testRemotePTYRejectsWorkspaceSurfaceMismatchWithoutMovedSurfaceOptIn() async throws {
@@ -1344,8 +1343,8 @@ final class TerminalControllerSocketSecurityTests {
             terminalStartupCommand: nil,
             preserveAfterTerminalExit: true
         )
-        source.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
-        destination.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
+        source.configureRemoteConnection(config, autoConnect: false)
+        destination.configureRemoteConnection(config, autoConnect: false)
 
         let sourcePanelID = try XCTUnwrap(source.focusedTerminalPanel?.id)
         let destinationPaneID = try XCTUnwrap(destination.bonsplitController.allPaneIds.first)
@@ -1364,7 +1363,7 @@ final class TerminalControllerSocketSecurityTests {
             destination.attachDetachedSurface(detached, inPane: destinationPaneID, focus: false),
             panel.id
         )
-        XCTAssertTrue(destination.remoteSurfaceCoordinator.isRemoteTerminalSurface(panel.id))
+        XCTAssertTrue(destination.isRemoteTerminalSurface(panel.id))
 
         return (source, destination, panel, sessionID)
     }

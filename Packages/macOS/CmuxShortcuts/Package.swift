@@ -13,15 +13,9 @@ let package = Package(
             targets: ["CmuxShortcuts"]
         ),
     ],
-    dependencies: [
-        .package(path: "../CmuxSettings"),
-    ],
     targets: [
         .target(
             name: "CmuxShortcuts",
-            dependencies: [
-                .product(name: "CmuxSettings", package: "CmuxSettings"),
-            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
@@ -30,10 +24,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxShortcutsTests",
-            dependencies: [
-                "CmuxShortcuts",
-                .product(name: "CmuxSettings", package: "CmuxSettings"),
-            ],
+            dependencies: ["CmuxShortcuts"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),

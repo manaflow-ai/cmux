@@ -1,5 +1,4 @@
 import XCTest
-import CmuxPanes
 import CmuxTerminal
 import Testing
 import CmuxControlSocket

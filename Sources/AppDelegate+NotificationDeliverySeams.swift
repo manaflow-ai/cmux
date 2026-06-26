@@ -47,11 +47,19 @@ extension AppDelegate {
             return nil
         }
 
-        let capabilities = item.source.permissionModeCapabilities(toolInputJSON: toolInputJSON)
         return NotificationFeedPermissionCapabilities(
-            supportsOnce: capabilities.supportsOnce,
-            supportsAlways: capabilities.supportsAlways,
-            supportsAll: capabilities.supportsAll
+            supportsOnce: FeedPermissionActionPolicy.supportsOncePermissionMode(
+                source: item.source,
+                toolInputJSON: toolInputJSON
+            ),
+            supportsAlways: FeedPermissionActionPolicy.supportsAlwaysPermissionMode(
+                source: item.source,
+                toolInputJSON: toolInputJSON
+            ),
+            supportsAll: FeedPermissionActionPolicy.supportsAllPermissionMode(
+                source: item.source,
+                toolInputJSON: toolInputJSON
+            )
         )
     }
 

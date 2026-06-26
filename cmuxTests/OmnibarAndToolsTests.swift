@@ -1,7 +1,5 @@
 import XCTest
 import AppKit
-import CmuxBrowser
-import CmuxBrowserUI
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -467,7 +465,9 @@ final class OmnibarStateMachineTests: XCTestCase {
         let effects = omnibarReduce(
             state: &state,
             event: .focusReasserted(
-                shouldSelectAll: BrowserAddressBarFocusSelectionIntent.selectAll.shouldSelectAll
+                shouldSelectAll: browserOmnibarShouldSelectAllOnFocusReassertion(
+                    selectionIntent: .selectAll
+                )
             )
         )
 
@@ -480,10 +480,14 @@ final class OmnibarStateMachineTests: XCTestCase {
 
     func testFocusReassertionHonorsSelectionIntent() throws {
         XCTAssertTrue(
-            BrowserAddressBarFocusSelectionIntent.selectAll.shouldSelectAll
+            browserOmnibarShouldSelectAllOnFocusReassertion(
+                selectionIntent: .selectAll
+            )
         )
         XCTAssertFalse(
-            BrowserAddressBarFocusSelectionIntent.preserveFieldEditorSelection.shouldSelectAll
+            browserOmnibarShouldSelectAllOnFocusReassertion(
+                selectionIntent: .preserveFieldEditorSelection
+            )
         )
     }
 
@@ -491,11 +495,11 @@ final class OmnibarStateMachineTests: XCTestCase {
     // omnibar selects the whole URL so the next keystroke replaces it (Chrome parity).
     func testFocusGainingClickSelectsAll() throws {
         XCTAssertTrue(
-            BrowserOmnibarFocusGainingClick(
+            browserOmnibarFocusGainingClickShouldSelectAll(
                 gainedFocusOnThisClick: true,
                 isShiftClick: false,
                 didDrag: false
-            ).shouldSelectAll
+            )
         )
     }
 
@@ -503,11 +507,11 @@ final class OmnibarStateMachineTests: XCTestCase {
     // first responder keeps the caret placed at the click point — no select-all.
     func testAlreadyFocusedClickPlacesCaret() throws {
         XCTAssertFalse(
-            BrowserOmnibarFocusGainingClick(
+            browserOmnibarFocusGainingClickShouldSelectAll(
                 gainedFocusOnThisClick: false,
                 isShiftClick: false,
                 didDrag: false
-            ).shouldSelectAll
+            )
         )
     }
 
@@ -515,18 +519,18 @@ final class OmnibarStateMachineTests: XCTestCase {
     // select-all defers to it even on the click that gains focus.
     func testFocusGainingClickDefersToExplicitSelection() throws {
         XCTAssertFalse(
-            BrowserOmnibarFocusGainingClick(
+            browserOmnibarFocusGainingClickShouldSelectAll(
                 gainedFocusOnThisClick: true,
                 isShiftClick: true,
                 didDrag: false
-            ).shouldSelectAll
+            )
         )
         XCTAssertFalse(
-            BrowserOmnibarFocusGainingClick(
+            browserOmnibarFocusGainingClickShouldSelectAll(
                 gainedFocusOnThisClick: true,
                 isShiftClick: false,
                 didDrag: true
-            ).shouldSelectAll
+            )
         )
     }
 
@@ -792,7 +796,6 @@ final class BrowserOmnibarNativeFieldRegistryWindowSelectionTests: XCTestCase {
 
     func testInteractionOverlayPassesThroughUntilFieldIsRegisteredInWindow() throws {
         let panelId = UUID()
-        let registry = BrowserOmnibarNativeFieldRegistry()
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 240, height: 32),
             styleMask: [.borderless],
@@ -804,12 +807,11 @@ final class BrowserOmnibarNativeFieldRegistryWindowSelectionTests: XCTestCase {
         let interactionView = BrowserOmnibarInteractionView(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
         field.panelId = panelId
         interactionView.panelId = panelId
-        interactionView.nativeFieldRegistry = registry
         contentView.addSubview(field)
         contentView.addSubview(interactionView)
         window.contentView = contentView
         defer {
-            registry.unregister(field, panelId: panelId)
+            BrowserOmnibarNativeFieldRegistry.shared.unregister(field, panelId: panelId)
             field.removeFromSuperview()
             interactionView.removeFromSuperview()
             window.contentView = nil
@@ -821,7 +823,7 @@ final class BrowserOmnibarNativeFieldRegistryWindowSelectionTests: XCTestCase {
             "The overlay must not swallow the first click before it has a forwarding target"
         )
 
-        registry.register(field, panelId: panelId)
+        BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: panelId)
 
         XCTAssertTrue(
             interactionView.hitTest(NSPoint(x: 12, y: 12)) === interactionView,

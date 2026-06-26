@@ -20,7 +20,7 @@ final class FileDropOverlayViewTests: XCTestCase {
             .environment(TabManager())
             .environmentObject(TerminalNotificationStore.shared)
             .environmentObject(SidebarState())
-            .environment(SidebarSelectionState())
+            .environmentObject(SidebarSelectionState())
             .environmentObject(FileExplorerState())
             .environmentObject(CmuxConfigStore())
 

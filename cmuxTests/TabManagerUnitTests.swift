@@ -1,4 +1,3 @@
-import CmuxRemoteSession
 import XCTest
 import CmuxCore
 import AppKit
@@ -279,7 +278,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
             return
         }
 
-        workspace.remoteConnectionCoordinator.configureRemoteConnection(
+        workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
                 port: nil,
@@ -296,7 +295,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         )
 
         XCTAssertTrue(workspace.isRemoteWorkspace)
-        XCTAssertTrue(workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(remotePanelId))
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(remotePanelId))
 
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: remotePanelId)
         drainMainQueue()
@@ -306,11 +305,11 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertEqual(manager.selectedTabId, workspace.id)
         XCTAssertEqual(manager.tabs.first?.id, workspace.id)
         XCTAssertTrue(workspace.isRemoteWorkspace)
-        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConnectionState, .disconnected)
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
         XCTAssertNil(workspace.panels[remotePanelId])
         XCTAssertEqual(workspace.panels.count, 1)
         XCTAssertNotEqual(workspace.focusedPanelId, remotePanelId)
-        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount, 0)
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
     }
 
     func testManualCloseOnLastRemotePanelKeepsWorkspaceDisconnected() throws {
@@ -321,7 +320,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
             return
         }
 
-        workspace.remoteConnectionCoordinator.configureRemoteConnection(
+        workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
                 port: nil,
@@ -338,7 +337,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         )
 
         XCTAssertTrue(workspace.isRemoteWorkspace)
-        XCTAssertTrue(workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(remotePanelId))
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(remotePanelId))
 
         XCTAssertTrue(workspace.closePanel(remotePanelId, force: true))
         drainMainQueue()
@@ -347,12 +346,12 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         let replacement = try XCTUnwrap(workspace.focusedTerminalPanel)
         XCTAssertEqual(manager.tabs.count, 1)
         XCTAssertTrue(workspace.isRemoteWorkspace)
-        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConnectionState, .disconnected)
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
         XCTAssertNil(workspace.panels[remotePanelId])
         XCTAssertEqual(workspace.panels.count, 1)
         XCTAssertNotEqual(replacement.id, remotePanelId)
         XCTAssertNotNil(replacement.surface.initialCommand)
-        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount, 0)
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
 
         let firstPlaceholderId = replacement.id
         XCTAssertTrue(workspace.closePanel(firstPlaceholderId, force: true))
@@ -362,7 +361,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         let secondReplacement = try XCTUnwrap(workspace.focusedTerminalPanel)
         XCTAssertEqual(manager.tabs.count, 1)
         XCTAssertTrue(workspace.isRemoteWorkspace)
-        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConnectionState, .disconnected)
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
         XCTAssertNil(workspace.panels[firstPlaceholderId])
         XCTAssertEqual(workspace.panels.count, 1)
         XCTAssertNotEqual(secondReplacement.id, firstPlaceholderId)
@@ -377,7 +376,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
             return
         }
 
-        workspace.remoteConnectionCoordinator.configureRemoteConnection(
+        workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
                 port: nil,
@@ -396,7 +395,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         )
 
         XCTAssertTrue(workspace.isRemoteWorkspace)
-        XCTAssertTrue(workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(remotePanelId))
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(remotePanelId))
 
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: remotePanelId)
         drainMainQueue()
@@ -409,8 +408,8 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertNotNil(workspace.panels[remotePanelId])
         XCTAssertEqual(workspace.panels.count, 1)
         XCTAssertEqual(workspace.focusedPanelId, remotePanelId)
-        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount, 0)
-        XCTAssertFalse(workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(remotePanelId))
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+        XCTAssertFalse(workspace.isRemoteTerminalSurface(remotePanelId))
         XCTAssertNil(
             workspace.sessionSnapshot(includeScrollback: false)
                 .panels.first { $0.id == remotePanelId }?.terminal?.remotePTYSessionID
@@ -425,7 +424,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
             return
         }
 
-        workspace.remoteConnectionCoordinator.configureRemoteConnection(
+        workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 transport: .websocket,
                 destination: "vm:issue-4509",
@@ -454,18 +453,18 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         }
 
         XCTAssertTrue(workspace.isRemoteWorkspace)
-        XCTAssertTrue(workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(remotePanelId))
-        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConnectionState, .connected)
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(remotePanelId))
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
 
         XCTAssertTrue(workspace.bonsplitController.closePane(remotePaneId))
         drainMainQueue()
         drainMainQueue()
 
         XCTAssertTrue(workspace.isRemoteWorkspace)
-        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConnectionState, .disconnected)
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
         XCTAssertNil(workspace.panels[remotePanelId])
         XCTAssertNotNil(workspace.panels[browserPanel.id])
-        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount, 0)
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
     }
 
     func testChildExitAfterPersistentAttachEndKeepsExitedSurfaceVisible() throws {
@@ -476,7 +475,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
             return
         }
 
-        workspace.remoteConnectionCoordinator.configureRemoteConnection(
+        workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
                 port: nil,
@@ -493,15 +492,15 @@ final class TabManagerChildExitCloseTests: XCTestCase {
             ),
             autoConnect: false
         )
-        let sessionID = RemoteSurfaceCoordinator<Workspace>.defaultSSHPTYSessionID(workspaceId: workspace.id, panelId: remotePanelId)
+        let sessionID = Workspace.defaultSSHPTYSessionID(workspaceId: workspace.id, panelId: remotePanelId)
 
         let outcome = workspace.markRemotePTYAttachEnded(surfaceId: remotePanelId, sessionID: sessionID)
 
         XCTAssertTrue(outcome.clearedRemotePTYSession)
         XCTAssertTrue(outcome.untrackedRemoteTerminal)
-        XCTAssertFalse(workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(remotePanelId))
-        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount, 0)
-        XCTAssertTrue(workspace.remoteSurfaceCoordinator.shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(remotePanelId))
+        XCTAssertFalse(workspace.isRemoteTerminalSurface(remotePanelId))
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+        XCTAssertTrue(workspace.shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(remotePanelId))
 
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: remotePanelId)
         drainMainQueue()
@@ -511,7 +510,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertNotNil(workspace.panels[remotePanelId])
         XCTAssertEqual(workspace.panels.count, 1)
         XCTAssertEqual(workspace.focusedPanelId, remotePanelId)
-        XCTAssertFalse(workspace.remoteSurfaceCoordinator.shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(remotePanelId))
+        XCTAssertFalse(workspace.shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(remotePanelId))
         XCTAssertNil(
             workspace.sessionSnapshot(includeScrollback: false)
                 .panels.first { $0.id == remotePanelId }?.terminal?.remotePTYSessionID
@@ -526,7 +525,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
             return
         }
 
-        workspace.remoteConnectionCoordinator.configureRemoteConnection(
+        workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
                 port: nil,
@@ -548,8 +547,8 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         )
 
         XCTAssertTrue(workspace.isRemoteWorkspace)
-        XCTAssertTrue(workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(remotePanelId))
-        XCTAssertTrue(workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(siblingPanel.id))
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(remotePanelId))
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(siblingPanel.id))
 
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: remotePanelId)
         drainMainQueue()
@@ -561,9 +560,9 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertNotNil(workspace.panels[remotePanelId])
         XCTAssertNotNil(workspace.panels[siblingPanel.id])
         XCTAssertEqual(workspace.panels.count, 2)
-        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount, 1)
-        XCTAssertFalse(workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(remotePanelId))
-        XCTAssertTrue(workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(siblingPanel.id))
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+        XCTAssertFalse(workspace.isRemoteTerminalSurface(remotePanelId))
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(siblingPanel.id))
         XCTAssertNil(
             workspace.sessionSnapshot(includeScrollback: false)
                 .panels.first { $0.id == remotePanelId }?.terminal?.remotePTYSessionID
@@ -592,7 +591,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         }
         XCTAssertEqual(workspace.focusedPanelId, initialPanelId)
 
-        workspace.remoteConnectionCoordinator.configureRemoteConnection(
+        workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 transport: .websocket,
                 destination: "vm:issue-4509-untracked",
@@ -610,19 +609,19 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         )
 
         XCTAssertTrue(workspace.isRemoteWorkspace)
-        XCTAssertTrue(workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(initialPanelId))
-        XCTAssertFalse(workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(splitPanel.id))
-        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConnectionState, .connected)
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(initialPanelId))
+        XCTAssertFalse(workspace.isRemoteTerminalSurface(splitPanel.id))
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
 
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: initialPanelId)
         drainMainQueue()
         drainMainQueue()
 
         XCTAssertTrue(workspace.isRemoteWorkspace)
-        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConnectionState, .disconnected)
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
         XCTAssertNil(workspace.panels[initialPanelId])
         XCTAssertNotNil(workspace.panels[splitPanel.id])
-        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount, 0)
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
     }
 
     func testChildExitAfterRemoteSessionEndKeepsWorkspaceDisconnected() throws {
@@ -633,7 +632,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
             return
         }
 
-        workspace.remoteConnectionCoordinator.configureRemoteConnection(
+        workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
                 port: nil,
@@ -652,7 +651,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         workspace.markRemoteTerminalSessionEnded(surfaceId: remotePanelId, relayPort: 64016)
 
         XCTAssertTrue(workspace.isRemoteWorkspace)
-        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConnectionState, .disconnected)
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
 
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: remotePanelId)
         drainMainQueue()
@@ -662,11 +661,11 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertEqual(manager.selectedTabId, workspace.id)
         XCTAssertEqual(manager.tabs.first?.id, workspace.id)
         XCTAssertTrue(workspace.isRemoteWorkspace)
-        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConnectionState, .disconnected)
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
         XCTAssertNil(workspace.panels[remotePanelId])
         XCTAssertEqual(workspace.panels.count, 1)
         XCTAssertNotEqual(workspace.focusedPanelId, remotePanelId)
-        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount, 0)
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
     }
 
     func testChildExitOnNonLastPanelClosesOnlyPanel() {
@@ -734,7 +733,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         AppDelegate.shared = appDelegate
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        workspace.remoteConnectionCoordinator.state.remoteConfiguration = WorkspaceRemoteConfiguration(
+        workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
             transport: .websocket,
             destination: "wss://remote.example.test",
             port: nil,
@@ -766,7 +765,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         ClosedItemHistoryStore.shared.removeAll()
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        workspace.remoteConnectionCoordinator.state.remoteConfiguration = WorkspaceRemoteConfiguration(
+        workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
             transport: .websocket,
             destination: "wss://remote.example.test",
             port: nil,
@@ -1170,7 +1169,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
             }
         )
 
-        workspace.remoteConnectionCoordinator.configureRemoteConnection(
+        workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
                 port: nil,
@@ -1193,7 +1192,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
 
         drainMainQueue()
         XCTAssertTrue(workspace.isRemoteWorkspace)
-        XCTAssertTrue(workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(splitPanel.id))
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(splitPanel.id))
         XCTAssertEqual(manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id), Set<UUID>())
     }
 

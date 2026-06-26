@@ -1,4 +1,3 @@
-import CmuxFoundation
 import Darwin
 import XCTest
 
@@ -74,9 +73,8 @@ final class RovoDevSessionIndexTests: XCTestCase {
             ofItemAtPath: fakeRipgrep.path
         )
 
-        let scanner = RipgrepFileScanner()
         let task = Task {
-            await scanner.matchingPaths(
+            await SessionIndexStore.ripgrepMatchingPaths(
                 needle: "needle",
                 root: fixture.tempDir.path,
                 fileGlob: "*.jsonl",

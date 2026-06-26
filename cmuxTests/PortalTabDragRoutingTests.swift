@@ -1,7 +1,6 @@
 import XCTest
 import AppKit
 import SwiftUI
-import CmuxAppKitSupportUI
 @testable import Bonsplit
 
 #if canImport(cmux_DEV)

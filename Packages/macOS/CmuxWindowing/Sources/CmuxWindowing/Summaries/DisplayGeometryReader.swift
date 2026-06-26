@@ -52,31 +52,6 @@ public struct DisplayGeometryReader: Sendable {
         return (available, fallback)
     }
 
-    /// All currently-connected displays as ``DisplayInfo`` values, in
-    /// `NSScreen.screens` order.
-    ///
-    /// Faithful lift of `AppDelegate.availableDisplays()`. Each screen maps to a
-    /// ``DisplayInfo`` carrying its localized name, zero-based index, CoreGraphics
-    /// display id, whether it is the main display (its display id equals
-    /// `NSScreen.main`'s, when both resolve), and its frame. Surfaced by the
-    /// `window.displays` control command and the `cmux window display --list` CLI.
-    ///
-    /// - Returns: One ``DisplayInfo`` per attached screen, in screen order.
-    @MainActor
-    public func availableDisplays() -> [DisplayInfo] {
-        let mainID = NSScreen.main?.cmuxDisplayID
-        return NSScreen.screens.enumerated().map { index, screen in
-            let displayID = screen.cmuxDisplayID
-            return DisplayInfo(
-                name: screen.localizedName,
-                index: index,
-                displayID: displayID,
-                isMain: displayID != nil && displayID == mainID,
-                frame: screen.frame
-            )
-        }
-    }
-
     /// The geometry of the screen a window currently occupies, or `nil` when the
     /// window is `nil` or no attached screen contains it.
     ///

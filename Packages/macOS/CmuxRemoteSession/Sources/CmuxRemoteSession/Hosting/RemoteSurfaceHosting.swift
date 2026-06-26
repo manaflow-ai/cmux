@@ -44,29 +44,19 @@ public protocol RemoteSurfaceHosting: AnyObject {
     /// not reclaimed under the moved surface).
     var hostIsDetachingCloseTransaction: Bool { get }
 
+    /// The set of surface ids currently tracked as active remote terminals.
+    var hostActiveRemoteTerminalSurfaceIds: Set<UUID> { get }
+
+    /// The set of surface ids whose persistent remote PTY attach has ended but
+    /// whose surface is kept open (preserve-after-exit).
+    var hostEndedPersistentRemotePTYAttachSurfaceIds: Set<UUID> { get }
+
+    /// The set of surface ids whose child exit is pending a workspace-demotion
+    /// decision.
+    var hostPendingRemoteTerminalChildExitSurfaceIds: Set<UUID> { get }
+
     /// Marks a remote terminal session as ended for one surface, optionally
     /// scheduling reclaim of its SSH relay port. Faithful forward to the
     /// workspace's session-ended bookkeeping.
     func hostMarkRemoteTerminalSessionEnded(surfaceId: UUID, relayPort: Int?)
-
-    /// This workspace's id, used to derive the default SSH PTY session id for a
-    /// surface (`ssh-<workspaceId>-<panelId>`).
-    var hostWorkspaceID: UUID { get }
-
-    /// The focused surface id, the preferred adopter for a pending bootstrap TTY.
-    var hostFocusedPanelId: UUID? { get }
-
-    /// True when the live remote configuration preserves the remote PTY session
-    /// after the terminal child exits (persistent-PTY transports).
-    var hostPreservesRemotePTYSession: Bool { get }
-
-    /// Normalizes a stored/reported remote PTY session id (trims and rejects
-    /// blanks), matching the workspace's surface-creation normalizer.
-    func hostNormalizedRemotePTYSessionID(_ value: String?) -> String?
-
-    /// The controlling-terminal device name recorded for `panelId`, if any.
-    func hostSurfaceTTYName(_ panelId: UUID) -> String?
-
-    /// Records the controlling-terminal device name for `panelId`.
-    func hostSetSurfaceTTYName(_ ttyName: String, for panelId: UUID)
 }

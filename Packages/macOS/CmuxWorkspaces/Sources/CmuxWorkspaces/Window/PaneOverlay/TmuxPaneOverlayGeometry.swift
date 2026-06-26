@@ -1,5 +1,4 @@
 public import CoreGraphics
-public import AppKit
 public import Bonsplit
 
 /// Pure geometry for placing the tmux-style pane overlay (unread dots and the
@@ -143,60 +142,6 @@ public struct TmuxPaneOverlayGeometry: Sendable, Equatable {
             snapshot.panes.contains { pane in
                 pane.frame.width > 1 && pane.frame.height > 1
             }
-    }
-
-    /// Resolves the exact rectangle of a target view in the window's content-view
-    /// coordinate space, used to align the overlay with the live AppKit view rather
-    /// than the layout-snapshot pane rect.
-    /// - Parameters:
-    ///   - targetView: the terminal or browser view whose frame should be measured.
-    ///   - contentView: the window content view the overlay is hosted in.
-    /// - Returns: the target view's bounds converted into `contentView` coordinates,
-    ///   or `nil` when the views are not in the same window, the target is detached,
-    ///   or the converted rect is degenerate (≤ 1pt on either axis).
-    public static func exactRect(
-        for targetView: NSView,
-        in contentView: NSView
-    ) -> CGRect? {
-        guard let contentWindow = contentView.window,
-              let targetWindow = targetView.window,
-              contentWindow === targetWindow,
-              targetView.superview != nil else {
-            return nil
-        }
-
-        let rectInWindow = targetView.convert(targetView.bounds, to: nil)
-        let rectInContent = contentView.convert(rectInWindow, from: nil)
-        guard rectInContent.width > 1, rectInContent.height > 1 else { return nil }
-        return rectInContent
-    }
-
-    /// Chooses between the live exact rect and the layout-snapshot pane rect for the
-    /// overlay, preferring the exact rect only when it fits inside the pane rect
-    /// within a half-point tolerance.
-    /// - Parameters:
-    ///   - exactRect: the live view-derived rect, if any.
-    ///   - paneRect: the layout-snapshot-derived pane rect, if any.
-    /// - Returns: `exactRect` when it is non-degenerate and fits within `paneRect`;
-    ///   otherwise `paneRect`; or `exactRect` when there is no `paneRect`.
-    public static func preferredWindowOverlayRect(
-        exactRect: CGRect?,
-        paneRect: CGRect?
-    ) -> CGRect? {
-        guard let paneRect else { return exactRect }
-        guard let exactRect,
-              exactRect.width > 1,
-              exactRect.height > 1 else {
-            return paneRect
-        }
-
-        let tolerance: CGFloat = 0.5
-        let exactFitsWithinPane =
-            exactRect.minX >= paneRect.minX - tolerance &&
-            exactRect.maxX <= paneRect.maxX + tolerance &&
-            exactRect.minY >= paneRect.minY - tolerance &&
-            exactRect.maxY <= paneRect.maxY + tolerance
-        return exactFitsWithinPane ? exactRect : paneRect
     }
 }
 

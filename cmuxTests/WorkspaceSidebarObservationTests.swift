@@ -61,8 +61,8 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
         defer { cancellable.cancel() }
         publishCount = 0
 
-        workspace.remoteConnectionCoordinator.state.remoteHeartbeatCount = 1
-        workspace.remoteConnectionCoordinator.state.remoteLastHeartbeatAt = Date()
+        workspace.remoteHeartbeatCount = 1
+        workspace.remoteLastHeartbeatAt = Date()
 
         XCTAssertEqual(
             publishCount,

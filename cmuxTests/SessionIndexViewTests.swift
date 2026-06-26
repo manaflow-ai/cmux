@@ -1,6 +1,4 @@
 import AppKit
-import CmuxSessionIndex
-import CmuxSessionIndexUI
 import Combine
 import SQLite3
 import SwiftUI

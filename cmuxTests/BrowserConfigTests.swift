@@ -1,15 +1,12 @@
 import XCTest
 import Combine
 import AppKit
-import CmuxBrowser
-import CmuxBrowserUI
 import Testing
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
 import Bonsplit
-import CmuxPanes
 import UserNotifications
 import Network
 import CmuxBrowser
@@ -18,9 +15,14 @@ import CmuxSidebar
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
+// The app target still declares a legacy duplicate of BrowserThemeMode; with
+// CmuxSettings imported unconditionally the name is ambiguous. Pin the app
+// type for theme tests and the package type for browser search settings.
+private typealias BrowserThemeMode = cmux_DEV.BrowserThemeMode
 private typealias BrowserSearchEngine = CmuxSettings.BrowserSearchEngine
 #elseif canImport(cmux)
 @testable import cmux
+private typealias BrowserThemeMode = cmux.BrowserThemeMode
 private typealias BrowserSearchEngine = CmuxSettings.BrowserSearchEngine
 #endif
 
@@ -175,7 +177,7 @@ final class BrowserOmnibarNativeFieldRegistryTests: XCTestCase {
     @MainActor
     func testSpecificWindowLookupDoesNotReturnFieldFromAnotherWindow() {
         let panelId = UUID()
-        let registry = BrowserOmnibarNativeFieldRegistry()
+        let registry = BrowserOmnibarNativeFieldRegistry.shared
         let firstWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
             styleMask: [.titled],
@@ -214,7 +216,7 @@ final class BrowserOmnibarNativeFieldRegistryTests: XCTestCase {
     @MainActor
     func testNilWindowLookupPrefersAttachedFieldBeforeDetachedField() {
         let panelId = UUID()
-        let registry = BrowserOmnibarNativeFieldRegistry()
+        let registry = BrowserOmnibarNativeFieldRegistry.shared
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
             styleMask: [.titled],
@@ -1761,9 +1763,9 @@ final class BrowserDevToolsButtonDebugSettingsTests: XCTestCase {
 }
 
 
-final class BrowserThemeModePersistenceTests: XCTestCase {
+final class BrowserThemeSettingsTests: XCTestCase {
     private func makeIsolatedDefaults() -> UserDefaults {
-        let suiteName = "BrowserThemeModePersistenceTests.\(UUID().uuidString)"
+        let suiteName = "BrowserThemeSettingsTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             fatalError("Failed to create defaults suite")
         }
@@ -1777,30 +1779,30 @@ final class BrowserThemeModePersistenceTests: XCTestCase {
     func testDefaultsMatchConfiguredFallbacks() {
         let defaults = makeIsolatedDefaults()
         XCTAssertEqual(
-            BrowserThemeMode.mode(defaults: defaults),
-            BrowserThemeMode.defaultMode
+            BrowserThemeSettings.mode(defaults: defaults),
+            BrowserThemeSettings.defaultMode
         )
     }
 
     func testModeReadsPersistedValue() {
         let defaults = makeIsolatedDefaults()
-        defaults.set(BrowserThemeMode.dark.rawValue, forKey: BrowserThemeMode.modeKey)
-        XCTAssertEqual(BrowserThemeMode.mode(defaults: defaults), .dark)
+        defaults.set(BrowserThemeMode.dark.rawValue, forKey: BrowserThemeSettings.modeKey)
+        XCTAssertEqual(BrowserThemeSettings.mode(defaults: defaults), .dark)
 
-        defaults.set(BrowserThemeMode.light.rawValue, forKey: BrowserThemeMode.modeKey)
-        XCTAssertEqual(BrowserThemeMode.mode(defaults: defaults), .light)
+        defaults.set(BrowserThemeMode.light.rawValue, forKey: BrowserThemeSettings.modeKey)
+        XCTAssertEqual(BrowserThemeSettings.mode(defaults: defaults), .light)
     }
 
     func testModeMigratesLegacyForcedDarkModeFlag() {
         let defaults = makeIsolatedDefaults()
-        defaults.set(true, forKey: BrowserThemeMode.legacyForcedDarkModeEnabledKey)
-        XCTAssertEqual(BrowserThemeMode.mode(defaults: defaults), .dark)
-        XCTAssertEqual(defaults.string(forKey: BrowserThemeMode.modeKey), BrowserThemeMode.dark.rawValue)
+        defaults.set(true, forKey: BrowserThemeSettings.legacyForcedDarkModeEnabledKey)
+        XCTAssertEqual(BrowserThemeSettings.mode(defaults: defaults), .dark)
+        XCTAssertEqual(defaults.string(forKey: BrowserThemeSettings.modeKey), BrowserThemeMode.dark.rawValue)
 
         let otherDefaults = makeIsolatedDefaults()
-        otherDefaults.set(false, forKey: BrowserThemeMode.legacyForcedDarkModeEnabledKey)
-        XCTAssertEqual(BrowserThemeMode.mode(defaults: otherDefaults), .system)
-        XCTAssertEqual(otherDefaults.string(forKey: BrowserThemeMode.modeKey), BrowserThemeMode.system.rawValue)
+        otherDefaults.set(false, forKey: BrowserThemeSettings.legacyForcedDarkModeEnabledKey)
+        XCTAssertEqual(BrowserThemeSettings.mode(defaults: otherDefaults), .system)
+        XCTAssertEqual(otherDefaults.string(forKey: BrowserThemeSettings.modeKey), BrowserThemeMode.system.rawValue)
     }
 }
 
@@ -5338,18 +5340,16 @@ final class BrowserReadAccessURLTests: XCTestCase {
 
 
 final class BrowserExternalNavigationSchemeTests: XCTestCase {
-    private let resolver = BrowserExternalNavigationResolver()
-
     func testCustomAppSchemesOpenExternally() throws {
         let discord = try XCTUnwrap(URL(string: "discord://login/one-time?token=abc"))
         let slack = try XCTUnwrap(URL(string: "slack://open"))
         let zoom = try XCTUnwrap(URL(string: "zoommtg://zoom.us/join"))
         let mailto = try XCTUnwrap(URL(string: "mailto:test@example.com"))
 
-        XCTAssertTrue(resolver.shouldOpenURLExternally(discord))
-        XCTAssertTrue(resolver.shouldOpenURLExternally(slack))
-        XCTAssertTrue(resolver.shouldOpenURLExternally(zoom))
-        XCTAssertTrue(resolver.shouldOpenURLExternally(mailto))
+        XCTAssertTrue(browserShouldOpenURLExternally(discord))
+        XCTAssertTrue(browserShouldOpenURLExternally(slack))
+        XCTAssertTrue(browserShouldOpenURLExternally(zoom))
+        XCTAssertTrue(browserShouldOpenURLExternally(mailto))
     }
 
     func testEmbeddedBrowserSchemesStayInWebView() throws {
@@ -5363,42 +5363,42 @@ final class BrowserExternalNavigationSchemeTests: XCTestCase {
         let javascript = try XCTUnwrap(URL(string: "javascript:void(0)"))
         let webkitInternal = try XCTUnwrap(URL(string: "applewebdata://local/page"))
 
-        XCTAssertFalse(resolver.shouldOpenURLExternally(https))
-        XCTAssertFalse(resolver.shouldOpenURLExternally(http))
-        XCTAssertFalse(resolver.shouldOpenURLExternally(about))
-        XCTAssertFalse(resolver.shouldOpenURLExternally(data))
-        XCTAssertFalse(resolver.shouldOpenURLExternally(file))
-        XCTAssertFalse(resolver.shouldOpenURLExternally(blob))
-        XCTAssertFalse(resolver.shouldOpenURLExternally(diffViewer))
-        XCTAssertFalse(resolver.shouldOpenURLExternally(javascript))
-        XCTAssertFalse(resolver.shouldOpenURLExternally(webkitInternal))
+        XCTAssertFalse(browserShouldOpenURLExternally(https))
+        XCTAssertFalse(browserShouldOpenURLExternally(http))
+        XCTAssertFalse(browserShouldOpenURLExternally(about))
+        XCTAssertFalse(browserShouldOpenURLExternally(data))
+        XCTAssertFalse(browserShouldOpenURLExternally(file))
+        XCTAssertFalse(browserShouldOpenURLExternally(blob))
+        XCTAssertFalse(browserShouldOpenURLExternally(diffViewer))
+        XCTAssertFalse(browserShouldOpenURLExternally(javascript))
+        XCTAssertFalse(browserShouldOpenURLExternally(webkitInternal))
     }
 
     func testCustomAppSchemesRouteExternallyFromSubframes() throws {
         let vscode = try XCTUnwrap(URL(string: "vscode://file/Users/example/project/README.md"))
 
-        XCTAssertTrue(resolver.shouldRouteExternalNavigation(vscode))
-        XCTAssertEqual(resolver.externalNavigationAction(for: vscode), .promptToOpenApp(vscode))
+        XCTAssertTrue(browserShouldRouteExternalNavigation(vscode))
+        XCTAssertEqual(browserExternalNavigationAction(for: vscode), .promptToOpenApp(vscode))
     }
 
     func testEmbeddedSubframeNavigationStaysInWebView() throws {
         let https = try XCTUnwrap(URL(string: "https://example.com/iframe"))
 
-        XCTAssertFalse(resolver.shouldRouteExternalNavigation(https))
+        XCTAssertFalse(browserShouldRouteExternalNavigation(https))
     }
 
     func testIntentBrowserFallbackURLExtraction() throws {
         let intent = try XCTUnwrap(URL(string: "intent://join/abc#Intent;scheme=zoommtg;package=us.zoom.videomeetings;S.browser_fallback_url=https%3A%2F%2Fzoom.us%2Fjoin%2Fabc;end"))
         let fallback = try XCTUnwrap(URL(string: "https://zoom.us/join/abc"))
 
-        XCTAssertEqual(resolver.intentFallbackURL(for: intent), fallback)
-        XCTAssertEqual(resolver.externalNavigationAction(for: intent), .browserFallback(fallback))
+        XCTAssertEqual(browserIntentFallbackURL(for: intent), fallback)
+        XCTAssertEqual(browserExternalNavigationAction(for: intent), .browserFallback(fallback))
     }
 
     func testIntentBrowserFallbackURLRejectsExternalSchemes() throws {
         let intent = try XCTUnwrap(URL(string: "intent://open#Intent;S.browser_fallback_url=slack%3A%2F%2Fopen;end"))
 
-        XCTAssertNil(resolver.intentFallbackURL(for: intent))
+        XCTAssertNil(browserIntentFallbackURL(for: intent))
     }
 }
 
@@ -5499,28 +5499,28 @@ final class BrowserHostWhitelistTests: XCTestCase {
 final class BrowserOmnibarFocusPolicyTests: XCTestCase {
     func testReacquiresFocusWhenOmnibarStillWantsFocusAndNextResponderIsNotAnotherTextField() {
         XCTAssertTrue(
-            BrowserOmnibarEndEditingFocusDecision(
+            browserOmnibarShouldReacquireFocusAfterEndEditing(
                 desiredOmnibarFocus: true,
                 nextResponderIsOtherTextField: false
-            ).shouldReacquireFocus
+            )
         )
     }
 
     func testDoesNotReacquireFocusWhenAnotherTextFieldAlreadyTookFocus() {
         XCTAssertFalse(
-            BrowserOmnibarEndEditingFocusDecision(
+            browserOmnibarShouldReacquireFocusAfterEndEditing(
                 desiredOmnibarFocus: true,
                 nextResponderIsOtherTextField: true
-            ).shouldReacquireFocus
+            )
         )
     }
 
     func testDoesNotReacquireFocusWhenOmnibarNoLongerWantsFocus() {
         XCTAssertFalse(
-            BrowserOmnibarEndEditingFocusDecision(
+            browserOmnibarShouldReacquireFocusAfterEndEditing(
                 desiredOmnibarFocus: false,
                 nextResponderIsOtherTextField: false
-            ).shouldReacquireFocus
+            )
         )
     }
 }

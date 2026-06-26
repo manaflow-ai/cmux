@@ -1,7 +1,6 @@
 import AppKit
 import Bonsplit
 import CmuxNotifications
-import CmuxPanes
 import Foundation
 
 /// App-side adapter that lets the `CmuxNotifications` navigation seams reach
@@ -412,32 +411,24 @@ extension AppDelegate {
     }
 }
 
-/// Compatibility alias for the retired app-target `TerminalNotificationClickAction`
-/// enum, which was deduped into the single canonical ``NotificationNavClickAction``
-/// in `CmuxNotifications`. The forbidden god `AppDelegate.swift` still names the old
-/// type in `performTerminalNotificationClickAction(_:)`; this alias (declared in the
-/// editable seams reader, not the god) keeps that signature resolving against the
-/// canonical type. The two enums were case-for-case and wire-key identical, so the
-/// alias is a pure rename with no behavior change. Remove once the god is migrated
-/// to name ``NotificationNavClickAction`` directly.
-typealias TerminalNotificationClickAction = NotificationNavClickAction
-
-/// Identity bridge for the retired `TerminalNotificationClickAction.navClickAction`
-/// hop. The old app-target enum exposed `var navClickAction: NotificationNavClickAction`
-/// to map onto the package type; now that the two enums are the same canonical type,
-/// the mapping is the identity. `AppDelegate.swift:11420` (a forbidden god, left
-/// unedited) still calls `action.navClickAction`, so this shim keeps that call
-/// resolving. Remove with the typealias once the god names the package type directly.
-extension NotificationNavClickAction {
-    var navClickAction: NotificationNavClickAction { self }
+/// Value-bridge from the app-target click action onto the package's value-typed
+/// ``NotificationNavClickAction``. Lives on the owning type per CONVENTIONS §9
+/// (operations on a type are extensions on that type), replacing the former
+/// `AppDelegate.navClickAction(_:)` static helper (a §10 namespace-on-AppDelegate
+/// anti-pattern). Byte-identical to the previous mapping.
+extension TerminalNotificationClickAction {
+    var navClickAction: NotificationNavClickAction {
+        switch self {
+        case .revealInFinder(let path):
+            return .revealInFinder(path: path)
+        }
+    }
 }
 
-/// Value-bridge from the notification value model onto the package navigation
+/// Value-bridge from the app-target notification onto the package navigation
 /// snapshot the coordinator consumes. Lives on the owning type per CONVENTIONS
 /// §9, replacing the inline snapshot construction that was duplicated at each
-/// call site. The former `TerminalNotificationClickAction → NotificationNavClickAction`
-/// hop is gone: ``TerminalNotification/clickAction`` is already the canonical
-/// ``NotificationNavClickAction``, so the snapshot stores it directly.
+/// call site.
 extension TerminalNotification {
     var navSnapshot: NotificationNavSnapshot {
         NotificationNavSnapshot(
@@ -445,7 +436,7 @@ extension TerminalNotification {
             tabId: tabId,
             surfaceId: surfaceId,
             isRead: isRead,
-            clickAction: clickAction
+            clickAction: clickAction?.navClickAction
         )
     }
 }

@@ -1,7 +1,6 @@
 import AppKit
 import Bonsplit
 import Carbon.HIToolbox
-import CmuxPanes
 import Quartz
 import XCTest
 
@@ -65,8 +64,8 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
         try "hello".write(to: url, atomically: true, encoding: .utf16)
 
-        XCTAssertEqual(FilePreviewMode.initial(for: url), .quickLook)
-        XCTAssertEqual(FilePreviewMode.resolved(for: url), .text)
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
     }
 
     func testExtensionlessANSITextResolvesAsTextAfterSniffing() throws {
@@ -75,8 +74,8 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
         try "\u{001B}[31mred\u{001B}[0m\n".write(to: url, atomically: true, encoding: .utf8)
 
-        XCTAssertEqual(FilePreviewMode.initial(for: url), .quickLook)
-        XCTAssertEqual(FilePreviewMode.resolved(for: url), .text)
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
     }
 
     func testTypeScriptFileResolvesAsTextInsteadOfTransportStreamMedia() throws {
@@ -90,8 +89,8 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         console.log(answer);
         """.write(to: url, atomically: true, encoding: .utf8)
 
-        XCTAssertEqual(FilePreviewMode.initial(for: url), .text)
-        XCTAssertEqual(FilePreviewMode.resolved(for: url), .text)
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
     }
 
     func testUTF8BOMTypeScriptFileResolvesAsText() throws {
@@ -104,8 +103,8 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         data.append(Data("export const answer: number = 42;\n".utf8))
         try data.write(to: url, options: .atomic)
 
-        XCTAssertEqual(FilePreviewMode.initial(for: url), .text)
-        XCTAssertEqual(FilePreviewMode.resolved(for: url), .text)
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
     }
 
     func testTypeScriptFileWithNULBytesDoesNotResolveAsText() throws {
@@ -118,8 +117,8 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         data.append(contentsOf: [0x00, 0x00])
         try data.write(to: url, options: .atomic)
 
-        XCTAssertEqual(FilePreviewMode.initial(for: url), .text)
-        XCTAssertNotEqual(FilePreviewMode.resolved(for: url), .text)
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
+        XCTAssertNotEqual(FilePreviewKindResolver.mode(for: url), .text)
     }
 
     func testTypeScriptTextWinsOverTransportStreamSyncBytePattern() throws {
@@ -135,8 +134,8 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
             + "\nexport const answer: number = 42;\n"
         try source.write(to: url, atomically: true, encoding: .utf8)
 
-        XCTAssertEqual(FilePreviewMode.initial(for: url), .text)
-        XCTAssertEqual(FilePreviewMode.resolved(for: url), .text)
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
     }
 
     func testBinaryTransportStreamFileKeepsMediaPreview() throws {
@@ -156,8 +155,8 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         data[191] = 0x10
         try data.write(to: url, options: .atomic)
 
-        XCTAssertEqual(FilePreviewMode.initial(for: url), .text)
-        XCTAssertEqual(FilePreviewMode.resolved(for: url), .media)
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .media)
     }
 
     func testM2TSTransportStreamFileKeepsMediaPreview() throws {
@@ -177,8 +176,8 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         data[199] = 0x10
         try data.write(to: url, options: .atomic)
 
-        XCTAssertEqual(FilePreviewMode.initial(for: url), .text)
-        XCTAssertEqual(FilePreviewMode.resolved(for: url), .media)
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .media)
     }
 
     func testQuickLookSessionCloseDoesNotDeactivateMountedRepresentableView() throws {
@@ -290,10 +289,10 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
 
         _ = FileManager.default.createFile(atPath: url.path, contents: nil)
         let handle = try FileHandle(forWritingTo: url)
-        try handle.truncate(atOffset: URL.filePreviewMaximumLoadedTextBytes + 1)
+        try handle.truncate(atOffset: FilePreviewTextLoader.maximumLoadedTextBytes + 1)
         try handle.close()
 
-        guard case .unavailable = url.loadFilePreviewTextSynchronously() else {
+        guard case .unavailable = FilePreviewTextLoader.loadSynchronously(url: url) else {
             XCTFail("Expected oversized text file to be unavailable")
             return
         }

@@ -1,7 +1,6 @@
 import XCTest
 import Foundation
 import AppKit
-import CmuxAppKitSupportUI
 import CmuxSettings
 
 #if canImport(cmux_DEV)
@@ -10,11 +9,58 @@ import CmuxSettings
 @testable import cmux
 #endif
 
-// The insecure-HTTP allowlist policy + the four `browserShould…` decisions moved
-// to `CmuxBrowser.BrowserInsecureHTTPRepository`; its behavior is covered by
-// `Packages/macOS/CmuxBrowser/Tests/CmuxBrowserTests/Navigation/BrowserInsecureHTTPRepositoryTests.swift`.
-// `browserPreparedNavigationRequest` stays in the app target, so its coverage stays here.
-final class BrowserPreparedNavigationRequestTests: XCTestCase {
+final class BrowserInsecureHTTPSettingsTests: XCTestCase {
+    func testDefaultAllowlistPatternsArePresent() {
+        XCTAssertEqual(
+            BrowserInsecureHTTPSettings.normalizedAllowlistPatterns(rawValue: nil),
+            ["localhost", "*.localhost", "127.0.0.1", "::1", "0.0.0.0", "*.localtest.me"]
+        )
+    }
+
+    func testWildcardAndExactHostMatching() {
+        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("localhost", rawAllowlist: nil))
+        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("a.localhost", rawAllowlist: nil))
+        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("deep.a.localhost", rawAllowlist: nil))
+        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("127.0.0.1", rawAllowlist: nil))
+        XCTAssertFalse(BrowserInsecureHTTPSettings.isHostAllowed("a.127.0.0.1", rawAllowlist: nil))
+        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("::1", rawAllowlist: nil))
+        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("0.0.0.0", rawAllowlist: nil))
+        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("api.localtest.me", rawAllowlist: nil))
+        XCTAssertFalse(BrowserInsecureHTTPSettings.isHostAllowed("neverssl.com", rawAllowlist: nil))
+    }
+
+    func testCustomAllowlistNormalizesAndDeduplicatesEntries() {
+        let raw = """
+        localhost
+        *.example.com
+        127.0.0.1
+        https://dev.internal:8080/path
+        *.example.com
+        """
+
+        XCTAssertEqual(
+            BrowserInsecureHTTPSettings.normalizedAllowlistPatterns(rawValue: raw),
+            ["localhost", "*.example.com", "127.0.0.1", "dev.internal"]
+        )
+        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("foo.example.com", rawAllowlist: raw))
+        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("dev.internal", rawAllowlist: raw))
+        XCTAssertFalse(BrowserInsecureHTTPSettings.isHostAllowed("example.net", rawAllowlist: raw))
+    }
+
+    func testBlockDecisionUsesAllowlistAndSchemeRules() throws {
+        let localURL = try XCTUnwrap(URL(string: "http://foo.localtest.me:3000"))
+        XCTAssertFalse(browserShouldBlockInsecureHTTPURL(localURL, rawAllowlist: nil))
+
+        let localhostSubdomainURL = try XCTUnwrap(URL(string: "http://a.localhost:3000"))
+        XCTAssertFalse(browserShouldBlockInsecureHTTPURL(localhostSubdomainURL, rawAllowlist: nil))
+
+        let insecureURL = try XCTUnwrap(URL(string: "http://neverssl.com"))
+        XCTAssertTrue(browserShouldBlockInsecureHTTPURL(insecureURL, rawAllowlist: nil))
+
+        let httpsURL = try XCTUnwrap(URL(string: "https://neverssl.com"))
+        XCTAssertFalse(browserShouldBlockInsecureHTTPURL(httpsURL, rawAllowlist: nil))
+    }
+
     func testPreparedNavigationRequestPreservesOriginalMethodBodyAndHeaders() throws {
         let url = try XCTUnwrap(URL(string: "http://localtest.me:3000/submit"))
         var request = URLRequest(url: url)
@@ -31,25 +77,80 @@ final class BrowserPreparedNavigationRequestTests: XCTestCase {
         XCTAssertEqual(prepared.value(forHTTPHeaderField: "Content-Type"), "application/x-www-form-urlencoded")
         XCTAssertEqual(prepared.cachePolicy, .useProtocolCachePolicy)
     }
+
+    func testOneTimeBypassIsConsumedAfterFirstNavigation() throws {
+        let insecureURL = try XCTUnwrap(URL(string: "http://neverssl.com"))
+        var bypassHostOnce: String? = "neverssl.com"
+
+        XCTAssertTrue(browserShouldConsumeOneTimeInsecureHTTPBypass(
+            insecureURL,
+            bypassHostOnce: &bypassHostOnce
+        ))
+        XCTAssertNil(bypassHostOnce)
+
+        // Subsequent visits should prompt again unless host was saved.
+        XCTAssertFalse(browserShouldConsumeOneTimeInsecureHTTPBypass(
+            insecureURL,
+            bypassHostOnce: &bypassHostOnce
+        ))
+        XCTAssertTrue(browserShouldBlockInsecureHTTPURL(insecureURL, rawAllowlist: nil))
+    }
+
+    func testAddAllowedHostPersistsToDefaultsAndUnblocksHTTP() throws {
+        let suiteName = "BrowserInsecureHTTPSettingsTests.Persist.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let url = try XCTUnwrap(URL(string: "http://persist-me.test"))
+        XCTAssertTrue(browserShouldBlockInsecureHTTPURL(url, defaults: defaults))
+
+        BrowserInsecureHTTPSettings.addAllowedHost("persist-me.test", defaults: defaults)
+        let persisted = defaults.string(forKey: BrowserInsecureHTTPSettings.allowlistKey)
+        XCTAssertNotNil(persisted)
+        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("persist-me.test", defaults: defaults))
+        XCTAssertFalse(browserShouldBlockInsecureHTTPURL(url, defaults: defaults))
+    }
+
+    func testAllowlistSelectionPersistsForProceedAndOpenExternal() {
+        XCTAssertTrue(browserShouldPersistInsecureHTTPAllowlistSelection(
+            response: .alertFirstButtonReturn,
+            suppressionEnabled: true
+        ))
+        XCTAssertTrue(browserShouldPersistInsecureHTTPAllowlistSelection(
+            response: .alertSecondButtonReturn,
+            suppressionEnabled: true
+        ))
+        XCTAssertFalse(browserShouldPersistInsecureHTTPAllowlistSelection(
+            response: .alertThirdButtonReturn,
+            suppressionEnabled: true
+        ))
+        XCTAssertFalse(browserShouldPersistInsecureHTTPAllowlistSelection(
+            response: .alertSecondButtonReturn,
+            suppressionEnabled: false
+        ))
+    }
 }
 
 final class TitlebarControlsSizingPolicyTests: XCTestCase {
     func testSchedulePolicyRequiresMeaningfulViewSizeChange() {
-        XCTAssertFalse(TitlebarControlsLayoutSnapshot.shouldScheduleForViewSizeChange(previous: .zero, current: .zero))
+        XCTAssertFalse(titlebarControlsShouldScheduleForViewSizeChange(previous: .zero, current: .zero))
         XCTAssertTrue(
-            TitlebarControlsLayoutSnapshot.shouldScheduleForViewSizeChange(
+            titlebarControlsShouldScheduleForViewSizeChange(
                 previous: .zero,
                 current: NSSize(width: 240, height: 38)
             )
         )
         XCTAssertFalse(
-            TitlebarControlsLayoutSnapshot.shouldScheduleForViewSizeChange(
+            titlebarControlsShouldScheduleForViewSizeChange(
                 previous: NSSize(width: 240, height: 38),
                 current: NSSize(width: 240.2, height: 38.1)
             )
         )
         XCTAssertTrue(
-            TitlebarControlsLayoutSnapshot.shouldScheduleForViewSizeChange(
+            titlebarControlsShouldScheduleForViewSizeChange(
                 previous: NSSize(width: 240, height: 38),
                 current: NSSize(width: 247, height: 38)
             )
@@ -63,8 +164,8 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
             xOffset: 0,
             yOffset: 3
         )
-        XCTAssertTrue(TitlebarControlsLayoutSnapshot.shouldApply(previous: nil, next: baseline))
-        XCTAssertFalse(TitlebarControlsLayoutSnapshot.shouldApply(previous: baseline, next: baseline))
+        XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: nil, next: baseline))
+        XCTAssertFalse(titlebarControlsShouldApplyLayout(previous: baseline, next: baseline))
 
         let changed = TitlebarControlsLayoutSnapshot(
             contentSize: NSSize(width: 132, height: 22),
@@ -72,7 +173,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
             xOffset: 0,
             yOffset: 3
         )
-        XCTAssertTrue(TitlebarControlsLayoutSnapshot.shouldApply(previous: baseline, next: changed))
+        XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: baseline, next: changed))
 
         let offsetChanged = TitlebarControlsLayoutSnapshot(
             contentSize: NSSize(width: 128, height: 22),
@@ -80,7 +181,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
             xOffset: 1,
             yOffset: 3
         )
-        XCTAssertTrue(TitlebarControlsLayoutSnapshot.shouldApply(previous: baseline, next: offsetChanged))
+        XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: baseline, next: offsetChanged))
     }
 
     func testTitlebarControlsListenForWindowGeometryChanges() {
@@ -97,8 +198,8 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
     func testShortcutHintVerticalOffsetTucksPillIntoBottomOfButtonLane() {
         for style in TitlebarControlsStyle.allCases {
             let config = style.config
-            let hintHeight = config.shortcutHintHeight
-            let verticalOffset = config.shortcutHintVerticalOffset
+            let hintHeight = titlebarShortcutHintHeight(for: config)
+            let verticalOffset = titlebarShortcutHintVerticalOffset(for: config)
 
             XCTAssertLessThan(verticalOffset, config.buttonSize)
             XCTAssertGreaterThan(verticalOffset + hintHeight, config.buttonSize)
@@ -213,7 +314,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
             let config = style.config
 
             XCTAssertLessThan(
-                config.notificationBadgeFontSize,
+                titlebarNotificationBadgeFontSize(for: config),
                 8,
                 "Expected a compact notification badge font for style \(style)"
             )
@@ -234,9 +335,8 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
 final class TitlebarControlsHoverPolicyTests: XCTestCase {
     func testHoverTrackingEnabledForEveryTitlebarStyle() {
         for style in TitlebarControlsStyle.allCases {
-            _ = style
             XCTAssertTrue(
-                TitlebarControlsLayoutSnapshot.shouldTrackButtonHover,
+                titlebarControlsShouldTrackButtonHover(config: style.config),
                 "Expected hover tracking for titlebar style \(style)"
             )
         }
@@ -268,40 +368,40 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
     func testHoverAndPressedStatesHaveVisibleDelta() {
         for style in TitlebarControlsStyle.allCases {
             let config = style.config
-            let idleForeground = TitlebarControlsStyleConfig.controlForegroundOpacity(isHovering: false, isPressed: false)
-            let hoverForeground = TitlebarControlsStyleConfig.controlForegroundOpacity(isHovering: true, isPressed: false)
-            let pressedForeground = TitlebarControlsStyleConfig.controlForegroundOpacity(isHovering: true, isPressed: true)
+            let idleForeground = titlebarControlForegroundOpacity(isHovering: false, isPressed: false)
+            let hoverForeground = titlebarControlForegroundOpacity(isHovering: true, isPressed: false)
+            let pressedForeground = titlebarControlForegroundOpacity(isHovering: true, isPressed: true)
 
             XCTAssertGreaterThan(hoverForeground, idleForeground, "Expected hover foreground delta for style \(style)")
             XCTAssertGreaterThan(pressedForeground, hoverForeground, "Expected pressed foreground delta for style \(style)")
             XCTAssertGreaterThan(
-                config.controlBackgroundOpacity(isHovering: true, isPressed: false),
-                config.controlBackgroundOpacity(isHovering: false, isPressed: false),
+                titlebarControlBackgroundOpacity(config: config, isHovering: true, isPressed: false),
+                titlebarControlBackgroundOpacity(config: config, isHovering: false, isPressed: false),
                 "Expected hover background delta for style \(style)"
             )
             XCTAssertGreaterThan(
-                config.controlBackgroundOpacity(isHovering: true, isPressed: true),
-                config.controlBackgroundOpacity(isHovering: true, isPressed: false),
+                titlebarControlBackgroundOpacity(config: config, isHovering: true, isPressed: true),
+                titlebarControlBackgroundOpacity(config: config, isHovering: true, isPressed: false),
                 "Expected pressed background delta for style \(style)"
             )
             XCTAssertGreaterThanOrEqual(
-                config.controlBorderOpacity(isHovering: true, isPressed: true),
-                config.controlBorderOpacity(isHovering: true, isPressed: false),
+                titlebarControlBorderOpacity(config: config, isHovering: true, isPressed: true),
+                titlebarControlBorderOpacity(config: config, isHovering: true, isPressed: false),
                 "Expected pressed border to stay at least as visible as hover for style \(style)"
             )
         }
     }
 
     func testIdleTitlebarButtonsStayReadableButMuted() {
-        let idleForeground = TitlebarControlsStyleConfig.controlForegroundOpacity(isHovering: false, isPressed: false)
+        let idleForeground = titlebarControlForegroundOpacity(isHovering: false, isPressed: false)
 
         XCTAssertGreaterThanOrEqual(idleForeground, 0.84)
         XCTAssertLessThan(idleForeground, 1.0)
     }
 
     func testPressedStateDoesNotScaleTitlebarButtons() {
-        XCTAssertEqual(TitlebarControlsStyleConfig.controlPressedScale(isPressed: false), 1, accuracy: 0.001)
-        XCTAssertEqual(TitlebarControlsStyleConfig.controlPressedScale(isPressed: true), 1, accuracy: 0.001)
+        XCTAssertEqual(titlebarControlPressedScale(isPressed: false), 1, accuracy: 0.001)
+        XCTAssertEqual(titlebarControlPressedScale(isPressed: true), 1, accuracy: 0.001)
     }
 
     func testDisabledStateMutesTitlebarButtons() {
@@ -309,12 +409,12 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
             let config = style.config
 
             XCTAssertLessThan(
-                TitlebarControlsStyleConfig.controlForegroundOpacity(isHovering: true, isPressed: false, isEnabled: false),
-                TitlebarControlsStyleConfig.controlForegroundOpacity(isHovering: false, isPressed: false, isEnabled: true),
+                titlebarControlForegroundOpacity(isHovering: true, isPressed: false, isEnabled: false),
+                titlebarControlForegroundOpacity(isHovering: false, isPressed: false, isEnabled: true),
                 "Expected disabled foreground to stay muted for style \(style)"
             )
             XCTAssertEqual(
-                config.controlBackgroundOpacity(isHovering: true, isPressed: false, isEnabled: false),
+                titlebarControlBackgroundOpacity(config: config, isHovering: true, isPressed: false, isEnabled: false),
                 0,
                 "Expected disabled titlebar button hover to have no active background for style \(style)"
             )
@@ -323,7 +423,8 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
 
     func testMinimalModeHoverTrackerPassesMouseMovedThroughWhenButtonsAreVisible() {
         XCTAssertTrue(
-            PassthroughHoverCapturePolicy(capturesPassiveHits: true).capturesHit(
+            minimalModePassthroughHoverTrackerCapturesHit(
+                capturesPassiveHits: true,
                 eventType: .mouseMoved,
                 pressedMouseButtons: 0,
                 boundsContainsPoint: true
@@ -332,7 +433,8 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
         )
 
         XCTAssertFalse(
-            PassthroughHoverCapturePolicy(capturesPassiveHits: false).capturesHit(
+            minimalModePassthroughHoverTrackerCapturesHit(
+                capturesPassiveHits: false,
                 eventType: .mouseMoved,
                 pressedMouseButtons: 0,
                 boundsContainsPoint: true
@@ -343,21 +445,24 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
 
     func testMinimalModeHoverTrackerDoesNotCaptureMouseDownOrDraggedHover() {
         XCTAssertFalse(
-            PassthroughHoverCapturePolicy(capturesPassiveHits: true).capturesHit(
+            minimalModePassthroughHoverTrackerCapturesHit(
+                capturesPassiveHits: true,
                 eventType: .leftMouseDown,
                 pressedMouseButtons: 0,
                 boundsContainsPoint: true
             )
         )
         XCTAssertFalse(
-            PassthroughHoverCapturePolicy(capturesPassiveHits: true).capturesHit(
+            minimalModePassthroughHoverTrackerCapturesHit(
+                capturesPassiveHits: true,
                 eventType: .mouseMoved,
                 pressedMouseButtons: 1,
                 boundsContainsPoint: true
             )
         )
         XCTAssertFalse(
-            PassthroughHoverCapturePolicy(capturesPassiveHits: true).capturesHit(
+            minimalModePassthroughHoverTrackerCapturesHit(
+                capturesPassiveHits: true,
                 eventType: .mouseMoved,
                 pressedMouseButtons: 0,
                 boundsContainsPoint: false

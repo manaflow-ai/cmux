@@ -2,8 +2,8 @@ import Foundation
 
 /// Builds the argument vector for an agent's resume/continue command.
 ///
-/// This is the single source of truth shared by the resume/fork command builder
-/// (``AgentResumeCommandBuilder``) and the standalone `cmux-cli` surface-restore
+/// This is the single source of truth shared by the app-side resume builder
+/// (`AgentResumeCommandBuilder` in the app target) and the standalone `cmux-cli` surface-restore
 /// publisher (`agentSurfaceResumeCommand`), so both emit identical resume commands. It is pure value
 /// logic over primitives (no `AppKit`, `Process`, or socket), so it is testable in isolation.
 ///

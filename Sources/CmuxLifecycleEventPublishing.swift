@@ -1,4 +1,3 @@
-import CmuxPanes
 import Foundation
 import AppKit
 import Bonsplit
@@ -290,69 +289,6 @@ extension AppDelegate {
             selectedWorkspaceIndex: selectedWorkspaceIndex,
             isKeyWindow: window?.isKeyWindow,
             isMainWindow: window?.isMainWindow,
-            origin: origin
-        )
-    }
-}
-
-/// App-side witness for the `CmuxPanes` ``WorkspacePanelHosting`` read seam.
-///
-/// A concrete `Panel` that lives in the `CmuxPanes` package cannot name the
-/// app-target `Workspace`, so instead of holding a `weak var workspace:
-/// Workspace` it holds a `weak var host: (any WorkspacePanelHosting)?` and
-/// reaches the live workspace state through this protocol. `Workspace` is that
-/// host. Every member forwards to the same property or method the legacy panels
-/// read off their `workspace` back-reference (`id`, `title`, `customTitle`,
-/// `currentDirectory`, `focusedPanelId`, `panels[id]`, `paneId(forPanelId:)`,
-/// `publishCmuxSurfaceCreated(...)`, `publishCmuxSurfaceClosed(...)`), so the
-/// seam adds no behavior. The two surface-lifecycle hooks forward to the
-/// `publishCmux*` methods defined in this same file. The panel references the
-/// host weakly, so there is no retain cycle.
-extension Workspace: WorkspacePanelHosting {
-    var workspaceHostId: UUID { id }
-
-    var workspaceHostTitle: String { title }
-
-    var workspaceHostCustomTitle: String? { customTitle }
-
-    var workspaceHostCurrentDirectory: String { currentDirectory }
-
-    var workspaceHostFocusedPanelId: UUID? { focusedPanelId }
-
-    func workspaceHostPanel(forPanelId panelId: UUID) -> (any Panel)? {
-        panels[panelId]
-    }
-
-    func workspaceHostPaneId(forPanelId panelId: UUID) -> PaneID? {
-        paneId(forPanelId: panelId)
-    }
-
-    func workspaceHostPublishSurfaceCreated(
-        surfaceId: UUID,
-        paneId: PaneID?,
-        kind: String,
-        origin: String,
-        focused: Bool
-    ) {
-        publishCmuxSurfaceCreated(
-            surfaceId,
-            paneId: paneId,
-            kind: kind,
-            origin: origin,
-            focused: focused
-        )
-    }
-
-    func workspaceHostPublishSurfaceClosed(
-        surfaceId: UUID,
-        paneId: PaneID?,
-        panel: (any Panel)?,
-        origin: String
-    ) {
-        publishCmuxSurfaceClosed(
-            surfaceId,
-            paneId: paneId,
-            panel: panel,
             origin: origin
         )
     }

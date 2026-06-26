@@ -1,5 +1,3 @@
-import CMUXAgentLaunch
-import CmuxTaskManager
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -10,7 +8,7 @@ import XCTest
 
 final class TaskManagerResourcesTests: XCTestCase {
     func testGrokCodingAgentDefinitionMatchesSymlinkLaunch() throws {
-        let definition = try XCTUnwrap(AgentDetector().match(
+        let definition = try XCTUnwrap(CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
             processName: "grok",
             processPath: "/Users/example/.grok/bin/grok",
             arguments: ["/Users/example/.grok/bin/grok", "--no-alt-screen"],
@@ -23,7 +21,7 @@ final class TaskManagerResourcesTests: XCTestCase {
     }
 
     func testGrokCodingAgentDefinitionMatchesResolvedBinaryLaunch() throws {
-        let definition = try XCTUnwrap(AgentDetector().match(
+        let definition = try XCTUnwrap(CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
             processName: "grok-macos-aarch",
             processPath: "/Users/example/.grok/downloads/grok-macos-aarch64",
             arguments: ["/Users/example/.grok/downloads/grok-macos-aarch64"],
@@ -34,7 +32,7 @@ final class TaskManagerResourcesTests: XCTestCase {
     }
 
     func testAntigravityCodingAgentDefinitionUsesBrandedIconAsset() throws {
-        let definition = try XCTUnwrap(AgentDetector().match(
+        let definition = try XCTUnwrap(CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
             processName: "agy",
             processPath: "/Users/example/.local/bin/agy",
             arguments: ["/Users/example/.local/bin/agy", "--conversation", "conversation-123"],
@@ -411,7 +409,7 @@ final class TaskManagerResourcesTests: XCTestCase {
 
     func testCodingAgentMatcherUsesSupportedAgentNamesAndLaunchMetadata() {
         XCTAssertEqual(
-            AgentDetector().match(
+            CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
                 processName: "node",
                 processPath: nil,
                 arguments: ["node", "/usr/local/lib/node_modules/@anthropic-ai/claude-code/cli.js"],
@@ -420,7 +418,7 @@ final class TaskManagerResourcesTests: XCTestCase {
             "claude"
         )
         XCTAssertEqual(
-            AgentDetector().match(
+            CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
                 processName: "acli",
                 processPath: nil,
                 arguments: ["acli", "rovodev", "run"],
@@ -429,7 +427,7 @@ final class TaskManagerResourcesTests: XCTestCase {
             "rovodev"
         )
         XCTAssertEqual(
-            AgentDetector().match(
+            CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
                 processName: "claude_code",
                 processPath: nil,
                 arguments: [],
@@ -437,16 +435,16 @@ final class TaskManagerResourcesTests: XCTestCase {
             )?.id,
             "claude"
         )
-        XCTAssertTrue(AgentDetector().shouldReadArguments(
+        XCTAssertTrue(CmuxTaskManagerCodingAgentDefinition.shouldReadArguments(
             processName: "2.1.140",
             processPath: "/Users/lawrence/.local/share/claude/versions/2.1.140"
         ))
-        XCTAssertTrue(AgentDetector().shouldReadArguments(
+        XCTAssertTrue(CmuxTaskManagerCodingAgentDefinition.shouldReadArguments(
             processName: "2.1.140",
             processPath: nil
         ))
         XCTAssertEqual(
-            AgentDetector().match(
+            CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
                 processName: "2.1.140",
                 processPath: "/Users/lawrence/.local/share/claude/versions/2.1.140",
                 arguments: ["/Users/lawrence/.local/bin/claude", "--resume", "session-id"],
@@ -455,7 +453,7 @@ final class TaskManagerResourcesTests: XCTestCase {
             "claude"
         )
         XCTAssertEqual(
-            AgentDetector().match(
+            CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
                 processName: "2.1.140",
                 processPath: nil,
                 arguments: ["/Users/lawrence/.local/bin/claude", "--resume", "session-id"],
@@ -464,7 +462,7 @@ final class TaskManagerResourcesTests: XCTestCase {
             "claude"
         )
         XCTAssertEqual(
-            AgentDetector().match(
+            CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
                 processName: "2.1.140",
                 processPath: "/Users/lawrence/.local/share/claude/versions/2.1.140",
                 arguments: ["/Users/lawrence/.local/share/claude/versions/2.1.140", "--resume", "session-id"],
@@ -472,14 +470,14 @@ final class TaskManagerResourcesTests: XCTestCase {
             )?.id,
             "claude"
         )
-        XCTAssertNil(AgentDetector().match(
+        XCTAssertNil(CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
             processName: "2.1.140",
             processPath: nil,
             arguments: [],
             environment: [:]
         ))
         XCTAssertEqual(
-            AgentDetector().match(
+            CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
                 processName: "node",
                 processPath: nil,
                 arguments: ["node", "agent.js"],
@@ -488,7 +486,7 @@ final class TaskManagerResourcesTests: XCTestCase {
             "claude"
         )
         XCTAssertEqual(
-            AgentDetector().match(
+            CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
                 processName: "bun",
                 processPath: nil,
                 arguments: ["bun", "opencode"],
@@ -497,7 +495,7 @@ final class TaskManagerResourcesTests: XCTestCase {
             "opencode"
         )
         XCTAssertEqual(
-            AgentDetector().match(
+            CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
                 processName: "omo",
                 processPath: nil,
                 arguments: [],
@@ -506,7 +504,7 @@ final class TaskManagerResourcesTests: XCTestCase {
             "opencode"
         )
         XCTAssertEqual(
-            AgentDetector().match(
+            CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
                 processName: "node",
                 processPath: nil,
                 arguments: ["node", "agent.js"],
@@ -515,7 +513,7 @@ final class TaskManagerResourcesTests: XCTestCase {
             "codex"
         )
         XCTAssertEqual(
-            AgentDetector().match(
+            CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
                 processName: "node",
                 processPath: nil,
                 arguments: ["node", "agent.js"],
@@ -523,26 +521,26 @@ final class TaskManagerResourcesTests: XCTestCase {
             )?.id,
             "codex"
         )
-        XCTAssertNil(AgentDetector().match(
+        XCTAssertNil(CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
             processName: "node",
             processPath: nil,
             arguments: ["node", "api/server.js"],
             environment: [:]
         ))
-        XCTAssertNil(AgentDetector().match(
+        XCTAssertNil(CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
             processName: "node",
             processPath: nil,
             arguments: ["node", "/tmp/gemini-api-test/server.js"],
             environment: [:]
         ))
-        XCTAssertNil(AgentDetector().match(
+        XCTAssertNil(CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
             processName: "node",
             processPath: nil,
             arguments: ["node", "/tmp/factory-reset-tool/index.js"],
             environment: [:]
         ))
         XCTAssertEqual(
-            AgentDetector().match(
+            CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
                 processName: "node",
                 processPath: nil,
                 arguments: ["node", "/usr/local/lib/node_modules/@openai/codex/bin/codex.js"],
@@ -575,7 +573,7 @@ final class TaskManagerResourcesTests: XCTestCase {
 
         for testCase in cases {
             XCTAssertEqual(
-                AgentDetector().match(
+                CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
                     processName: testCase.processName,
                     processPath: nil,
                     arguments: [],

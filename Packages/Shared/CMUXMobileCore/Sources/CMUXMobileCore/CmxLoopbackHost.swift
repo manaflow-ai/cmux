@@ -1,6 +1,5 @@
 import Darwin
 import Foundation
-public import Network
 
 /// Single source of truth for "is this host loopback?" across the mobile
 /// stack.
@@ -70,56 +69,6 @@ public struct CmxLoopbackHost: Sendable {
     /// - Parameter route: The attach route to classify.
     public func matches(_ route: CmxAttachRoute) -> Bool {
         route.kind == .debugLoopback || matches(route.endpoint)
-    }
-
-    /// Whether an incoming connection's peer is on the loopback interface,
-    /// using a *strict* loopback set (`127.0.0.0/8`, `::1`, and IPv4-mapped
-    /// loopback `::ffff:127.0.0.0/8`).
-    ///
-    /// Unlike ``matches(_:)-(String)`` and ``matches(_:)-(CmxAttachEndpoint)``,
-    /// this overload does NOT treat the unspecified addresses (`0.0.0.0` / `::`)
-    /// as self-dialing. It is the inbound trust check used to refuse local
-    /// connections in release builds, where the set must be exactly the
-    /// loopback ranges a legitimate client would never originate from.
-    /// - Parameter connection: The accepted network connection to classify.
-    public func matchesStrictLoopback(_ connection: NWConnection) -> Bool {
-        matchesStrictLoopback(connection.endpoint)
-            || matchesStrictLoopback(connection.currentPath?.remoteEndpoint)
-    }
-
-    /// Whether `endpoint` dials a *strict* loopback host (`127.0.0.0/8`, `::1`,
-    /// or IPv4-mapped loopback `::ffff:127.0.0.0/8`), parsed from the Network
-    /// framework's address bytes rather than a host string.
-    ///
-    /// This is byte-faithful to the inbound release-build refusal check and
-    /// deliberately excludes the unspecified addresses (`0.0.0.0` / `::`) that
-    /// the string/endpoint ``matches(_:)`` overloads include.
-    /// - Parameter endpoint: The endpoint to classify, or `nil`.
-    public func matchesStrictLoopback(_ endpoint: NWEndpoint?) -> Bool {
-        guard case let .hostPort(host, _)? = endpoint else {
-            return false
-        }
-        switch host {
-        case let .ipv4(address):
-            // 127.0.0.0/8
-            return address.rawValue.first == 127
-        case let .ipv6(address):
-            let bytes = Array(address.rawValue)
-            guard bytes.count == 16 else {
-                return false
-            }
-            // ::1
-            let isV6Loopback = bytes[0..<15].allSatisfy { $0 == 0 } && bytes[15] == 1
-            // IPv4-mapped loopback ::ffff:127.0.0.0/8
-            let isV4MappedLoopback = bytes[0..<10].allSatisfy { $0 == 0 }
-                && bytes[10] == 0xff && bytes[11] == 0xff && bytes[12] == 127
-            return isV6Loopback || isV4MappedLoopback
-        case let .name(name, _):
-            let lowered = name.lowercased()
-            return lowered == "localhost" || lowered.hasSuffix(".localhost")
-        @unknown default:
-            return false
-        }
     }
 }
 

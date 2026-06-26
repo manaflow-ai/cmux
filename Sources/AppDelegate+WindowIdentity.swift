@@ -17,7 +17,7 @@ extension AppDelegate {
         if let window = windowCoordinator.window(for: WindowID(windowId)) {
             return window
         }
-        let expectedIdentifier = WindowID(windowId).mainWindowIdentifierRawValue
+        let expectedIdentifier = "cmux.main.\(windowId.uuidString)"
         return NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
     }
 

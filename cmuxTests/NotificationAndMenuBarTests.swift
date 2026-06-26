@@ -6,10 +6,8 @@ import WebKit
 import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
-import CmuxCore
 import CmuxSettings
 import CmuxAppKitSupportUI
-import CmuxNotifications
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -606,11 +604,11 @@ final class NotificationDockBadgeTests: XCTestCase {
     func testNotificationClickActionRoundTripsAndIsStored() {
         let store = TerminalNotificationStore.shared
         let path = "/tmp/cmux-crash-\(UUID().uuidString).ghosttycrash"
-        let action = NotificationNavClickAction.revealInFinder(path: path)
+        let action = TerminalNotificationClickAction.revealInFinder(path: path)
         let userInfo = Dictionary(uniqueKeysWithValues: action.userInfo.map { (AnyHashable($0.key), $0.value as Any) })
         var delivered: TerminalNotification?
 
-        XCTAssertEqual(NotificationNavClickAction(userInfo: userInfo), action)
+        XCTAssertEqual(TerminalNotificationClickAction(userInfo: userInfo), action)
 
         store.replaceNotificationsForTesting([])
         store.configureNotificationDeliveryHandlerForTesting { _, notification in
@@ -734,13 +732,13 @@ final class NotificationDockBadgeTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        XCTAssertTrue(NotificationBadgeSettings(defaults: defaults).isDockBadgeEnabled)
+        XCTAssertTrue(NotificationBadgeSettings.isDockBadgeEnabled(defaults: defaults))
 
         defaults.set(false, forKey: NotificationBadgeSettings.dockBadgeEnabledKey)
-        XCTAssertFalse(NotificationBadgeSettings(defaults: defaults).isDockBadgeEnabled)
+        XCTAssertFalse(NotificationBadgeSettings.isDockBadgeEnabled(defaults: defaults))
 
         defaults.set(true, forKey: NotificationBadgeSettings.dockBadgeEnabledKey)
-        XCTAssertTrue(NotificationBadgeSettings(defaults: defaults).isDockBadgeEnabled)
+        XCTAssertTrue(NotificationBadgeSettings.isDockBadgeEnabled(defaults: defaults))
     }
 
     func testNotificationPaneFlashPreferenceDefaultsToEnabled() {
@@ -753,13 +751,13 @@ final class NotificationDockBadgeTests: XCTestCase {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        XCTAssertTrue(NotificationPaneFlashSettings(defaults: defaults).isEnabled)
+        XCTAssertTrue(NotificationPaneFlashSettings.isEnabled(defaults: defaults))
 
         defaults.set(false, forKey: NotificationPaneFlashSettings.enabledKey)
-        XCTAssertFalse(NotificationPaneFlashSettings(defaults: defaults).isEnabled)
+        XCTAssertFalse(NotificationPaneFlashSettings.isEnabled(defaults: defaults))
 
         defaults.set(true, forKey: NotificationPaneFlashSettings.enabledKey)
-        XCTAssertTrue(NotificationPaneFlashSettings(defaults: defaults).isEnabled)
+        XCTAssertTrue(NotificationPaneFlashSettings.isEnabled(defaults: defaults))
     }
 
     func testMenuBarExtraPreferenceDefaultsToVisible() {

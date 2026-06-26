@@ -337,34 +337,6 @@ public struct CommandPaletteSearchOrchestrator: Sendable {
         return true
     }
 
-    /// Extra score boost that pins the right-pane "fork conversation" command to
-    /// the top when the matching query normalizes to exactly `"fork"`. Pure: it
-    /// depends only on the command id and the normalized query, so it lives with
-    /// the other scoring helpers instead of on the host view.
-    public static func forkPriorityBoost(commandId: String, query: String) -> Int {
-        guard CommandPaletteFuzzyMatcher.normalizeForSearch(query) == "fork",
-              commandId == "palette.forkAgentConversationRight" else {
-            return 0
-        }
-        return 10_000
-    }
-
-    /// Materializes resolved search matches into renderable search results,
-    /// dropping any match whose command id is no longer in `commandsByID`.
-    public static func materializedSearchResults(
-        matches: [CommandPaletteResolvedSearchMatch],
-        commandsByID: [String: CommandPaletteCommand]
-    ) -> [CommandPaletteSearchResult] {
-        matches.compactMap { match in
-            guard let command = commandsByID[match.commandID] else { return nil }
-            return CommandPaletteSearchResult(
-                command: command,
-                score: match.score,
-                titleMatchIndices: match.titleMatchIndices
-            )
-        }
-    }
-
     /// Recency/frequency boost for `commandId`; reduced to a third when the
     /// query is non-empty.
     public static func historyBoost(

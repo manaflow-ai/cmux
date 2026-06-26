@@ -430,7 +430,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
 
         let cwd = root.appendingPathComponent("repo", isDirectory: true)
         let sessionsRoot = root.appendingPathComponent("pi-sessions", isDirectory: true)
-        let projectDirectory = try XCTUnwrap(PiSessionResolver().projectDirectoryName(for: cwd.path))
+        let projectDirectory = try XCTUnwrap(PiSessionLocator.projectDirectoryName(for: cwd.path))
         let projectSessions = sessionsRoot.appendingPathComponent(projectDirectory, isDirectory: true)
         try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
         try fm.createDirectory(at: projectSessions, withIntermediateDirectories: true)

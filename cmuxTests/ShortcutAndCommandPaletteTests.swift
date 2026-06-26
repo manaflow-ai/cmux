@@ -1,9 +1,5 @@
 import CmuxCommandPalette
 import CmuxFoundation
-// FeedKeyboardFocusResponder moved into CmuxFeedUI (the Feed inline-editor
-// extraction); import only the protocol so the rest of CmuxFeedUI's public
-// surface cannot shadow app-target names this file uses.
-import protocol CmuxFeedUI.FeedKeyboardFocusResponder
 import XCTest
 import AppKit
 import SwiftUI
@@ -14,7 +10,6 @@ import Bonsplit
 import UserNotifications
 import Sparkle
 import CmuxUpdater
-import CmuxShortcuts
 // Selective imports: the app target also defines AppIconMode/StoredShortcut/etc.,
 // so a blanket `import CmuxSettings` here makes those names ambiguous. Import only
 // the settings symbols this file needs.
@@ -727,7 +722,7 @@ final class CommandPaletteRestoreFocusStateMachineTests: XCTestCase {
     func testRestoresBrowserAddressBarWhenPaletteOpenedFromFocusedAddressBar() {
         let panelId = UUID()
         XCTAssertTrue(
-            CommandPaletteCommandRunPolicy().shouldRestoreBrowserAddressBarAfterDismiss(
+            ContentView.shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
                 focusedPanelIsBrowser: true,
                 focusedBrowserAddressBarPanelId: panelId,
                 focusedPanelId: panelId
@@ -738,7 +733,7 @@ final class CommandPaletteRestoreFocusStateMachineTests: XCTestCase {
     func testDoesNotRestoreBrowserAddressBarWhenFocusedPanelIsNotBrowser() {
         let panelId = UUID()
         XCTAssertFalse(
-            CommandPaletteCommandRunPolicy().shouldRestoreBrowserAddressBarAfterDismiss(
+            ContentView.shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
                 focusedPanelIsBrowser: false,
                 focusedBrowserAddressBarPanelId: panelId,
                 focusedPanelId: panelId
@@ -748,7 +743,7 @@ final class CommandPaletteRestoreFocusStateMachineTests: XCTestCase {
 
     func testDoesNotRestoreBrowserAddressBarWhenAnotherPanelHadAddressBarFocus() {
         XCTAssertFalse(
-            CommandPaletteCommandRunPolicy().shouldRestoreBrowserAddressBarAfterDismiss(
+            ContentView.shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
                 focusedPanelIsBrowser: true,
                 focusedBrowserAddressBarPanelId: UUID(),
                 focusedPanelId: UUID()
@@ -1549,14 +1544,12 @@ final class DevBuildBannerDebugSettingsTests: XCTestCase {
 final class ShortcutHintLanePlannerTests: XCTestCase {
     func testAssignLanesKeepsSeparatedIntervalsOnSingleLane() {
         let intervals: [ClosedRange<CGFloat>] = [0...20, 28...40, 48...64]
-        let planner = ShortcutHintLayoutPlanner(laneMinSpacing: 4)
-        XCTAssertEqual(planner.assignLanes(for: intervals), [0, 0, 0])
+        XCTAssertEqual(ShortcutHintLanePlanner.assignLanes(for: intervals, minSpacing: 4), [0, 0, 0])
     }
 
     func testAssignLanesStacksOverlappingIntervalsIntoAdditionalLanes() {
         let intervals: [ClosedRange<CGFloat>] = [0...20, 18...34, 22...38, 40...56]
-        let planner = ShortcutHintLayoutPlanner(laneMinSpacing: 4)
-        XCTAssertEqual(planner.assignLanes(for: intervals), [0, 1, 2, 0])
+        XCTAssertEqual(ShortcutHintLanePlanner.assignLanes(for: intervals, minSpacing: 4), [0, 1, 2, 0])
     }
 }
 
@@ -1564,7 +1557,7 @@ final class ShortcutHintLanePlannerTests: XCTestCase {
 final class ShortcutHintHorizontalPlannerTests: XCTestCase {
     func testAssignRightEdgesResolvesOverlapWithMinimumSpacing() {
         let intervals: [ClosedRange<CGFloat>] = [0...20, 18...34, 30...46]
-        let rightEdges = ShortcutHintLayoutPlanner(rightEdgeMinSpacing: 6).assignRightEdges(for: intervals)
+        let rightEdges = ShortcutHintHorizontalPlanner.assignRightEdges(for: intervals, minSpacing: 6)
 
         XCTAssertEqual(rightEdges.count, intervals.count)
 
@@ -1579,13 +1572,13 @@ final class ShortcutHintHorizontalPlannerTests: XCTestCase {
 
     func testAssignRightEdgesKeepsAlreadySeparatedIntervalsInPlace() {
         let intervals: [ClosedRange<CGFloat>] = [0...12, 20...32, 40...52]
-        let rightEdges = ShortcutHintLayoutPlanner(rightEdgeMinSpacing: 4).assignRightEdges(for: intervals)
+        let rightEdges = ShortcutHintHorizontalPlanner.assignRightEdges(for: intervals, minSpacing: 4)
         XCTAssertEqual(rightEdges, [12, 32, 52])
     }
 
     func testAssignRightEdgesKeepsCrowdedHintsInsideLeadingEdge() {
         let intervals: [ClosedRange<CGFloat>] = [-2...24, 27...50, 50...76, 78...102, 104...128]
-        let rightEdges = ShortcutHintLayoutPlanner(rightEdgeMinSpacing: 6).assignRightEdges(for: intervals)
+        let rightEdges = ShortcutHintHorizontalPlanner.assignRightEdges(for: intervals, minSpacing: 6)
 
         let adjustedIntervals = zip(intervals, rightEdges).map { interval, rightEdge in
             let width = interval.upperBound - interval.lowerBound

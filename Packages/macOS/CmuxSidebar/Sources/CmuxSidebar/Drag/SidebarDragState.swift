@@ -15,7 +15,7 @@ public import CmuxFoundation
 /// window can resolve a drag that originated elsewhere.
 @MainActor
 @Observable
-public final class SidebarDragStateModel {
+public final class SidebarDragState {
     /// The workspace currently dragged in this window, or `nil` when no local
     /// drag is in flight. A destination window mirrors a foreign id here to drive
     /// the cross-window drop machinery.
@@ -99,9 +99,3 @@ public final class SidebarDragStateModel {
         clearDropIndicator()
     }
 }
-
-/// Compatibility alias for the former class name. The canonical drag-state model
-/// is now ``SidebarDragStateModel`` (a `@MainActor @Observable` value-owner held
-/// by the sidebar view); existing call sites keep referring to it as
-/// `SidebarDragState`.
-public typealias SidebarDragState = SidebarDragStateModel

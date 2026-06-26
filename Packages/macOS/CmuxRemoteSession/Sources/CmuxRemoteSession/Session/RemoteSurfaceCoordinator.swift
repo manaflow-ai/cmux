@@ -37,58 +37,12 @@ public import Foundation
 /// no retain cycle.
 @MainActor
 public final class RemoteSurfaceCoordinator<Host: RemoteSurfaceHosting> {
-    // `internal` (not `private`) so the per-concern extension files
-    // (`+RelayAliases`, `+PTYSession`, `+PendingTTY`) can resolve the live host.
-    weak var host: Host?
-
-    /// The per-workspace surface-tracking bookkeeping this coordinator owns
-    /// (active/ended/pending surface sets, PTY session ids, relay aliases, the
-    /// pending TTY/port-kick, the tmux guards, the transferred cleanup configs).
-    /// `Workspace` forwards each former stored property to a member of this
-    /// state.
-    public let state = RemoteSurfaceTrackingState()
+    private weak var host: Host?
 
     /// Creates a surface coordinator. Call ``attach(host:)`` at the composition
     /// point before any command or predicate runs so the live-workspace reads
     /// and forwards resolve.
     public init() {}
-
-    // MARK: - Default SSH PTY session id
-
-    /// The default SSH PTY session id for a surface in this workspace,
-    /// `ssh-<workspaceId>-<panelId>`. Faithful lift of
-    /// `Workspace.defaultSSHPTYSessionID(workspaceId:panelId:)` for an instance
-    /// that already knows its workspace id.
-    public func defaultSSHPTYSessionID(panelId: UUID) -> String {
-        guard let host else { return "ssh-\(panelId.uuidString)" }
-        return Self.defaultSSHPTYSessionID(workspaceId: host.hostWorkspaceID, panelId: panelId)
-    }
-
-    /// The default SSH PTY session id, `ssh-<workspaceId>-<panelId>`. Faithful
-    /// lift of `Workspace.defaultSSHPTYSessionID(workspaceId:panelId:)`.
-    public nonisolated static func defaultSSHPTYSessionID(workspaceId: UUID, panelId: UUID) -> String {
-        "ssh-\(workspaceId.uuidString)-\(panelId.uuidString)"
-    }
-
-    /// Parses the default SSH PTY session id form back into its workspace/panel
-    /// ids, or `nil` when the string is not in that exact form. Faithful lift of
-    /// `Workspace.parsedDefaultSSHPTYSessionID(_:)`.
-    public nonisolated static func parsedDefaultSSHPTYSessionID(_ value: String) -> (workspaceId: UUID, panelId: UUID)? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("ssh-") else { return nil }
-        let suffix = String(trimmed.dropFirst(4))
-        guard suffix.count == 73 else { return nil }
-        let separatorIndex = suffix.index(suffix.startIndex, offsetBy: 36)
-        guard suffix[separatorIndex] == "-" else { return nil }
-        let panelStart = suffix.index(after: separatorIndex)
-        let workspacePart = String(suffix[..<separatorIndex])
-        let panelPart = String(suffix[panelStart...])
-        guard let workspaceId = UUID(uuidString: workspacePart),
-              let panelId = UUID(uuidString: panelPart) else {
-            return nil
-        }
-        return (workspaceId, panelId)
-    }
 
     /// Injects the live-workspace seam. Set before any orchestration runs.
     public func attach(host: Host) {
@@ -100,7 +54,7 @@ public final class RemoteSurfaceCoordinator<Host: RemoteSurfaceHosting> {
     /// True when `panelId` is currently tracked as an active remote terminal
     /// surface. Faithful lift of `Workspace.isRemoteTerminalSurface(_:)`.
     public func isRemoteTerminalSurface(_ panelId: UUID) -> Bool {
-        state.activeRemoteTerminalSurfaceIds.contains(panelId)
+        host?.hostActiveRemoteTerminalSurfaceIds.contains(panelId) ?? false
     }
 
     /// Marks the remote terminal session as ended when `surfaceId` is the last
@@ -110,8 +64,8 @@ public final class RemoteSurfaceCoordinator<Host: RemoteSurfaceHosting> {
     public func markRemoteTerminalSessionClosingIfLast(surfaceId: UUID) {
         guard let host else { return }
         guard !host.hostIsDetachingCloseTransaction,
-              state.activeRemoteTerminalSurfaceIds.count == 1,
-              state.activeRemoteTerminalSurfaceIds.contains(surfaceId) else {
+              host.hostActiveRemoteTerminalSurfaceIds.count == 1,
+              host.hostActiveRemoteTerminalSurfaceIds.contains(surfaceId) else {
             return
         }
         let relayPort: Int?
@@ -129,8 +83,8 @@ public final class RemoteSurfaceCoordinator<Host: RemoteSurfaceHosting> {
     public func shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(_ panelId: UUID) -> Bool {
         guard let host else { return false }
         guard host.hostRemoteConfiguration?.preserveAfterTerminalExit == true else { return false }
-        return state.activeRemoteTerminalSurfaceIds.contains(panelId) ||
-            state.endedPersistentRemotePTYAttachSurfaceIds.contains(panelId)
+        return host.hostActiveRemoteTerminalSurfaceIds.contains(panelId) ||
+            host.hostEndedPersistentRemotePTYAttachSurfaceIds.contains(panelId)
     }
 
     /// True when the workspace should be demoted after a child exit, i.e. it is
@@ -139,7 +93,7 @@ public final class RemoteSurfaceCoordinator<Host: RemoteSurfaceHosting> {
     public func shouldDemoteWorkspaceAfterChildExit(surfaceId: UUID) -> Bool {
         guard let host else { return false }
         return host.hostIsRemoteWorkspace ||
-            state.pendingRemoteTerminalChildExitSurfaceIds.contains(surfaceId)
+            host.hostPendingRemoteTerminalChildExitSurfaceIds.contains(surfaceId)
     }
 
     // MARK: - Dropped-file upload

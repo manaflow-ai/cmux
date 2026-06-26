@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 
 /// The typed twins of the former `TerminalControllerV2ParamParsingSupport`
 /// helpers, operating on `[String: JSONValue]` (the coordinator receives typed
@@ -192,11 +192,8 @@ extension ControlCommandCoordinator {
 
     // MARK: - Ref minting (typed twins of v2WorkspaceRefs / v2TabRef / …)
 
-    /// Mints (or returns) the stable `workspace:N` ref for each workspace id
-    /// (the former `TerminalController.v2WorkspaceRefs`). `public` because the
-    /// app target's identifier-text producers (clipboard, mobile workspace
-    /// lists) call it directly so the handle registry has exactly one owner.
-    public func workspaceRefs(for ids: [UUID]) -> [UUID: String] {
+    /// `v2WorkspaceRefs`: stable workspace refs for a batch of ids.
+    func workspaceRefs(for ids: [UUID]) -> [UUID: String] {
         var refs: [UUID: String] = [:]
         refs.reserveCapacity(ids.count)
         for id in ids {
@@ -205,19 +202,16 @@ extension ControlCommandCoordinator {
         return refs
     }
 
-    /// Mints (or returns) the workspace/pane/surface ref triple (the former
-    /// `TerminalController.v2WorkspacePaneAndSurfaceRefs`). `public` for the
-    /// app-side identifier-text producers, same single-owner reason as
-    /// ``workspaceRefs(for:)``.
-    public func workspacePaneAndSurfaceRefs(
-        workspaceId: UUID,
-        paneId: UUID?,
-        surfaceId: UUID
+    /// `v2WorkspacePaneAndSurfaceRefs`: the workspace/pane/surface ref triple.
+    func workspacePaneAndSurfaceRefs(
+        workspaceID: UUID,
+        paneID: UUID?,
+        surfaceID: UUID
     ) -> (workspaceRef: String, paneRef: String?, surfaceRef: String) {
         (
-            workspaceRef: handles.ensureRef(kind: .workspace, uuid: workspaceId),
-            paneRef: paneId.map { handles.ensureRef(kind: .pane, uuid: $0) },
-            surfaceRef: handles.ensureRef(kind: .surface, uuid: surfaceId)
+            workspaceRef: handles.ensureRef(kind: .workspace, uuid: workspaceID),
+            paneRef: paneID.map { handles.ensureRef(kind: .pane, uuid: $0) },
+            surfaceRef: handles.ensureRef(kind: .surface, uuid: surfaceID)
         )
     }
 

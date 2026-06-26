@@ -1,5 +1,4 @@
 import CmuxTerminal
-import CmuxWorkspaces
 import Foundation
 import Testing
 
@@ -21,7 +20,7 @@ struct WorkspaceEnvironmentTests {
 
     @Test
     func sanitizedWorkspaceEnvironmentTrimsKeysAndDropsBlanks() {
-        let result = SurfaceCreationCoordinator.sanitizedWorkspaceEnvironment([
+        let result = Workspace.sanitizedWorkspaceEnvironment([
             "  FOO  ": "bar",   // key is trimmed
             "": "ignored",      // blank key is dropped
             "EMPTY": "",        // blank value is dropped (matches additionalEnvironment)
@@ -36,7 +35,7 @@ struct WorkspaceEnvironmentTests {
     /// must be rejected at the sanitizer (the single choke point).
     @Test
     func sanitizedWorkspaceEnvironmentRejectsKeysThatTruncateAtTheCBoundary() {
-        let result = SurfaceCreationCoordinator.sanitizedWorkspaceEnvironment([
+        let result = Workspace.sanitizedWorkspaceEnvironment([
             "CMUX_SOCKET_PATH\u{0}x": "spoofed",  // NUL would truncate to CMUX_SOCKET_PATH
             "BAD=KEY": "v",                        // '=' is never a valid env var name
             "NUL_VALUE": "a\u{0}b",                // NUL in the value

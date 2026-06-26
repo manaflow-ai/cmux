@@ -77,27 +77,6 @@ public final class BackgroundDebugLog: Sendable {
         }
     }
 
-    #if DEBUG
-    /// DEBUG-only engine-initialization log path (was the private
-    /// `GhosttyApp.initLogPath`).
-    public static let initLogPath = "/tmp/cmux-ghostty-init.log"
-
-    /// Appends a timestamped line to the engine-initialization log (was the
-    /// private `GhosttyApp.initLog(_:)`). DEBUG-only, matching the legacy hook
-    /// that only existed under `#if DEBUG`.
-    public static func initLog(_ message: String) {
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-        let line = "[\(timestamp)] \(message)\n"
-        if let handle = FileHandle(forWritingAtPath: initLogPath) {
-            defer { try? handle.close() }
-            guard (try? handle.seekToEnd()) != nil else { return }
-            try? handle.write(contentsOf: Data(line.utf8))
-        } else {
-            FileManager.default.createFile(atPath: initLogPath, contents: line.data(using: .utf8))
-        }
-    }
-    #endif
-
     private static func resolveEnabled(
         environment: [String: String],
         defaults: UserDefaults

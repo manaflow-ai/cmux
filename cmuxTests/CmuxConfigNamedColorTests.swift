@@ -1,4 +1,3 @@
-import CmuxWorkspaces
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -14,13 +13,6 @@ final class CmuxConfigNamedColorTests: XCTestCase {
         if let colorDefaults {
             decoder.userInfo[.cmuxWorkspaceColorDefaults] = colorDefaults
         }
-        // Inject the same color resolver the production CmuxConfigStore decode path
-        // wires, so the moved CmuxWorkspaceDefinition (now in CmuxWorkspaces)
-        // normalizes a named/hex color identically.
-        decoder.userInfo[.cmuxWorkspaceColorResolver]
-            = { @Sendable (raw: String, defaults: UserDefaults) -> String? in
-                WorkspaceTabColorSettings.resolvedColorHex(raw, defaults: defaults)
-            } as @Sendable (String, UserDefaults) -> String?
         return try decoder.decode(CmuxConfigFile.self, from: data)
     }
 

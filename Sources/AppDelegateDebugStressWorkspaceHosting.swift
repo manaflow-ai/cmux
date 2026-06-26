@@ -1,6 +1,5 @@
 #if DEBUG
 import AppKit
-import CmuxPanes
 import CmuxTerminal
 import CmuxTestSupport
 import Foundation
@@ -278,64 +277,6 @@ extension AppDelegate: DebugStressWorkspaceHosting {
         }
         return "workspace=\(target.workspace.id.uuidString.prefix(5)) " +
             "panel=\(target.panelId.uuidString.prefix(5)) pane=\(target.paneId.id.uuidString.prefix(5))"
-    }
-
-    func currentScrollbackLimit() -> Int {
-        GhosttyConfig.load().scrollbackLimit
-    }
-
-    func openDebugContentTab(text: String) {
-        guard let tabManager else { return }
-        let tab = tabManager.addTab()
-        sendTextWhenReady(text, to: tab)
-    }
-
-    func openDebugAgentSession(rendererKind: DebugAgentSessionRendererKind) {
-        guard let manager = activeTabManagerForCommands(),
-              let workspace = manager.selectedWorkspace,
-              let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
-            return
-        }
-        let appRendererKind: AgentSessionRendererKind
-        switch rendererKind {
-        case .react:
-            appRendererKind = .react
-        case .solid:
-            appRendererKind = .solid
-        }
-        _ = workspace.newAgentSessionSurface(
-            inPane: paneId,
-            providerID: .codex,
-            rendererKind: appRendererKind,
-            workingDirectory: workspace.currentDirectory,
-            focus: true
-        )
-    }
-
-    func openDebugColorComparisonWorkspaces(titlePrefix: String) {
-        guard let tabManager else { return }
-
-        let palette = WorkspaceTabColorSettings.palette()
-        guard !palette.isEmpty else { return }
-
-        var existingByTitle: [String: Workspace] = [:]
-        for tab in tabManager.tabs {
-            guard let title = tab.customTitle,
-                  title.hasPrefix(titlePrefix) else { continue }
-            existingByTitle[title] = tab
-        }
-
-        for entry in palette {
-            let title = "\(titlePrefix)\(entry.name)"
-            let targetTab: Workspace
-            if let existing = existingByTitle[title] {
-                targetTab = existing
-            } else {
-                targetTab = tabManager.addTab()
-            }
-            tabManager.setCustomTitle(tabId: targetTab.id, title: title)
-            tabManager.setTabColor(tabId: targetTab.id, color: entry.hex)
-        }
     }
 
     private func stressWorkspace(for handle: DebugStressWorkspaceHandle) -> Workspace? {

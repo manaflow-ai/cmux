@@ -1,4 +1,3 @@
-import CmuxSessionIndex
 import Foundation
 import XCTest
 
@@ -26,7 +25,7 @@ final class RovoDevTranscriptPreviewTests: XCTestCase {
         """
         try context.write(to: contextURL, atomically: true, encoding: .utf8)
 
-        let turns = try XCTUnwrap(RovoDevTranscriptPreview.load(from: contextURL, limit: 10, truncatedLabel: "Preview truncated"))
+        let turns = try XCTUnwrap(RovoDevTranscriptPreview.load(from: contextURL, limit: 10))
 
         XCTAssertEqual(turns, [
             RovoDevTranscriptPreviewTurn(role: "user", text: "Implement Rovo previews"),
@@ -71,7 +70,7 @@ final class RovoDevTranscriptPreviewTests: XCTestCase {
         """
         try context.write(to: contextURL, atomically: true, encoding: .utf8)
 
-        let turns = try XCTUnwrap(RovoDevTranscriptPreview.load(from: contextURL, limit: 10, truncatedLabel: "Preview truncated"))
+        let turns = try XCTUnwrap(RovoDevTranscriptPreview.load(from: contextURL, limit: 10))
 
         XCTAssertEqual(turns.map(\.role), ["user", "assistant", "tool", "tool", "assistant"])
         XCTAssertEqual(turns[0].text, "Render the Rovo preview")
@@ -105,7 +104,7 @@ final class RovoDevTranscriptPreviewTests: XCTestCase {
         """
         try context.write(to: contextURL, atomically: true, encoding: .utf8)
 
-        let turns = try XCTUnwrap(RovoDevTranscriptPreview.load(from: contextURL, limit: 10, truncatedLabel: "Preview truncated"))
+        let turns = try XCTUnwrap(RovoDevTranscriptPreview.load(from: contextURL, limit: 10))
 
         XCTAssertEqual(turns, [
             RovoDevTranscriptPreviewTurn(role: "user", text: "Use the real Rovo schema"),
@@ -135,7 +134,7 @@ final class RovoDevTranscriptPreviewTests: XCTestCase {
         """
         try context.write(to: contextURL, atomically: true, encoding: .utf8)
 
-        let turns = try XCTUnwrap(RovoDevTranscriptPreview.load(from: contextURL, limit: 10, truncatedLabel: "Preview truncated"))
+        let turns = try XCTUnwrap(RovoDevTranscriptPreview.load(from: contextURL, limit: 10))
 
         XCTAssertEqual(turns, [
             RovoDevTranscriptPreviewTurn(role: "assistant", text: "Readable assistant text"),
@@ -168,7 +167,7 @@ final class RovoDevTranscriptPreviewTests: XCTestCase {
         """
         try context.write(to: contextURL, atomically: true, encoding: .utf8)
 
-        let turns = try XCTUnwrap(RovoDevTranscriptPreview.load(from: contextURL, limit: 10, truncatedLabel: "Preview truncated"))
+        let turns = try XCTUnwrap(RovoDevTranscriptPreview.load(from: contextURL, limit: 10))
 
         XCTAssertEqual(turns, [
             RovoDevTranscriptPreviewTurn(role: "assistant", text: "Readable assistant text"),
@@ -201,7 +200,7 @@ final class RovoDevTranscriptPreviewTests: XCTestCase {
         """
         try context.write(to: contextURL, atomically: true, encoding: .utf8)
 
-        let turns = try XCTUnwrap(RovoDevTranscriptPreview.load(from: contextURL, limit: 10, truncatedLabel: "Preview truncated"))
+        let turns = try XCTUnwrap(RovoDevTranscriptPreview.load(from: contextURL, limit: 10))
 
         XCTAssertEqual(turns, [
             RovoDevTranscriptPreviewTurn(role: "assistant", text: "Readable assistant text"),
@@ -235,7 +234,7 @@ final class RovoDevTranscriptPreviewTests: XCTestCase {
         """
         try context.write(to: contextURL, atomically: true, encoding: .utf8)
 
-        let turns = try XCTUnwrap(RovoDevTranscriptPreview.load(from: contextURL, limit: 10, truncatedLabel: "Preview truncated"))
+        let turns = try XCTUnwrap(RovoDevTranscriptPreview.load(from: contextURL, limit: 10))
 
         XCTAssertEqual(turns, [
             RovoDevTranscriptPreviewTurn(role: "assistant", text: "Visible response"),

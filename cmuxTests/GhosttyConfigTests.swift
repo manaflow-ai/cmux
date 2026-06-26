@@ -7,7 +7,6 @@ import CmuxRemoteDaemon
 import CmuxRemoteSession
 import CmuxRemoteWorkspace
 import CmuxFoundation
-import CmuxWorkspaces
 import AppKit
 import Combine
 import CoreText
@@ -20,8 +19,13 @@ import CmuxTerminalCore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
+// The app target still declares legacy duplicates of these CmuxSettings
+// value types; with CmuxSettings imported unconditionally the names are
+// ambiguous. These tests exercise the app-side paths, so pin the app types.
+private typealias BrowserThemeMode = cmux_DEV.BrowserThemeMode
 #elseif canImport(cmux)
 @testable import cmux
+private typealias BrowserThemeMode = cmux.BrowserThemeMode
 #endif
 
 final class SidebarPathFormatterTests: XCTestCase {
@@ -1253,7 +1257,7 @@ final class WorkspaceChromeThemeTests: XCTestCase {
             return
         }
 
-        let colors = BonsplitChromeColorResolver().resolvedChromeColors(from: backgroundColor)
+        let colors = Workspace.resolvedChromeColors(from: backgroundColor)
         XCTAssertEqual(colors.backgroundHex, "#FDF6E3")
         XCTAssertEqual(colors.tabBarBackgroundHex, "#FDF6E3")
         XCTAssertEqual(colors.splitButtonBackdropHex, "#FDF6E3")
@@ -1267,7 +1271,7 @@ final class WorkspaceChromeThemeTests: XCTestCase {
             return
         }
 
-        let colors = BonsplitChromeColorResolver().resolvedChromeColors(from: backgroundColor)
+        let colors = Workspace.resolvedChromeColors(from: backgroundColor)
         XCTAssertEqual(colors.backgroundHex, "#272822")
         XCTAssertEqual(colors.tabBarBackgroundHex, "#272822")
         XCTAssertEqual(colors.splitButtonBackdropHex, "#272822")
@@ -1281,7 +1285,7 @@ final class WorkspaceChromeThemeTests: XCTestCase {
             return
         }
 
-        let colors = BonsplitChromeColorResolver().resolvedChromeColors(
+        let colors = Workspace.resolvedChromeColors(
             from: backgroundColor,
             sharesWindowBackdrop: true
         )
@@ -1298,7 +1302,7 @@ final class WorkspaceChromeThemeTests: XCTestCase {
             return
         }
 
-        let colors = BonsplitChromeColorResolver().resolvedChromeColors(
+        let colors = Workspace.resolvedChromeColors(
             from: backgroundColor,
             renderingMode: .ghosttyRendererOwnedBackgroundImage
         )
@@ -1362,7 +1366,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
             alpha: 1.0
         )
 
-        let hex = BonsplitChromeColorResolver().chromeHex(backgroundColor: color, backgroundOpacity: 0.5)
+        let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 0.5)
         XCTAssertEqual(hex, "#1122337F")
     }
 
@@ -1374,7 +1378,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
             alpha: 1.0
         )
 
-        let hex = BonsplitChromeColorResolver().chromeHex(backgroundColor: color, backgroundOpacity: 1.0)
+        let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 1.0)
         XCTAssertEqual(hex, "#112233")
     }
 
@@ -1386,7 +1390,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
             alpha: 1.0
         )
 
-        let hex = BonsplitChromeColorResolver().chromeHex(
+        let hex = Workspace.bonsplitChromeHex(
             backgroundColor: color,
             backgroundOpacity: 0.5,
             sharesWindowBackdrop: true
@@ -1402,7 +1406,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
             alpha: 1.0
         )
 
-        let colors = BonsplitChromeColorResolver().chromeColors(
+        let colors = Workspace.bonsplitChromeColors(
             backgroundColor: color,
             backgroundOpacity: 0.5,
             renderingMode: .windowHostBackdrop
@@ -1422,7 +1426,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
             alpha: 1.0
         )
 
-        let colors = BonsplitChromeColorResolver().chromeColors(
+        let colors = Workspace.bonsplitChromeColors(
             backgroundColor: color,
             backgroundOpacity: 0.5,
             sharesWindowBackdrop: true,
@@ -1752,17 +1756,15 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         let hasDelayEnvironmentOverride =
             ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_DISCARD_DELAY_SECONDS"] != nil
 
-        let policy = BrowserHiddenWebViewDiscardPolicy(defaults: defaults)
-
         if !hasEnabledEnvironmentOverride {
             XCTAssertEqual(
-                policy.isEnabled,
+                BrowserHiddenWebViewDiscardPolicy.isEnabled(defaults: defaults),
                 BrowserHiddenWebViewDiscardPolicy.defaultEnabled
             )
         }
         if !hasDelayEnvironmentOverride {
             XCTAssertEqual(
-                policy.hiddenDelay,
+                BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults),
                 BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay
             )
         }
@@ -1772,20 +1774,20 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
 
         if !hasEnabledEnvironmentOverride {
             XCTAssertEqual(defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey) as? Bool, false)
-            XCTAssertFalse(policy.isEnabled)
+            XCTAssertFalse(BrowserHiddenWebViewDiscardPolicy.isEnabled(defaults: defaults))
         }
         if !hasDelayEnvironmentOverride {
-            XCTAssertEqual(policy.hiddenDelay, 42.5)
+            XCTAssertEqual(BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults), 42.5)
 
             defaults.set(7200, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
             XCTAssertEqual(
-                policy.hiddenDelay,
+                BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults),
                 BrowserHiddenWebViewDiscardPolicy.maximumHiddenDelay
             )
 
             defaults.set(-1, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
             XCTAssertEqual(
-                policy.hiddenDelay,
+                BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults),
                 BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay
             )
         }
@@ -2079,19 +2081,19 @@ final class BrowserDefaultsNormalizationTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         // Out-of-range / invalid raw values that must be canonicalized.
-        defaults.set("not-a-real-mode", forKey: BrowserThemeMode.modeKey)
-        defaults.set("not-a-real-variant", forKey: BrowserImportHintRepository.variantKey)
-        defaults.set(999, forKey: BrowserToolbarAccessorySpacingDebugRepository.key)
-        defaults.set(999.0, forKey: BrowserProfilePopoverDebugRepository.horizontalPaddingKey)
-        defaults.set(-5.0, forKey: BrowserProfilePopoverDebugRepository.verticalPaddingKey)
+        defaults.set("not-a-real-mode", forKey: BrowserThemeSettings.modeKey)
+        defaults.set("not-a-real-variant", forKey: BrowserImportHintSettings.variantKey)
+        defaults.set(999, forKey: BrowserToolbarAccessorySpacingDebugSettings.key)
+        defaults.set(999.0, forKey: BrowserProfilePopoverDebugSettings.horizontalPaddingKey)
+        defaults.set(-5.0, forKey: BrowserProfilePopoverDebugSettings.verticalPaddingKey)
 
-        BrowserDefaultsNormalizer().normalize(defaults: defaults)
+        BrowserPanel.normalizeBrowserDefaults(defaults: defaults)
 
-        XCTAssertEqual(defaults.string(forKey: BrowserThemeMode.modeKey), BrowserThemeMode.defaultMode.rawValue)
-        XCTAssertEqual(defaults.string(forKey: BrowserImportHintRepository.variantKey), BrowserImportHintRepository.defaultVariant.rawValue)
-        XCTAssertEqual(defaults.integer(forKey: BrowserToolbarAccessorySpacingDebugRepository.key), BrowserToolbarAccessorySpacingDebugRepository.defaultSpacing)
-        XCTAssertEqual(defaults.double(forKey: BrowserProfilePopoverDebugRepository.horizontalPaddingKey), BrowserProfilePopoverDebugRepository.defaultHorizontalPadding, accuracy: 0.0001)
-        XCTAssertEqual(defaults.double(forKey: BrowserProfilePopoverDebugRepository.verticalPaddingKey), BrowserProfilePopoverDebugRepository.defaultVerticalPadding, accuracy: 0.0001)
+        XCTAssertEqual(defaults.string(forKey: BrowserThemeSettings.modeKey), BrowserThemeSettings.defaultMode.rawValue)
+        XCTAssertEqual(defaults.string(forKey: BrowserImportHintSettings.variantKey), BrowserImportHintSettings.defaultVariant.rawValue)
+        XCTAssertEqual(defaults.integer(forKey: BrowserToolbarAccessorySpacingDebugSettings.key), BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing)
+        XCTAssertEqual(defaults.double(forKey: BrowserProfilePopoverDebugSettings.horizontalPaddingKey), BrowserProfilePopoverDebugSettings.defaultHorizontalPadding, accuracy: 0.0001)
+        XCTAssertEqual(defaults.double(forKey: BrowserProfilePopoverDebugSettings.verticalPaddingKey), BrowserProfilePopoverDebugSettings.defaultVerticalPadding, accuracy: 0.0001)
 
         // Registered fallbacks are available for keys that were never set.
         XCTAssertEqual(defaults.string(forKey: BrowserSearchSettingsStore.searchEngineKey), BrowserSearchSettingsStore.defaultSearchEngine.rawValue)
@@ -2104,15 +2106,18 @@ final class BrowserDefaultsNormalizationTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        let validSpacing = BrowserToolbarAccessorySpacingDebugRepository.supportedValues.last ?? BrowserToolbarAccessorySpacingDebugRepository.defaultSpacing
-        let validThemeRaw = BrowserThemeMode.mode(for: "dark").rawValue
-        defaults.set(validThemeRaw, forKey: BrowserThemeMode.modeKey)
-        defaults.set(validSpacing, forKey: BrowserToolbarAccessorySpacingDebugRepository.key)
+        let validSpacing = BrowserToolbarAccessorySpacingDebugSettings.supportedValues.last ?? BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
+        // Resolve the app-target theme mode via the app-only settings type; the bare
+        // `BrowserThemeMode` is ambiguous here because this file also imports
+        // `CmuxSettings`, which declares a same-named enum.
+        let validThemeRaw = BrowserThemeSettings.mode(for: "dark").rawValue
+        defaults.set(validThemeRaw, forKey: BrowserThemeSettings.modeKey)
+        defaults.set(validSpacing, forKey: BrowserToolbarAccessorySpacingDebugSettings.key)
 
-        BrowserDefaultsNormalizer().normalize(defaults: defaults)
+        BrowserPanel.normalizeBrowserDefaults(defaults: defaults)
 
-        XCTAssertEqual(defaults.string(forKey: BrowserThemeMode.modeKey), validThemeRaw)
-        XCTAssertEqual(defaults.integer(forKey: BrowserToolbarAccessorySpacingDebugRepository.key), validSpacing)
+        XCTAssertEqual(defaults.string(forKey: BrowserThemeSettings.modeKey), validThemeRaw)
+        XCTAssertEqual(defaults.integer(forKey: BrowserToolbarAccessorySpacingDebugSettings.key), validSpacing)
     }
 }
 
@@ -2127,8 +2132,8 @@ final class BrowserNewTabNavigationSeedTests: XCTestCase {
         request.setValue("keep-me", forHTTPHeaderField: "X-Cmux-Test")
 
         let seed = try XCTUnwrap(
-            BrowserNewTabNavigationSeed(
-                request: request,
+            browserNewTabNavigationSeed(
+                from: request,
                 bypassInsecureHTTPHostOnce: "www.linkedin.com"
             )
         )
@@ -2300,7 +2305,7 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
         XCTAssertTrue(localStore === WKWebsiteDataStore.default())
 
         let destination = Workspace()
-        destination.remoteConnectionCoordinator.configureRemoteConnection(
+        destination.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
                 port: 22,
@@ -2332,7 +2337,7 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
 
     func testBrowserMoveOutOfRemoteWorkspaceRestoresDefaultWebsiteDataStore() throws {
         let source = Workspace()
-        source.remoteConnectionCoordinator.configureRemoteConnection(
+        source.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
                 port: 22,
@@ -2383,18 +2388,18 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini"
         )
 
-        workspace.remoteConnectionCoordinator.configureRemoteConnection(configuration, autoConnect: false)
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
         _ = workspace.newBrowserSurface(inPane: paneId, url: URL(string: "https://example.com"), focus: false)
 
         workspace.markRemoteTerminalSessionEnded(surfaceId: initialTerminalId, relayPort: configuration.relayPort)
 
         XCTAssertTrue(workspace.isRemoteWorkspace)
-        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount, 0)
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
 
         _ = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: false))
 
         XCTAssertTrue(workspace.isRemoteWorkspace)
-        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount, 1)
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
     }
 }
 
@@ -2769,7 +2774,7 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
         let activeSelectedTabId = UUID()
 
         XCTAssertTrue(
-            TerminalSurfaceBackgroundApplicabilityPolicy.shouldApplyWindowBackground(
+            GhosttyNSView.shouldApplyWindowBackground(
                 surfaceTabId: tabId,
                 owningManagerExists: true,
                 owningSelectedTabId: tabId,
@@ -2782,7 +2787,7 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
         let tabId = UUID()
 
         XCTAssertFalse(
-            TerminalSurfaceBackgroundApplicabilityPolicy.shouldApplyWindowBackground(
+            GhosttyNSView.shouldApplyWindowBackground(
                 surfaceTabId: tabId,
                 owningManagerExists: true,
                 owningSelectedTabId: UUID(),
@@ -2795,7 +2800,7 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
         let tabId = UUID()
 
         XCTAssertTrue(
-            TerminalSurfaceBackgroundApplicabilityPolicy.shouldApplyWindowBackground(
+            GhosttyNSView.shouldApplyWindowBackground(
                 surfaceTabId: tabId,
                 owningManagerExists: true,
                 owningSelectedTabId: nil,
@@ -2808,7 +2813,7 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
         let tabId = UUID()
 
         XCTAssertTrue(
-            TerminalSurfaceBackgroundApplicabilityPolicy.shouldApplyWindowBackground(
+            GhosttyNSView.shouldApplyWindowBackground(
                 surfaceTabId: tabId,
                 owningManagerExists: false,
                 owningSelectedTabId: nil,
@@ -2816,7 +2821,7 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            TerminalSurfaceBackgroundApplicabilityPolicy.shouldApplyWindowBackground(
+            GhosttyNSView.shouldApplyWindowBackground(
                 surfaceTabId: tabId,
                 owningManagerExists: false,
                 owningSelectedTabId: nil,
@@ -2827,7 +2832,7 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
 
     func testShouldApplyWindowBackgroundAllowsWhenNoSelectionContext() {
         XCTAssertTrue(
-            TerminalSurfaceBackgroundApplicabilityPolicy.shouldApplyWindowBackground(
+            GhosttyNSView.shouldApplyWindowBackground(
                 surfaceTabId: UUID(),
                 owningManagerExists: false,
                 owningSelectedTabId: nil,
@@ -2835,7 +2840,7 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
             )
         )
         XCTAssertTrue(
-            TerminalSurfaceBackgroundApplicabilityPolicy.shouldApplyWindowBackground(
+            GhosttyNSView.shouldApplyWindowBackground(
                 surfaceTabId: nil,
                 owningManagerExists: false,
                 owningSelectedTabId: nil,
@@ -2843,7 +2848,7 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
             )
         )
         XCTAssertTrue(
-            TerminalSurfaceBackgroundApplicabilityPolicy.shouldApplyWindowBackground(
+            GhosttyNSView.shouldApplyWindowBackground(
                 surfaceTabId: nil,
                 owningManagerExists: true,
                 owningSelectedTabId: UUID(),
@@ -2853,7 +2858,6 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
     }
 }
 
-@MainActor
 final class NotificationBurstCoalescerTests: XCTestCase {
     func testSignalsInSameBurstFlushOnce() {
         let coalescer = NotificationBurstCoalescer(delay: 0.01)
@@ -3575,7 +3579,7 @@ final class UITestLaunchManifestTests: XCTestCase {
 final class GhosttyMouseFocusTests: XCTestCase {
     func testShouldRequestFirstResponderForMouseFocusWhenEnabledAndWindowIsActive() {
         XCTAssertTrue(
-            TerminalSurfaceMouseFocusPolicy.shouldRequestFirstResponder(
+            GhosttyNSView.shouldRequestFirstResponderForMouseFocus(
                 focusFollowsMouseEnabled: true,
                 pressedMouseButtons: 0,
                 appIsActive: true,
@@ -3590,7 +3594,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
     func testShouldNotRequestFirstResponderWhenFocusFollowsMouseDisabled() {
         XCTAssertFalse(
-            TerminalSurfaceMouseFocusPolicy.shouldRequestFirstResponder(
+            GhosttyNSView.shouldRequestFirstResponderForMouseFocus(
                 focusFollowsMouseEnabled: false,
                 pressedMouseButtons: 0,
                 appIsActive: true,
@@ -3605,7 +3609,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
     func testShouldNotRequestFirstResponderDuringMouseDrag() {
         XCTAssertFalse(
-            TerminalSurfaceMouseFocusPolicy.shouldRequestFirstResponder(
+            GhosttyNSView.shouldRequestFirstResponderForMouseFocus(
                 focusFollowsMouseEnabled: true,
                 pressedMouseButtons: 1,
                 appIsActive: true,
@@ -3620,7 +3624,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
     func testShouldNotRequestFirstResponderWhenViewCannotSafelyReceiveFocus() {
         XCTAssertFalse(
-            TerminalSurfaceMouseFocusPolicy.shouldRequestFirstResponder(
+            GhosttyNSView.shouldRequestFirstResponderForMouseFocus(
                 focusFollowsMouseEnabled: true,
                 pressedMouseButtons: 0,
                 appIsActive: true,
@@ -3632,7 +3636,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            TerminalSurfaceMouseFocusPolicy.shouldRequestFirstResponder(
+            GhosttyNSView.shouldRequestFirstResponderForMouseFocus(
                 focusFollowsMouseEnabled: true,
                 pressedMouseButtons: 0,
                 appIsActive: true,
