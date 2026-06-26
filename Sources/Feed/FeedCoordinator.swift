@@ -96,7 +96,8 @@ final class FeedCoordinator: @unchecked Sendable {
         event: WorkstreamEvent,
         waitTimeout: TimeInterval
     ) -> IngestBlockingResult {
-        guard let requestId = event.requestId, waitTimeout > 0 else {
+        guard let requestId = event.requestId, waitTimeout > 0, Self.isBlockingDecisionEvent(event.hookEventName),
+              !(event.source == WorkstreamSource.codex.rawValue && event.hookEventName == .permissionRequest) else {
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     FeedCoordinator.shared.store.ingest(event)
@@ -122,9 +123,7 @@ final class FeedCoordinator: @unchecked Sendable {
         // caps the pending lifetime to the agent process lifetime
         // — no polling, no leaked cards when the agent is killed.
         let itemIdSlot = UnsafeItemIdSlot()
-        let resolvedAttentionTarget = Self.isBlockingDecisionEvent(event.hookEventName)
-            ? Self.resolveAttentionTarget(event: event)
-            : nil
+        let resolvedAttentionTarget = Self.resolveAttentionTarget(event: event)
         DispatchQueue.main.sync {
             MainActor.assumeIsolated {
                 FeedCoordinator.shared.store.ingest(event)

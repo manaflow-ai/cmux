@@ -279,16 +279,16 @@ public final class WorkstreamStore {
     ) -> (WorkstreamKind, WorkstreamPayload) {
         let toolInput = event.toolInputJSON ?? "{}"
         switch event.hookEventName {
+        case .permissionRequest where source == .codex:
+            return (.toolUse, .toolUse(toolName: event.toolName ?? event.hookEventName.rawValue, toolInputJSON: toolInput))
         case .permissionRequest:
-            return (
-                .permissionRequest,
-                .permissionRequest(
-                    requestId: event.requestId ?? event.sessionId,
-                    toolName: event.toolName ?? "unknown",
-                    toolInputJSON: toolInput,
-                    pattern: nil
-                )
+            let payload = WorkstreamPayload.permissionRequest(
+                requestId: event.requestId ?? event.sessionId,
+                toolName: event.toolName ?? "unknown",
+                toolInputJSON: toolInput,
+                pattern: nil
             )
+            return (.permissionRequest, payload)
         case .askUserQuestion:
             let parsed = parseQuestions(fromToolInput: event.toolInputJSON)
             return (
