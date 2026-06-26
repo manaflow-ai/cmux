@@ -212,12 +212,6 @@ struct TextBoxSubmitActionTests {
 
         XCTAssertEqual(panel.textBoxState.launchCommand, "codex")
         XCTAssertFalse(panel.textBoxState.launchCommand?.contains(prompt) ?? true)
-        XCTAssertFalse(
-            TextBoxAgentDetection.supportsActiveAgentPrefixes(
-                context: WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
-            )
-        )
-        panel.updateShellActivityState(.commandRunning)
         XCTAssertTrue(
             TextBoxAgentDetection.supportsActiveAgentPrefixes(
                 context: WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
@@ -428,8 +422,14 @@ struct TextBoxSubmitActionTests {
         panel.recordTextBoxLaunchCommand("codex --dangerously-bypass-approvals-and-sandbox")
 
         let pendingContext = WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
-        XCTAssertFalse(TextBoxAgentDetection.supportsAgentPrefixes(context: pendingContext))
-        XCTAssertFalse(TextBoxAgentDetection.supportsActiveAgentPrefixes(context: pendingContext))
+        XCTAssertTrue(TextBoxAgentDetection.supportsAgentPrefixes(context: pendingContext))
+        XCTAssertTrue(TextBoxAgentDetection.supportsActiveAgentPrefixes(context: pendingContext))
+        XCTAssertTrue(
+            TextBoxInputContainer.shouldForceTextEntrySubmit(
+                allowsCommandTemplateSubmit: true,
+                terminalAgentContext: pendingContext
+            )
+        )
 
         panel.updateShellActivityState(.commandRunning)
         let runningContext = WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
