@@ -7,9 +7,9 @@ import Testing
 @testable import cmux
 #endif
 
-/// Covers the pure copy/cooldown mapping that turns a guardrail threshold
-/// crossing into a per-pane notification (issue #6313), plus the engine →
-/// notification seam so a crossing produces exactly one notification per pane.
+/// Covers the pure copy mapping that turns a guardrail threshold crossing into a
+/// per-pane notification (issue #6313), and the guardrail's per-pane rate-limit
+/// (one notification per pane per cooldown, with a bounded, pruned map).
 @Suite
 struct PaneMemoryGuardrailNotificationTests {
     private let gb: Int64 = 1024 * 1024 * 1024
@@ -31,30 +31,13 @@ struct PaneMemoryGuardrailNotificationTests {
         )
     }
 
-    @Test
-    func cooldownKeyIsStablePerPanel() {
-        let panelId = UUID()
-        let content = PaneMemoryGuardrailNotification.content(
-            for: warning(panelId: panelId, memoryGB: 14, command: "pytest")
-        )
-        #expect(content.cooldownKey == "paneMemoryGuardrail.\(panelId.uuidString)")
-        #expect(
-            PaneMemoryGuardrailNotification.cooldownKey(forPanelId: panelId) == content.cooldownKey
-        )
-    }
-
-    @Test
-    func differentPanesGetDifferentCooldownKeys() {
-        let a = PaneMemoryGuardrailNotification.cooldownKey(forPanelId: UUID())
-        let b = PaneMemoryGuardrailNotification.cooldownKey(forPanelId: UUID())
-        #expect(a != b)
-    }
+    // MARK: - Copy mapping
 
     @Test
     func subtitleNamesTheForegroundCommandAndMemory() {
         let w = warning(memoryGB: 14, command: "pytest")
-        let memory = PaneMemoryGuardrailNotification.formattedMemory(w.memoryBytes)
-        let content = PaneMemoryGuardrailNotification.content(for: w)
+        let memory = PaneMemoryWarning.formattedNotificationMemory(w.memoryBytes)
+        let content = w.notificationContent
         #expect(content.subtitle.contains(memory))
         #expect(content.subtitle.contains("pytest"))
     }
@@ -64,17 +47,16 @@ struct PaneMemoryGuardrailNotificationTests {
         let blankCommands: [String?] = [nil, "", "   "]
         for command in blankCommands {
             let w = warning(memoryGB: 9, command: command)
-            let memory = PaneMemoryGuardrailNotification.formattedMemory(w.memoryBytes)
-            let content = PaneMemoryGuardrailNotification.content(for: w)
-            #expect(content.subtitle == memory, "blank command should leave just the memory size")
+            let memory = PaneMemoryWarning.formattedNotificationMemory(w.memoryBytes)
+            #expect(w.notificationContent.subtitle == memory, "blank command should leave just the memory size")
         }
     }
 
     @Test
     func bodyNamesThePaneAndMemory() {
         let w = warning(paneTitle: "api · pytest", memoryGB: 14, command: "pytest")
-        let memory = PaneMemoryGuardrailNotification.formattedMemory(w.memoryBytes)
-        let content = PaneMemoryGuardrailNotification.content(for: w)
+        let memory = PaneMemoryWarning.formattedNotificationMemory(w.memoryBytes)
+        let content = w.notificationContent
         #expect(content.body.contains("api · pytest"))
         #expect(content.body.contains(memory))
         #expect(!content.title.isEmpty)
@@ -82,14 +64,79 @@ struct PaneMemoryGuardrailNotificationTests {
 
     @Test
     func formattedMemoryIsHumanReadableAndNonNegative() {
-        #expect(!PaneMemoryGuardrailNotification.formattedMemory(8 * gb).isEmpty)
+        #expect(!PaneMemoryWarning.formattedNotificationMemory(8 * gb).isEmpty)
         // Never renders a negative size if a sample ever underflows.
-        #expect(PaneMemoryGuardrailNotification.formattedMemory(-5) ==
-                PaneMemoryGuardrailNotification.formattedMemory(0))
+        #expect(PaneMemoryWarning.formattedNotificationMemory(-5) ==
+                PaneMemoryWarning.formattedNotificationMemory(0))
     }
 
-    /// The behavioral seam: a single threshold crossing in the engine maps to
-    /// exactly one notification for that pane, and staying high does not re-fire.
+    // MARK: - Per-pane rate limit (bounded, pruned)
+
+    @Test
+    func firstCrossingNotifiesAndRecordsTime() {
+        let w = warning(memoryGB: 9, command: "pytest")
+        var lastNotifiedAt: [PaneMemoryPaneKey: Date] = [:]
+        let now = Date(timeIntervalSince1970: 1_000)
+        let out = PaneMemoryGuardrail.runawayNotificationsToPresent(
+            bannersToPresent: [w],
+            liveKeys: [w.key],
+            now: now,
+            cooldown: 300,
+            lastNotifiedAt: &lastNotifiedAt
+        )
+        #expect(out.map(\.panelId) == [w.panelId])
+        #expect(lastNotifiedAt[w.key] == now)
+    }
+
+    @Test
+    func reNotificationIsSuppressedWithinCooldownThenAllowedAfter() {
+        let w = warning(memoryGB: 9, command: "pytest")
+        var lastNotifiedAt: [PaneMemoryPaneKey: Date] = [:]
+        let t0 = Date(timeIntervalSince1970: 1_000)
+
+        _ = PaneMemoryGuardrail.runawayNotificationsToPresent(
+            bannersToPresent: [w], liveKeys: [w.key], now: t0, cooldown: 300, lastNotifiedAt: &lastNotifiedAt
+        )
+
+        // Still inside the 300s window: suppressed, recorded time unchanged.
+        let within = PaneMemoryGuardrail.runawayNotificationsToPresent(
+            bannersToPresent: [w], liveKeys: [w.key], now: t0.addingTimeInterval(100), cooldown: 300, lastNotifiedAt: &lastNotifiedAt
+        )
+        #expect(within.isEmpty)
+        #expect(lastNotifiedAt[w.key] == t0)
+
+        // After the window: notifies again and advances the timestamp.
+        let after = PaneMemoryGuardrail.runawayNotificationsToPresent(
+            bannersToPresent: [w], liveKeys: [w.key], now: t0.addingTimeInterval(400), cooldown: 300, lastNotifiedAt: &lastNotifiedAt
+        )
+        #expect(after.map(\.panelId) == [w.panelId])
+        #expect(lastNotifiedAt[w.key] == t0.addingTimeInterval(400))
+    }
+
+    @Test
+    func closedPanesArePrunedSoTheMapStaysBounded() {
+        let live = warning(memoryGB: 9, command: "pytest")
+        let closedKey = PaneMemoryPaneKey(workspaceId: UUID(), panelId: UUID())
+        var lastNotifiedAt: [PaneMemoryPaneKey: Date] = [
+            live.key: Date(timeIntervalSince1970: 1),
+            closedKey: Date(timeIntervalSince1970: 1),
+        ]
+        // No crossings this tick; only the live pane survives in the map.
+        let out = PaneMemoryGuardrail.runawayNotificationsToPresent(
+            bannersToPresent: [],
+            liveKeys: [live.key],
+            now: Date(timeIntervalSince1970: 2),
+            cooldown: 300,
+            lastNotifiedAt: &lastNotifiedAt
+        )
+        #expect(out.isEmpty)
+        #expect(Set(lastNotifiedAt.keys) == [live.key], "closed pane's rate-limit entry must be pruned")
+    }
+
+    // MARK: - Engine → notification seam
+
+    /// A single threshold crossing maps to exactly one notification for that
+    /// pane, and staying high does not re-fire (engine edge-trigger).
     @Test
     func engineCrossingProducesExactlyOneNotificationPerPane() {
         var engine = PaneMemoryGuardrailEngine()
@@ -111,9 +158,8 @@ struct PaneMemoryGuardrailNotificationTests {
         )
 
         let crossing = engine.ingest(samples: [sample], thresholdBytes: 8 * gb)
-        let contents = crossing.bannersToPresent.map(PaneMemoryGuardrailNotification.content(for:))
+        let contents = crossing.bannersToPresent.map(\.notificationContent)
         #expect(contents.count == 1)
-        #expect(contents.first?.cooldownKey == "paneMemoryGuardrail.\(pane.uuidString)")
         #expect(contents.first?.subtitle.contains("pytest") == true)
 
         // Edge-trigger: a pane that stays high does not produce a second notification.

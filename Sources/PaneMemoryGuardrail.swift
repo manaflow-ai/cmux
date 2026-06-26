@@ -24,6 +24,9 @@ final class PaneMemoryGuardrail {
     private static let thresholdGBSetting = SettingCatalog().terminal.runawayMemoryGuardrailThresholdGB
     private static let pollInterval: TimeInterval = 4
     private static let scopedScanInterval: TimeInterval = 15
+    /// Re-notify the same pane at most once per this interval, even if it keeps
+    /// flapping across the engine's clear/threshold band, so a leak can't spam.
+    private static let runawayNotificationCooldown: TimeInterval = 300
     private static let defaultThresholdGB: Double = 8
     private static let thresholdRangeGB: ClosedRange<Double> = 1...256
     private static let bytesPerGB = 1024.0 * 1024.0 * 1024.0
@@ -55,6 +58,11 @@ final class PaneMemoryGuardrail {
     private var scanApplyTask: Task<Void, Never>?
     @ObservationIgnored
     private var lastScopedOnlySamplesByKey: [PaneMemoryPaneKey: PaneMemorySample] = [:]
+    /// When each live pane was last notified about a runaway tree, so we can
+    /// rate-limit per pane. Pruned to the live pane set every tick, so it can
+    /// never grow without bound as panes open and close.
+    @ObservationIgnored
+    private var lastRunawayNotificationAt: [PaneMemoryPaneKey: Date] = [:]
     @ObservationIgnored
     private var lastScopedScanAt = Date.distantPast
 
@@ -345,6 +353,31 @@ final class PaneMemoryGuardrail {
         return selectedProcessGroups.sorted()
     }
 
+    /// Rate-limits the engine's edge-triggered crossings to one notification per
+    /// pane per `cooldown`, and prunes `lastNotifiedAt` to the live pane set so
+    /// it can never grow without bound as panes open and close. Pure and
+    /// `nonisolated` so the policy is testable without timers, ghostty, or libproc.
+    nonisolated static func runawayNotificationsToPresent(
+        bannersToPresent: [PaneMemoryWarning],
+        liveKeys: Set<PaneMemoryPaneKey>,
+        now: Date,
+        cooldown: TimeInterval,
+        lastNotifiedAt: inout [PaneMemoryPaneKey: Date]
+    ) -> [PaneMemoryWarning] {
+        // Forget closed panes first so the rate-limit map stays bounded.
+        lastNotifiedAt = lastNotifiedAt.filter { liveKeys.contains($0.key) }
+        var toPresent: [PaneMemoryWarning] = []
+        for warning in bannersToPresent {
+            let key = warning.key
+            if let last = lastNotifiedAt[key], now.timeIntervalSince(last) < cooldown {
+                continue
+            }
+            lastNotifiedAt[key] = now
+            toPresent.append(warning)
+        }
+        return toPresent
+    }
+
     private func applySamples(
         _ batch: PaneMemoryGuardrailSampleBatch,
         thresholdBytes: Int64
@@ -367,8 +400,15 @@ final class PaneMemoryGuardrail {
         // per-pane notification (issue #6313); the bespoke badge + dismissible
         // banner were removed in issue #6614 and are not reintroduced here.
         let output = engine.ingest(samples: samples, thresholdBytes: thresholdBytes)
-        if !output.bannersToPresent.isEmpty {
-            onPaneRunaway?(output.bannersToPresent)
+        let toNotify = Self.runawayNotificationsToPresent(
+            bannersToPresent: output.bannersToPresent,
+            liveKeys: Set(samples.map(\.key)),
+            now: Date(),
+            cooldown: Self.runawayNotificationCooldown,
+            lastNotifiedAt: &lastRunawayNotificationAt
+        )
+        if !toNotify.isEmpty {
+            onPaneRunaway?(toNotify)
         }
         emitScanDebugLog(samples: samples, output: output, thresholdBytes: thresholdBytes, includesCMUXScope: batch.includesCMUXScope)
     }
@@ -397,6 +437,7 @@ final class PaneMemoryGuardrail {
         scanApplyTask?.cancel()
         scanApplyTask = nil
         lastScopedOnlySamplesByKey.removeAll()
+        lastRunawayNotificationAt.removeAll()
         lastScopedScanAt = .distantPast
     }
 }
