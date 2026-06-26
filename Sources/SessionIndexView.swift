@@ -125,6 +125,22 @@ struct SessionIndexView: View {
             .accessibilityIdentifier("SessionScopeToggle.thisFolder")
             .titlebarInteractiveControl()
 
+            if store.hasArchivedSessions || store.showArchived {
+                Button {
+                    store.showArchived.toggle()
+                } label: {
+                    Image(systemName: store.showArchived ? "archivebox.fill" : "archivebox")
+                        .cmuxFont(size: 10, weight: .medium)
+                        .foregroundColor(store.showArchived ? .accentColor : .secondary)
+                }
+                .buttonStyle(.borderless)
+                .help(store.showArchived
+                    ? String(localized: "sessionIndex.archive.hideTooltip", defaultValue: "Hide archived sessions")
+                    : String(localized: "sessionIndex.archive.showTooltip", defaultValue: "Show archived sessions"))
+                .accessibilityIdentifier("SessionArchiveToggle.showArchived")
+                .titlebarInteractiveControl()
+            }
+
             Button {
                 store.reload()
             } label: {
@@ -191,6 +207,12 @@ struct SessionIndexView: View {
         let loadSnapshotFn: DirectorySnapshotFn = { cwd in
             await store.loadDirectorySnapshot(cwd: cwd)
         }
+        let stateActions = SessionRowStateActions(
+            isPinned: { id in store.isPinned(id) },
+            isArchived: { id in store.isArchived(id) },
+            togglePinned: { entry in store.togglePinned(entry) },
+            toggleArchived: { entry in store.toggleArchived(entry) }
+        )
 
         return ScrollView(.vertical) {
             LazyVStack(alignment: .leading, spacing: 0) {
@@ -234,7 +256,8 @@ struct SessionIndexView: View {
                             },
                             onResume: onResumeClosure,
                             search: searchFn,
-                            loadSnapshot: loadSnapshotFn
+                            loadSnapshot: loadSnapshotFn,
+                            stateActions: stateActions
                         )
                     ).equatable()
                     let _ = index
@@ -333,6 +356,19 @@ struct IndexSectionActions {
     let onResume: ((SessionEntry) -> Void)?
     let search: SessionSearchFn
     let loadSnapshot: DirectorySnapshotFn
+    let stateActions: SessionRowStateActions
+}
+
+/// Read/toggle bundle for a row's persisted pin/archive state. Like the other
+/// closure bundles here, it exists so views below the snapshot boundary can
+/// pin/archive a session without holding a `SessionIndexStore` reference (which
+/// would reintroduce the LazyVStack CPU-spin regression). Constructed once,
+/// above the list boundary, from the store.
+struct SessionRowStateActions {
+    let isPinned: @MainActor (SessionEntry.ID) -> Bool
+    let isArchived: @MainActor (SessionEntry.ID) -> Bool
+    let togglePinned: @MainActor (SessionEntry) -> Void
+    let toggleArchived: @MainActor (SessionEntry) -> Void
 }
 
 /// Callback bundle for `SectionReorderGap` / `SectionGapDropDelegate`.
@@ -379,6 +415,8 @@ private struct IndexSectionView: View, Equatable {
                     SessionRow(
                         entry: entry,
                         isPreviewPresented: previewEntryId == entry.id,
+                        isPinned: section.pinnedEntryIDs.contains(entry.id),
+                        isArchived: section.archivedEntryIDs.contains(entry.id),
                         onPreviewPresentationChange: { isPresented in
                             if isPresented {
                                 actions.onPreviewEntry(entry)
@@ -386,7 +424,8 @@ private struct IndexSectionView: View, Equatable {
                                 actions.onDismissPreview(entry.id)
                             }
                         },
-                        onResume: actions.onResume
+                        onResume: actions.onResume,
+                        stateActions: actions.stateActions
                     )
                         .equatable()
                         .id(entry.id)
@@ -420,7 +459,8 @@ private struct IndexSectionView: View, Equatable {
                 section: section,
                 search: actions.search,
                 loadSnapshot: actions.loadSnapshot,
-                onResume: actions.onResume
+                onResume: actions.onResume,
+                stateActions: actions.stateActions
             )
         )
     }
@@ -554,20 +594,32 @@ private struct SectionGapDropDelegate: DropDelegate {
 private struct SessionRow: View, Equatable {
     let entry: SessionEntry
     let isPreviewPresented: Bool
+    let isPinned: Bool
+    let isArchived: Bool
     let onPreviewPresentationChange: (Bool) -> Void
     let onResume: ((SessionEntry) -> Void)?
+    let stateActions: SessionRowStateActions
     @State private var isHovered: Bool = false
 
     static func == (lhs: SessionRow, rhs: SessionRow) -> Bool {
         // Skip body re-eval during scroll when the entry is unchanged.
-        // The closure isn't compared (it comes from stable parent state).
+        // The closure bundles aren't compared (they come from stable parent
+        // state); pin/archive flags are, so a toggle re-renders the row.
         lhs.entry == rhs.entry &&
-            lhs.isPreviewPresented == rhs.isPreviewPresented
+            lhs.isPreviewPresented == rhs.isPreviewPresented &&
+            lhs.isPinned == rhs.isPinned &&
+            lhs.isArchived == rhs.isArchived
     }
 
     var body: some View {
         HStack(spacing: 6) {
             AgentIconImage(agent: entry.agent, size: 12)
+            if isPinned {
+                Image(systemName: "pin.fill")
+                    .cmuxFont(size: 9, weight: .semibold)
+                    .foregroundColor(.secondary.opacity(0.7))
+                    .accessibilityLabel(Text(String(localized: "sessionIndex.row.pinnedBadge", defaultValue: "Pinned")))
+            }
             Text(entry.displayTitle)
                 .cmuxFont(size: 13)
                 .foregroundColor(.primary.opacity(0.92))
@@ -583,6 +635,7 @@ private struct SessionRow: View, Equatable {
         .padding(.trailing, 12)
         .padding(.vertical, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .opacity(isArchived ? 0.55 : 1.0)
         .contentShape(Rectangle())
         .background(rowBackground)
         .background(previewPopoverHost)
@@ -606,7 +659,7 @@ private struct SessionRow: View, Equatable {
             .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
         .contextMenu {
-            sessionRowMenuItems(entry: entry, onResume: onResume)
+            sessionRowMenuItems(entry: entry, onResume: onResume, stateActions: stateActions)
         }
     }
 
@@ -662,14 +715,41 @@ private struct SessionRow: View, Equatable {
 /// Right-click menu items for any session row (full or popover). Built as a
 /// free `@ViewBuilder` so SessionRow and PopoverRow both attach the same set
 /// without duplicating the button list or the action helpers.
+@MainActor
 @ViewBuilder
-private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) -> Void)?) -> some View {
+private func sessionRowMenuItems(
+    entry: SessionEntry,
+    onResume: ((SessionEntry) -> Void)?,
+    stateActions: SessionRowStateActions? = nil
+) -> some View {
     if let onResume {
         Button {
             onResume(entry)
         } label: {
             Text(String(localized: "sessionIndex.row.resume", defaultValue: "Resume in New Tab"))
         }
+    }
+    if let stateActions {
+        Button {
+            stateActions.togglePinned(entry)
+        } label: {
+            if stateActions.isPinned(entry.id) {
+                Label(String(localized: "sessionIndex.row.unpin", defaultValue: "Unpin"), systemImage: "pin.slash")
+            } else {
+                Label(String(localized: "sessionIndex.row.pin", defaultValue: "Pin to Top"), systemImage: "pin")
+            }
+        }
+        Button {
+            stateActions.toggleArchived(entry)
+        } label: {
+            if stateActions.isArchived(entry.id) {
+                Label(String(localized: "sessionIndex.row.unarchive", defaultValue: "Unarchive"), systemImage: "tray.and.arrow.up")
+            } else {
+                Label(String(localized: "sessionIndex.row.archive", defaultValue: "Archive"), systemImage: "archivebox")
+            }
+        }
+    }
+    if onResume != nil || stateActions != nil {
         Divider()
     }
     if let url = entry.fileURL {
@@ -2122,6 +2202,7 @@ private struct SectionPopoverView: View {
     /// is an in-memory array slice, not repeated store round-trips.
     let loadSnapshot: DirectorySnapshotFn
     let onResume: ((SessionEntry) -> Void)?
+    let stateActions: SessionRowStateActions
     let onDismiss: () -> Void
 
     @State private var query: String = ""
@@ -2228,7 +2309,7 @@ private struct SectionPopoverView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
                         ForEach(loaded) { entry in
-                            PopoverRow(entry: entry) {
+                            PopoverRow(entry: entry, stateActions: stateActions) {
                                 onResume?(entry)
                                 onDismiss()
                             }
@@ -2457,6 +2538,11 @@ private struct SectionPopoverView: View {
 
 private struct PopoverRow: View, Equatable {
     let entry: SessionEntry
+    /// Read/toggle bundle for pin/archive. Not part of `==` (stable closures
+    /// captured above the list boundary); the pin glyph is evaluated when the
+    /// row body builds, so it is correct on open and after the popover's
+    /// content refreshes, which is the lifecycle that rebuilds these rows.
+    let stateActions: SessionRowStateActions
     let onActivate: () -> Void
 
     @State private var isHovered: Bool = false
@@ -2494,6 +2580,12 @@ private struct PopoverRow: View, Equatable {
     var body: some View {
         HStack(spacing: 6) {
             AgentIconImage(agent: entry.agent, size: 12)
+            if stateActions.isPinned(entry.id) {
+                Image(systemName: "pin.fill")
+                    .cmuxFont(size: 9, weight: .semibold)
+                    .foregroundColor(.secondary.opacity(0.7))
+                    .accessibilityLabel(Text(String(localized: "sessionIndex.row.pinnedBadge", defaultValue: "Pinned")))
+            }
             // Flatten newlines so titles containing `<command-message>…\n…`
             // envelopes stay single-line; SwiftUI's `lineLimit(1)` doesn't
             // always constrain a Text that has hard line breaks in the
@@ -2509,6 +2601,7 @@ private struct PopoverRow: View, Equatable {
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .opacity(stateActions.isArchived(entry.id) ? 0.55 : 1.0)
         .contentShape(Rectangle())
         .background(isHovered ? Color.primary.opacity(0.06) : Color.clear)
         .onHover { isHovered = $0 }
@@ -2518,7 +2611,7 @@ private struct PopoverRow: View, Equatable {
         }
         .help(entry.cwdLabel ?? entry.displayTitle)
         .contextMenu {
-            sessionRowMenuItems(entry: entry, onResume: { _ in onActivate() })
+            sessionRowMenuItems(entry: entry, onResume: { _ in onActivate() }, stateActions: stateActions)
         }
     }
 }
@@ -2636,6 +2729,7 @@ struct SectionPopoverHost: NSViewRepresentable {
     let search: SessionSearchFn
     let loadSnapshot: DirectorySnapshotFn
     let onResume: ((SessionEntry) -> Void)?
+    let stateActions: SessionRowStateActions
 
     func makeCoordinator() -> Coordinator {
         Coordinator(isPresented: $isPresented)
@@ -2655,7 +2749,8 @@ struct SectionPopoverHost: NSViewRepresentable {
             section: section,
             search: search,
             loadSnapshot: loadSnapshot,
-            onResume: onResume
+            onResume: onResume,
+            stateActions: stateActions
         )
         if isPresented {
             coordinator.present()
@@ -2694,6 +2789,7 @@ struct SectionPopoverHost: NSViewRepresentable {
         private var currentSearch: SessionSearchFn?
         private var currentLoadSnapshot: DirectorySnapshotFn?
         private var currentOnResume: ((SessionEntry) -> Void)?
+        private var currentStateActions: SessionRowStateActions?
         private var lastRenderedSection: IndexSection?
         private var lastRenderedPresentationCount: Int?
         /// Bumped on every present(). Used as the SwiftUI view identity so each
@@ -2708,12 +2804,14 @@ struct SectionPopoverHost: NSViewRepresentable {
             section: IndexSection,
             search: @escaping SessionSearchFn,
             loadSnapshot: @escaping DirectorySnapshotFn,
-            onResume: ((SessionEntry) -> Void)?
+            onResume: ((SessionEntry) -> Void)?,
+            stateActions: SessionRowStateActions
         ) {
             currentSection = section
             currentSearch = search
             currentLoadSnapshot = loadSnapshot
             currentOnResume = onResume
+            currentStateActions = stateActions
             // When hidden, defer rebuilding the hosting view until `present()`.
             // Rewriting rootView + forcing layout on every parent re-render was
             // the 100% CPU loop behind #3010.
@@ -2730,7 +2828,8 @@ struct SectionPopoverHost: NSViewRepresentable {
         private func refreshContent() {
             guard let section = currentSection,
                   let search = currentSearch,
-                  let loadSnapshot = currentLoadSnapshot else { return }
+                  let loadSnapshot = currentLoadSnapshot,
+                  let stateActions = currentStateActions else { return }
             debugRefreshContentCallCount += 1
             let onResume = currentOnResume
             let identity = presentationCount
@@ -2739,7 +2838,8 @@ struct SectionPopoverHost: NSViewRepresentable {
                     section: section,
                     search: search,
                     loadSnapshot: loadSnapshot,
-                    onResume: onResume
+                    onResume: onResume,
+                    stateActions: stateActions
                 ) { [weak self] in
                     self?.closeFromContent()
                 }

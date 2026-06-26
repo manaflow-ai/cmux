@@ -390,6 +390,112 @@ final class SessionIndexViewTests: XCTestCase {
         XCTAssertTrue(over.shouldOfferShowMore(rowLimit: 5))
     }
 
+    // MARK: - Pin / archive
+
+    func testPinnedSessionSortsToTopOfSection() {
+        withEphemeralStore { store in
+            let a = makeEntry(title: "a", cwd: "/proj", modified: Date(timeIntervalSince1970: 3))
+            let b = makeEntry(title: "b", cwd: "/proj", modified: Date(timeIntervalSince1970: 2))
+            let c = makeEntry(title: "c", cwd: "/proj", modified: Date(timeIntervalSince1970: 1))
+            store.replaceEntriesForTesting([a, b, c])
+
+            store.setPinned(c.id, true)
+
+            let section = store.sectionsForCurrentGrouping().first { $0.key == .directory("/proj") }
+            XCTAssertEqual(section?.entries.map(\.title), ["c", "a", "b"])
+            XCTAssertEqual(section?.pinnedEntryIDs, [c.id])
+        }
+    }
+
+    func testArchivedSessionHiddenUntilShowArchived() {
+        withEphemeralStore { store in
+            let a = makeEntry(title: "a", cwd: "/proj", modified: Date(timeIntervalSince1970: 3))
+            let b = makeEntry(title: "b", cwd: "/proj", modified: Date(timeIntervalSince1970: 2))
+            store.replaceEntriesForTesting([a, b])
+
+            store.setArchived(b.id, true)
+
+            var section = store.sectionsForCurrentGrouping().first { $0.key == .directory("/proj") }
+            XCTAssertEqual(section?.entries.map(\.title), ["a"])
+            XCTAssertEqual(section?.archivedEntryIDs, [])
+
+            store.showArchived = true
+
+            section = store.sectionsForCurrentGrouping().first { $0.key == .directory("/proj") }
+            XCTAssertEqual(section?.entries.map(\.title), ["a", "b"])
+            XCTAssertEqual(section?.archivedEntryIDs, [b.id])
+        }
+    }
+
+    func testArchivedSortsLastEvenWhenPinned() {
+        withEphemeralStore { store in
+            let a = makeEntry(title: "a", cwd: "/proj", modified: Date(timeIntervalSince1970: 3))
+            let b = makeEntry(title: "b", cwd: "/proj", modified: Date(timeIntervalSince1970: 2))
+            store.replaceEntriesForTesting([a, b])
+
+            // Pinning then archiving the same session: archive (remove from the
+            // active list) is the stronger signal, so it sorts last, not first.
+            store.setPinned(b.id, true)
+            store.setArchived(b.id, true)
+            store.showArchived = true
+
+            let section = store.sectionsForCurrentGrouping().first { $0.key == .directory("/proj") }
+            XCTAssertEqual(section?.entries.map(\.title), ["a", "b"])
+        }
+    }
+
+    func testHasArchivedSessionsReflectsLoadedEntries() {
+        withEphemeralStore { store in
+            let a = makeEntry(title: "a", cwd: "/proj")
+            store.replaceEntriesForTesting([a])
+
+            XCTAssertFalse(store.hasArchivedSessions)
+
+            // An archived id that isn't among loaded entries shouldn't surface
+            // the affordance.
+            store.setArchived("claude:/not/loaded", true)
+            XCTAssertFalse(store.hasArchivedSessions)
+
+            store.setArchived(a.id, true)
+            XCTAssertTrue(store.hasArchivedSessions)
+        }
+    }
+
+    func testPinArchiveStatePersistsAcrossStoreInstances() {
+        let suiteName = "cmux.sessionIndex.tests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = SessionIndexStore(defaults: defaults)
+        store.setPinned("claude:/p/x", true)
+        store.setArchived("codex:/p/y", true)
+        store.showArchived = true
+
+        let reloaded = SessionIndexStore(defaults: defaults)
+        XCTAssertTrue(reloaded.isPinned("claude:/p/x"))
+        XCTAssertTrue(reloaded.isArchived("codex:/p/y"))
+        XCTAssertTrue(reloaded.showArchived)
+        XCTAssertFalse(reloaded.isPinned("claude:/p/z"))
+    }
+
+    func testUnpinAndUnarchiveClearState() {
+        withEphemeralStore { store in
+            let a = makeEntry(title: "a", cwd: "/proj")
+            store.replaceEntriesForTesting([a])
+
+            store.togglePinned(a)
+            XCTAssertTrue(store.isPinned(a.id))
+            store.togglePinned(a)
+            XCTAssertFalse(store.isPinned(a.id))
+
+            store.toggleArchived(a)
+            XCTAssertTrue(store.isArchived(a.id))
+            store.toggleArchived(a)
+            XCTAssertFalse(store.isArchived(a.id))
+        }
+    }
+
     func testSectionPopoverHostCoordinatorSkipsHiddenRefreshes() {
         let harness = makeHarness()
         let coordinator = harness.host.makeCoordinator()
@@ -398,13 +504,15 @@ final class SessionIndexViewTests: XCTestCase {
             section: harness.section,
             search: harness.search,
             loadSnapshot: harness.loadSnapshot,
-            onResume: nil
+            onResume: nil,
+            stateActions: harness.stateActions
         )
         coordinator.update(
             section: harness.section,
             search: harness.search,
             loadSnapshot: harness.loadSnapshot,
-            onResume: nil
+            onResume: nil,
+            stateActions: harness.stateActions
         )
 
         XCTAssertEqual(coordinator.debugRefreshContentCallCount, 0)
@@ -438,7 +546,8 @@ final class SessionIndexViewTests: XCTestCase {
             section: harness.section,
             search: harness.search,
             loadSnapshot: harness.loadSnapshot,
-            onResume: nil
+            onResume: nil,
+            stateActions: harness.stateActions
         )
         XCTAssertEqual(coordinator.debugRefreshContentCallCount, 0)
 
@@ -452,7 +561,8 @@ final class SessionIndexViewTests: XCTestCase {
             section: harness.section,
             search: harness.search,
             loadSnapshot: harness.loadSnapshot,
-            onResume: nil
+            onResume: nil,
+            stateActions: harness.stateActions
         )
 
         XCTAssertEqual(coordinator.debugRefreshContentCallCount, 1)
@@ -476,14 +586,22 @@ final class SessionIndexViewTests: XCTestCase {
         let loadSnapshot: DirectorySnapshotFn = { cwd in
             DirectorySnapshot(cwd: cwd ?? "", entries: [], errors: [])
         }
+        let stateActions = makeNoopStateActions()
         let host = SectionPopoverHost(
             isPresented: binding,
             section: section,
             search: search,
             loadSnapshot: loadSnapshot,
-            onResume: nil
+            onResume: nil,
+            stateActions: stateActions
         )
-        return SessionPopoverHarness(host: host, section: section, search: search, loadSnapshot: loadSnapshot)
+        return SessionPopoverHarness(
+            host: host,
+            section: section,
+            search: search,
+            loadSnapshot: loadSnapshot,
+            stateActions: stateActions
+        )
     }
 
     private func makeEntry(
@@ -514,6 +632,16 @@ final class SessionIndexViewTests: XCTestCase {
 
     private func pumpRunLoop() {
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+    }
+
+    /// Run `body` against a store backed by a throwaway UserDefaults suite so
+    /// pin/archive/show-archived persistence never touches the shared domain.
+    private func withEphemeralStore(_ body: (SessionIndexStore) -> Void) {
+        let suiteName = "cmux.sessionIndex.tests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        body(SessionIndexStore(defaults: defaults))
     }
 
     private func preservingSessionIndexDefaults(_ body: () -> Void) {
@@ -656,6 +784,19 @@ private struct SessionPopoverHarness {
     let section: IndexSection
     let search: SessionSearchFn
     let loadSnapshot: DirectorySnapshotFn
+    let stateActions: SessionRowStateActions
+}
+
+/// No-op pin/archive bundle for popover-host tests that don't exercise
+/// pin/archive behavior.
+@MainActor
+private func makeNoopStateActions() -> SessionRowStateActions {
+    SessionRowStateActions(
+        isPinned: { _ in false },
+        isArchived: { _ in false },
+        togglePinned: { _ in },
+        toggleArchived: { _ in }
+    )
 }
 
 private struct SQLiteTestError: Error {

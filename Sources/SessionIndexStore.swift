@@ -159,6 +159,31 @@ struct IndexSection: Identifiable, Equatable {
     let title: String
     let icon: SectionIcon
     let entries: [SessionEntry]
+    /// IDs of entries in this section the user has pinned. Carried on the
+    /// section (an Equatable value the row subtree already compares) so a pin
+    /// toggle re-renders the affected rows without handing a store reference
+    /// across the snapshot boundary.
+    let pinnedEntryIDs: Set<String>
+    /// IDs of entries in this section the user has archived. Only populated
+    /// when "Show archived" is on (otherwise archived entries are filtered out
+    /// upstream and never reach a section).
+    let archivedEntryIDs: Set<String>
+
+    init(
+        key: SectionKey,
+        title: String,
+        icon: SectionIcon,
+        entries: [SessionEntry],
+        pinnedEntryIDs: Set<String> = [],
+        archivedEntryIDs: Set<String> = []
+    ) {
+        self.key = key
+        self.title = title
+        self.icon = icon
+        self.entries = entries
+        self.pinnedEntryIDs = pinnedEntryIDs
+        self.archivedEntryIDs = archivedEntryIDs
+    }
 
     var id: SectionKey { key }
 
@@ -231,7 +256,7 @@ final class SessionIndexStore: ObservableObject {
     @Published var grouping: SessionGrouping {
         didSet {
             guard grouping != oldValue else { return }
-            UserDefaults.standard.set(grouping.rawValue, forKey: Self.groupingKey)
+            defaults.set(grouping.rawValue, forKey: Self.groupingKey)
             invalidateSectionsCache()
             // Switching into directory grouping can expose cwds that were never
             // backfilled while the user was viewing agent grouping.
@@ -247,7 +272,7 @@ final class SessionIndexStore: ObservableObject {
     @Published var agentOrder: [SessionAgent] {
         didSet {
             guard !Self.agentOrderPresentationEqual(agentOrder, oldValue) else { return }
-            Self.persistAgentOrder(agentOrder)
+            persistAgentOrder(agentOrder)
             invalidateSectionsCache()
         }
     }
@@ -256,23 +281,53 @@ final class SessionIndexStore: ObservableObject {
     @Published var directoryOrder: [String] {
         didSet {
             guard directoryOrder != oldValue else { return }
-            Self.persistDirectoryOrder(directoryOrder)
+            persistDirectoryOrder(directoryOrder)
             invalidateSectionsCache()
+        }
+    }
+
+    /// Stable IDs of sessions the user pinned. Pinned sessions float to the top
+    /// of their section. Keyed by `SessionEntry.id`, which is derived from the
+    /// transcript file path / native session id and stable across reloads and
+    /// app restarts, so the persisted set keeps matching on the next launch.
+    @Published private(set) var pinnedSessionIds: Set<String> = []
+    /// Stable IDs of sessions the user archived. Archived sessions are hidden
+    /// from the active list (and the directory browse popover) unless
+    /// `showArchived` is on; their history is never deleted.
+    @Published private(set) var archivedSessionIds: Set<String> = []
+    /// When true, archived sessions are shown (dimmed, sorted last) instead of
+    /// hidden. Persisted so the choice survives relaunch.
+    @Published var showArchived: Bool = false {
+        didSet {
+            guard showArchived != oldValue else { return }
+            defaults.set(showArchived, forKey: Self.showArchivedDefaultsKey)
+            invalidateSectionsCache()
+            invalidateDirectorySnapshots()
         }
     }
 
     private static let groupingKey = "sessionIndex.grouping"
     private static let agentOrderDefaultsKey = "sessionIndex.agentOrder"
     private static let directoryOrderDefaultsKey = "sessionIndex.directoryOrder"
+    private static let pinnedIdsDefaultsKey = "sessionIndex.pinnedSessionIds"
+    private static let archivedIdsDefaultsKey = "sessionIndex.archivedSessionIds"
+    private static let showArchivedDefaultsKey = "sessionIndex.showArchived"
+    /// Backing store for all persisted index preferences. Injectable so tests
+    /// can run against an isolated suite instead of mutating the shared domain.
+    private let defaults: UserDefaults
     private var sectionsCacheRevision: UInt64 = 0
     private var cachedSectionsRevision: UInt64?
     private var cachedSections: [IndexSection] = []
 
-    init() {
-        self.agentOrder = Self.loadAgentOrder()
-        self.directoryOrder = Self.loadDirectoryOrder()
-        let storedGrouping = UserDefaults.standard.string(forKey: Self.groupingKey)
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        self.agentOrder = Self.loadAgentOrder(defaults: defaults)
+        self.directoryOrder = Self.loadDirectoryOrder(defaults: defaults)
+        let storedGrouping = defaults.string(forKey: Self.groupingKey)
         self.grouping = SessionGrouping(rawValue: storedGrouping ?? "") ?? .directory
+        self.pinnedSessionIds = Self.loadIdSet(forKey: Self.pinnedIdsDefaultsKey, defaults: defaults)
+        self.archivedSessionIds = Self.loadIdSet(forKey: Self.archivedIdsDefaultsKey, defaults: defaults)
+        self.showArchived = defaults.bool(forKey: Self.showArchivedDefaultsKey)
     }
 
     /// Returns the sections for the current grouping mode, in the user-saved order.
@@ -288,7 +343,7 @@ final class SessionIndexStore: ObservableObject {
             let buckets = Dictionary(grouping: visible, by: { $0.agent.rawValue })
             sections = agentOrder.compactMap { agent in
                 guard let entries = buckets[agent.rawValue], !entries.isEmpty else { return nil }
-                return IndexSection(
+                return makeSection(
                     key: .agent(agent),
                     title: agent.displayName,
                     icon: .agent(agent),
@@ -315,7 +370,7 @@ final class SessionIndexStore: ObservableObject {
             sections = (directoryOrder + unknownSorted)
                 .filter { buckets[$0] != nil }
                 .map { path in
-                    IndexSection(
+                    makeSection(
                         key: .directory(path.isEmpty ? nil : path),
                         title: directoryDisplayName(path),
                         icon: .folder,
@@ -410,13 +465,20 @@ final class SessionIndexStore: ObservableObject {
     }
 
     private func filteredEntriesForCurrentScope() -> [SessionEntry] {
-        guard scopeToCurrentDirectory, let dir = normalizedDirectory(currentDirectory) else {
-            return entries
+        let scoped: [SessionEntry]
+        if scopeToCurrentDirectory, let dir = normalizedDirectory(currentDirectory) {
+            scoped = entries.filter { entry in
+                guard let cwd = normalizedDirectory(entry.cwd) else { return false }
+                return cwd == dir || cwd.hasPrefix(dir + "/")
+            }
+        } else {
+            scoped = entries
         }
-        return entries.filter { entry in
-            guard let cwd = normalizedDirectory(entry.cwd) else { return false }
-            return cwd == dir || cwd.hasPrefix(dir + "/")
-        }
+        // Archived sessions drop out of the active list unless the user opts
+        // to show them. Their transcripts are untouched — search and the
+        // browse popover can still surface them when "Show archived" is on.
+        guard !showArchived, !archivedSessionIds.isEmpty else { return scoped }
+        return scoped.filter { !archivedSessionIds.contains($0.id) }
     }
 
     private func directoryDisplayName(_ path: String) -> String {
@@ -469,8 +531,8 @@ final class SessionIndexStore: ObservableObject {
         }
     }
 
-    private static func loadAgentOrder() -> [SessionAgent] {
-        let stored = UserDefaults.standard.array(forKey: agentOrderDefaultsKey) as? [String] ?? []
+    private static func loadAgentOrder(defaults: UserDefaults) -> [SessionAgent] {
+        let stored = defaults.array(forKey: agentOrderDefaultsKey) as? [String] ?? []
         var ordered: [SessionAgent] = stored.compactMap { SessionAgent(rawValue: $0) }
         for agent in SessionAgent.builtInCases where !ordered.contains(agent) {
             ordered.append(agent)
@@ -506,12 +568,16 @@ final class SessionIndexStore: ObservableObject {
         }.value
     }
 
-    private static func loadDirectoryOrder() -> [String] {
-        UserDefaults.standard.array(forKey: directoryOrderDefaultsKey) as? [String] ?? []
+    private static func loadDirectoryOrder(defaults: UserDefaults) -> [String] {
+        defaults.array(forKey: directoryOrderDefaultsKey) as? [String] ?? []
     }
 
-    private static func persistAgentOrder(_ order: [SessionAgent]) {
-        UserDefaults.standard.set(order.map { $0.rawValue }, forKey: agentOrderDefaultsKey)
+    private static func loadIdSet(forKey key: String, defaults: UserDefaults) -> Set<String> {
+        Set(defaults.array(forKey: key) as? [String] ?? [])
+    }
+
+    private func persistAgentOrder(_ order: [SessionAgent]) {
+        defaults.set(order.map { $0.rawValue }, forKey: Self.agentOrderDefaultsKey)
     }
 
     private static func agentOrderPresentationEqual(_ lhs: [SessionAgent], _ rhs: [SessionAgent]) -> Bool {
@@ -528,8 +594,97 @@ final class SessionIndexStore: ObservableObject {
         }
     }
 
-    private static func persistDirectoryOrder(_ order: [String]) {
-        UserDefaults.standard.set(order, forKey: directoryOrderDefaultsKey)
+    private func persistDirectoryOrder(_ order: [String]) {
+        defaults.set(order, forKey: Self.directoryOrderDefaultsKey)
+    }
+
+    private func persistIdSet(_ ids: Set<String>, forKey key: String) {
+        defaults.set(Array(ids), forKey: key)
+    }
+
+    // MARK: - Pin / archive
+
+    func isPinned(_ id: SessionEntry.ID) -> Bool { pinnedSessionIds.contains(id) }
+    func isArchived(_ id: SessionEntry.ID) -> Bool { archivedSessionIds.contains(id) }
+
+    /// Any currently-loaded session is archived. Drives whether the
+    /// "Show archived" affordance is offered, so the control bar stays clean
+    /// for the common case where nothing has been archived.
+    var hasArchivedSessions: Bool {
+        guard !archivedSessionIds.isEmpty else { return false }
+        return entries.contains { archivedSessionIds.contains($0.id) }
+    }
+
+    func setPinned(_ id: SessionEntry.ID, _ pinned: Bool) {
+        let changed = pinned
+            ? pinnedSessionIds.insert(id).inserted
+            : pinnedSessionIds.remove(id) != nil
+        guard changed else { return }
+        persistIdSet(pinnedSessionIds, forKey: Self.pinnedIdsDefaultsKey)
+        invalidateSectionsCache()
+        invalidateDirectorySnapshots()
+    }
+
+    func togglePinned(_ entry: SessionEntry) {
+        setPinned(entry.id, !isPinned(entry.id))
+    }
+
+    func setArchived(_ id: SessionEntry.ID, _ archived: Bool) {
+        let changed = archived
+            ? archivedSessionIds.insert(id).inserted
+            : archivedSessionIds.remove(id) != nil
+        guard changed else { return }
+        persistIdSet(archivedSessionIds, forKey: Self.archivedIdsDefaultsKey)
+        invalidateSectionsCache()
+        invalidateDirectorySnapshots()
+    }
+
+    func toggleArchived(_ entry: SessionEntry) {
+        setArchived(entry.id, !isArchived(entry.id))
+    }
+
+    /// Stable ordering for a section's entries: pinned (non-archived) first,
+    /// archived last, everything else in the middle. The incoming array is
+    /// already sorted by `modified` desc, and the enumerated-offset tie-break
+    /// keeps that order within each rank (Swift's `sort` is not guaranteed
+    /// stable on its own).
+    func orderedSessionEntries(_ entries: [SessionEntry]) -> [SessionEntry] {
+        guard !pinnedSessionIds.isEmpty || !archivedSessionIds.isEmpty else { return entries }
+        func rank(_ entry: SessionEntry) -> Int {
+            if archivedSessionIds.contains(entry.id) { return 2 }
+            if pinnedSessionIds.contains(entry.id) { return 0 }
+            return 1
+        }
+        return entries.enumerated()
+            .sorted { lhs, rhs in
+                let lRank = rank(lhs.element)
+                let rRank = rank(rhs.element)
+                return lRank == rRank ? lhs.offset < rhs.offset : lRank < rRank
+            }
+            .map(\.element)
+    }
+
+    private func makeSection(
+        key: SectionKey,
+        title: String,
+        icon: SectionIcon,
+        entries: [SessionEntry]
+    ) -> IndexSection {
+        let ordered = orderedSessionEntries(entries)
+        let pinned = pinnedSessionIds.isEmpty
+            ? []
+            : Set(ordered.lazy.map(\.id).filter { pinnedSessionIds.contains($0) })
+        let archived = archivedSessionIds.isEmpty
+            ? []
+            : Set(ordered.lazy.map(\.id).filter { archivedSessionIds.contains($0) })
+        return IndexSection(
+            key: key,
+            title: title,
+            icon: icon,
+            entries: ordered,
+            pinnedEntryIDs: pinned,
+            archivedEntryIDs: archived
+        )
     }
 
     private var loadTask: Task<Void, Never>?
@@ -612,7 +767,14 @@ final class SessionIndexStore: ObservableObject {
         if noFolderScope {
             merged = merged.filter { ($0.cwd ?? "").isEmpty }
         }
-        let sorted = merged.sorted { $0.modified > $1.modified }
+        var sorted = merged.sorted { $0.modified > $1.modified }
+        // Mirror the in-list view: hide archived (unless showing) and float
+        // pinned to the top. The snapshot is invalidated whenever pin/archive
+        // state or `showArchived` changes, so the cache can't go stale.
+        if !showArchived, !archivedSessionIds.isEmpty {
+            sorted = sorted.filter { !archivedSessionIds.contains($0.id) }
+        }
+        sorted = orderedSessionEntries(sorted)
         let snapshot = DirectorySnapshot(cwd: key, entries: sorted, errors: bag.snapshot())
         // Only cache this result if no `reload()` raced in while the
         // build was running. Otherwise the caller gets a fresh snapshot
