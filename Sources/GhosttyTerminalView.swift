@@ -9048,14 +9048,9 @@ final class GhosttySurfaceScrollView: NSView {
     /// Shows or hides the focused-split accent border and applies its color and
     /// stroke width. The border is meant to be visible only on the focused pane
     /// of a split workspace; callers gate `visible` on that condition.
+    ///
+    /// Called from `updateNSView` on the main thread, like `setInactiveOverlay`.
     func setFocusBorder(visible: Bool, color: NSColor, width: CGFloat) {
-        if !Thread.isMainThread {
-            DispatchQueue.main.async { [weak self] in
-                self?.setFocusBorder(visible: visible, color: color, width: width)
-            }
-            return
-        }
-
         let clampedWidth = max(0, width)
         let targetHidden = !(visible && clampedWidth > 0.0001)
         let targetOpacity: Float = targetHidden ? 0 : 1
