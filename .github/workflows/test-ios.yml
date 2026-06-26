@@ -147,6 +147,14 @@ jobs:
           # or app-target dependency, so it runs as a real CI gate here.
           swift test --package-path Packages/Shared/CmuxSyncStore
 
+      - name: Run CmuxMobileTerminalKit package tests
+        run: |
+          # Pure terminal value/layout logic (letterbox math, key encoding,
+          # cursor-blink + present-discard convergence state machine). Depends
+          # only on CMUXMobileCore — no GhosttyKit / app-target dependency — so
+          # it runs headlessly as a real CI gate here.
+          swift test --package-path Packages/iOS/CmuxMobileTerminalKit
+
   ios-simulator:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
