@@ -2851,7 +2851,7 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
     }
 
     func testForkDetectedViaApplicationLookupOutsideApplications() {
-        let forkPath = "/Volumes/Setapp/Fork.app"
+        let forkPath = "/Volumes/Tools/Fork.app"
         let env = environment(
             existingPaths: [forkPath],
             applicationPathsByName: [
