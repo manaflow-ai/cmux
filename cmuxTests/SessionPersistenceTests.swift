@@ -2510,6 +2510,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
     }
 
     private func leadingCdCommand(from command: String) throws -> String {
+        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(command.trimmingCharacters(in: .whitespacesAndNewlines))
+        let command = words.count == 3 && words[0].value == "/bin/sh" && (words[1].value == "-c" || words[1].value == "-lc") ? words[2].value : command
         let separator = try XCTUnwrap(command.range(of: " && "), "no ' && ' separator in: \(command)")
         return String(command[..<separator.lowerBound])
     }
