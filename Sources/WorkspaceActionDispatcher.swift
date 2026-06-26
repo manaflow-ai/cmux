@@ -45,6 +45,37 @@ enum WorkspaceActionDispatcher {
         let pinned: Bool
     }
 
+    struct WindowMove: Equatable {
+        let workspaceId: UUID
+        let focus: Bool
+    }
+
+    struct NewWindowMovePlan: Equatable {
+        let firstWorkspaceId: UUID
+        let focusFirstMove: Bool
+        let followUpMoves: [WindowMove]
+    }
+
+    static func newWindowMovePlan(orderedWorkspaceIds: [UUID]) -> NewWindowMovePlan? {
+        guard let firstWorkspaceId = orderedWorkspaceIds.first else { return nil }
+
+        var followUpMoves: [WindowMove] = []
+        if orderedWorkspaceIds.count > 1 {
+            for workspaceId in orderedWorkspaceIds.dropFirst() {
+                followUpMoves.append(WindowMove(workspaceId: workspaceId, focus: false))
+            }
+            if let finalWorkspaceId = orderedWorkspaceIds.last {
+                followUpMoves.append(WindowMove(workspaceId: finalWorkspaceId, focus: true))
+            }
+        }
+
+        return NewWindowMovePlan(
+            firstWorkspaceId: firstWorkspaceId,
+            focusFirstMove: orderedWorkspaceIds.count == 1,
+            followUpMoves: followUpMoves
+        )
+    }
+
     @MainActor
     static func pinState(
         in tabManager: TabManager,

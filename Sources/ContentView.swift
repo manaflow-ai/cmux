@@ -14535,20 +14535,23 @@ struct TabItemView: View, Equatable {
     private func moveWorkspacesToNewWindow(_ workspaceIds: [UUID]) {
         guard let app = AppDelegate.shared else { return }
         let orderedWorkspaceIds = tabManager.tabs.compactMap { workspaceIds.contains($0.id) ? $0.id : nil }
-        guard let firstWorkspaceId = orderedWorkspaceIds.first else { return }
-
-        let shouldFocusImmediately = orderedWorkspaceIds.count == 1
-        guard let newWindowId = app.moveWorkspaceToNewWindow(workspaceId: firstWorkspaceId, focus: shouldFocusImmediately) else {
+        guard let movePlan = WorkspaceActionDispatcher.newWindowMovePlan(orderedWorkspaceIds: orderedWorkspaceIds) else {
             return
         }
 
-        if orderedWorkspaceIds.count > 1 {
-            for workspaceId in orderedWorkspaceIds.dropFirst() {
-                _ = app.moveWorkspaceToWindow(workspaceId: workspaceId, windowId: newWindowId, focus: false)
-            }
-            if let finalWorkspaceId = orderedWorkspaceIds.last {
-                _ = app.moveWorkspaceToWindow(workspaceId: finalWorkspaceId, windowId: newWindowId, focus: true)
-            }
+        guard let newWindowId = app.moveWorkspaceToNewWindow(
+            workspaceId: movePlan.firstWorkspaceId,
+            focus: movePlan.focusFirstMove
+        ) else {
+            return
+        }
+
+        for followUpMove in movePlan.followUpMoves {
+            _ = app.moveWorkspaceToWindow(
+                workspaceId: followUpMove.workspaceId,
+                windowId: newWindowId,
+                focus: followUpMove.focus
+            )
         }
 
         selectedTabIds.subtract(orderedWorkspaceIds)
