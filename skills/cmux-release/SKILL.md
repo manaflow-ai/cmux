@@ -19,6 +19,7 @@ Use the `/release` command to prepare a new release. This will:
 Use the commit log as raw input, not final copy:
 
 ```bash
+git fetch --tags origin
 previous_tag="$(git describe --tags --abbrev=0 --match 'v[0-9]*')"
 git log --first-parent --reverse --oneline "${previous_tag}..HEAD"
 ```
