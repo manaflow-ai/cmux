@@ -220,10 +220,9 @@ import Testing
         // engine in `.requestingPermission`, applies: create the recognition task
         // and move to `.listening`.
         #expect(
-            composerDictationStartDisposition(
+            ComposerDictationState.requestingPermission.startDisposition(
                 callbackToken: 7,
-                currentToken: 7,
-                state: .requestingPermission
+                currentToken: 7
             ) == .apply
         )
     }
@@ -234,10 +233,9 @@ import Testing
         // it cannot drive the UI into `.listening` for an abandoned session — and
         // so it does not double-start the engine.
         #expect(
-            composerDictationStartDisposition(
+            ComposerDictationState.requestingPermission.startDisposition(
                 callbackToken: 7,
-                currentToken: 8,
-                state: .requestingPermission
+                currentToken: 8
             ) == .discardStale
         )
     }
@@ -254,11 +252,7 @@ import Testing
             .unavailable,
         ] {
             #expect(
-                composerDictationStartDisposition(
-                    callbackToken: 3,
-                    currentToken: 3,
-                    state: state
-                ) == .discardStale
+                state.startDisposition(callbackToken: 3, currentToken: 3) == .discardStale
             )
         }
     }
@@ -267,10 +261,9 @@ import Testing
         // The common abandon case: the token advanced AND the state settled back to
         // idle. Still stale; the superseding teardown owns the engine cleanup.
         #expect(
-            composerDictationStartDisposition(
+            ComposerDictationState.idle.startDisposition(
                 callbackToken: 1,
-                currentToken: 2,
-                state: .idle
+                currentToken: 2
             ) == .discardStale
         )
     }
@@ -287,10 +280,9 @@ import Testing
         for callbackToken in 0...3 {
             for currentToken in 0...3 {
                 for state in allStates {
-                    let disposition = composerDictationStartDisposition(
+                    let disposition = state.startDisposition(
                         callbackToken: callbackToken,
-                        currentToken: currentToken,
-                        state: state
+                        currentToken: currentToken
                     )
                     let shouldApply = callbackToken == currentToken && state == .requestingPermission
                     #expect(disposition == (shouldApply ? .apply : .discardStale))

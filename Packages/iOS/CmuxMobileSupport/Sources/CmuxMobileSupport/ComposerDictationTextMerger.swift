@@ -89,31 +89,28 @@ enum ComposerDictationStartDisposition: Equatable {
     case discardStale
 }
 
-/// Decide whether an engine-ready callback applies (see
-/// ``ComposerDictationStartDisposition``).
-///
-/// The callback applies only when its captured `callbackToken` still matches the
-/// controller's `currentToken` AND the controller is still in
-/// ``ComposerDictationState/requestingPermission`` (it has not already moved to
-/// ``ComposerDictationState/listening``, ``ComposerDictationState/idle``,
-/// ``ComposerDictationState/stopping``, or ``ComposerDictationState/unavailable``).
-/// The state check is belt-and-suspenders next to the token: any path that leaves
-/// `requestingPermission` while an engine start is in flight bumps the token too.
-///
-/// - Parameters:
-///   - callbackToken: The start token captured when this start attempt kicked off
-///     the off-main engine activation.
-///   - currentToken: The controller's current start token at callback time.
-///   - state: The controller's current state at callback time.
-func composerDictationStartDisposition(
-    callbackToken: Int,
-    currentToken: Int,
-    state: ComposerDictationState
-) -> ComposerDictationStartDisposition {
-    guard callbackToken == currentToken, state == .requestingPermission else {
-        return .discardStale
+extension ComposerDictationState {
+    /// Decide whether an engine-ready callback applies for this state (see
+    /// ``ComposerDictationStartDisposition``).
+    ///
+    /// The callback applies only when its captured `callbackToken` still matches the
+    /// controller's `currentToken` AND this state is still
+    /// ``ComposerDictationState/requestingPermission`` (it has not already moved to
+    /// ``ComposerDictationState/listening``, ``ComposerDictationState/idle``,
+    /// ``ComposerDictationState/stopping``, or ``ComposerDictationState/unavailable``).
+    /// The state check is belt-and-suspenders next to the token: any path that leaves
+    /// `requestingPermission` while an engine start is in flight bumps the token too.
+    ///
+    /// - Parameters:
+    ///   - callbackToken: The start token captured when this attempt kicked off the
+    ///     off-main engine activation.
+    ///   - currentToken: The controller's current start token at callback time.
+    func startDisposition(callbackToken: Int, currentToken: Int) -> ComposerDictationStartDisposition {
+        guard callbackToken == currentToken, self == .requestingPermission else {
+            return .discardStale
+        }
+        return .apply
     }
-    return .apply
 }
 
 /// Pure text merger for live dictation, factored out so it is host-testable

@@ -62,7 +62,7 @@ public final class ComposerDictationController {
     /// after the tap; in that window a second tap, send, or navigation can abandon
     /// the start. Every new start AND every teardown bumps this token, so a late
     /// engine-ready callback detects it was superseded
-    /// (``composerDictationStartDisposition(callbackToken:currentToken:state:)``)
+    /// (``ComposerDictationState/startDisposition(callbackToken:currentToken:)``)
     /// and discards its result. (Replaces the old `didActivateSession` gate, now
     /// internal to ``ComposerDictationAudioEngine``.)
     private var startToken = 0
@@ -375,8 +375,8 @@ public final class ComposerDictationController {
     /// otherwise creates the recognition task and moves to `.listening` (or
     /// `.unavailable` if the engine failed to start).
     private func handleEngineReady(_ started: Bool, token: Int) {
-        guard composerDictationStartDisposition(
-            callbackToken: token, currentToken: startToken, state: state
+        guard state.startDisposition(
+            callbackToken: token, currentToken: startToken
         ) == .apply else { return }
         guard started, let recognizer, let request else {
             failStart()
