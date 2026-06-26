@@ -349,20 +349,9 @@ public struct SidebarSection: View {
             .disabled(hideAll.current)
             SettingsCardDivider()
 
-            SettingsCardRow(
-                configurationReview: .json("sidebar.notificationSchedulerMode"),
-                String(localized: "settings.sidebar.notificationSchedulerMode", defaultValue: "Notification Scheduler"),
-                subtitle: String(localized: "settings.sidebar.notificationSchedulerMode.subtitle", defaultValue: "Choose how unread notification workspaces are prioritized in the sidebar."),
-                controlWidth: 190
-            ) {
-                Picker("", selection: Binding(get: { notificationSchedulerMode.current }, set: { notificationSchedulerMode.set($0) })) {
-                    ForEach(SidebarNotificationSchedulerMode.allCases, id: \.self) { mode in
-                        Text(notificationSchedulerModeTitle(mode)).tag(mode)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-            }
+            SidebarNotificationSchedulerPickerRow(
+                mode: Binding(get: { notificationSchedulerMode.current }, set: { notificationSchedulerMode.set($0) })
+            )
             SettingsCardDivider()
 
             SettingsCardRow(
@@ -501,32 +490,4 @@ public struct SidebarSection: View {
         }
     }
 
-    private func prLinksSubtitle(prVisible: Bool, prClickable: Bool, openInCmux: Bool) -> String {
-        if !prVisible {
-            return String(localized: "settings.app.openSidebarPRLinks.subtitleHidden", defaultValue: "Enable sidebar PR visibility to choose where PR links open.")
-        }
-        if !prClickable {
-            return String(localized: "settings.app.openSidebarPRLinks.subtitleDisabled", defaultValue: "Enable sidebar PR clickability to choose where PR links open.")
-        }
-        return openInCmux
-            ? String(localized: "settings.app.openSidebarPRLinks.subtitleOn", defaultValue: "Clicks open inside cmux browser.")
-            : String(localized: "settings.app.openSidebarPRLinks.subtitleOff", defaultValue: "Clicks open in your default browser.")
-    }
-
-    private func notificationSchedulerModeTitle(_ mode: SidebarNotificationSchedulerMode) -> String {
-        switch mode {
-        case .smartUrgency:
-            return String(localized: "settings.sidebar.notificationSchedulerMode.smartUrgency", defaultValue: "Smart Urgency")
-        case .blockedFirst:
-            return String(localized: "settings.sidebar.notificationSchedulerMode.blockedFirst", defaultValue: "Blocked First")
-        case .smallWins:
-            return String(localized: "settings.sidebar.notificationSchedulerMode.smallWins", defaultValue: "Small Wins")
-        case .aging:
-            return String(localized: "settings.sidebar.notificationSchedulerMode.aging", defaultValue: "Aging")
-        case .roundRobin:
-            return String(localized: "settings.sidebar.notificationSchedulerMode.roundRobin", defaultValue: "Round Robin")
-        case .arrivalOrder:
-            return String(localized: "settings.sidebar.notificationSchedulerMode.arrivalOrder", defaultValue: "Arrival Order")
-        }
-    }
 }
