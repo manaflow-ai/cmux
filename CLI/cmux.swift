@@ -7229,8 +7229,7 @@ struct CMUXCLI {
             let text = unescapeSendText(commandText + "\\n")
             let sendParams: [String: Any] = [
                 "text": text,
-                "workspace_id": wsId,
-                "launch_command_metadata": commandText
+                "workspace_id": wsId
             ]
             _ = try client.sendV2(method: "surface.send_text", params: sendParams)
         }

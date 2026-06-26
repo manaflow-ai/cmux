@@ -200,8 +200,7 @@ public protocol ControlSurfaceContext: AnyObject {
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
         hasSurfaceIDParam: Bool,
-        text: String,
-        launchCommandMetadata: String?
+        text: String
     ) -> ControlSurfaceSendResolution
 
     /// Sends a named key for `surface.send_key`. The coordinator selects each

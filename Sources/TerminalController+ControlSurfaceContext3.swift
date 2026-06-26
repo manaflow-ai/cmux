@@ -208,8 +208,7 @@ extension TerminalController {
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
         hasSurfaceIDParam: Bool,
-        text: String,
-        launchCommandMetadata: String?
+        text: String
     ) -> ControlSurfaceSendResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -225,19 +224,18 @@ extension TerminalController {
         guard let terminalPanel = ws.terminalPanel(for: surfaceId) else {
             return .surfaceNotTerminal(surfaceId)
         }
-        let acceptedLaunchCommandMetadata = launchCommandMetadata?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let acceptedLaunchCommand = TextBoxAgentDetection.boundedLaunchCommandContext(from: text)
         let queued: Bool
         switch terminalPanel.sendInputResult(text) {
         case .sent:
-            if let acceptedLaunchCommandMetadata, !acceptedLaunchCommandMetadata.isEmpty {
-                terminalPanel.recordTextBoxLaunchCommand(acceptedLaunchCommandMetadata)
+            if let acceptedLaunchCommand {
+                terminalPanel.recordTextBoxLaunchCommand(acceptedLaunchCommand)
             }
             terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendText")
             queued = false
         case .queued:
-            if let acceptedLaunchCommandMetadata, !acceptedLaunchCommandMetadata.isEmpty {
-                terminalPanel.recordTextBoxLaunchCommand(acceptedLaunchCommandMetadata)
+            if let acceptedLaunchCommand {
+                terminalPanel.recordTextBoxLaunchCommand(acceptedLaunchCommand)
             }
             queued = true
         case .inputQueueFull:
