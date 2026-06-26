@@ -15,7 +15,7 @@
 7366	cmuxTests/WorkspaceUnitTests.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6895	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
-6631	cmuxTests/SessionPersistenceTests.swift
+6659	cmuxTests/SessionPersistenceTests.swift
 6217	cmuxTests/GhosttyConfigTests.swift
 6183	Sources/TabManager.swift
 6077	Sources/TextBoxInput.swift
@@ -41,7 +41,7 @@
 2524	cmuxTests/CommandPaletteSearchEngineTests.swift
 2395	Sources/Mobile/MobileHostService.swift
 2328	cmuxTests/CJKIMEInputTests.swift
-2281	Sources/SessionPersistence.swift
+2295	Sources/SessionPersistence.swift
 2242	Sources/TerminalNotificationStore.swift
 2233	Sources/TerminalWindowPortal.swift
 2126	cmuxTests/CmuxConfigTests.swift
