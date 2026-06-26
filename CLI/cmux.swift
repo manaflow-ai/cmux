@@ -1244,32 +1244,70 @@ final class ClaudeHookSessionStore {
             return false
         }
         let incoming = normalizeOptional(incomingSessionId)
-        return try withLockedState { state in
+        let candidates = try withLockedState { state in
             let incomingStartedAt = incoming.flatMap { state.sessions[$0]?.startedAt }
-            let now = Date().timeIntervalSince1970
-
-            for sessionId in Array(state.sessions.keys) {
-                guard var record = state.sessions[sessionId] else { continue }
+            return state.sessions.values.compactMap { record -> (
+                sessionId: String,
+                pid: Int?,
+                startedAt: TimeInterval,
+                updatedAt: TimeInterval
+            )? in
                 guard record.sessionId != incoming,
                       normalizeOptional(record.workspaceId) == normalizedWorkspace,
                       normalizeOptional(record.surfaceId) == normalizedSurface,
                       Self.runtimeStatusOwnsSurface(record.runtimeStatus) else {
-                    continue
+                    return nil
                 }
                 if let incomingStartedAt, record.startedAt > incomingStartedAt {
-                    continue
+                    return nil
                 }
-                if !Self.processIsLiveForSession(pid: record.pid, updatedAt: record.updatedAt) {
+                return (
+                    sessionId: record.sessionId,
+                    pid: record.pid,
+                    startedAt: record.startedAt,
+                    updatedAt: record.updatedAt
+                )
+            }
+        }
+
+        for candidate in candidates {
+            if !Self.processIsLiveForSession(pid: candidate.pid, updatedAt: candidate.updatedAt) {
+                let now = Date().timeIntervalSince1970
+                try withLockedState { state in
+                    guard var record = state.sessions[candidate.sessionId],
+                          normalizeOptional(record.workspaceId) == normalizedWorkspace,
+                          normalizeOptional(record.surfaceId) == normalizedSurface,
+                          Self.runtimeStatusOwnsSurface(record.runtimeStatus),
+                          record.pid == candidate.pid,
+                          record.updatedAt == candidate.updatedAt else {
+                        return
+                    }
                     record.runtimeStatus = nil
                     record.updatedAt = now
-                    state.sessions[sessionId] = record
-                    continue
+                    state.sessions[candidate.sessionId] = record
                 }
-                return true
+            } else {
+                let stillOwnsSurface = try withLockedState { state in
+                    let incomingStartedAt = incoming.flatMap { state.sessions[$0]?.startedAt }
+                    guard let record = state.sessions[candidate.sessionId],
+                          record.sessionId != incoming,
+                          normalizeOptional(record.workspaceId) == normalizedWorkspace,
+                          normalizeOptional(record.surfaceId) == normalizedSurface,
+                          Self.runtimeStatusOwnsSurface(record.runtimeStatus) else {
+                        return false
+                    }
+                    if let incomingStartedAt, record.startedAt > incomingStartedAt {
+                        return false
+                    }
+                    return true
+                }
+                if stillOwnsSurface {
+                    return true
+                }
             }
-
-            return false
         }
+
+        return false
     }
 
     private static func runtimeStatusOwnsSurface(_ status: AgentHookRuntimeStatus?) -> Bool {
@@ -29867,7 +29905,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     workspaceId: target.workspaceId,
                     surfaceId: target.surfaceId,
                     incomingSessionId: sessionId
-                )) == true
+                )) != false
 #if DEBUG
                 if blocked {
                     agentHookDebugLog(
