@@ -66,6 +66,8 @@ actor LivenessHostRouter {
     private var hasActiveSubscription = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
     private var capabilities = ["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
+    private let terminalInputSeq: UInt64 = 12
+    private var replayFrames: [(seq: UInt64, text: String)] = []
 
     func record(method: String?, topics: [String]?) {
         recorded.append(RecordedRequest(method: method, topics: topics))
@@ -77,6 +79,10 @@ actor LivenessHostRouter {
 
     func setCapabilities(_ capabilities: [String]) {
         self.capabilities = capabilities
+    }
+
+    func setReplayFrames(_ frames: [(seq: UInt64, text: String)]) {
+        replayFrames = frames
     }
 
     /// Hold every `mobile.events.subscribe` response until released.
@@ -161,8 +167,26 @@ actor LivenessHostRouter {
                 "topics": ["workspace.updated", "terminal.render_grid"],
                 "already_subscribed": alreadySubscribed,
             ])
-        case "mobile.events.unsubscribe", "mobile.terminal.replay", "mobile.terminal.viewport":
+        case "terminal.input":
+            return try? Self.resultFrame(id: id, result: [
+                "workspace_id": "live-workspace",
+                "surface_id": "live-terminal",
+                "queued": false,
+                "terminal_seq": terminalInputSeq,
+            ])
+        case "mobile.events.unsubscribe", "mobile.terminal.viewport":
             return try? Self.resultFrame(id: id, result: [:])
+        case "mobile.terminal.replay":
+            let replayIndex = max(0, count(of: "mobile.terminal.replay") - 1)
+            guard !replayFrames.isEmpty else {
+                return try? Self.resultFrame(id: id, result: [:])
+            }
+            let frame = replayFrames[min(replayIndex, replayFrames.count - 1)]
+            return try? Self.replayResultFrame(
+                id: id,
+                seq: frame.seq,
+                text: frame.text
+            )
         default:
             return try? Self.errorFrame(id: id, message: "Unexpected method \(method ?? "nil")")
         }
@@ -190,6 +214,24 @@ actor LivenessHostRouter {
             "error": ["message": message],
         ]
         return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
+    }
+
+    private static func replayResultFrame(id: String?, seq: UInt64, text: String) throws -> Data {
+        let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+            surfaceID: "live-terminal",
+            stateSeq: seq,
+            columns: 16,
+            rows: 4,
+            text: text
+        )
+        return try resultFrame(id: id, result: [
+            "workspace_id": "live-workspace",
+            "surface_id": "live-terminal",
+            "seq": NSNumber(value: seq),
+            "columns": 16,
+            "rows": 4,
+            "render_grid": try frame.jsonObject(),
+        ])
     }
 }
 

@@ -176,6 +176,45 @@ import Testing
     collector.unmount()
 }
 
+/// If terminal input reports the Mac has advanced past the last rendered
+/// frame, render-grid mode first waits for the live event stream instead of
+/// immediately replaying. When the re-subscribe ack says the host-side
+/// registration had been absent, that wait cannot succeed for the already
+/// emitted input frame; the mounted surface needs an explicit catch-up replay.
+@MainActor
+@Test func inputSeqWaitRepairingLostSubscriptionReplaysMountedSurface() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    await router.setReplayFrames([
+        (seq: 4, text: "old"),
+        (seq: 12, text: "repaired-input"),
+    ])
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
+    #expect(sawSubscribe, "listener must establish the push subscription")
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawMountReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawMountReplay, "mounting a sink arms the cold-attach replay")
+    let deliveredInitialReplay = try await pollUntil { collector.lines.contains { $0.contains("old") } }
+    #expect(deliveredInitialReplay, "the mount replay establishes the local rendered sequence")
+
+    await router.dropSubscription()
+    await store.submitTerminalRawInput(Data("x".utf8), surfaceID: "live-terminal")
+
+    let replayedAfterRepair = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 2 }
+    #expect(
+        replayedAfterRepair,
+        "input_seq_wait must replay the mounted surface when its re-subscribe repaired a lost host registration"
+    )
+    let deliveredRepairReplay = try await pollUntil { collector.lines.contains { $0.contains("repaired-input") } }
+    #expect(deliveredRepairReplay)
+    collector.unmount()
+}
+
 /// The watchdog's original purpose (the ~85s silent-death hang) must keep
 /// working: silence past the threshold plus a host that stops answering the
 /// probe must still tear down and re-subscribe.
