@@ -61,9 +61,13 @@ final class TerminationWatchdog: Sendable {
         isArmed = true
         lock.unlock()
 
-        // Regression baseline (red commit): the watchdog thread that invokes
-        // `onFire` after `deadline` is intentionally not started yet, so
-        // TerminationWatchdogTests fails. The fix commit starts it.
-        _ = deadline
+        let onFire = self.onFire
+        let thread = Thread {
+            Thread.sleep(forTimeInterval: deadline)
+            onFire()
+        }
+        thread.name = "com.cmuxterm.termination-watchdog"
+        thread.stackSize = 128 * 1024
+        thread.start()
     }
 }

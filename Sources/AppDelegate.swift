@@ -1871,6 +1871,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isTerminatingApp = true
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
+        // Quit is committed and the critical state is now on disk. Bound the
+        // remainder of the terminate sequence so a blocked Apple will-terminate
+        // observer (e.g. CFPasteboardResolveAllPromisedData, #6758) can't hang
+        // the main thread for ~30s. Idempotent and a no-op if the process exits
+        // first.
+        TerminationWatchdog.shared.arm()
     }
 
     private func presentQuitConfirmationAlert(
@@ -1984,6 +1990,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillTerminate(_ notification: Notification) {
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
+        // Backstop for any terminate path that did not route through
+        // prepareForConfirmedAppTermination() (idempotent with the primary arm).
+        // Apple's promised-pasteboard observer can fire before this delegate
+        // method, so the primary arm above is what bounds #6758; this only
+        // widens coverage to other entrypoints.
+        TerminationWatchdog.shared.arm()
         sentryStopMemoryContextRefresh()
         isTerminatingApp = true
         // Plain quit detaches local ssh clients; explicit close already killed marked sessions.
