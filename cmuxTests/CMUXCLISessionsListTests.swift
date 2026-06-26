@@ -148,4 +148,72 @@ extension CMUXCLIErrorOutputRegressionTests {
         XCTAssertEqual(session["stored_pid_alive"] as? Bool, false)
         XCTAssertEqual(session["stale_pid_blocks_restore_in_0_64_17"] as? Bool, true)
     }
+
+    @Test func testSessionsListForkDiagnosticsUseForkCommandBuilder() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sessions-list-fork-builder-\(UUID().uuidString)", isDirectory: true)
+        let stateDir = root.appendingPathComponent("state", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sessionId = "019ee74a-3c84-7de3-84f1-ece32f4ecfbb"
+        let workspaceId = "33B0D372-292E-42BF-97B6-E37CCA79AB84"
+        let surfaceId = "A2AECAA9-EE1C-4999-B7A9-EE4BB4CDA5D8"
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": workspaceId,
+                    "surfaceId": surfaceId,
+                    "cwd": "/tmp/cmux/debug",
+                    "startedAt": 1_781_996_800.0,
+                    "updatedAt": 1_781_996_867.0,
+                    "launchCommand": [
+                        "launcher": "codex",
+                        "executablePath": "/usr/local/bin/codex",
+                        "arguments": ["/usr/local/bin/codex", "exec", "make", "test"],
+                        "workingDirectory": "/tmp/cmux/debug",
+                        "environment": [
+                            "CODEX_HOME": codexHome.path,
+                        ],
+                        "source": "environment",
+                    ],
+                ]
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
+        environment["CODEX_HOME"] = codexHome.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["sessions", "list", "--agent", "codex", "--session", sessionId, "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let outputData = try XCTUnwrap(result.stdout.data(using: .utf8))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: outputData) as? [String: Any])
+        XCTAssertEqual(object["total_matches"] as? Int, 1)
+        let sessions = try XCTUnwrap(object["sessions"] as? [[String: Any]])
+        let session = try XCTUnwrap(sessions.first)
+        XCTAssertEqual(session["session_id"] as? String, sessionId)
+        XCTAssertEqual(session["fork_supported"] as? Bool, false)
+        XCTAssertEqual(session["fork_unavailable_reason"] as? String, "agent_has_no_fork_command")
+        XCTAssertEqual(session["fork_startup_input_available"] as? Bool, false)
+        XCTAssertEqual(session["stale_pid_blocks_restore_in_0_64_17"] as? Bool, false)
+    }
 }
