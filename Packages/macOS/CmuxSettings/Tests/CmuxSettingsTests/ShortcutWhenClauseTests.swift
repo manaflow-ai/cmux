@@ -54,7 +54,7 @@ struct ShortcutWhenClauseTests {
     @Test func priorityResolvedPairsCoexist() {
         let sidebar = ShortcutWhenClause.atom(.sidebarFocus)
         // The pre-routed sidebar action owns the overlap; an always-on binding
-        // keeps every other context — the factory Select Surface ⌃1…9 alongside
+        // keeps every other context — the factory Select Workspace ⌃1…9 alongside
         // the sidebar's ⌃1…5.
         #expect(!ShortcutWhenClause.bindingsCollide(
             .always, lhsHasPriority: false, sidebar, rhsHasPriority: true))

@@ -2796,7 +2796,7 @@ final class StoredShortcutMatchingTests: XCTestCase {
         let presentation = ShortcutRecorderValidationPresentation(
             attempt: ShortcutRecorderRejectedAttempt(
                 reason: .conflictsWithAction(.selectWorkspaceByNumber),
-                proposedShortcut: StoredShortcut(key: "2", command: true, shift: false, option: false, control: false)
+                proposedShortcut: StoredShortcut(key: "2", command: false, shift: false, option: false, control: true)
             ),
             action: .openBrowser,
             currentShortcut: KeyboardShortcutSettings.Action.openBrowser.defaultShortcut,
@@ -2805,7 +2805,7 @@ final class StoredShortcutMatchingTests: XCTestCase {
 
         XCTAssertEqual(
             presentation?.message,
-            "This shortcut conflicts with Select Workspace 1…9 (⌘1…9)."
+            "This shortcut conflicts with Select Workspace 1…9 (⌃1…9)."
         )
         XCTAssertNil(presentation?.swapButtonTitle)
         XCTAssertFalse(presentation?.canSwap ?? true)
