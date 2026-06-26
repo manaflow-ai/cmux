@@ -1488,7 +1488,7 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
     var iconSourcePath: String?
     /// Optional Command Palette folder breadcrumb (e.g. `Project / Linting`),
     /// shown as the row's trailing badge for folder-organized custom commands.
-    var folder: String?
+    var folder: String? = nil
 
     var terminalCommand: String? {
         action.terminalCommand
