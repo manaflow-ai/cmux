@@ -18,6 +18,13 @@ import QuartzCore
 /// plain `Sendable` (no `@unchecked` escape hatch) and uses no locks or
 /// dispatch-queue barriers. `AsyncStream` delivers yields in FIFO order to its
 /// one consumer, which preserves emission order and the monotonic `seq=` field.
+///
+/// The buffer is bounded (`maxBufferedEntries`, drop-oldest): the consumer keeps
+/// it near empty in steady state, but if emitters ever outpace the single file
+/// writer — e.g. opt-in diagnostics during a burst on stalled storage — the
+/// oldest buffered entries are dropped rather than growing memory without limit.
+/// Delivered lines keep contiguous `seq=` numbering; dropped entries never reach
+/// the consumer, so they leave no gap.
 public final class BackgroundLogWriter: Sendable {
     /// One emitted event, with its timing captured on the calling thread. All
     /// fields are value types so the entry crosses to the consumer task as
@@ -37,12 +44,26 @@ public final class BackgroundLogWriter: Sendable {
     /// `ProcessInfo.systemUptime` baseline used to compute the relative
     /// `t+…ms` field; capture it once at app launch so every line shares the
     /// same origin.
-    public init(fileURL: URL, startUptime: TimeInterval) {
+    ///
+    /// `maxBufferedEntries` bounds the in-flight buffer (clamped to at least 1).
+    /// The default of 8192 — a few hundred bytes each, so a few MB worst case —
+    /// is far above any real diagnostics rate; the consumer keeps the buffer near
+    /// empty in steady state and the cap only engages if emitters ever outpace the
+    /// single file writer (e.g. stalled storage), in which case the oldest buffered
+    /// entries are dropped instead of growing memory without limit.
+    public init(
+        fileURL: URL,
+        startUptime: TimeInterval,
+        maxBufferedEntries: Int = 8192
+    ) {
         self.startUptime = startUptime
-        // `.unbounded` matches the prior `queue.async` backlog (lines are never
-        // dropped). The consumer drains continuously, so the buffer is ~empty in
-        // steady state and only grows transiently while opt-in debug logging is on.
-        let (stream, continuation) = AsyncStream<Entry>.makeStream(bufferingPolicy: .unbounded)
+        // Bounded, drop-oldest backlog: never holds more than `maxBufferedEntries`
+        // entries, so a burst on stalled storage can lose the oldest diagnostics
+        // but cannot grow memory without limit. This restores the safety the
+        // previous synchronous writer got for free from implicit backpressure.
+        let (stream, continuation) = AsyncStream<Entry>.makeStream(
+            bufferingPolicy: .bufferingNewest(max(1, maxBufferedEntries))
+        )
         self.continuation = continuation
         // One detached consumer for the lifetime of the writer: it must outlive
         // every (unstructured) caller of `log`, so it is intentionally not a child

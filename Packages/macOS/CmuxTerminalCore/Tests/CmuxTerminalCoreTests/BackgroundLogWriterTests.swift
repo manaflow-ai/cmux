@@ -36,6 +36,34 @@ struct BackgroundLogWriterTests {
             .map(String.init)
     }
 
+    /// Polls `url` until it has stopped growing for `settle`, then returns its
+    /// lines. Used by the flood test, where drop-oldest means the final line count
+    /// is not known in advance.
+    private func waitForFloodToSettle(
+        _ url: URL,
+        settle: Duration = .milliseconds(400),
+        timeout: Duration = .seconds(15)
+    ) async throws -> [String] {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        var lastContent = ""
+        var lastChange = ContinuousClock.now
+        while ContinuousClock.now < deadline {
+            let contents = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+            if contents != lastContent {
+                lastContent = contents
+                lastChange = ContinuousClock.now
+            } else if !contents.isEmpty,
+                      contents.hasSuffix("\n"),
+                      lastChange.duration(to: .now) >= settle {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        return lastContent
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map(String.init)
+    }
+
     @Test func writesEnqueuedLinesInOrderWithMonotonicSequence() async throws {
         let url = makeTempURL()
         defer { try? FileManager.default.removeItem(at: url) }
@@ -121,5 +149,29 @@ struct BackgroundLogWriterTests {
             sequences.insert(value)
         }
         #expect(sequences == Set(1...total))
+    }
+
+    @Test func boundedBufferDropsOldestUnderFloodWithoutCorruptingDelivery() async throws {
+        let url = makeTempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        // A tiny buffer plus a large synchronous burst lets emission outpace the
+        // single file writer, exercising the drop-oldest bound.
+        let writer = BackgroundLogWriter(fileURL: url, startUptime: 0, maxBufferedEntries: 8)
+        let burst = 2000
+        for index in 0..<burst {
+            writer.log("flood-\(index)", isMainThread: false)
+        }
+
+        let lines = try await waitForFloodToSettle(url)
+        // The writer survives the burst (no hang/crash) and delivers some lines.
+        #expect(!lines.isEmpty)
+        #expect(lines.count <= burst)
+        // Every delivered line is well-formed, and seq stays contiguous from 1:
+        // dropped entries never reach the consumer, so they leave no seq gap.
+        for (index, line) in lines.enumerated() {
+            #expect(line.contains("seq=\(index + 1) "))
+            #expect(line.contains("cmux bg: flood-"))
+        }
     }
 }
