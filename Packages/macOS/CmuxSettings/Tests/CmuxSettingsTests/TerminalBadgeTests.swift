@@ -65,6 +65,15 @@ struct TerminalBadgeTests {
         #expect(!resolved.isEmpty)
     }
 
+    @Test func boundsMalformedTemplateLength() {
+        // A malformed stored template must be bounded on init so substitution
+        // never scans/allocates an unbounded string.
+        let hugeTemplate = String(repeating: "x", count: 1_000_000)
+        let config = TerminalBadgeConfiguration(template: hugeTemplate)
+        #expect(config.template.count <= TerminalBadgeConfiguration.maxTemplateLength)
+        #expect(config.resolvedText(workspace: "W", tab: "T").count <= TerminalBadgeConfiguration.maxResolvedLength)
+    }
+
     @Test func defaultTemplateUsesBothTokens() {
         let resolved = TerminalBadgeConfiguration().resolvedText(workspace: "Repo", tab: "agent")
         #expect(resolved.contains("Repo"))

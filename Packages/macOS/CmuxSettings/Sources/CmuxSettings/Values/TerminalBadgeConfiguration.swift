@@ -30,6 +30,10 @@ public struct TerminalBadgeConfiguration: Equatable, Sendable {
     /// Default badge text color, a `#RRGGBB` hex string.
     public static let defaultColorHex = "#FFFFFF"
 
+    /// Maximum length of the stored template. The template comes from settings
+    /// (UserDefaults / cmux.json) and is bounded on init so a malformed value
+    /// cannot force large scans/allocations when it is later substituted.
+    public static let maxTemplateLength = 512
     /// Maximum length of each substituted token value. The tab title is driven
     /// by terminal escape sequences and is otherwise unbounded, so it is capped
     /// before substitution to keep a hostile/buggy process from forcing large
@@ -58,7 +62,7 @@ public struct TerminalBadgeConfiguration: Equatable, Sendable {
         fontSize: Double = TerminalBadgeConfiguration.defaultFontSize,
         colorHex: String = TerminalBadgeConfiguration.defaultColorHex
     ) {
-        self.template = template
+        self.template = String(template.prefix(Self.maxTemplateLength))
         self.position = position
         self.opacity = clampedTerminalBadgeValue(
             opacity, in: Self.opacityRange, fallback: Self.defaultOpacity
