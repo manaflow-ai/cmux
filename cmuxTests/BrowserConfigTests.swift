@@ -1686,7 +1686,7 @@ final class BrowserDevToolsButtonDebugSettingsTests: XCTestCase {
         defaults.set("this.symbol.does.not.exist", forKey: BrowserDevToolsButtonDebugSettings.iconNameKey)
 
         XCTAssertEqual(
-            BrowserDevToolsButtonDebugSettings.iconOption(defaults: defaults),
+            BrowserDevToolsButtonDebugSettings(defaults: defaults).iconOption(),
             BrowserDevToolsButtonDebugSettings.defaultIcon
         )
     }
@@ -1696,7 +1696,7 @@ final class BrowserDevToolsButtonDebugSettingsTests: XCTestCase {
         defaults.set("notAValidColor", forKey: BrowserDevToolsButtonDebugSettings.iconColorKey)
 
         XCTAssertEqual(
-            BrowserDevToolsButtonDebugSettings.colorOption(defaults: defaults),
+            BrowserDevToolsButtonDebugSettings(defaults: defaults).colorOption(),
             BrowserDevToolsButtonDebugSettings.defaultColor
         )
     }
@@ -1758,7 +1758,7 @@ final class BrowserDevToolsButtonDebugSettingsTests: XCTestCase {
         defaults.set(BrowserDevToolsIconOption.scope.rawValue, forKey: BrowserDevToolsButtonDebugSettings.iconNameKey)
         defaults.set(BrowserDevToolsIconColorOption.bonsplitActive.rawValue, forKey: BrowserDevToolsButtonDebugSettings.iconColorKey)
 
-        let payload = BrowserDevToolsButtonDebugSettings.copyPayload(defaults: defaults)
+        let payload = BrowserDevToolsButtonDebugSettings(defaults: defaults).copyPayload()
         XCTAssertTrue(payload.contains("browserDevToolsIconName=scope"))
         XCTAssertTrue(payload.contains("browserDevToolsIconColor=bonsplitActive"))
     }

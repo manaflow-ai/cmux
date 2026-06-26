@@ -1,5 +1,6 @@
 import AppKit
 import CmuxAppKitSupportUI
+import CmuxBrowser
 import CmuxFoundation
 import CmuxSettings
 import SwiftUI
@@ -335,7 +336,7 @@ final class DebugWindowControlsContentProvider {
     /// Copies the browser DevTools button config payload to the pasteboard.
     /// Byte-faithful to the legacy in-view action.
     private func copyBrowserDevToolsButtonConfig() {
-        let payload = BrowserDevToolsButtonDebugSettings.copyPayload(defaults: defaults)
+        let payload = BrowserDevToolsButtonDebugSettings(defaults: defaults).copyPayload()
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(payload, forType: .string)
@@ -389,7 +390,7 @@ final class DebugWindowControlsContentProvider {
         """
 
         let menuBarPayload = MenuBarIconDebugSettings.copyPayload(defaults: defaults)
-        let browserDevToolsPayload = BrowserDevToolsButtonDebugSettings.copyPayload(defaults: defaults)
+        let browserDevToolsPayload = BrowserDevToolsButtonDebugSettings(defaults: defaults).copyPayload()
         let titlebarLayoutPayload = TitlebarLayoutDebugSettingsSnapshot.copyPayload(defaults: defaults)
 
         return """

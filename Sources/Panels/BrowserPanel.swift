@@ -8,6 +8,7 @@ import WebKit
 import AppKit
 import Bonsplit
 import CmuxTerminalCore
+import CmuxWorkspaces
 import Network
 import CFNetwork
 import SQLite3

@@ -1007,7 +1007,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     /// the controls, which are themselves mounted once in the band overlay.
     private var fullscreenControlsWidth: CGFloat {
         let style = TitlebarControlsStyle(rawValue: titlebarControlsStyleRawValue) ?? .classic
-        return TitlebarControlsLayoutMetrics.contentSize(config: style.config).width
+        return style.config.contentSize().width
     }
 
     private var titlebarDebugChromeSnapshot: MinimalModeTitlebarDebugSnapshot {

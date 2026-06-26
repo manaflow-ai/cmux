@@ -1,4 +1,5 @@
 import CmuxCommandPalette
+import CmuxWorkspaces
 import XCTest
 import AppKit
 

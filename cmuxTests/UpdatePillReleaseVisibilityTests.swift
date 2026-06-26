@@ -211,7 +211,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
     }
 
     func testShortcutHintVerticalGapStaysTuckedAgainstButtonLane() {
-        XCTAssertEqual(TitlebarShortcutHintMetrics.verticalGap, -3, accuracy: 0.001)
+        XCTAssertEqual(TitlebarControlsStyleConfig.shortcutHintVerticalGap, -3, accuracy: 0.001)
     }
 
     func testTitlebarControlsUseNeutralVisualLift() {
@@ -223,11 +223,11 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
     }
 
     func testTitlebarControlsUseDeterministicContentSize() {
-        let classic = TitlebarControlsLayoutMetrics.contentSize(config: TitlebarControlsStyle.classic.config)
+        let classic = TitlebarControlsStyle.classic.config.contentSize()
         XCTAssertEqual(classic.width, 136, accuracy: 0.001)
         XCTAssertEqual(classic.height, WindowChromeMetrics.appTitlebarHeight, accuracy: 0.001)
 
-        let compact = TitlebarControlsLayoutMetrics.contentSize(config: TitlebarControlsStyle.compact.config)
+        let compact = TitlebarControlsStyle.compact.config.contentSize()
         XCTAssertEqual(compact.width, 126, accuracy: 0.001)
         XCTAssertEqual(compact.height, WindowChromeMetrics.appTitlebarHeight, accuracy: 0.001)
     }
@@ -242,7 +242,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
         let trafficLightFrame = NSRect(x: 18, y: 7, width: 14, height: 14)
 
         XCTAssertEqual(
-            TitlebarControlsLayoutMetrics.leadingOffset(
+            TitlebarControlsStyleConfig.leadingOffset(
                 trafficLightFrame: trafficLightFrame,
                 debugSnapshot: snapshot
             ),
@@ -260,7 +260,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            TitlebarControlsLayoutMetrics.leadingOffset(
+            TitlebarControlsStyleConfig.leadingOffset(
                 trafficLightFrame: NSRect(x: 18, y: 7, width: 14, height: 14),
                 debugSnapshot: snapshot
             ),
@@ -271,7 +271,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
 
     func testTitlebarControlsVerticalOffsetAlignsToTrafficLightsWhenAvailable() {
         let snapshot = MinimalModeTitlebarDebugSettings.snapshot()
-        let yOffset = TitlebarControlsLayoutMetrics.yOffset(
+        let yOffset = TitlebarControlsStyleConfig.yOffset(
             contentHeight: WindowChromeMetrics.appTitlebarHeight,
             containerHeight: 32,
             trafficLightFrame: NSRect(x: 20, y: 7, width: 14, height: 14),
@@ -285,7 +285,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
         let snapshot = MinimalModeTitlebarDebugSettings.snapshot()
         let trafficLightFrame = NSRect(x: 20, y: 7, width: 14, height: 14)
         let contentHeight = WindowChromeMetrics.appTitlebarHeight
-        let yOffset = TitlebarControlsLayoutMetrics.yOffset(
+        let yOffset = TitlebarControlsStyleConfig.yOffset(
             contentHeight: contentHeight,
             containerHeight: 32,
             trafficLightFrame: trafficLightFrame,
@@ -303,7 +303,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
 
     func testTitlebarControlsVerticalOffsetFallsBackToTitlebarCenter() {
         let snapshot = MinimalModeTitlebarDebugSettings.snapshot()
-        let yOffset = TitlebarControlsLayoutMetrics.yOffset(
+        let yOffset = TitlebarControlsStyleConfig.yOffset(
             contentHeight: WindowChromeMetrics.appTitlebarHeight,
             containerHeight: 32,
             trafficLightFrame: nil,
