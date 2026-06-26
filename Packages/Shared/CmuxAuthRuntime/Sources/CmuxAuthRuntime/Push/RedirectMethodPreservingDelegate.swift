@@ -37,6 +37,12 @@ public final class RedirectMethodPreservingDelegate: NSObject, URLSessionTaskDel
     /// retains one, then passes it to `URLSession.data(for:delegate:)`.
     public override init() { super.init() }
 
+    /// `URLSessionTaskDelegate` hook (dispatched by URLSession, not called from
+    /// Swift): on a method-changing **same-origin** redirect, restores the
+    /// original method + `httpBody` so a `POST`/`DELETE` is not silently followed
+    /// as a body-less `GET`; cross-origin redirects are left as Foundation
+    /// proposed (fail closed). Public only to satisfy the public protocol
+    /// requirement.
     public func urlSession(
         _ session: URLSession,
         task: URLSessionTask,
