@@ -13576,6 +13576,14 @@ struct TabItemView: View, Equatable {
                     .accessibilityLabel(Text(activeCodingAgentTooltip))
                 }
             }
+            // Animate ONLY the title's horizontal push when the leading status
+            // slot (unread badge or left spinner) appears/disappears. This is
+            // deliberately height-neutral: the slot is <= the always-present
+            // close-button height, so the row's measured height never changes,
+            // which is what the #5764 ban targets (height interpolation churning
+            // the LazyVStack). Scope is the leading-slot presence only, so
+            // reordering and other row changes stay un-animated.
+            .animation(.easeInOut(duration: 0.2), value: leadingSlotActive)
 
             if let description = workspaceSnapshot.customDescription {
                 SidebarWorkspaceDescriptionText(
