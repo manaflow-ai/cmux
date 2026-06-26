@@ -11829,6 +11829,12 @@ struct GhosttyTerminalView: NSViewRepresentable {
         }
 
         override func viewDidMoveToWindow() {
+            // AppKit delivers this callback while still enumerating the view tree inside
+            // `_setWindow:`. Mark that a host window-attachment is in progress so any portal
+            // bind triggered synchronously below defers its structural reparent instead of
+            // mutating the in-flight walk (crash #5704).
+            TerminalWindowPortalRegistry.beginHostWindowAttachment()
+            defer { TerminalWindowPortalRegistry.endHostWindowAttachment() }
             super.viewDidMoveToWindow()
             onDidMoveToWindow?()
             notifyGeometryChangedIfNeeded()
@@ -12046,7 +12052,10 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     zPriority: coordinator.desiredPortalZPriority,
                     expectedSurfaceId: portalExpectedSurfaceId,
                     expectedGeneration: portalExpectedGeneration,
-                    deferLayoutSynchronization: true
+                    deferLayoutSynchronization: true,
+                    deferredBindStillCurrent: { [weak coordinator] in
+                        coordinator?.attachGeneration == generation
+                    }
                 )
                 coordinator.lastBoundHostId = ObjectIdentifier(host)
                 coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
@@ -12084,7 +12093,10 @@ struct GhosttyTerminalView: NSViewRepresentable {
                         zPriority: coordinator.desiredPortalZPriority,
                         expectedSurfaceId: portalExpectedSurfaceId,
                         expectedGeneration: portalExpectedGeneration,
-                        deferLayoutSynchronization: true
+                        deferLayoutSynchronization: true,
+                        deferredBindStillCurrent: { [weak coordinator] in
+                            coordinator?.attachGeneration == generation
+                        }
                     )
                     coordinator.lastBoundHostId = hostId
                     hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
@@ -12128,7 +12140,10 @@ struct GhosttyTerminalView: NSViewRepresentable {
                         zPriority: coordinator.desiredPortalZPriority,
                         expectedSurfaceId: portalExpectedSurfaceId,
                         expectedGeneration: portalExpectedGeneration,
-                        deferLayoutSynchronization: true
+                        deferLayoutSynchronization: true,
+                        deferredBindStillCurrent: { [weak coordinator] in
+                            coordinator?.attachGeneration == generation
+                        }
                     )
                     coordinator.lastBoundHostId = hostId
                     coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
