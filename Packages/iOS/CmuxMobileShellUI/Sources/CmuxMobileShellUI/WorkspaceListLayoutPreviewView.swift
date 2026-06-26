@@ -2,6 +2,50 @@
 import CmuxMobileShell
 import CmuxMobileShellModel
 import SwiftUI
+import UserNotifications
+
+/// Drives a REAL iOS notification for the App Store "notifications" screenshot.
+///
+/// Instead of drawing a fake banner, this requests notification authorization
+/// and schedules a genuine local notification, so the system renders the actual
+/// banner (real blur, fonts, the app's real icon, and the app's display name
+/// "cmux"). The snapshot UITest taps the springboard "Allow" prompt and captures
+/// the real `NotificationShortLookView`. Foreground presentation as a banner is
+/// handled by `CmuxAppDelegate.willPresent` (returns `.banner` here since no push
+/// coordinator is wired in preview mode); we also set a delegate as a fallback.
+final class ScreenshotNotificationPresenter: NSObject, UNUserNotificationCenterDelegate, @unchecked Sendable {
+    static let shared = ScreenshotNotificationPresenter()
+    private var fired = false
+
+    func fire() {
+        guard !fired else { return }
+        fired = true
+        let center = UNUserNotificationCenter.current()
+        center.delegate = self
+        center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+            guard granted else { return }
+            let content = UNMutableNotificationContent()
+            content.title = "Agent needs your input"
+            content.body = "Claude is asking: which database should I use, Postgres or SQLite?"
+            content.sound = .default
+            // Short delay so the app has settled on the workspace list when the
+            // banner appears.
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1.5, repeats: false)
+            center.add(UNNotificationRequest(
+                identifier: "cmux-screenshot-agent",
+                content: content,
+                trigger: trigger
+            ))
+        }
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
+        [.banner, .list, .sound]
+    }
+}
 
 /// DEBUG-only workspace list fixture for simulator layout screenshots.
 ///
@@ -59,13 +103,11 @@ struct WorkspaceListLayoutPreviewView: View {
                 createWorkspace: {}
             )
         }
-        .overlay(alignment: .top) {
+        .task {
+            // Fire a REAL local notification (not a drawn banner) so the system
+            // renders the genuine banner over this workspace list.
             if showNotificationBanner {
-                ScreenshotNotificationBanner(
-                    title: "Agent needs your input",
-                    message: "Claude is asking: which database should I use, Postgres or SQLite?"
-                )
-                .padding(.top, 8)
+                ScreenshotNotificationPresenter.shared.fire()
             }
         }
     }

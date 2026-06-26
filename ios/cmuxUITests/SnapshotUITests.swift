@@ -26,11 +26,13 @@ final class SnapshotUITests: XCTestCase {
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
         ])
 
-        // 2) Agent push notification.
+        // 2) A REAL agent push notification over the workspace list: the app
+        // requests authorization and schedules a genuine local notification, so
+        // the system renders the actual banner (real icon, "cmux" display name).
         shoot("02-Notifications", [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
             "CMUX_UITEST_NOTIFICATION_BANNER": "1",
-        ])
+        ], waitForRealNotification: true)
 
         // 3-6) Each agent, full terminal showing its real recorded session.
         // TARGET_COLS auto-fits the font so the 76-col fixtures fill the width
@@ -60,7 +62,7 @@ final class SnapshotUITests: XCTestCase {
     }
 
     @MainActor
-    private func shoot(_ name: String, _ env: [String: String]) {
+    private func shoot(_ name: String, _ env: [String: String], waitForRealNotification: Bool = false) {
         var full = env
         full["CMUX_UITEST_MOCK_DATA"] = "1"
         app.launchEnvironment = full
@@ -69,7 +71,11 @@ final class SnapshotUITests: XCTestCase {
         if UIDevice.current.userInterfaceIdiom == .pad {
             XCUIDevice.shared.orientation = .landscapeLeft
         }
-        settle()
+        if waitForRealNotification {
+            settleForNotification()
+        } else {
+            settle()
+        }
         snapshot(name)
         app.terminate()
     }
@@ -87,5 +93,26 @@ final class SnapshotUITests: XCTestCase {
             banner.swipeUp()
         }
         Thread.sleep(forTimeInterval: 2.5)
+    }
+
+    /// Settle path for the notification shot: grant the authorization prompt,
+    /// then wait for the app's real local notification banner to appear (and
+    /// leave it on screen for the snapshot).
+    @MainActor
+    private func settleForNotification() {
+        _ = app.wait(for: .runningForeground, timeout: 15)
+        _ = app.windows.firstMatch.waitForExistence(timeout: 15)
+        _ = app.staticTexts.firstMatch.waitForExistence(timeout: 8)
+        // The app requests notification authorization on appear; approve the
+        // springboard system alert so the banner can be delivered.
+        let allow = springboard.buttons["Allow"]
+        if allow.waitForExistence(timeout: 8) {
+            allow.tap()
+        }
+        // The scheduled local notification fires ~1.5s later; wait for the real
+        // banner and leave it up for the snapshot (do NOT swipe it away).
+        let banner = springboard.otherElements["NotificationShortLookView"]
+        _ = banner.waitForExistence(timeout: 12)
+        Thread.sleep(forTimeInterval: 1.0)
     }
 }
