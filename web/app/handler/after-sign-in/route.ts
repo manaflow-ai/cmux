@@ -188,11 +188,8 @@ function nativeReturnResponse(
   const escapedTitle = escapeHtml(messages.title);
   const escapedBody = escapeHtml(messages.body);
   const escapedButton = escapeHtml(messages.button);
-  const autoOpenHead = autoOpen
-    ? `  <meta http-equiv="refresh" content="0;url=${escapedHref}">\n`
-    : "";
   const autoOpenScript = autoOpen
-    ? `  <script>\n    window.location.replace(${scriptHref});\n  </script>\n`
+    ? `  <script>\n    window.location.assign(${scriptHref});\n  </script>\n`
     : "";
   const response = new NextResponse(
     `<!doctype html>
@@ -200,7 +197,7 @@ function nativeReturnResponse(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-${autoOpenHead}  <title>${escapedTitle}</title>
+  <title>${escapedTitle}</title>
   <style>
     body {
       align-items: center;
@@ -312,7 +309,9 @@ export async function GET(request: NextRequest) {
     if (isAllowedNativeReturnTo(nativeReturnTo, request)) {
       const href = buildNativeHref(nativeReturnTo, refreshToken, accessCookie);
       const autoOpen = verifiedAutoOpen(request, stackCookies, nativeReturnTo);
-      if (href) return nativeReturnResponse(href, localizedMessages, autoOpen);
+      if (href) {
+        return nativeReturnResponse(href, localizedMessages, autoOpen);
+      }
     }
     return NextResponse.redirect(new URL("/", request.url));
   }
