@@ -237,8 +237,12 @@ final class MobileTerminalRenderObserver {
         // always the full snapshot) onto whatever we emit, full or delta. The
         // consumer recomputes it from its applied grid and resyncs when they
         // disagree, so a delta that silently missed a row self-corrects instead
-        // of staying blank.
-        let stampedFrame = frame.stampingGridHash(snapshot.frame.gridContentHash())
+        // of staying blank. Reuse the row signatures already computed above so
+        // hashing does not walk and format the whole grid a second time on the
+        // render hot path.
+        let stampedFrame = frame.stampingGridHash(
+            snapshot.frame.gridContentHash(rowSignatures: nextSignatures)
+        )
         guard let payload = try? stampedFrame.jsonObject() else { return }
         MobileHostService.emitEvent(topic: "terminal.render_grid", payload: payload)
         #if DEBUG

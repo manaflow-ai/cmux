@@ -36,6 +36,15 @@ import Testing
     #expect(try grid("alpha\nbeta\n").gridContentHash() != wide.gridContentHash())
 }
 
+@Test func gridContentHashFromPrecomputedSignaturesMatches() throws {
+    // The producer hashes from already-computed rowSignatures() to avoid walking
+    // the grid twice; that must equal the convenience form the consumer uses.
+    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal-a", stateSeq: 1, columns: 8, rows: 3, text: "alpha\nbeta\n"
+    )
+    #expect(frame.gridContentHash(rowSignatures: frame.rowSignatures()) == frame.gridContentHash())
+}
+
 @Test func gridContentHashIgnoresCursorPosition() throws {
     let a = try MobileTerminalRenderGridFrame.fromPlainRows(
         surfaceID: "terminal-a", stateSeq: 1, columns: 8, rows: 3,

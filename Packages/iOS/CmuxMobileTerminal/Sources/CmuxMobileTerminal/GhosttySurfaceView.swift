@@ -638,14 +638,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// grid under the surface lock; running it per frame would load the
     /// typing-latency render path.
     private var gridDivergenceChecker = MobileTerminalRenderGridDivergenceChecker()
-    /// Gate for the divergence-triggered resync. OFF: the repair currently shares
-    /// the generic resync path with liveness/foreground/seq-gap recovery, which
-    /// legitimately restores full terminal state (alt-screen, modes, colors,
-    /// scrollback) via the full-snapshot replay and resets scroll. A scroll-safe
-    /// repair needs its own path that restores that state without disturbing a
-    /// scrolled-up reader; until then this stays dark. The detection + read-back
-    /// remain wired so that follow-up only has to add the repair delivery.
-    public static var gridDivergenceResyncEnabled = false
+    /// Gate for the divergence-triggered resync. ON: when the applied grid does
+    /// not match the producer's stamped hash, request a full-snapshot resync that
+    /// restores complete terminal state (alt-screen, modes, colors, scrollback),
+    /// so a stale/blank row self-heals instead of staying wrong. This shares the
+    /// existing recovery path, so it is correct by construction; the only cost is
+    /// that the full replay resets scroll position, which is acceptable because it
+    /// fires only on a rare genuine divergence (throttled, and a wrong screen is
+    /// worse than a reset scroll). A scroll-preserving repair is a follow-up.
+    public static var gridDivergenceResyncEnabled = true
     /// Serial background queue for `ghostty_surface_process_output`, which
     /// blocks on libghostty's internal renderer/IO futex. Running it on the
     /// main thread hangs the app until the scene-update watchdog kills it.

@@ -297,6 +297,15 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     /// intentionally excluded: this detects *content* divergence (stale or blank
     /// cells), not cursor movement.
     public func gridContentHash() -> UInt64 {
+        gridContentHash(rowSignatures: rowSignatures())
+    }
+
+    /// Same as ``gridContentHash()`` but reuses already-computed
+    /// ``rowSignatures()``. The producer computes the signatures once per
+    /// emission to diff changed rows, so it passes them here instead of walking
+    /// and formatting the whole grid a second time on the render hot path. The
+    /// signatures must be this frame's own ``rowSignatures()`` (one per row).
+    public func gridContentHash(rowSignatures signatures: [String]) -> UInt64 {
         var hash: UInt64 = 0xcbf2_9ce4_8422_2325
         let prime: UInt64 = 0x0000_0100_0000_01b3
         func feed(_ byte: UInt8) {
@@ -304,7 +313,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             hash = hash &* prime
         }
         for byte in "\(columns)x\(rows)".utf8 { feed(byte) }
-        for signature in rowSignatures() {
+        for signature in signatures {
             feed(0x0A)
             for byte in signature.utf8 { feed(byte) }
         }
