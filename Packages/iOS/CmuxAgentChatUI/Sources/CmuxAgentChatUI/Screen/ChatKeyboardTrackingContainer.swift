@@ -10,7 +10,10 @@ struct ChatKeyboardTrackingContainer<Transcript: View, Composer: View>: UIViewCo
         context: Context
     ) -> ChatKeyboardTrackingViewController<ChatKeyboardTrackedRoot<Transcript>, ChatKeyboardTrackedRoot<Composer>> {
         let controller = ChatKeyboardTrackingViewController(
-            transcriptView: ChatKeyboardTrackedRoot(content: transcript),
+            transcriptView: ChatKeyboardTrackedRoot(
+                content: transcript,
+                ignoredContainerEdges: .top
+            ),
             composerView: ChatKeyboardTrackedRoot(content: composer),
             showsComposer: showsComposer
         )
@@ -33,9 +36,13 @@ struct ChatKeyboardTrackingContainer<Transcript: View, Composer: View>: UIViewCo
             ChatKeyboardTrackedRoot<Composer>
         >
     ) -> ChatKeyboardTrackedRoot<Transcript> {
-        ChatKeyboardTrackedRoot(content: transcript) { [weak controller] frame in
-            controller?.excludedKeyboardDismissFrame = frame
-        }
+        ChatKeyboardTrackedRoot(
+            content: transcript,
+            ignoredContainerEdges: .top,
+            onScrollButtonFrameChange: { [weak controller] frame in
+                controller?.excludedKeyboardDismissFrame = frame
+            }
+        )
     }
 }
 #endif

@@ -306,12 +306,12 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
     private func updateMeasuredGeometryConstants() {
         let bounds = view.bounds
         let composerHeight = measuredComposerHeight(width: bounds.width)
-        let topUnderlap = scrollEdgeCoordinator.topScrollEdgeUnderlap(for: self)
-        let fullTranscriptHeight = max(0, bounds.height + topUnderlap)
+        let topChromeInset = scrollEdgeCoordinator.topChromeInset(for: self)
+        let fullTranscriptHeight = max(0, bounds.height)
         updateConstraint(composerHeightConstraint, to: composerHeight)
-        updateConstraint(transcriptClipTopConstraint, to: -topUnderlap)
+        updateConstraint(transcriptClipTopConstraint, to: 0)
         updateConstraint(transcriptHeightConstraint, to: fullTranscriptHeight)
-        updateTranscriptViewportInsets(topInset: topUnderlap, composerHeight: composerHeight)
+        updateTranscriptViewportInsets(topInset: topChromeInset, composerHeight: composerHeight)
     }
 
     private func applyKeyboardOverlap(_ overlap: CGFloat) {

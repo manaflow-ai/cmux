@@ -22,7 +22,7 @@ final class ChatScrollEdgeCoordinator {
         clearTopContentScrollViewController()
     }
 
-    func topScrollEdgeUnderlap(for owner: UIViewController) -> CGFloat {
+    func topChromeInset(for owner: UIViewController) -> CGFloat {
         guard #available(iOS 26.0, *),
               let window = owner.view.window,
               let navigationBar = nearestNavigationBar(from: owner)
@@ -30,9 +30,10 @@ final class ChatScrollEdgeCoordinator {
 
         let viewFrame = owner.view.convert(owner.view.bounds, to: window)
         let navigationFrame = navigationBar.convert(navigationBar.bounds, to: window)
-        let gapBelowNavigationBar = viewFrame.minY - navigationFrame.maxY
-        guard gapBelowNavigationBar <= 80 else { return 0 }
-        return max(0, viewFrame.minY - navigationFrame.minY)
+        guard viewFrame.minY <= navigationFrame.maxY,
+              viewFrame.maxY >= navigationFrame.minY
+        else { return 0 }
+        return max(0, navigationFrame.maxY - viewFrame.minY)
     }
 
     private func configureEdgeEffect(for tableView: ChatTranscriptUITableView?) {

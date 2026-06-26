@@ -114,6 +114,7 @@ public struct ChatScreen: View {
             showsComposer: store.agentState != .ended
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .chatTopBarUnderlapContainer()
         .ignoresSafeArea(.keyboard, edges: .bottom)
         #else
         VStack(spacing: 0) {
@@ -213,6 +214,19 @@ public struct ChatScreen: View {
         )
     }
 }
+
+#if os(iOS)
+private extension View {
+    @ViewBuilder
+    func chatTopBarUnderlapContainer() -> some View {
+        if #available(iOS 26.0, *) {
+            ignoresSafeArea(.container, edges: .top)
+        } else {
+            self
+        }
+    }
+}
+#endif
 
 /// Standalone navigation chrome for ``ChatScreen``: title, session-state
 /// header, and the Open-Terminal button. Suppressed when the host supplies

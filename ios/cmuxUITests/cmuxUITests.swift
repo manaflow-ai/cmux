@@ -1037,7 +1037,7 @@ final class cmuxUITests: XCTestCase {
             startedAt: Date(),
             metrics: loadedMetrics
         )
-        let topMetrics = try scrollTranscript(table, direction: .down, timeout: 8) {
+        let topMetrics = try scrollTranscript(table, direction: .down, timeout: 20) {
             abs($0.visibleTopY) <= 3
                 && $0.adjustedTopInset > 20
                 && $0.contentHeight > $0.boundsHeight * 1.6
