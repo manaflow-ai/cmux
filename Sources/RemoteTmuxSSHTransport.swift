@@ -194,13 +194,14 @@ actor RemoteTmuxSSHTransport {
     /// where the socket exists but isn't yet accepting sessions; `ssh -O check` is
     /// the authoritative "ready now" signal that closes it.
     ///
-    /// Idempotent and best-effort: returns `true` at once when a master is already
-    /// live (warm path); otherwise opens it exactly once with `run(["true"])` — a
-    /// single connection can't lose the creation race — and then confirms with one
-    /// authoritative `ssh -O check` (a non-multiplexed fallback can make `run`
-    /// succeed without a live master, so the open's exit code is not trusted). A
-    /// single mux-socket query, never a timer or poll. Callers may proceed on
-    /// `false` (no worse than today's ungated burst).
+    /// Idempotent: returns `true` at once when a master is already live (warm path);
+    /// otherwise opens it exactly once with `run(["true"])` — a single connection
+    /// can't lose the creation race — and then confirms with one authoritative
+    /// `ssh -O check` (a non-multiplexed fallback can make `run` succeed without a
+    /// live master, so the open's exit code is not trusted). A single mux-socket
+    /// query, never a timer or poll. Returns `false` only when readiness can't be
+    /// confirmed; the controller fails closed on `false` (aborts the burst rather
+    /// than racing the cold master).
     ///
     /// Single-flight: the actor is reentrant across `await`, so two concurrent
     /// bulk-mirror callers for the same host (e.g. a dedicated-window attach and a

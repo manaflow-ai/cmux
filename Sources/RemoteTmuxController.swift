@@ -60,24 +60,29 @@ final class RemoteTmuxController {
     }
 
     /// Warms and confirms the host's shared SSH ControlMaster before a per-session
-    /// `tmux -CC attach` burst, so the `ControlMaster=auto` attaches ride a ready
-    /// master instead of racing to create it on a cold first attach (#6732). The
-    /// single shared gate for every bulk-mirror entrypoint. Best-effort: proceeds
-    /// even when readiness can't be confirmed (no worse than an ungated burst),
-    /// logging so a degraded mirror is diagnosable; propagates cancellation so a
-    /// timed-out caller aborts before the burst.
+    /// `tmux -CC attach` burst (the single shared gate for every bulk-mirror
+    /// entrypoint), so the `ControlMaster=auto` attaches ride a ready master instead
+    /// of racing to create it on a cold first attach (#6732).
+    ///
+    /// Fails closed: an unconfirmed master throws rather than firing the burst into
+    /// the exact cold-master race the gate prevents. Callers invoke this *before*
+    /// creating the dedicated window, so a throw needs no teardown and the user can
+    /// re-attach once the master is warm. The common cold start still returns `true`
+    /// (the warmup's single-creator open succeeds), so only the genuinely-unready
+    /// case is blocked.
     private func ensureControlMasterReadyForBurst(host: RemoteTmuxHost) async throws {
         let ready = try await transport(for: host).ensureMasterReady()
-        if !ready {
-            Self.logger.warning(
-                "remote-tmux: ControlMaster not confirmed ready before attach burst for \(host.destination, privacy: .public); mirroring best-effort"
-            )
-        }
         // The warmup's SSH work runs in a shared unstructured task and isn't
         // cancellation-aware, so a caller cancelled meanwhile (e.g. a v2VmCall
-        // timeout) only learns of it here — bail before the next irreversible step
-        // (the dedicated-window creation in mirrorHostInNewWindow).
+        // timeout) only learns of it here — bail before treating not-ready as a hard
+        // failure and before the caller's next irreversible step.
         try Task.checkCancellation()
+        guard ready else {
+            Self.logger.warning(
+                "remote-tmux: ControlMaster not confirmed ready for \(host.destination, privacy: .public); aborting attach burst"
+            )
+            throw RemoteTmuxError.unreachable("SSH ControlMaster not ready for \(host.destination)")
+        }
     }
 
     // MARK: - Control connections (tmux -CC mirroring)
@@ -368,9 +373,9 @@ final class RemoteTmuxController {
         // and open an orphaned dedicated window (with live SSH/tmux behind it).
         try Task.checkCancellation()
 
-        // Warm the shared ControlMaster before creating the window and firing the
-        // attach burst below. Doing it pre-window means a cancellation here can't
-        // leak an orphaned dedicated window.
+        // Warm + confirm the shared ControlMaster before creating the window and
+        // firing the attach burst below. Doing it pre-window means a not-ready
+        // failure (or cancellation) throws here and leaks no orphaned window.
         try await ensureControlMasterReadyForBurst(host: host)
 
         let windowId = appDelegate.createMainWindow(shouldActivate: activateWindow)
