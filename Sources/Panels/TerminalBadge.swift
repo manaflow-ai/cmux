@@ -12,54 +12,25 @@ struct TerminalBadgeContent: Equatable {
     var configuration: TerminalBadgeConfiguration
 }
 
-/// Bridges the ``TerminalCatalogSection`` badge keys into the macOS app:
-/// exposes the UserDefaults key strings (for `@AppStorage`) and default values,
-/// and resolves the current settings into a ``TerminalBadgeContent``.
-///
-/// The catalog is the single source of truth for the key strings and defaults;
-/// these accessors forward to it so the runtime reader and the Settings UI can
-/// never drift apart.
+/// UserDefaults key strings and default values for the terminal badge,
+/// forwarded from ``TerminalCatalogSection`` (the single source of truth) so the
+/// `@AppStorage` readers stay in sync with the Settings panel. Mirrors the
+/// existing `NotificationPaneRingSettings` / `TerminalScrollBarSettings`
+/// settings-accessor enums.
 enum TerminalBadgeSettings {
-    private static let terminal = TerminalCatalogSection()
+    static let enabledKey = TerminalCatalogSection().badgeEnabled.userDefaultsKey
+    static let templateKey = TerminalCatalogSection().badgeTemplate.userDefaultsKey
+    static let positionKey = TerminalCatalogSection().badgePosition.userDefaultsKey
+    static let opacityKey = TerminalCatalogSection().badgeOpacity.userDefaultsKey
+    static let fontSizeKey = TerminalCatalogSection().badgeFontSize.userDefaultsKey
+    static let colorHexKey = TerminalCatalogSection().badgeColorHex.userDefaultsKey
 
-    static let enabledKey = terminal.badgeEnabled.userDefaultsKey
-    static let templateKey = terminal.badgeTemplate.userDefaultsKey
-    static let positionKey = terminal.badgePosition.userDefaultsKey
-    static let opacityKey = terminal.badgeOpacity.userDefaultsKey
-    static let fontSizeKey = terminal.badgeFontSize.userDefaultsKey
-    static let colorHexKey = terminal.badgeColorHex.userDefaultsKey
-
-    static let defaultEnabled = terminal.badgeEnabled.defaultValue
-    static let defaultTemplate = terminal.badgeTemplate.defaultValue
-    static let defaultPosition = terminal.badgePosition.defaultValue
-    static let defaultOpacity = terminal.badgeOpacity.defaultValue
-    static let defaultFontSize = terminal.badgeFontSize.defaultValue
-    static let defaultColorHex = terminal.badgeColorHex.defaultValue
-
-    /// Builds the badge to render for one surface, or `nil` when the badge is
-    /// disabled or the resolved text is empty.
-    static func content(
-        enabled: Bool,
-        template: String,
-        workspace: String,
-        tab: String,
-        position: TerminalBadgePosition,
-        opacity: Double,
-        fontSize: Double,
-        colorHex: String
-    ) -> TerminalBadgeContent? {
-        guard enabled else { return nil }
-        let configuration = TerminalBadgeConfiguration(
-            template: template,
-            position: position,
-            opacity: opacity,
-            fontSize: fontSize,
-            colorHex: colorHex
-        )
-        let text = configuration.resolvedText(workspace: workspace, tab: tab)
-        guard !text.isEmpty else { return nil }
-        return TerminalBadgeContent(text: text, configuration: configuration)
-    }
+    static let defaultEnabled = TerminalCatalogSection().badgeEnabled.defaultValue
+    static let defaultTemplate = TerminalCatalogSection().badgeTemplate.defaultValue
+    static let defaultPosition = TerminalCatalogSection().badgePosition.defaultValue
+    static let defaultOpacity = TerminalCatalogSection().badgeOpacity.defaultValue
+    static let defaultFontSize = TerminalCatalogSection().badgeFontSize.defaultValue
+    static let defaultColorHex = TerminalCatalogSection().badgeColorHex.defaultValue
 }
 
 extension TerminalBadgePosition {

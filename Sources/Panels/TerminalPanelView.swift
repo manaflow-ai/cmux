@@ -81,16 +81,20 @@ struct TerminalPanelView: View {
     /// settings against the workspace and surface titles. `nil` when the badge
     /// is disabled or its template resolves to empty text.
     private var resolvedBadge: TerminalBadgeContent? {
-        TerminalBadgeSettings.content(
-            enabled: badgeEnabled,
+        guard badgeEnabled else { return nil }
+        let configuration = TerminalBadgeConfiguration(
             template: badgeTemplate,
-            workspace: workspaceDisplayName,
-            tab: panel.displayTitle,
             position: badgePosition,
             opacity: badgeOpacity,
             fontSize: badgeFontSize,
             colorHex: badgeColorHex
         )
+        let text = configuration.resolvedText(
+            workspace: workspaceDisplayName,
+            tab: panel.displayTitle
+        )
+        guard !text.isEmpty else { return nil }
+        return TerminalBadgeContent(text: text, configuration: configuration)
     }
 
     private var terminalBody: some View {

@@ -38,6 +38,23 @@ struct TerminalBadgeTests {
         #expect(config.resolvedText(workspace: "", tab: "") == "")
     }
 
+    @Test func separatorTemplateWithAllEmptyTokensRendersNothing() {
+        // The default template must not render a lone separator when both the
+        // workspace and tab titles are empty.
+        let config = TerminalBadgeConfiguration(template: "{workspace} · {tab}")
+        #expect(config.resolvedText(workspace: "", tab: "") == "")
+    }
+
+    @Test func separatorTemplateKeepsPresentToken() {
+        let config = TerminalBadgeConfiguration(template: "{workspace} · {tab}")
+        #expect(config.resolvedText(workspace: "Repo", tab: "shell") == "Repo · shell")
+    }
+
+    @Test func literalOnlyTemplateAlwaysRenders() {
+        let config = TerminalBadgeConfiguration(template: "session")
+        #expect(config.resolvedText(workspace: "", tab: "") == "session")
+    }
+
     @Test func defaultTemplateUsesBothTokens() {
         let resolved = TerminalBadgeConfiguration().resolvedText(workspace: "Repo", tab: "agent")
         #expect(resolved.contains("Repo"))

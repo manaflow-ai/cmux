@@ -64,11 +64,22 @@ public struct TerminalBadgeConfiguration: Equatable, Sendable {
     /// Resolves the template against a workspace and tab title.
     ///
     /// `{workspace}` and `{tab}` tokens are substituted; any other text passes
-    /// through verbatim. The result is trimmed of surrounding whitespace so an
-    /// empty token (e.g. an unnamed surface) does not leave dangling spaces or
-    /// separators at the edges. An empty result means "no badge to draw".
+    /// through verbatim, then surrounding whitespace is trimmed. When the
+    /// template is built from tokens and every token it uses resolves to empty
+    /// — so only literal separators like `" · "` would remain — an empty string
+    /// is returned, which the caller treats as "no badge to draw". A template
+    /// with no tokens (pure literal text) always renders as-is.
     public func resolvedText(workspace: String, tab: String) -> String {
-        template
+        let usesWorkspace = template.contains(Self.workspaceToken)
+        let usesTab = template.contains(Self.tabToken)
+        let workspaceEmpty = workspace.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let tabEmpty = tab.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let usesAnyToken = usesWorkspace || usesTab
+        let everyUsedTokenEmpty = !(usesWorkspace && !workspaceEmpty) && !(usesTab && !tabEmpty)
+        if usesAnyToken, everyUsedTokenEmpty {
+            return ""
+        }
+        return template
             .replacingOccurrences(of: Self.workspaceToken, with: workspace)
             .replacingOccurrences(of: Self.tabToken, with: tab)
             .trimmingCharacters(in: .whitespacesAndNewlines)
