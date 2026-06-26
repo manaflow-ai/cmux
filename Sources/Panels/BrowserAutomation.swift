@@ -395,14 +395,14 @@ enum BrowserImportAutomation {
                     ]
                 )
             } else {
-                plan = BrowserImportPlanResolver.defaultPlan(
+                plan = BrowserImportPlanResolver().defaultPlan(
                     selectedSourceProfiles: sourceProfiles,
                     destinationProfiles: destinationProfiles,
                     preferredSingleDestinationProfileID: BrowserProfileStore.shared.effectiveLastUsedProfileID
                 )
             }
 
-            return try BrowserImportPlanResolver.realize(plan: plan)
+            return try BrowserImportPlanResolver().realize(plan: plan)
         }
 
         return await BrowserDataImporter.importData(

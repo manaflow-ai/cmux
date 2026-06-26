@@ -197,7 +197,7 @@ struct RightSidebarPanelView: View {
     }
     @State private var focusShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var closeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
-    @StateObject private var dockStore = DockControlsStore()
+    @State private var dockStore = DockControlsStore()
     @State private var hasMountedRightSidebarContent = false
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     private let alwaysShowShortcutHints = ShortcutHintDebugSettings().alwaysShowHints

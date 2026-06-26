@@ -3260,16 +3260,16 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
         try Data("%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n".utf8).write(to: url)
 
-        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .pdf)
-        XCTAssertEqual(FilePreviewKindResolver.tabIconName(for: url), "doc.richtext")
+        XCTAssertEqual(FilePreviewKindResolver().mode(for: url), .pdf)
+        XCTAssertEqual(FilePreviewKindResolver().tabIconName(for: url), "doc.richtext")
     }
 
     func testUTF16TextWithBOMStillResolvesAsText() throws {
         let url = try temporaryTextFile(contents: "hello", encoding: .utf16)
         defer { try? FileManager.default.removeItem(at: url) }
 
-        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
-        XCTAssertEqual(FilePreviewKindResolver.tabIconName(for: url), "doc.text")
+        XCTAssertEqual(FilePreviewKindResolver().mode(for: url), .text)
+        XCTAssertEqual(FilePreviewKindResolver().tabIconName(for: url), "doc.text")
     }
 
     func testExtensionlessTextFileResolvesToTextAfterFastInitialClassification() async throws {
@@ -3278,8 +3278,8 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         try "extensionless text".write(to: url, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
 
-        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
-        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
+        XCTAssertEqual(FilePreviewKindResolver().initialMode(for: url), .quickLook)
+        XCTAssertEqual(FilePreviewKindResolver().mode(for: url), .text)
 
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
         defer { panel.close() }
@@ -3296,8 +3296,8 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
         try Data("bplist00".utf8).write(to: url)
 
-        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
-        XCTAssertNotEqual(FilePreviewKindResolver.mode(for: url), .text)
+        XCTAssertEqual(FilePreviewKindResolver().initialMode(for: url), .quickLook)
+        XCTAssertNotEqual(FilePreviewKindResolver().mode(for: url), .text)
     }
 
     func testExternalOpenApplicationResolverOrdersDefaultAppFirstAndDeduplicates() {

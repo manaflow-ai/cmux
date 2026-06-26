@@ -5,101 +5,6 @@ import CmuxWorkspaces
 import CmuxSettings
 import SwiftUI
 
-#if DEBUG
-private func fileExplorerDebugResponder(_ responder: NSResponder?) -> String {
-    guard let responder else { return "nil" }
-    return String(describing: type(of: responder))
-}
-#endif
-
-private final class FileExplorerExternalOpenRequest: NSObject {
-    let fileURL: URL
-    let applicationURL: URL?
-
-    init(fileURL: URL, applicationURL: URL?) {
-        self.fileURL = fileURL
-        self.applicationURL = applicationURL
-    }
-}
-
-private func addFileExplorerExternalOpenItems(
-    to menu: NSMenu,
-    fileURL: URL,
-    target: AnyObject,
-    action: Selector
-) {
-    let applications = FileExternalOpenApplicationResolver.live.applications(for: fileURL)
-    let primaryApplication = applications.first { $0.isDefault } ?? applications.first
-    let otherApplications = applications.filter { application in
-        application.id != primaryApplication?.id
-    }
-
-    if let primaryApplication {
-        let openItem = NSMenuItem(
-            title: FileExternalOpenText.openInApplication(primaryApplication.displayName),
-            action: action,
-            keyEquivalent: ""
-        )
-        openItem.target = target
-        openItem.representedObject = FileExplorerExternalOpenRequest(
-            fileURL: fileURL,
-            applicationURL: primaryApplication.url
-        )
-        menu.addItem(openItem)
-
-        guard !otherApplications.isEmpty else { return }
-        let openWithMenu = NSMenu(title: FileExternalOpenText.openWithMenu)
-        for application in otherApplications {
-            let appItem = NSMenuItem(
-                title: application.displayName,
-                action: action,
-                keyEquivalent: ""
-            )
-            appItem.target = target
-            appItem.representedObject = FileExplorerExternalOpenRequest(
-                fileURL: fileURL,
-                applicationURL: application.url
-            )
-            openWithMenu.addItem(appItem)
-        }
-        let openWithItem = NSMenuItem(title: FileExternalOpenText.openWithMenu, action: nil, keyEquivalent: "")
-        openWithItem.submenu = openWithMenu
-        menu.addItem(openWithItem)
-    } else {
-        let openItem = NSMenuItem(
-            title: FileExternalOpenText.openExternally,
-            action: action,
-            keyEquivalent: ""
-        )
-        openItem.target = target
-        openItem.representedObject = FileExplorerExternalOpenRequest(fileURL: fileURL, applicationURL: nil)
-        menu.addItem(openItem)
-    }
-}
-
-/// Perform the configured double-click action for a FILE in the file explorer.
-///
-/// Shared by every file-activation gesture (the outline view's double-click and
-/// the search results list's double-click / Return) so the behavior stays
-/// consistent across surfaces. Callers must guard for local providers and skip
-/// directories before calling this — only readable local files reach here.
-@MainActor
-private func performFileExplorerFileOpen(path: String, onOpenFilePreview: (String) -> Void) {
-    let action = FileExplorerDoubleClickActionSettings.resolvedAction()
-    let hasPreferredEditor = PreferredEditorSettingsStore(defaults: .standard).resolvedCommand != nil
-    switch FileExplorerDoubleClickActionSettings.fileActivation(
-        action: action,
-        hasPreferredEditorCommand: hasPreferredEditor
-    ) {
-    case .preview:
-        onOpenFilePreview(path)
-    case .defaultEditor:
-        FileExternalOpenAction.openDefault(fileURL: URL(fileURLWithPath: path))
-    case .preferredEditor:
-        PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: path))
-    }
-}
-
 // MARK: - File Explorer Panel (single NSViewRepresentable)
 
 enum FileExplorerPanelPresentation: Equatable {
@@ -650,7 +555,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 onOpenFilePreview(node.path)
                 return
             }
-            performFileExplorerFileOpen(path: node.path, onOpenFilePreview: onOpenFilePreview)
+            FileExplorerFileOpener().open(path: node.path, onOpenFilePreview: onOpenFilePreview)
         }
 
         // MARK: - Context Menu (NSMenuDelegate)
@@ -665,8 +570,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             let isLocal = store.provider is LocalFileExplorerProvider
 
             if !node.isDirectory && isLocal {
-                addFileExplorerExternalOpenItems(
-                    to: menu,
+                menu.addFileExplorerExternalOpenItems(
                     fileURL: URL(fileURLWithPath: node.path),
                     target: self,
                     action: #selector(contextMenuOpenExternally(_:))
@@ -1021,7 +925,7 @@ final class FileExplorerContainerView: NSView {
         dlog(
             "file.focus.host.attach win=\(window.windowNumber) canAccept=\(cmuxCanAcceptRightSidebarKeyboardFocus ? 1 : 0) " +
             "rows=\(outlineView.numberOfRows) hidden=\(isHiddenOrHasHiddenAncestor ? 1 : 0) " +
-            "fr=\(fileExplorerDebugResponder(window.firstResponder))"
+            "fr=\(window.firstResponder?.fileExplorerDebugTypeName ?? "nil")"
         )
 #endif
     }
@@ -1130,7 +1034,7 @@ final class FileExplorerContainerView: NSView {
 #if DEBUG
         dlog(
             "file.focus.search.end result=\(result ? 1 : 0) win=\(window.windowNumber) " +
-            "queryLen=\(searchField.stringValue.count) fr=\(fileExplorerDebugResponder(window.firstResponder))"
+            "queryLen=\(searchField.stringValue.count) fr=\(window.firstResponder?.fileExplorerDebugTypeName ?? "nil")"
         )
 #endif
         return result
@@ -1145,7 +1049,7 @@ final class FileExplorerContainerView: NSView {
             "hostHidden=\(isHiddenOrHasHiddenAncestor ? 1 : 0) scrollHidden=\(scrollView.isHidden ? 1 : 0) " +
             "outlineHidden=\(outlineView.isHiddenOrHasHiddenAncestor ? 1 : 0) " +
             "rows=\(outlineView.numberOfRows) selected=\(outlineView.selectedRow) " +
-            "fr=\(fileExplorerDebugResponder(window?.firstResponder))"
+            "fr=\(window?.firstResponder?.fileExplorerDebugTypeName ?? "nil")"
         )
 #endif
         guard let window, cmuxCanAcceptRightSidebarKeyboardFocus else {
@@ -1172,7 +1076,7 @@ final class FileExplorerContainerView: NSView {
         dlog(
             "file.focus.outline.end result=\(result ? 1 : 0) win=\(window.windowNumber) " +
             "rows=\(outlineView.numberOfRows) selected=\(outlineView.selectedRow) " +
-            "fr=\(fileExplorerDebugResponder(window.firstResponder))"
+            "fr=\(window.firstResponder?.fileExplorerDebugTypeName ?? "nil")"
         )
 #endif
         return result
@@ -1547,7 +1451,7 @@ final class FileExplorerContainerView: NSView {
             coordinator.onOpenFilePreview(path)
             return
         }
-        performFileExplorerFileOpen(path: path, onOpenFilePreview: coordinator.onOpenFilePreview)
+        FileExplorerFileOpener().open(path: path, onOpenFilePreview: coordinator.onOpenFilePreview)
     }
 
     @objc private func openSelectedSearchResultFromTable(_ sender: NSTableView) {
@@ -1600,7 +1504,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
             "fieldW=\(debugSearchNumber(searchField.frame.width)) statusW=\(debugSearchNumber(searchStatusLabel.frame.width)) " +
             "statusIntrinsicW=\(debugSearchNumber(searchStatusLabel.intrinsicContentSize.width)) " +
             "results=\(searchSnapshot.results.count) status=\(debugSearchStatusName(searchSnapshot.status)) " +
-            "fr=\(fileExplorerDebugResponder(window?.firstResponder))"
+            "fr=\(window?.firstResponder?.fileExplorerDebugTypeName ?? "nil")"
         )
 #endif
         scheduleSearchRefresh()
@@ -1697,8 +1601,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         openInCmuxItem.representedObject = NSNumber(value: row)
         menu.addItem(openInCmuxItem)
 
-        addFileExplorerExternalOpenItems(
-            to: menu,
+        menu.addFileExplorerExternalOpenItems(
             fileURL: URL(fileURLWithPath: searchSnapshot.results[row].path),
             target: self,
             action: #selector(contextMenuOpenSearchResultExternally(_:))
