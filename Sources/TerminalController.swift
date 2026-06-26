@@ -1895,6 +1895,7 @@ class TerminalController {
         case "browser.tab.close":
             return v2Result(id: id, self.v2BrowserTabClose(params: params))
         case "browser.viewport.set":
+            // Mutates WKWebView magnification and BrowserPanel layout state.
             return v2Result(id: id, self.v2BrowserViewportSet(params: params))
         case "browser.geolocation.set":
             return v2Result(id: id, self.v2BrowserGeolocationSet(params: params))
@@ -8442,6 +8443,9 @@ class TerminalController {
         case "browser.addinitscript": return v2BrowserAddInitScript(params: params)
         case "browser.addscript": return v2BrowserAddScript(params: params)
         case "browser.addstyle": return v2BrowserAddStyle(params: params)
+        case "browser.viewport.set":
+            assertionFailure("browser.viewport.set must stay on the main actor")
+            return v2MainSync { v2BrowserViewportSet(params: params) }
         default:
             return .err(code: "invalid_dispatch", message: "Unhandled socket-worker browser method \(method)", data: nil)
         }

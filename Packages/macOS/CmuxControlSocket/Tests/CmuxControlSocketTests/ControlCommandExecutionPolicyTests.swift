@@ -47,7 +47,7 @@ struct ControlCommandExecutionPolicyTests {
         for method in [
             "surface.list", "workspace.create", "window.list", "browser.url.get",
             "browser.open_split", "browser.get.title", "browser.frame.main",
-            "mobile.terminal.create", "feed.jump", "vmx.create", "",
+            "browser.viewport.set", "mobile.terminal.create", "feed.jump", "vmx.create", "",
         ] {
             let policy = ControlCommandExecutionPolicy(forMethod: method)
             #expect(policy == .mainActor, "\(method)")
