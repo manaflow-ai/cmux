@@ -776,6 +776,54 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertTrue(workspace.shouldKeepSurfaceOpenAfterCommandExit(surfaceId: commandSplit.id))
     }
 
+    /// `cmux omo` can run inside a remote (ssh/vm) workspace, so a subagent split spawned
+    /// there via `surface.split` + `initial_command` must be kept open too. The explicit
+    /// command wins over the remote startup command, so the split is a local pane and is not
+    /// tracked as a remote terminal surface — the keep-open predicate therefore honors it
+    /// even though the workspace is remote (#6244).
+    func testKeepOpenPredicateHonorsExplicitCommandSplitInRemoteWorkspace() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let initialPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                transport: .websocket,
+                destination: "vm:issue-6244-remote-omo",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: nil,
+                relayID: nil,
+                relayToken: nil,
+                localSocketPath: "/tmp/cmux-debug-test.sock",
+                terminalStartupCommand: "cmux remote websocket"
+            ),
+            autoConnect: false
+        )
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+
+        guard let commandSplit = workspace.newTerminalSplit(
+            from: initialPanelId,
+            orientation: .horizontal,
+            focus: false,
+            initialCommand: "echo subagent"
+        ) else {
+            XCTFail("Expected split terminal panel to be created")
+            return
+        }
+
+        // The explicit command makes this a local pane, not the remote attach: it must not be
+        // remote-tracked, and the keep-open predicate must honor it despite the remote workspace.
+        XCTAssertTrue(commandSplit.surface.waitAfterCommand)
+        XCTAssertFalse(workspace.isRemoteTerminalSurface(commandSplit.id))
+        XCTAssertTrue(workspace.shouldKeepSurfaceOpenAfterCommandExit(surfaceId: commandSplit.id))
+    }
+
     func testChildExitWindowCloseRequestsNoClosedWindowHistory() throws {
         let originalAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()

@@ -5357,12 +5357,13 @@ final class Workspace: Identifiable, ObservableObject {
     ///
     /// `TabManager.closePanelAfterChildExited` consults this before every remote and
     /// last-panel teardown branch, so the keep-open contract holds for any pane role —
-    /// split, sole pane, or a local helper pane that is the last pane in a remote
-    /// workspace. Scoping is by the surface's own remote state, not the workspace's: a
-    /// remote workspace can still host a genuinely local helper pane created with an
-    /// explicit command, and that pane should be kept open too. Surfaces that are
-    /// remote-tracked or already routed through remote child-exit demotion return `false`
-    /// here and keep their dedicated keep-open / teardown handling.
+    /// split, sole pane, or a local helper pane in a remote workspace. Scoping is by the
+    /// surface's own remote state, not the workspace's: a pane created with an explicit
+    /// command is not tracked as a remote terminal surface (see `tracksRemoteTerminalSurface`
+    /// in the split/surface creation paths), even inside a remote workspace, so such a
+    /// subagent pane is kept open here too. Surfaces that are genuinely remote — tracked
+    /// remote terminals or those already routed through remote child-exit demotion — return
+    /// `false` and keep their dedicated keep-open / teardown handling.
     @MainActor
     func shouldKeepSurfaceOpenAfterCommandExit(surfaceId: UUID) -> Bool {
         guard !isRemoteTerminalSurface(surfaceId),
@@ -7113,7 +7114,17 @@ final class Workspace: Identifiable, ObservableObject {
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
         let normalizedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
-        let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || normalizedRemotePTYSessionID != nil
+        // An explicit caller command runs *instead of* the remote startup script (it wins in
+        // `startupCommand` above, and `remoteStartupCommandForEnvironment` is nil'd for it), so
+        // such a surface is a local pane — not the remote attach — even inside a remote
+        // workspace. Don't track it as a remote terminal surface: that keeps its
+        // wait-after-command keep-open behavior working (a `surface.split` / `surface.create`
+        // with `initial_command` subagent pane must not be torn down through the remote
+        // child-exit path, #6244). A surface carrying a remote PTY session id is still
+        // genuinely remote and stays tracked.
+        let tracksRemoteTerminalSurface =
+            (explicitInitialCommand == nil && remoteTerminalStartupCommand != nil)
+            || normalizedRemotePTYSessionID != nil
         if let normalizedRemotePTYSessionID {
             remotePTYSessionIDsByPanelId[newPanel.id] = normalizedRemotePTYSessionID
             registerRemoteRelayIDAliases(remotePTYSessionID: normalizedRemotePTYSessionID, restoredPanelId: newPanel.id)
@@ -7385,7 +7396,17 @@ final class Workspace: Identifiable, ObservableObject {
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
         let normalizedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
-        let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || normalizedRemotePTYSessionID != nil
+        // An explicit caller command runs *instead of* the remote startup script (it wins in
+        // `startupCommand` above, and `remoteStartupCommandForEnvironment` is nil'd for it), so
+        // such a surface is a local pane — not the remote attach — even inside a remote
+        // workspace. Don't track it as a remote terminal surface: that keeps its
+        // wait-after-command keep-open behavior working (a `surface.split` / `surface.create`
+        // with `initial_command` subagent pane must not be torn down through the remote
+        // child-exit path, #6244). A surface carrying a remote PTY session id is still
+        // genuinely remote and stays tracked.
+        let tracksRemoteTerminalSurface =
+            (explicitInitialCommand == nil && remoteTerminalStartupCommand != nil)
+            || normalizedRemotePTYSessionID != nil
         if let normalizedRemotePTYSessionID {
             remotePTYSessionIDsByPanelId[newPanel.id] = normalizedRemotePTYSessionID
             registerRemoteRelayIDAliases(remotePTYSessionID: normalizedRemotePTYSessionID, restoredPanelId: newPanel.id)
