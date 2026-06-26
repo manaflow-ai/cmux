@@ -644,6 +644,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private lazy var updateController = UpdateController(log: updateLog)
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(updateLog: updateLog, settingsRuntime: settingsRuntime)
     private let windowDecorationsController = WindowDecorationsController()
+    private let systemWideHotkeyController = SystemWideHotkeyController()
     private var menuBarExtraController: MenuBarExtraController?
     private var transientGlobalSearchMenuBarExtraController: MenuBarExtraController?
     private var lastMenuBarExtraShouldInstall: Bool?
@@ -1612,7 +1613,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             GlobalSearchCoordinator.shared.start()
             sentryStartMemoryContextRefresh()
         }
-        SystemWideHotkeyController.shared.start()
+        systemWideHotkeyController.actionHandler = self
+        systemWideHotkeyController.start()
         AgentHibernationController.shared.start()
         RendererRealizationController.shared.start()
         NSApp.servicesProvider = self
@@ -12164,11 +12166,10 @@ private extension NSWindow {
 
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             if !flags.contains(.command) {
-                if shouldDispatchTerminalArrowViaFirstResponderKeyDown(
+                if event.modifierFlags.shouldDispatchTerminalArrowViaFirstResponderKeyDown(
                     keyCode: event.keyCode,
                     firstResponderIsTerminal: true,
-                    firstResponderHasMarkedText: ghosttyView.hasMarkedText(),
-                    flags: event.modifierFlags
+                    firstResponderHasMarkedText: ghosttyView.hasMarkedText()
                 ) {
                     if cmuxForceDispatchKeyDownOnce(event, to: ghosttyView, reason: "terminal arrow") {
                         return true
@@ -12221,11 +12222,10 @@ private extension NSWindow {
             return true
         }
 
-        if shouldDispatchCommandPaletteHorizontalArrowViaFirstResponderKeyDown(
+        if event.modifierFlags.shouldDispatchCommandPaletteHorizontalArrowViaFirstResponderKeyDown(
             keyCode: event.keyCode,
             firstResponderIsCommandPaletteFieldEditor: firstResponderIsCommandPaletteFieldEditor,
-            firstResponderHasMarkedText: firstResponderHasMarkedText,
-            flags: event.modifierFlags
+            firstResponderHasMarkedText: firstResponderHasMarkedText
         ) {
             guard let target = self.firstResponder,
                   cmuxForceDispatchKeyDownOnce(event, to: target, reason: "command palette arrow")
@@ -12254,11 +12254,10 @@ private extension NSWindow {
             return cmux_performKeyEquivalent(with: event)
         }
 
-        if shouldDispatchTextBoxInputArrowViaFirstResponderKeyDown(
+        if event.modifierFlags.shouldDispatchTextBoxInputArrowViaFirstResponderKeyDown(
             keyCode: event.keyCode,
             firstResponderIsTextBoxInput: firstResponderIsTextBoxInput,
-            firstResponderHasMarkedText: firstResponderHasMarkedText,
-            flags: event.modifierFlags
+            firstResponderHasMarkedText: firstResponderHasMarkedText
         ) {
             guard let target = self.firstResponder,
                   cmuxForceDispatchKeyDownOnce(event, to: target, reason: "text-box input arrow")
@@ -12268,11 +12267,10 @@ private extension NSWindow {
             return true
         }
 
-        if shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
+        if event.modifierFlags.shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
             charactersIgnoringModifiers: KeyboardLayout.normalizedCharacters(for: event),
             firstResponderIsTextBoxInput: firstResponderIsTextBoxInput,
-            firstResponderHasMarkedText: firstResponderHasMarkedText,
-            flags: event.modifierFlags
+            firstResponderHasMarkedText: firstResponderHasMarkedText
         ) {
             guard let target = self.firstResponder,
                   cmuxForceDispatchKeyDownOnce(event, to: target, reason: "text-box input control nav")
@@ -12286,11 +12284,10 @@ private extension NSWindow {
         // would otherwise lose plain/selection/word/line arrows to the original
         // NSWindow.performKeyEquivalent. Route them to the text view's keyDown so
         // arrow navigation works as in any text editor (manaflow-ai/cmux#5227).
-        if shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
+        if event.modifierFlags.shouldDispatchEditableTextViewArrowViaFirstResponderKeyDown(
             keyCode: event.keyCode,
             firstResponderIsEditableTextView: firstResponderIsStandaloneEditableTextView,
-            firstResponderHasMarkedText: firstResponderHasMarkedText,
-            flags: event.modifierFlags
+            firstResponderHasMarkedText: firstResponderHasMarkedText
         ) {
             guard let target = self.firstResponder,
                   cmuxForceDispatchKeyDownOnce(event, to: target, reason: "editable text view arrow")
@@ -12854,6 +12851,13 @@ extension AppDelegate: BrowserDebugContext {
 // `performScheduledAutosave(source:)` (the app-coupled snapshot save) are
 // declared on `AppDelegate` above; the scheduler drives them through this seam.
 extension AppDelegate: SessionAutosaveScheduling {}
+
+// `toggleApplicationVisibilityFromGlobalHotkey()`,
+// `toggleGlobalSearchPaletteFromGlobalHotkey()`, and
+// `captureMainWindowVisibilityRestoreTargetsForApplicationHide()` are declared on
+// `AppDelegate` above; `SystemWideHotkeyController` invokes them through this
+// injected seam instead of reaching back through the `AppDelegate.shared` singleton.
+extension AppDelegate: SystemWideHotkeyActionHandling {}
 
 #if DEBUG
 // MARK: - CmuxTestSupport diagnostics seam conformance

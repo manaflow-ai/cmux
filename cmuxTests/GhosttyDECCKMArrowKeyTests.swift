@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Testing
+import CmuxShortcuts
 import CmuxTerminal
 
 #if canImport(cmux_DEV)
@@ -121,43 +122,38 @@ struct GhosttyDECCKMArrowKeyTests {
 
     @Test(arguments: [123, 124, 125, 126] as [UInt16])
     func terminalArrowPredicateAcceptsUnmodifiedTerminalArrows(keyCode: UInt16) {
-        #expect(shouldDispatchTerminalArrowViaFirstResponderKeyDown(
+        #expect(([.numericPad, .function] as NSEvent.ModifierFlags).shouldDispatchTerminalArrowViaFirstResponderKeyDown(
             keyCode: keyCode,
-            firstResponderIsTerminal: true,
-            flags: [.numericPad, .function]
+            firstResponderIsTerminal: true
         ))
     }
 
     @Test
     func terminalArrowPredicateRequiresTerminalContext() {
-        #expect(!shouldDispatchTerminalArrowViaFirstResponderKeyDown(
+        #expect(!([.numericPad, .function] as NSEvent.ModifierFlags).shouldDispatchTerminalArrowViaFirstResponderKeyDown(
             keyCode: 126,
-            firstResponderIsTerminal: false,
-            flags: [.numericPad, .function]
+            firstResponderIsTerminal: false
         ))
     }
 
     @Test
     func terminalArrowPredicateLeavesMarkedTextAndCommandArrowsAlone() {
-        #expect(!shouldDispatchTerminalArrowViaFirstResponderKeyDown(
+        #expect(!([.numericPad, .function] as NSEvent.ModifierFlags).shouldDispatchTerminalArrowViaFirstResponderKeyDown(
             keyCode: 126,
             firstResponderIsTerminal: true,
-            firstResponderHasMarkedText: true,
-            flags: [.numericPad, .function]
+            firstResponderHasMarkedText: true
         ))
-        #expect(!shouldDispatchTerminalArrowViaFirstResponderKeyDown(
+        #expect(!([.command, .numericPad, .function] as NSEvent.ModifierFlags).shouldDispatchTerminalArrowViaFirstResponderKeyDown(
             keyCode: 126,
-            firstResponderIsTerminal: true,
-            flags: [.command, .numericPad, .function]
+            firstResponderIsTerminal: true
         ))
     }
 
     @Test
     func terminalArrowPredicateRejectsNonArrowKeys() {
-        #expect(!shouldDispatchTerminalArrowViaFirstResponderKeyDown(
+        #expect(!([.numericPad, .function] as NSEvent.ModifierFlags).shouldDispatchTerminalArrowViaFirstResponderKeyDown(
             keyCode: 36,
-            firstResponderIsTerminal: true,
-            flags: [.numericPad, .function]
+            firstResponderIsTerminal: true
         ))
     }
 

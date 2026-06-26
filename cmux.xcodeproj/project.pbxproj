@@ -371,6 +371,7 @@
 		A5001002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001012 /* ContentView.swift */; };
 		C0DE32470000000000000001 /* ContentViewIdentifierCopyCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE32470000000000000002 /* ContentViewIdentifierCopyCommands.swift */; };
 		C0DE00000000000000000FF2 /* ControlBrowserEvalAwaiter+BrowserCookieStoreAwaiting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000FF1 /* ControlBrowserEvalAwaiter+BrowserCookieStoreAwaiting.swift */; };
+		C0DE00000000000000000DB2 /* ControlDebugOverlayEventToken+NSEventType.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000DB1 /* ControlDebugOverlayEventToken+NSEventType.swift */; };
 		D10000000000000000B00000 /* ControlSocketReadinessUITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000B00001 /* ControlSocketReadinessUITestSupport.swift */; };
 		DEBDADADADADADADAD000001 /* DebugDogfoodCredentialResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEBDADADADADADADAD000002 /* DebugDogfoodCredentialResolver.swift */; };
 		DEBDADADADADADADAD000003 /* DebugDogfoodCredentialResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEBDADADADADADADAD000004 /* DebugDogfoodCredentialResolverTests.swift */; };
@@ -595,7 +596,9 @@
 		B7F00002 /* NotificationSoundSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F00001 /* NotificationSoundSettings.swift */; };
 		4E5F60720000000000000001 /* NotificationSoundSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5F60720000000000000002 /* NotificationSoundSettingsTests.swift */; };
 		A5001094 /* NotificationsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001091 /* NotificationsPage.swift */; };
+		C0DE00000000000000000DB4 /* NSPasteboardType+CmuxDebugDragType.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000DB3 /* NSPasteboardType+CmuxDebugDragType.swift */; };
 		FE0A1103FE0A1103FE0A1103 /* NSResponder+FileExplorerDebug.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE0A1003FE0A1003FE0A1003 /* NSResponder+FileExplorerDebug.swift */; };
+		C0DE00000000000000000DB6 /* NSView+CmuxDebugDragHit.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000DB5 /* NSView+CmuxDebugDragHit.swift */; };
 		D36090020000000000000001 /* NSWindow+CmuxPeerWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090020000000000000002 /* NSWindow+CmuxPeerWindow.swift */; };
 		645645000000000000000002 /* NumberedShortcutSwapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 645645000000000000000001 /* NumberedShortcutSwapTests.swift */; };
 		4378399A7C0245EF8186F306 /* OmnibarAndToolsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */; };
@@ -1453,6 +1456,7 @@
 		A5001012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		C0DE32470000000000000002 /* ContentViewIdentifierCopyCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentViewIdentifierCopyCommands.swift; sourceTree = "<group>"; };
 		C0DE00000000000000000FF1 /* ControlBrowserEvalAwaiter+BrowserCookieStoreAwaiting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ControlBrowserEvalAwaiter+BrowserCookieStoreAwaiting.swift"; sourceTree = "<group>"; };
+		C0DE00000000000000000DB1 /* ControlDebugOverlayEventToken+NSEventType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ControlDebugOverlayEventToken+NSEventType.swift"; sourceTree = "<group>"; };
 		D10000000000000000B00001 /* ControlSocketReadinessUITestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSocketReadinessUITestSupport.swift; sourceTree = "<group>"; };
 		DEBDADADADADADADAD000002 /* DebugDogfoodCredentialResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DebugDogfoodCredentialResolver.swift; sourceTree = "<group>"; };
 		DEBDADADADADADADAD000004 /* DebugDogfoodCredentialResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugDogfoodCredentialResolverTests.swift; sourceTree = "<group>"; };
@@ -1675,7 +1679,9 @@
 		B7F00001 /* NotificationSoundSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundSettings.swift; sourceTree = "<group>"; };
 		4E5F60720000000000000002 /* NotificationSoundSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundSettingsTests.swift; sourceTree = "<group>"; };
 		A5001091 /* NotificationsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsPage.swift; sourceTree = "<group>"; };
+		C0DE00000000000000000DB3 /* NSPasteboardType+CmuxDebugDragType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSPasteboardType+CmuxDebugDragType.swift"; sourceTree = "<group>"; };
 		FE0A1003FE0A1003FE0A1003 /* NSResponder+FileExplorerDebug.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSResponder+FileExplorerDebug.swift"; sourceTree = "<group>"; };
+		C0DE00000000000000000DB5 /* NSView+CmuxDebugDragHit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSView+CmuxDebugDragHit.swift"; sourceTree = "<group>"; };
 		D36090020000000000000002 /* NSWindow+CmuxPeerWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/NSWindow+CmuxPeerWindow.swift"; sourceTree = "<group>"; };
 		645645000000000000000001 /* NumberedShortcutSwapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NumberedShortcutSwapTests.swift; sourceTree = "<group>"; };
 		B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OmnibarAndToolsTests.swift; sourceTree = "<group>"; };
@@ -2692,6 +2698,9 @@
 				C0DE00000000000000000F06 /* TerminalController+ControlBrowserConsoleErrorsStateContext.swift */,
 				C0DE00000000000000000F12 /* TerminalController+ControlBrowserTabsContext.swift */,
 				C0DE00000000000000000C6D /* TerminalController+ControlDebugContext.swift */,
+				C0DE00000000000000000DB1 /* ControlDebugOverlayEventToken+NSEventType.swift */,
+				C0DE00000000000000000DB3 /* NSPasteboardType+CmuxDebugDragType.swift */,
+				C0DE00000000000000000DB5 /* NSView+CmuxDebugDragHit.swift */,
 				C0DE00000000000000000C6F /* TerminalController+ControlProjectContext.swift */,
 				C0DE00000000000000000C71 /* TerminalController+ControlSidebarContext.swift */,
 				C0DE00000000000000000C73 /* TerminalController+ControlSidebarContext2.swift */,
@@ -3969,6 +3978,7 @@
 				A5001002 /* ContentView.swift in Sources */,
 				C0DE32470000000000000001 /* ContentViewIdentifierCopyCommands.swift in Sources */,
 				C0DE00000000000000000FF2 /* ControlBrowserEvalAwaiter+BrowserCookieStoreAwaiting.swift in Sources */,
+				C0DE00000000000000000DB2 /* ControlDebugOverlayEventToken+NSEventType.swift in Sources */,
 				DEBDADADADADADADAD000001 /* DebugDogfoodCredentialResolver.swift in Sources */,
 				A500D010A1B2C3D4E5F60718 /* DebugLogging.swift in Sources */,
 				DEB6C0DE00000000000000A0 /* DebugWindowControlsContentProvider.swift in Sources */,
@@ -4113,7 +4123,9 @@
 				596100000000000000000003 /* NativeNotificationDeliveryHooks.swift in Sources */,
 				B7F00002 /* NotificationSoundSettings.swift in Sources */,
 				A5001094 /* NotificationsPage.swift in Sources */,
+				C0DE00000000000000000DB4 /* NSPasteboardType+CmuxDebugDragType.swift in Sources */,
 				FE0A1103FE0A1103FE0A1103 /* NSResponder+FileExplorerDebug.swift in Sources */,
+				C0DE00000000000000000DB6 /* NSView+CmuxDebugDragHit.swift in Sources */,
 				D36090020000000000000001 /* NSWindow+CmuxPeerWindow.swift in Sources */,
 				A9F200000000000000000017 /* OpenCodeEventStreamParser.swift in Sources */,
 				A9F200000000000000000018 /* OpenCodeEventTextAccumulator.swift in Sources */,
