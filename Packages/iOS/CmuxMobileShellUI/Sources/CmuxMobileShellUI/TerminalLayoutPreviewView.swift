@@ -20,12 +20,32 @@ struct TerminalLayoutPreviewView: View {
     /// screen (`WorkspaceDetailView.navigationTitle(workspace.name)`).
     private let title = ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_TITLE"] ?? "cmux"
 
-    /// Chrome (status-bar + nav-bar) fill color. Matches the libghostty default
-    /// background so the header blends with the terminal. Overridable per shot
-    /// via CMUX_UITEST_TERMINAL_BG (see GhosttyRuntime) so an agent rendered on a
-    /// non-default background stays seamless.
+    /// Background to render the terminal on. Auto-derived from the selected
+    /// transcript's own dominant background (no hardcoded per-agent color), so an
+    /// agent that paints its own background (OpenCode) renders seamlessly; nil for
+    /// agents that use the terminal default. An explicit CMUX_UITEST_TERMINAL_BG
+    /// still wins if set.
+    private let backgroundHex: String?
+
+    init() {
+        let env = ProcessInfo.processInfo.environment
+        let transcript = env["CMUX_UITEST_TERMINAL_TRANSCRIPT"] ?? "claude"
+        let derived = env["CMUX_UITEST_TERMINAL_BG"]
+            ?? TerminalPreviewTranscripts.dominantBackgroundHex(named: transcript)
+        backgroundHex = derived
+        // libghostty reads CMUX_UITEST_TERMINAL_BG at runtime init (see
+        // GhosttyRuntime) to set the terminal's *default* background, so unpainted
+        // / reset cells match the agent's card instead of falling back to Monokai.
+        // Set it here (before the surface is created) from the derived value.
+        if let derived, env["CMUX_UITEST_TERMINAL_BG"] == nil {
+            setenv("CMUX_UITEST_TERMINAL_BG", derived, 1)
+        }
+    }
+
+    /// Chrome (status-bar + nav-bar) fill, matching the terminal background so the
+    /// header blends with the surface.
     private var chromeBackground: Color {
-        if let bg = ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_BG"],
+        if let bg = backgroundHex,
            let c = Color(hexString: bg.hasPrefix("#") ? bg : "#\(bg)") {
             return c
         }

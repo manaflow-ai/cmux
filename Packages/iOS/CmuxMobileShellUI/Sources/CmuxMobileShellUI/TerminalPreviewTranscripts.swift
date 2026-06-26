@@ -19,6 +19,77 @@ enum TerminalPreviewTranscripts {
         return Data(base64Encoded: b64) ?? Data()
     }
 
+    /// The transcript's dominant *explicit* background color as `#rrggbb`, or nil
+    /// when it never sets one (so the terminal's own default should be used).
+    ///
+    /// Some agent TUIs (OpenCode) paint their content on their own background and
+    /// reset headings/line-ends to the terminal default; on the Monokai default
+    /// (#272822) those show as mismatched boxes. Deriving the agent's own
+    /// dominant background here lets the screenshot render the terminal on a
+    /// matching background — no hardcoded per-agent color.
+    static func dominantBackgroundHex(named name: String) -> String? {
+        let bytes = Array(transcript(named: name))
+        let n = bytes.count
+        var counts: [UInt32: Int] = [:]
+        let defaultKey: UInt32 = 0xFFFFFFFF
+        var current: UInt32? = nil
+        var i = 0
+        while i < n {
+            let b = bytes[i]
+            if b == 0x1B, i + 1 < n, bytes[i + 1] == 0x5B { // ESC [
+                var j = i + 2
+                var params: [Int] = []
+                var cur = 0
+                var hasDigit = false
+                var isSGR = false
+                while j < n {
+                    let c = bytes[j]
+                    if c >= 0x30, c <= 0x39 { cur = cur * 10 + Int(c - 0x30); hasDigit = true }
+                    else if c == 0x3B { params.append(hasDigit ? cur : 0); cur = 0; hasDigit = false }
+                    else { if c == 0x6D { params.append(hasDigit ? cur : 0); isSGR = true }; break }
+                    j += 1
+                }
+                if isSGR { current = applyBackground(params, current) }
+                i = j + 1
+                continue
+            }
+            if b != 0x0D, b != 0x0A { counts[current ?? defaultKey, default: 0] += 1 }
+            i += 1
+        }
+        let total = counts.values.reduce(0, +)
+        guard total > 0 else { return nil }
+        var best: UInt32? = nil
+        var bestCount = 0
+        for (key, value) in counts where key != defaultKey && value > bestCount {
+            best = key
+            bestCount = value
+        }
+        // Only override when the agent's own background actually dominates.
+        guard let rgb = best, bestCount * 5 >= total else { return nil }
+        return String(format: "#%02x%02x%02x", (rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF)
+    }
+
+    /// Apply an SGR parameter list to the current background, returning the new
+    /// background (nil = terminal default).
+    private static func applyBackground(_ params: [Int], _ current: UInt32?) -> UInt32? {
+        var bg = current
+        var k = 0
+        while k < params.count {
+            switch params[k] {
+            case 0, 49: bg = nil; k += 1            // full reset / default background
+            case 48:
+                if k + 4 < params.count, params[k + 1] == 2 {
+                    bg = (UInt32(params[k + 2]) << 16) | (UInt32(params[k + 3]) << 8) | UInt32(params[k + 4])
+                    k += 5
+                } else if k + 1 < params.count, params[k + 1] == 5 {
+                    k += 3                          // 256-color background (ignored)
+                } else { k += 1 }
+            default: k += 1
+            }
+        }
+        return bg
+    }
+
     private static let claudeB64 = "ICAbWzFtV2hhdCBpdCBkb2VzIBtbM21ub3QbWzA7MW0gZG86G1swbSBkZXNwaXRlIHRoZSBmaWxlbmFtZSAbWzM4OzU7MTUzbW1haW4uc3dpZnQbWzM5bSAod2hpY2ggU3dpZnQgdHJlYXRzDQogIGFzIGEgdG9wLWxldmVsIGVudHJ5IHBvaW50KSwgdGhlcmUncyBubyAbWzM4OzU7MTUzbUBtYWluG1szOW0gQXBwLCBubyBzY2VuZSwgbm8gd2luZG93LA0KICBhbmQgbm90aGluZyBpcyBldmVyIGluc3RhbnRpYXRlZCBvciBzaG93bi4gQXMgd3JpdHRlbiBpdCBkZWZpbmVzIGEgdHlwZQ0KICBidXQgbGF1bmNoZXMgbm8gYXBwbGljYXRpb24g4oCUIGl0IHdvbid0IGFjdHVhbGx5IGRpc3BsYXkgYW55dGhpbmcgb24gaXRzDQogIG93bi4NCg0KICAtLS0NCiAgG1sxbTMgY29uY3JldGUgaW1wcm92ZW1lbnRzG1swbQ0KDQogIBtbMW0xLiBBZGQgYW4gYXBwIGVudHJ5IHBvaW50IHNvIGl0IGFjdHVhbGx5IHJ1bnMuG1swbSBSaWdodCBub3cgbm90aGluZyBob3N0cw0KICAbWzM4OzU7MTUzbUNvbnRlbnRWaWV3G1szOW0uIEEgG1szODs1OzE1M21tYWluLnN3aWZ0G1szOW0gbmFtZWQgZmlsZSBjYW4ndCB1c2UgG1szODs1OzE1M21AbWFpbhtbMzltLCBzbyBlaXRoZXIgcmVuYW1lIHRoZQ0KICBmaWxlIG9yIGFkZCBleHBsaWNpdCB0b3AtbGV2ZWwgbGF1bmNoIGNvZGU6DQoNCiAgG1szNG1pbXBvcnQbWzM5bSBTd2lmdFVJDQoNCiAgG1szNG1AbWFpbhtbMzltDQogIBtbMzRtc3RydWN0IBtbMzltTXlBcHA6IEFwcCB7DQogICAgICAbWzM0bXZhchtbMzltIGJvZHk6IBtbMzRtc29tZRtbMzltIBtbMm0bWzM2bVNjZW5lG1swbSB7DQogICAgICAgICAgG1sybRtbMzZtV2luZG93R3JvdXAbWzBtIHsgG1sybRtbMzZtQ29udGVudFZpZXcbWzBtKCkgfQ0KICAgICAgfQ0KICB9DQogIChOb3RlOiAbWzM4OzU7MTUzbUBtYWluG1szOW0gcmVxdWlyZXMgdGhlIGZpbGUgYmUgbmFtZWQgc29tZXRoaW5nIBtbM21vdGhlchtbMG0gdGhhbiAbWzM4OzU7MTUzbW1haW4uc3dpZnQbWzM5bSB0bw0KICBhdm9pZCB0aGUgInRvcC1sZXZlbCBjb2RlIiBjb25mbGljdC4pDQoNCiAgG1sxbTIuIEZvcm1hdCBmb3IgcmVhZGFiaWxpdHkgYW5kIHB1dCBlYWNoIGRlY2xhcmF0aW9uIG9uIGl0cyBvd24gbGluZXMuG1swbSBUaGUNCiAgb25lLWxpbmVyIGlzIGRlbnNlIGFuZCBoYXJkIHRvIGV4dGVuZDoNCg0KICAbWzM0bXN0cnVjdCAbWzM5bUNvbnRlbnRWaWV3OiBWaWV3IHsNCiAgICAgIBtbMzRtdmFyG1szOW0gYm9keTogG1szNG1zb21lG1szOW0gG1sybRtbMzZtVmlldxtbMG0gew0KICAgICAgICAgIBtbMm0bWzM2bVRleHQbWzBtKBtbMzFtIkhlbGxvIhtbMzltKQ0KICAgICAgfQ0KICB9DQoNCiAgG1sxbTMuIEFkZCBhIBtbMzg7NTsxNTNtI1ByZXZpZXcbWzM5bSBmb3IgZmFzdCBpdGVyYXRpb24gaW4gWGNvZGUbWzBtIHdpdGhvdXQgYnVpbGRpbmcvcnVubmluZyB0aGUNCiAgd2hvbGUgYXBwOg0KDQogICMbWzJtG1szNm1QcmV2aWV3G1swbSB7DQogICAgICAbWzJtG1szNm1Db250ZW50VmlldxtbMG0oKQ0KICB9DQoNCiAgSWYgeW91J2QgbGlrZSwgSSBjYW4gYXBwbHkgYW55IG9mIHRoZXNlIOKAlCBqdXN0IHNheSB3aGljaC4NCg0KG1szODs1OzI0Nm3inLsbWzM5bSAbWzM4OzU7MjQ2bUNvb2tlZCBmb3IgMThzG1szOW0NCg0KG1szODs1OzI0NG3ilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIANChtbMzlt4p2vwqAbWzJtYXBwbHkgYWxsIHRocmVlIGltcHJvdmVtZW50cxtbMG0NChtbMzg7NTsyNDRt4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSADQobWzM5bSAgG1szODs1OzI0Nm0/IGZvciBzaG9ydGN1dHMgwrcg4oaQIGZvciBhZ2VudHMbWzM5bQ0K"
 
     private static let codexB64 = "G1sybSAg4pSUIBtbMG0bWzM4OzU7Nm1SZWFkG1szOW0gbWFpbi5zd2lmdBtbMm0sIBtbMG1SRUFETUUubWQNCiAgICAbWzM4OzU7Nm1MaXN0G1szOW0gbHMgLWxhDQoNChtbMm3ilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIANCg0K4oCiIBtbMG0bWzM4OzU7Nm1tYWluLnN3aWZ0OjEbWzM5bSBpcyBhIHRpbnkgU3dpZnRVSSB2aWV3IGRlZmluaXRpb246DQoNCiAgG1szODsyOzIwMzsxNjY7MjQ3bWltcG9ydBtbMzg7MjsyMDU7MjE0OzI0NG0gG1szODsyOzI0OTsyMjY7MTc1bVN3aWZ0VUkbWzM5bQ0KICAbWzM4OzI7MjAzOzE2NjsyNDdtc3RydWN0G1szODsyOzIwNTsyMTQ7MjQ0bSBDb250ZW50VmlldzogVmlldyB7IBtbMzg7MjsyMDM7MTY2OzI0N212YXIbWzM4OzI7MjA1OzIxNDsyNDRtIGJvZHk6IHNvbWUgVmlldyB7IFRleHQoG1szODsyOzE2NjsyMjc7MTYxbSJIZWxsbyIbWzM4OzI7MjA1OzIxNDsyNDRtKSB9IH0bWzM5bQ0KDQogIExpbmUgMSBpbXBvcnRzIFN3aWZ0VUksIHdoaWNoIHByb3ZpZGVzIBtbMzg7NTs2bVZpZXcbWzM5bSwgG1szODs1OzZtVGV4dBtbMzltLCBhbmQgdGhlIGRlY2xhcmF0aXZlIFVJDQogIHN5c3RlbS4gTGluZSAyIGRlZmluZXMgG1szODs1OzZtQ29udGVudFZpZXcbWzM5bSwgYSBTd2lmdFVJIHZpZXcgd2hvc2UgG1szODs1OzZtYm9keRtbMzltIHJldHVybnMgYQ0KICBzaW5nbGUgG1szODs1OzZtVGV4dCgiSGVsbG8iKRtbMzltIGVsZW1lbnQuIEFzIHdyaXR0ZW4sIHRoaXMgZGVmaW5lcyBhIHZpZXcgYnV0IGRvZXMgbm90DQogIGRlZmluZSBhbiBhcHAgZW50cnkgcG9pbnQsIHNvIGJ5IGl0c2VsZiBpdCBpcyBub3QgYSBjb21wbGV0ZSBydW5uYWJsZQ0KICBTd2lmdFVJIGFwcCB1bmxlc3Mgc29tZXRoaW5nIGVsc2UgaG9zdHMgG1szODs1OzZtQ29udGVudFZpZXcbWzM5bS4NCg0KICBUaHJlZSBpbXByb3ZlbWVudHM6DQoNCiAgG1szODs1OzEybTEuIBtbMzltRm9ybWF0IGl0IGZvciByZWFkYWJpbGl0eToNCg0KICAbWzM4OzI7MjAzOzE2NjsyNDdtc3RydWN0G1szODsyOzIwNTsyMTQ7MjQ0bSBDb250ZW50VmlldzogVmlldyB7G1szOW0NCiAgG1szODsyOzIwNTsyMTQ7MjQ0bSAgICAbWzM4OzI7MjAzOzE2NjsyNDdtdmFyG1szODsyOzIwNTsyMTQ7MjQ0bSBib2R5OiBzb21lIFZpZXcgextbMzltDQogIBtbMzg7MjsyMDU7MjE0OzI0NG0gICAgICAgIFRleHQoG1szODsyOzE2NjsyMjc7MTYxbSJIZWxsbyIbWzM4OzI7MjA1OzIxNDsyNDRtKRtbMzltDQogIBtbMzg7MjsyMDU7MjE0OzI0NG0gICAgfRtbMzltDQogIBtbMzg7MjsyMDU7MjE0OzI0NG19G1szOW0NCg0KICAbWzM4OzU7MTJtMi4gG1szOW1BZGQgYW4gYXBwIGVudHJ5IHBvaW50IGlmIHRoaXMgZmlsZSBzaG91bGQgcnVuIGFzIGEgc3RhbmRhbG9uZSBTd2lmdFVJDQogICAgIGFwcDoNCg0KICAbWzM4OzI7MTQ3OzE1MzsxNzhtQBtbMzg7MjsyMDM7MTY2OzI0N21tYWluG1szOW0NCiAgG1szODsyOzIwMzsxNjY7MjQ3bXN0cnVjdBtbMzg7MjsyMDU7MjE0OzI0NG0gRGVtb0FwcDogQXBwIHsbWzM5bQ0KICAbWzM4OzI7MjA1OzIxNDsyNDRtICAgIBtbMzg7MjsyMDM7MTY2OzI0N212YXIbWzM4OzI7MjA1OzIxNDsyNDRtIGJvZHk6IHNvbWUgU2NlbmUgextbMzltDQogIBtbMzg7MjsyMDU7MjE0OzI0NG0gICAgICAgIFdpbmRvd0dyb3VwIHsbWzM5bQ0KICAbWzM4OzI7MjA1OzIxNDsyNDRtICAgICAgICAgICAgQ29udGVudFZpZXcoKRtbMzltDQogIBtbMzg7MjsyMDU7MjE0OzI0NG0gICAgICAgIH0bWzM5bQ0KICAbWzM4OzI7MjA1OzIxNDsyNDRtICAgIH0bWzM5bQ0KICAbWzM4OzI7MjA1OzIxNDsyNDRtfRtbMzltDQoNCiAgG1szODs1OzEybTMuIBtbMzltQWRkIGEgcHJldmlldyBmb3IgZmFzdCBpdGVyYXRpb24gaW4gWGNvZGU6DQoNCiAgG1szODsyOzIwNTsyMTQ7MjQ0bSNQcmV2aWV3IHsbWzM5bQ0KICAbWzM4OzI7MjA1OzIxNDsyNDRtICAgIENvbnRlbnRWaWV3KCkNChtbMzltICAbWzM4OzI7MjA1OzIxNDsyNDRtfRtbMzltDQoNChtbMm3ilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIANCg0KDQobWzA7MW3igLobWzBtIBtbMm1TdW1tYXJpemUgcmVjZW50IGNvbW1pdHMbWzBtDQoNCiAgG1szODsyOzI0NjsyMjY7MTgzbWdwdC01LjUgaGlnaBtbMm0bWzM5bSDCtyAbWzBtG1szODsyOzI0MjsxODE7MTQ0bUNvbnRleHQgOTglIGxlZnQbWzJtG1szOW0gwrcgG1swbRtbMzg7MjsxNzE7MjIzOzE2N20vcHJpdmF0ZS90bXAvY211eC1yZWMvYXBwG1sybRtbMzltIMK3IBtbMG0bWzM4OzI7MTcxOzIyMzsxNjdtYXBwG1sybRtbMzltIMK3IBtbMG0bWzM4OzI7MTQzOzE3OTsyMzltbWFpbhtbMm0bWzM5bSDigKYNCg=="

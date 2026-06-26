@@ -41,23 +41,19 @@ final class SnapshotUITests: XCTestCase {
         // titlebar (mirrors the real terminal screen).
         let titles = ["claude": "App entry point", "codex": "Readability pass",
                       "opencode": "String catalogs", "pi": "Ship improvements"]
-        // OpenCode's TUI paints its content on its own near-black background, so
-        // render that shot with a matching terminal default background (#0a0a0a)
-        // — otherwise reset / unpadded cells fall back to Monokai #272822 and
-        // show as olive boxes.
-        let backgrounds = ["opencode": "#0a0a0a"]
+        // The terminal background is auto-derived from each transcript's own
+        // dominant background (see TerminalLayoutPreviewView /
+        // TerminalPreviewTranscripts.dominantBackgroundHex) — no hardcoded
+        // per-agent color. OpenCode (near-black card) and the others (terminal
+        // default) both render seamlessly.
         for (idx, agent) in ["claude", "codex", "opencode", "pi"].enumerated() {
-            var env = [
+            shoot(String(format: "%02d-%@", idx + 3, agent.capitalized), [
                 "CMUX_UITEST_TERMINAL_PREVIEW": "1",
                 "CMUX_UITEST_TERMINAL_PREVIEW_CONTENT": "1",
                 "CMUX_UITEST_TERMINAL_TRANSCRIPT": agent,
                 "CMUX_UITEST_TERMINAL_TARGET_COLS": "76",
                 "CMUX_UITEST_TERMINAL_TITLE": titles[agent] ?? "cmux",
-            ]
-            if let bg = backgrounds[agent] {
-                env["CMUX_UITEST_TERMINAL_BG"] = bg
-            }
-            shoot(String(format: "%02d-%@", idx + 3, agent.capitalized), env)
+            ])
         }
     }
 
