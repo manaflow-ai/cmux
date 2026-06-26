@@ -23091,6 +23091,17 @@ struct CMUXCLI {
                 fallbackPID: claudePid
             )
             let isClearSessionStart = isClaudeClearSessionStart(parsedInput)
+            let visibleMutationApplies = shouldApplyClaudeHookVisibleMutation(
+                sessionStore: sessionStore,
+                parsedInput: parsedInput,
+                workspaceId: workspaceId,
+                surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
+                telemetry: telemetry
+            )
+            let isNoFlickerStartupSessionStart = isClaudeNoFlickerStartupSessionStart(
+                parsedInput,
+                env: ProcessInfo.processInfo.environment
+            )
             let canReplaceStoppedSession = shouldReplaceStoppedClaudeSession(
                 sessionStore: sessionStore,
                 parsedInput: parsedInput,
@@ -23098,11 +23109,19 @@ struct CMUXCLI {
                 surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
                 telemetry: telemetry
             )
-            let shouldPromoteActiveSession = !isForkSessionLaunch && (isClearSessionStart || canReplaceStoppedSession)
+            let shouldPromoteNoFlickerSessionStart = !isForkSessionLaunch
+                && isNoFlickerStartupSessionStart
+                && (visibleMutationApplies || canReplaceStoppedSession)
+            let shouldPromoteActiveSession = !isForkSessionLaunch
+                && (isClearSessionStart || canReplaceStoppedSession || shouldPromoteNoFlickerSessionStart)
+            let shouldPublishSessionStartResumeBinding = !isForkSessionLaunch
+                && (isClearSessionStart || canReplaceStoppedSession)
             if let sessionId = parsedInput.sessionId, !isForkSessionLaunch {
                 // Non-clear SessionStart can arrive late from startup/resume/compact
                 // after /clear, so only /clear or replacement of a stopped owner
-                // establishes a new active boundary.
+                // establishes a new active boundary. CLAUDE_CODE_NO_FLICKER startup
+                // can delay later running hooks, so promote that startup event when
+                // the stale-session guard says this pane still owns it.
                 try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
@@ -23116,7 +23135,7 @@ struct CMUXCLI {
                     markActive: shouldPromoteActiveSession,
                     turnId: parsedInput.turnId
                 )
-                if shouldPromoteActiveSession {
+                if shouldPublishSessionStartResumeBinding {
                     publishAgentSurfaceResumeBinding(
                         client: client,
                         workspaceId: workspaceId,
@@ -23141,21 +23160,14 @@ struct CMUXCLI {
             // never owned.
             let shouldRegisterPID = isForkSessionLaunch
                 ? resolvedSurface.isAuthoritative
-                : shouldPromoteActiveSession ||
-                    shouldApplyClaudeHookVisibleMutation(
-                        sessionStore: sessionStore,
-                        parsedInput: parsedInput,
-                        workspaceId: workspaceId,
-                        surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
-                        telemetry: telemetry
-                    )
+                : shouldPromoteActiveSession || visibleMutationApplies
             if shouldRegisterPID, let claudePid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
                     "set_agent_pid \(Self.claudeCodeStatusKey) \(claudePid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                     client: client
                 )
             }
-            if isClearSessionStart, !suppressVisibleMutations {
+            if (isClearSessionStart || shouldPromoteNoFlickerSessionStart), !suppressVisibleMutations {
                 _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
                 setAgentLifecycle(
                     client: client,
@@ -24008,6 +24020,21 @@ struct CMUXCLI {
             return false
         }
         return source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "clear"
+    }
+
+    private func isClaudeNoFlickerStartupSessionStart(
+        _ parsedInput: ClaudeHookParsedInput,
+        env: [String: String]
+    ) -> Bool {
+        guard let raw = normalizedHookValue(env["CLAUDE_CODE_NO_FLICKER"]),
+              Self.parseHookBoolean(raw) == true else {
+            return false
+        }
+        guard let source = parsedInput.object?["source"] as? String,
+              let normalizedSource = normalizedHookValue(source)?.lowercased() else {
+            return true
+        }
+        return normalizedSource == "startup"
     }
 
     private func socketPanelOption(_ surfaceId: String?) -> String {
