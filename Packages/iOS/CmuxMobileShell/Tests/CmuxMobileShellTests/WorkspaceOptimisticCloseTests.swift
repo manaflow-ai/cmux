@@ -151,4 +151,35 @@ import Testing
         // No live secondary connection means the close never lands; the row returns.
         #expect(store.workspaces.contains { $0.rpcWorkspaceID.rawValue == "wsb" })
     }
+
+    /// A failed close of the currently-selected workspace must restore not just the
+    /// row but the selection — the user should not be silently navigated to a
+    /// neighbor when the delete did not actually happen.
+    @Test func failedCloseOfSelectedWorkspaceRestoresSelection() async throws {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        store.setWorkspaceStatesForTesting([
+            "mac-a": MacWorkspaceState(
+                macDeviceID: "mac-a",
+                workspaces: [MobileWorkspacePreview(id: "wsa", macDeviceID: "mac-a", name: "A", terminals: [])],
+                status: .connected,
+                actionCapabilities: .init(supportsCloseActions: true)
+            ),
+            "mac-b": MacWorkspaceState(
+                macDeviceID: "mac-b",
+                workspaces: [MobileWorkspacePreview(id: "wsb", macDeviceID: "mac-b", name: "B", terminals: [])],
+                status: .connected,
+                actionCapabilities: .init(supportsCloseActions: true)
+            ),
+        ], foregroundMacDeviceID: "mac-a")
+        let derivedB = try #require(store.workspaces.first { $0.rpcWorkspaceID.rawValue == "wsb" })
+        store.selectedWorkspaceID = derivedB.id
+
+        await store.closeWorkspace(id: derivedB.id)
+
+        // Row restored, and the user is still on the workspace they failed to delete
+        // (not stranded on the neighbor the optimistic removal auto-selected).
+        #expect(store.workspaces.contains { $0.rpcWorkspaceID.rawValue == "wsb" })
+        #expect(store.selectedWorkspace?.rpcWorkspaceID.rawValue == "wsb")
+    }
 }

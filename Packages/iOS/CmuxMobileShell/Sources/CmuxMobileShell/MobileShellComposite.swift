@@ -3681,22 +3681,53 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard var state = workspacesByMac[ownerKey],
               let index = state.workspaces.firstIndex(where: { $0.rpcWorkspaceID == rawRemoteID })
         else { return nil }
+        let previousSelection = selectedWorkspaceID
         let removed = state.workspaces[index]
         state.workspaces.remove(at: index)
         // The didSet re-derives `workspaces` and reconciles selection to a neighbor.
         workspacesByMac[ownerKey] = state
-        return WorkspaceCloseRollback(macKey: ownerKey, index: index, workspace: removed)
+        return WorkspaceCloseRollback(
+            macKey: ownerKey,
+            index: index,
+            workspace: removed,
+            previousSelection: previousSelection,
+            autoSelection: selectedWorkspaceID
+        )
     }
 
     /// Re-insert an optimistically-removed workspace at its original index after a
-    /// close failed to land. A no-op if the row reappeared in the meantime (e.g. an
+    /// close failed to land, and undo the selection move the removal triggered. The
+    /// re-insert is a no-op if the row reappeared in the meantime (e.g. an
     /// authoritative refresh arrived first), so a late rollback never duplicates it.
     func restoreWorkspace(_ rollback: WorkspaceCloseRollback) {
         guard var state = workspacesByMac[rollback.macKey] else { return }
-        guard !state.workspaces.contains(where: { $0.id == rollback.workspace.id }) else { return }
-        let index = min(rollback.index, state.workspaces.count)
-        state.workspaces.insert(rollback.workspace, at: index)
-        workspacesByMac[rollback.macKey] = state
+        // Match on `rpcWorkspaceID` — the same identity contract removal used — not
+        // the raw local `id`: an authoritative refresh can re-add the same remote
+        // workspace under a different local id, so deduping on the remote identity
+        // is what reliably prevents a duplicate row.
+        if !state.workspaces.contains(where: { $0.rpcWorkspaceID == rollback.workspace.rpcWorkspaceID }) {
+            let index = min(rollback.index, state.workspaces.count)
+            state.workspaces.insert(rollback.workspace, at: index)
+            workspacesByMac[rollback.macKey] = state
+        }
+        restoreSelectionAfterRollback(rollback)
+    }
+
+    /// A failed close must not strand the user on the neighbor the optimistic
+    /// removal auto-picked. Restore the pre-delete selection, but only when the
+    /// current selection is still that auto-picked neighbor — so a selection the
+    /// user changed while the close was in flight is left untouched — and only when
+    /// the previously-selected row is present again.
+    private func restoreSelectionAfterRollback(_ rollback: WorkspaceCloseRollback) {
+        guard selectedWorkspaceID == rollback.autoSelection,
+              rollback.autoSelection != rollback.previousSelection else { return }
+        if let previous = rollback.previousSelection {
+            if workspaces.contains(where: { $0.id == previous }) {
+                selectedWorkspaceID = previous
+            }
+        } else {
+            selectedWorkspaceID = nil
+        }
     }
 
     /// Create a workspace locally or through the connected Mac, then select it.
