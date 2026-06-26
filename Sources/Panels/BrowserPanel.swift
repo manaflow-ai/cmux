@@ -1,6 +1,7 @@
 import Foundation
 import CmuxCore
 import CmuxBrowser
+import CmuxNotifications
 import CmuxSettings
 import Combine
 import CmuxAppKitSupportUI
@@ -3505,7 +3506,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
         _ = reason
-        guard NotificationPaneFlashSettings.isEnabled() else { return }
+        guard NotificationDefaultsToggle.paneFlash.isEnabled() else { return }
         focusFlashToken &+= 1
     }
 

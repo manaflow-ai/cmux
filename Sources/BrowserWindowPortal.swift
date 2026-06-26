@@ -64,11 +64,6 @@ private extension NSWindow {
 }
 
 final class WindowBrowserHostView: NSView {
-    private struct DividerRegion {
-        let rectInWindow: NSRect
-        let isVertical: Bool
-    }
-
     private struct DividerHit {
         let kind: DividerCursorKind
         let isInHostedContent: Bool
@@ -211,8 +206,8 @@ final class WindowBrowserHostView: NSView {
     override func resetCursorRects() {
         super.resetCursorRects()
         guard let rootView = dividerSearchRootView() else { return }
-        var regions: [DividerRegion] = []
-        Self.collectSplitDividerRegions(in: rootView, into: &regions)
+        var regions: [SplitDividerRegion] = []
+        rootView.collectSplitDividerRegions(into: &regions)
         let expansion: CGFloat = 4
         for region in regions {
             var rectInHost = convert(region.rectInWindow, from: nil)
@@ -710,7 +705,7 @@ final class WindowBrowserHostView: NSView {
     }
 
     private func hostedInspectorDividerCandidate(in slot: WindowBrowserSlotView) -> HostedInspectorDividerHit? {
-        let inspectorCandidates = Self.visibleDescendants(in: slot)
+        let inspectorCandidates = slot.visibleDescendants
             .filter { Self.isVisibleHostedInspectorCandidate($0) && Self.isInspectorView($0) }
             .sorted { lhs, rhs in
                 let lhsFrame = slot.convert(lhs.bounds, from: lhs)
@@ -748,7 +743,7 @@ final class WindowBrowserHostView: NSView {
             let pageCandidates = containerView.subviews.compactMap { candidate -> (view: NSView, dockSide: HostedInspectorDockSide)? in
                 guard Self.isVisibleHostedInspectorSiblingCandidate(candidate) else { return nil }
                 guard candidate !== inspectorView else { return nil }
-                guard Self.verticalOverlap(between: candidate.frame, and: inspectorView.frame) > 8 else {
+                guard candidate.frame.verticalOverlap(with: inspectorView.frame) > 8 else {
                     return nil
                 }
                 guard let dockSide = HostedInspectorDockSide.resolve(
@@ -794,13 +789,13 @@ final class WindowBrowserHostView: NSView {
     private func hostedInspectorDividerCandidateScore(_ hit: HostedInspectorDividerHit) -> CGFloat {
         let pageFrame = hit.slotView.convert(hit.pageView.bounds, from: hit.pageView)
         let inspectorFrame = hit.slotView.convert(hit.inspectorView.bounds, from: hit.inspectorView)
-        let overlap = Self.verticalOverlap(between: pageFrame, and: inspectorFrame)
+        let overlap = pageFrame.verticalOverlap(with: inspectorFrame)
         let coverageWidth = max(pageFrame.maxX, inspectorFrame.maxX) - min(pageFrame.minX, inspectorFrame.minX)
         return (overlap * 1_000) + coverageWidth + pageFrame.width
     }
 
     private func hostedInspectorPageCandidateScore(_ pageView: NSView, inspectorView: NSView) -> CGFloat {
-        let overlap = Self.verticalOverlap(between: pageView.frame, and: inspectorView.frame)
+        let overlap = pageView.frame.verticalOverlap(with: inspectorView.frame)
         let coverageWidth = max(pageView.frame.maxX, inspectorView.frame.maxX) - min(pageView.frame.minX, inspectorView.frame.minX)
         return (overlap * 1_000) + coverageWidth + pageView.frame.width
     }
@@ -963,20 +958,6 @@ final class WindowBrowserHostView: NSView {
         return nil
     }
 
-    private static func verticalOverlap(between lhs: NSRect, and rhs: NSRect) -> CGFloat {
-        max(0, min(lhs.maxY, rhs.maxY) - max(lhs.minY, rhs.minY))
-    }
-
-    private static func visibleDescendants(in root: NSView) -> [NSView] {
-        var descendants: [NSView] = []
-        var stack = Array(root.subviews.reversed())
-        while let view = stack.popLast() {
-            descendants.append(view)
-            stack.append(contentsOf: view.subviews.reversed())
-        }
-        return descendants
-    }
-
     private static func isInspectorView(_ view: NSView) -> Bool {
         cmuxIsWebInspectorObject(view)
     }
@@ -992,41 +973,6 @@ final class WindowBrowserHostView: NSView {
         !view.isHidden &&
             view.alphaValue > 0 &&
             view.frame.height > 1
-    }
-
-    private static func collectSplitDividerRegions(in view: NSView, into result: inout [DividerRegion]) {
-        guard !view.isHidden else { return }
-
-        if let splitView = view as? NSSplitView {
-            let dividerCount = max(0, splitView.arrangedSubviews.count - 1)
-            for dividerIndex in 0..<dividerCount {
-                let first = splitView.arrangedSubviews[dividerIndex].frame
-                let second = splitView.arrangedSubviews[dividerIndex + 1].frame
-                let thickness = splitView.dividerThickness
-                let dividerRect: NSRect
-                if splitView.isVertical {
-                    guard first.width > 1 || second.width > 1 else { continue }
-                    let x = max(0, first.maxX)
-                    dividerRect = NSRect(x: x, y: 0, width: thickness, height: splitView.bounds.height)
-                } else {
-                    guard first.height > 1 || second.height > 1 else { continue }
-                    let y = max(0, first.maxY)
-                    dividerRect = NSRect(x: 0, y: y, width: splitView.bounds.width, height: thickness)
-                }
-                let dividerRectInWindow = splitView.convert(dividerRect, to: nil)
-                guard dividerRectInWindow.width > 0, dividerRectInWindow.height > 0 else { continue }
-                result.append(
-                    DividerRegion(
-                        rectInWindow: dividerRectInWindow,
-                        isVertical: splitView.isVertical
-                    )
-                )
-            }
-        }
-
-        for subview in view.subviews {
-            collectSplitDividerRegions(in: subview, into: &result)
-        }
     }
 
 }

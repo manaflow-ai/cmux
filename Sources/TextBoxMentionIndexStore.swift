@@ -373,7 +373,7 @@ actor TextBoxMentionIndexStore {
     }
 
     private static func scanFilesWithRipgrep(rootURL: URL) async -> [TextBoxMentionCandidate]? {
-        guard let executable = RipgrepExecutableResolver.resolve() else { return nil }
+        guard let executable = RipgrepExecutableResolver().resolve() else { return nil }
 
         let process = Process()
         process.executableURL = executable.url
