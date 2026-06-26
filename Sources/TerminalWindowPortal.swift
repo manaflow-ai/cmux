@@ -1312,10 +1312,10 @@ final class WindowTerminalPortal: NSObject {
         hostedView: GhosttySurfaceScrollView,
         reason: String
     ) -> Bool {
-        if entry.transientRecoveryReason != reason {
-            entry.transientRecoveryReason = reason
+        if entry.transientRecoveryReason == nil {
             entry.transientRecoveryRetriesRemaining = Self.transientRecoveryRetryBudget
         }
+        entry.transientRecoveryReason = reason
 #if DEBUG
         if entry.transientRecoveryRetriesRemaining <= 0 {
             cmuxDebugLog(
