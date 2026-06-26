@@ -39,30 +39,6 @@ enum CmuxMain {
     }
 }
 
-/// Controls the macOS "press and hold" accent-character popup for cmux.
-///
-/// Holding a key (for example `l` while navigating with vim motions) should
-/// repeat the key into the terminal, but macOS instead pops up the
-/// alternate-character picker unless the app opts out. Like Ghostty, cmux opts
-/// out at launch. See https://github.com/manaflow-ai/cmux/issues/5457.
-enum PressAndHoldDefaults {
-    /// The user-default key macOS reads to decide between repeating a held key
-    /// and showing the accent-character popup.
-    static let pressAndHoldEnabledKey = "ApplePressAndHoldEnabled"
-
-    /// Disables the press-and-hold accent popup so held keys repeat into the
-    /// terminal. Pure with respect to the injected `defaults`, so it is
-    /// unit-testable against a scratch `UserDefaults(suiteName:)`.
-    static func registerDisabled(defaults: UserDefaults = .standard) {
-        // Register the disabled value in the registration domain (the
-        // lowest-priority source), mirroring Ghostty/VS Code/iTerm. This
-        // provides cmux's per-app default without clobbering an explicit
-        // global override a user may have set via
-        // `defaults write -g ApplePressAndHoldEnabled -bool true`.
-        defaults.register(defaults: [pressAndHoldEnabledKey: false])
-    }
-}
-
 struct cmuxApp: App {
     /// Dependency container for the new settings packages. Constructed
     /// once at app launch and injected into the SwiftUI environment via
@@ -207,10 +183,8 @@ struct cmuxApp: App {
         Self.applyAppearance(startupAppearance, duringLaunch: true)
         StartupBreadcrumbLog.append("app.init.appearance.applied", fields: ["mode": startupAppearance.rawValue])
         let defaults = UserDefaults.standard
-        // Disable the macOS press-and-hold accent popup so held keys repeat into
-        // the terminal (vim motions, etc.) instead of opening the
-        // alternate-character picker. Matches Ghostty's behavior. See
-        // https://github.com/manaflow-ai/cmux/issues/5457.
+        // Make held keys repeat into the terminal instead of opening the macOS
+        // accent-character popup (see PressAndHoldDefaults / issue #5457).
         PressAndHoldDefaults.registerDisabled(defaults: defaults)
         AppBundleIconPersistencePolicy.updateDisableDefault(
             defaults: defaults,
