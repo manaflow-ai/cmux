@@ -42,6 +42,14 @@ function signInRequest(nativeReturnTo: string, handoffNonce: string): NextReques
   );
 }
 
+function webSignInRequest(): NextRequest {
+  return new NextRequest("https://cmux.test/handler/after-sign-in", {
+    headers: {
+      "accept-language": "en",
+    },
+  });
+}
+
 function returnHref(html: string): string {
   const match = html.match(/<a href="([^"]+)">Return to cmux<\/a>/);
   expect(match).toBeTruthy();
@@ -95,6 +103,13 @@ describe("after sign-in native handoff", () => {
     expect(html).toContain("Return to cmux");
     expect(html).not.toContain("window.location.replace");
     expect(returnHref(html)).toContain("cmux://auth-callback");
+  });
+
+  test("redirects plain web callbacks home instead of falling back to native handoff", async () => {
+    const response = await GET(webSignInRequest());
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://cmux.test/");
   });
 
   test("does not crash on malformed percent-encoded stack cookies", async () => {
