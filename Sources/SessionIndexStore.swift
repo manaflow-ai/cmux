@@ -648,7 +648,7 @@ final class SessionIndexStore: ObservableObject {
     /// already sorted by `modified` desc, and the enumerated-offset tie-break
     /// keeps that order within each rank (Swift's `sort` is not guaranteed
     /// stable on its own).
-    func orderedSessionEntries(_ entries: [SessionEntry]) -> [SessionEntry] {
+    private func orderedSessionEntries(_ entries: [SessionEntry]) -> [SessionEntry] {
         guard !pinnedSessionIds.isEmpty || !archivedSessionIds.isEmpty else { return entries }
         func rank(_ entry: SessionEntry) -> Int {
             if archivedSessionIds.contains(entry.id) { return 2 }
@@ -1308,6 +1308,15 @@ final class SessionIndexStore: ObservableObject {
     /// entries (used when the user just opens the popover and scrolls).
     /// Returns up to `limit` entries sorted by mtime desc, skipping the first
     /// `offset` matches.
+    ///
+    /// Archived sessions are intentionally NOT filtered here. A typed query is
+    /// the "find a related thread" path (issue #6186), and archive only removes
+    /// a thread from the *active list* and the empty-query browse snapshot, not
+    /// from history — so search must still surface archived threads (the popover
+    /// renders them dimmed with an Unarchive action). Filtering the paginated
+    /// results would also desync the `offset = loaded.count` cursor from the
+    /// store's unfiltered position, reintroducing the re-fetch loop documented
+    /// in `SectionPopoverView.applyOutcome`.
     func searchSessions(
         query: String,
         scope: SearchScope,

@@ -749,7 +749,15 @@ private func sessionRowMenuItems(
             }
         }
     }
-    if onResume != nil || stateActions != nil {
+    // Separator between the resume/pin/archive group and the file-action group,
+    // shown only when both groups are present so an entry with no fileURL /
+    // resume command / cwd doesn't end on a trailing divider. The pull-request
+    // group below keeps its own leading divider.
+    let hasPrimaryActions = onResume != nil || stateActions != nil
+    let hasSecondaryActions = entry.fileURL != nil
+        || entry.resumeCommand != nil
+        || !(entry.cwd ?? "").isEmpty
+    if hasPrimaryActions && hasSecondaryActions {
         Divider()
     }
     if let url = entry.fileURL {
@@ -2225,8 +2233,29 @@ private struct SectionPopoverView: View {
     /// only). When non-nil, `loadMore()` slices this array in memory
     /// instead of hitting the store.
     @State private var fullSnapshot: [SessionEntry]?
+    /// Bumped whenever the user pins/archives from inside the popover. The
+    /// popover holds no store reference, so this local revision is what drives
+    /// a row refresh after a context-menu toggle.
+    @State private var stateRevision: Int = 0
 
     private static let pageSize = 100
+
+    /// `stateActions` with the pin/archive toggles wrapped to also bump
+    /// `stateRevision`, so an in-popover toggle re-evaluates the row bodies.
+    private var popoverStateActions: SessionRowStateActions {
+        SessionRowStateActions(
+            isPinned: stateActions.isPinned,
+            isArchived: stateActions.isArchived,
+            togglePinned: { entry in
+                stateActions.togglePinned(entry)
+                stateRevision &+= 1
+            },
+            toggleArchived: { entry in
+                stateActions.toggleArchived(entry)
+                stateRevision &+= 1
+            }
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -2308,8 +2337,19 @@ private struct SectionPopoverView: View {
                             .padding(.vertical, 10)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
+                        // Reading stateRevision re-evaluates these rows after an
+                        // in-popover pin/archive toggle. The popover doesn't observe
+                        // the store, so the wrapped toggles below bump this local
+                        // revision instead, refreshing the pin glyph / dim / labels.
+                        let _ = stateRevision
+                        let rowStateActions = popoverStateActions
                         ForEach(loaded) { entry in
-                            PopoverRow(entry: entry, stateActions: stateActions) {
+                            PopoverRow(
+                                entry: entry,
+                                isPinned: rowStateActions.isPinned(entry.id),
+                                isArchived: rowStateActions.isArchived(entry.id),
+                                stateActions: rowStateActions
+                            ) {
                                 onResume?(entry)
                                 onDismiss()
                             }
@@ -2538,17 +2578,21 @@ private struct SectionPopoverView: View {
 
 private struct PopoverRow: View, Equatable {
     let entry: SessionEntry
-    /// Read/toggle bundle for pin/archive. Not part of `==` (stable closures
-    /// captured above the list boundary); the pin glyph is evaluated when the
-    /// row body builds, so it is correct on open and after the popover's
-    /// content refreshes, which is the lifecycle that rebuilds these rows.
+    /// Pin/archive snapshot for this row, included in `==` so the glyph and
+    /// dimming update after an in-popover toggle (the parent recomputes these
+    /// from the wrapped `stateActions` and bumps its revision to force it).
+    let isPinned: Bool
+    let isArchived: Bool
+    /// Read/toggle bundle for pin/archive. Not part of `==` (stable closures).
     let stateActions: SessionRowStateActions
     let onActivate: () -> Void
 
     @State private var isHovered: Bool = false
 
     static func == (lhs: PopoverRow, rhs: PopoverRow) -> Bool {
-        lhs.entry == rhs.entry
+        lhs.entry == rhs.entry &&
+            lhs.isPinned == rhs.isPinned &&
+            lhs.isArchived == rhs.isArchived
     }
 
     fileprivate static func flatten(_ s: String) -> String {
@@ -2580,7 +2624,7 @@ private struct PopoverRow: View, Equatable {
     var body: some View {
         HStack(spacing: 6) {
             AgentIconImage(agent: entry.agent, size: 12)
-            if stateActions.isPinned(entry.id) {
+            if isPinned {
                 Image(systemName: "pin.fill")
                     .cmuxFont(size: 9, weight: .semibold)
                     .foregroundColor(.secondary.opacity(0.7))
@@ -2601,7 +2645,7 @@ private struct PopoverRow: View, Equatable {
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .opacity(stateActions.isArchived(entry.id) ? 0.55 : 1.0)
+        .opacity(isArchived ? 0.55 : 1.0)
         .contentShape(Rectangle())
         .background(isHovered ? Color.primary.opacity(0.06) : Color.clear)
         .onHover { isHovered = $0 }
