@@ -2686,6 +2686,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                macAppBuild: ticket.macAppBuild,
                routes: ticket.routes,
                expiresAt: ticket.expiresAt,
+               ticketRef: ticket.ticketRef,
                authToken: ticket.authToken
            ) {
             activeTicket = adopted
@@ -2870,10 +2871,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Offline preflight: fail fast instead of stacking per-route connect
         // timeouts into the opaque ~60s wait. Skipped only when no route is
         // dialable so `connect()` classifies that as `no_supported_route`.
-        // Ticket expiry deliberately does NOT gate this: a stale QR is a valid
-        // pairing input now (expiry is enforced solely where the RPC attach
-        // token is used), so an expired legacy code scanned offline must say
-        // "offline", not crawl the route loop's stacked timeouts.
+        // Inline ticket expiry deliberately does NOT gate this preflight:
+        // decoded QR URLs carry no inline expiry, and host-side reference
+        // expiry is enforced after the route is reached. An expired legacy code
+        // scanned offline should still say "offline", not crawl the route loop's
+        // stacked timeouts.
         let candidateRoutes = Self.supportedRoutes(for: ticket, supportedKinds: runtime?.supportedRouteKinds ?? [])
         if !candidateRoutes.isEmpty {
             switch await failPairingIfOffline(attemptID: attemptID, phase: "preflight", routes: candidateRoutes) {
@@ -4493,10 +4495,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             clearRemoteConnectionContext()
             return .noSupportedRoute
         }
-        // No connect-time expiry gate: a pairing QR never expires (new QRs
-        // carry no expiry at all), and the host authorizes by Stack account,
-        // not ticket age. Expiry still gates the RPC-minted attach token at
-        // its point of use (`MobileCoreRPCClient.requestDataWithAuth`).
+        // No local connect-time expiry gate: compact QR URLs carry no inline
+        // expiry. Host-side reference expiry is enforced by the redeem RPC, and
+        // token expiry still gates the RPC-minted attach token at its point of
+        // use (`MobileCoreRPCClient.requestDataWithAuth`).
         activeTicket = ticket
         activeRoute = firstRoute
         connectedHostName = placeholderHostName(for: ticket, firstRoute: firstRoute)
@@ -4550,7 +4552,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         timeoutNanoseconds: requestTimeoutNanoseconds
                     )
                     let response = try MobileSyncWorkspaceListResponse.decode(resultData)
+                    let connectionTicket = await client.currentTicket()
                     guard isCurrentConnectionAttempt(generation) else { return nil }
+                    activeTicket = connectionTicket
+                    connectedHostName = placeholderHostName(for: connectionTicket, firstRoute: route)
                     replaceRemoteClient(with: client)
                     startTerminalRefreshPolling()
                     // The connect seam guarantees identity recovery for an
@@ -4566,7 +4571,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         scheduleHostIdentityAdoptionIfNeeded(client: client)
                     }
                     clearPairingError()
-                    await persistPairedMacFromTicket(ticket)
+                    await persistPairedMacFromTicket(connectionTicket)
                     // Set the foreground Mac id BEFORE applying the list so the
                     // per-Mac state is keyed to THIS Mac, not the previously-
                     // foreground Mac (or the anonymous key). Otherwise switching
@@ -4575,7 +4580,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // snapshot. Anonymous (empty-id) tickets keep the anonymous key. A
                     // manual fallback ticket carries a synthetic `manual-…` id, so
                     // prefer the caller's real paired-Mac id when it is known.
-                    let resolvedForegroundMacID = ticket.foregroundMacID(hint: pairedMacDeviceID)
+                    let resolvedForegroundMacID = connectionTicket.foregroundMacID(hint: pairedMacDeviceID)
                     let previousForegroundKey = foregroundMacKey
                     if !resolvedForegroundMacID.isEmpty {
                         foregroundMacDeviceID = resolvedForegroundMacID
@@ -4602,8 +4607,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     if !resolvedForegroundMacID.isEmpty {
                         connections[resolvedForegroundMacID] = MacConnection(
                             macDeviceID: resolvedForegroundMacID,
-                            ticket: ticket,
-                            route: firstRoute,
+                            ticket: connectionTicket,
+                            route: route,
                             client: client,
                             generation: generation
                         )
@@ -6804,7 +6809,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case let .rpcError(code, message):
             let normalizedCode = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             if let normalizedCode,
-               ["unauthorized", "forbidden", "invalid_token", "token_expired", "expired_token", "auth_required"].contains(normalizedCode) {
+               ["unauthorized", "forbidden", "invalid_token", "token_expired", "expired_token", "ticket_expired", "auth_required"].contains(normalizedCode) {
                 return true
             }
             let normalizedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()

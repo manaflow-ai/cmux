@@ -363,6 +363,9 @@ extension MobilePairingFailureCategory {
             if normalizedCode == "account_mismatch" {
                 return .accountMismatch
             }
+            if normalizedCode == "ticket_expired" {
+                return .ticketExpired
+            }
             if ["unauthorized", "forbidden", "invalid_token", "token_expired",
                 "expired_token", "auth_required"].contains(normalizedCode) {
                 return .authFailed

@@ -7,8 +7,7 @@ import Observation
 /// Drives the in-app iOS pairing window. Gates pairing on the Mac being signed
 /// in (authorization is a Stack same-account check), then turns on the
 /// pairing host, mints an attach ticket, and exposes the QR payload plus
-/// Tailscale reachability for the view. The displayed code never expires and
-/// is never regenerated on a timer; Refresh Code re-mints on demand.
+/// Tailscale reachability for the view. Refresh Code re-mints on demand.
 ///
 /// Reads auth state from the app's shared ``CmuxAuthRuntime/AuthCoordinator``
 /// (via `AppDelegate`); the browser sign-in is fire-and-forget and completion
@@ -75,10 +74,9 @@ final class MobilePairingModel {
     ///     instance. (Resolved in the `@MainActor` init body rather than as a
     ///     default argument, since default args are evaluated nonisolated and
     ///     `MobileHostService.shared` is main-actor isolated.)
-    ///   - ticketTTL: Lifetime of the minted attach token in seconds. Defaults
-    ///     to 600. Covers only the RPC/v1 fallback token the mint produces as a
-    ///     side effect; the displayed v2 pairing QR carries no token and never
-    ///     expires.
+    ///   - ticketTTL: Lifetime of the minted attach token/reference in seconds.
+    ///     Defaults to 600. The displayed v2 pairing QR carries only the ticket
+    ///     reference, while the host-side record owns expiry.
     init(host: MobileHostService? = nil, ticketTTL: TimeInterval = 600) {
         self.host = host ?? .shared
         self.ticketTTL = ticketTTL
@@ -187,9 +185,9 @@ final class MobilePairingModel {
 
     /// Cancels the connection observation. Call when the window closes.
     ///
-    /// There is deliberately no timer to cancel: the displayed code never
-    /// expires and is never regenerated behind the user's back. If a
-    /// Tailscale address changes while the window sits open (rare), the
+    /// There is deliberately no timer to cancel: the displayed code is never
+    /// regenerated behind the user's back. If a Tailscale address changes or
+    /// the host-side ticket reference expires while the window sits open, the
     /// Refresh Code button re-mints on demand.
     func stopObserving() {
         connectionObservationTask?.cancel()

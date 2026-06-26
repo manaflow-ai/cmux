@@ -5,8 +5,9 @@ import Foundation
 ///
 /// `JSONDecoder` ignores unknown keys, so payloads from the first compact
 /// grammar revision that still carry `e` (expiry) and `n` (display name)
-/// decode here with both intentionally dropped: a pairing QR never expires,
-/// and the Mac's name is read post-handshake from `mobile.host.status`.
+/// decode here with both intentionally dropped: expiry is owned by the
+/// host-side ticket record, and the Mac's name is read post-handshake from
+/// `mobile.host.status`.
 struct CompactAttachTicket: Codable {
     let v: Int
     let w: String?
@@ -16,6 +17,7 @@ struct CompactAttachTicket: Codable {
     let pc: Int?
     let av: String?
     let ab: String?
+    let q: String?
     let r: [CompactAttachRoute]
 
     init(_ ticket: CmxAttachTicket) {
@@ -27,6 +29,7 @@ struct CompactAttachTicket: Codable {
         pc = ticket.macPairingCompatibilityVersion
         av = Self.normalizedNonEmpty(ticket.macAppVersion)
         ab = Self.normalizedNonEmpty(ticket.macAppBuild)
+        q = Self.normalizedNonEmpty(ticket.ticketRef)
         r = Self.compactedRoutes(ticket.routes)
     }
 
@@ -43,7 +46,8 @@ struct CompactAttachTicket: Codable {
             macAppVersion: av,
             macAppBuild: ab,
             routes: Self.expandedRoutes(r),
-            expiresAt: nil
+            expiresAt: nil,
+            ticketRef: q
         )
     }
 

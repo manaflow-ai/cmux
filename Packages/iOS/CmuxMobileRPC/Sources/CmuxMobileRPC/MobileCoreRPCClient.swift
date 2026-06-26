@@ -11,7 +11,7 @@ internal import os
 public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private let runtime: any MobileSyncRuntime
     private let route: CmxAttachRoute
-    private let ticket: CmxAttachTicket
+    private let ticketState: MobileCoreRPCTicketState
     private let allowsStackAuthFallback: Bool
     // `internal` (not `private`) so `@testable import` can observe session
     // queue state from tests, instead of exposing a debug hook in production.
@@ -40,7 +40,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     ) {
         self.runtime = runtime
         self.route = route
-        self.ticket = ticket
+        self.ticketState = MobileCoreRPCTicketState(ticket: ticket)
         self.allowsStackAuthFallback = allowsStackAuthFallback
         self.stackTokenGate = stackTokenGate
             ?? RPCStackTokenGate(timedOutResetNanoseconds: stackTokenGateResetNanoseconds)
@@ -61,6 +61,15 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     /// replaced or the user signs out).
     public func disconnect() async {
         await session.tearDown(error: .connectionClosed)
+    }
+
+    /// The effective attach ticket after any ticket-reference redemption.
+    ///
+    /// Before the first authorized request this is the scanned/persisted ticket.
+    /// After a compact QR ticket reference is redeemed, it includes the
+    /// authenticated attach token and host-reported ticket context.
+    public func currentTicket() async -> CmxAttachTicket {
+        await ticketState.current()
     }
 
     /// Subscribe to server-pushed events. Returns a stream of envelopes
@@ -202,6 +211,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             return requestData
         }
         let requestNeedsAuth = Self.requestRequiresAuth(request)
+        let ticket = try await ticketForRequest(request, deadline: deadline)
         let requestIsCoveredByAttachTicket = !Self.requestNeedsStackAuthFallback(request, ticket: ticket)
         var auth: [String: Any] = [:]
         let attachToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -267,6 +277,92 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             request["auth"] = auth
         }
         return try JSONSerialization.data(withJSONObject: request)
+    }
+
+    private func ticketForRequest(_ request: [String: Any], deadline: RPCRequestDeadline) async throws -> CmxAttachTicket {
+        let current = await ticketState.current()
+        guard Self.requestRequiresAuth(request),
+              let ticketRef = current.ticketRef?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !ticketRef.isEmpty,
+              current.authToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false else {
+            return current
+        }
+        let redeemed = try await redeemAttachTicket(ticketRef: ticketRef, baseTicket: current, deadline: deadline)
+        await ticketState.replace(with: redeemed)
+        return redeemed
+    }
+
+    private func redeemAttachTicket(
+        ticketRef: String,
+        baseTicket: CmxAttachTicket,
+        deadline: RPCRequestDeadline
+    ) async throws -> CmxAttachTicket {
+        guard allowsStackAuthFallback,
+              MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) else {
+            throw MobileShellConnectionError.insecureManualRoute
+        }
+        let (id, request) = try Self.requestWithGuaranteedID(
+            Self.requestData(
+                method: "mobile.attach_ticket.redeem",
+                params: ["ticket_ref": ticketRef]
+            )
+        )
+        let authenticated = try await requestDataWithStackAuthOnly(request, deadline: deadline)
+        let responseData = try await session.send(
+            payload: authenticated,
+            requestID: id,
+            deadlineUptimeNanoseconds: deadline.uptimeNanoseconds
+        )
+        let response = try MobileAttachTicketRedeemResponse.decode(responseData)
+        return try Self.redeemedTicket(response.ticket, constrainedTo: baseTicket)
+    }
+
+    private func requestDataWithStackAuthOnly(_ requestData: Data, deadline: RPCRequestDeadline) async throws -> Data {
+        guard var request = try JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
+            return requestData
+        }
+        let accessToken: String
+        do {
+            accessToken = try await stackAccessToken(deadline: deadline)
+        } catch let error as MobileShellConnectionError {
+            throw error
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw MobileShellConnectionError.authorizationFailed(
+                L10n.string(
+                    "mobile.pairing.stackAuthTokenUnavailable",
+                    defaultValue: "Sign in on your computer with the same account, then try again."
+                )
+            )
+        }
+        request["auth"] = [
+            "stack_access_token": accessToken
+        ]
+        return try JSONSerialization.data(withJSONObject: request)
+    }
+
+    private static func redeemedTicket(
+        _ redeemed: CmxAttachTicket,
+        constrainedTo scanned: CmxAttachTicket
+    ) throws -> CmxAttachTicket {
+        try CmxAttachTicket(
+            version: redeemed.version,
+            workspaceID: redeemed.workspaceID,
+            terminalID: redeemed.terminalID,
+            macDeviceID: redeemed.macDeviceID.isEmpty ? scanned.macDeviceID : redeemed.macDeviceID,
+            macDisplayName: redeemed.macDisplayName ?? scanned.macDisplayName,
+            macUserEmail: redeemed.macUserEmail ?? scanned.macUserEmail,
+            macUserID: redeemed.macUserID ?? scanned.macUserID,
+            macPairingCompatibilityVersion: redeemed.macPairingCompatibilityVersion
+                ?? scanned.macPairingCompatibilityVersion,
+            macAppVersion: redeemed.macAppVersion ?? scanned.macAppVersion,
+            macAppBuild: redeemed.macAppBuild ?? scanned.macAppBuild,
+            routes: scanned.routes,
+            expiresAt: redeemed.expiresAt,
+            ticketRef: redeemed.ticketRef ?? scanned.ticketRef,
+            authToken: redeemed.authToken
+        )
     }
 
     private func stackAccessTokenForStatus(deadline: RPCRequestDeadline) async throws -> String? {

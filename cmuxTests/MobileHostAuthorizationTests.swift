@@ -36,8 +36,37 @@ struct MobileHostAuthorizationTests {
         )
 
         #expect(first.authToken != second.authToken)
+        #expect(first.ticketRef != second.ticketRef)
         #expect(store.validTicket(authToken: first.authToken, now: now.addingTimeInterval(2))?.authToken == first.authToken)
         #expect(store.validTicket(authToken: second.authToken, now: now.addingTimeInterval(2))?.authToken == second.authToken)
+        #expect(store.validAuthorization(ticketRef: first.ticketRef, now: now.addingTimeInterval(2))?.ticket.authToken == first.authToken)
+        #expect(store.validAuthorization(ticketRef: second.ticketRef, now: now.addingTimeInterval(2))?.ticket.authToken == second.authToken)
+    }
+    @Test func testAttachTicketStoreResolvesTicketReferenceUntilExpiry() throws {
+        let store = MobileAttachTicketStore()
+        let route = try CmxAttachRoute(
+            id: "debug",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 58465)
+        )
+        let now = Date()
+        let ticket = try store.createTicket(
+            workspaceID: "workspace",
+            terminalID: "terminal",
+            routes: [route],
+            ttl: 30,
+            now: now
+        )
+
+        let payload = try store.payload(forTicketRef: ticket.ticketRef, now: now.addingTimeInterval(1))
+        let payloadTicket = try #require(payload["ticket"] as? [String: Any])
+        #expect(payload["ticket_ref"] as? String == ticket.ticketRef)
+        #expect(payloadTicket["auth_token"] as? String == ticket.authToken)
+
+        #expect(throws: MobileAttachTicketStoreError.ticketUnavailable) {
+            _ = try store.payload(forTicketRef: ticket.ticketRef, now: now.addingTimeInterval(31))
+        }
+        #expect(store.validAuthorization(ticketRef: ticket.ticketRef, now: now.addingTimeInterval(31)) == nil)
     }
     @Test func testAttachTicketStoreRecordsCreatedResourceScopes() throws {
         let store = MobileAttachTicketStore()

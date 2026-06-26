@@ -9,13 +9,12 @@ import Foundation
 /// The compact grammar keeps the same envelope but encodes only what pairing
 /// actually consumes: short keys, no empty optional fields, no auth token, no
 /// display name (read post-handshake from `mobile.host.status`), and no
-/// expiry. It does keep non-secret pairing context: the Mac account email,
-/// shared pairing compatibility level, and app version/build, so the phone can
-/// fail fast on an account mismatch and warn before continuing across
-/// compatibility skew. A pairing QR never expires;
-/// the owner's Stack access token is the
-/// host's sole authorization gate (`MobileHostService.authorizationError(for:)`),
-/// so ticket age authorizes nothing.
+/// inline expiry. It does keep non-secret pairing context: the ticket reference,
+/// Mac account id, shared pairing compatibility level, and app version/build,
+/// so the phone can redeem the host-side ticket record after Stack auth, fail
+/// fast on an account mismatch, and warn before continuing across compatibility
+/// skew. The ticket reference is not a bearer credential; the owner's Stack
+/// access token is the host's authorization gate.
 ///
 /// Compatibility:
 /// - New decoders accept both grammars: ``CmxAttachTicketInput`` routes a
@@ -29,8 +28,9 @@ import Foundation
 ///   shows a pairing error instead of silently misreading the ticket.
 ///
 /// Key map (ticket): `v` version, `w` workspaceID (omitted when empty),
-/// `t` terminalID, `d` macDeviceID, `u` Mac account email, `pc` pairing
-/// compatibility version, `av` app version, `ab` app build, `r` routes.
+/// `t` terminalID, `d` macDeviceID, `u` Mac account id, `pc` pairing
+/// compatibility version, `av` app version, `ab` app build, `q` ticket
+/// reference, `r` routes.
 /// Key map (route): `i` id (omitted when the decoder can resynthesize it:
 /// `kind` for the first route of a kind, `kind_N` for the Nth), `k` kind raw
 /// value, `p` priority (omitted when 0), `e` endpoint.
@@ -45,9 +45,9 @@ public struct CmxAttachTicketCompactCoder: Sendable {
     /// Encode a ticket into the compact JSON grammar.
     ///
     /// Any `authToken`, `macDisplayName`, and `expiresAt` on the ticket are
-    /// intentionally not encoded: the token never authorizes anything on the
-    /// host (Stack auth is the sole gate), the name is read post-handshake
-    /// from `mobile.host.status`, and a pairing QR never expires.
+    /// intentionally not encoded: the token is resolved from `ticketRef` only
+    /// after Stack auth, the name is read post-handshake from
+    /// `mobile.host.status`, and the host-side ticket record owns expiry.
     public func encode(_ ticket: CmxAttachTicket) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]

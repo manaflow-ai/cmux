@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import CMUXMobileCore
 
-/// Coverage for the minimal v2 pairing-QR grammar: bare Tailscale
-/// `host:port` routes in the URL query, nothing else.
+/// Coverage for the v2 pairing-QR grammar: a ticket reference plus bare
+/// Tailscale `host:port` routes in the URL query, with no bearer token.
 @Suite struct CmxPairingQRCodeTests {
     private func tailscaleRoute(
         index: Int,
@@ -28,6 +28,7 @@ import Testing
             macDisplayName: "Lawrence's Mac",
             routes: routes,
             expiresAt: Date().addingTimeInterval(600),
+            ticketRef: "ticket-ref-123",
             authToken: "minted-but-never-in-the-qr"
         )
     }
@@ -45,7 +46,7 @@ import Testing
         // The scheme is channel-specific: a release Mac emits cmux-ios, a dev
         // Mac emits cmux-ios-dev, so the system camera routes each channel's QR
         // to its build. The rest of the URL is identical across channels.
-        #expect(url == "\(CmxPairingURLScheme.current)://attach?v=2&r=100.64.0.5:58465")
+        #expect(url == "\(CmxPairingURLScheme.current)://attach?v=2&tr=ticket-ref-123&r=100.64.0.5:58465")
 
         let decoded = try CmxPairingQRCode().decode(try components(url))
         #expect(decoded.routes == ticket.routes)
@@ -56,6 +57,7 @@ import Testing
         #expect(decoded.macDeviceID == "")
         #expect(decoded.macDisplayName == nil)
         #expect(decoded.expiresAt == nil)
+        #expect(decoded.ticketRef == "ticket-ref-123")
         #expect(decoded.authToken == nil)
     }
 
@@ -90,10 +92,12 @@ import Testing
                 try tailscaleRoute(index: 0, host: "100.64.0.5"),
             ],
             expiresAt: Date().addingTimeInterval(600),
+            ticketRef: "ticket-ref-123",
             authToken: "minted-but-never-in-the-qr"
         )
 
         let url = try #require(CmxPairingQRCode().encode(ticket))
+        #expect(url.contains("tr=ticket-ref-123"))
         #expect(url.contains("ub=user_mac_123"))
         #expect(!url.contains("Lawrence@Example.com"))
         #expect(!url.lowercased().contains("lawrence@example.com"))
@@ -107,6 +111,7 @@ import Testing
         #expect(decoded.macPairingCompatibilityVersion == 1)
         #expect(decoded.macAppVersion == "0.64.15")
         #expect(decoded.macAppBuild == "42")
+        #expect(decoded.ticketRef == "ticket-ref-123")
         #expect(decoded.routes == ticket.routes)
     }
 
@@ -134,9 +139,10 @@ import Testing
         let ticket = try pairingTicket(routes: [loopback, tailscale])
 
         let url = try #require(CmxPairingQRCode().encode(ticket))
-        #expect(url == "\(CmxPairingURLScheme.current)://attach?v=2&r=100.64.0.5:58465")
+        #expect(url == "\(CmxPairingURLScheme.current)://attach?v=2&tr=ticket-ref-123&r=100.64.0.5:58465")
         let decoded = try CmxPairingQRCode().decode(try components(url))
         #expect(decoded.routes == [tailscale])
+        #expect(decoded.ticketRef == "ticket-ref-123")
     }
 
     @Test func ticketsOutsideTheMinimalGrammarDoNotEncode() throws {
@@ -151,6 +157,20 @@ import Testing
         )
         #expect(CmxPairingQRCode().encode(scoped) == nil)
         #expect(!CmxPairingQRCode().canEncode(scoped))
+
+        // A compact QR must carry the host-side ticket reference. Without one,
+        // there is nothing the phone can redeem after Stack auth.
+        let missingTicketRef = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "mac",
+            macDisplayName: nil,
+            routes: [tailscale],
+            expiresAt: Date().addingTimeInterval(600),
+            authToken: "minted-but-never-in-the-qr"
+        )
+        #expect(CmxPairingQRCode().encode(missingTicketRef) == nil)
+        #expect(!CmxPairingQRCode().canEncode(missingTicketRef))
 
         // Loopback-only dev tickets have nothing a phone could dial.
         let loopbackOnly = try CmxAttachTicket(
@@ -278,13 +298,12 @@ import Testing
         #expect(!CmxPairingQRCode().isPairingCodeURLString("not a url"))
     }
 
-    @Test func decodedTicketStillPairsLongAfterMint() throws {
-        // The grammar has no expiry field at all, so a code that sat on the
-        // Mac's screen for 10+ minutes still validates and is never expired.
+    @Test func decodedTicketHasNoInlineExpiry() throws {
+        // The URL grammar has no inline expiry field at all; the host-side
+        // ticket reference record owns expiry when the phone redeems it.
         let url = "cmux-ios://attach?v=2&r=100.64.0.5:58465"
         let decoded = try CmxPairingQRCode().decode(try components(url))
         #expect(decoded.expiresAt == nil)
-        #expect(!decoded.isExpired(at: Date.distantFuture))
         // validate() is structural only; re-running it later cannot fail.
         try decoded.validate()
     }
@@ -332,8 +351,9 @@ import Testing
                 "\(afterBytes)B/QR v\(qrVersion(forByteCount: afterBytes)) (ECC M)"
             )
             #expect(afterBytes < beforeBytes)
-            // The representative 2-route QR stays under 100 bytes / version 6.
-            #expect(afterBytes < 100)
+            // The representative 2-route QR stays compact despite carrying a
+            // ticket reference.
+            #expect(afterBytes < 120)
             #expect(qrVersion(forByteCount: afterBytes) <= 6)
         }
     }

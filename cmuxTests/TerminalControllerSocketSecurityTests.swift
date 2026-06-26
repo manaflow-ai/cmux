@@ -623,6 +623,7 @@ final class TerminalControllerSocketSecurityTests {
                 "system.capabilities",
                 "mobile.host.status",
                 "mobile.attach_ticket.create",
+                "mobile.attach_ticket.redeem",
                 "mobile.workspace.list",
                 "workspace.list",
                 "workspace.create",

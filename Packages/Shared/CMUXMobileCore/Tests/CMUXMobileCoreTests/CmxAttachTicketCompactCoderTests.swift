@@ -48,6 +48,7 @@ private func legacyDecoder() -> JSONDecoder {
         macAppBuild: "42",
         routes: [try hostPortRoute(priority: 1)],
         expiresAt: wholeSecondFutureExpiry(),
+        ticketRef: "ticket-ref-123",
         authToken: "ticket-secret"
     )
 
@@ -67,6 +68,7 @@ private func legacyDecoder() -> JSONDecoder {
     #expect(json.contains("\"pc\":1"))
     #expect(json.contains("\"av\":\"0.64.15\""))
     #expect(json.contains("\"ab\":\"42\""))
+    #expect(json.contains("\"q\":\"ticket-ref-123\""))
     // The grammar no longer carries the display name or an expiry: the name
     // arrives post-handshake via `mobile.host.status`, and a pairing QR never
     // expires.
@@ -111,6 +113,7 @@ private func legacyDecoder() -> JSONDecoder {
         macAppBuild: "42",
         routes: routes,
         expiresAt: wholeSecondFutureExpiry(),
+        ticketRef: "ticket-ref-123",
         authToken: "ticket-secret"
     )
 
@@ -127,11 +130,13 @@ private func legacyDecoder() -> JSONDecoder {
     #expect(decoded.macPairingCompatibilityVersion == ticket.macPairingCompatibilityVersion)
     #expect(decoded.macAppVersion == ticket.macAppVersion)
     #expect(decoded.macAppBuild == ticket.macAppBuild)
+    #expect(decoded.ticketRef == "ticket-ref-123")
     // Routes round-trip losslessly even with custom ids ("ws" differs from
     // the synthesized "websocket", so it is carried verbatim).
     #expect(decoded.routes == ticket.routes)
-    // Dropped by design: the auth token never authorizes anything, the name
-    // arrives via `mobile.host.status`, and a pairing QR never expires.
+    // Dropped by design: the auth token is redeemed from the reference after
+    // Stack auth, the name arrives via `mobile.host.status`, and expiry stays
+    // on the host-side ticket record.
     #expect(decoded.authToken == nil)
     #expect(decoded.macDisplayName == nil)
     #expect(decoded.expiresAt == nil)

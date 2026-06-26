@@ -833,10 +833,11 @@ final class TerminalOutputCollector {
 
 @MainActor
 @Test func expiredLegacyTicketWhileOfflineReportsOfflineNotExpired() async throws {
-    // Expiry no longer classifies pairing inputs: a pairing QR never expires
-    // (v2 codes carry no expiry, legacy `e=` values are dropped on decode, and
-    // the host authorizes by Stack account, not ticket age), so a legacy
-    // ticket whose `expiresAt` has passed is still a valid pairing input.
+    // Inline expiry no longer classifies pairing inputs before routing: current
+    // QR codes carry a host-side ticket reference whose record owns expiry, v2
+    // codes carry no inline expiry, and legacy `e=` values are dropped on
+    // decode. A legacy ticket whose `expiresAt` has passed is still a valid
+    // structural input.
     // While the device is offline the preflight must say so and fail fast
     // with no dial — reconnecting and rescanning the same code is expected
     // to work, so "offline" is the honest, actionable message.
@@ -1435,10 +1436,9 @@ final class TerminalOutputCollector {
 
 @MainActor
 @Test func qrPairingURLStillConnectsTenMinutesAfterMint() async throws {
-    // The pairing QR encodes no expiry: a code that sat on the Mac's screen
-    // for 10+ minutes (longer than the minted ticket's whole attach-token
-    // TTL) must still pair. Before this grammar revision the phone refused
-    // such a scan at connect time with "This pairing link expired".
+    // The pairing QR encodes no inline expiry: host-side ticket references own
+    // the actual TTL. Before this grammar revision the phone refused stale
+    // inline payloads at connect time with "This pairing link expired".
     let mintedAt = Date()
     let route = try hostPortRoute(
         kind: .tailscale,
@@ -2692,6 +2692,7 @@ private extension CmxAttachTicket {
             macAppBuild: macAppBuild,
             routes: routes,
             expiresAt: expiresAt,
+            ticketRef: ticketRef,
             authToken: authToken
         )
     }

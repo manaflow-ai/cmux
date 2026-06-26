@@ -1099,6 +1099,10 @@ class TerminalController {
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
                 await self.v2MobileAttachTicketCreate(params: request.params)
             }
+        case "mobile.attach_ticket.redeem":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                await self.v2MobileAttachTicketRedeem(params: request.params)
+            }
         case "mobile.terminal.set_font":
             return v2Result(id: request.id, v2MobileTerminalSetFont(params: request.params))
         case "system.ping":
@@ -1953,6 +1957,7 @@ class TerminalController {
             "system.memory",
             "mobile.host.status",
             "mobile.attach_ticket.create",
+            "mobile.attach_ticket.redeem",
             "mobile.terminal.set_font",
             "mobile.workspace.list",
             "mobile.terminal.create",
@@ -12887,6 +12892,8 @@ class TerminalController {
             result = v2MobileHostStatus(params: request.params, includePrivateMetadata: false)
         case "mobile.attach_ticket.create":
             result = await v2MobileAttachTicketCreate(params: request.params)
+        case "mobile.attach_ticket.redeem":
+            result = await v2MobileAttachTicketRedeem(params: request.params)
         case "mobile.workspace.list", "workspace.list":
             result = v2MobileWorkspaceList(params: request.params)
         case "workspace.create":
@@ -13175,6 +13182,43 @@ class TerminalController {
             return .err(
                 code: "internal_error",
                 message: "Failed to create mobile attach ticket",
+                data: ["error": String(describing: error)]
+            )
+        }
+    }
+
+    @MainActor
+    func v2MobileAttachTicketRedeem(params: [String: Any]) async -> V2CallResult {
+        guard let ticketRef = v2OptionalTrimmedRawString(params, "ticket_ref")
+            ?? v2OptionalTrimmedRawString(params, "ticketRef") else {
+            return .err(
+                code: "invalid_request",
+                message: String(
+                    localized: "mobile.attachTicket.redeem.missingReference",
+                    defaultValue: "ticket_ref is required"
+                ),
+                data: nil
+            )
+        }
+
+        do {
+            return .ok(try MobileHostService.shared.redeemAttachTicket(ticketRef: ticketRef))
+        } catch MobileAttachTicketStoreError.ticketUnavailable {
+            return .err(
+                code: "ticket_expired",
+                message: String(
+                    localized: "mobile.attachTicket.redeem.ticketUnavailable",
+                    defaultValue: "Pairing ticket is no longer available"
+                ),
+                data: nil
+            )
+        } catch {
+            return .err(
+                code: "internal_error",
+                message: String(
+                    localized: "mobile.attachTicket.redeem.failed",
+                    defaultValue: "Failed to redeem mobile attach ticket"
+                ),
                 data: ["error": String(describing: error)]
             )
         }

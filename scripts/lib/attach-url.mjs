@@ -53,8 +53,10 @@ export function filterRoutes(routes, { routeID = "", routeKind = "" } = {}) {
 /**
  * Build the `<scheme>://attach` deep link from a raw attach-ticket payload.
  *
- * The returned `attachURL` is a bearer credential: it grants the holder the
- * paired Mac's terminals for the ticket's TTL. Never log it.
+ * When the Mac returns a canonical `attach_url`, this preserves that
+ * non-secret ticket-reference URL. When the caller locally filters routes and
+ * this module reconstructs the legacy v1 payload, the returned `attachURL`
+ * includes the bearer ticket and must not be logged.
  *
  * @param {object} payload The raw `mobile.attach_ticket.create` result.
  * @param {{routeID?: string, routeKind?: string, scheme?: string}} [filter]
@@ -86,7 +88,7 @@ export function buildAttachURL(payload, filter = {}) {
   // route set, so fall through to the lossless v1 reconstruction.
   if (
     typeof payload.attach_url === "string" &&
-    payload.attach_url.startsWith("cmux-ios://attach?") &&
+    isCanonicalAttachURL(payload.attach_url) &&
     routes.length === payload.ticket.routes.length
   ) {
     result.attach_url = payload.attach_url;
@@ -100,4 +102,11 @@ export function buildAttachURL(payload, filter = {}) {
   result.attach_url = `${scheme}://attach?v=${version}&payload=${encodedPayload}`;
 
   return { attachURL: result.attach_url, routes, payload: result };
+}
+
+function isCanonicalAttachURL(value) {
+  return (
+    value.startsWith(`${RELEASE_URL_SCHEME}://attach?`) ||
+    value.startsWith(`${DEV_URL_SCHEME}://attach?`)
+  );
 }

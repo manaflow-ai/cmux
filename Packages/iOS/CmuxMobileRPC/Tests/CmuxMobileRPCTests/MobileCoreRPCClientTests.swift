@@ -247,6 +247,94 @@ import Testing
         #expect(decoded.routes.first?.kind == .tailscale)
     }
 
+    @Test func ticketReferenceIsRedeemedBeforeAuthorizedRequest() async throws {
+        let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465, priority: 10)
+        let scannedTicket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "",
+            macDisplayName: nil,
+            routes: [route],
+            expiresAt: nil,
+            ticketRef: "ticket-ref-123",
+            authToken: nil
+        )
+        let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 58465)
+        let redeemedTicket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "mac-1",
+            macDisplayName: "Studio",
+            macUserID: "user_mac_123",
+            macPairingCompatibilityVersion: 1,
+            macAppVersion: "0.65.0",
+            macAppBuild: "42",
+            routes: [loopback, route],
+            expiresAt: Date(timeIntervalSince1970: 4_000_000_000),
+            ticketRef: "ticket-ref-123",
+            authToken: "ticket-secret"
+        )
+        let transport = ScriptedRPCTransport { payload in
+            let request = try #require(JSONSerialization.jsonObject(with: payload) as? [String: Any])
+            let id = request["id"] ?? NSNull()
+            switch request["method"] as? String {
+            case "mobile.attach_ticket.redeem":
+                return [
+                    "id": id,
+                    "ok": true,
+                    "result": ["ticket": try Self.ticketJSONObject(redeemedTicket)],
+                ]
+            case "workspace.list":
+                return [
+                    "id": id,
+                    "ok": true,
+                    "result": ["workspaces": []],
+                ]
+            default:
+                return [
+                    "id": id,
+                    "ok": false,
+                    "error": [
+                        "code": "method_not_found",
+                        "message": "unexpected method",
+                    ],
+                ]
+            }
+        }
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: ScriptedRPCTransportFactory(transport: transport),
+            stackAccessToken: "stack-token"
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: scannedTicket,
+            allowsStackAuthFallback: true
+        )
+
+        _ = try await client.sendRequest(
+            MobileCoreRPCClient.requestData(method: "workspace.list", params: [:])
+        )
+
+        let sent = try await transport.sentRequests()
+        #expect(sent.map(\.method) == ["mobile.attach_ticket.redeem", "workspace.list"])
+        #expect(sent[0].ticketRef == "ticket-ref-123")
+        #expect(sent[0].attachToken == nil)
+        #expect(sent[0].stackAccessToken == "stack-token")
+        #expect(sent[1].attachToken == "ticket-secret")
+        #expect(sent[1].stackAccessToken == "stack-token")
+
+        let effectiveTicket = await client.currentTicket()
+        #expect(effectiveTicket.authToken == "ticket-secret")
+        #expect(effectiveTicket.ticketRef == "ticket-ref-123")
+        #expect(effectiveTicket.macDeviceID == "mac-1")
+        #expect(effectiveTicket.macDisplayName == "Studio")
+        // The authenticated ticket can include routes the QR deliberately
+        // omitted (for example DEBUG loopback). The client keeps the scanned
+        // phone-safe route set for persistence/reconnect.
+        #expect(effectiveTicket.routes == [route])
+    }
+
     /// A QR-style unscoped ticket (empty ids, no token, no expiry) over the
     /// given route, mirroring what `CmxPairingQRCode.decode` produces.
     private func qrPairingTicket(route: CmxAttachRoute) throws -> CmxAttachTicket {
@@ -259,6 +347,13 @@ import Testing
             expiresAt: nil,
             authToken: nil
         )
+    }
+
+    private static func ticketJSONObject(_ ticket: CmxAttachTicket) throws -> [String: Any] {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(ticket)
+        return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
     /// Sends one `mobile.host.status` probe through a recording transport and

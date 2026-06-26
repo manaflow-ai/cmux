@@ -1,19 +1,18 @@
 import Foundation
 
-/// The minimal pairing-QR grammar: expected Mac account/build metadata plus
-/// plain `host:port` routes in the URL query.
+/// The compact pairing-QR grammar: a non-secret ticket reference, expected Mac
+/// account/build metadata, plus plain `host:port` routes in the URL query.
 ///
-/// `cmux-ios://attach?v=2&ub=<stack-user-id>&pc=<compat>&av=<version>&ab=<build>&r=<host>:<port>[&r=<host>:<port>...]`
+/// `cmux-ios://attach?v=2&tr=<ticket-ref>&ub=<stack-user-id>&pc=<compat>&av=<version>&ab=<build>&r=<host>:<port>[&r=<host>:<port>...]`
 ///
 /// A pairing QR needs to tell the phone where to dial and which non-secret
-/// account/build context to check before dialing. The account value is the
-/// opaque Stack user id, never the email itself. Everything else the earlier
-/// grammars carried has a better channel or no reason to exist:
-/// - **No auth token.** The owner's Stack access token is the host's sole
-///   authorization gate; a token in the QR authorized nothing and made the
-///   code look like a leaked credential.
-/// - **No expiry.** Ticket age authorizes nothing, so a code that sat on
-///   screen for an hour still pairs.
+/// ticket/account/build context to check before dialing. The account value is
+/// the opaque Stack user id, never the email itself. Everything else the
+/// earlier grammars carried has a better channel or no reason to exist:
+/// - **No auth token.** The phone redeems `tr` only after sending the owner's
+///   Stack access token to the Mac. The reference alone is not a bearer
+///   credential.
+/// - **No inline expiry.** The host-side ticket record owns TTL/revocation.
 /// - **No display name, no device id.** Both arrive post-handshake from
 ///   `mobile.host.status`; the decoder leaves `macDeviceID` empty and the
 ///   shell adopts the host-reported identity once connected.
@@ -29,9 +28,9 @@ import Foundation
 ///   timeout before the Tailscale route was ever tried.
 ///
 /// The payload is deliberately *not* wrapped in base64 JSON: anyone can read
-/// the URL off the QR and see for themselves that it carries only an address.
-/// Plain text is also smaller, which lowers the QR version (fewer, larger
-/// modules) and makes the code scan faster from a Mac screen.
+/// the URL off the QR and see for themselves that it carries only a reference
+/// and addresses. Plain text is also smaller, which lowers the QR version
+/// (fewer, larger modules) and makes the code scan faster from a Mac screen.
 ///
 /// Compatibility: this grammar only ever appears in the Mac's pairing QR.
 /// Workspace-scoped tickets, dev loopback tickets, and every RPC consumer
@@ -63,7 +62,10 @@ public struct CmxPairingQRCode: Sendable {
         guard let routes = encodableRoutes(of: ticket) else {
             return nil
         }
-        var items: [String] = ["v=\(Self.version)"]
+        guard let ticketRef = normalizedNonEmpty(ticket.ticketRef) else {
+            return nil
+        }
+        var items: [String] = ["v=\(Self.version)", "tr=\(percentEncodeQueryValue(ticketRef))"]
         if let userID = normalizedNonEmpty(ticket.macUserID) {
             items.append("ub=\(percentEncodeQueryValue(userID))")
         }
@@ -94,16 +96,17 @@ public struct CmxPairingQRCode: Sendable {
     /// Whether `ticket` is expressible in the minimal grammar; see
     /// ``encodableRoutes(of:)`` for the rules.
     public func canEncode(_ ticket: CmxAttachTicket) -> Bool {
-        encodableRoutes(of: ticket) != nil
+        normalizedNonEmpty(ticket.ticketRef) != nil && encodableRoutes(of: ticket) != nil
     }
 
     /// The route subsequence a v2 pairing URL would carry for `ticket`, or
     /// `nil` when the ticket is not expressible in the minimal grammar.
     ///
-    /// Expressible means: an unscoped pairing ticket whose Tailscale routes
-    /// are exactly the canonical `host:port` sequence the decoder
-    /// resynthesizes (ids `tailscale`, `tailscale_2`, ... and priorities 10,
-    /// 20, ...), with no loopback host and no host that needs escaping.
+    /// Expressible means: an unscoped pairing ticket with a ticket reference,
+    /// whose Tailscale routes are exactly the canonical `host:port` sequence
+    /// the decoder resynthesizes (ids `tailscale`, `tailscale_2`, ... and
+    /// priorities 10, 20, ...), with no loopback host and no host that needs
+    /// escaping.
     /// The only routes this grammar may silently drop are loopback ones (a
     /// DEBUG Mac's dev loopback route), which no phone may ever dial anyway.
     /// Anything else (workspace-scoped tickets, custom route ids, no
@@ -169,6 +172,9 @@ public struct CmxPairingQRCode: Sendable {
     ///
     /// The ticket comes back unscoped with an empty `macDeviceID`; the shell
     /// recovers the Mac's identity post-handshake from `mobile.host.status`.
+    /// Older v2 URLs without `tr` are still accepted for compatibility, but
+    /// newly encoded URLs always carry it so the phone can redeem the host-side
+    /// ticket record after Stack auth.
     /// - Parameter components: The parsed `cmux-ios://attach?v=2&...` URL.
     /// - Throws: ``MobileSyncPairingPayloadError/invalidURL`` for malformed
     ///   input and ``MobileSyncPairingPayloadError/loopbackRouteRejected``
@@ -208,6 +214,7 @@ public struct CmxPairingQRCode: Sendable {
             macAppBuild: queryValue(named: "ab", in: components),
             routes: routes,
             expiresAt: nil,
+            ticketRef: queryValue(named: "tr", in: components),
             authToken: nil
         )
         try ticket.validate()

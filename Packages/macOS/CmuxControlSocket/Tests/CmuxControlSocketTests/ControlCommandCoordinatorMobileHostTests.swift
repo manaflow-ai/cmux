@@ -124,6 +124,7 @@ struct ControlCommandCoordinatorMobileHostTests {
             "mobile.chat.sessions",
             "dogfood.feedback.submit",
             "mobile.attach_ticket.create",
+            "mobile.attach_ticket.redeem",
             "workspace.action",
             "workspace.create",
             "workspace.close",
