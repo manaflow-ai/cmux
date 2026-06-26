@@ -101,17 +101,15 @@ async function anonymousRateLimitResponse(request: Request): Promise<Response | 
     const rateLimitError = result.error as string | undefined;
     if (result.rateLimited || rateLimitError === "blocked") {
       return jsonResponse({ error: "rate_limited" }, 429);
-    }
-    if (rateLimitError === "not-found") {
+    } else if (rateLimitError === "not-found") {
       console.error("analytics.events.rate_limit_not_found", rateLimitId);
       return jsonResponse({ error: "rate_limit_unavailable" }, 503);
-    }
-    if (rateLimitError) {
+    } else if (rateLimitError) {
       console.error("analytics.events.rate_limit_error_unknown", rateLimitError);
       return jsonResponse({ error: "rate_limit_unavailable" }, 503);
     }
-  } catch (error) {
-    console.error("analytics.events.rate_limit_error", error);
+  } catch (catchError) {
+    console.error("analytics.events.rate_limit_error", catchError);
     return jsonResponse({ error: "rate_limit_unavailable" }, 503);
   }
 

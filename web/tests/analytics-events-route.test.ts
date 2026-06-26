@@ -56,19 +56,41 @@ beforeEach(() => {
   fetchMock.mockClear();
 });
 
+function invalidAnalyticsRequest(): Request {
+  return new Request("https://cmux.test/api/analytics/events", {
+    method: "POST",
+    headers: {
+      host: "cmux.test",
+      "content-type": "application/json",
+      "x-real-ip": "203.0.113.10",
+    },
+    body: "{",
+  });
+}
+
+function validAnalyticsRequest(): Request {
+  return new Request("https://cmux.test/api/analytics/events", {
+    method: "POST",
+    headers: {
+      host: "cmux.test",
+      "content-type": "application/json",
+      "x-real-ip": "203.0.113.10",
+    },
+    body: JSON.stringify({
+      batch: [
+        {
+          event: "ios_app_launched",
+          distinct_id: "client-1",
+          properties: { source: "test" },
+        },
+      ],
+    }),
+  });
+}
+
 describe("analytics events route", () => {
   test("applies the anonymous Vercel limiter before auth, body parsing, or PostHog forwarding", async () => {
-    const response = await analyticsRoute.POST(
-      new Request("https://cmux.test/api/analytics/events", {
-        method: "POST",
-        headers: {
-          host: "cmux.test",
-          "content-type": "application/json",
-          "x-real-ip": "203.0.113.10",
-        },
-        body: "{",
-      }),
-    );
+    const response = await analyticsRoute.POST(invalidAnalyticsRequest());
 
     expect(response.status).toBe(429);
     expect(await response.json()).toEqual({ error: "rate_limited" });
@@ -92,17 +114,7 @@ describe("analytics events route", () => {
         error: "temporarily-unavailable",
       });
 
-      const response = await analyticsRoute.POST(
-        new Request("https://cmux.test/api/analytics/events", {
-          method: "POST",
-          headers: {
-            host: "cmux.test",
-            "content-type": "application/json",
-            "x-real-ip": "203.0.113.10",
-          },
-          body: "{",
-        }),
-      );
+      const response = await analyticsRoute.POST(invalidAnalyticsRequest());
 
       expect(response.status).toBe(503);
       expect(await response.json()).toEqual({ error: "rate_limit_unavailable" });
@@ -114,5 +126,61 @@ describe("analytics events route", () => {
     } finally {
       console.error = originalConsoleError;
     }
+  });
+
+  test("fails closed when the configured Vercel limiter is missing", async () => {
+    const originalConsoleError = console.error;
+    console.error = mock(() => {}) as unknown as typeof console.error;
+    try {
+      checkRateLimit.mockResolvedValue({
+        rateLimited: false,
+        error: "not-found",
+      });
+
+      const response = await analyticsRoute.POST(invalidAnalyticsRequest());
+
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: "rate_limit_unavailable" });
+      expect(getUser).not.toHaveBeenCalled();
+      expect(fetchMock).not.toHaveBeenCalled();
+      const calls = (console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+      expect(calls[0]?.[0]).toBe("analytics.events.rate_limit_not_found");
+      expect(calls[0]?.[1]).toBe("cmux-analytics-test");
+    } finally {
+      console.error = originalConsoleError;
+    }
+  });
+
+  test("fails closed when the Vercel limiter throws", async () => {
+    const originalConsoleError = console.error;
+    console.error = mock(() => {}) as unknown as typeof console.error;
+    const limiterError = new Error("firewall unavailable");
+    try {
+      checkRateLimit.mockResolvedValue(Promise.reject(limiterError) as never);
+
+      const response = await analyticsRoute.POST(invalidAnalyticsRequest());
+
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: "rate_limit_unavailable" });
+      expect(getUser).not.toHaveBeenCalled();
+      expect(fetchMock).not.toHaveBeenCalled();
+      const calls = (console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+      expect(calls[0]?.[0]).toBe("analytics.events.rate_limit_error");
+      expect(calls[0]?.[1]).toBe(limiterError);
+    } finally {
+      console.error = originalConsoleError;
+    }
+  });
+
+  test("forwards allowed anonymous batches after the Vercel limiter passes", async () => {
+    checkRateLimit.mockResolvedValue({ rateLimited: false, error: null });
+
+    const response = await analyticsRoute.POST(validAnalyticsRequest());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, forwarded: 1 });
+    expect(checkRateLimit).toHaveBeenCalledTimes(1);
+    expect(getUser).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
