@@ -389,7 +389,9 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
     }
 
     private func configureContentScrollView(for tableView: ChatTranscriptUITableView?) {
-        setContentScrollView(tableView, for: [.top, .bottom])
+        if #available(iOS 26.0, *) {
+            setContentScrollView(tableView, for: [.top, .bottom])
+        }
     }
 
     private func configureComposerScrollEdgeInteraction(for tableView: ChatTranscriptUITableView?) {
