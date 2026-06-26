@@ -279,10 +279,15 @@ def main() -> int:
         _run_cli_json(cli, ["browser", surface, "state", "load", state_file])
 
         viewport = _run_cli_json(cli, ["browser", surface, "viewport", "1400", "900"])
+        _must(viewport.get("handled") is True, f"Expected viewport handled=true via CLI: {viewport}")
+        _must(viewport.get("changed") is True, f"Expected viewport changed=true on first CLI set: {viewport}")
         _must(int(viewport.get("width") or 0) == 1400, f"Expected viewport width echo via CLI: {viewport}")
         _run_cli_json(cli, ["browser", surface, "wait", "--function", "window.innerWidth >= 1400", "--timeout-ms", "5000"])
         inner_width = _run_cli_json(cli, ["browser", surface, "eval", "window.innerWidth"])
         _must(int(inner_width.get("value") or 0) >= 1400, f"Expected CLI viewport width >= 1400: {inner_width}")
+        same_viewport = _run_cli_json(cli, ["browser", surface, "viewport", "1400", "900"])
+        _must(same_viewport.get("handled") is True, f"Expected idempotent viewport handled=true via CLI: {same_viewport}")
+        _must(same_viewport.get("changed") is False, f"Expected idempotent viewport changed=false via CLI: {same_viewport}")
         _run_cli_expect_failure(cli, ["browser", surface, "viewport", "100001", "900"], ["invalid_params"])
 
         legacy_new = _run_cli_text(cli, ["new-pane", "--type", "browser", "--direction", "right", "--url", page_url])

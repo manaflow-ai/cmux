@@ -156,11 +156,16 @@ def main() -> int:
         _must(bool(sid), f"browser.open_split returned no surface_id: {opened}")
 
         viewport = c._call("browser.viewport.set", {"surface_id": sid, "width": 1400, "height": 900}) or {}
+        _must(viewport.get("handled") is True, f"browser.viewport.set should report handled=true: {viewport}")
+        _must(viewport.get("changed") is True, f"browser.viewport.set should report changed=true on first set: {viewport}")
         _must(viewport.get("width") == 1400, f"browser.viewport.set did not echo width: {viewport}")
         _must(viewport.get("height") == 900, f"browser.viewport.set did not echo height: {viewport}")
         c._call("browser.wait", {"surface_id": sid, "function": "window.innerWidth >= 1400", "timeout_ms": 5000})
         inner_width = c._call("browser.eval", {"surface_id": sid, "script": "window.innerWidth"}) or {}
         _must(int(inner_width.get("value") or 0) >= 1400, f"Expected viewport width >= 1400: {inner_width}")
+        same_viewport = c._call("browser.viewport.set", {"surface_id": sid, "width": 1400, "height": 900}) or {}
+        _must(same_viewport.get("handled") is True, f"idempotent browser.viewport.set should report handled=true: {same_viewport}")
+        _must(same_viewport.get("changed") is False, f"idempotent browser.viewport.set should report changed=false: {same_viewport}")
         _expect_error(
             c,
             "browser.viewport.set",

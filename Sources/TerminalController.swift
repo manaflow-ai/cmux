@@ -9582,7 +9582,7 @@ class TerminalController {
                 }
             }
 
-            let handled = browserPanel.setMinimumViewportSize(
+            let changed = browserPanel.setMinimumViewportSize(
                 width: requestedWidth,
                 height: requestedHeight
             )
@@ -9592,7 +9592,7 @@ class TerminalController {
                 surfaceId: surfaceId,
                 tabManager: tabManager,
                 extra: [
-                    "handled": handled,
+                    "handled": true, "changed": changed,
                     "width": Int((storedSize?.width ?? 0).rounded()),
                     "height": Int((storedSize?.height ?? 0).rounded()),
                     "magnification": Double(browserPanel.webView.magnification)
