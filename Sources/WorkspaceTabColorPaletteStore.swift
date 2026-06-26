@@ -9,13 +9,15 @@ struct WorkspaceTabColorPaletteStore {
     let defaults: UserDefaults
     let paletteKey: String
 
+    private static let defaultPaletteKey = WorkspaceColorsCatalogSection().palette.userDefaultsKey
+
     private let tokens: WorkspaceTabColorPalette
     private let legacyDefaultOverridesKey = "workspaceTabColor.defaultOverrides"
     private let legacyCustomColorsKey = "workspaceTabColor.customColors"
 
     init(
         defaults: UserDefaults = .standard,
-        paletteKey: String = WorkspaceColorsCatalogSection().palette.userDefaultsKey,
+        paletteKey: String = WorkspaceTabColorPaletteStore.defaultPaletteKey,
         tokens: WorkspaceTabColorPalette = .workspaceTabs
     ) {
         self.defaults = defaults
