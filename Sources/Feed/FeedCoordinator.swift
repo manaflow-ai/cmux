@@ -24,11 +24,10 @@ final class FeedCoordinator: @unchecked Sendable {
     // so it hops to main explicitly when touching the store.
     @MainActor private(set) var store: WorkstreamStore!
 
-    /// Pending blocking-hook waiters keyed by request id. The waiter owns
-    /// a semaphore plus a slot for the resolved decision; the reply
+    /// Pending blocking-hook waiters keyed by request id. The registry owns a
+    /// semaphore plus a slot for the resolved decision per waiter; the reply
     /// handler signals the semaphore after filling the slot.
-    private let waiterLock = NSLock()
-    private var waiters: [String: PendingWaiter] = [:]
+    private let waiterRegistry = BlockingDecisionWaiterRegistry()
 
     /// Owns the kqueue-backed per-PID exit watchers. When an agent process
     /// dies, the watcher marks every pending item for that PID as `.expired`
@@ -89,14 +88,9 @@ final class FeedCoordinator: @unchecked Sendable {
             return .acknowledged(itemId: nil)
         }
 
-        let semaphore = DispatchSemaphore(value: 0)
-        let waiter = PendingWaiter(semaphore: semaphore)
-
         // Register the waiter before the store sees the event so a very
         // fast reply can't slip through.
-        waiterLock.lock()
-        waiters[requestId] = waiter
-        waiterLock.unlock()
+        let semaphore = waiterRegistry.register(requestId: requestId)
 
         // Hop to main to actually insert the item + install the
         // kqueue watcher for the agent's PID. The watcher handler
@@ -129,9 +123,7 @@ final class FeedCoordinator: @unchecked Sendable {
                     event: event,
                     resolved: resolvedAttentionTarget
                 ) {
-                    FeedCoordinator.shared.waiterLock.lock()
-                    FeedCoordinator.shared.waiters[requestId]?.attentionTarget = target
-                    FeedCoordinator.shared.waiterLock.unlock()
+                    FeedCoordinator.shared.waiterRegistry.setAttentionTarget(target, requestId: requestId)
                 }
                 #if DEBUG
                 FeedCoordinatorTestHooks.afterBlockingEventIngested?(event, requestId)
@@ -147,23 +139,21 @@ final class FeedCoordinator: @unchecked Sendable {
         let deadline: DispatchTime = .now() + waitTimeout
         let waitResult = semaphore.wait(timeout: deadline)
 
-        waiterLock.lock()
-        let w = waiters.removeValue(forKey: requestId)
-        waiterLock.unlock()
+        let w = waiterRegistry.removeWaiter(requestId: requestId)
 
         switch waitResult {
         case .success:
-            if let decision = w?.decision {
+            if let decision = w?.resolvedDecision {
                 // `deliverReply` concludes the attention overlay on resolve.
                 return .resolved(itemId: itemIdSlot.value, decision: decision)
             }
             cancelNotification(requestId: requestId)
-            concludeAttentionOnMain(w?.attentionTarget)
+            concludeAttentionOnMain(w?.resolvedAttentionTarget)
             expireTimedOutItem(itemIdSlot.value)
             return .timedOut(itemId: itemIdSlot.value)
         case .timedOut:
             cancelNotification(requestId: requestId)
-            concludeAttentionOnMain(w?.attentionTarget)
+            concludeAttentionOnMain(w?.resolvedAttentionTarget)
             expireTimedOutItem(itemIdSlot.value)
             return .timedOut(itemId: itemIdSlot.value)
         }
@@ -188,13 +178,7 @@ final class FeedCoordinator: @unchecked Sendable {
     /// Called by the `feed.*.reply` handlers. Marks the corresponding
     /// item resolved on the main-actor store and wakes any waiter.
     func deliverReply(requestId: String, decision: WorkstreamDecision) {
-        waiterLock.lock()
-        let attentionTarget = waiters[requestId]?.attentionTarget
-        if let waiter = waiters[requestId] {
-            waiter.decision = decision
-            waiter.semaphore.signal()
-        }
-        waiterLock.unlock()
+        let attentionTarget = waiterRegistry.deliverDecision(decision, requestId: requestId)
 
         // The user decided: conclude the needs-input overlay so the agent's
         // running/idle state shows through (refcounted so an overlapping
@@ -220,10 +204,7 @@ final class FeedCoordinator: @unchecked Sendable {
     }
 
     fileprivate func isAwaitingDecision(requestId: String) -> Bool {
-        waiterLock.lock()
-        defer { waiterLock.unlock() }
-        guard let waiter = waiters[requestId] else { return false }
-        return waiter.decision == nil
+        waiterRegistry.isAwaitingDecision(requestId: requestId)
     }
 
     private func expireTimedOutItem(_ itemId: UUID?) {
@@ -403,21 +384,6 @@ private final class AttentionOverlayState {
     init(workspace: Workspace) {
         self.count = 0
         self.workspace = workspace
-    }
-}
-
-private final class PendingWaiter: @unchecked Sendable {
-    let semaphore: DispatchSemaphore
-    var decision: WorkstreamDecision?
-    /// The attention overlay target for this decision, if one was surfaced.
-    /// Set inside the ingest `main.sync` (before the card can render and a
-    /// reply can fire) and read when the decision concludes, so the
-    /// needs-input overlay is cleared exactly once. Guarded by
-    /// `FeedCoordinator.waiterLock`.
-    var attentionTarget: AttentionTarget?
-
-    init(semaphore: DispatchSemaphore) {
-        self.semaphore = semaphore
     }
 }
 

@@ -44,27 +44,27 @@ final class CmuxSettingsFileStore {
         compositionRootInstance = instance
     }
 
+    /// The default settings-file locations, resolved by the
+    /// ``SettingsFileLocations`` value type in `CmuxSettings`. The app supplies
+    /// the release bundle identifier from `CmuxGhosttyConfigPathResolver`; the
+    /// three accessors below forward each resolved path so the existing API and
+    /// call sites stay unchanged.
+    private static var defaultSettingsFileLocations: SettingsFileLocations {
+        SettingsFileLocations(
+            releaseBundleIdentifier: CmuxGhosttyConfigPathResolver.releaseBundleIdentifier
+        )
+    }
+
     static var defaultPrimaryPath: String {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return (home as NSString).appendingPathComponent(".config/cmux/cmux.json")
+        defaultSettingsFileLocations.primaryPath
     }
 
     static var defaultFallbackPath: String? {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return (home as NSString).appendingPathComponent(".config/cmux/settings.json")
+        defaultSettingsFileLocations.fallbackPath
     }
 
     static var defaultApplicationSupportFallbackPath: String? {
-        guard let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first else {
-            return nil
-        }
-        return appSupport
-            .appendingPathComponent(CmuxGhosttyConfigPathResolver.releaseBundleIdentifier, isDirectory: true)
-            .appendingPathComponent("settings.json", isDirectory: false)
-            .path
+        defaultSettingsFileLocations.applicationSupportFallbackPath
     }
 
     private let primaryPath: String

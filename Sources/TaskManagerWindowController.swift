@@ -5,7 +5,38 @@ import SwiftUI
 
 @MainActor
 final class TaskManagerWindowController: ReleasingWindowController {
-    static let shared = TaskManagerWindowController()
+    /// Composition-root-owned single instance, recorded once at startup.
+    /// `nonisolated(unsafe)`: written exactly once in ``AppDelegate/configure``
+    /// (with the cmuxApp-owned `@State` controller) before any concurrent reader
+    /// exists. Retires together with the transitional ``shared`` accessor once
+    /// every call site is injected.
+    nonisolated(unsafe) private static var compositionRootInstance: TaskManagerWindowController?
+
+    /// The single instance, lazily constructed on first access. The cmuxApp
+    /// `@State` resolves this through ``shared`` and `AppDelegate` installs the
+    /// same object as the composition-root instance, so there is exactly one
+    /// Task Manager window controller across every consumer.
+    private static let instance = TaskManagerWindowController()
+
+    /// Transitional accessor for the de-singletonization (CONVENTIONS §5
+    /// `static let shared` → construct-and-inject). The type no longer
+    /// self-vivifies an eager `static let shared`; the cmuxApp `@State` owns the
+    /// single instance and injects it into `AppDelegate` (which records ownership
+    /// via ``installCompositionRootInstance(_:)``). The remaining call sites (the
+    /// menu-bar extra and `AppDelegate.openTaskManagerWindow`, plus the View
+    /// command palette) still reach the same single object here while they are
+    /// migrated to an injected reference; dropping ``shared`` is the end state.
+    static var shared: TaskManagerWindowController {
+        compositionRootInstance ?? instance
+    }
+
+    /// Called once by ``AppDelegate`` (in `configure`, with the cmuxApp-owned
+    /// `@State` controller) to record composition-root ownership of the single
+    /// instance. Idempotent (keeps the first installed instance).
+    static func installCompositionRootInstance(_ instance: TaskManagerWindowController) {
+        guard compositionRootInstance == nil else { return }
+        compositionRootInstance = instance
+    }
 
     private let model = CmuxTaskManagerModel()
 

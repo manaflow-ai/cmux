@@ -996,18 +996,12 @@ final class CmuxWebView: WKWebView {
 
         let cookieStore = configuration.websiteDataStore.httpCookieStore
         cookieStore.getAllCookies { cookies in
-            var request = URLRequest(url: url)
-            request.httpMethod = "GET"
-            let cookieHeaders = HTTPCookie.requestHeaderFields(with: Self.cookiesForDownloadRequest(cookies, url: url))
-            for (key, value) in cookieHeaders {
-                request.setValue(value, forHTTPHeaderField: key)
-            }
-            if let referer = self.url?.absoluteString, !referer.isEmpty {
-                request.setValue(referer, forHTTPHeaderField: "Referer")
-            }
-            if let ua = self.customUserAgent, !ua.isEmpty {
-                request.setValue(ua, forHTTPHeaderField: "User-Agent")
-            }
+            let request = BrowserDownloadRequestBuilder(
+                url: url,
+                cookies: Self.cookiesForDownloadRequest(cookies, url: url),
+                referer: self.url?.absoluteString,
+                userAgent: self.customUserAgent
+            ).urlRequest
             self.debugContextDownload(
                 "browser.ctxdl.request trace=\(traceID) stage=dispatch method=\(request.httpMethod ?? "GET") cookies=\(cookies.count) referer=\(request.value(forHTTPHeaderField: "Referer") ?? "nil") uaSet=\(request.value(forHTTPHeaderField: "User-Agent") == nil ? 0 : 1)"
             )

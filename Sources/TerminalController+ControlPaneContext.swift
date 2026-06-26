@@ -184,7 +184,7 @@ extension TerminalController: ControlPaneContext {
             return .invalidDirection
         }
 
-        let panelType: PanelType = inputs.typeRaw.flatMap { self.panelType(forRawToken: $0) } ?? .terminal
+        let panelType: PanelType = inputs.typeRaw.flatMap { PanelType(normalizedControlToken: v2NormalizedToken($0)) } ?? .terminal
         if panelType == .agentSession {
             return .agentSessionRejected(typeRawValue: panelType.rawValue)
         }
@@ -277,28 +277,6 @@ extension TerminalController: ControlPaneContext {
             surfaceID: newPanelId,
             typeRawValue: panelType.rawValue
         )
-    }
-
-    /// The byte-faithful twin of `v2PanelType`, mapping a raw token to a
-    /// `PanelType` (used only by the create path; the coordinator passes the raw
-    /// string so Bonsplit/PanelType stay app-side).
-    private func panelType(forRawToken raw: String) -> PanelType? {
-        switch v2NormalizedToken(raw) {
-        case "terminal":
-            return .terminal
-        case "browser":
-            return .browser
-        case "markdown":
-            return .markdown
-        case "filepreview":
-            return .filePreview
-        case "rightsidebartool":
-            return .rightSidebarTool
-        case "agentsession":
-            return .agentSession
-        default:
-            return nil
-        }
     }
 
     /// The byte-faithful twin of `v2BrowserDisabledExternalOpenResult`, mapped

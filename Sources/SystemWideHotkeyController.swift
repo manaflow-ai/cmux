@@ -1,6 +1,7 @@
 import AppKit
 import Carbon
 import CmuxSettingsUI
+import CmuxShortcuts
 
 /// Receives the user-visible actions a registered system-wide (Carbon) hotkey
 /// fires. Injected into ``SystemWideHotkeyController`` so the controller no

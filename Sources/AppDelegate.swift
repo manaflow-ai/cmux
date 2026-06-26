@@ -1837,34 +1837,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let stats = TerminalWindowPortalRegistry.debugPortalStats()
         var portal: [String: String] = [:]
-        portal["portal_count"] = Self.uiTestStringValue(stats["portal_count"])
-        portal["portal_hosted_mapping_count"] = Self.uiTestStringValue(stats["hosted_mapping_count"])
-        portal["portal_guarded_bind_blocked_count"] = Self.uiTestStringValue(stats["guarded_bind_blocked_count"])
+        portal["portal_count"] = String(uiTestDiagnosticDescribing: stats["portal_count"])
+        portal["portal_hosted_mapping_count"] = String(uiTestDiagnosticDescribing: stats["hosted_mapping_count"])
+        portal["portal_guarded_bind_blocked_count"] = String(uiTestDiagnosticDescribing: stats["guarded_bind_blocked_count"])
         if let totals = stats["totals"] as? [String: Any] {
             for (key, value) in totals {
-                portal["portal_\(key)"] = Self.uiTestStringValue(value)
+                portal["portal_\(key)"] = String(uiTestDiagnosticDescribing: value)
             }
         }
         return portal
-    }
-
-    private static func uiTestStringValue(_ value: Any?) -> String {
-        switch value {
-        case let value as String:
-            return value
-        case let value as Bool:
-            return value ? "1" : "0"
-        case let value as Int:
-            return String(value)
-        case let value as NSNumber:
-            return value.stringValue
-        case let value as UUID:
-            return value.uuidString
-        case .some(let value):
-            return String(describing: value)
-        case .none:
-            return ""
-        }
     }
 
     private func moveUITestWindowToTargetDisplayIfNeeded(attempt: Int = 0) {
@@ -2157,6 +2138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         tabManager: TabManager,
         notificationStore: TerminalNotificationStore,
         keyboardShortcutSettingsObserver: KeyboardShortcutSettingsObserver,
+        taskManagerWindowController: TaskManagerWindowController,
         sidebarState: SidebarState,
         settingsRuntime: SettingsRuntime,
         auth: MacAuthComposition
@@ -2182,6 +2164,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // earlier in app init) so the transitional `CmuxSettingsFileStore.shared`
         // accessor resolves to that same object.
         CmuxSettingsFileStore.installCompositionRootInstance(KeyboardShortcutSettings.settingsFileStore)
+        // De-singletonization: the cmuxApp `@State` owns the single
+        // `TaskManagerWindowController`; record composition-root ownership so the
+        // transitional `TaskManagerWindowController.shared` accessor read by the
+        // tail call sites (menu-bar extra, `openTaskManagerWindow`, the View
+        // command palette) resolves to this same injected instance instead of a
+        // self-vivified lazy singleton.
+        TaskManagerWindowController.installCompositionRootInstance(taskManagerWindowController)
         self.sidebarState = sidebarState
         self.auth = auth
         VMClient.bootstrap(auth: auth.coordinator)
@@ -11555,23 +11544,18 @@ private extension AppDelegate {
         target: Any?,
         sender: Any?
     ) -> Bool {
-        switch NSStringFromSelector(action) {
-        case "__close", "performClose:":
+        switch WindowCloseActionIntent(selectorName: NSStringFromSelector(action)) {
+        case .interceptUnconditionally:
             return true
-        case "close", "close:":
+        case .interceptIfWindowResolvable:
             return actionWindow(target: target, sender: sender, allowFallback: false) != nil
-        default:
+        case .ignore:
             return false
         }
     }
 
     private static func allowsWindowFallback(for action: Selector) -> Bool {
-        switch NSStringFromSelector(action) {
-        case "__close", "performClose:":
-            return true
-        default:
-            return false
-        }
+        WindowCloseActionIntent(selectorName: NSStringFromSelector(action)).allowsWindowFallback
     }
 
     private static func actionWindow(
