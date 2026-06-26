@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Testing
 
@@ -52,6 +53,11 @@ struct WorkspaceSidebarObservationTests {
             publishCount += 1
         }
         defer { cancellable.cancel() }
+        var workspaceWillChangeCount = 0
+        let objectWillChangeCancellable = workspace.objectWillChange.sink {
+            workspaceWillChangeCount += 1
+        }
+        defer { objectWillChangeCancellable.cancel() }
         publishCount = 0
 
         workspace.recordAgentPID(
@@ -68,6 +74,10 @@ struct WorkspaceSidebarObservationTests {
         #expect(
             publishCount > 0,
             "A sidebar row must refresh when agent PID ownership changes status visibility."
+        )
+        #expect(
+            workspaceWillChangeCount == 0,
+            "Agent PID ownership is sidebar presentation state and must not broadly invalidate Workspace observers."
         )
     }
 

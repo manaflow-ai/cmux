@@ -22,6 +22,13 @@ private struct SidebarImmediateObservationState: Equatable {
     let latestSubmittedAt: Date?
 }
 
+struct WorkspaceSidebarAgentRuntimeObservationState: Equatable {
+    let agentPIDs: [String: pid_t]
+    let agentPIDPanelIdsByKey: [String: UUID]
+    let agentPIDKeysByPanelId: [UUID: Set<String>]
+    let agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]]
+}
+
 private struct SidebarObservationState: Equatable {
     let currentDirectory: String
     let extensionSidebarProjectRootPath: String?
@@ -40,10 +47,7 @@ private struct SidebarObservationState: Equatable {
     let remoteConnectionDetail: String?
     let activeRemoteTerminalSessionCount: Int
     let listeningPorts: [Int]
-    let agentPIDs: [String: pid_t]
-    let agentPIDPanelIdsByKey: [String: UUID]
-    let agentPIDKeysByPanelId: [UUID: Set<String>]
-    let agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]]
+    let agentRuntime: WorkspaceSidebarAgentRuntimeObservationState
     let browserMediaActivity: BrowserMediaActivity
 }
 
@@ -106,12 +110,7 @@ extension Workspace {
         )
         let presentationInvalidationFields = Publishers.CombineLatest(
             $listeningPorts,
-            Publishers.CombineLatest4(
-                $agentPIDs,
-                $agentPIDPanelIdsByKey,
-                $agentPIDKeysByPanelId,
-                $agentLifecycleStatesByPanelId
-            )
+            agentRuntimeObservationPublisher
         )
 
         return Publishers.CombineLatest4(
@@ -147,10 +146,7 @@ extension Workspace {
                     remoteConnectionDetail: remoteFields.2,
                     activeRemoteTerminalSessionCount: remoteFields.3,
                     listeningPorts: listeningPorts,
-                    agentPIDs: agentRuntimeFields.0,
-                    agentPIDPanelIdsByKey: agentRuntimeFields.1,
-                    agentPIDKeysByPanelId: agentRuntimeFields.2,
-                    agentLifecycleStatesByPanelId: agentRuntimeFields.3,
+                    agentRuntime: agentRuntimeFields,
                     browserMediaActivity: self.browserMediaActivity
                 )
             }
