@@ -47,10 +47,12 @@ private final class MemoryPressureHiddenWebViewDiscardTestDelegate: BrowserHidde
 }
 
 @MainActor
-private func makeMemoryPressureHiddenWebViewDiscardBlockerSnapshot() -> BrowserHiddenWebViewDiscardManager.BlockerSnapshot {
+private func makeMemoryPressureHiddenWebViewDiscardBlockerSnapshot(
+    isActiveInWorkspace: Bool = false
+) -> BrowserHiddenWebViewDiscardManager.BlockerSnapshot {
     BrowserHiddenWebViewDiscardManager.BlockerSnapshot(
         isClosing: false,
-        isActiveInWorkspace: false,
+        isActiveInWorkspace: isActiveInWorkspace,
         isVisibleInUI: false,
         shouldRenderWebView: true,
         hasPendingRemoteNavigation: false,
@@ -72,14 +74,14 @@ private func makeMemoryPressureHiddenWebViewDiscardBlockerSnapshot() -> BrowserH
 }
 
 @MainActor
-private func withMemoryPressureHiddenWebViewDiscardPolicyEnabled(_ body: (UserDefaults) -> Void) {
+private func withMemoryPressureHiddenWebViewDiscardPolicyEnabled(
+    hiddenDelay: TimeInterval = BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay,
+    _ body: (UserDefaults) -> Void
+) {
     let suiteName = "com.cmux.BrowserHiddenWebViewDiscardMemoryPressureTests.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suiteName)!
     defaults.set(true, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-    defaults.set(
-        BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay,
-        forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey
-    )
+    defaults.set(hiddenDelay, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
     defer {
         defaults.removePersistentDomain(forName: suiteName)
     }
@@ -145,6 +147,38 @@ struct BrowserHiddenWebViewDiscardMemoryPressureTests {
             #expect(manager.hasScheduledDiscard)
             #expect(delegate.discardRequestCount == 0)
             #expect(delegate.lastDiscardReason == nil)
+        }
+    }
+
+    @Test func delayedDiscardRechecksActiveWorkspaceBlockerBeforeDiscarding() {
+        withMemoryPressureHiddenWebViewDiscardPolicyEnabled(hiddenDelay: 0.05) { defaults in
+            let manager = BrowserHiddenWebViewDiscardManager(policyDefaults: defaults)
+            let delegate = MemoryPressureHiddenWebViewDiscardTestDelegate(
+                snapshot: makeMemoryPressureHiddenWebViewDiscardBlockerSnapshot(),
+                hiddenAt: Date()
+            )
+            manager.delegate = delegate
+
+            manager.scheduleIfNeeded(reason: "test.delayed")
+            #expect(manager.hasScheduledDiscard)
+
+            delegate.snapshot = makeMemoryPressureHiddenWebViewDiscardBlockerSnapshot(isActiveInWorkspace: true)
+            let blockedDeadline = Date().addingTimeInterval(1)
+            while manager.hasScheduledDiscard, Date() < blockedDeadline {
+                RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+            }
+            #expect(!manager.hasScheduledDiscard)
+            #expect(delegate.discardRequestCount == 0)
+
+            delegate.snapshot = makeMemoryPressureHiddenWebViewDiscardBlockerSnapshot()
+            delegate.hiddenAt = Date()
+            manager.scheduleIfNeeded(reason: "test.delayed.unblocked")
+            let discardDeadline = Date().addingTimeInterval(1)
+            while delegate.discardRequestCount == 0, Date() < discardDeadline {
+                RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+            }
+            #expect(delegate.discardRequestCount == 1)
+            #expect(delegate.lastDiscardReason == "test.delayed.unblocked")
         }
     }
 }

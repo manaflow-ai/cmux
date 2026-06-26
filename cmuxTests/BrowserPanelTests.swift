@@ -321,6 +321,11 @@ final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
         panel.noteWebViewVisibility(false, reason: "test.portalHidden", now: hiddenAt)
         workspace.focusPanel(panel.id)
 
+        let payload = panel.webViewLifecycleTopPayload(now: hiddenAt.addingTimeInterval(1))
+        XCTAssertEqual(payload["active_in_workspace"] as? Bool, true)
+        XCTAssertEqual(payload["visible_in_ui"] as? Bool, false)
+        XCTAssertEqual(payload["discard_blockers"] as? [String], ["active_workspace_surface"])
+
         let originalWebView = panel.webView
         XCTAssertFalse(
             panel.discardHiddenWebViewForSystemMemoryPressure(now: hiddenAt.addingTimeInterval(1)),
