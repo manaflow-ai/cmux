@@ -17,6 +17,7 @@ struct CustomToolbarActionEditorView: View {
     private let onSave: (CustomToolbarAction) -> Void
 
     @State private var title: String
+    /// Optional SF Symbol name shown instead of the text label when valid.
     @State private var symbolName: String
     @State private var commandText: String
     @State private var runAfterTyping: Bool
@@ -126,6 +127,7 @@ struct CustomToolbarActionEditorView: View {
         title.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Icon name normalized for persistence; empty input means text-only.
     private var trimmedSymbolName: String {
         symbolName.trimmingCharacters(in: .whitespacesAndNewlines)
     }

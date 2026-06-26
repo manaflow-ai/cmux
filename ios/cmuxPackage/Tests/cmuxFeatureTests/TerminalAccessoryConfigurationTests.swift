@@ -52,6 +52,7 @@ struct TerminalAccessoryConfigurationTests {
         #expect(config.isEnabled(id(.shift)))
     }
 
+    /// Verifies compact built-ins render as specific icons with VoiceOver labels.
     @Test("default toolbar icon-backed built-ins are shown and have accessibility labels")
     func defaultToolbarIconPresentationIsAccessible() throws {
         let config = TerminalAccessoryConfiguration(defaults: freshDefaults())
@@ -166,6 +167,7 @@ struct TerminalAccessoryConfigurationTests {
         #expect(reloaded.displayOrder.contains(id(.command)))
     }
 
+    /// Verifies user-defined icon metadata survives toolbar persistence reloads.
     @Test("custom action icon metadata persists through toolbar configuration")
     func customActionIconPersists() throws {
         let defaults = freshDefaults()
