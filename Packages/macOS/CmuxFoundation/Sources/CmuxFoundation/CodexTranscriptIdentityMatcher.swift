@@ -3,8 +3,8 @@ import Foundation
 /// Matches Codex rollout JSONL files to a confirmed session id.
 ///
 /// Codex writes rollout files under `.codex/sessions` with a `session_meta`
-/// first line. When that metadata is present it is the authority; the filename
-/// suffix is used only for metadata-free legacy files.
+/// first line. That metadata is the authority; metadata-free candidates fail
+/// closed so a stale or unrelated rollout cannot be attributed to a pane.
 public struct CodexTranscriptIdentityMatcher: Sendable {
     /// Creates a Codex transcript identity matcher.
     public init() {}
@@ -18,12 +18,10 @@ public struct CodexTranscriptIdentityMatcher: Sendable {
     public func transcript(at url: URL, matchesSessionID sessionID: String) -> Bool {
         let normalizedSessionID = normalized(sessionID)
         guard !normalizedSessionID.isEmpty else { return false }
-        if let sessionMetaID = sessionMetaID(at: url) {
-            return sessionMetaID.lowercased() == normalizedSessionID
+        guard url.lastPathComponent.lowercased().contains(normalizedSessionID) else {
+            return false
         }
-        let filename = url.lastPathComponent.lowercased()
-        return filename == "\(normalizedSessionID).jsonl"
-            || filename.hasSuffix("-\(normalizedSessionID).jsonl")
+        return sessionMetaID(at: url)?.lowercased() == normalizedSessionID
     }
 
     private func sessionMetaID(at url: URL) -> String? {

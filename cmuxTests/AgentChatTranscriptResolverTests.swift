@@ -142,6 +142,24 @@ import Testing
         #expect(resolver.transcriptPath(for: liveRecord) == liveRollout.path)
     }
 
+    @Test("Codex fallback fails closed when session_meta id is unavailable")
+    func codexFallbackRequiresSessionMetaID() throws {
+        let fm = FileManager.default
+        let home = fm.temporaryDirectory
+            .appendingPathComponent("agentchat-resolver-codex-missing-meta-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: home) }
+
+        let sessionID = "live-wedged-session-actual"
+        _ = try Self.writeCodexRollout(
+            home: home,
+            sessionID: sessionID,
+            includeSessionMeta: false
+        )
+        let resolver = AgentChatTranscriptResolver(homeDirectory: home)
+
+        #expect(resolver.transcriptPath(for: Self.codexRecord(sessionID: sessionID)) == nil)
+    }
+
     @MainActor
     @Test("compaction telemetry preserves mobile session state")
     func compactionTelemetryPreservesMobileSessionState() {
@@ -233,7 +251,8 @@ import Testing
 
     private static func writeCodexRollout(
         home: URL,
-        sessionID: String
+        sessionID: String,
+        includeSessionMeta: Bool = true
     ) throws -> URL {
         let dir = home
             .appendingPathComponent(".codex", isDirectory: true)
@@ -246,10 +265,12 @@ import Testing
             "rollout-2026-06-26T00-00-00-\(sessionID).jsonl",
             isDirectory: false
         )
-        let contents = """
-        {"timestamp":"2026-06-26T00:00:00.000Z","type":"session_meta","payload":{"id":"\(sessionID)","cwd":"/tmp/project"}}
-        {"timestamp":"2026-06-26T00:00:01.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello"}]}}
-        """
+        var lines: [String] = []
+        if includeSessionMeta {
+            lines.append(#"{"timestamp":"2026-06-26T00:00:00.000Z","type":"session_meta","payload":{"id":"\#(sessionID)","cwd":"/tmp/project"}}"#)
+        }
+        lines.append(#"{"timestamp":"2026-06-26T00:00:01.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello"}]}}"#)
+        let contents = lines.joined(separator: "\n")
         try (contents + "\n").write(to: rolloutURL, atomically: true, encoding: .utf8)
         return rolloutURL
     }
