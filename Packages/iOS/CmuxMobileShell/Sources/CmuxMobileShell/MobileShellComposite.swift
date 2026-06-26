@@ -2590,6 +2590,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 includeUserWideScope: teamlessLegacyIDs.contains(id)
             )
         }
+        guard await isScopeCurrent(scope) else {
+            for id in macDeviceIDs {
+                await clearForgottenMacDeviceID(id, scope: scope)
+            }
+            return
+        }
         let workspacesBeforeForget = workspacesByMac
         let foregroundMacDeviceIDBeforeForget = foregroundMacDeviceID
         let isActiveMac = pairedMacsForIdentityMatching.contains {
@@ -2610,7 +2616,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             pruneWorkspaceStateForForgottenMac(id)
         }
-        guard await isScopeCurrent(scope) else { return }
+        guard await isScopeCurrent(scope) else {
+            for id in macDeviceIDs {
+                await clearForgottenMacDeviceID(id, scope: scope)
+            }
+            workspacesByMac = workspacesBeforeForget
+            foregroundMacDeviceID = foregroundMacDeviceIDBeforeForget
+            return
+        }
         var removedIDs = Set<String>()
         var failedIDs = Set<String>()
         for id in macDeviceIDs {
