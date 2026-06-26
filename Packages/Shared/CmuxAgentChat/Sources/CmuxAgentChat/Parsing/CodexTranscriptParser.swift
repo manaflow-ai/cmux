@@ -267,7 +267,11 @@ public struct CodexTranscriptParser: Sendable {
                 }
             }
             guard !options.isEmpty else { return nil }
-            return ChatQuestion(prompt: prompt, options: options)
+            return ChatQuestion(
+                prompt: prompt,
+                options: options,
+                questionID: question["id"]?.string
+            )
         }
     }
 
