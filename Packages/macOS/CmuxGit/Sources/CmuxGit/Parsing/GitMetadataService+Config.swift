@@ -4,7 +4,7 @@ extension GitMetadataService {
     /// A synthesized `git remote -v`-style listing built by reading remote URLs
     /// straight from the reachable config files (no `git` process). `nil` when
     /// no remote URL is found.
-    nonisolated static func gitRemoteVOutput(repository: ResolvedGitRepository) -> String? {
+    public nonisolated static func gitRemoteVOutput(repository: ResolvedGitRepository) -> String? {
         var lines: [String] = []
         var seenConfigPaths: Set<String> = []
         for configURL in gitRootConfigURLs(repository: repository) {

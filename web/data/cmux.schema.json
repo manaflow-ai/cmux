@@ -773,6 +773,12 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "autoColorFromCwd": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.workspaceColors.autoColorFromCwd",
+          "description": "Automatically assign a deterministic workspace tab color from the workspace cwd or enclosing Git repository when a new workspace has no explicit color."
+        },
         "indicatorStyle": {
           "type": "string",
           "enum": [

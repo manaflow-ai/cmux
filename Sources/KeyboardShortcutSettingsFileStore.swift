@@ -680,6 +680,14 @@ final class CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
+        if let value = jsonBool(section["autoColorFromCwd"]) {
+            snapshot.managedUserDefaults[
+                SettingCatalog().workspaceColors.autoColorFromCwd.userDefaultsKey
+            ] = .bool(value)
+        } else if section.keys.contains("autoColorFromCwd") {
+            logInvalid("workspaceColors.autoColorFromCwd", sourcePath: sourcePath)
+        }
+
         if let raw = jsonString(section["indicatorStyle"]) {
             let indicatorKey = SettingCatalog().workspaceColors.indicatorStyle
             let normalized = (WorkspaceIndicatorStyle.decodeFromJSON(raw) ?? indicatorKey.defaultValue).rawValue

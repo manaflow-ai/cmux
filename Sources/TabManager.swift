@@ -982,6 +982,20 @@ class TabManager: ObservableObject {
         applyTabBarLeadingInset(inheritedLeadingInset, to: newWorkspace)
     }
 
+    func applyAutoWorkspaceColorIfNeeded(
+        to newWorkspace: Workspace,
+        workingDirectory: String?
+    ) {
+        guard newWorkspace.customColor == nil,
+              settings.value(for: settingsCatalog.workspaceColors.autoColorFromCwd),
+              let color = WorkspaceTabColorSettings.autoColorHex(
+                  forWorkingDirectory: workingDirectory ?? newWorkspace.currentDirectory
+              ) else {
+            return
+        }
+        newWorkspace.setCustomColor(color)
+    }
+
     func syncWorkspaceTabBarLeadingInset(_ inset: CGFloat) {
         let normalizedInset = max(0, inset)
         currentWindowTabBarLeadingInset = normalizedInset
@@ -1113,6 +1127,7 @@ class TabManager: ObservableObject {
                 to: newWorkspace,
                 from: sourceWorkspace ?? capturedTabs.first
             )
+            applyAutoWorkspaceColorIfNeeded(to: newWorkspace, workingDirectory: workingDirectory)
             newWorkspace.owningTabManager = self
             if title != nil {
                 newWorkspace.setCustomTitle(title)
