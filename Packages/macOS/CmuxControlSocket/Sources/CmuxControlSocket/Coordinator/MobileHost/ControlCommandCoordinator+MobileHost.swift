@@ -53,8 +53,6 @@ extension ControlCommandCoordinator {
             return context?.controlMobileTerminalPaste(params: request.params)
         case "chat.sessions.dump":
             return context?.controlMobileChatSessionsDump()
-        case "mobile.chat.sessions":
-            return context?.controlMobileChatSessions(params: request.params)
         default:
             return nil
         }

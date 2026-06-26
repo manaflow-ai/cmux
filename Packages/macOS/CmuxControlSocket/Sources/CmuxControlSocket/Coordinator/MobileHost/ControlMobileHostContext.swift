@@ -122,12 +122,4 @@ public protocol ControlMobileHostContext: AnyObject {
     ///
     /// - Returns: The fully-built command result.
     func controlMobileChatSessionsDump() -> ControlCallResult
-
-    /// `mobile.chat.sessions` (local debug socket) — the chat-capable session
-    /// list as the phone would see it for one workspace, for diagnosing which
-    /// sessions surface a chat toggle. Same body the mobile data plane runs.
-    ///
-    /// - Parameter params: The decoded request params (`workspace_id`).
-    /// - Returns: The fully-built command result.
-    func controlMobileChatSessions(params: [String: JSONValue]) -> ControlCallResult
 }
