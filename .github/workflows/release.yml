@@ -467,6 +467,18 @@ jobs:
           xcrun stapler staple "$DMG_RELEASE"
           xcrun stapler validate "$DMG_RELEASE"
 
+      - name: Verify shipped DMG passes end-user Gatekeeper checks
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          # Reproduce the exact end-user install + verification flow
+          # (https://github.com/manaflow-ai/cmux/issues/6670) against the final
+          # notarized DMG before it is uploaded: mount it, ditto the app out,
+          # and run codesign --verify --deep --strict + spctl --assess. A
+          # signature regression introduced during DMG packaging fails here
+          # instead of shipping to users.
+          ./scripts/verify-released-app-bundle.sh --dmg cmux-macos.dmg
+
       - name: Upload dSYMs to Sentry
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         env:

@@ -596,6 +596,18 @@ jobs:
             "cmux-nightly-macos.dmg" \
             "$NIGHTLY_DMG_IMMUTABLE"
 
+      - name: Verify shipped nightly DMG passes end-user Gatekeeper checks
+        if: needs.decide.outputs.should_publish != 'true' || (steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true')
+        run: |
+          set -euo pipefail
+          # Reproduce the exact end-user install + verification flow
+          # (https://github.com/manaflow-ai/cmux/issues/6670) against the final
+          # notarized nightly DMG before it is uploaded: mount it, ditto the app
+          # out, and run codesign --verify --deep --strict + spctl --assess. A
+          # signature regression introduced during DMG packaging fails here
+          # instead of shipping to users.
+          ./scripts/verify-released-app-bundle.sh --dmg cmux-nightly-macos.dmg
+
       - name: Upload dSYMs to Sentry
         if: needs.decide.outputs.should_publish != 'true' || (steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true')
         env:
