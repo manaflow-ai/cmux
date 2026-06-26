@@ -65,17 +65,5 @@ enum RenderableSystemSymbol {
     }
     #endif
 }
-
-extension Image {
-    /// Keeps a positive symbol frame while avoiding the blank-prone resizable SF Symbol rasterizer.
-    func cmuxSymbolRasterSize(
-        _ pointSize: CGFloat,
-        weight: Font.Weight? = nil,
-        alignment: Alignment = .center
-    ) -> some View {
-        let rasterSize = RenderableSystemSymbol.clampedRasterPointSize(pointSize)
-        let systemFont: Font = weight.map { .system(size: rasterSize, weight: $0) } ?? .system(size: rasterSize)
-        return font(systemFont)
-            .frame(width: rasterSize, height: rasterSize, alignment: alignment)
-    }
-}
+// NOTE: `extension Image { cmuxSymbolRasterSize }` removed during reconciliation —
+// it already lives in CmuxFoundation/Symbol/Image+CmuxSymbolRasterSize.swift.
