@@ -1,3 +1,4 @@
+import Combine
 import CmuxSettings
 import Foundation
 import XCTest
@@ -116,7 +117,7 @@ final class WorkspaceAutoColorUnitTests: XCTestCase {
     }
 
     @MainActor
-    func testAutoColorFromCwdAppliesToInitialAndCreatedWorkspaces() throws {
+    func testAutoColorFromCwdAppliesToInitialAndCreatedWorkspaces() async throws {
         let defaultsFixture = try makeIsolatedDefaults()
         defer { defaultsFixture.defaults.removePersistentDomain(forName: defaultsFixture.suiteName) }
         let settings = UserDefaultsSettingsClient(defaults: defaultsFixture.defaults)
@@ -134,17 +135,18 @@ final class WorkspaceAutoColorUnitTests: XCTestCase {
             settings: settings
         )
 
-        XCTAssertEqual(manager.tabs.first?.customColor, expected)
+        let initial = try XCTUnwrap(manager.tabs.first)
+        await waitForAutoColor(expected, on: initial)
         let added = manager.addWorkspace(
             workingDirectory: nested.path,
             select: false,
             autoWelcomeIfNeeded: false
         )
-        XCTAssertEqual(added.customColor, expected)
+        await waitForAutoColor(expected, on: added)
     }
 
     @MainActor
-    func testAutoColorFromCwdIsOptInAndManualColorsStillWin() throws {
+    func testAutoColorFromCwdIsOptInAndManualColorsStillWin() async throws {
         let defaultsFixture = try makeIsolatedDefaults()
         defer { defaultsFixture.defaults.removePersistentDomain(forName: defaultsFixture.suiteName) }
         let settings = UserDefaultsSettingsClient(defaults: defaultsFixture.defaults)
@@ -166,7 +168,8 @@ final class WorkspaceAutoColorUnitTests: XCTestCase {
             settings: settings
         )
         let workspace = try XCTUnwrap(enabledManager.tabs.first)
-        XCTAssertNotNil(workspace.customColor)
+        let expected = try XCTUnwrap(WorkspaceTabColorSettings.autoColorHex(forWorkingDirectory: repository.path))
+        await waitForAutoColor(expected, on: workspace)
 
         workspace.setCustomColor("#C0392B")
         XCTAssertEqual(workspace.customColor, "#C0392B")
@@ -206,5 +209,26 @@ final class WorkspaceAutoColorUnitTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         return (suiteName, defaults)
+    }
+
+    @MainActor
+    private func waitForAutoColor(
+        _ expected: String,
+        on workspace: Workspace,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        guard workspace.customColor != expected else { return }
+        let expectation = expectation(description: "workspace auto color")
+        var cancellable: AnyCancellable?
+        cancellable = workspace.$customColor.sink { color in
+            if color == expected {
+                expectation.fulfill()
+                cancellable?.cancel()
+            }
+        }
+        await fulfillment(of: [expectation], timeout: 2.0)
+        XCTAssertEqual(workspace.customColor, expected, file: file, line: line)
+        _ = cancellable
     }
 }

@@ -74,8 +74,8 @@ extension TabManager {
             }
 
             applyCreationChromeInheritance(to: newWorkspace, from: sourceWorkspace ?? capturedTabs.first)
-            applyAutoWorkspaceColorIfNeeded(to: newWorkspace, workingDirectory: workingDirectory)
             newWorkspace.owningTabManager = self
+            applyAutoWorkspaceColorIfNeeded(to: newWorkspace, workingDirectory: workingDirectory)
             if title != nil {
                 newWorkspace.setCustomTitle(title)
             }

@@ -6,12 +6,23 @@ extension TabManager {
         workingDirectory: String?
     ) {
         guard newWorkspace.customColor == nil,
-              settings.value(for: settingsCatalog.workspaceColors.autoColorFromCwd),
-              let color = WorkspaceTabColorSettings.autoColorHex(
-                  forWorkingDirectory: workingDirectory ?? newWorkspace.currentDirectory
-              ) else {
+              settings.value(for: settingsCatalog.workspaceColors.autoColorFromCwd) else {
             return
         }
-        newWorkspace.setCustomColor(color)
+        let directory = workingDirectory ?? newWorkspace.currentDirectory
+        Task.detached(priority: .utility) { [weak self, weak newWorkspace, directory] in
+            guard let color = WorkspaceTabColorSettings.autoColorHex(forWorkingDirectory: directory) else {
+                return
+            }
+            await MainActor.run { [weak self, weak newWorkspace] in
+                guard let self,
+                      let newWorkspace,
+                      newWorkspace.owningTabManager === self,
+                      newWorkspace.customColor == nil else {
+                    return
+                }
+                newWorkspace.setCustomColor(color)
+            }
+        }
     }
 }
