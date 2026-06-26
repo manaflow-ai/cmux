@@ -122,16 +122,44 @@ extension AuthCoordinator {
 
     private func gateTokenTouchingPhase(_ phase: AuthPhase, id: UUID) {
         guard activeTokenTouchingPhases[id] != nil else { return }
+        let now = DispatchTime.now().uptimeNanoseconds
         timedOutTokenTouchingPhaseStates[phase] = AuthPhaseTimedOutState(
             id: id,
-            expiresAt: DispatchTime.now().uptimeNanoseconds &+ tokenTouchingTimedOutResetNanoseconds
+            expiresAt: now &+ tokenTouchingTimedOutResetNanoseconds,
+            hardExpiresAt: now &+ tokenTouchingHardExpiryNanoseconds
         )
     }
 
     private func expireTimedOutTokenTouchingPhaseIfNeeded(_ phase: AuthPhase) {
         guard let timedOut = timedOutTokenTouchingPhaseStates[phase] else { return }
-        guard DispatchTime.now().uptimeNanoseconds >= timedOut.expiresAt else { return }
-        guard activeTokenTouchingPhases[timedOut.id] == nil else { return }
+        let now = DispatchTime.now().uptimeNanoseconds
+        guard now >= timedOut.expiresAt else { return }
+        // Normal path: reopen once the previous timed-out phase task has
+        // finished unwinding, so a slow-but-honest cancellation does not start a
+        // second concurrent token operation.
+        if activeTokenTouchingPhases[timedOut.id] == nil {
+            timedOutTokenTouchingPhaseStates[phase] = nil
+            return
+        }
+        // Safety net: a Stack SDK call that hangs and ignores cancellation never
+        // lets the previous phase task finish, which would keep this phase — and
+        // therefore token acquisition for every session — gated forever. Reopen
+        // once the bounded hard window elapses so the next caller can retry,
+        // matching AuthPhaseTimeoutRegistry's time-based recovery (#6311).
+        //
+        // The reopen is intentionally unconditional (no concurrency cap): the
+        // issue's requirement is that reconnects recover WITHOUT an app restart,
+        // and any cap would, after enough never-completing tasks, leave the
+        // phase gated forever — recreating this very bug. The wedged task is also
+        // deliberately left in `activeTokenTouchingPhases`: a cancellation-
+        // ignoring SDK call may still be mid-write, and sign-in preflight relies
+        // on awaiting that work so a late stale token write cannot race a new
+        // session — evicting it would break that invariant. Retained work is
+        // instead bounded by the Stack SDK's own URLSession request timeout: a
+        // stuck refresh fails within its timeout, so the phase task completes and
+        // its completion handler drains the registry. Reopens are paced one per
+        // hard window, so concurrent retained tasks stay ~1 in practice.
+        guard let hardExpiresAt = timedOut.hardExpiresAt, now >= hardExpiresAt else { return }
         timedOutTokenTouchingPhaseStates[phase] = nil
     }
 
