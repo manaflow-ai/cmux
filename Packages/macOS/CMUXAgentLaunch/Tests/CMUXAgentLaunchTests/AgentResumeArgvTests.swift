@@ -121,6 +121,34 @@ struct AgentResumeArgvTests {
         )
     }
 
+    @Test("Shell bootstrap executables fall back to the agent executable")
+    func shellBootstrapExecutableFallsBackToAgentExecutable() {
+        let fishBootstrapArguments = [
+            "/bin/bash",
+            "--noprofile",
+            "--norc",
+            "-c",
+            "exec -l /opt/homebrew/bin/fish",
+        ]
+
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "claude",
+                sessionId: "SID",
+                executablePath: "/bin/bash",
+                arguments: fishBootstrapArguments
+            ) == ["claude", "--resume", "SID"]
+        )
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "codex",
+                sessionId: "SID",
+                executablePath: "/bin/bash",
+                arguments: fishBootstrapArguments
+            ) == ["codex", "resume", "SID"]
+        )
+    }
+
     @Test("cmux wrapper launchers resolve before per-kind verbs")
     func launcherWrappers() {
         #expect(
