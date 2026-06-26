@@ -474,7 +474,7 @@ extension TerminalController {
                 return
             }
 
-            guard let terminalPanel = sendableWorkspaceTerminalPanel(in: tab) else {
+            guard let terminalPanel = tab.sendableWorkspaceTerminalPanel() else {
                 error = "ERROR: No selected terminal in workspace"
                 return
             }
@@ -501,44 +501,6 @@ extension TerminalController {
 
         if let error { return error }
         return success ? "OK" : "ERROR: Failed to send input"
-    }
-
-    private func sendableWorkspaceTerminalPanel(in workspace: Workspace) -> TerminalPanel? {
-        func selectedTerminalPanel(in paneId: PaneID) -> TerminalPanel? {
-            guard let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId),
-                  let panelId = workspace.panelIdFromSurfaceId(selectedTab.id),
-                  let terminalPanel = workspace.panels[panelId] as? TerminalPanel else {
-                return nil
-            }
-            return terminalPanel
-        }
-
-        func isSelectedTerminalPanel(_ terminalPanel: TerminalPanel) -> Bool {
-            guard let surfaceId = workspace.surfaceIdFromPanelId(terminalPanel.id) else {
-                return false
-            }
-            return workspace.bonsplitController.allPaneIds.contains { paneId in
-                workspace.bonsplitController.selectedTab(inPane: paneId)?.id == surfaceId
-            }
-        }
-
-        if let focusedPane = workspace.bonsplitController.focusedPaneId,
-           let terminalPanel = selectedTerminalPanel(in: focusedPane) {
-            return terminalPanel
-        }
-
-        if let rememberedTerminal = workspace.lastRememberedTerminalPanelForConfigInheritance(),
-           isSelectedTerminalPanel(rememberedTerminal) {
-            return rememberedTerminal
-        }
-
-        for paneId in workspace.bonsplitController.allPaneIds {
-            if let terminalPanel = selectedTerminalPanel(in: paneId) {
-                return terminalPanel
-            }
-        }
-
-        return nil
     }
 
     func sendInputToSurface(_ args: String) -> String {

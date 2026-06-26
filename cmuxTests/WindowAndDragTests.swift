@@ -30,6 +30,7 @@ import struct CmuxWorkspaces.TmuxPaneOverlayGeometry
 import class CmuxWorkspaces.TmuxWorkspacePaneOverlayModel
 import struct CmuxWorkspaces.FilePreviewDragEntry
 import class CmuxWorkspaces.FilePreviewDragRegistry
+import class CmuxWorkspaces.FilePreviewDragPasteboardWriter
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

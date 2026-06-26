@@ -1,5 +1,6 @@
 import Foundation
 import OSLog
+import CMUXAgentLaunch
 
 struct CmuxVaultConfigDefinition: Codable, Hashable, Sendable {
     var agents: [CmuxVaultAgentRegistration]
@@ -244,6 +245,27 @@ struct CmuxVaultAgentDetectRule: Codable, Hashable, Sendable {
     }
 }
 
+extension CmuxVaultAgentDetectRule {
+    func matches(_ process: VaultObservedAgentProcess) -> Bool {
+        var expectedNames = processNames
+        if let processName {
+            expectedNames.append(processName)
+        }
+        guard !expectedNames.isEmpty || !argvContains.isEmpty || !alternateArgvContains.isEmpty else {
+            return false
+        }
+        let processNameMatch = expectedNames.isEmpty || expectedNames.contains { expected in
+            process.executableBasenames.contains { candidate in
+                candidate.compare(expected, options: [.caseInsensitive, .literal]) == .orderedSame
+            }
+        }
+        let argvContainsMatch = argvContains.isEmpty || process.argumentsContainAll(argvContains)
+        let alternateArgvContainsMatch = !alternateArgvContains.isEmpty
+            && process.argumentsContainAll(alternateArgvContains)
+        return (processNameMatch && argvContainsMatch) || alternateArgvContainsMatch
+    }
+}
+
 enum CmuxVaultAgentSessionIDSource: Codable, Hashable, Sendable {
     case argvOption(String)
     case piSessionFile
@@ -328,6 +350,51 @@ enum CmuxVaultAgentSessionIDSource: Codable, Hashable, Sendable {
             try container.encode("piSessionFile", forKey: .type)
         case .grokSessionDirectory:
             try container.encode("grokSessionDirectory", forKey: .type)
+        }
+    }
+}
+
+struct VaultAgentSessionIDResolution {
+    let sessionId: String
+    let source: RestorableAgentSessionIndex.ProcessDetectedSessionIDSource
+}
+
+extension CmuxVaultAgentSessionIDSource {
+    func sessionIDResolution(
+        from process: VaultObservedAgentProcess,
+        registration: CmuxVaultAgentRegistration,
+        fileManager: FileManager
+    ) -> VaultAgentSessionIDResolution? {
+        switch self {
+        case .argvOption(let option):
+            guard let sessionId = AgentResumeArgvParser().nonOptionValue(in: process.arguments, afterOption: option) else { return nil }
+            return VaultAgentSessionIDResolution(sessionId: sessionId, source: .explicit)
+        case .piSessionFile:
+            let locator = PiSessionLocator(fileManager: fileManager)
+            if let session = process.piCompatibleSessionID {
+                let sessionId = locator.resolvedSessionPath(
+                    session,
+                    for: process,
+                    registrationID: registration.id,
+                    registrationSessionDirectory: registration.sessionDirectory,
+                    builtInOmpSessionDirectory: CmuxVaultAgentRegistration.builtInOmp.sessionDirectory
+                ) ?? session
+                return VaultAgentSessionIDResolution(sessionId: sessionId, source: .explicit)
+            }
+            guard let sessionId = locator.latestSessionPath(
+                for: process,
+                registrationID: registration.id,
+                registrationSessionDirectory: registration.sessionDirectory,
+                builtInOmpSessionDirectory: CmuxVaultAgentRegistration.builtInOmp.sessionDirectory
+            ) else {
+                return nil
+            }
+            return VaultAgentSessionIDResolution(sessionId: sessionId, source: .inferredLatestSessionFile)
+        case .grokSessionDirectory:
+            if let session = AgentResumeArgvParser().grokResumeSessionID(in: process.arguments) {
+                return VaultAgentSessionIDResolution(sessionId: session, source: .explicit)
+            }
+            return nil
         }
     }
 }
