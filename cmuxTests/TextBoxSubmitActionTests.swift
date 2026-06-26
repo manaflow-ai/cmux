@@ -773,17 +773,21 @@ struct TextBoxSubmitActionTests {
     }
 
     @Test
-    func testCommandTemplateSubmitAllowsUnknownOrPromptIdleShellState() {
+    func testCommandTemplateSubmitRequiresPromptIdleShellState() {
         #expect(TextBoxInputContainer.allowsCommandTemplateSubmit(shellActivityState: .promptIdle))
-        #expect(TextBoxInputContainer.allowsCommandTemplateSubmit(shellActivityState: .unknown))
+        #expect(!TextBoxInputContainer.allowsCommandTemplateSubmit(shellActivityState: .unknown))
         #expect(!TextBoxInputContainer.allowsCommandTemplateSubmit(shellActivityState: .commandRunning))
     }
 
     @Test
-    func testUnknownShellStateSubmitsProviderCommandWithoutBlockingCycle() throws {
+    func testFreshOwnedTerminalSubmitsProviderCommandWithoutBlockingCycle() throws {
         let codex = try #require(TextBoxSubmitAction.builtInActions.first { $0.id == "codex" })
+        let panel = TerminalPanel(workspaceId: UUID())
+        let allowsCommandTemplateSubmit = TextBoxInputContainer.allowsCommandTemplateSubmit(
+            shellActivityState: panel.shellActivity.state
+        )
         let shouldForceTextEntry = TextBoxInputContainer.shouldForceTextEntrySubmit(
-            allowsCommandTemplateSubmit: true,
+            allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
             terminalAgentContext: ""
         )
 
@@ -791,14 +795,14 @@ struct TextBoxSubmitActionTests {
         #expect(!TextBoxInputContainer.shouldUseTextEntryFallbackForCommandTemplate(
             action: codex,
             shouldForceTextEntrySubmit: shouldForceTextEntry,
-            allowsCommandTemplateSubmit: true
+            allowsCommandTemplateSubmit: allowsCommandTemplateSubmit
         ))
         XCTAssertEqual(
             TextBoxInputContainer.dispatchPlan(
                 [.text("hi how are you")],
                 applying: codex,
                 shouldForceTextEntrySubmit: shouldForceTextEntry,
-                allowsCommandTemplateSubmit: true,
+                allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
                 terminalAgentContext: "",
                 pendingProviderLaunchAction: nil
             ).events,
@@ -807,10 +811,24 @@ struct TextBoxSubmitActionTests {
                 terminalAgentContext: ""
             )
         )
+    }
+
+    @Test
+    func testUnknownShellStateFallsBackToTextEntryWithoutBlockingCycle() throws {
+        let codex = try #require(TextBoxSubmitAction.builtInActions.first { $0.id == "codex" })
+        let allowsCommandTemplateSubmit = TextBoxInputContainer.allowsCommandTemplateSubmit(
+            shellActivityState: .unknown
+        )
+        let shouldForceTextEntry = TextBoxInputContainer.shouldForceTextEntrySubmit(
+            allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
+            terminalAgentContext: ""
+        )
+
+        #expect(!shouldForceTextEntry)
         #expect(TextBoxInputContainer.shouldUseTextEntryFallbackForCommandTemplate(
             action: codex,
             shouldForceTextEntrySubmit: shouldForceTextEntry,
-            allowsCommandTemplateSubmit: false
+            allowsCommandTemplateSubmit: allowsCommandTemplateSubmit
         ))
         XCTAssertEqual(
             TextBoxInputContainer.submitActionPresentation(
@@ -824,7 +842,7 @@ struct TextBoxSubmitActionTests {
                 [.text("ordinary shell input")],
                 applying: codex,
                 shouldForceTextEntrySubmit: shouldForceTextEntry,
-                allowsCommandTemplateSubmit: false,
+                allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
                 terminalAgentContext: "",
                 pendingProviderLaunchAction: nil
             ).events,
@@ -1003,11 +1021,32 @@ struct TextBoxSubmitActionTests {
     func testTerminalPanelPublishesShellActivityStateForTextBoxRouting() {
         let panel = TerminalPanel(workspaceId: UUID())
 
-        XCTAssertEqual(panel.shellActivity.state, .unknown)
-        panel.updateShellActivityState(.promptIdle)
         XCTAssertEqual(panel.shellActivity.state, .promptIdle)
         panel.updateShellActivityState(.commandRunning)
         XCTAssertEqual(panel.shellActivity.state, .commandRunning)
+    }
+
+    @Test
+    func testTerminalPanelKeepsStartupSurfacesUnknownUntilShellIntegrationReports() {
+        var template = CmuxSurfaceConfigTemplate()
+        template.initialInput = "echo from template\n"
+
+        XCTAssertEqual(
+            TerminalPanel(workspaceId: UUID(), initialCommand: "vim").shellActivity.state,
+            .unknown
+        )
+        XCTAssertEqual(
+            TerminalPanel(workspaceId: UUID(), tmuxStartCommand: "tmux new").shellActivity.state,
+            .unknown
+        )
+        XCTAssertEqual(
+            TerminalPanel(workspaceId: UUID(), initialInput: "echo hi\n").shellActivity.state,
+            .unknown
+        )
+        XCTAssertEqual(
+            TerminalPanel(workspaceId: UUID(), configTemplate: template).shellActivity.state,
+            .unknown
+        )
     }
 
     private func makeTemporaryDirectory() throws -> URL {

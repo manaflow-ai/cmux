@@ -216,6 +216,31 @@ final class TerminalPanel: Panel, ObservableObject {
             runtimeSpawnPolicy: runtimeSpawnPolicy
         )
         self.init(workspaceId: workspaceId, surface: surface)
+        if Self.startsAtOwnedPrompt(
+            configTemplate: configTemplate,
+            initialCommand: initialCommand,
+            tmuxStartCommand: tmuxStartCommand,
+            initialInput: initialInput
+        ) {
+            updateShellActivityState(.promptIdle)
+        }
+    }
+
+    private static func startsAtOwnedPrompt(
+        configTemplate: CmuxSurfaceConfigTemplate?,
+        initialCommand: String?,
+        tmuxStartCommand: String?,
+        initialInput: String?
+    ) -> Bool {
+        isBlank(initialCommand) &&
+            isBlank(tmuxStartCommand) &&
+            isBlank(initialInput) &&
+            isBlank(configTemplate?.command) &&
+            isBlank(configTemplate?.initialInput)
+    }
+
+    private static func isBlank(_ value: String?) -> Bool {
+        value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
     }
 
     func updateTitle(_ newTitle: String) {
