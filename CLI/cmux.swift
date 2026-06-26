@@ -19659,7 +19659,7 @@ struct CMUXCLI {
         private let readinessLock = NSLock()
         private let stateLock = NSLock()
         private var lastAgentSurfaceId: String?
-        private var subscribedThreadIds = Set<String>()
+        private var hydratedThreadIds = Set<String>()
         private var approvalItemById: [String: [String: Any]] = [:]
         private var approvalItemOrder: [String] = []
         private var suppressedApprovalKeys = Set<String>()
@@ -19700,7 +19700,7 @@ struct CMUXCLI {
                         version: CMUXCLI.codexTeamsClientVersion,
                         optOutNotificationMethods: CMUXCLI.codexTeamsWatcherResumeOptOutNotificationMethods
                     )
-                    resetConnectionSubscriptions()
+                    resetConnectionHydration()
                     try backfillLoadedThreads(connection: connection)
                     try listenForNotifications(connection: connection)
                 } catch {
@@ -19722,10 +19722,9 @@ struct CMUXCLI {
                     )
                 }
             )
-            let threadIds = loaded["data"] as? [String] ?? []
-            for threadId in threadIds {
+            for threadId in (loaded["data"] as? [String] ?? []) {
                 do {
-                    try subscribeToThreadIfNeeded(threadId, connection: connection)
+                    _ = try hydrateThreadIfNeeded(threadId, connection: connection)
                 } catch {
                     cliWriteStderr("cmux codex-teams watcher skipped thread \(threadId): \(error)\n")
                 }
@@ -19757,56 +19756,57 @@ struct CMUXCLI {
                   let thread = CMUXCLI.codexTeamsThread(from: threadObject) else {
                 return
             }
-            try observeThreadSafely(thread)
             if allowThreadSubscribe {
                 do {
-                    try subscribeToThreadIfNeeded(thread.id, connection: connection)
+                    if try hydrateThreadIfNeeded(thread.id, connection: connection) { return }
                 } catch {
                     cliWriteStderr("cmux codex-teams watcher skipped thread \(thread.id): \(error)\n")
                 }
             }
+            markThreadAttachableIfLoaded(thread)
+            try observeThreadSafely(thread)
         }
 
-        private func subscribeToThreadIfNeeded(
-            _ threadId: String,
-            connection: CodexTeamsAppServerConnection
-        ) throws {
+        private func hydrateThreadIfNeeded(_ threadId: String, connection: CodexTeamsAppServerConnection) throws -> Bool {
             stateLock.lock()
-            let inserted = subscribedThreadIds.insert(threadId).inserted
+            let inserted = hydratedThreadIds.insert(threadId).inserted
             stateLock.unlock()
-            guard inserted else { return }
+            guard inserted else { return false }
 
             do {
                 let response = try connection.request(
-                    method: "thread/resume",
-                    params: [
-                        "threadId": threadId,
-                        "excludeTurns": true
-                    ],
+                    method: "thread/read",
+                    params: ["threadId": threadId, "includeTurns": false],
                     notificationHandler: { [weak self] message in
-                        try self?.handleAppServerMessage(
-                            message,
-                            connection: connection,
-                            allowThreadSubscribe: false
-                        )
+                        try self?.handleAppServerMessage(message, connection: connection, allowThreadSubscribe: false)
                     }
                 )
                 if let threadObject = response["thread"] as? [String: Any],
                    let thread = CMUXCLI.codexTeamsThread(from: threadObject) {
+                    markThreadAttachableIfLoaded(thread)
                     try observeThreadSafely(thread)
+                    return true
                 }
+                return false
             } catch {
                 stateLock.lock()
-                subscribedThreadIds.remove(threadId)
+                hydratedThreadIds.remove(threadId)
                 stateLock.unlock()
                 throw error
             }
         }
 
-        private func resetConnectionSubscriptions() {
+        private func resetConnectionHydration() {
             stateLock.lock()
-            subscribedThreadIds.removeAll(keepingCapacity: true)
+            hydratedThreadIds.removeAll(keepingCapacity: true)
             stateLock.unlock()
+        }
+
+        private func markThreadAttachableIfLoaded(_ thread: CodexTeamsThread) {
+            guard CMUXCLI.codexTeamsThreadMayBeAttachable(thread) else { return }
+            readinessLock.lock()
+            attachableThreadIds.insert(thread.id)
+            readinessLock.unlock()
         }
 
         private func cacheApprovalItemIfPresent(_ message: [String: Any], method: String) {
