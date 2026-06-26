@@ -817,6 +817,9 @@
         "terminal": {
           "copyOnSelect": "Når værdien er true, kopieres markeret terminaltekst til systemets udklipsholder, når markeringen bekræftes. Når værdien er false, udsender cmux ikke en Ghostty copy-on-select-tilsidesættelse; Ghostty-konfiguration og standarder styrer markeringsudklipsholderens adfærd.",
           "scrollSpeed": "Multiplikator anvendt på rulleværdier fra musehjul og pegefelt i terminalen. Højere værdier ruller hurtigere, lavere værdier langsommere.",
+          "offerResumeAfterCrash": "Vis et gendannelsestilbud efter en uklar nedlukning, når cmux kan bekræfte en gemt agentsession. Standard: false.",
+          "injectResumeBreadcrumb": "Når en bekræftet gemt agentsession genoptages, sendes en kort workspace-afgrænset note, der hjælper agenten med at fortsætte, hvor den slap. Standard: false.",
+          "resumeAgentsAfterUpdate": "Efter en tilsigtet genstart ved appopdatering genoptages bekræftede gemte agentsessioner automatisk i stedet for at forblive inaktive. Standard: false.",
           "showTextBoxOnNewTerminals": "Viser beta-TextBox-input som standard for nyoprettede arbejdsområder, terminalfaner og terminalsplits.",
           "focusTextBoxOnNewTerminals": "Fokuserer beta-TextBox-input som standard for nyoprettede arbejdsområder, terminalfaner og terminalsplits. Fokus viser også TextBox."
         },

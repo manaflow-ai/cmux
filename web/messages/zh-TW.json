@@ -817,6 +817,9 @@
         "terminal": {
           "copyOnSelect": "為 true 時，選取確認後會將所選終端機文字複製到系統剪貼簿。為 false 時，cmux 不會輸出 Ghostty copy-on-select 覆寫；選取剪貼簿行為由 Ghostty 設定與預設值控制。",
           "scrollSpeed": "套用於終端機滾輪與觸控板捲動量的倍率。數值越大捲動越快，數值越小捲動越慢。",
+          "offerResumeAfterCrash": "當 cmux 可以驗證已儲存的代理工作階段時，在非正常關閉後顯示復原提示。預設值：false。",
+          "injectResumeBreadcrumb": "恢復已驗證的已儲存代理工作階段時，傳送一則限定於 workspace 範圍內的簡短備註，協助代理從上次中斷處繼續。預設值：false。",
+          "resumeAgentsAfterUpdate": "在有意的應用程式更新重新啟動後，自動恢復已驗證的已儲存代理工作階段，而不是讓它們保持閒置。預設值：false。",
           "showTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中顯示測試版 TextBox 輸入。",
           "focusTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中聚焦測試版 TextBox 輸入。聚焦也會顯示 TextBox。"
         },

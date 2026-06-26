@@ -67,6 +67,24 @@ Opt-in Agent Hibernation. cmux kills idle background agent processes to free RAM
 
 Enable it from the command palette (`⌘⇧P` -> Enable Agent Hibernation), from **Settings > Terminal > Agent Hibernation**, or with `cmux agent-hibernation on`.
 
+## `terminal.offerResumeAfterCrash`
+
+Opt-in crash/update agent recovery settings. Window, pane, scrollback, and browser restore remain separate from these settings.
+
+```json
+{
+  "terminal": {
+    "offerResumeAfterCrash": true,
+    "injectResumeBreadcrumb": true,
+    "resumeAgentsAfterUpdate": false
+  }
+}
+```
+
+- `offerResumeAfterCrash`: show a recovery offer after an unclean shutdown when cmux can verify a saved agent session. Default: `false`.
+- `injectResumeBreadcrumb`: when resuming a verified saved agent session, send a short workspace-scoped note that helps the agent pick up where it left off. Default: `false`.
+- `resumeAgentsAfterUpdate`: after an intentional app update relaunch, automatically resume verified saved agent sessions instead of leaving them idle. Default: `false`.
+
 ## `automation.workspaceAutoNaming`
 
 Opt-in AI auto-naming of workspaces and tabs from agent conversation content. When enabled, cmux summarizes supported agent sessions into short sidebar and tab names using each agent's own binary, and refreshes them as the conversation topic shifts. See [workspace-auto-naming.md](workspace-auto-naming.md) for the supported adapter list and full behavior.

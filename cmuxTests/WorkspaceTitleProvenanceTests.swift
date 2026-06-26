@@ -160,4 +160,193 @@ import Testing
         workspace.setCustomTitle(legacyDecoded.customTitle, source: legacyDecoded.customTitleSource ?? .user)
         #expect(workspace.effectiveCustomTitleSource == .user)
     }
+
+    @Test func restoreDropsUnverifiedAutoWorkspaceTitle() {
+        let workspace = Workspace(title: "Terminal")
+        let snapshot = SessionWorkspaceSnapshot(
+            processTitle: "zsh",
+            customTitle: "Foreign Summary",
+            customTitleSource: .auto,
+            customDescription: nil,
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: "/tmp",
+            focusedPanelId: nil,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)),
+            panels: [],
+            statusEntries: [],
+            logEntries: []
+        )
+
+        workspace.restoreSessionSnapshot(snapshot)
+
+        #expect(workspace.customTitle == nil)
+        #expect(workspace.effectiveCustomTitleSource == nil)
+        #expect(workspace.title == "zsh")
+    }
+
+    @Test func restorePreservesLegacyWorkspaceTitleWithoutProvenance() {
+        let workspace = Workspace(title: "Terminal")
+        let snapshot = SessionWorkspaceSnapshot(
+            processTitle: "zsh",
+            customTitle: "Legacy Title",
+            customTitleSource: nil,
+            customDescription: nil,
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: "/tmp",
+            focusedPanelId: nil,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)),
+            panels: [],
+            statusEntries: [],
+            logEntries: []
+        )
+
+        workspace.restoreSessionSnapshot(snapshot)
+
+        #expect(workspace.customTitle == "Legacy Title")
+        #expect(workspace.effectiveCustomTitleSource == .user)
+        #expect(workspace.title == "Legacy Title")
+    }
+
+    @Test func restoreDropsUnverifiedAutoPanelFallbackTitle() throws {
+        let panelId = UUID()
+        let snapshot = SessionWorkspaceSnapshot(
+            workspaceId: UUID(),
+            processTitle: "zsh",
+            customTitle: nil,
+            customDescription: nil,
+            customColor: nil,
+            isPinned: false,
+            groupId: nil,
+            isManuallyUnread: false,
+            hasUnreadIndicator: false,
+            notifications: nil,
+            terminalScrollBarHidden: nil,
+            currentDirectory: "/tmp",
+            focusedPanelId: panelId,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [panelId], selectedPanelId: panelId)),
+            panels: [
+                Self.terminalPanelSnapshot(
+                    id: panelId,
+                    title: "Foreign Summary",
+                    customTitle: "Foreign Summary",
+                    customTitleSource: .auto
+                )
+            ],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil,
+            remote: nil
+        )
+        let workspace = Workspace(title: "Terminal")
+
+        let restoredIds = workspace.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try #require(restoredIds[panelId])
+
+        #expect(workspace.panelCustomTitles[restoredPanelId] == nil)
+        #expect(workspace.panelTitles[restoredPanelId] != "Foreign Summary")
+        #expect(workspace.panelTitle(panelId: restoredPanelId) != "Foreign Summary")
+    }
+
+    @Test func replacedResumeBindingDoesNotReuseStoredVerification() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+        let firstBinding = Self.resumeBinding(sessionId: "sess-a", cwd: "/tmp/a")
+        let secondBinding = Self.resumeBinding(sessionId: "sess-b", cwd: "/tmp/b")
+
+        #expect(workspace.setSurfaceResumeBinding(firstBinding, panelId: panelId))
+        workspace.restoredAgentVerificationByPanelId[panelId] = Self.verifiedCrashRecovery(
+            binding: firstBinding
+        )
+        #expect(workspace.transcriptExistsAtWindowCwd)
+
+        #expect(workspace.setSurfaceResumeBinding(secondBinding, panelId: panelId))
+
+        #expect(workspace.restoredAgentVerificationByPanelId[panelId] == nil)
+        #expect(!workspace.transcriptExistsAtWindowCwd)
+    }
+
+    @Test func cachedVerificationMustMatchRestoredPanelBinding() {
+        let firstBinding = Self.resumeBinding(sessionId: "sess-a", cwd: "/tmp/a")
+        let secondBinding = Self.resumeBinding(sessionId: "sess-b", cwd: "/tmp/b")
+        let snapshot = Self.terminalPanelSnapshot(
+            id: UUID(),
+            title: "Foreign Summary",
+            customTitle: "Foreign Summary",
+            customTitleSource: .auto,
+            resumeBinding: secondBinding
+        )
+
+        let verified = Workspace.restoredPanelNameIsVerified(
+            snapshot,
+            cachedVerification: Self.verifiedCrashRecovery(binding: firstBinding)
+        )
+
+        #expect(!verified)
+    }
+
+    private static func terminalPanelSnapshot(
+        id: UUID,
+        title: String,
+        customTitle: String?,
+        customTitleSource: Workspace.CustomTitleSource?,
+        resumeBinding: SurfaceResumeBindingSnapshot? = nil
+    ) -> SessionPanelSnapshot {
+        SessionPanelSnapshot(
+            id: id,
+            type: .terminal,
+            title: title,
+            customTitle: customTitle,
+            customTitleSource: customTitleSource,
+            directory: nil,
+            isPinned: false,
+            isManuallyUnread: false,
+            hasUnreadIndicator: false,
+            restoredUnreadContributesToWorkspace: nil,
+            notifications: nil,
+            gitBranch: nil,
+            listeningPorts: [],
+            ttyName: nil,
+            terminal: SessionTerminalPanelSnapshot(resumeBinding: resumeBinding),
+            browser: nil,
+            markdown: nil,
+            filePreview: nil,
+            rightSidebarTool: nil,
+            agentSession: nil,
+            project: nil
+        )
+    }
+
+    private static func resumeBinding(sessionId: String, cwd: String) -> SurfaceResumeBindingSnapshot {
+        SurfaceResumeBindingSnapshot(
+            kind: RestorableAgentKind.claude.rawValue,
+            command: "claude --resume \(sessionId)",
+            cwd: cwd,
+            checkpointId: sessionId,
+            source: "agent-hook",
+            autoResume: true
+        )
+    }
+
+    private static func verifiedCrashRecovery(binding: SurfaceResumeBindingSnapshot) -> CrashRecoveryVerification {
+        CrashRecoveryVerification(
+            facts: ResumeBindingFacts(
+                hasBinding: true,
+                agentKind: RestorableAgentKind.claude,
+                sessionId: binding.checkpointId,
+                resumeCommandConstructable: true,
+                transcriptExistsAtWindowCwd: true,
+                transcriptExistsElsewhere: false
+            ),
+            presence: ClaudeTranscriptPresence(
+                existsAtWindowCwd: true,
+                existsElsewhere: false,
+                resolvedPathAtWindowCwd: "/tmp/transcript.jsonl"
+            ),
+            fingerprint: Workspace.crashRecoveryVerificationFingerprint(binding: binding)
+        )
+    }
 }

@@ -817,6 +817,9 @@
         "terminal": {
           "copyOnSelect": "为 true 时，在确认选择后将所选终端文本复制到系统剪贴板。为 false 时，cmux 不会输出 Ghostty copy-on-select 覆盖项；选择剪贴板行为由 Ghostty 配置和默认值控制。",
           "scrollSpeed": "应用于终端滚轮和触控板滚动量的倍数。值越大滚动越快，值越小滚动越慢。",
+          "offerResumeAfterCrash": "当 cmux 可以验证已保存的代理会话时，在非正常关闭后显示恢复提示。默认值：false。",
+          "injectResumeBreadcrumb": "恢复已验证的已保存代理会话时，发送一条限定在 workspace 范围内的简短备注，帮助代理从上次中断处继续。默认值：false。",
+          "resumeAgentsAfterUpdate": "在有意的应用更新重启后，自动恢复已验证的已保存代理会话，而不是让它们保持空闲。默认值：false。",
           "showTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中显示测试版 TextBox 输入。",
           "focusTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中聚焦测试版 TextBox 输入。聚焦也会显示 TextBox。"
         },

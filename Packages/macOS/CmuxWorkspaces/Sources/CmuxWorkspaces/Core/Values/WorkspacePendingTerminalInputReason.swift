@@ -8,13 +8,17 @@ public import Foundation
 public enum WorkspacePendingTerminalInputReason: Sendable, Equatable {
     /// Input injected by a workspace configuration command (cmux.json).
     case configurationCommand
+    /// Crash/update recovery input that must wait for the restored terminal.
+    case recoveryInput
 
     /// How long queued input for this reason may wait for shell readiness
-    /// before being dropped, or `nil` to wait indefinitely.
+    /// before being dropped.
     public var timeout: TimeInterval? {
         switch self {
         case .configurationCommand:
             return 3.0
+        case .recoveryInput:
+            return 60.0
         }
     }
 }

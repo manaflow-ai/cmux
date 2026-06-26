@@ -511,6 +511,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var aboutTitlebarDebugStore: AboutTitlebarDebugStore { debugWindowsCoordinator.aboutTitlebarStore }
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
     let remoteTmuxController = RemoteTmuxController()
+    /// Owns per-launch crash/update recovery classification for this app process.
+    let crashRecoveryLaunchState = CrashRecoveryLaunchState()
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
 
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
@@ -536,6 +538,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // `XCTestConfigurationFilePath`. Use a broader set of signals so UI tests
         // can reliably skip heavyweight startup work and bring up a window.
         Self.detectRunningUnderXCTest(env)
+    }
+
+    private func captureCrashRecoveryLaunchStateIfNeeded(
+        env: [String: String] = ProcessInfo.processInfo.environment
+    ) {
+        guard !isRunningUnderXCTest(env) else { return }
+        crashRecoveryLaunchState.captureAtLaunch(environment: env)
     }
 
     @MainActor
@@ -823,6 +832,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var splitButtonTooltipRefreshScheduled = false
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
     private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
+    private var crashRecoveryStartupTask: Task<Void, Never>?
+    private var crashRecoveryStartupTaskToken: UUID?
     private struct PendingConfiguredShortcutChord {
         let firstStroke: ShortcutStroke
         let windowNumber: Int?
@@ -1282,6 +1293,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             syncActivationPolicy()
         }
         StartupBreadcrumbLog.append("appDelegate.didFinish.activationPolicy.synced")
+
+        // Crash recovery: `configure` captures this before startup restore
+        // decisions; this idempotent call covers nonstandard delegate lifecycles.
+        if !isRunningUnderXCTest {
+            captureCrashRecoveryLaunchStateIfNeeded(env: env)
+        }
 
         // Prewarm the shared restorable-agent index off the main thread so the first
         // tab/workspace/window close after launch reads a warm cache instead of paying a
@@ -2004,8 +2021,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         BrowserProfileStore.shared.flushPendingSaves()
         ghosttyCrashBreadcrumbTask?.cancel()
         ghosttyCrashBreadcrumbTask = nil
+        crashRecoveryStartupTask?.cancel()
+        crashRecoveryStartupTask = nil
+        crashRecoveryStartupTaskToken = nil
         notificationStore?.clearAll()
         GhosttyCrashBreadcrumb.markCleanExit()
+        // Clean shutdown: clear the unclean-shutdown sentinel only after the
+        // shutdown tail has completed, so a crash during teardown still fails
+        // closed into recovery on the next launch.
+        crashRecoveryLaunchState.markCleanExit()
         StartupBreadcrumbLog.append("appDelegate.willTerminate.complete")
         enableSuddenTerminationIfNeeded()
     }
@@ -2058,6 +2082,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         startPaneMemoryGuardrailIfNeeded()
         disableSuddenTerminationIfNeeded()
         installLifecycleSnapshotObserversIfNeeded()
+        captureCrashRecoveryLaunchStateIfNeeded(env: ProcessInfo.processInfo.environment)
         prepareStartupSessionSnapshotIfNeeded()
         startSessionAutosaveTimerIfNeeded()
 #if DEBUG
@@ -3184,7 +3209,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         Self.removeLegacyPersistedWindowGeometry()
         syncManualRestoreSnapshotCachePruningCrashDiagnostics()
         let sanitizedStartupSnapshot = loadStartupSessionSnapshotPruningCrashDiagnostics()
-        guard SessionRestorePolicy.shouldAttemptRestore() else { return }
+        // An intentional relaunch (Sparkle update) forces restore so windows are
+        // never lost even if the relaunch passed launch arguments.
+        guard SessionRestorePolicy.shouldAttemptRestore(
+            restoreIntended: crashRecoveryLaunchState.restoreWasIntended
+        ) else { return }
         startupSessionSnapshot = sanitizedStartupSnapshot
     }
 
@@ -7231,6 +7260,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         didBootstrapInitialMainWindow = true
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_SHOW_SETTINGS"] == "1" {
             openPreferencesWindow(debugSource: "uiTestShowSettings.\(debugSource)")
+        }
+
+        // Crash recovery: after restore, offer to resume agents if the prior run crashed and the user opted in.
+        // Deferred so the window is visible first; normal and intentional-relaunch launches stay silent.
+        crashRecoveryStartupTask?.cancel()
+        let taskToken = UUID()
+        crashRecoveryStartupTaskToken = taskToken
+        crashRecoveryStartupTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                if self.crashRecoveryStartupTaskToken == taskToken {
+                    self.crashRecoveryStartupTask = nil
+                    self.crashRecoveryStartupTaskToken = nil
+                }
+            }
+            let managers = self.mainWindowContexts.values
+                .sorted { $0.windowId.uuidString < $1.windowId.uuidString }
+                .map(\.tabManager)
+            guard !managers.isEmpty else { return }
+            // Update relaunch: silently auto-resume agents if opted in.
+            await CrashRecoveryOfferPresenter.resumeAfterIntentionalRelaunchIfNeeded(
+                in: managers,
+                launchState: self.crashRecoveryLaunchState
+            )
+            // Crash: offer to resume (gated on crash + opt-in).
+            await CrashRecoveryOfferPresenter.presentOfferIfNeeded(
+                in: managers,
+                launchState: self.crashRecoveryLaunchState
+            )
         }
         return windowId
     }
@@ -17723,6 +17781,10 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
         for window in NSApp.windows {
             window.invalidateRestorableState()
         }
+        // Intentional relaunch: record restore intent only after the relaunch
+        // handoff work succeeds, so a crash during update teardown is still
+        // treated as unclean on the next launch.
+        crashRecoveryLaunchState.markIntentionalRelaunch(reason: "sparkle-update")
     }
 
     func attemptUpdate() {

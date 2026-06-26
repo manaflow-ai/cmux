@@ -154,7 +154,15 @@ extension Workspace {
         debugSessionSnapshotScrollbackFallbackPanelIds.removeAll(keepingCapacity: false)
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeAll(keepingCapacity: false)
 #endif
+        restoredAgentVerificationTask?.cancel()
+        restoredAgentVerificationTask = nil
+        for task in crashRecoveryReentryTasksByPanelId.values {
+            task.cancel()
+        }
+        crashRecoveryReentryTasksByPanelId.removeAll(keepingCapacity: false)
+        crashRecoveryReentryTaskTokensByPanelId.removeAll(keepingCapacity: false)
         restoredAgentSnapshotsByPanelId.removeAll(keepingCapacity: false)
+        restoredAgentVerificationByPanelId.removeAll(keepingCapacity: false)
         restoredAgentResumeStatesByPanelId.removeAll(keepingCapacity: false)
         invalidatedRestoredAgentFingerprintsByPanelId.removeAll(keepingCapacity: false)
         surfaceResumeBindingsByPanelId.removeAll(keepingCapacity: false)
@@ -185,8 +193,8 @@ extension Workspace {
         // every restored terminal (all of which spawn fresh shells — PTYs do not
         // survive an app restart) inherits it through `newTerminalSurface`.
         workspaceEnvironment = Self.sanitizedWorkspaceEnvironment(snapshot.environment ?? [:])
-
         let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })
+        applyRestoredWorkspaceName(from: snapshot, panelSnapshotsById: panelSnapshotsById)
         let leafEntries: [SessionPaneRestoreEntry] = {
             let previousValue = suppressRemoteTerminalStartupForSessionRestoreScaffold
             suppressRemoteTerminalStartupForSessionRestoreScaffold = true
@@ -207,9 +215,6 @@ extension Workspace {
 
         pruneSurfaceMetadata(validSurfaceIds: Set(panels.keys))
         applySessionDividerPositions(snapshotNode: snapshot.layout, liveNode: bonsplitController.treeSnapshot())
-
-        applyProcessTitle(snapshot.processTitle)
-        setCustomTitle(snapshot.customTitle, source: snapshot.customTitleSource ?? .user)
         setCustomDescription(snapshot.customDescription)
         setCustomColor(snapshot.customColor)
         isPinned = snapshot.isPinned
@@ -262,6 +267,11 @@ extension Workspace {
         }
         AppDelegate.shared?.notificationStore?.restoreSessionNotifications(restoredNotifications, forTabId: id)
         syncUnreadBadgeStateForAllPanels()
+        scheduleRestoredAgentVerificationRefresh(
+            workspaceSnapshot: snapshot,
+            panelSnapshotsById: panelSnapshotsById,
+            oldToNewPanelIds: oldToNewPanelIds
+        )
         return oldToNewPanelIds
     }
 
@@ -894,7 +904,7 @@ extension Workspace {
         )
     }
 
-    nonisolated private static func resumeBindingForSessionRestore(
+    nonisolated static func resumeBindingForSessionRestore(
         _ binding: SurfaceResumeBindingSnapshot?,
         restorableAgent: SessionRestorableAgentSnapshot?
     ) -> SurfaceResumeBindingSnapshot? {
@@ -925,7 +935,7 @@ extension Workspace {
         return binding.retargetingWorkingDirectory(resolvedWorkingDirectory)
     }
 
-    nonisolated private static func restorableAgentForSessionRestore(
+    nonisolated static func restorableAgentForSessionRestore(
         _ restorableAgent: SessionRestorableAgentSnapshot?,
         resumeBinding: SurfaceResumeBindingSnapshot?
     ) -> SessionRestorableAgentSnapshot? {
@@ -1211,24 +1221,43 @@ extension Workspace {
                 promptForApproval: true,
                 approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
             )
+            let launchState = AppDelegate.shared?.crashRecoveryLaunchState
+            let shouldGateAgentStartupForCrashRecovery =
+                launchState.map { CrashRecoverySettings.shouldGateRestoredAgentStartup(launchState: $0) } ?? false
+            let resumeBindingStartupVerification = effectiveResumeBindingForStartup.flatMap { binding in
+                binding.isAgentHookBinding
+                    ? Self.crashRecoveryVerificationWithoutFilesystemScan(binding: binding)
+                    : nil
+            }
+            let verifiedResumeBindingForStartup: SurfaceResumeBindingSnapshot? = {
+                guard shouldGateAgentStartupForCrashRecovery,
+                      effectiveResumeBindingForStartup?.isAgentHookBinding == true else {
+                    return effectiveResumeBindingForStartup
+                }
+                guard let verification = resumeBindingStartupVerification,
+                      ResumeFidelityGate().isVerified(verification.facts) else {
+                    return nil
+                }
+                return effectiveResumeBindingForStartup
+            }()
             let remoteStartupCommand = remoteTerminalStartupCommand()
             let restoresRemoteWorkspaceTerminalSnapshot = remoteStartupCommand != nil && snapshot.terminal?.isRemoteTerminal != false
             let restoresLocalTerminalInRemoteWorkspace = remoteStartupCommand != nil && snapshot.terminal?.isRemoteTerminal == false
             let restoredBindingLaunch: SurfaceResumeStartupLaunch? = if restoresRemoteWorkspaceTerminalSnapshot {
-                effectiveResumeBindingForStartup?.remoteStartupInputWithLauncherScript(allowLauncherScript: false)
+                verifiedResumeBindingForStartup?.remoteStartupInputWithLauncherScript(allowLauncherScript: false)
                     .map(SurfaceResumeStartupLaunch.input)
             } else if restoresLocalTerminalInRemoteWorkspace {
-                effectiveResumeBindingForStartup?.startupInputWithLauncherScript(allowLauncherScript: false)
+                verifiedResumeBindingForStartup?.startupInputWithLauncherScript(allowLauncherScript: false)
                     .map(SurfaceResumeStartupLaunch.input)
             } else {
-                effectiveResumeBindingForStartup.flatMap {
+                verifiedResumeBindingForStartup.flatMap {
                     sessionRestorePolicy.surfaceResumeStartupLaunch(
                         forApprovedBinding: $0,
                         allowLauncherScript: true
                     )
                 }
             }
-            let effectiveResumeBinding = restoredBindingLaunch == nil ? nil : resumeBinding
+            let effectiveResumeBinding = restoredBindingLaunch == nil ? nil : verifiedResumeBindingForStartup
             let savedWorkingDirectory =
                 effectiveResumeBinding?.cwd
                 ?? snapshot.terminal?.workingDirectory
@@ -1246,8 +1275,17 @@ extension Workspace {
                 )
             }
             let restoredTmuxStartCommand = restoredTmuxStartupScript == nil ? nil : restorableTmuxStartCommand
+            let restorableAgentStartupVerification = restorableAgent.flatMap {
+                Self.crashRecoveryVerificationWithoutFilesystemScan(agent: $0)
+            }
+            let restorableAgentStartupAllowed =
+                !shouldGateAgentStartupForCrashRecovery ||
+                (restorableAgentStartupVerification.map { ResumeFidelityGate().isVerified($0.facts) } ?? false)
             let restoredAgentResumeLaunch: SurfaceResumeStartupLaunch? =
-                if shouldAutoResumeAgent && restoredHibernation == nil && restoredBindingLaunch == nil {
+                if shouldAutoResumeAgent &&
+                    restoredHibernation == nil &&
+                    restoredBindingLaunch == nil &&
+                    restorableAgentStartupAllowed {
                     if restoresRemoteWorkspaceTerminalSnapshot {
                         restorableAgent?.resumeStartupInput(allowLauncherScript: false, allowOversizedInlineInput: true)
                             .map(SurfaceResumeStartupLaunch.input)
@@ -1374,6 +1412,9 @@ extension Workspace {
             }
             if let storedResumeBinding = effectiveResumeBindingForStartup ?? resumeBinding {
                 surfaceResumeBindingsByPanelId[terminalPanel.id] = storedResumeBinding
+                if let resumeBindingStartupVerification {
+                    restoredAgentVerificationByPanelId[terminalPanel.id] = resumeBindingStartupVerification
+                }
             } else {
                 surfaceResumeBindingsByPanelId.removeValue(forKey: terminalPanel.id)
             }
@@ -1415,6 +1456,9 @@ extension Workspace {
             }
             if let restorableAgent {
                 restoredAgentSnapshotsByPanelId[terminalPanel.id] = restorableAgent
+                if let restorableAgentStartupVerification {
+                    restoredAgentVerificationByPanelId[terminalPanel.id] = restorableAgentStartupVerification
+                }
                 if restoredAgentWillRunStartupCommand {
                     restoredAgentResumeStatesByPanelId[terminalPanel.id] = .autoResumeCommandRunning
                 } else if restoredAgentWillRunStartupInput {
@@ -1423,6 +1467,16 @@ extension Workspace {
                     restoredAgentResumeStatesByPanelId[terminalPanel.id] = .manualResumeAvailable
                 }
                 invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: terminalPanel.id)
+                let restoredAgentStartupAlreadyScheduled = restoredAgentWillRunStartupCommand || restoredAgentWillRunStartupInput
+                let shouldVerifyCrashRecoveryReentry = shouldAutoResumeAgent && (launchState.map { CrashRecoverySettings.shouldDeliverSilentReentry(launchState: $0) } ?? false)
+                if restoredHibernation == nil, restoredAgentStartupAlreadyScheduled || shouldVerifyCrashRecoveryReentry {
+                    scheduleCrashRecoveryReentry(
+                        panel: terminalPanel,
+                        agent: restorableAgent,
+                        nativeResumeAlreadyScheduled: restoredAgentStartupAlreadyScheduled,
+                        launchState: launchState
+                    )
+                }
                 if let restoredHibernation,
                    restorableAgent.resumeCommand != nil {
                     terminalPanel.enterAgentHibernation(
@@ -1520,9 +1574,8 @@ extension Workspace {
             panelTitles[panelId] = title
         }
 
-        setPanelCustomTitle(panelId: panelId, title: snapshot.customTitle, source: snapshot.customTitleSource ?? .user)
+        applyRestoredPanelName(from: snapshot, toPanelId: panelId)
         setPanelPinned(panelId: panelId, pinned: snapshot.isPinned)
-
         // The bonsplit tab header only refreshes when `updateTab` is called; the writes
         // above never reach it (`setPanelCustomTitle` skips the sync when there is no
         // custom title), so push the restored title to the tab now, mirroring
@@ -1876,7 +1929,7 @@ extension Workspace {
         }
     }
 
-    private func sendInputWhenReady(
+    func sendInputWhenReady(
         _ text: String,
         to panel: TerminalPanel,
         reason: WorkspacePendingTerminalInputReason = .configurationCommand
@@ -2521,6 +2574,10 @@ final class Workspace: Identifiable, ObservableObject {
     var debugSessionSnapshotSyntheticScrollbackByPanelId: [UUID: String] = [:]
 #endif
     var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
+    var restoredAgentVerificationByPanelId: [UUID: CrashRecoveryVerification] = [:]
+    var restoredAgentVerificationTask: Task<Void, Never>?
+    var crashRecoveryReentryTasksByPanelId: [UUID: Task<Void, Never>] = [:]
+    var crashRecoveryReentryTaskTokensByPanelId: [UUID: UUID] = [:]
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
     private var restoredGuardedWorkingDirectoriesByPanelId: [UUID: String] = [:]
     enum RestoredAgentResumeState: Equatable {
@@ -2530,6 +2587,7 @@ final class Workspace: Identifiable, ObservableObject {
         case observedAgentCommandRunning
     }
     var restoredAgentResumeStatesByPanelId: [UUID: RestoredAgentResumeState] = [:]
+    var pendingResumeBreadcrumbsByPanelId: [UUID: String] = [:]
     var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] = [:]
     private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
     private let sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>
@@ -4542,6 +4600,17 @@ final class Workspace: Identifiable, ObservableObject {
                 restoredAgent: restoredAgent,
                 shellState: state
             )
+        } else {
+            switch (restoredAgentResumeStatesByPanelId[panelId], state) {
+            case (.some(.awaitingAutoResumeCommand), .commandRunning):
+                restoredAgentResumeStatesByPanelId[panelId] = .autoResumeCommandRunning
+                deliverPendingResumeBreadcrumbIfReady(panelId: panelId)
+            case (.some(.autoResumeCommandRunning), .promptIdle):
+                restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
+                pendingResumeBreadcrumbsByPanelId.removeValue(forKey: panelId)
+            default:
+                break
+            }
         }
 #if DEBUG
         cmuxDebugLog(
@@ -4706,6 +4775,7 @@ final class Workspace: Identifiable, ObservableObject {
             switch restoredAgentResumeStatesByPanelId[panelId] {
             case .some(.awaitingAutoResumeCommand):
                 restoredAgentResumeStatesByPanelId[panelId] = .autoResumeCommandRunning
+                deliverPendingResumeBreadcrumbIfReady(panelId: panelId)
             case .some(.autoResumeCommandRunning), .some(.observedAgentCommandRunning):
                 break
             case .some(.manualResumeAvailable), nil:
@@ -4741,7 +4811,15 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func clearRestoredAgentSnapshot(panelId: UUID) {
         restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
+        restoredAgentVerificationByPanelId.removeValue(forKey: panelId)
         restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
+        pendingResumeBreadcrumbsByPanelId.removeValue(forKey: panelId)
+        cancelCrashRecoveryReentryTask(panelId: panelId)
+    }
+
+    func cancelCrashRecoveryReentryTask(panelId: UUID) {
+        crashRecoveryReentryTasksByPanelId.removeValue(forKey: panelId)?.cancel()
+        crashRecoveryReentryTaskTokensByPanelId.removeValue(forKey: panelId)
     }
 
     private func clearRestoredAgentResumeBinding(
@@ -4766,13 +4844,15 @@ final class Workspace: Identifiable, ObservableObject {
               !startupInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
         }
+        restoredAgentVerificationByPanelId.removeValue(forKey: panelId)
         surfaceResumeBindingsByPanelId[panelId] = binding
         return true
     }
 
     @discardableResult
     func clearSurfaceResumeBinding(panelId: UUID) -> Bool {
-        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId) != nil
+        restoredAgentVerificationByPanelId.removeValue(forKey: panelId)
+        return surfaceResumeBindingsByPanelId.removeValue(forKey: panelId) != nil
     }
 
     func surfaceResumeBinding(panelId: UUID) -> SurfaceResumeBindingSnapshot? {
@@ -5042,6 +5122,9 @@ final class Workspace: Identifiable, ObservableObject {
         for panelId in Array(pendingTerminalInputObserversByPanelId.keys) where !validSurfaceIds.contains(panelId) {
             removePendingTerminalInputObservers(forPanelId: panelId)
         }
+        for panelId in Array(crashRecoveryReentryTasksByPanelId.keys) where !validSurfaceIds.contains(panelId) {
+            cancelCrashRecoveryReentryTask(panelId: panelId)
+        }
         panelDirectories = panelDirectories.filter { validSurfaceIds.contains($0.key) }
         panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
@@ -5078,6 +5161,7 @@ final class Workspace: Identifiable, ObservableObject {
         restoredAgentSnapshotsByPanelId = restoredAgentSnapshotsByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }
+        restoredAgentVerificationByPanelId = restoredAgentVerificationByPanelId.filter { validSurfaceIds.contains($0.key) }
         surfaceResumeBindingsByPanelId = surfaceResumeBindingsByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }

@@ -380,4 +380,3 @@ import WebKit
         download.delegate = downloadDelegate
     }
 }
-

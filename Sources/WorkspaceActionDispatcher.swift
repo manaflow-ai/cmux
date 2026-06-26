@@ -169,3 +169,30 @@ enum WorkspacePinCommands {
             : String(localized: "contextMenu.unpinWorkspace", defaultValue: "Unpin Workspace")
     }
 }
+
+/// Shared "resume where we left off" command used by menu entrypoints. Resumes
+/// the selected workspace's agent and, when enabled, injects the breadcrumb.
+enum WorkspaceResumeCommands {
+    @MainActor
+    static func canResumeSelectedWorkspace(
+        in manager: TabManager,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        guard let workspace = manager.selectedWorkspace else { return false }
+        return workspace.canResumeWhereWeLeftOff(defaults: defaults)
+    }
+
+    @discardableResult
+    @MainActor
+    static func resumeSelectedWorkspace(
+        in manager: TabManager,
+        defaults: UserDefaults = .standard
+    ) -> ResumeOutcome? {
+        guard let workspace = manager.selectedWorkspace else { return nil }
+        return workspace.resumeWhereWeLeftOff(defaults: defaults)
+    }
+
+    static func menuLabel() -> String {
+        String(localized: "contextMenu.resumeWhereWeLeftOff", defaultValue: "Resume Where We Left Off")
+    }
+}

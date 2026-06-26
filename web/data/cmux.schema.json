@@ -429,6 +429,24 @@
           "default": true,
           "description": "Automatically run agent resume commands for restored terminal sessions when cmux reopens after quit. Set false to restore panes while keeping Claude Code, Codex, OpenCode, and other saved agent sessions idle until you resume them manually."
         },
+        "offerResumeAfterCrash": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.terminal.offerResumeAfterCrash",
+          "description": "Show a recovery offer after an unclean shutdown when cmux can verify a saved agent session. Default: false."
+        },
+        "injectResumeBreadcrumb": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.terminal.injectResumeBreadcrumb",
+          "description": "When resuming a verified saved agent session, send a short workspace-scoped note that helps the agent pick up where it left off. Default: false."
+        },
+        "resumeAgentsAfterUpdate": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.terminal.resumeAgentsAfterUpdate",
+          "description": "After an intentional app update relaunch, automatically resume verified saved agent sessions instead of leaving them idle. Default: false."
+        },
         "showTextBoxOnNewTerminals": {
           "type": "boolean",
           "default": false,

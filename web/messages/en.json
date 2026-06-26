@@ -1002,6 +1002,9 @@
         "terminal": {
           "copyOnSelect": "When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior.",
           "scrollSpeed": "Multiplier applied to terminal scroll wheel and trackpad deltas. Higher values scroll faster; lower values scroll slower.",
+          "offerResumeAfterCrash": "Show a recovery offer after an unclean shutdown when cmux can verify a saved agent session. Default: false.",
+          "injectResumeBreadcrumb": "When resuming a verified saved agent session, send a short workspace-scoped note that helps the agent pick up where it left off. Default: false.",
+          "resumeAgentsAfterUpdate": "After an intentional app update relaunch, automatically resume verified saved agent sessions instead of leaving them idle. Default: false.",
           "showTextBoxOnNewTerminals": "Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits.",
           "focusTextBoxOnNewTerminals": "Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox."
         },

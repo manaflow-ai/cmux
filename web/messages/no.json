@@ -817,6 +817,9 @@
         "terminal": {
           "copyOnSelect": "Når verdien er true, kopieres markert terminaltekst til systemutklippstavlen når markeringen bekreftes. Når verdien er false, sender ikke cmux ut en Ghostty copy-on-select-overstyring; Ghostty-konfigurasjon og standardverdier styrer oppførselen til markeringsutklippstavlen.",
           "scrollSpeed": "Multiplikator brukt på rulleverdier fra musehjul og styreflate i terminalen. Høyere verdier ruller raskere, lavere verdier saktere.",
+          "offerResumeAfterCrash": "Vis et gjenopprettingstilbud etter en uryddig avslutning når cmux kan bekrefte en lagret agentøkt. Standard: false.",
+          "injectResumeBreadcrumb": "Når en bekreftet lagret agentøkt gjenopptas, send en kort arbeidsområde-avgrenset merknad som hjelper agenten å fortsette der den slapp. Standard: false.",
+          "resumeAgentsAfterUpdate": "Etter en tilsiktet omstart ved appoppdatering gjenopptas bekreftede lagrede agentøkter automatisk i stedet for å bli liggende inaktive. Standard: false.",
           "showTextBoxOnNewTerminals": "Viser beta-TextBox-inndata som standard for nyopprettede arbeidsområder, terminalfaner og terminalsplitt.",
           "focusTextBoxOnNewTerminals": "Fokuserer beta-TextBox-inndata som standard for nyopprettede arbeidsområder, terminalfaner og terminalsplitt. Fokus viser også TextBox."
         },
