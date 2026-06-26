@@ -680,8 +680,9 @@ final class CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
+        let workspaceColors = SettingCatalog().workspaceColors
         if let raw = jsonString(section["indicatorStyle"]) {
-            let indicatorKey = SettingCatalog().workspaceColors.indicatorStyle
+            let indicatorKey = workspaceColors.indicatorStyle
             let normalized = (WorkspaceIndicatorStyle.decodeFromJSON(raw) ?? indicatorKey.defaultValue).rawValue
             let accepted = Set(WorkspaceIndicatorStyle.allCases.map(\.rawValue)).union([
                 "rail", "border", "wash", "lift", "typography", "washRail", "blueWashColorRail",
@@ -707,6 +708,45 @@ final class CmuxSettingsFileStore {
                 sourcePath: sourcePath
             ) else { return }
             snapshot.managedUserDefaults["sidebarNotificationBadgeColorHex"] = .nullableString(value)
+        }
+        if let value = jsonBool(section["stateColorsEnabled"]) {
+            snapshot.managedUserDefaults[workspaceColors.stateColorsEnabled.userDefaultsKey] = .bool(value)
+        } else if section.keys.contains("stateColorsEnabled") {
+            logInvalid("workspaceColors.stateColorsEnabled", sourcePath: sourcePath)
+        }
+        if let raw = jsonString(section["stateColorMode"]) {
+            guard let mode = WorkspaceStateColorMode.decodeFromJSON(raw) else {
+                logInvalid("workspaceColors.stateColorMode", sourcePath: sourcePath)
+                return
+            }
+            snapshot.managedUserDefaults[workspaceColors.stateColorMode.userDefaultsKey] = .string(mode.rawValue)
+        } else if section.keys.contains("stateColorMode") {
+            logInvalid("workspaceColors.stateColorMode", sourcePath: sourcePath)
+        }
+        if section.keys.contains("stateColors") {
+            guard let rawStateColors = section["stateColors"] as? [String: Any] else {
+                logInvalid("workspaceColors.stateColors", sourcePath: sourcePath)
+                return
+            }
+
+            var normalizedStateColors = WorkspaceColorsCatalogSection.defaultStateColors
+            for (rawState, rawValue) in rawStateColors {
+                guard let stateKey = workspaceStateColorKey(rawState) else {
+                    cmuxSettingsFileStoreLogger.warning("ignoring unknown workspace state color key '\(rawState, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
+                    continue
+                }
+                if rawValue is NSNull {
+                    normalizedStateColors.removeValue(forKey: stateKey)
+                    continue
+                }
+                guard let hex = jsonString(rawValue),
+                      let normalizedHex = WorkspaceTabColorSettings.normalizedHex(hex) else {
+                    cmuxSettingsFileStoreLogger.warning("ignoring invalid workspace state color '\(rawState, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
+                    continue
+                }
+                normalizedStateColors[stateKey] = normalizedHex
+            }
+            snapshot.managedUserDefaults[workspaceColors.stateColors.userDefaultsKey] = .stringDictionary(normalizedStateColors)
         }
         if section.keys.contains("colors") {
             guard let rawColors = section["colors"] as? [String: Any] else {
@@ -773,6 +813,25 @@ final class CmuxSettingsFileStore {
         }
         if let normalizedLegacyPalette {
             snapshot.managedUserDefaults[WorkspaceTabColorSettings.paletteKey] = .stringDictionary(normalizedLegacyPalette)
+        }
+    }
+
+    private func workspaceStateColorKey(_ raw: String) -> String? {
+        let normalized = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "_", with: "-")
+        switch normalized {
+        case "unknown":
+            return AgentHibernationLifecycleState.unknown.rawValue
+        case "running":
+            return AgentHibernationLifecycleState.running.rawValue
+        case "idle":
+            return AgentHibernationLifecycleState.idle.rawValue
+        case "needsinput", "needs-input", "waiting":
+            return AgentHibernationLifecycleState.needsInput.rawValue
+        default:
+            return nil
         }
     }
 

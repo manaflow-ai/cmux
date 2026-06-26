@@ -9553,6 +9553,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let activeTabIndicatorStyle: WorkspaceIndicatorStyle
     let selectionColorHex: String?
     let notificationBadgeColorHex: String?
+    let workspaceStateColorResolver: WorkspaceStateColorResolver
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     let iMessageModeEnabled: Bool
 
@@ -9609,6 +9610,11 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         activeTabIndicatorStyle = settings.value(for: catalog.workspaceColors.indicatorStyle)
         selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
         notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
+        workspaceStateColorResolver = WorkspaceStateColorResolver(
+            isEnabled: settings.value(for: catalog.workspaceColors.stateColorsEnabled),
+            mode: settings.value(for: catalog.workspaceColors.stateColorMode),
+            colorHexByState: settings.value(for: catalog.workspaceColors.stateColors)
+        )
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
     }
 
@@ -9619,6 +9625,16 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     ) -> Bool {
         guard defaults.object(forKey: key) != nil else { return defaultValue }
         return defaults.bool(forKey: key)
+    }
+
+    func resolvedWorkspaceColorHex(
+        manualColorHex: String?,
+        agentLifecycleState: AgentHibernationLifecycleState
+    ) -> String? {
+        workspaceStateColorResolver.resolvedColorHex(
+            manualColorHex: manualColorHex,
+            agentLifecycleState: agentLifecycleState
+        )
     }
 
 }
@@ -10061,6 +10077,9 @@ struct VerticalTabsSidebar: View {
     /// has no TabItemView, so no implicit per-row publisher subscription
     /// would otherwise fire on `cd` while it's not selected.
     @State private var anchorCwdRevision: Int = 0
+    /// Bumped when a workspace agent lifecycle changes so group headers can
+    /// refresh their state-derived color even when no member row is mounted.
+    @State private var groupAgentLifecycleRevision: Int = 0
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @AppStorage(CmuxExtensionSidebarSelection.defaultsKey)
@@ -10692,6 +10711,9 @@ struct VerticalTabsSidebar: View {
                     // and `+` placement reflect the previous cwd until some
                     // unrelated sidebar event fires.
                     anchorCwdRevision &+= 1
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .workspaceAgentLifecycleDidChange)) { _ in
+                    groupAgentLifecycleRevision &+= 1
                 }
                 .onReceive(NotificationCenter.default.publisher(for: SidebarMultiSelectionDidHideEvent.notificationName)) { notification in
                     // Group collapse hides some workspaces without changing
@@ -14485,7 +14507,10 @@ struct TabItemView: View, Equatable {
             title: tab.title,
             customDescription: settings.showsWorkspaceDescription ? sidebarVisibleCustomDescription : nil,
             isPinned: tab.isPinned,
-            customColorHex: tab.customColor,
+            customColorHex: settings.resolvedWorkspaceColorHex(
+                manualColorHex: tab.customColor,
+                agentLifecycleState: tab.sidebarAgentHibernationLifecycleState()
+            ),
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,

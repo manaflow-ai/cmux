@@ -2515,6 +2515,7 @@ final class Workspace: Identifiable, ObservableObject {
     var agentPIDPanelIdsByKey: [String: UUID] = [:]
     var agentPIDKeysByPanelId: [UUID: Set<String>] = [:]
     var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] = [:]
+    let agentLifecycleStatesPublisher = CurrentValueSubject<[UUID: [String: AgentHibernationLifecycleState]], Never>([:])
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 #if DEBUG
     var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
@@ -4593,9 +4594,33 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func recordAgentLifecycleChange(panelId: UUID) {
+        agentLifecycleStatesPublisher.send(agentLifecycleStatesByPanelId)
+        NotificationCenter.default.post(
+            name: .workspaceAgentLifecycleDidChange,
+            object: self,
+            userInfo: ["workspaceId": id, "panelId": panelId]
+        )
         AgentHibernationController.shared.recordAgentLifecycleChange(
             workspaceId: id,
             panelId: panelId
+        )
+    }
+
+    func sidebarAgentHibernationLifecycleState() -> AgentHibernationLifecycleState {
+        Self.agentHibernationLifecycleState(
+            states: agentLifecycleStatesByPanelId.values.flatMap { $0.values },
+            fallback: .unknown
+        )
+    }
+
+    static func aggregateSidebarAgentHibernationLifecycleState(
+        for workspaces: [Workspace]
+    ) -> AgentHibernationLifecycleState {
+        agentHibernationLifecycleState(
+            states: workspaces.flatMap { workspace in
+                workspace.agentLifecycleStatesByPanelId.values.flatMap { $0.values }
+            },
+            fallback: .unknown
         )
     }
 
@@ -4607,12 +4632,18 @@ final class Workspace: Identifiable, ObservableObject {
               !panelStates.isEmpty else {
             return fallback ?? .unknown
         }
-        let states = Array(panelStates.values)
+        return Self.agentHibernationLifecycleState(states: Array(panelStates.values), fallback: fallback ?? .unknown)
+    }
+
+    private static func agentHibernationLifecycleState(
+        states: [AgentHibernationLifecycleState],
+        fallback: AgentHibernationLifecycleState
+    ) -> AgentHibernationLifecycleState {
         if states.contains(.running) { return .running }
         if states.contains(.needsInput) { return .needsInput }
         if states.contains(.unknown) { return .unknown }
         if states.contains(.idle) { return .idle }
-        return fallback ?? .unknown
+        return fallback
     }
 
     func restorableAgentForHibernation(

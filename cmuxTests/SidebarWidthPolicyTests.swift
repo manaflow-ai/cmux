@@ -491,3 +491,75 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
         )
     }
 }
+
+final class SidebarWorkspaceStateColorTests: XCTestCase {
+    func testDisabledStateColorsPreserveManualColor() {
+        let resolver = WorkspaceStateColorResolver(
+            isEnabled: false,
+            mode: .replace,
+            colorHexByState: ["running": "#FF0000"]
+        )
+
+        XCTAssertEqual(
+            resolver.resolvedColorHex(
+                manualColorHex: "#0011aa",
+                agentLifecycleState: .running
+            ),
+            "#0011AA"
+        )
+    }
+
+    func testReplaceModeUsesStateColorAndAllowsNoTintStates() {
+        let resolver = WorkspaceStateColorResolver(
+            isEnabled: true,
+            mode: .replace,
+            colorHexByState: ["running": "#ff6600"]
+        )
+
+        XCTAssertEqual(
+            resolver.resolvedColorHex(
+                manualColorHex: "#0011AA",
+                agentLifecycleState: .running
+            ),
+            "#FF6600"
+        )
+        XCTAssertNil(
+            resolver.resolvedColorHex(
+                manualColorHex: "#0011AA",
+                agentLifecycleState: .idle
+            )
+        )
+    }
+
+    func testBlendModeMixesManualAndStateColors() {
+        let resolver = WorkspaceStateColorResolver(
+            isEnabled: true,
+            mode: .blend,
+            colorHexByState: ["needsInput": "#FF0000"]
+        )
+
+        XCTAssertEqual(
+            resolver.resolvedColorHex(
+                manualColorHex: "#0000FF",
+                agentLifecycleState: .needsInput
+            ),
+            "#7F007F"
+        )
+    }
+
+    func testBlendModeFallsBackToManualColorWhenStateHasNoTint() {
+        let resolver = WorkspaceStateColorResolver(
+            isEnabled: true,
+            mode: .blend,
+            colorHexByState: [:]
+        )
+
+        XCTAssertEqual(
+            resolver.resolvedColorHex(
+                manualColorHex: "#00aa11",
+                agentLifecycleState: .idle
+            ),
+            "#00AA11"
+        )
+    }
+}

@@ -219,6 +219,9 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .workspaceColors, id: "indicator", title: "Workspace Color Indicator", synonyms: "workspaceColors.indicatorStyle tab indicator active workspace style color stripe dot"),
             .init(section: .workspaceColors, id: "selection", title: "Selection Highlight", synonyms: "workspaceColors.selectionColor selected workspace color highlight background active tab"),
             .init(section: .workspaceColors, id: "badge", title: "Notification Badge", synonyms: "workspaceColors.notificationBadgeColor unread notification badge color dot count"),
+            .init(section: .workspaceColors, id: "state-colors-enabled", title: String(localized: "settings.workspaceColors.stateColorsEnabled", defaultValue: "Agent State Colors"), paths: ["workspaceColors.stateColorsEnabled"], synonyms: "workspaceColors.stateColorsEnabled agent state colors running waiting idle needs input tint workspace tabs"),
+            .init(section: .workspaceColors, id: "state-color-mode", title: String(localized: "settings.workspaceColors.stateColorMode", defaultValue: "State Color Behavior"), paths: ["workspaceColors.stateColorMode"], synonyms: "workspaceColors.stateColorMode replace blend manual workspace color agent state"),
+            .init(section: .workspaceColors, id: "state-colors", title: String(localized: "settings.workspaceColors.stateColors", defaultValue: "State Colors"), paths: ["workspaceColors.stateColors"], synonyms: "workspaceColors.stateColors running waiting needs input idle unknown agent state hex colors"),
             .init(section: .workspaceColors, id: "palette", title: "Reset Palette", synonyms: "reset palette named colors restore built-in custom remove default"),
 
             // cmux.json
