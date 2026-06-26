@@ -3889,6 +3889,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         lifecycleSnapshotObservers.append(didWakeObserver)
+
+        // Observe screen configuration changes (e.g., screen unlock, display arrangement changes)
+        // to restore window positions that may have been altered by the system.
+        let screenChangeObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.restoreWindowPositionsAfterScreenChange()
+            }
+        }
+        lifecycleSnapshotObservers.append(screenChangeObserver)
+    }
+
+    /// Restores window positions after screen configuration changes (e.g., unlock, display changes).
+    /// Uses the last persisted window geometry to reposition windows on the correct display.
+    private func restoreWindowPositionsAfterScreenChange() {
+        let fallbackGeometry = persistedWindowGeometry()
+        let displays = currentDisplayGeometries()
+
+        for context in mainWindowContexts.values {
+            guard let window = context.window ?? windowForMainWindowId(context.windowId) else { continue }
+
+            // Build a snapshot from the persisted geometry if available
+            let windowSnapshot: SessionWindowSnapshot? = fallbackGeometry.map { geometry in
+                SessionWindowSnapshot(
+                    frame: geometry.frame,
+                    display: geometry.display,
+                    tabManager: context.tabManager.sessionSnapshot(includeScrollback: false),
+                    sidebar: SessionSidebarSnapshot(
+                        isVisible: context.sidebarState.isVisible,
+                        selection: SessionSidebarSelection(selection: context.sidebarSelectionState.selection),
+                        width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(context.sidebarState.persistedWidth))
+                    )
+                )
+            }
+
+            if let restoredFrame = resolvedWindowFrame(from: windowSnapshot) {
+                window.setFrame(restoredFrame, display: true)
+            }
+        }
+
+        // Save the restored positions
+        _ = saveSessionSnapshot(includeScrollback: false)
     }
 
     private func socketListenerConfigurationIfEnabled() -> (mode: SocketControlMode, path: String)? {
