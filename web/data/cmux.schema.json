@@ -704,6 +704,12 @@
           "default": true,
           "description": "Show the latest notification text in the sidebar."
         },
+        "notificationSchedulerMode": {
+          "type": "string",
+          "enum": ["smartUrgency", "blockedFirst", "smallWins", "aging", "roundRobin", "arrivalOrder"],
+          "default": "smartUrgency",
+          "description": "Choose how unread notification workspaces are prioritized in the sidebar."
+        },
         "showBranchDirectory": {
           "type": "boolean",
           "default": true,

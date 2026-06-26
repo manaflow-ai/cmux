@@ -24,6 +24,7 @@ public struct SidebarSection: View {
     @State private var stackBranchDir: DefaultsValueModel<Bool>
     @State private var pathLastOnly: DefaultsValueModel<Bool>
     @State private var showNotification: DefaultsValueModel<Bool>
+    @State private var notificationSchedulerMode: DefaultsValueModel<SidebarNotificationSchedulerMode>
     @State private var showBranchDir: DefaultsValueModel<Bool>
     @State private var showPR: DefaultsValueModel<Bool>
     @State private var watchGit: DefaultsValueModel<Bool>
@@ -50,6 +51,7 @@ public struct SidebarSection: View {
         _stackBranchDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.stackBranchDirectory))
         _pathLastOnly = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.pathLastSegmentOnly))
         _showNotification = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showNotificationMessage))
+        _notificationSchedulerMode = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.notificationSchedulerMode))
         _showBranchDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showBranchDirectory))
         _showPR = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showPullRequests))
         _watchGit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.watchGitStatus))
@@ -83,6 +85,7 @@ public struct SidebarSection: View {
             stackBranchDir,
             pathLastOnly,
             showNotification,
+            notificationSchedulerMode,
             showBranchDir,
             showPR,
             watchGit,
@@ -346,6 +349,11 @@ public struct SidebarSection: View {
             .disabled(hideAll.current)
             SettingsCardDivider()
 
+            SidebarNotificationSchedulerPickerRow(
+                mode: Binding(get: { notificationSchedulerMode.current }, set: { notificationSchedulerMode.set($0) })
+            )
+            SettingsCardDivider()
+
             SettingsCardRow(
                 configurationReview: .json("sidebar.showBranchDirectory"),
                 String(localized: "settings.app.showBranchDirectory", defaultValue: "Show Branch + Directory in Sidebar"),
@@ -482,15 +490,4 @@ public struct SidebarSection: View {
         }
     }
 
-    private func prLinksSubtitle(prVisible: Bool, prClickable: Bool, openInCmux: Bool) -> String {
-        if !prVisible {
-            return String(localized: "settings.app.openSidebarPRLinks.subtitleHidden", defaultValue: "Enable sidebar PR visibility to choose where PR links open.")
-        }
-        if !prClickable {
-            return String(localized: "settings.app.openSidebarPRLinks.subtitleDisabled", defaultValue: "Enable sidebar PR clickability to choose where PR links open.")
-        }
-        return openInCmux
-            ? String(localized: "settings.app.openSidebarPRLinks.subtitleOn", defaultValue: "Clicks open inside cmux browser.")
-            : String(localized: "settings.app.openSidebarPRLinks.subtitleOff", defaultValue: "Clicks open in your default browser.")
-    }
 }

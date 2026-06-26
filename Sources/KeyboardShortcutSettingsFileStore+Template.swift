@@ -131,6 +131,7 @@ extension CmuxSettingsFileStore {
                     "stackBranchDirectory": SettingCatalog().sidebar.stackBranchDirectory.defaultValue,
                     "pathLastSegmentOnly": SettingCatalog().sidebar.pathLastSegmentOnly.defaultValue,
                     "showNotificationMessage": SettingCatalog().sidebar.showNotificationMessage.defaultValue,
+                    "notificationSchedulerMode": SettingCatalog().sidebar.notificationSchedulerMode.defaultValue.rawValue,
                     "showBranchDirectory": SidebarWorkspaceDetailDefaults.showBranchDirectory,
                     "showPullRequests": SidebarWorkspaceDetailDefaults.showPullRequests,
                     "watchGitStatus": SidebarWorkspaceDetailDefaults.watchGitStatus,

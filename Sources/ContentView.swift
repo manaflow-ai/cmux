@@ -10299,6 +10299,27 @@ struct VerticalTabsSidebar: View {
         tabItemSettingsStore.snapshot.showsNotificationMessage
     }
 
+    private func sidebarNotificationSchedulerSnapshot(
+        for workspace: Workspace,
+        index: Int
+    ) -> SidebarNotificationSchedulerSnapshot {
+        let summary = sidebarUnread.summary(forWorkspaceId: workspace.id)
+        return SidebarNotificationSchedulerSnapshot(
+            workspaceId: workspace.id,
+            originalIndex: index,
+            unreadCount: summary.unreadCount,
+            latestNotificationText: summary.latestNotificationText,
+            latestNotificationCreatedAt: summary.latestNotificationCreatedAt,
+            latestNotificationIsUnread: summary.latestNotificationIsUnread,
+            workspaceTitle: workspace.customTitle ?? workspace.title,
+            customDescription: workspace.customDescription,
+            latestSubmittedMessage: workspace.latestSubmittedMessage,
+            remoteDisplayTarget: workspace.remoteDisplayTarget,
+            remoteConnectionState: workspace.remoteConnectionState.rawValue,
+            panelCount: workspace.panelDirectories.count
+        )
+    }
+
     private var workspaceNumberShortcut: StoredShortcut {
         let _ = keyboardShortcutSettingsObserver.revision
         return KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber)
@@ -10387,6 +10408,7 @@ struct VerticalTabsSidebar: View {
         let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
         let workspaceRenderItems: [SidebarWorkspaceRenderItem]
         let visibleWorkspaceRowIds: [UUID]
+        let notificationUrgencyByWorkspaceId: [UUID: SidebarNotificationUrgency]
 
         var workspaceIds: [UUID] { tabIds }
     }
@@ -10427,6 +10449,13 @@ struct VerticalTabsSidebar: View {
             groupsById: workspaceGroupById
         )
         let visibleWorkspaceRowIds = workspaceRenderItems.map(\.rowWorkspaceId)
+        let notificationSchedulerSnapshots = tabs.enumerated().map { index, workspace in
+            sidebarNotificationSchedulerSnapshot(for: workspace, index: index)
+        }
+        let notificationUrgencyByWorkspaceId = SidebarNotificationUrgencyScheduler.urgencyByWorkspaceId(
+            snapshots: notificationSchedulerSnapshots,
+            now: Date()
+        )
         let draggedSidebarTabId = dragState.draggedTabId
         let sidebarReorderIds = draggedSidebarTabId.map {
             tabManager.sidebarReorderWorkspaceIds(
@@ -10454,7 +10483,8 @@ struct VerticalTabsSidebar: View {
             workspaceGroupById: workspaceGroupById,
             workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
             workspaceRenderItems: workspaceRenderItems,
-            visibleWorkspaceRowIds: visibleWorkspaceRowIds
+            visibleWorkspaceRowIds: visibleWorkspaceRowIds,
+            notificationUrgencyByWorkspaceId: notificationUrgencyByWorkspaceId
         )
 
         ZStack(alignment: .bottomLeading) {
@@ -12086,9 +12116,14 @@ struct VerticalTabsSidebar: View {
             target: contextMenuPinTarget
         )
         let liveUnreadCount = sidebarUnread.unreadCount(forWorkspaceId: tab.id)
-        let liveLatestNotificationText: String? = showsSidebarNotificationMessage
-            ? sidebarUnread.latestNotificationText(forWorkspaceId: tab.id)
-            : nil
+        let liveNotificationUrgency = renderContext.notificationUrgencyByWorkspaceId[tab.id]
+        let liveLatestNotificationText: String? = {
+            guard showsSidebarNotificationMessage,
+                  let latestText = sidebarUnread.latestNotificationText(forWorkspaceId: tab.id) else {
+                return nil
+            }
+            return liveNotificationUrgency?.sidebarNotificationText(latestText) ?? latestText
+        }()
         let liveShowsModifierShortcutHints = showModifierHoldHints && modifierKeyMonitor.isModifierPressed
         let resolvedShowsModifierShortcutHints = SidebarShortcutHintFreezePolicy().resolved(
             live: liveShowsModifierShortcutHints,
@@ -12157,6 +12192,7 @@ struct VerticalTabsSidebar: View {
             accessibilityWorkspaceCount: renderContext.workspaceCount,
             unreadCount: liveUnreadCount,
             latestNotificationText: liveLatestNotificationText,
+            notificationUrgency: liveNotificationUrgency,
             rowSpacing: tabRowSpacing,
             setSelectionToTabs: { selection = .tabs },
             selectedTabIds: $selectedTabIds,
@@ -12955,6 +12991,7 @@ struct TabItemView: View, Equatable {
         lhs.accessibilityWorkspaceCount == rhs.accessibilityWorkspaceCount &&
         lhs.unreadCount == rhs.unreadCount &&
         lhs.latestNotificationText == rhs.latestNotificationText &&
+        lhs.notificationUrgency == rhs.notificationUrgency &&
         lhs.rowSpacing == rhs.rowSpacing &&
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
         lhs.contextMenuWorkspaceIds == rhs.contextMenuWorkspaceIds &&
@@ -12991,6 +13028,7 @@ struct TabItemView: View, Equatable {
     let accessibilityWorkspaceCount: Int
     let unreadCount: Int
     let latestNotificationText: String?
+    let notificationUrgency: SidebarNotificationUrgency?
     let rowSpacing: CGFloat
     let setSelectionToTabs: () -> Void
     @Binding var selectedTabIds: Set<UUID>
@@ -13414,6 +13452,16 @@ struct TabItemView: View, Equatable {
                             .foregroundColor(activeUnreadBadgeTextColor)
                     }
                     .frame(width: scaledUnreadBadgeSize, height: scaledUnreadBadgeSize)
+                }
+
+                if let notificationUrgency {
+                    Text(notificationUrgency.band.label)
+                        .font(magnifiedFont(scaledFontSize(9), weight: .semibold))
+                        .foregroundColor(activeSecondaryColor(0.86))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .safeHelp(notificationUrgency.accessibilityText)
+                        .accessibilityLabel(notificationUrgency.accessibilityText)
                 }
 
                 if workspaceSnapshot.isPinned {

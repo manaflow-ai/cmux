@@ -666,6 +666,20 @@ final class CmuxSettingsFileStore {
             }
         }
 
+        for setting in SidebarSettingsFileMapping.stringSettings {
+            if let raw = jsonString(section[setting.jsonKey]) {
+                if setting.jsonKey == "notificationSchedulerMode" {
+                    guard SidebarNotificationSchedulerMode(rawValue: raw) != nil else {
+                        logInvalid("sidebar.notificationSchedulerMode", sourcePath: sourcePath)
+                        continue
+                    }
+                }
+                snapshot.managedUserDefaults[setting.defaultsKey] = .string(raw)
+            } else if section.keys.contains(setting.jsonKey) {
+                logInvalid("sidebar.\(setting.jsonKey)", sourcePath: sourcePath)
+            }
+        }
+
         if let value = jsonDouble(section[RightSidebarWidthSettings.jsonKey]), value > 0 {
             snapshot.managedUserDefaults[RightSidebarWidthSettings.maxWidthKey] = .double(
                 RightSidebarWidthSettings().clampedSettingsEditorMaximumWidth(value)
