@@ -133,17 +133,19 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         registry: [CmxAttachRoute]?
     ) -> [CmxAttachRoute]? {
         guard let registry, !registry.isEmpty else { return nil }
-        // Dedup the registry response by endpoint and rank it via the shared
-        // model (a single fresh source: freshness/authority tie, so proximity
-        // then the Mac-assigned priority order it). `preferLoopback` is left at
-        // the default — the dial path applies the device/simulator loopback
-        // policy in `firstReconnectHostPortRoute`.
-        let ranked = CmxRouteCandidateSet(routes: registry, source: .registry, lastSeenAt: mergeReferenceDate)
-            .mergedRoutes()
+        // Dedup the registry response by transport + endpoint via the shared
+        // model, preserving its order. We intentionally do NOT proximity-rank
+        // here: the reconnect dialer (`firstReconnectHostPortRoute`) orders by the
+        // Mac-assigned route `priority` — the Mac's own reachability hint — so a
+        // proximity reordering would just be discarded, and a proximity order is
+        // only safe once the dial path tries candidates in order (the follow-up
+        // the `CmxRouteCandidateSet` ranking is the foundation for).
+        let deduped = CmxRouteCandidateSet(routes: registry, source: .registry, lastSeenAt: mergeReferenceDate)
+            .dedupedRoutes()
         // No change vs the local cache (same endpoints AND same metadata,
         // order-independent): skip the write and keep the local routes.
-        if Self.sameRouteSet(ranked, local) { return nil }
-        return ranked
+        if Self.sameRouteSet(deduped, local) { return nil }
+        return deduped
     }
 
     /// Order-independent full-equality comparison of two route lists, used to

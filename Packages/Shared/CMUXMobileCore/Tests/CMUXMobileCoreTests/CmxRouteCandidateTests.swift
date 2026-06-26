@@ -159,6 +159,18 @@ import Testing
         #expect(CmxRouteCandidateSet([lan]).merged(maxCandidates: 0).isEmpty)
     }
 
+    @Test func dedupedPreservesFirstSeenOrderWithoutProximityRanking() throws {
+        // deduped() collapses duplicate transport+endpoints (keeping the best per
+        // key) but does NOT proximity-rank: the relay stays ahead of the LAN
+        // route because it was seen first, unlike merged() which would rank LAN
+        // (closer) first. The dup LAN entry collapses to the fresher candidate.
+        let relayFirst = candidate(try hostPort("8.8.8.8", id: "relay"), .registry, at: 100)
+        let lanSecond = candidate(try hostPort("192.168.1.5", id: "lan"), .registry, at: 100)
+        let lanDup = candidate(try hostPort("192.168.1.5", id: "lan-dup"), .localCache, at: 50)
+        let deduped = CmxRouteCandidateSet([relayFirst, lanSecond, lanDup]).dedupedRoutes()
+        #expect(deduped.map(\.id) == ["relay", "lan"])
+    }
+
     @Test func mergedDedupsPeerById() throws {
         let qr = candidate(try peer("nodeabc"), .qr, at: 100)
         let registry = candidate(try peer("nodeabc"), .registry, at: 100)
