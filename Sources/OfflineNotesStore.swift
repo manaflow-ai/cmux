@@ -439,7 +439,7 @@ final class OfflineNotesStore {
                 at: fileURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            let data = try encoder.encode(notes)
+            let data = try makeEncoder().encode(notes)
             try data.write(to: fileURL, options: .atomic)
         } catch {
 #if DEBUG
@@ -451,7 +451,7 @@ final class OfflineNotesStore {
     private static func load(fileURL: URL?) -> [OfflineNote] {
         guard let fileURL,
               let data = try? Data(contentsOf: fileURL),
-              let decoded = try? decoder.decode([OfflineNote].self, from: data) else {
+              let decoded = try? makeDecoder().decode([OfflineNote].self, from: data) else {
             return []
         }
         return decoded
@@ -470,16 +470,19 @@ final class OfflineNotesStore {
             .appendingPathComponent("offline-notes.json", isDirectory: false)
     }
 
-    nonisolated static let encoder: JSONEncoder = {
+    // Encoders/decoders are created fresh per call: `JSONEncoder`/`JSONDecoder`
+    // are mutable Foundation reference types and are not safe to share across the
+    // main-actor `persist()` and the detached flush writer running concurrently.
+    nonisolated static func makeEncoder() -> JSONEncoder {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         return encoder
-    }()
+    }
 
-    nonisolated static let decoder: JSONDecoder = {
+    nonisolated static func makeDecoder() -> JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return decoder
-    }()
+    }
 }

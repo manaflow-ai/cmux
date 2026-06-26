@@ -105,7 +105,7 @@ struct OfflineNotesStoreTests {
 
         // Simulate a note left mid-flight by a crash/relaunch.
         let stuck = OfflineNote(text: "interrupted", status: .sending)
-        let data = try OfflineNotesStore.encoder.encode([stuck])
+        let data = try OfflineNotesStore.makeEncoder().encode([stuck])
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true
