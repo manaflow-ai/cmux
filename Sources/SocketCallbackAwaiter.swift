@@ -41,6 +41,13 @@ func socketAwaitCallback<T>(
         return nil
     }
 
+    // Synchronous socket-worker bridge: the control socket's request/response
+    // contract requires this call to block its worker thread until the async
+    // callback fires and then return the value to a non-async caller. That is a
+    // blocking wait for a result, which actor isolation (async, non-blocking)
+    // cannot express — so a semaphore is the right tool, matching the other
+    // established socket-worker bridges (`v2VmCall`, the `auth.*` handlers). The
+    // lock publishes `result` across the callback and waiting threads.
     let semaphore = DispatchSemaphore(value: 0)
     let lock = NSLock()
     var result: T?
