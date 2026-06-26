@@ -129,8 +129,9 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func updateShellActivityState(_ state: PanelShellActivityState) {
-        guard shellActivity.state != state else { return }
-        shellActivity.state = state
+        if shellActivity.state != state {
+            shellActivity.state = state
+        }
         textBoxState.updateShellActivityState(state)
     }
 

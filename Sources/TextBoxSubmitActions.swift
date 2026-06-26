@@ -3,7 +3,16 @@ import SwiftUI
 
 extension TextBoxInputContainer {
     var submitActions: [TextBoxSubmitAction] {
-        TerminalTextBoxInputSettings.submitActions(configuredJSON: configuredSubmitActionsJSON)
+        if cachedSubmitActionsJSON == configuredSubmitActionsJSON {
+            return cachedSubmitActions
+        }
+        return TerminalTextBoxInputSettings.submitActions(configuredJSON: configuredSubmitActionsJSON)
+    }
+
+    func refreshSubmitActionsCacheIfNeeded() {
+        guard cachedSubmitActionsJSON != configuredSubmitActionsJSON else { return }
+        cachedSubmitActions = TerminalTextBoxInputSettings.submitActions(configuredJSON: configuredSubmitActionsJSON)
+        cachedSubmitActionsJSON = configuredSubmitActionsJSON
     }
 
     var submitActionImageCacheKeys: [String] {

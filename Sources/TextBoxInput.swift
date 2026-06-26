@@ -2424,6 +2424,8 @@ struct TextBoxInputContainer: View {
     @AppStorage(TerminalTextBoxInputSettings.submitActionsKey)
     var configuredSubmitActionsJSON = ""
     @State var submitActionImageCache: [String: NSImage] = [:]
+    @State var cachedSubmitActionsJSON: String?
+    @State var cachedSubmitActions = TerminalTextBoxInputSettings.submitActions(configuredJSON: "")
 
     @Binding var text: String
     @Binding var attachments: [TextBoxAttachment]
@@ -2570,6 +2572,12 @@ struct TextBoxInputContainer: View {
         .padding(.vertical, 7)
         .task(id: submitActionImageCacheTaskKey) {
             await refreshSubmitActionImageCache(keys: submitActionImageCacheKeys)
+        }
+        .onAppear {
+            refreshSubmitActionsCacheIfNeeded()
+        }
+        .onChange(of: configuredSubmitActionsJSON) { _, _ in
+            refreshSubmitActionsCacheIfNeeded()
         }
         .onChange(of: terminalAgentContext) { _, _ in
             reconcilePendingProviderLaunch()
