@@ -10045,6 +10045,7 @@ struct VerticalTabsSidebar: View {
     @State private var extensionSidebarUpdateToken: UInt64 = 0
     @State private var selectedWorkspaceTagFilter: String?
     @State private var workspaceTagsUpdateToken: UInt64 = 0
+    @State private var workspaceTagProjection = WorkspaceTagProjection.empty
     @State private var workspaceTagsObservationWorkspaceIds: [UUID] = []
     @State private var workspaceTagsObservationPublishersBuilt = false
     @State private var workspaceTagsObservationPublisher: AnyPublisher<Void, Never> =
@@ -10401,10 +10402,53 @@ struct VerticalTabsSidebar: View {
         var workspaceIds: [UUID] { tabIds }
     }
 
-    private static func availableWorkspaceTags(in workspaces: [Workspace]) -> [String] {
-        Workspace.normalizedCustomTags(workspaces.flatMap(\.customTags)).sorted {
-            $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+    private struct WorkspaceTagProjection: Equatable {
+        static let empty = WorkspaceTagProjection(availableTags: [], workspaceIdsByTagKey: [:])
+
+        let availableTags: [String]
+        let workspaceIdsByTagKey: [String: Set<UUID>]
+
+        func workspaceIds(matching tag: String) -> Set<UUID> {
+            workspaceIdsByTagKey[Self.key(for: tag)] ?? []
         }
+
+        static func key(for tag: String) -> String {
+            tag.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        }
+    }
+
+    private static func workspaceTagProjection(in workspaces: [Workspace]) -> WorkspaceTagProjection {
+        var seenKeys = Set<String>()
+        var availableTags: [String] = []
+        var workspaceIdsByTagKey: [String: Set<UUID>] = [:]
+
+        for workspace in workspaces {
+            for tag in Workspace.normalizedCustomTags(workspace.customTags) {
+                let key = WorkspaceTagProjection.key(for: tag)
+                if seenKeys.insert(key).inserted {
+                    availableTags.append(tag)
+                }
+                workspaceIdsByTagKey[key, default: []].insert(workspace.id)
+            }
+        }
+
+        return WorkspaceTagProjection(
+            availableTags: availableTags.sorted {
+                $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+            },
+            workspaceIdsByTagKey: workspaceIdsByTagKey
+        )
+    }
+
+    private static func visibleWorkspaces(
+        in workspaces: [Workspace],
+        matching tag: String?,
+        projection: WorkspaceTagProjection
+    ) -> [Workspace] {
+        guard let tag else { return workspaces }
+        let visibleWorkspaceIds = projection.workspaceIds(matching: tag)
+        guard !visibleWorkspaceIds.isEmpty else { return [] }
+        return workspaces.filter { visibleWorkspaceIds.contains($0.id) }
     }
 
     var body: some View {
@@ -10416,11 +10460,12 @@ struct VerticalTabsSidebar: View {
         )
         let _ = workspaceTagsUpdateToken
         let activeWorkspaceTagFilter = usesDefaultWorkspaceSidebar ? selectedWorkspaceTagFilter : nil
-        let visibleTabs = activeWorkspaceTagFilter.map { filter in
-            tabs.filter { workspace in
-                workspace.customTags.contains { $0.compare(filter, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame }
-            }
-        } ?? tabs
+        let tagProjection = workspaceTagProjection
+        let visibleTabs = Self.visibleWorkspaces(
+            in: tabs,
+            matching: activeWorkspaceTagFilter,
+            projection: tagProjection
+        )
         let usesTagFilteredRows = activeWorkspaceTagFilter != nil
         let visibleWorkspaceIds = Set(visibleTabs.map(\.id))
         let canCloseWorkspace = workspaceCount > 1
@@ -10458,7 +10503,7 @@ struct VerticalTabsSidebar: View {
             groupsById: usesTagFilteredRows ? [:] : workspaceGroupById
         )
         let visibleWorkspaceRowIds = workspaceRenderItems.map(\.rowWorkspaceId)
-        let availableWorkspaceTags = Self.availableWorkspaceTags(in: tabs)
+        let availableWorkspaceTags = tagProjection.availableTags
         let draggedSidebarTabId = dragState.draggedTabId
         let sidebarReorderIds = draggedSidebarTabId.map {
             tabManager.sidebarReorderWorkspaceIds(
@@ -10767,12 +10812,14 @@ struct VerticalTabsSidebar: View {
                 }
                 .onAppear {
                     refreshWorkspaceTagsObservationPublisher(tabs: tabManager.tabs)
+                    refreshWorkspaceTagsList(tabs: tabManager.tabs)
                 }
                 .onChange(of: renderContext.allWorkspaceIds) { _, _ in
                     refreshWorkspaceTagsObservationPublisher(tabs: tabManager.tabs)
+                    refreshWorkspaceTagsList(tabs: tabManager.tabs)
                 }
                 .onReceive(workspaceTagsObservationPublisher) { _ in
-                    refreshWorkspaceTagsList()
+                    refreshWorkspaceTagsList(tabs: tabManager.tabs)
                 }
                 .onDisappear {
                     clearWorkspaceTagsObservationPublisher()
@@ -10791,13 +10838,17 @@ struct VerticalTabsSidebar: View {
         scrollView.applySidebarOverlayScrollerConfiguration()
     }
 
-    private func refreshWorkspaceTagsList() {
+    private func refreshWorkspaceTagsList(tabs: [Workspace]) {
+        let nextProjection = Self.workspaceTagProjection(in: tabs)
+        guard workspaceTagProjection != nextProjection else { return }
+        workspaceTagProjection = nextProjection
         workspaceTagsUpdateToken &+= 1
     }
 
     private func clearWorkspaceTagsObservationPublisher() {
         workspaceTagsObservationWorkspaceIds = []
         workspaceTagsObservationPublishersBuilt = false
+        workspaceTagProjection = .empty
         workspaceTagsObservationPublisher = Empty<Void, Never>().eraseToAnyPublisher()
     }
 
