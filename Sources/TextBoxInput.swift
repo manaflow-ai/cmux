@@ -2784,6 +2784,7 @@ struct TextBoxInputContainer: View {
         )
         let submitPlan = dispatchPlan(partsToSend, applying: effectiveSubmitAction)
         if let launchContextCommand = submitPlan.launchContextCommand {
+            startPendingProviderLaunch(launchAction)
             onRecordLaunchCommand(launchContextCommand)
         }
         TextBoxSubmit.sendEvents(
@@ -2792,6 +2793,7 @@ struct TextBoxInputContainer: View {
         ) { completionContext in
             guard completionContext.didSubmit else {
                 if submitPlan.launchContextCommand != nil {
+                    clearPendingProviderLaunch()
                     onClearLaunchCommand()
                 }
                 if let poolWorkspaceId, !pendingComments.isEmpty {
