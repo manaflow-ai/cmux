@@ -287,6 +287,74 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(session["fork_startup_input_available"] as? Bool == true)
     }
 
+    @Test func testSessionsListTreatsTranscriptBackedClaudeRecordAsRestorable() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sessions-list-claude-transcript-\(UUID().uuidString)", isDirectory: true)
+        let stateDir = root.appendingPathComponent("state", isDirectory: true)
+        let repoDir = root.appendingPathComponent("repo", isDirectory: true)
+        let transcriptURL = root.appendingPathComponent("claude-session.jsonl", isDirectory: false)
+        try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: repoDir, withIntermediateDirectories: true)
+        try "{}\n".write(to: transcriptURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sessionId = "claude-transcript-backed-session"
+        let workspaceId = "33B0D372-292E-42BF-97B6-E37CCA79AB84"
+        let surfaceId = "A2AECAA9-EE1C-4999-B7A9-EE4BB4CDA5D8"
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": workspaceId,
+                    "surfaceId": surfaceId,
+                    "cwd": repoDir.path,
+                    "transcriptPath": transcriptURL.path,
+                    "isRestorable": false,
+                    "startedAt": 1_781_996_800.0,
+                    "updatedAt": 1_781_996_867.0,
+                    "launchCommand": [
+                        "launcher": "claude",
+                        "executablePath": "/usr/local/bin/claude",
+                        "arguments": ["/usr/local/bin/claude"],
+                        "workingDirectory": repoDir.path,
+                        "source": "environment",
+                    ],
+                ]
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: stateDir.appendingPathComponent("claude-hook-sessions.json"), options: .atomic)
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["sessions", "list", "--agent", "claude", "--session", sessionId, "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let outputData = try #require(result.stdout.data(using: .utf8))
+        let object = try #require(JSONSerialization.jsonObject(with: outputData) as? [String: Any])
+        #expect(object["total_matches"] as? Int == 1)
+        let sessions = try #require(object["sessions"] as? [[String: Any]])
+        let session = try #require(sessions.first)
+        #expect(session["session_id"] as? String == sessionId)
+        #expect(session["hook_record_restorable"] as? Bool == true)
+        #expect(session["fork_command_available"] as? Bool == true)
+        #expect(session["fork_supported"] as? Bool == true)
+        #expect(session["fork_unavailable_reason"] as? String == "available")
+    }
+
     @Test func testSessionsListIgnoresOutOfRangeStoredPID() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
