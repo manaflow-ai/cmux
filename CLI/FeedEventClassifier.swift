@@ -50,6 +50,9 @@ struct FeedEventClassifier {
         /// Resolved against the tool name so Claude's `ExitPlanMode` /
         /// `AskUserQuestion` approvals route to their dedicated kinds.
         case approvalRequest
+        /// A real approval is pending in the agent-owned terminal UI. Feed
+        /// surfaces attention but does not block or offer decision buttons.
+        case approvalWait
         /// A tool is about to run but no approval is pending. Telemetry
         /// only. Used by agents that expose a *separate* approval event
         /// (Claude, Codex, Hermes) so their pre-tool hook never escalates.
@@ -116,6 +119,8 @@ struct FeedEventClassifier {
         switch semantic {
         case .approvalRequest:
             return dedicatedApprovalEvent(for: toolName) ?? ("PermissionRequest", true)
+        case .approvalWait:
+            return ("ApprovalWait", false)
         case .toolStartMaybeApproval:
             if let dedicated = dedicatedApprovalEvent(for: toolName) {
                 return dedicated
@@ -160,11 +165,12 @@ struct FeedEventClassifier {
     /// for that agent's `(event) -> semantic` mapping; events absent here
     /// resolve to ``FeedEventSemantic/unknown``.
     ///
-    /// The key distinction the registry encodes: agents with a *dedicated*
-    /// approval event (Claude `PermissionRequest`, Codex `PermissionRequest`,
-    /// Hermes `pre_approval_request`) classify their pre-tool event as
-    /// ``FeedEventSemantic/toolStart`` (always telemetry). Agents whose only
-    /// signal is the pre-tool event (gemini, copilot, …, handled by
+    /// The key distinction the registry encodes: agents with a separate
+    /// approval signal classify their pre-tool event as
+    /// ``FeedEventSemantic/toolStart`` (always telemetry). Claude uses that
+    /// separate signal for blocking Feed approval; Codex uses it for
+    /// non-blocking TUI approval wait attention. Agents whose only signal is
+    /// the pre-tool event (gemini, copilot, …, handled by
     /// ``genericFeedEventSemantics``) use
     /// ``FeedEventSemantic/toolStartMaybeApproval`` so side-effecting tools
     /// still escalate. Conflating the two is the bug behind #4985.
@@ -184,11 +190,11 @@ struct FeedEventClassifier {
             "Notification": .statusNotification,
         ],
         "codex": [
-            // Codex runs PermissionRequest hooks before its own approval
-            // reviewer. Treat this as telemetry so "Approve for me" can still
-            // use Codex's auto-review path instead of blocking on cmux Feed.
-            "PermissionRequest": .toolStart,
-            "permission_request": .toolStart,
+            // Codex owns the approval decision in its TUI / auto-reviewer.
+            // Surface that wait in cmux without blocking the hook or offering
+            // Feed decision buttons.
+            "PermissionRequest": .approvalWait,
+            "permission_request": .approvalWait,
             "PreToolUse": .toolStart,
             "pre_tool_use": .toolStart,
             "beforeShellExecution": .toolStart,

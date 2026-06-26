@@ -121,6 +121,7 @@ struct FeedEventClassificationTests {
         #expect(classify("codex", "beforeShellExecution", tool: "shell").actionable == false)
         #expect(classify("codex", "beforeShellExecution", tool: "shell").name == "PreToolUse")
         #expect(classify("codex", "PermissionRequest", tool: "shell").name == "ApprovalWait")
+        #expect(classify("codex", "permission_request", tool: "shell").name == "ApprovalWait")
         #expect(classify("codex", "PermissionRequest", tool: "shell").actionable == false)
     }
 

@@ -131,6 +131,7 @@ public final class WorkstreamStore {
     /// `WorkstreamItem`, enforces the ring-buffer cap, and appends to
     /// the JSONL log.
     public func ingest(_ event: WorkstreamEvent) {
+        clearApprovalWaitsBeforeIngesting(event)
         let item = makeItem(from: event)
         insert(item)
         updateContextIndex(with: item)
@@ -170,6 +171,16 @@ public final class WorkstreamStore {
         items[idx].updatedAt = now
     }
 
+    /// Marks one still-pending approval-wait item as cleared because the
+    /// agent emitted another event and is no longer waiting at that prompt.
+    public func markCleared(_ itemId: UUID) {
+        guard let idx = items.firstIndex(where: { $0.id == itemId }) else { return }
+        guard items[idx].kind == .approvalWait, items[idx].status.isPending else { return }
+        let now = clock()
+        items[idx].status = .cleared(at: now)
+        items[idx].updatedAt = now
+    }
+
     /// Marks every still-pending item created before `threshold` as
     /// expired. Call periodically to clean stale items.
     public func expirePending(olderThan threshold: TimeInterval) {
@@ -190,6 +201,18 @@ public final class WorkstreamStore {
         if items.count > ringCapacity {
             let overflow = items.count - ringCapacity
             items.removeFirst(overflow)
+        }
+    }
+
+    private func clearApprovalWaitsBeforeIngesting(_ event: WorkstreamEvent) {
+        let now = event.receivedAt
+        for idx in items.indices {
+            guard items[idx].workstreamId == event.sessionId,
+                  items[idx].kind == .approvalWait,
+                  items[idx].status.isPending
+            else { continue }
+            items[idx].status = .cleared(at: now)
+            items[idx].updatedAt = now
         }
     }
 
@@ -287,6 +310,14 @@ public final class WorkstreamStore {
                     toolName: event.toolName ?? "unknown",
                     toolInputJSON: toolInput,
                     pattern: nil
+                )
+            )
+        case .approvalWait:
+            return (
+                .approvalWait,
+                .approvalWait(
+                    toolName: event.toolName ?? "approval",
+                    toolInputJSON: toolInput
                 )
             )
         case .askUserQuestion:

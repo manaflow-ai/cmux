@@ -47,6 +47,24 @@ struct WorkstreamItemTests {
         #expect(decoded == original)
     }
 
+    @Test("Approval wait codable round-trip preserves cleared status")
+    func approvalWaitCodableRoundTrip() throws {
+        let original = WorkstreamItem(
+            id: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
+            workstreamId: "codex-approval",
+            source: .codex,
+            kind: .approvalWait,
+            status: .cleared(at: Date(timeIntervalSince1970: 123)),
+            payload: .approvalWait(
+                toolName: "shell",
+                toolInputJSON: #"{"command":"touch /tmp/x"}"#
+            )
+        )
+        let encoded = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(WorkstreamItem.self, from: encoded)
+        #expect(decoded == original)
+    }
+
     @Test("Question payload decodes legacy flat question shape")
     func legacyQuestionPayloadDecode() throws {
         let json = """
@@ -91,6 +109,7 @@ struct WorkstreamItemTests {
     @Test("WorkstreamKind.isActionable is correct")
     func isActionable() {
         #expect(WorkstreamKind.permissionRequest.isActionable)
+        #expect(WorkstreamKind.approvalWait.isActionable)
         #expect(WorkstreamKind.exitPlan.isActionable)
         #expect(WorkstreamKind.question.isActionable)
         #expect(!WorkstreamKind.toolUse.isActionable)

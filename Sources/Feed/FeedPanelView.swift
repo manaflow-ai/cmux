@@ -686,6 +686,7 @@ private struct FeedRowSurface: View {
     private var tint: Color {
         switch snapshot.kind {
         case .permissionRequest: return .orange
+        case .approvalWait: return .orange
         case .exitPlan: return .purple
         case .question: return .blue
         default: return snapshot.status.isPending ? .orange : .secondary.opacity(0.8)
@@ -1072,7 +1073,7 @@ struct FeedItemRow: View, Equatable {
         switch snapshot.status {
         case .pending: return false
         case .telemetry: return false
-        case .resolved, .expired: return true
+        case .resolved, .expired, .cleared: return true
         }
     }
 
@@ -1125,6 +1126,16 @@ struct FeedItemRow: View, Equatable {
                 return "\(cwdBasename(cwd)) · \(questionHeader)"
             }
             return questionHeader
+        }
+        if case .approvalWait = snapshot.payload {
+            let title = String(
+                localized: "feed.approvalWait.title",
+                defaultValue: "Codex is waiting for approval in the terminal"
+            )
+            if let cwd = snapshot.cwd, !cwd.isEmpty {
+                return "\(cwdBasename(cwd)) · \(title)"
+            }
+            return title
         }
         if let title = snapshot.title, !title.isEmpty {
             if let cwd = snapshot.cwd, !cwd.isEmpty {
@@ -1191,6 +1202,8 @@ struct FeedItemRow: View, Equatable {
         switch snapshot.kind {
         case .permissionRequest:
             return String(localized: "feed.kind.permission", defaultValue: "PERMISSION")
+        case .approvalWait:
+            return String(localized: "feed.kind.approvalWait", defaultValue: "APPROVAL WAIT")
         case .exitPlan:
             return String(localized: "feed.kind.plan", defaultValue: "PLAN")
         case .question:
@@ -1217,6 +1230,7 @@ struct FeedItemRow: View, Equatable {
     private var kindTint: Color {
         switch snapshot.kind {
         case .permissionRequest: return .orange
+        case .approvalWait: return .orange
         case .exitPlan: return .purple
         case .question: return .blue
         default: return snapshot.status.isPending ? .orange : .secondary.opacity(0.8)
@@ -1282,6 +1296,11 @@ struct FeedItemRow: View, Equatable {
         switch snapshot.payload {
         case .permissionRequest(_, let toolName, _, _):
             return "\(snapshot.source.rawValue.capitalized) · \(toolName)"
+        case .approvalWait:
+            return String(
+                localized: "feed.approvalWait.title",
+                defaultValue: "Codex is waiting for approval in the terminal"
+            )
         case .exitPlan:
             return "\(snapshot.source.rawValue.capitalized) · \(String(localized: "feed.kind.exitPlan", defaultValue: "Exit plan"))"
         case .question:
@@ -3767,6 +3786,8 @@ private struct TelemetryActionArea: View {
 
     private var summary: String {
         switch snapshot.payload {
+        case .approvalWait(let name, let json):
+            return "\(name) \(json)"
         case .toolUse(let name, let json):
             return "\(name) \(json)"
         case .toolResult(let name, let json, let err):
@@ -3921,6 +3942,7 @@ private extension WorkstreamKind {
     var symbolName: String {
         switch self {
         case .permissionRequest: return "lock.shield"
+        case .approvalWait: return "bell.badge"
         case .exitPlan: return "list.bullet.rectangle"
         case .question: return "questionmark.circle"
         case .toolUse, .toolResult: return "terminal"

@@ -40,13 +40,18 @@ final class FeedCoordinator: @unchecked Sendable {
         label: "cmux.feed.pidWatcher", qos: .utility
     )
 
-    /// In-flight blocking decisions whose needs-input overlay is currently lit,
+    /// In-flight feed events whose needs-input overlay is currently lit,
     /// keyed by ``AttentionTarget``. Each state keeps the workspace object that
     /// was mutated when surfacing attention, so cleanup does not depend on
-    /// resolving a live window route after the decision has already ended.
+    /// resolving a live window route after the event has already ended.
     /// Main-actor isolated: read/written only from the `@MainActor` attention
     /// methods.
     @MainActor private var pendingAttentionStates: [AttentionTarget: AttentionOverlayState] = [:]
+
+    /// Non-blocking Codex approval waits keyed by workstream id. Codex owns
+    /// the decision in its TUI, so cmux clears this attention on the next event
+    /// from the same session rather than waiting for a Feed reply.
+    @MainActor private var pendingApprovalWaitAttentionTargets: [String: AttentionTarget] = [:]
 
     private init() {}
 
@@ -97,11 +102,22 @@ final class FeedCoordinator: @unchecked Sendable {
         waitTimeout: TimeInterval
     ) -> IngestBlockingResult {
         guard let requestId = event.requestId, waitTimeout > 0 else {
+            let resolvedAttentionTarget = event.hookEventName == .approvalWait
+                ? Self.resolveAttentionTarget(event: event)
+                : nil
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
+                    FeedCoordinator.shared.concludeApprovalWaitAttention(forWorkstreamId: event.sessionId)
                     FeedCoordinator.shared.store.ingest(event)
                     if let ppid = event.ppid, ppid > 0 {
                         FeedCoordinator.shared.armPidWatcher(ppid: ppid)
+                    }
+                    if event.hookEventName == .approvalWait,
+                       let target = FeedCoordinator.shared.surfaceNeedsInputAttention(
+                           event: event,
+                           resolved: resolvedAttentionTarget
+                       ) {
+                        FeedCoordinator.shared.pendingApprovalWaitAttentionTargets[event.sessionId] = target
                     }
                 }
             }
@@ -122,7 +138,7 @@ final class FeedCoordinator: @unchecked Sendable {
         // caps the pending lifetime to the agent process lifetime
         // — no polling, no leaked cards when the agent is killed.
         let itemIdSlot = UnsafeItemIdSlot()
-        let resolvedAttentionTarget = Self.isBlockingDecisionEvent(event.hookEventName)
+        let resolvedAttentionTarget = Self.isNeedsInputAttentionEvent(event.hookEventName)
             ? Self.resolveAttentionTarget(event: event)
             : nil
         DispatchQueue.main.sync {
@@ -144,7 +160,7 @@ final class FeedCoordinator: @unchecked Sendable {
                 // ingest `main.sync`, before the card can render and a reply
                 // can fire — so the overlay is cleared exactly once when the
                 // decision concludes (no race with `deliverReply`).
-                if let target = FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+                if let target = FeedCoordinator.shared.surfaceNeedsInputAttention(
                     event: event,
                     resolved: resolvedAttentionTarget
                 ) {
@@ -194,7 +210,7 @@ final class FeedCoordinator: @unchecked Sendable {
         guard let target else { return }
         let conclude: @Sendable () -> Void = { [target] in
             MainActor.assumeIsolated {
-                FeedCoordinator.shared.concludeBlockingDecisionAttention(target)
+                FeedCoordinator.shared.concludeNeedsInputAttention(target)
             }
         }
         if Thread.isMainThread {
@@ -288,12 +304,17 @@ final class FeedCoordinator: @unchecked Sendable {
 // MARK: - In-app attention surfacing
 
 extension FeedCoordinator {
-    /// The blocking-decision hook events that warrant pulling the user's
-    /// attention to the owning workspace: a tool permission, a plan
-    /// approval, or a question. Keeping this as one predicate (rather than
+    /// Hook events that warrant pulling the user's attention to the owning
+    /// workspace: a blocking Feed decision or an agent-owned approval wait.
+    /// Keeping this as one predicate (rather than
     /// branching per event at each call site) is what makes the attention
     /// surface uniform across every event type and agent routed through
-    /// `feed.push` — a new blocking event type only has to be added here.
+    /// `feed.push` — a new attention event type only has to be added here.
+    static func isNeedsInputAttentionEvent(_ hookEventName: WorkstreamEvent.HookEventName) -> Bool {
+        isBlockingDecisionEvent(hookEventName) || hookEventName == .approvalWait
+    }
+
+    /// Blocking-decision events that expect a Feed reply.
     static func isBlockingDecisionEvent(_ hookEventName: WorkstreamEvent.HookEventName) -> Bool {
         switch hookEventName {
         case .permissionRequest, .exitPlanMode, .askUserQuestion:
@@ -326,14 +347,14 @@ extension FeedCoordinator {
     }
 
     /// The localized "Needs input" sidebar status the overlay sets. Exposed so
-    /// ``concludeBlockingDecisionAttention(_:)`` can confirm it's still the
+    /// ``concludeNeedsInputAttention(_:)`` can confirm it's still the
     /// value we wrote before clearing it (rather than one an agent hook
     /// replaced in the meantime).
     static var needsInputStatusValue: String {
         String(localized: "feed.status.needsInput", defaultValue: "Needs input")
     }
 
-    /// Surfaces in-app attention for a blocking feed decision: flips the
+    /// Surfaces in-app attention for a feed decision/wait: flips the
     /// owning workspace's agent lifecycle to `.needsInput`, sets the
     /// "Needs input" sidebar status, elevates the workspace when
     /// *Reorder on Notification* is enabled, and rings the bell.
@@ -345,8 +366,9 @@ extension FeedCoordinator {
     /// it here — once, for every blocking decision — keeps a new event type
     /// from silently swallowing.
     ///
-    /// The overlay is cleared by ``concludeBlockingDecisionAttention(_:)``
-    /// when the decision resolves or times out. Clearing is refcounted per
+    /// The overlay is cleared by ``concludeNeedsInputAttention(_:)`` when the
+    /// decision resolves, times out, or the agent emits a clearing event.
+    /// Clearing is refcounted per
     /// ``AttentionTarget`` so overlapping decisions on the same panel keep the
     /// badge lit until the last one concludes.
     ///
@@ -355,11 +377,11 @@ extension FeedCoordinator {
     /// - Returns: the target to conclude once the decision ends, or `nil` if
     ///   nothing was surfaced (no resolvable workspace).
     @MainActor
-    func surfaceBlockingDecisionAttention(
+    func surfaceNeedsInputAttention(
         event: WorkstreamEvent,
         resolved: (workspaceId: UUID, surfaceId: UUID?)?
     ) -> AttentionTarget? {
-        guard Self.isBlockingDecisionEvent(event.hookEventName) else { return nil }
+        guard Self.isNeedsInputAttentionEvent(event.hookEventName) else { return nil }
 
         #if DEBUG
         if let observer = FeedCoordinatorTestHooks.attentionSurfaceObserver {
@@ -422,7 +444,7 @@ extension FeedCoordinator {
         return target
     }
 
-    /// Concludes a blocking decision's attention overlay. Decrements the
+    /// Concludes a needs-input attention overlay. Decrements the
     /// per-target refcount and, when it reaches zero, clears the needs-input
     /// overlay — but only the parts the feed still owns: the lifecycle is set
     /// to `.running` only if it's still `.needsInput`, and the status entry is
@@ -430,7 +452,7 @@ extension FeedCoordinator {
     /// agent hook replaced in the meantime is left untouched, so a real
     /// running/idle/needs-input update from the agent always wins.
     @MainActor
-    func concludeBlockingDecisionAttention(_ target: AttentionTarget) {
+    func concludeNeedsInputAttention(_ target: AttentionTarget) {
         guard let attentionState = pendingAttentionStates[target] else { return }
         if attentionState.count > 1 {
             attentionState.count -= 1
@@ -458,6 +480,14 @@ extension FeedCoordinator {
            tab.statusEntries[target.statusKey]?.value == Self.needsInputStatusValue {
             tab.statusEntries.removeValue(forKey: target.statusKey)
         }
+    }
+
+    @MainActor
+    private func concludeApprovalWaitAttention(forWorkstreamId workstreamId: String) {
+        guard let target = pendingApprovalWaitAttentionTargets.removeValue(forKey: workstreamId) else {
+            return
+        }
+        concludeNeedsInputAttention(target)
     }
 
     /// Resolves the `(workspace, surface)` an attention overlay should target.
@@ -1192,6 +1222,9 @@ enum FeedSocketEncoding {
         case .expired(let at):
             dict["status"] = "expired"
             dict["resolved_at"] = isoFormatter.string(from: at)
+        case .cleared(let at):
+            dict["status"] = "cleared"
+            dict["cleared_at"] = isoFormatter.string(from: at)
         case .telemetry:
             dict["status"] = "telemetry"
         }
@@ -1207,6 +1240,9 @@ enum FeedSocketEncoding {
             }
             assignLimitedText(toolInputJSON, key: "tool_input", to: &dict)
             if let pattern { dict["pattern"] = pattern }
+        case .approvalWait(let toolName, let toolInputJSON):
+            dict["tool_name"] = toolName
+            assignLimitedText(toolInputJSON, key: "tool_input", to: &dict)
         case .exitPlan(let requestId, let plan, let defaultMode):
             dict["request_id"] = requestId
             assignLimitedText(plan, key: "plan", to: &dict)

@@ -63,6 +63,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         /// Codex compaction completed.
         case postCompact = "PostCompact"
         case permissionRequest = "PermissionRequest"
+        case approvalWait = "ApprovalWait"
         case askUserQuestion = "AskUserQuestion"
         case exitPlanMode = "ExitPlanMode"
         case todoWrite = "TodoWrite"

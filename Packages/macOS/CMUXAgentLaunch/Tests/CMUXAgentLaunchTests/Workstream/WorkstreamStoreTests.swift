@@ -198,6 +198,58 @@ struct WorkstreamStoreTests {
         }
     }
 
+    @Test("Codex approval waits are pending until the next same-session event")
+    func codexApprovalWaitClearsOnNextSameSessionEvent() {
+        let clock = TestClock(initial: Date(timeIntervalSince1970: 100))
+        let store = WorkstreamStore(ringCapacity: 10, clock: { clock.now })
+
+        store.ingest(WorkstreamEvent(
+            sessionId: "codex-session",
+            hookEventName: .approvalWait,
+            source: "codex",
+            toolName: "shell",
+            toolInputJSON: #"{"command":"touch /tmp/x"}"#,
+            receivedAt: clock.now
+        ))
+
+        #expect(store.items.count == 1)
+        #expect(store.items[0].kind == .approvalWait)
+        #expect(store.items[0].status.isPending)
+        #expect(store.pending.count == 1)
+        #expect(store.actionable.count == 1)
+        if case .approvalWait(let toolName, let toolInputJSON) = store.items[0].payload {
+            #expect(toolName == "shell")
+            #expect(toolInputJSON.contains("touch /tmp/x"))
+        } else {
+            Issue.record("expected approvalWait payload")
+        }
+
+        clock.advance(1)
+        store.ingest(WorkstreamEvent(
+            sessionId: "other-codex-session",
+            hookEventName: .postToolUse,
+            source: "codex",
+            receivedAt: clock.now
+        ))
+        #expect(store.items[0].status.isPending)
+
+        clock.advance(1)
+        let clearTime = clock.now
+        store.ingest(WorkstreamEvent(
+            sessionId: "codex-session",
+            hookEventName: .postToolUse,
+            source: "codex",
+            receivedAt: clearTime
+        ))
+
+        if case .cleared(let at) = store.items[0].status {
+            #expect(at == clearTime)
+        } else {
+            Issue.record("expected approval wait to clear on next same-session event")
+        }
+        #expect(store.pending.isEmpty)
+    }
+
     @Test("Telemetry payloads preserve prompt, stop, and todo content")
     func telemetryContent() {
         let store = WorkstreamStore(ringCapacity: 10)
