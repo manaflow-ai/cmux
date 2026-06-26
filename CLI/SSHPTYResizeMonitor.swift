@@ -32,7 +32,7 @@ actor SSHPTYResizeMonitor {
     private var isDraining = false
     private var isCancelled = false
     private var retryBackoff: TimeInterval = SSHPTYResizeMonitor.initialRetryBackoff
-    private var retryTask: Task<Void, Never>?
+    private var retryWorkItem: DispatchWorkItem?
 
     init(
         socketPath: String,
@@ -100,8 +100,8 @@ actor SSHPTYResizeMonitor {
     private func markCancelled() {
         isCancelled = true
         pendingSize = nil
-        retryTask?.cancel()
-        retryTask = nil
+        retryWorkItem?.cancel()
+        retryWorkItem = nil
         resumeInputWaiters()
     }
 
@@ -188,26 +188,30 @@ actor SSHPTYResizeMonitor {
     }
 
     private func scheduleResizeRetry() {
-        guard !isCancelled, pendingSize != nil, retryTask == nil else { return }
+        guard !isCancelled, pendingSize != nil, retryWorkItem == nil else { return }
         let delay = retryBackoff
         retryBackoff = min(retryBackoff * 2, Self.maxRetryBackoff)
-        retryTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            if Task.isCancelled { return }
-            await self?.retryPendingResize()
+        // One-shot timer callback (the codebase idiom for delayed work): after
+        // the backoff elapses, hop back onto the actor and re-drain the pending
+        // size so delivery converges without another SIGWINCH/input edge.
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            Task { await self.retryPendingResize() }
         }
+        retryWorkItem = workItem
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay, execute: workItem)
     }
 
     private func retryPendingResize() {
-        retryTask = nil
+        retryWorkItem = nil
         guard !isCancelled, pendingSize != nil else { return }
         startDrainIfNeeded()
     }
 
     private func resetResizeRetry() {
         retryBackoff = Self.initialRetryBackoff
-        retryTask?.cancel()
-        retryTask = nil
+        retryWorkItem?.cancel()
+        retryWorkItem = nil
     }
 
     private func resumeInputWaiters() {
