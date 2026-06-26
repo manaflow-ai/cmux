@@ -2158,6 +2158,71 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testGeminiIdlessAfterAgentPrefersNewestStartedSessionOverLateOlderWrite() throws {
+        let context = try makeClaudeHookContext(name: "gemini-idless-stop-prefers-new-start")
+        defer { context.cleanup() }
+
+        let olderSessionId = "gemini-older-session"
+        let newerSessionId = "gemini-newer-session"
+        let launchEnvironment = agentLaunchEnvironment(
+            context: context,
+            kind: "gemini",
+            executable: "/usr/local/bin/gemini"
+        )
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 80)
+
+        let olderStart = runAgentHook(
+            context: context,
+            agent: "gemini",
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(olderSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(olderStart.timedOut, olderStart.stderr)
+        XCTAssertEqual(olderStart.status, 0, olderStart.stderr)
+
+        let newerStart = runAgentHook(
+            context: context,
+            agent: "gemini",
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(newerSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(newerStart.timedOut, newerStart.stderr)
+        XCTAssertEqual(newerStart.status, 0, newerStart.stderr)
+
+        let olderLateStop = runAgentHook(
+            context: context,
+            agent: "gemini",
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(olderSessionId)","cwd":"\#(context.root.path)","hook_event_name":"AfterAgent","last_assistant_message":"older done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(olderLateStop.timedOut, olderLateStop.stderr)
+        XCTAssertEqual(olderLateStop.status, 0, olderLateStop.stderr)
+
+        let newerIdlessStop = runAgentHook(
+            context: context,
+            agent: "gemini",
+            subcommand: "stop",
+            standardInput: #"{"cwd":"\#(context.root.path)","hook_event_name":"AfterAgent","last_assistant_message":"newer done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(newerIdlessStop.timedOut, newerIdlessStop.stderr)
+        XCTAssertEqual(newerIdlessStop.status, 0, newerIdlessStop.stderr)
+
+        let storeURL = context.root.appendingPathComponent("gemini-hook-sessions.json")
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
+        let newer = try XCTUnwrap(sessions[newerSessionId] as? [String: Any])
+        XCTAssertEqual(newer["agentLifecycle"] as? String, "idle")
+        XCTAssertEqual(newer["lastNotificationStatus"] as? String, "idle")
+        XCTAssertNil(
+            sessions[context.surfaceId],
+            "Late writes from an older Gemini session must not make the new id-less Stop create a surface-id fallback record"
+        )
+    }
+
     func testCodexTurnStackPreservesAnonymousDepthBetweenKnownTurns() throws {
         let context = try makeClaudeHookContext(name: "codex-mixed-anonymous-depth")
         defer { context.cleanup() }
