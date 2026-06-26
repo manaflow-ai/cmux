@@ -208,6 +208,22 @@ import Testing
         #expect(hosts[0].user == nil)
     }
 
+    @Test func includeUnderMatchScopeIsSkipped() {
+        // An Include nested in an unevaluable Match must not leak its hosts into
+        // the static listing (normal ssh only reads it when the Match applies).
+        let main = """
+        Host normal
+            HostName normal.example.com
+        Match host special
+            Include conditional
+        """
+        let conditional = "Host leaked\n    HostName leaked.example.com\n"
+        let hosts = parser.hosts(configText: main) { argument in
+            argument == "conditional" ? [conditional] : []
+        }
+        #expect(hosts.map(\.alias) == ["normal"])
+    }
+
     @Test func includeDirectiveExpandsThroughResolver() {
         let main = """
         Host main

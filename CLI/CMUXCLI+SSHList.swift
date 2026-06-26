@@ -71,7 +71,7 @@ extension CMUXCLI {
         }
 
         let configPath = Self.resolveSSHConfigPath(configOverride)
-        let hosts = Self.loadSSHConfigHosts(configPath: configPath)
+        let hosts = try Self.loadSSHConfigHosts(configPath: configPath, requireReadable: configOverride != nil)
 
         if jsonOutput {
             let payload: [String: Any] = [
@@ -99,10 +99,21 @@ extension CMUXCLI {
     }
 
     /// Read and parse the ssh_config at `configPath`, expanding `Include`
-    /// directives against the real filesystem. A missing file is treated as
-    /// "no hosts" rather than an error (a fresh machine has no ssh_config).
-    static func loadSSHConfigHosts(configPath: String) -> [SSHConfigHost] {
-        guard let contents = try? String(contentsOfFile: configPath, encoding: .utf8) else {
+    /// directives against the real filesystem.
+    ///
+    /// A missing/unreadable default `~/.ssh/config` is treated as "no hosts"
+    /// (a fresh machine has none). When `requireReadable` is true — an explicit
+    /// `--config` override — a read failure is surfaced as an error instead, so
+    /// a typo'd path or permission problem is not silently shown as an empty
+    /// config.
+    static func loadSSHConfigHosts(configPath: String, requireReadable: Bool) throws -> [SSHConfigHost] {
+        let contents: String
+        do {
+            contents = try String(contentsOfFile: configPath, encoding: .utf8)
+        } catch {
+            if requireReadable {
+                throw CLIError(message: "ssh list: cannot read --config \(configPath): \(error.localizedDescription)")
+            }
             return []
         }
         // OpenSSH resolves every relative `Include` under a single fixed base

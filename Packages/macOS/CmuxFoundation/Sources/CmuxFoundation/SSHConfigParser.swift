@@ -160,6 +160,12 @@ public struct SSHConfigParser: Sendable {
                 currentScope = .ignored
             case "include":
                 guard depth < Self.maxIncludeDepth else { continue }
+                // An `Include` inside a `Match` block we cannot evaluate is
+                // itself conditional; skip it (and the whole included file)
+                // rather than leaking its `Host` entries into the static
+                // listing — a `Host` line in the included text would otherwise
+                // switch the recursive scope back to `.host(...)`.
+                if case .ignored = currentScope { continue }
                 for includedText in includeResolver(value) {
                     collect(
                         configText: includedText,
