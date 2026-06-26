@@ -274,6 +274,54 @@ final class KeyboardShortcutContextTests: XCTestCase {
         }
     }
 
+    func testPaneFocusCommandBracketDefaultsAreScopedToSplitWorkspacesAndPriorityRouted() {
+        let focusLeft = KeyboardShortcutSettings.Action.focusLeft.defaultShortcut
+        let focusRight = KeyboardShortcutSettings.Action.focusRight.defaultShortcut
+
+        XCTAssertEqual(focusLeft, KeyboardShortcutSettings.Action.focusHistoryBack.defaultShortcut)
+        XCTAssertEqual(focusRight, KeyboardShortcutSettings.Action.focusHistoryForward.defaultShortcut)
+        XCTAssertEqual(focusLeft, KeyboardShortcutSettings.Action.browserBack.defaultShortcut)
+        XCTAssertEqual(focusRight, KeyboardShortcutSettings.Action.browserForward.defaultShortcut)
+        XCTAssertEqual(ShortcutAction.focusLeft.defaultStroke, ShortcutStroke(key: "[", command: true))
+        XCTAssertEqual(ShortcutAction.focusRight.defaultStroke, ShortcutStroke(key: "]", command: true))
+
+        XCTAssertTrue(KeyboardShortcutSettings.Action.focusLeft.hasPriorityShortcutRouting)
+        XCTAssertTrue(KeyboardShortcutSettings.Action.focusRight.hasPriorityShortcutRouting)
+
+        var splitContext = ShortcutContext()
+        splitContext.setInt(ShortcutContextKnownKey.paneCount.rawValue, 2)
+        XCTAssertTrue(KeyboardShortcutSettings.Action.focusLeft.shortcutContext.defaultWhenClause.evaluate(splitContext))
+        XCTAssertTrue(KeyboardShortcutSettings.Action.focusRight.shortcutContext.defaultWhenClause.evaluate(splitContext))
+
+        var singlePaneContext = ShortcutContext()
+        singlePaneContext.setInt(ShortcutContextKnownKey.paneCount.rawValue, 1)
+        XCTAssertFalse(KeyboardShortcutSettings.Action.focusLeft.shortcutContext.defaultWhenClause.evaluate(singlePaneContext))
+        XCTAssertFalse(KeyboardShortcutSettings.Action.focusRight.shortcutContext.defaultWhenClause.evaluate(singlePaneContext))
+
+        var sidebarSplitContext = ShortcutContext()
+        sidebarSplitContext.setInt(ShortcutContextKnownKey.paneCount.rawValue, 2)
+        sidebarSplitContext.setBool(ShortcutContextKnownKey.sidebarFocus.rawValue, true)
+        XCTAssertFalse(KeyboardShortcutSettings.Action.focusLeft.shortcutContext.defaultWhenClause.evaluate(sidebarSplitContext))
+        XCTAssertFalse(KeyboardShortcutSettings.Action.focusRight.shortcutContext.defaultWhenClause.evaluate(sidebarSplitContext))
+
+        XCTAssertFalse(
+            ShortcutWhenClause.bindingsCollide(
+                KeyboardShortcutSettings.Action.focusHistoryBack.shortcutContext.defaultWhenClause,
+                lhsHasPriority: KeyboardShortcutSettings.Action.focusHistoryBack.hasPriorityShortcutRouting,
+                KeyboardShortcutSettings.Action.focusLeft.shortcutContext.defaultWhenClause,
+                rhsHasPriority: KeyboardShortcutSettings.Action.focusLeft.hasPriorityShortcutRouting
+            )
+        )
+        XCTAssertFalse(
+            ShortcutWhenClause.bindingsCollide(
+                KeyboardShortcutSettings.Action.browserBack.shortcutContext.defaultWhenClause,
+                lhsHasPriority: KeyboardShortcutSettings.Action.browserBack.hasPriorityShortcutRouting,
+                KeyboardShortcutSettings.Action.focusLeft.shortcutContext.defaultWhenClause,
+                rhsHasPriority: KeyboardShortcutSettings.Action.focusLeft.hasPriorityShortcutRouting
+            )
+        )
+    }
+
     // Regression: on European layouts (German QWERTZ, French AZERTY, Nordic, ...)
     // "+" and "-" are dedicated keys typed WITHOUT Shift, so the event reports
     // character "+"/"-" with no Shift flag and a keyCode that is not the US
@@ -372,7 +420,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
     }
 
-    func testFocusHistoryMenuShortcutsSuppressDuplicateBrowserHistoryKeys() throws {
+    func testPaneFocusAndFocusHistoryMenuShortcutsSuppressDuplicateHistoryKeys() throws {
         let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
         let directoryURL = try makeTemporaryDirectory()
         defer {
@@ -394,8 +442,18 @@ final class KeyboardShortcutContextTests: XCTestCase {
         let focusBack = KeyboardShortcutSettings.shortcut(for: .focusHistoryBack)
         let focusForward = KeyboardShortcutSettings.shortcut(for: .focusHistoryForward)
 
+        XCTAssertEqual(focusBack, KeyboardShortcutSettings.shortcut(for: .focusLeft))
+        XCTAssertEqual(focusForward, KeyboardShortcutSettings.shortcut(for: .focusRight))
         XCTAssertEqual(focusBack, KeyboardShortcutSettings.shortcut(for: .browserBack))
         XCTAssertEqual(focusForward, KeyboardShortcutSettings.shortcut(for: .browserForward))
+        XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .focusHistoryBack), .unbound)
+        XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .focusHistoryForward), .unbound)
+        XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .browserBack), .unbound)
+        XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .browserForward), .unbound)
+
+        KeyboardShortcutSettings.clearShortcut(for: .focusLeft)
+        KeyboardShortcutSettings.clearShortcut(for: .focusRight)
+
         XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .focusHistoryBack), focusBack)
         XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .focusHistoryForward), focusForward)
         XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .browserBack), .unbound)

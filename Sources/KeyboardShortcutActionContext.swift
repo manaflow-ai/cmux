@@ -8,6 +8,7 @@ extension KeyboardShortcutSettings.Action {
         case browserPanel
         case markdownPanel
         case rightSidebarFocus
+        case splitPaneNavigation
         case canvasLayout
         case canvasLayoutOutsideFocusedContent
 
@@ -17,6 +18,7 @@ extension KeyboardShortcutSettings.Action {
             focusedBrowserPanel: Bool,
             focusedMarkdownPanel: Bool,
             rightSidebarFocused: Bool,
+            workspaceHasSplits: Bool = false,
             workspaceCanvasLayout: Bool = false
         ) -> Bool {
             switch self {
@@ -25,6 +27,7 @@ extension KeyboardShortcutSettings.Action {
             case .browserPanel: return focusedBrowserPanel
             case .markdownPanel: return focusedMarkdownPanel
             case .rightSidebarFocus: return rightSidebarFocused
+            case .splitPaneNavigation: return workspaceHasSplits && !rightSidebarFocused
             case .canvasLayout: return workspaceCanvasLayout
             case .canvasLayoutOutsideFocusedContent: return workspaceCanvasLayout && !focusedBrowserPanel && !focusedMarkdownPanel
             }
@@ -35,6 +38,7 @@ extension KeyboardShortcutSettings.Action {
                 focusedBrowserPanel: context.browserPanel != nil,
                 focusedMarkdownPanel: context.markdownPanel != nil,
                 rightSidebarFocused: context.rightSidebarFocused,
+                workspaceHasSplits: (context.shortcutContext.int(ShortcutContextKnownKey.paneCount.rawValue) ?? 0) > 1,
                 workspaceCanvasLayout: context.shortcutContext.bool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue)
             )
         }
@@ -44,6 +48,7 @@ extension KeyboardShortcutSettings.Action {
                 focusedBrowserPanel: context.bool(CommandPaletteContextKeys.panelIsBrowser),
                 focusedMarkdownPanel: context.bool(CommandPaletteContextKeys.panelIsMarkdown),
                 rightSidebarFocused: false,
+                workspaceHasSplits: context.bool(CommandPaletteContextKeys.workspaceHasSplits),
                 workspaceCanvasLayout: context.bool(CommandPaletteContextKeys.workspaceCanvasLayout)
             )
         }
@@ -55,6 +60,11 @@ extension KeyboardShortcutSettings.Action {
             case .browserPanel: return .atom(.browserFocus)
             case .markdownPanel: return .atom(.markdownFocus)
             case .rightSidebarFocus: return .atom(.sidebarFocus)
+            case .splitPaneNavigation:
+                return .and(
+                    .compare(key: ShortcutContextKnownKey.paneCount.rawValue, op: .greaterThan, operand: .int(1)),
+                    .not(.atom(.sidebarFocus))
+                )
             case .canvasLayout: return .key(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue)
             case .canvasLayoutOutsideFocusedContent:
                 return .and(
@@ -78,12 +88,17 @@ extension KeyboardShortcutSettings.Action {
             if self == .canvasLayoutOutsideFocusedContent || other == .canvasLayoutOutsideFocusedContent {
                 return self != .browserPanel && other != .browserPanel && self != .markdownPanel && other != .markdownPanel
             }
+            if self == .splitPaneNavigation || other == .splitPaneNavigation {
+                return self != .rightSidebarFocus && other != .rightSidebarFocus
+            }
             return false
         }
     }
 
     var hasPriorityShortcutRouting: Bool {
         switch self {
+        case .focusLeft, .focusRight:
+            return true
         case .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
             return true
@@ -109,6 +124,8 @@ extension KeyboardShortcutSettings.Action {
             return .browserPanel
         case .markdownZoomIn, .markdownZoomOut, .markdownZoomReset:
             return .markdownPanel
+        case .focusLeft, .focusRight:
+            return .splitPaneNavigation
         case .canvasZoomReset:
             return .canvasLayoutOutsideFocusedContent
         case .canvasRevealFocusedPane, .canvasOverview, .canvasZoomIn, .canvasZoomOut,

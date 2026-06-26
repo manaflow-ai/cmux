@@ -105,8 +105,8 @@ export const shortcutCategories: ShortcutCategory[] = [
         combos: [["⌘", "["]],
         description: { en: "Focus back", ja: "フォーカスを戻す" },
         note: {
-          en: "cmux uses Cmd+[ and Cmd+] for focus history by default. Unbind Focus Back/Forward in Settings to let browser or terminal shortcuts handle those keys.",
-          ja: "cmux は標準で Cmd+[ と Cmd+] をフォーカス履歴に使います。ブラウザまたはターミナル側で使うには、設定で Focus Back/Forward の割り当てを解除します。",
+          en: "In split workspaces, Cmd+[ is claimed by Focus Pane Left. With one pane, it remains available for focus history.",
+          ja: "分割ワークスペースでは Cmd+[ は「左のペインにフォーカス」が使用します。ペインが1つの場合はフォーカス履歴で使えます。",
         },
       },
       {
@@ -114,8 +114,8 @@ export const shortcutCategories: ShortcutCategory[] = [
         combos: [["⌘", "]"]],
         description: { en: "Focus forward", ja: "フォーカスを進める" },
         note: {
-          en: "cmux uses Cmd+[ and Cmd+] for focus history by default. Unbind Focus Back/Forward in Settings to let browser or terminal shortcuts handle those keys.",
-          ja: "cmux は標準で Cmd+[ と Cmd+] をフォーカス履歴に使います。ブラウザまたはターミナル側で使うには、設定で Focus Back/Forward の割り当てを解除します。",
+          en: "In split workspaces, Cmd+] is claimed by Focus Pane Right. With one pane, it remains available for focus history.",
+          ja: "分割ワークスペースでは Cmd+] は「右のペインにフォーカス」が使用します。ペインが1つの場合はフォーカス履歴で使えます。",
         },
       },
       { id: "selectWorkspaceByNumber", combos: [["⌘", "1…9"]], description: { en: "Select workspace 1…9", ja: "ワークスペース1…9を選択" } },
@@ -268,8 +268,24 @@ export const shortcutCategories: ShortcutCategory[] = [
     id: "split-panes",
     titleKey: "splitPanes",
     shortcuts: [
-      { id: "focusLeft", combos: [["⌥", "⌘", "←"]], description: { en: "Focus pane left", ja: "左のペインにフォーカス" } },
-      { id: "focusRight", combos: [["⌥", "⌘", "→"]], description: { en: "Focus pane right", ja: "右のペインにフォーカス" } },
+      {
+        id: "focusLeft",
+        combos: [["⌘", "["]],
+        description: { en: "Focus pane left", ja: "左のペインにフォーカス" },
+        note: {
+          en: "active when the workspace has more than one pane",
+          ja: "ワークスペースに複数のペインがある場合に有効",
+        },
+      },
+      {
+        id: "focusRight",
+        combos: [["⌘", "]"]],
+        description: { en: "Focus pane right", ja: "右のペインにフォーカス" },
+        note: {
+          en: "active when the workspace has more than one pane",
+          ja: "ワークスペースに複数のペインがある場合に有効",
+        },
+      },
       { id: "focusUp", combos: [["⌥", "⌘", "↑"]], description: { en: "Focus pane up", ja: "上のペインにフォーカス" } },
       { id: "focusDown", combos: [["⌥", "⌘", "↓"]], description: { en: "Focus pane down", ja: "下のペインにフォーカス" } },
       { id: "splitRight", combos: [["⌘", "D"]], description: { en: "Split right", ja: "右に分割" } },

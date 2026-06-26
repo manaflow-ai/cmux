@@ -270,6 +270,11 @@ extension ShortcutAction {
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
         case .sendCtrlFToTerminal, .clearScreenKeepScrollback:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
+        case .focusLeft, .focusRight:
+            return .and(
+                .compare(key: ShortcutContextKnownKey.paneCount.rawValue, op: .greaterThan, operand: .int(1)),
+                .not(.atom(.sidebarFocus))
+            )
         case .browserBack, .browserForward, .browserReload, .browserHardReload,
              .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole,
              .browserZoomIn, .browserZoomOut, .browserZoomReset, .toggleBrowserFocusMode,
@@ -307,6 +312,8 @@ extension ShortcutAction {
     /// `handleCustomShortcut`; a drift test asserts the two stay aligned.
     public var hasPriorityShortcutRouting: Bool {
         switch self {
+        case .focusLeft, .focusRight:
+            return true
         case .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
             return true
