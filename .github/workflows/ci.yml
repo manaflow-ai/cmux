@@ -433,6 +433,7 @@ jobs:
           restore-keys: |
             deriveddata-app-host-unit-tests-shard-${{ matrix.shard }}-${{ hashFiles('.xcode-version') }}-${{ steps.ghostty-revision.outputs.sha }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
             deriveddata-app-host-unit-tests-shard-${{ matrix.shard }}-${{ hashFiles('.xcode-version') }}-${{ steps.ghostty-revision.outputs.sha }}-
+            deriveddata-app-host-unit-tests-shard-${{ matrix.shard }}-${{ hashFiles('.xcode-version') }}-
 
       - name: Resolve Swift packages
         run: |
