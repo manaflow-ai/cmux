@@ -228,4 +228,5 @@
 502	Sources/RemoteTmuxSessionMirror.swift
 500	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/CMUXMobileRootView.swift
 500	Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandContextTestStubs.swift
+500	Sources/Appshot/AppshotController.swift
 500	Sources/KeyboardShortcutRecorder.swift

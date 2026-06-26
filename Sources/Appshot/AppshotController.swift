@@ -227,6 +227,12 @@ enum AppshotCapturer {
     /// Wall-clock budget for the whole Accessibility walk, so slow AX IPC (or a
     /// hostile app) can't keep the capture — and `isCapturing` — pending.
     private static let maxAccessibilityDuration: TimeInterval = 2.0
+    /// Per-message AX IPC timeout. Each `AXUIElementCopyAttributeValue` is a
+    /// synchronous round-trip into the frontmost app; without this a hung app
+    /// could block a single call indefinitely (before the walk deadline is even
+    /// re-checked) and wedge every later appshot. Set on the app element, which
+    /// applies to all of that app's elements.
+    private static let maxAccessibilityCallTimeout: Float = 1.0
     /// How many artifact files (PNGs + text dumps) to retain on disk. Appshots
     /// are sensitive window captures triggered by a repeated global hotkey, so
     /// the cache is bounded — older captures are evicted rather than left to
@@ -323,6 +329,9 @@ enum AppshotCapturer {
 
     private static func extractAccessibilityText(pid: pid_t, axTitle: inout String) -> String {
         let app = AXUIElementCreateApplication(pid)
+        // Bound every synchronous AX IPC call into the target app so a hung or
+        // hostile frontmost app can't block a single call past the walk deadline.
+        AXUIElementSetMessagingTimeout(app, maxAccessibilityCallTimeout)
         let root: AXUIElement
         if let focused = copyElement(app, kAXFocusedWindowAttribute) {
             root = focused
