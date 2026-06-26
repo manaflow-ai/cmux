@@ -132,7 +132,7 @@ struct BrowserSSLTrustBypassStateTests {
 
         let request = try #require(BrowserErrorPage.bypassRequest(from: url.absoluteString, retry: .urlOnly))
         #expect(request.url == url)
-        #expect(request.httpMethod == nil)
+        #expect((request.httpMethod?.uppercased() ?? "GET") == "GET")
         #expect(request.allHTTPHeaderFields == nil)
         #expect(request.httpBody == nil)
         #expect(request.httpBodyStream == nil)
