@@ -350,23 +350,3 @@ private struct DefaultActionModifier: ViewModifier {
         }
     }
 }
-
-/// Single-pass `tabId -> title` index for notification lists.
-///
-/// Notification panels render a `ScrollView { LazyVStack { ForEach } }`, and the
-/// `ForEach` closure runs for every notification while SwiftUI builds the view
-/// list. Resolving each row's tab title with a per-row scan of the tab list made
-/// that O(notifications × tabs); building this index once per render makes it
-/// O(notifications + tabs). See https://github.com/manaflow-ai/cmux/issues/5794.
-enum NotificationTabTitleIndex {
-    /// Builds the lookup in one pass. The first pair wins on duplicate ids,
-    /// matching the "first matching tab" resolution the per-row scans used.
-    static func make<S: Sequence>(_ pairs: S) -> [UUID: String]
-    where S.Element == (id: UUID, title: String) {
-        var index: [UUID: String] = [:]
-        for pair in pairs where index[pair.id] == nil {
-            index[pair.id] = pair.title
-        }
-        return index
-    }
-}

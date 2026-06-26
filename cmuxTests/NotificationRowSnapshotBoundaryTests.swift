@@ -147,26 +147,6 @@ final class NotificationRowSnapshotBoundaryTests: XCTestCase {
         XCTAssertNotEqual(left, right, "A changed notification payload must change equality so the row repaints.")
     }
 
-    // MARK: - Single-pass tab-title index
-
-    func testTabTitleIndexResolvesAndDedupes() {
-        let a = UUID()
-        let b = UUID()
-        let dup = UUID()
-        let index = NotificationTabTitleIndex.make([
-            (id: a, title: "alpha"),
-            (id: b, title: "beta"),
-            (id: dup, title: "first"),
-            (id: dup, title: "second"),
-        ])
-
-        XCTAssertEqual(index[a], "alpha")
-        XCTAssertEqual(index[b], "beta")
-        // First pair wins, matching the prior "first matching tab" scan.
-        XCTAssertEqual(index[dup], "first")
-        XCTAssertNil(index[UUID()], "Unknown tab ids resolve to nil, same as the old per-row lookup miss.")
-    }
-
     // MARK: - Fixtures
 
     private static func makeNotification(
