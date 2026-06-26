@@ -8168,17 +8168,23 @@ struct ContentView: View {
         return (workspace, panelId, panel)
     }
 
-    static func commandPaletteWorkspaceDisplayName(_ workspace: Workspace) -> String {
-        let custom = workspace.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    static func commandPaletteWorkspaceDisplayName(
+        customTitle: String?,
+        resolvedTitle: String
+    ) -> String {
+        let custom = customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !custom.isEmpty {
             return custom
         }
-        let title = workspace.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = resolvedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         return title.isEmpty ? String(localized: "workspace.displayName.fallback", defaultValue: "Workspace") : title
     }
 
     private func workspaceDisplayName(_ workspace: Workspace) -> String {
-        Self.commandPaletteWorkspaceDisplayName(workspace)
+        Self.commandPaletteWorkspaceDisplayName(
+            customTitle: workspace.customTitle,
+            resolvedTitle: tabManager.resolvedWorkspaceDisplayTitle(for: workspace)
+        )
     }
 
     private func panelDisplayName(workspace: Workspace, panelId: UUID, fallback: String) -> String {

@@ -910,7 +910,10 @@ struct WorkspaceGroupTests {
 
         manager.renameWorkspaceGroup(groupId: groupId, name: "AUSTIN GENERAL INTELLIGENCE")
 
-        let displayName = ContentView.commandPaletteWorkspaceDisplayName(anchor)
+        let displayName = ContentView.commandPaletteWorkspaceDisplayName(
+            customTitle: anchor.customTitle,
+            resolvedTitle: manager.resolvedWorkspaceDisplayTitle(for: anchor)
+        )
 
         #expect(displayName == "AUSTIN GENERAL INTELLIGENCE")
     }
