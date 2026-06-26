@@ -72,7 +72,7 @@ public final class ComposerDictationController {
     /// before force-finishing cleanup, so the controller cannot hang in
     /// `.stopping` if no final result ever arrives.
     private static let finalizeTimeoutSeconds: Double = 2.5
-
+    /// Creates a dictation controller for the current speech-recognition locale.
     public init(textMerger: ComposerDictationTextMerger = ComposerDictationTextMerger()) {
         self.textMerger = textMerger
         self.recognizer = SFSpeechRecognizer()

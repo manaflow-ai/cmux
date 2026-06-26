@@ -11,6 +11,7 @@ public struct MobileComposerFieldContainer<Field: View, Trailing: View>: View {
     private let field: Field
     private let trailing: Trailing
 
+    /// Creates a shared field shell around caller-provided text and trailing views.
     public init(
         minHeight: CGFloat = 40,
         cornerRadius: CGFloat = 20,
@@ -23,6 +24,7 @@ public struct MobileComposerFieldContainer<Field: View, Trailing: View>: View {
         self.trailing = trailing()
     }
 
+    /// The field row with shared padding, sizing, and glass treatment.
     public var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
             field

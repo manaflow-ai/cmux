@@ -68,6 +68,7 @@ public enum ComposerDictationState: Equatable {
 /// stale partials. The base is preserved verbatim so text the user typed before
 /// starting is never clobbered.
 public struct ComposerDictationTextMerger: Sendable {
+    /// Creates a stateless merger.
     public init() {}
 
     /// Combine the captured base text with the current transcript.

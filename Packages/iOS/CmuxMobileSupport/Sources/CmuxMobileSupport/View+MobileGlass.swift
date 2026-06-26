@@ -1,5 +1,6 @@
 public import SwiftUI
 
+/// Shared Liquid Glass compatibility helpers for mobile SwiftUI surfaces.
 public extension View {
     /// Glass (iOS 26+) or bordered button styling for secondary sign-in actions.
     @ViewBuilder

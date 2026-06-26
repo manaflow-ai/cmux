@@ -74,7 +74,9 @@ public struct ChatComposerView: View {
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("ChatComposerBar")
+            #if DEBUG
             .background(ChatComposerDebugAutofocusBridge())
+            #endif
             .onDisappear { dictation.cancel() }
             .onChange(of: isDraftFocused) { _, focused in
                 if !focused, !dictation.locksComposerField {

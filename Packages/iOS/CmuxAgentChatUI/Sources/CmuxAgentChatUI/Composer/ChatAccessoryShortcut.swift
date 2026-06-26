@@ -2,15 +2,8 @@ import SwiftUI
 
 /// One host-provided shortcut rendered in the chat composer's horizontal row.
 public struct ChatAccessoryShortcut: Identifiable {
-    /// Chat-owned behaviors whose implementation must live in the composer,
-    /// because the host-provided row item does not own focus, draft, or
-    /// attachment state.
-    public enum SemanticAction {
-        /// Paste clipboard contents into the chat composer.
-        case paste
-        /// Dismiss the chat composer's keyboard.
-        case dismissKeyboard
-    }
+    /// Backward-compatible nested spelling for ``ChatAccessoryShortcutSemanticAction``.
+    public typealias SemanticAction = ChatAccessoryShortcutSemanticAction
 
     /// Stable identity for SwiftUI diffing and accessibility tests.
     public let id: String

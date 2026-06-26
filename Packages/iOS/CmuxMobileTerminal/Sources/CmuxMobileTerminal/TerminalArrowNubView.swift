@@ -20,30 +20,8 @@ final class TerminalArrowNubView: UIView {
     /// The in-flight repeat stream consumer. Cancelled on direction change /
     /// gesture end, which terminates the service stream's cadence.
     private var repeatTask: Task<Void, Never>?
-    private var lastDirection: Direction?
+    private var lastDirection: TerminalArrowNubDirection?
     private let feedbackGenerator = UIImpactFeedbackGenerator(style: .light)
-
-    private enum Direction {
-        case up, down, left, right
-
-        var repeatDirection: TerminalArrowRepeatService.Direction {
-            switch self {
-            case .up:    return .upArrow
-            case .down:  return .downArrow
-            case .right: return .rightArrow
-            case .left:  return .leftArrow
-            }
-        }
-
-        var accessoryAction: TerminalInputAccessoryAction {
-            switch self {
-            case .up:    return .upArrow
-            case .down:  return .downArrow
-            case .right: return .rightArrow
-            case .left:  return .leftArrow
-            }
-        }
-    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -109,7 +87,7 @@ final class TerminalArrowNubView: UIView {
         }
     }
 
-    private func directionFrom(dx: CGFloat, dy: CGFloat) -> Direction? {
+    private func directionFrom(dx: CGFloat, dy: CGFloat) -> TerminalArrowNubDirection? {
         let dist = sqrt(dx * dx + dy * dy)
         guard dist > deadZone else { return nil }
         if abs(dx) > abs(dy) {
@@ -122,7 +100,7 @@ final class TerminalArrowNubView: UIView {
     /// Consume the service's repeat stream for `direction`: it emits the first
     /// arrow immediately and one per interval. Each emission fires haptics and
     /// forwards the bytes on the main actor. Cancelled by ``stopRepeat()``.
-    private func startRepeat(_ direction: Direction) {
+    private func startRepeat(_ direction: TerminalArrowNubDirection) {
         let stream = arrowRepeatService.repeats(
             of: direction.repeatDirection,
             every: repeatInterval,
