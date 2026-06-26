@@ -5355,12 +5355,14 @@ final class Workspace: Identifiable, ObservableObject {
     /// "subagent split pane disappears when clicked while the task is still running"
     /// bug (https://github.com/manaflow-ai/cmux/issues/6244).
     ///
-    /// Applies to both split and last-panel surfaces. Scoping is by the surface's own
-    /// remote state, not the workspace's: a remote workspace can still host a genuinely
-    /// local helper pane created with an explicit command, and that pane should be kept
-    /// open too. Surfaces that are remote-tracked or already routed through remote
-    /// child-exit demotion keep their dedicated keep-open / teardown handling in
-    /// `TabManager.closePanelAfterChildExited`.
+    /// `TabManager.closePanelAfterChildExited` consults this before every remote and
+    /// last-panel teardown branch, so the keep-open contract holds for any pane role —
+    /// split, sole pane, or a local helper pane that is the last pane in a remote
+    /// workspace. Scoping is by the surface's own remote state, not the workspace's: a
+    /// remote workspace can still host a genuinely local helper pane created with an
+    /// explicit command, and that pane should be kept open too. Surfaces that are
+    /// remote-tracked or already routed through remote child-exit demotion return `false`
+    /// here and keep their dedicated keep-open / teardown handling.
     @MainActor
     func shouldKeepSurfaceOpenAfterCommandExit(surfaceId: UUID) -> Bool {
         guard !isRemoteTerminalSurface(surfaceId),
