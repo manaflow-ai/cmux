@@ -436,6 +436,63 @@ select {
   white-space: pre;
 }
 
+.codex-assistant-message :where(pre code.hljs) {
+  color: var(--agent-soft);
+}
+
+.codex-assistant-message :where(pre code.hljs .hljs-comment, pre code.hljs .hljs-quote) {
+  color: var(--agent-muted);
+  font-style: italic;
+}
+
+.codex-assistant-message :where(pre code.hljs .hljs-keyword, pre code.hljs .hljs-selector-tag, pre code.hljs .hljs-subst) {
+  color: var(--color-token-terminal-ansi-bright-magenta);
+}
+
+.codex-assistant-message :where(pre code.hljs .hljs-built_in, pre code.hljs .hljs-type, pre code.hljs .hljs-class .hljs-title) {
+  color: var(--color-token-terminal-ansi-bright-cyan);
+}
+
+.codex-assistant-message :where(pre code.hljs .hljs-title, pre code.hljs .hljs-title.function_, pre code.hljs .hljs-section) {
+  color: var(--color-token-terminal-ansi-bright-blue);
+}
+
+.codex-assistant-message :where(pre code.hljs .hljs-string, pre code.hljs .hljs-doctag, pre code.hljs .hljs-template-string) {
+  color: var(--color-token-terminal-ansi-bright-green);
+}
+
+.codex-assistant-message :where(pre code.hljs .hljs-number, pre code.hljs .hljs-literal, pre code.hljs .hljs-symbol, pre code.hljs .hljs-bullet) {
+  color: var(--color-token-terminal-ansi-bright-yellow);
+}
+
+.codex-assistant-message :where(pre code.hljs .hljs-attr, pre code.hljs .hljs-attribute, pre code.hljs .hljs-variable, pre code.hljs .hljs-template-variable, pre code.hljs .language_) {
+  color: var(--color-token-terminal-ansi-cyan);
+}
+
+.codex-assistant-message :where(pre code.hljs .hljs-regexp, pre code.hljs .hljs-link) {
+  color: var(--color-token-terminal-ansi-bright-red);
+}
+
+.codex-assistant-message :where(pre code.hljs .hljs-meta, pre code.hljs .hljs-operator, pre code.hljs .hljs-punctuation) {
+  color: var(--agent-soft);
+}
+
+.codex-assistant-message :where(pre code.hljs .hljs-addition) {
+  color: var(--color-token-terminal-ansi-green);
+}
+
+.codex-assistant-message :where(pre code.hljs .hljs-deletion) {
+  color: var(--color-token-terminal-ansi-red);
+}
+
+.codex-assistant-message :where(pre code.hljs .hljs-emphasis) {
+  font-style: italic;
+}
+
+.codex-assistant-message :where(pre code.hljs .hljs-strong) {
+  font-weight: 600;
+}
+
 .codex-assistant-message :where(a) {
   color: var(--agent-accent);
   text-decoration: underline;
