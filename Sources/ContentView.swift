@@ -5151,7 +5151,7 @@ struct ContentView: View {
                 workspaces: commandPaletteOrderedSwitcherWorkspaces(for: context).map { workspace in
                     CommandPaletteSwitcherFingerprintWorkspace(
                         id: workspace.id,
-                        displayName: workspaceDisplayName(workspace),
+                        displayName: workspaceDisplayName(workspace, in: context.tabManager),
                         metadata: commandPaletteWorkspaceSearchMetadata(for: workspace),
                         surfaces: includeSurfaces
                             ? commandPaletteOrderedSwitcherPanels(for: workspace).compactMap { panelId in
@@ -5270,7 +5270,7 @@ struct ContentView: View {
             let windowTabManager = context.tabManager
             let windowKeywords = commandPaletteWindowKeywords(windowLabel: context.windowLabel)
             for workspace in workspaces {
-                let workspaceName = workspaceDisplayName(workspace)
+                let workspaceName = workspaceDisplayName(workspace, in: windowTabManager)
                 let workspaceCommandId = "switcher.workspace.\(workspace.id.uuidString.lowercased())"
                 let workspaceKeywords = CommandPaletteSwitcherSearchIndexer(
                     baseKeywords: [
@@ -6155,7 +6155,7 @@ struct ContentView: View {
             let pinTarget = WorkspaceActionDispatcher.Target.single(workspace.id)
             let pinState = WorkspaceActionDispatcher.pinState(in: tabManager, target: pinTarget)
             snapshot.setBool(CommandPaletteContextKeys.hasWorkspace, true)
-            snapshot.setString(CommandPaletteContextKeys.workspaceName, workspaceDisplayName(workspace))
+            snapshot.setString(CommandPaletteContextKeys.workspaceName, workspaceDisplayName(workspace, in: tabManager))
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomName, workspace.customTitle != nil)
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomDescription, workspace.hasCustomDescription)
             snapshot.setBool(CommandPaletteContextKeys.workspaceShouldPin, pinState?.pinned ?? !workspace.isPinned)
@@ -8177,8 +8177,27 @@ struct ContentView: View {
         return title.isEmpty ? String(localized: "workspace.displayName.fallback", defaultValue: "Workspace") : title
     }
 
-    private func workspaceDisplayName(_ workspace: Workspace) -> String {
-        Self.commandPaletteWorkspaceDisplayName(workspace)
+    /// Display name for a workspace across command-palette surfaces (the
+    /// switcher list and the command-context subtitles), accounting for group
+    /// anchors.
+    ///
+    /// A workspace group's anchor is represented everywhere by the group itself
+    /// — the sidebar draws only the group header, never a separate anchor row,
+    /// per `SidebarWorkspaceRenderItem` — so the single source of truth for an
+    /// anchor's displayed name is the group's `name`. The anchor's own
+    /// `title`/`customTitle` is merely seeded equal to the group name at
+    /// creation and drifts when the group is renamed, which is why the palette
+    /// previously listed the stale seeded title (e.g. "Group 1") instead of the
+    /// renamed group. Mirrors `TabManager.resolvedWorkspaceDisplayTitle(for:)`.
+    static func commandPaletteWorkspaceDisplayName(
+        _ workspace: Workspace,
+        groups: [WorkspaceGroup]
+    ) -> String {
+        return commandPaletteWorkspaceDisplayName(workspace)
+    }
+
+    private func workspaceDisplayName(_ workspace: Workspace, in tabManager: TabManager) -> String {
+        Self.commandPaletteWorkspaceDisplayName(workspace, groups: tabManager.workspaceGroups)
     }
 
     private func panelDisplayName(workspace: Workspace, panelId: UUID, fallback: String) -> String {
@@ -9269,7 +9288,11 @@ struct ContentView: View {
         }
         let target = CommandPaletteRenameTarget(
             kind: .workspace(workspaceId: workspace.id),
-            currentName: workspaceDisplayName(workspace)
+            // The workspace rename flow edits the workspace's own title (a group
+            // anchor renames the group through the sidebar header instead), so
+            // seed it with the workspace title rather than the group-resolved
+            // display name.
+            currentName: Self.commandPaletteWorkspaceDisplayName(workspace)
         )
         startRenameFlow(target)
     }

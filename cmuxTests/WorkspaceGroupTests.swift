@@ -915,4 +915,53 @@ struct WorkspaceGroupTests {
 
         #expect(manager.resolvedWorkspaceDisplayTitle(for: member) == memberTitle)
     }
+
+    // Regression for https://github.com/manaflow-ai/cmux/issues/5893: the
+    // command palette (⌘P) switcher and command-context subtitles must show a
+    // group's current name for its anchor, matching the sidebar header. The
+    // palette previously read the anchor's own seeded title and so kept listing
+    // the stale auto-name (e.g. "Group 1") after the group was renamed.
+    @Test func commandPaletteDisplayNameTracksRenamedGroupNameForAnchor() throws {
+        let manager = makeTabManager()
+        let groupId = try #require(
+            manager.createWorkspaceGroup(name: "Group 1", childWorkspaceIds: [manager.tabs[0].id])
+        )
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let anchor = try #require(manager.tabs.first { $0.id == group.anchorWorkspaceId })
+
+        // Sanity: before the rename the palette already shows the seeded name.
+        #expect(
+            ContentView.commandPaletteWorkspaceDisplayName(anchor, groups: manager.workspaceGroups) == "Group 1"
+        )
+
+        manager.renameWorkspaceGroup(groupId: groupId, name: "AUSTIN GENERAL INTELLIGENCE")
+
+        #expect(
+            ContentView.commandPaletteWorkspaceDisplayName(
+                anchor,
+                groups: manager.workspaceGroups
+            ) == "AUSTIN GENERAL INTELLIGENCE"
+        )
+    }
+
+    // The palette resolver only mirrors the group name for the anchor; other
+    // members keep their own display name (here a custom title).
+    @Test func commandPaletteDisplayNameKeepsNonAnchorWorkspaceTitle() throws {
+        let manager = makeTabManager()
+        let memberId = manager.tabs[1].id
+        _ = manager.setCustomTitle(tabId: memberId, title: "My Workspace")
+        let groupId = try #require(
+            manager.createWorkspaceGroup(name: "Group 1", childWorkspaceIds: [memberId])
+        )
+        let member = try #require(manager.tabs.first { $0.id == memberId })
+
+        manager.renameWorkspaceGroup(groupId: groupId, name: "Renamed")
+
+        #expect(
+            ContentView.commandPaletteWorkspaceDisplayName(
+                member,
+                groups: manager.workspaceGroups
+            ) == "My Workspace"
+        )
+    }
 }
