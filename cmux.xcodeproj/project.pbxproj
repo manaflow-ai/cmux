@@ -54,6 +54,7 @@
 		A9F200000000000000000014 /* AgentSessionWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000014 /* AgentSessionWebView.swift */; };
 		F4350A110000000000000001 /* AppBundleIconPersistencePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4350A130000000000000001 /* AppBundleIconPersistencePolicy.swift */; };
 		F4350A120000000000000001 /* AppBundleIconPersistencePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4350A130000000000000001 /* AppBundleIconPersistencePolicy.swift */; };
+		C4A570010000000000000001 /* AppDelegate+CanvasShortcutRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4A570010000000000000002 /* AppDelegate+CanvasShortcutRouting.swift */; };
 		C4160A030000000000000001 /* AppDelegate+ClosedItemHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A030000000000000002 /* AppDelegate+ClosedItemHistory.swift */; };
 		C3677004000000000000001 /* AppDelegate+CmuxSSHURL.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3677004000000000000002 /* AppDelegate+CmuxSSHURL.swift */; };
 		C65930010000000000000003 /* AppDelegate+CrashSessionSnapshotRemoval.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65930010000000000000004 /* AppDelegate+CrashSessionSnapshotRemoval.swift */; };
@@ -112,6 +113,12 @@
 		B6585001B6585001B6585001 /* BrowserHiddenWebViewDiscardMemoryPressureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6585002B6585002B6585002 /* BrowserHiddenWebViewDiscardMemoryPressureTests.swift */; };
 		B42450010000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42450020000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift */; };
 		4E1F28554F1B908F18559390 /* BrowserHistorySuggestionCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D536229C6194FD62B44503 /* BrowserHistorySuggestionCacheTests.swift */; };
+		BABA25000000000000000007 /* BrowserHTTPBasicAuthPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = BABA25000000000000000008 /* BrowserHTTPBasicAuthPrompt.swift */; };
+		BABA25000000000000000001 /* BrowserHTTPBasicAuthPromptCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = BABA25000000000000000002 /* BrowserHTTPBasicAuthPromptCoordinator.swift */; };
+		BABA25000000000000000005 /* BrowserHTTPBasicAuthPromptCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BABA25000000000000000006 /* BrowserHTTPBasicAuthPromptCoordinatorTests.swift */; };
+		BABA2500000000000000000D /* BrowserHTTPBasicAuthPromptRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = BABA2500000000000000000E /* BrowserHTTPBasicAuthPromptRequest.swift */; };
+		BABA25000000000000000003 /* BrowserHTTPBasicAuthPromptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BABA25000000000000000004 /* BrowserHTTPBasicAuthPromptTests.swift */; };
+		BABA2500000000000000000B /* BrowserHTTPBasicAuthProtectionSpaceKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = BABA2500000000000000000C /* BrowserHTTPBasicAuthProtectionSpaceKey.swift */; };
 		FA100000A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA100001A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift */; };
 		FB100000A1B2C3D4E5F60718 /* BrowserImportProfilesUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB100001A1B2C3D4E5F60718 /* BrowserImportProfilesUITests.swift */; };
 		BCBC0A0E0000000000000F01 /* BrowserMediaActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCBC0A0E0000000000000F02 /* BrowserMediaActivity.swift */; };
@@ -119,6 +126,7 @@
 		BCBC0A0E0000000000000E21 /* BrowserMediaPlaybackAudioActivityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCBC0A0E0000000000000E22 /* BrowserMediaPlaybackAudioActivityTests.swift */; };
 		A500MH01 /* BrowserMediaPlaybackMessageHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500MH00 /* BrowserMediaPlaybackMessageHandler.swift */; };
 		A500MR01 /* BrowserMediaPlaybackReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500MR00 /* BrowserMediaPlaybackReport.swift */; };
+		BABA25000000000000000009 /* BrowserNavigationDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = BABA2500000000000000000A /* BrowserNavigationDelegate.swift */; };
 		B0A501000000000000000001 /* BrowserOmnibarAppKitBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A501000000000000000002 /* BrowserOmnibarAppKitBridge.swift */; };
 		B0A500000000000000000001 /* BrowserOmnibarPerformanceSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0A500000000000000000002 /* BrowserOmnibarPerformanceSupport.swift */; };
 		C2B6A97D1F2E4C71A8B9D001 /* BrowserOmnibarPerformanceSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2B6A97D1F2E4C71A8B9D002 /* BrowserOmnibarPerformanceSupportTests.swift */; };
@@ -144,7 +152,26 @@
 		4BBF42E8A86EAAB94BC9EA16 /* BrowserSystemProxyMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = 048DACB3F8147BCBDD266297 /* BrowserSystemProxyMirror.swift */; };
 		C7B800062D4202A13C962D2D /* BrowserSystemProxyMirrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D828DA0070335773EBAE83F /* BrowserSystemProxyMirrorTests.swift */; };
 		0796994CA7CCA25DB990BFEF /* BrowserSystemProxyWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 326E7A5E13C6DF650B9F8971 /* BrowserSystemProxyWatcher.swift */; };
+		A50100000000000000000002 /* BrowserWebAuthnAssertionExtensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000001 /* BrowserWebAuthnAssertionExtensions.swift */; };
+		A50100000000000000000004 /* BrowserWebAuthnAssertionPublicKeyOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000003 /* BrowserWebAuthnAssertionPublicKeyOptions.swift */; };
+		A50100000000000000000006 /* BrowserWebAuthnAssertionRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000005 /* BrowserWebAuthnAssertionRequest.swift */; };
+		A50100000000000000000008 /* BrowserWebAuthnAuthenticatorSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000007 /* BrowserWebAuthnAuthenticatorSelection.swift */; };
+		A5010000000000000000000A /* BrowserWebAuthnBinaryData.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000009 /* BrowserWebAuthnBinaryData.swift */; };
+		A5010000000000000000000C /* BrowserWebAuthnBridgeError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5010000000000000000000B /* BrowserWebAuthnBridgeError.swift */; };
+		A5010000000000000000000E /* BrowserWebAuthnBridgeMessageKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5010000000000000000000D /* BrowserWebAuthnBridgeMessageKind.swift */; };
+		A50100000000000000000014 /* BrowserWebAuthnCreationPublicKeyOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000013 /* BrowserWebAuthnCreationPublicKeyOptions.swift */; };
+		A50100000000000000000016 /* BrowserWebAuthnCreationRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000015 /* BrowserWebAuthnCreationRequest.swift */; };
+		A50100000000000000000010 /* BrowserWebAuthnCredentialDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5010000000000000000000F /* BrowserWebAuthnCredentialDescriptor.swift */; };
+		A50100000000000000000012 /* BrowserWebAuthnCredentialParameter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000011 /* BrowserWebAuthnCredentialParameter.swift */; };
+		A50100000000000000000018 /* BrowserWebAuthnMessageEnvelope.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000017 /* BrowserWebAuthnMessageEnvelope.swift */; };
+		A5010000000000000000001A /* BrowserWebAuthnRelyingPartyDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000019 /* BrowserWebAuthnRelyingPartyDescriptor.swift */; };
+		A5007426 /* BrowserWebAuthnRequestParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5007427 /* BrowserWebAuthnRequestParser.swift */; };
+		A5007424 /* BrowserWebAuthnSecurityOrigin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5007425 /* BrowserWebAuthnSecurityOrigin.swift */; };
+		A5010000000000000000001C /* BrowserWebAuthnStringValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5010000000000000000001B /* BrowserWebAuthnStringValidation.swift */; };
 		A5007422 /* BrowserWebAuthnSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5007423 /* BrowserWebAuthnSupport.swift */; };
+		A5010000000000000000001E /* BrowserWebAuthnTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5010000000000000000001D /* BrowserWebAuthnTransport.swift */; };
+		A50100000000000000000020 /* BrowserWebAuthnTransportSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5010000000000000000001F /* BrowserWebAuthnTransportSummary.swift */; };
+		A50100000000000000000022 /* BrowserWebAuthnUserDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000021 /* BrowserWebAuthnUserDescriptor.swift */; };
 		C0DE49870000000000000001 /* BrowserWebContentProcessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE49870000000000000002 /* BrowserWebContentProcessTests.swift */; };
 		C0DE58990000000000000003 /* BrowserWebKitKeyDownDispatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE58990000000000000001 /* BrowserWebKitKeyDownDispatch.swift */; };
 		A5001534 /* BrowserWindowPortal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001533 /* BrowserWindowPortal.swift */; };
@@ -156,6 +183,7 @@
 		CA52E0030000000000000000 /* CanvasInlineBrowserHostingEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52F0030000000000000000 /* CanvasInlineBrowserHostingEnvironment.swift */; };
 		CA52B0060000000000000000 /* CanvasLayoutSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0060000000000000000 /* CanvasLayoutSettings.swift */; };
 		CA52B0070000000000000000 /* CanvasPaneContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0070000000000000000 /* CanvasPaneContent.swift */; };
+		C4A570030000000000000001 /* CanvasShortcutContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4A570030000000000000002 /* CanvasShortcutContextTests.swift */; };
 		F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */; };
 		D3571002A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */; };
 		C13519000000000000000007 /* ClaudeConfigDirectoryPathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13519000000000000000008 /* ClaudeConfigDirectoryPathTests.swift */; };
@@ -163,6 +191,7 @@
 		A5D41222A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41223A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift */; };
 		A9F200000000000000000015 /* ClaudeStreamJSONAccumulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000015 /* ClaudeStreamJSONAccumulator.swift */; };
 		A5D4120DA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D4120EA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift */; };
+		CA11E4D0FA017DE500000B101 /* CLICallerWorkspaceDefaultTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA11E4D0FA017DE500000F102 /* CLICallerWorkspaceDefaultTests.swift */; };
 		C0D3F1F00000000000000103 /* CLICodexHookTimeoutRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D3F1F00000000000000104 /* CLICodexHookTimeoutRegressionTests.swift */; };
 		E295EA3753206FE3FFCA6C0A /* CLIExplicitSurfaceRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1590EE4F01FEF02D40A48698 /* CLIExplicitSurfaceRoutingTests.swift */; };
 		C46790000000000000000001 /* CLIForwardingLaunchArgumentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C46790000000000000000002 /* CLIForwardingLaunchArgumentTests.swift */; };
@@ -278,6 +307,7 @@
 		CA1F0A01CA1F0A01CA1F0A01 /* CmuxModalAlertPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA1F0A02CA1F0A02CA1F0A02 /* CmuxModalAlertPresentation.swift */; };
 		E3B7A30000000000000000D3 /* CmuxNotifications in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A30000000000000000D2 /* CmuxNotifications */; };
 		C0DE31390000000000000101 /* CMUXOpenCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */; };
+		C0DE31390000000000000111 /* CMUXOpenHTMLFocusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000112 /* CMUXOpenHTMLFocusTests.swift */; };
 		E3B7A30000000000000000F3 /* CmuxPanes in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A30000000000000000F2 /* CmuxPanes */; };
 		A5C0DE0000000000000000A3 /* CMUXProjectModel in Frameworks */ = {isa = PBXBuildFile; productRef = A5C0DE0000000000000000A2 /* CMUXProjectModel */; };
 		CC0DE10000000000000000A3 /* CmuxRemoteDaemon in Frameworks */ = {isa = PBXBuildFile; productRef = CC0DE10000000000000000A2 /* CmuxRemoteDaemon */; };
@@ -479,8 +509,10 @@
 		D7AB00000000000000000005 /* GhosttyNSView+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000006 /* GhosttyNSView+MoveTabToNewWorkspace.swift */; };
 		BDFCA25C0CE77A299C915E26 /* GhosttyOptionAsAltModsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F34462AE2F2EECEF5298031 /* GhosttyOptionAsAltModsTests.swift */; };
 		3069F1D10000000000000003 /* GhosttyPasteboardFidelityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3069F1D10000000000000004 /* GhosttyPasteboardFidelityTests.swift */; };
+		5C0011AA0000000000000001 /* GhosttyScrollPreciseBoostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C0011AA0000000000000002 /* GhosttyScrollPreciseBoostTests.swift */; };
 		B84BD7AD94EE485B8DDAB6FF /* GhosttySurfaceConfigurationRefresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DAB808A8EC74C40B95F7672 /* GhosttySurfaceConfigurationRefresh.swift */; };
 		A11EAC000000000000000000 /* GhosttyTerminalAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11EAC000000000000000001 /* GhosttyTerminalAppearance.swift */; };
+		A5001B00 /* GhosttyTerminalScrollBoost.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001B01 /* GhosttyTerminalScrollBoost.swift */; };
 		D5671201D5671201D5671201 /* GhosttyTerminalScrollSpeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5671202D5671202D5671202 /* GhosttyTerminalScrollSpeed.swift */; };
 		C13519000000000000000003 /* GhosttyTerminalStartupEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13519000000000000000004 /* GhosttyTerminalStartupEnvironmentTests.swift */; };
 		A5001005 /* GhosttyTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001015 /* GhosttyTerminalView.swift */; };
@@ -506,6 +538,7 @@
 		C0DEF0B10000000000000003 /* JSONCParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0B10000000000000002 /* JSONCParser.swift */; };
 		B9000014A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */; };
 		A50012F5 /* KeyboardLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F4 /* KeyboardLayout.swift */; };
+		C4A570020000000000000001 /* KeyboardShortcutActionContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4A570020000000000000002 /* KeyboardShortcutActionContext.swift */; };
 		C34670030000000000000001 /* KeyboardShortcutContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670030000000000000002 /* KeyboardShortcutContext.swift */; };
 		C34670020000000000000001 /* KeyboardShortcutContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670020000000000000002 /* KeyboardShortcutContextTests.swift */; };
 		6042A0026042A0026042A002 /* KeyboardShortcutModifierHoldHintsSettingsFileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6042B0026042B0026042B002 /* KeyboardShortcutModifierHoldHintsSettingsFileTests.swift */; };
@@ -671,6 +704,7 @@
 		REE0CA0000000000000000A2 /* RemotesClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000A1 /* RemotesClient.swift */; };
 		REE0CA0000000000000000B2 /* RemotesClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000B1 /* RemotesClientTests.swift */; };
 		EE30D6000000000000000006 /* RemoteSessionStrings+App.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE30D6000000000000000005 /* RemoteSessionStrings+App.swift */; };
+		C0F674600000000000000001 /* RemoteShellCWDRelayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0F674600000000000000002 /* RemoteShellCWDRelayTests.swift */; };
 		E4321000E4321000E4321001 /* RemoteShellSessionParsing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4321000E4321000E4321002 /* RemoteShellSessionParsing.swift */; };
 		0A17C0DE0A17C0DE0A17C002 /* RemoteTmuxAttachOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A17C0DE0A17C0DE0A17C001 /* RemoteTmuxAttachOutcome.swift */; };
 		0A17C0DE0A17C0DE0A17C004 /* RemoteTmuxAuthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A17C0DE0A17C0DE0A17C003 /* RemoteTmuxAuthTests.swift */; };
@@ -694,8 +728,11 @@
 		00B223273DE0DBED98437C7A /* RemoteTmuxLayoutContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A1B00F615F44EA3BA234483 /* RemoteTmuxLayoutContainer.swift */; };
 		B12E809B546C64DC359C54E3 /* RemoteTmuxLayoutContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B7A830D507D913809EB02B0 /* RemoteTmuxLayoutContent.swift */; };
 		E54DED0FDC24F51BF1470A1A /* RemoteTmuxLayoutNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A5717357D55291686F99625 /* RemoteTmuxLayoutNode.swift */; };
+		F11ED7AB0004000400040004 /* RemoteTmuxMirrorNewTabPlacement.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11ED7AB0003000300030003 /* RemoteTmuxMirrorNewTabPlacement.swift */; };
+		F11ED7AB0001000100010001 /* RemoteTmuxMirrorNewTabPlacementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11ED7AB0002000200020002 /* RemoteTmuxMirrorNewTabPlacementTests.swift */; };
 		D4F8A2E61C5B39707A8E6F12 /* RemoteTmuxMirrorSplitRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7E1C4D2B3F09865E217D4C0 /* RemoteTmuxMirrorSplitRoutingTests.swift */; };
 		F861B8D7C62A0BCB252A523A /* RemoteTmuxMirrorTabActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FC55CC7B42874062C64013A /* RemoteTmuxMirrorTabActivity.swift */; };
+		0C7D0CDD0C7D0CDD0C7D0002 /* RemoteTmuxNewWindowCwdTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C7D0CDD0C7D0CDD0C7D0001 /* RemoteTmuxNewWindowCwdTests.swift */; };
 		E9A8CC35D632F14A8669B7D1 /* RemoteTmuxPaneForegroundState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 123BF93B1ADC00C5D25EE028 /* RemoteTmuxPaneForegroundState.swift */; };
 		740FC5FDE4E13EAA440872C3 /* RemoteTmuxPaneHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6F225C1630E640224D11E09 /* RemoteTmuxPaneHeader.swift */; };
 		761639EDDD6C40883902D781 /* RemoteTmuxPostAttachAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE24906539C19AB10E4C1C71 /* RemoteTmuxPostAttachAction.swift */; };
@@ -710,6 +747,8 @@
 		9A5CF3AA2E6462E77144F9E6 /* RemoteTmuxSessionSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31FFFE3EFCDCCD6BDF405370 /* RemoteTmuxSessionSnapshotTests.swift */; };
 		6D3C19C2014FF9C754358EFF /* RemoteTmuxSSHTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F5DB43CBC1B7DF31B7A0C9 /* RemoteTmuxSSHTransport.swift */; };
 		0E17C0DE0E17C0DE0E17C002 /* RemoteTmuxTransportRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E17C0DE0E17C0DE0E17C001 /* RemoteTmuxTransportRegistry.swift */; };
+		0A17C0DE0A17C0DE0A17C902 /* RemoteTmuxVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A17C0DE0A17C0DE0A17C901 /* RemoteTmuxVersion.swift */; };
+		0A17C0DE0A17C0DE0A17CA02 /* RemoteTmuxVersionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A17C0DE0A17C0DE0A17CA01 /* RemoteTmuxVersionTests.swift */; };
 		A8C7BE33C1BD3C1AD4342CB1 /* RemoteTmuxWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB52610183419D424AE520B0 /* RemoteTmuxWindow.swift */; };
 		826F6597BF05F1242E17F0C3 /* RemoteTmuxWindowMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCE03473FCBD453C7DA78A09 /* RemoteTmuxWindowMirror.swift */; };
 		063516351A6B6F642928B37D /* RemoteTmuxWindowMirrorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E292DDF62C863C3553F4C9E7 /* RemoteTmuxWindowMirrorView.swift */; };
@@ -1014,6 +1053,7 @@
 		D7AB00000000000000000015 /* Workspace+DetachedSurfaceTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000016 /* Workspace+DetachedSurfaceTransfer.swift */; };
 		E3309A05 /* Workspace+EqualizeSplitsSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A06 /* Workspace+EqualizeSplitsSupport.swift */; };
 		C3744E010000000000000001 /* Workspace+PanelLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */; };
+		CA52B0170000000000000000 /* Workspace+SurfaceNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0170000000000000000 /* Workspace+SurfaceNavigation.swift */; };
 		E3B7A400000000000000020A /* Workspace+WorkspaceSurfaceTreeReading.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000020B /* Workspace+WorkspaceSurfaceTreeReading.swift */; };
 		A5001406 /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001416 /* Workspace.swift */; };
 		7D77A0EBBE3D8E05CDC16229 /* WorkspaceActionDispatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5CC15CEAA80B779ADEE78AA /* WorkspaceActionDispatcher.swift */; };
@@ -1190,6 +1230,7 @@
 		A9E01000000000000000000D /* AgentSessionWebTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionWebTheme.swift; sourceTree = "<group>"; };
 		A9F100000000000000000014 /* AgentSessionWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionWebView.swift; sourceTree = "<group>"; };
 		F4350A130000000000000001 /* AppBundleIconPersistencePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AppBundleIconPersistencePolicy.swift; sourceTree = "<group>"; };
+		C4A570010000000000000002 /* AppDelegate+CanvasShortcutRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+CanvasShortcutRouting.swift"; sourceTree = "<group>"; };
 		C4160A030000000000000002 /* AppDelegate+ClosedItemHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+ClosedItemHistory.swift"; sourceTree = "<group>"; };
 		C3677004000000000000002 /* AppDelegate+CmuxSSHURL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+CmuxSSHURL.swift"; sourceTree = "<group>"; };
 		C65930010000000000000004 /* AppDelegate+CrashSessionSnapshotRemoval.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+CrashSessionSnapshotRemoval.swift"; sourceTree = "<group>"; };
@@ -1248,6 +1289,12 @@
 		B6585002B6585002B6585002 /* BrowserHiddenWebViewDiscardMemoryPressureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserHiddenWebViewDiscardMemoryPressureTests.swift; sourceTree = "<group>"; };
 		B42450020000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserHiddenWebViewDiscardPolicy.swift; sourceTree = "<group>"; };
 		19D536229C6194FD62B44503 /* BrowserHistorySuggestionCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserHistorySuggestionCacheTests.swift; sourceTree = "<group>"; };
+		BABA25000000000000000008 /* BrowserHTTPBasicAuthPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserHTTPBasicAuthPrompt.swift; sourceTree = "<group>"; };
+		BABA25000000000000000002 /* BrowserHTTPBasicAuthPromptCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserHTTPBasicAuthPromptCoordinator.swift; sourceTree = "<group>"; };
+		BABA25000000000000000006 /* BrowserHTTPBasicAuthPromptCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserHTTPBasicAuthPromptCoordinatorTests.swift; sourceTree = "<group>"; };
+		BABA2500000000000000000E /* BrowserHTTPBasicAuthPromptRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserHTTPBasicAuthPromptRequest.swift; sourceTree = "<group>"; };
+		BABA25000000000000000004 /* BrowserHTTPBasicAuthPromptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserHTTPBasicAuthPromptTests.swift; sourceTree = "<group>"; };
+		BABA2500000000000000000C /* BrowserHTTPBasicAuthProtectionSpaceKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserHTTPBasicAuthProtectionSpaceKey.swift; sourceTree = "<group>"; };
 		FA100001A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserImportMappingTests.swift; sourceTree = "<group>"; };
 		FB100001A1B2C3D4E5F60718 /* BrowserImportProfilesUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserImportProfilesUITests.swift; sourceTree = "<group>"; };
 		BCBC0A0E0000000000000F02 /* BrowserMediaActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserMediaActivity.swift; sourceTree = "<group>"; };
@@ -1255,6 +1302,7 @@
 		BCBC0A0E0000000000000E22 /* BrowserMediaPlaybackAudioActivityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserMediaPlaybackAudioActivityTests.swift; sourceTree = "<group>"; };
 		A500MH00 /* BrowserMediaPlaybackMessageHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserMediaPlaybackMessageHandler.swift; sourceTree = "<group>"; };
 		A500MR00 /* BrowserMediaPlaybackReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserMediaPlaybackReport.swift; sourceTree = "<group>"; };
+		BABA2500000000000000000A /* BrowserNavigationDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserNavigationDelegate.swift; sourceTree = "<group>"; };
 		B0A501000000000000000002 /* BrowserOmnibarAppKitBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserOmnibarAppKitBridge.swift; sourceTree = "<group>"; };
 		B0A500000000000000000002 /* BrowserOmnibarPerformanceSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserOmnibarPerformanceSupport.swift; sourceTree = "<group>"; };
 		C2B6A97D1F2E4C71A8B9D002 /* BrowserOmnibarPerformanceSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserOmnibarPerformanceSupportTests.swift; sourceTree = "<group>"; };
@@ -1280,7 +1328,26 @@
 		048DACB3F8147BCBDD266297 /* BrowserSystemProxyMirror.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserSystemProxyMirror.swift; sourceTree = "<group>"; };
 		8D828DA0070335773EBAE83F /* BrowserSystemProxyMirrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserSystemProxyMirrorTests.swift; sourceTree = "<group>"; };
 		326E7A5E13C6DF650B9F8971 /* BrowserSystemProxyWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserSystemProxyWatcher.swift; sourceTree = "<group>"; };
+		A50100000000000000000001 /* BrowserWebAuthnAssertionExtensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnAssertionExtensions.swift; sourceTree = "<group>"; };
+		A50100000000000000000003 /* BrowserWebAuthnAssertionPublicKeyOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnAssertionPublicKeyOptions.swift; sourceTree = "<group>"; };
+		A50100000000000000000005 /* BrowserWebAuthnAssertionRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnAssertionRequest.swift; sourceTree = "<group>"; };
+		A50100000000000000000007 /* BrowserWebAuthnAuthenticatorSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnAuthenticatorSelection.swift; sourceTree = "<group>"; };
+		A50100000000000000000009 /* BrowserWebAuthnBinaryData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnBinaryData.swift; sourceTree = "<group>"; };
+		A5010000000000000000000B /* BrowserWebAuthnBridgeError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnBridgeError.swift; sourceTree = "<group>"; };
+		A5010000000000000000000D /* BrowserWebAuthnBridgeMessageKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnBridgeMessageKind.swift; sourceTree = "<group>"; };
+		A50100000000000000000013 /* BrowserWebAuthnCreationPublicKeyOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnCreationPublicKeyOptions.swift; sourceTree = "<group>"; };
+		A50100000000000000000015 /* BrowserWebAuthnCreationRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnCreationRequest.swift; sourceTree = "<group>"; };
+		A5010000000000000000000F /* BrowserWebAuthnCredentialDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnCredentialDescriptor.swift; sourceTree = "<group>"; };
+		A50100000000000000000011 /* BrowserWebAuthnCredentialParameter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnCredentialParameter.swift; sourceTree = "<group>"; };
+		A50100000000000000000017 /* BrowserWebAuthnMessageEnvelope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnMessageEnvelope.swift; sourceTree = "<group>"; };
+		A50100000000000000000019 /* BrowserWebAuthnRelyingPartyDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnRelyingPartyDescriptor.swift; sourceTree = "<group>"; };
+		A5007427 /* BrowserWebAuthnRequestParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnRequestParser.swift; sourceTree = "<group>"; };
+		A5007425 /* BrowserWebAuthnSecurityOrigin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnSecurityOrigin.swift; sourceTree = "<group>"; };
+		A5010000000000000000001B /* BrowserWebAuthnStringValidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnStringValidation.swift; sourceTree = "<group>"; };
 		A5007423 /* BrowserWebAuthnSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnSupport.swift; sourceTree = "<group>"; };
+		A5010000000000000000001D /* BrowserWebAuthnTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnTransport.swift; sourceTree = "<group>"; };
+		A5010000000000000000001F /* BrowserWebAuthnTransportSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnTransportSummary.swift; sourceTree = "<group>"; };
+		A50100000000000000000021 /* BrowserWebAuthnUserDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnUserDescriptor.swift; sourceTree = "<group>"; };
 		C0DE49870000000000000002 /* BrowserWebContentProcessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebContentProcessTests.swift; sourceTree = "<group>"; };
 		C0DE58990000000000000001 /* BrowserWebKitKeyDownDispatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebKitKeyDownDispatch.swift; sourceTree = "<group>"; };
 		A5001533 /* BrowserWindowPortal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWindowPortal.swift; sourceTree = "<group>"; };
@@ -1292,6 +1359,7 @@
 		CA52F0030000000000000000 /* CanvasInlineBrowserHostingEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CanvasInlineBrowserHostingEnvironment.swift"; sourceTree = "<group>"; };
 		CA52C0060000000000000000 /* CanvasLayoutSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CanvasLayoutSettings.swift"; sourceTree = "<group>"; };
 		CA52C0070000000000000000 /* CanvasPaneContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CanvasPaneContent.swift"; sourceTree = "<group>"; };
+		C4A570030000000000000002 /* CanvasShortcutContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasShortcutContextTests.swift; sourceTree = "<group>"; };
 		F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEInputTests.swift; sourceTree = "<group>"; };
 		D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEMarkedSelectionTests.swift; sourceTree = "<group>"; };
 		C13519000000000000000008 /* ClaudeConfigDirectoryPathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeConfigDirectoryPathTests.swift; sourceTree = "<group>"; };
@@ -1299,6 +1367,7 @@
 		A5D41223A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeNotificationStatusLifecycleTests.swift; sourceTree = "<group>"; };
 		A9F100000000000000000015 /* ClaudeStreamJSONAccumulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ClaudeStreamJSONAccumulator.swift; sourceTree = "<group>"; };
 		A5D4120EA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIAuthAliasTests.swift; sourceTree = "<group>"; };
+		CA11E4D0FA017DE500000F102 /* CLICallerWorkspaceDefaultTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICallerWorkspaceDefaultTests.swift; sourceTree = "<group>"; };
 		C0D3F1F00000000000000104 /* CLICodexHookTimeoutRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICodexHookTimeoutRegressionTests.swift; sourceTree = "<group>"; };
 		1590EE4F01FEF02D40A48698 /* CLIExplicitSurfaceRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIExplicitSurfaceRoutingTests.swift; sourceTree = "<group>"; };
 		C46790000000000000000002 /* CLIForwardingLaunchArgumentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIForwardingLaunchArgumentTests.swift; sourceTree = "<group>"; };
@@ -1388,6 +1457,7 @@
 		D36090010000000000000006 /* CmuxMainWindowConstrainFrameTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxMainWindowConstrainFrameTests.swift; sourceTree = "<group>"; };
 		CA1F0A02CA1F0A02CA1F0A02 /* CmuxModalAlertPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxModalAlertPresentation.swift; sourceTree = "<group>"; };
 		C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXOpenCommandTests.swift; sourceTree = "<group>"; };
+		C0DE31390000000000000112 /* CMUXOpenHTMLFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXOpenHTMLFocusTests.swift; sourceTree = "<group>"; };
 		A9F100000000000000000005 /* CmuxRuntimeDebugCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxRuntimeDebugCapture.swift; sourceTree = "<group>"; };
 		A9F100000000000000000006 /* CmuxRuntimeDebugCaptureConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxRuntimeDebugCaptureConfiguration.swift; sourceTree = "<group>"; };
 		A9F10000000000000000001A /* CmuxRuntimeDebugCaptureSender.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxRuntimeDebugCaptureSender.swift; sourceTree = "<group>"; };
@@ -1564,8 +1634,10 @@
 		D7AB00000000000000000006 /* GhosttyNSView+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
 		4F34462AE2F2EECEF5298031 /* GhosttyOptionAsAltModsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyOptionAsAltModsTests.swift; sourceTree = "<group>"; };
 		3069F1D10000000000000004 /* GhosttyPasteboardFidelityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyPasteboardFidelityTests.swift; sourceTree = "<group>"; };
+		5C0011AA0000000000000002 /* GhosttyScrollPreciseBoostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyScrollPreciseBoostTests.swift; sourceTree = "<group>"; };
 		9DAB808A8EC74C40B95F7672 /* GhosttySurfaceConfigurationRefresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/GhosttySurfaceConfigurationRefresh.swift; sourceTree = "<group>"; };
 		A11EAC000000000000000001 /* GhosttyTerminalAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalAppearance.swift; sourceTree = "<group>"; };
+		A5001B01 /* GhosttyTerminalScrollBoost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalScrollBoost.swift; sourceTree = "<group>"; };
 		D5671202D5671202D5671202 /* GhosttyTerminalScrollSpeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalScrollSpeed.swift; sourceTree = "<group>"; };
 		C13519000000000000000004 /* GhosttyTerminalStartupEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalStartupEnvironmentTests.swift; sourceTree = "<group>"; };
 		A5001015 /* GhosttyTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalView.swift; sourceTree = "<group>"; };
@@ -1590,6 +1662,7 @@
 		C0DEF0B10000000000000002 /* JSONCParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONCParser.swift; sourceTree = "<group>"; };
 		B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JumpToUnreadUITests.swift; sourceTree = "<group>"; };
 		A50012F4 /* KeyboardLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardLayout.swift; sourceTree = "<group>"; };
+		C4A570020000000000000002 /* KeyboardShortcutActionContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutActionContext.swift; sourceTree = "<group>"; };
 		C34670030000000000000002 /* KeyboardShortcutContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutContext.swift; sourceTree = "<group>"; };
 		C34670020000000000000002 /* KeyboardShortcutContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutContextTests.swift; sourceTree = "<group>"; };
 		6042B0026042B0026042B002 /* KeyboardShortcutModifierHoldHintsSettingsFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutModifierHoldHintsSettingsFileTests.swift; sourceTree = "<group>"; };
@@ -1751,6 +1824,7 @@
 		REE0CA0000000000000000A1 /* RemotesClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RemotesClient.swift; sourceTree = "<group>"; };
 		REE0CA0000000000000000B1 /* RemotesClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemotesClientTests.swift; sourceTree = "<group>"; };
 		EE30D6000000000000000005 /* RemoteSessionStrings+App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteSessionStrings+App.swift"; sourceTree = "<group>"; };
+		C0F674600000000000000002 /* RemoteShellCWDRelayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteShellCWDRelayTests.swift; sourceTree = "<group>"; };
 		E4321000E4321000E4321002 /* RemoteShellSessionParsing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteShellSessionParsing.swift; sourceTree = "<group>"; };
 		0A17C0DE0A17C0DE0A17C001 /* RemoteTmuxAttachOutcome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxAttachOutcome.swift; sourceTree = "<group>"; };
 		0A17C0DE0A17C0DE0A17C003 /* RemoteTmuxAuthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxAuthTests.swift; sourceTree = "<group>"; };
@@ -1774,8 +1848,11 @@
 		3A1B00F615F44EA3BA234483 /* RemoteTmuxLayoutContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxLayoutContainer.swift; sourceTree = "<group>"; };
 		4B7A830D507D913809EB02B0 /* RemoteTmuxLayoutContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxLayoutContent.swift; sourceTree = "<group>"; };
 		8A5717357D55291686F99625 /* RemoteTmuxLayoutNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxLayoutNode.swift; sourceTree = "<group>"; };
+		F11ED7AB0003000300030003 /* RemoteTmuxMirrorNewTabPlacement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorNewTabPlacement.swift; sourceTree = "<group>"; };
+		F11ED7AB0002000200020002 /* RemoteTmuxMirrorNewTabPlacementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorNewTabPlacementTests.swift; sourceTree = "<group>"; };
 		A7E1C4D2B3F09865E217D4C0 /* RemoteTmuxMirrorSplitRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorSplitRoutingTests.swift; sourceTree = "<group>"; };
 		6FC55CC7B42874062C64013A /* RemoteTmuxMirrorTabActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorTabActivity.swift; sourceTree = "<group>"; };
+		0C7D0CDD0C7D0CDD0C7D0001 /* RemoteTmuxNewWindowCwdTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxNewWindowCwdTests.swift; sourceTree = "<group>"; };
 		123BF93B1ADC00C5D25EE028 /* RemoteTmuxPaneForegroundState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxPaneForegroundState.swift; sourceTree = "<group>"; };
 		F6F225C1630E640224D11E09 /* RemoteTmuxPaneHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxPaneHeader.swift; sourceTree = "<group>"; };
 		CE24906539C19AB10E4C1C71 /* RemoteTmuxPostAttachAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxPostAttachAction.swift; sourceTree = "<group>"; };
@@ -1790,6 +1867,8 @@
 		31FFFE3EFCDCCD6BDF405370 /* RemoteTmuxSessionSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxSessionSnapshotTests.swift; sourceTree = "<group>"; };
 		E8F5DB43CBC1B7DF31B7A0C9 /* RemoteTmuxSSHTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxSSHTransport.swift; sourceTree = "<group>"; };
 		0E17C0DE0E17C0DE0E17C001 /* RemoteTmuxTransportRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxTransportRegistry.swift; sourceTree = "<group>"; };
+		0A17C0DE0A17C0DE0A17C901 /* RemoteTmuxVersion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxVersion.swift; sourceTree = "<group>"; };
+		0A17C0DE0A17C0DE0A17CA01 /* RemoteTmuxVersionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxVersionTests.swift; sourceTree = "<group>"; };
 		AB52610183419D424AE520B0 /* RemoteTmuxWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxWindow.swift; sourceTree = "<group>"; };
 		FCE03473FCBD453C7DA78A09 /* RemoteTmuxWindowMirror.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxWindowMirror.swift; sourceTree = "<group>"; };
 		E292DDF62C863C3553F4C9E7 /* RemoteTmuxWindowMirrorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxWindowMirrorView.swift; sourceTree = "<group>"; };
@@ -2084,6 +2163,7 @@
 		D7AB00000000000000000016 /* Workspace+DetachedSurfaceTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+DetachedSurfaceTransfer.swift"; sourceTree = "<group>"; };
 		E3309A06 /* Workspace+EqualizeSplitsSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+EqualizeSplitsSupport.swift"; sourceTree = "<group>"; };
 		C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+PanelLifecycle.swift"; sourceTree = "<group>"; };
+		CA52C0170000000000000000 /* Workspace+SurfaceNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SurfaceNavigation.swift"; sourceTree = "<group>"; };
 		E3B7A400000000000000020B /* Workspace+WorkspaceSurfaceTreeReading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+WorkspaceSurfaceTreeReading.swift"; sourceTree = "<group>"; };
 		A5001416 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
 		C5CC15CEAA80B779ADEE78AA /* WorkspaceActionDispatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceActionDispatcher.swift; sourceTree = "<group>"; };
@@ -2549,6 +2629,7 @@
 				C0DE7B290000000000000002 /* TextBoxProcessTerminationStatus.swift */,
 				C0DE7B100000000000000002 /* TextBoxInput.swift */,
 				C1713003C1713003C1713003 /* KeyboardShortcutSettingsLookup.swift */,
+				C4A570020000000000000002 /* KeyboardShortcutActionContext.swift */,
 				C34670030000000000000002 /* KeyboardShortcutContext.swift */,
 				A50012F6 /* KeyboardShortcutRecorder.swift */,
 				A50012F9 /* KeyboardShortcutSettingsControls.swift */,
@@ -2578,6 +2659,7 @@
 				E3B7A400000000000000000A /* TabManager+NotificationDismissalHosting.swift */,
 				E3B7A400000000000000000C /* TabManager+FocusHistoryHosting.swift */,
 				E3B7A400000000000000020B /* Workspace+WorkspaceSurfaceTreeReading.swift */,
+				CA52C0170000000000000000 /* Workspace+SurfaceNavigation.swift */,
 				A5001511 /* UITestRecorder.swift */,
 				A5001520 /* PostHogAnalytics.swift */,
 				A5001416 /* Workspace.swift */,
@@ -2611,6 +2693,7 @@
 				C4041001000000000000001A /* CommandClickFileOpenRouter.swift */,
 				C40410010000000000000020 /* FileExplorerDoubleClickActionSettings.swift */,
 				A5001015 /* GhosttyTerminalView.swift */,
+				A5001B01 /* GhosttyTerminalScrollBoost.swift */,
 				D5671202D5671202D5671202 /* GhosttyTerminalScrollSpeed.swift */,
 				C13519000000000000000006 /* RestorableAgentTypes.swift */,
 				D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */,
@@ -2704,6 +2787,7 @@
 				F4350A130000000000000001 /* AppBundleIconPersistencePolicy.swift */,
 				D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */,
 				A5001090 /* AppDelegate.swift */,
+				C4A570010000000000000002 /* AppDelegate+CanvasShortcutRouting.swift */,
 				A64610010000000000000002 /* QuitConfirmationAlertPresenter.swift */,
 				3865B0063865B0063865B006 /* AppDelegate+GlobalSearch.swift */,
 				C3873002C3873002C3873002 /* GhosttyCrashBreadcrumb.swift */,
@@ -2753,6 +2837,11 @@
 				A5001411 /* TerminalPanel.swift */,
 				B42450020000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift */,
 				B42450040000000000000001 /* BrowserHiddenWebViewDiscardManager.swift */,
+				BABA25000000000000000002 /* BrowserHTTPBasicAuthPromptCoordinator.swift */,
+				BABA25000000000000000008 /* BrowserHTTPBasicAuthPrompt.swift */,
+				BABA2500000000000000000C /* BrowserHTTPBasicAuthProtectionSpaceKey.swift */,
+				BABA2500000000000000000E /* BrowserHTTPBasicAuthPromptRequest.swift */,
+				BABA2500000000000000000A /* BrowserNavigationDelegate.swift */,
 				A5001412 /* BrowserPanel.swift */,
 				C62530010000000000000002 /* BrowserPanelReloadMode.swift */,
 				C59240010000000000000002 /* BrowserDownloadFilenameResolver.swift */,
@@ -2814,7 +2903,26 @@
 				B0A500000000000000000002 /* BrowserOmnibarPerformanceSupport.swift */,
 				C76D07ED88D244B1B02FAF3C /* BrowserOmnibarSubmitSupport.swift */,
 				A5007421 /* BrowserPopupWindowController.swift */,
+				A50100000000000000000001 /* BrowserWebAuthnAssertionExtensions.swift */,
+				A50100000000000000000003 /* BrowserWebAuthnAssertionPublicKeyOptions.swift */,
+				A50100000000000000000005 /* BrowserWebAuthnAssertionRequest.swift */,
+				A50100000000000000000007 /* BrowserWebAuthnAuthenticatorSelection.swift */,
+				A50100000000000000000009 /* BrowserWebAuthnBinaryData.swift */,
+				A5010000000000000000000B /* BrowserWebAuthnBridgeError.swift */,
+				A5010000000000000000000D /* BrowserWebAuthnBridgeMessageKind.swift */,
+				A5010000000000000000000F /* BrowserWebAuthnCredentialDescriptor.swift */,
+				A50100000000000000000011 /* BrowserWebAuthnCredentialParameter.swift */,
+				A50100000000000000000013 /* BrowserWebAuthnCreationPublicKeyOptions.swift */,
+				A50100000000000000000015 /* BrowserWebAuthnCreationRequest.swift */,
+				A50100000000000000000017 /* BrowserWebAuthnMessageEnvelope.swift */,
+				A50100000000000000000019 /* BrowserWebAuthnRelyingPartyDescriptor.swift */,
+				A5007425 /* BrowserWebAuthnSecurityOrigin.swift */,
+				A5007427 /* BrowserWebAuthnRequestParser.swift */,
+				A5010000000000000000001B /* BrowserWebAuthnStringValidation.swift */,
 				A5007423 /* BrowserWebAuthnSupport.swift */,
+				A5010000000000000000001D /* BrowserWebAuthnTransport.swift */,
+				A5010000000000000000001F /* BrowserWebAuthnTransportSummary.swift */,
+				A50100000000000000000021 /* BrowserWebAuthnUserDescriptor.swift */,
 				A5001418 /* MarkdownPanel.swift */,
 				A50014F0 /* MarkdownPanelFileLinkResolver.swift */,
 				F5168A030000000000000002 /* MarkdownFontSizeSettings.swift */,
@@ -2892,6 +3000,7 @@
 				4B7A830D507D913809EB02B0 /* RemoteTmuxLayoutContent.swift */,
 				3A1B00F615F44EA3BA234483 /* RemoteTmuxLayoutContainer.swift */,
 				8A5717357D55291686F99625 /* RemoteTmuxLayoutNode.swift */,
+				F11ED7AB0003000300030003 /* RemoteTmuxMirrorNewTabPlacement.swift */,
 				6FC55CC7B42874062C64013A /* RemoteTmuxMirrorTabActivity.swift */,
 				123BF93B1ADC00C5D25EE028 /* RemoteTmuxPaneForegroundState.swift */,
 				F6F225C1630E640224D11E09 /* RemoteTmuxPaneHeader.swift */,
@@ -2909,6 +3018,7 @@
 				71D411EFBE33FE85901B9E6A /* RemoteTmuxCommandResult.swift */,
 				02B8A9858C9804AC9C37D7B4 /* RemoteTmuxHost.swift */,
 				0A17C0DE0A17C0DE0A17C001 /* RemoteTmuxAttachOutcome.swift */,
+				0A17C0DE0A17C0DE0A17C901 /* RemoteTmuxVersion.swift */,
 				92CA6F2F239631988B2FB0C8 /* WorkspaceRemoteTmuxNonInteractiveCloseRoute.swift */,
 				5E55400000000000000000D2 /* FocusStealingResponderConformances.swift */,
 				A5001671 /* SessionRestoredTerminalCommandStore.swift */,
@@ -3060,6 +3170,7 @@
 				C0F15A000000000000000002 /* FishShellIntegrationTests.swift */,
 				C0F16A000000000000000002 /* ShellStartupMatrixTests.swift */,
 				C0F16C000000000000000002 /* ShellStartupMissingBundleTests.swift */,
+				C0F674600000000000000002 /* RemoteShellCWDRelayTests.swift */,
 				F4000001A1B2C3D4E5F60718 /* GhosttyConfigTests.swift */,
 				B8E9500A0000000000000002 /* PostHogAnalyticsPropertiesTests.swift */,
 				604100010000000000000002 /* GhosttyDrawableSizeRetryTests.swift */,
@@ -3140,6 +3251,8 @@
 				D36090010000000000000004 /* SettingsWindowPresenterTests.swift */,
 				D36090010000000000000006 /* CmuxMainWindowConstrainFrameTests.swift */,
 				970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */,
+				BABA25000000000000000006 /* BrowserHTTPBasicAuthPromptCoordinatorTests.swift */,
+				BABA25000000000000000004 /* BrowserHTTPBasicAuthPromptTests.swift */,
 				8D828DA0070335773EBAE83F /* BrowserSystemProxyMirrorTests.swift */,
 				C59240010000000000000004 /* BrowserDownloadFilenameResolverTests.swift */,
 				C0DE58990000000000000002 /* CmuxWebViewKeyDownReentryTests.swift */,
@@ -3184,6 +3297,7 @@
 				F016B5C09357B3226FA2E014 /* SidebarWorkspaceSnapshotRefreshPolicyTests.swift */,
 				C9A57514C9A57514C9A57514 /* SidebarScrollViewConfiguratorTests.swift */,
 				C9A57506C9A57506C9A57506 /* SidebarWorkspaceScrollLayoutTests.swift */,
+				C4A570030000000000000002 /* CanvasShortcutContextTests.swift */,
 				C0DEF0B30000000000000002 /* KeyboardShortcutSettingsFileStoreMigrationTests.swift */,
 				E3337002E3337002E3337002 /* KeyboardShortcutSettingsFileStoreStartupTests.swift */,
 				C34670020000000000000002 /* KeyboardShortcutContextTests.swift */,
@@ -3197,7 +3311,9 @@
 				C46790000000000000000002 /* CLIForwardingLaunchArgumentTests.swift */,
 					C46790000000000000000008 /* RosettaNativeRelaunchTests.swift */,
 					C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */,
+					C0DE31390000000000000112 /* CMUXOpenHTMLFocusTests.swift */,
 					1590EE4F01FEF02D40A48698 /* CLIExplicitSurfaceRoutingTests.swift */,
+					CA11E4D0FA017DE500000F102 /* CLICallerWorkspaceDefaultTests.swift */,
 					C0DE31390000000000000106 /* CMUXCLIErrorOutputRegressionTests.swift */,
 					C0DE64950000000000000006 /* CMUXCLISessionsListTests.swift */,
 					C0DE64950000000000000004 /* CMUXCLITestAssertions.swift */,
@@ -3249,16 +3365,20 @@
 				C06552030000000000000002 /* TabManagerTitleUpdateStalenessTests.swift */,
 				C06552020000000000000002 /* TabManagerTitleUpdateTests.swift */,
 				42092CDB2109E250F7F2A76E /* TabManagerUnitTests.swift */,
+				5C0011AA0000000000000002 /* GhosttyScrollPreciseBoostTests.swift */,
 				C0793DC7D7B61CF54886EC36 /* RemoteTmuxControlParserTests.swift */,
 				B0555302B0555302B0555302 /* RemoteTmuxControlStreamParserBudgetTests.swift */,
 				B0555304B0555304B0555304 /* DetachedFolderPathLookupCacheTests.swift */,
 				A7E1C4D2B3F09865E217D4C0 /* RemoteTmuxMirrorSplitRoutingTests.swift */,
+				F11ED7AB0002000200020002 /* RemoteTmuxMirrorNewTabPlacementTests.swift */,
 				FA00C0DE0002BEEF0002CAFE /* RemoteTmuxWindowRegistryTests.swift */,
 				0A17C0DE0A17C0DE0A17C003 /* RemoteTmuxAuthTests.swift */,
+				0C7D0CDD0C7D0CDD0C7D0001 /* RemoteTmuxNewWindowCwdTests.swift */,
 				5F5553CA5553CA5553CA0002 /* RemoteTmuxCapabilitiesTests.swift */,
 				C57570010000000000000001 /* RightSidebarPanelViewTestSupport.swift */,
 				5F5553CB5553CB5553CB0002 /* RightSidebarRemoteCommandTests.swift */,
 				3F704ED4F177122D7DCD0BCC /* RemoteTmuxSessionListParserTests.swift */,
+				0A17C0DE0A17C0DE0A17CA01 /* RemoteTmuxVersionTests.swift */,
 				3F704ED4F177122D7DCD0B01 /* RemoteTmuxSessionRenameTitleTests.swift */,
 				31FFFE3EFCDCCD6BDF405370 /* RemoteTmuxSessionSnapshotTests.swift */,
 				08850489C70ECFACA540C2F3 /* WorkspaceTerminalWorkingDirectoryFallbackTests.swift */,
@@ -3799,6 +3919,7 @@
 				A9E02000000000000000000D /* AgentSessionWebTheme.swift in Sources */,
 				A9F200000000000000000014 /* AgentSessionWebView.swift in Sources */,
 				F4350A110000000000000001 /* AppBundleIconPersistencePolicy.swift in Sources */,
+				C4A570010000000000000001 /* AppDelegate+CanvasShortcutRouting.swift in Sources */,
 				C4160A030000000000000001 /* AppDelegate+ClosedItemHistory.swift in Sources */,
 				C3677004000000000000001 /* AppDelegate+CmuxSSHURL.swift in Sources */,
 				C65930010000000000000003 /* AppDelegate+CrashSessionSnapshotRemoval.swift in Sources */,
@@ -3829,9 +3950,14 @@
 				A5008373 /* BrowserFindWebViewEvaluator.swift in Sources */,
 				B42450030000000000000001 /* BrowserHiddenWebViewDiscardManager.swift in Sources */,
 				B42450010000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift in Sources */,
+				BABA25000000000000000007 /* BrowserHTTPBasicAuthPrompt.swift in Sources */,
+				BABA25000000000000000001 /* BrowserHTTPBasicAuthPromptCoordinator.swift in Sources */,
+				BABA2500000000000000000D /* BrowserHTTPBasicAuthPromptRequest.swift in Sources */,
+				BABA2500000000000000000B /* BrowserHTTPBasicAuthProtectionSpaceKey.swift in Sources */,
 				BCBC0A0E0000000000000F01 /* BrowserMediaActivity.swift in Sources */,
 				A500MH01 /* BrowserMediaPlaybackMessageHandler.swift in Sources */,
 				A500MR01 /* BrowserMediaPlaybackReport.swift in Sources */,
+				BABA25000000000000000009 /* BrowserNavigationDelegate.swift in Sources */,
 				B0A501000000000000000001 /* BrowserOmnibarAppKitBridge.swift in Sources */,
 				B0A500000000000000000001 /* BrowserOmnibarPerformanceSupport.swift in Sources */,
 				27DA3BE42CBF4AAFB6DE69C5 /* BrowserOmnibarSubmitSupport.swift in Sources */,
@@ -3849,7 +3975,26 @@
 				A5008371 /* BrowserSearchOverlay.swift in Sources */,
 				4BBF42E8A86EAAB94BC9EA16 /* BrowserSystemProxyMirror.swift in Sources */,
 				0796994CA7CCA25DB990BFEF /* BrowserSystemProxyWatcher.swift in Sources */,
+				A50100000000000000000002 /* BrowserWebAuthnAssertionExtensions.swift in Sources */,
+				A50100000000000000000004 /* BrowserWebAuthnAssertionPublicKeyOptions.swift in Sources */,
+				A50100000000000000000006 /* BrowserWebAuthnAssertionRequest.swift in Sources */,
+				A50100000000000000000008 /* BrowserWebAuthnAuthenticatorSelection.swift in Sources */,
+				A5010000000000000000000A /* BrowserWebAuthnBinaryData.swift in Sources */,
+				A5010000000000000000000C /* BrowserWebAuthnBridgeError.swift in Sources */,
+				A5010000000000000000000E /* BrowserWebAuthnBridgeMessageKind.swift in Sources */,
+				A50100000000000000000014 /* BrowserWebAuthnCreationPublicKeyOptions.swift in Sources */,
+				A50100000000000000000016 /* BrowserWebAuthnCreationRequest.swift in Sources */,
+				A50100000000000000000010 /* BrowserWebAuthnCredentialDescriptor.swift in Sources */,
+				A50100000000000000000012 /* BrowserWebAuthnCredentialParameter.swift in Sources */,
+				A50100000000000000000018 /* BrowserWebAuthnMessageEnvelope.swift in Sources */,
+				A5010000000000000000001A /* BrowserWebAuthnRelyingPartyDescriptor.swift in Sources */,
+				A5007426 /* BrowserWebAuthnRequestParser.swift in Sources */,
+				A5007424 /* BrowserWebAuthnSecurityOrigin.swift in Sources */,
+				A5010000000000000000001C /* BrowserWebAuthnStringValidation.swift in Sources */,
 				A5007422 /* BrowserWebAuthnSupport.swift in Sources */,
+				A5010000000000000000001E /* BrowserWebAuthnTransport.swift in Sources */,
+				A50100000000000000000020 /* BrowserWebAuthnTransportSummary.swift in Sources */,
+				A50100000000000000000022 /* BrowserWebAuthnUserDescriptor.swift in Sources */,
 				C0DE58990000000000000003 /* BrowserWebKitKeyDownDispatch.swift in Sources */,
 				A5001534 /* BrowserWindowPortal.swift in Sources */,
 				CA52B0010000000000000000 /* CanvasAction.swift in Sources */,
@@ -3998,6 +4143,7 @@
 				D7AB00000000000000000005 /* GhosttyNSView+MoveTabToNewWorkspace.swift in Sources */,
 				B84BD7AD94EE485B8DDAB6FF /* GhosttySurfaceConfigurationRefresh.swift in Sources */,
 				A11EAC000000000000000000 /* GhosttyTerminalAppearance.swift in Sources */,
+				A5001B00 /* GhosttyTerminalScrollBoost.swift in Sources */,
 				D5671201D5671201D5671201 /* GhosttyTerminalScrollSpeed.swift in Sources */,
 				A5001005 /* GhosttyTerminalView.swift in Sources */,
 				D0B1000AA1B2C3D4E5F60001 /* GhosttyTerminalViewSupport.swift in Sources */,
@@ -4013,6 +4159,7 @@
 				4D8B37E0E11A29997632765F /* InternalTabDragConfiguration.swift in Sources */,
 				C0DEF0B10000000000000001 /* JSONCParser.swift in Sources */,
 				A50012F5 /* KeyboardLayout.swift in Sources */,
+				C4A570020000000000000001 /* KeyboardShortcutActionContext.swift in Sources */,
 				C34670030000000000000001 /* KeyboardShortcutContext.swift in Sources */,
 				A50012F7 /* KeyboardShortcutRecorder.swift in Sources */,
 				A50012F3 /* KeyboardShortcutSettings.swift in Sources */,
@@ -4142,6 +4289,7 @@
 				00B223273DE0DBED98437C7A /* RemoteTmuxLayoutContainer.swift in Sources */,
 				B12E809B546C64DC359C54E3 /* RemoteTmuxLayoutContent.swift in Sources */,
 				E54DED0FDC24F51BF1470A1A /* RemoteTmuxLayoutNode.swift in Sources */,
+				F11ED7AB0004000400040004 /* RemoteTmuxMirrorNewTabPlacement.swift in Sources */,
 				F861B8D7C62A0BCB252A523A /* RemoteTmuxMirrorTabActivity.swift in Sources */,
 				E9A8CC35D632F14A8669B7D1 /* RemoteTmuxPaneForegroundState.swift in Sources */,
 				740FC5FDE4E13EAA440872C3 /* RemoteTmuxPaneHeader.swift in Sources */,
@@ -4154,6 +4302,7 @@
 				1255599FA91128E5925D3983 /* RemoteTmuxSessionMirror.swift in Sources */,
 				6D3C19C2014FF9C754358EFF /* RemoteTmuxSSHTransport.swift in Sources */,
 				0E17C0DE0E17C0DE0E17C002 /* RemoteTmuxTransportRegistry.swift in Sources */,
+				0A17C0DE0A17C0DE0A17C902 /* RemoteTmuxVersion.swift in Sources */,
 				A8C7BE33C1BD3C1AD4342CB1 /* RemoteTmuxWindow.swift in Sources */,
 				826F6597BF05F1242E17F0C3 /* RemoteTmuxWindowMirror.swift in Sources */,
 				063516351A6B6F642928B37D /* RemoteTmuxWindowMirrorView.swift in Sources */,
@@ -4345,6 +4494,7 @@
 				D7AB00000000000000000015 /* Workspace+DetachedSurfaceTransfer.swift in Sources */,
 				E3309A05 /* Workspace+EqualizeSplitsSupport.swift in Sources */,
 				C3744E010000000000000001 /* Workspace+PanelLifecycle.swift in Sources */,
+				CA52B0170000000000000000 /* Workspace+SurfaceNavigation.swift in Sources */,
 				E3B7A400000000000000020A /* Workspace+WorkspaceSurfaceTreeReading.swift in Sources */,
 				A5001406 /* Workspace.swift in Sources */,
 				7D77A0EBBE3D8E05CDC16229 /* WorkspaceActionDispatcher.swift in Sources */,
@@ -4518,6 +4668,8 @@
 				A5008381 /* BrowserFindJavaScriptTests.swift in Sources */,
 				B6585001B6585001B6585001 /* BrowserHiddenWebViewDiscardMemoryPressureTests.swift in Sources */,
 				4E1F28554F1B908F18559390 /* BrowserHistorySuggestionCacheTests.swift in Sources */,
+				BABA25000000000000000005 /* BrowserHTTPBasicAuthPromptCoordinatorTests.swift in Sources */,
+				BABA25000000000000000003 /* BrowserHTTPBasicAuthPromptTests.swift in Sources */,
 				FA100000A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift in Sources */,
 				BCBC0A0E0000000000000E11 /* BrowserMediaActivityAggregationTests.swift in Sources */,
 				BCBC0A0E0000000000000E21 /* BrowserMediaPlaybackAudioActivityTests.swift in Sources */,
@@ -4529,12 +4681,14 @@
 				C0DE49870000000000000001 /* BrowserWebContentProcessTests.swift in Sources */,
 				C0DE62600000000000000001 /* BrowserWindowPortalRegistryNotificationTests.swift in Sources */,
 				C0DE35530000000000000101 /* BundledCLILinkageTests.swift in Sources */,
+				C4A570030000000000000001 /* CanvasShortcutContextTests.swift in Sources */,
 				F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */,
 				D3571002A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift in Sources */,
 				C13519000000000000000007 /* ClaudeConfigDirectoryPathTests.swift in Sources */,
 				A5D41220A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift in Sources */,
 				A5D41222A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift in Sources */,
 				A5D4120DA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift in Sources */,
+					CA11E4D0FA017DE500000B101 /* CLICallerWorkspaceDefaultTests.swift in Sources */,
 				C0D3F1F00000000000000103 /* CLICodexHookTimeoutRegressionTests.swift in Sources */,
 					E295EA3753206FE3FFCA6C0A /* CLIExplicitSurfaceRoutingTests.swift in Sources */,
 				C46790000000000000000001 /* CLIForwardingLaunchArgumentTests.swift in Sources */,
@@ -4560,6 +4714,7 @@
 				E7E000000000000000000003 /* CmuxEventBusTests.swift in Sources */,
 				D36090010000000000000005 /* CmuxMainWindowConstrainFrameTests.swift in Sources */,
 				C0DE31390000000000000101 /* CMUXOpenCommandTests.swift in Sources */,
+				C0DE31390000000000000111 /* CMUXOpenHTMLFocusTests.swift in Sources */,
 				C3677001000000000000001 /* CmuxSSHURLRequestTests.swift in Sources */,
 				C7A50C000000000000000002 /* CmuxTopProcessCPUTests.swift in Sources */,
 				C7A5090000000000000005A2 /* CmuxTopSnapshotScopeCacheTests.swift in Sources */,
@@ -4612,6 +4767,7 @@
 				A11EAF000000000000000000 /* GhosttyNotificationDispatcherTests.swift in Sources */,
 				BDFCA25C0CE77A299C915E26 /* GhosttyOptionAsAltModsTests.swift in Sources */,
 				3069F1D10000000000000003 /* GhosttyPasteboardFidelityTests.swift in Sources */,
+				5C0011AA0000000000000001 /* GhosttyScrollPreciseBoostTests.swift in Sources */,
 				C13519000000000000000003 /* GhosttyTerminalStartupEnvironmentTests.swift in Sources */,
 				D7AB34400000000000000003 /* GhosttyTerminalViewVisibilityPolicyTests.swift in Sources */,
 				3865A0053865A0053865A005 /* GlobalSearchShortcutSettingsTests.swift in Sources */,
@@ -4661,14 +4817,18 @@
 				A64610020000000000000001 /* QuitConfirmationAlertPresenterTests.swift in Sources */,
 				A6D1F0400000000000000002 /* ReleasingWindowControllerTests.swift in Sources */,
 				REE0CA0000000000000000B2 /* RemotesClientTests.swift in Sources */,
+				C0F674600000000000000001 /* RemoteShellCWDRelayTests.swift in Sources */,
 				0A17C0DE0A17C0DE0A17C004 /* RemoteTmuxAuthTests.swift in Sources */,
 				5F5553CA5553CA5553CA0001 /* RemoteTmuxCapabilitiesTests.swift in Sources */,
 				B2FDE62450514C4C27FBD8F1 /* RemoteTmuxControlParserTests.swift in Sources */,
 				B0555301B0555301B0555301 /* RemoteTmuxControlStreamParserBudgetTests.swift in Sources */,
+				F11ED7AB0001000100010001 /* RemoteTmuxMirrorNewTabPlacementTests.swift in Sources */,
 				D4F8A2E61C5B39707A8E6F12 /* RemoteTmuxMirrorSplitRoutingTests.swift in Sources */,
+				0C7D0CDD0C7D0CDD0C7D0002 /* RemoteTmuxNewWindowCwdTests.swift in Sources */,
 				3AC9AB9046E742B93726A405 /* RemoteTmuxSessionListParserTests.swift in Sources */,
 				3AC9AB9046E742B93726A501 /* RemoteTmuxSessionRenameTitleTests.swift in Sources */,
 				9A5CF3AA2E6462E77144F9E6 /* RemoteTmuxSessionSnapshotTests.swift in Sources */,
+				0A17C0DE0A17C0DE0A17CA02 /* RemoteTmuxVersionTests.swift in Sources */,
 				FA00C0DE0001BEEF0001CAFE /* RemoteTmuxWindowRegistryTests.swift in Sources */,
 				C58410010000000000000001 /* RenderableSystemSymbolTests.swift in Sources */,
 				D36A00050000000000000001 /* RendererRealizationPlannerTests.swift in Sources */,

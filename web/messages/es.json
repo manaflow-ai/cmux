@@ -12,7 +12,8 @@
     "toggleTheme": "Cambiar tema",
     "backToBlog": "Volver al blog",
     "readTheDocs": "Leer la documentación",
-    "viewChangelog": "Ver Changelog"
+    "viewChangelog": "Ver Changelog",
+    "otherPlatforms": "Otras plataformas"
   },
   "nav": {
     "docs": "Documentación",
@@ -846,7 +847,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Predicados de contexto opcionales por acción (cláusulas `when` al estilo de VS Code), indexados por el id de acción de cmux. Cada valor es una expresión booleana sobre claves de contexto, combinada con !, &&, || y paréntesis. Claves booleanas: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Las claves tipadas admiten comparaciones: la cadena sidebarMode (files, find, sessions, feed o dock) y los enteros paneCount y workspaceCount. Los operadores de comparación son ==, !=, =~ (expresión regular), <, <=, >, >= e `in [a, b]`; una clave desconocida o ausente se evalúa como false. También se aceptan los literales booleanos true y false; `key == false` equivale a `!key`. El atajo de la acción solo se activa (y solo entra en conflicto con otros atajos) cuando la cláusula se cumple. Ejemplos: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selecciona espacios de trabajo con Ctrl+1–9 en todas partes excepto cuando la barra lateral derecha tiene el foco; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limita una asignación a la barra lateral de búsqueda cuando el espacio de trabajo tiene varios paneles.",
+          "when": "Predicados de contexto opcionales por acción (cláusulas `when` al estilo de VS Code), indexados por el id de acción de cmux. Cada valor es una expresión booleana sobre claves de contexto, combinada con !, &&, || y paréntesis. Claves booleanas: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Las claves tipadas admiten comparaciones: la cadena sidebarMode (files, find, sessions, feed o dock) y los enteros paneCount y workspaceCount. Los operadores de comparación son ==, !=, =~ (expresión regular), <, <=, >, >= e `in [a, b]`; una clave desconocida o ausente se evalúa como false. También se aceptan los literales booleanos true y false; `key == false` equivale a `!key`. El atajo de la acción solo se activa (y solo entra en conflicto con otros atajos) cuando la cláusula se cumple. Ejemplos: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selecciona espacios de trabajo con Ctrl+1–9 en todas partes excepto cuando la barra lateral derecha tiene el foco; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limita una asignación a la barra lateral de búsqueda cuando el espacio de trabajo tiene varios paneles.",
           "showModifierHoldHints": "Muestra chips de sugerencias de atajos mientras mantienes pulsado Cmd o Control."
         }
       },
@@ -1868,5 +1869,32 @@
       "faqQ4": "¿Es cmux gratuita para usar con Cursor CLI?",
       "faqA4": "Sí. cmux es gratuita y de código abierto para macOS."
     }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "Únete a la lista de espera de {platform}",
+    "titleAny": "Únete a la lista de espera",
+    "description": "La compatibilidad con {platform} está en camino. Deja tu correo y te avisaremos en cuanto esté lista.",
+    "descriptionAny": "Por ahora cmux es primero para macOS. Deja tu correo y te avisaremos en cuanto Linux, Windows o Android esté listo.",
+    "calloutText": "Próximamente en Linux, Windows y Android.",
+    "platformsLabel": "¿Qué plataformas?",
+    "selectPlatform": "Elige al menos una plataforma.",
+    "emailLabel": "Correo electrónico",
+    "emailPlaceholder": "you@example.com",
+    "join": "Unirme a la lista",
+    "joining": "Uniéndote…",
+    "cancel": "Cancelar",
+    "invalidEmail": "Introduce un correo electrónico válido.",
+    "sendError": "No se pudo enviar. Inténtalo de nuevo.",
+    "successTitle": "Estás en la lista",
+    "successBody": "Te enviaremos un correo cuando la versión de {platform} esté lista.",
+    "successBodyAny": "Te enviaremos un correo cuando cmux esté listo para tu plataforma.",
+    "done": "Listo"
   }
 }

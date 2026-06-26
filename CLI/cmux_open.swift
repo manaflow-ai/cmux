@@ -148,7 +148,7 @@ extension CMUXCLI {
     private enum OpenTarget {
         case directory(String)
         case file(String)
-        case url(String)
+        case url(String, defaultFocus: Bool)
     }
 
     private struct DiffArguments {
@@ -818,17 +818,18 @@ extension CMUXCLI {
             throw CLIError(message: "open requires at least one path or URL. Usage: cmux open <path-or-url>...")
         }
 
-        let focus: Bool
+        let explicitFocus: Bool?
         if parsedArgs.noFocus {
-            focus = false
+            explicitFocus = false
         } else if let focusOpt = parsedArgs.focus {
             guard let parsed = parseBoolString(focusOpt) else {
                 throw CLIError(message: "--focus must be true|false")
             }
-            focus = parsed
+            explicitFocus = parsed
         } else {
-            focus = true
+            explicitFocus = nil
         }
+        let fileFocus = explicitFocus ?? true
 
         let targets = try parsedArgs.targets.map(resolveOpenTarget)
         var fileCount = 0
@@ -845,7 +846,8 @@ extension CMUXCLI {
         let windowHandle = try normalizeWindowHandle(parsedArgs.window, client: client)
         let workspaceRaw = parsedArgs.workspace ?? (parsedArgs.window == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
         let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: windowHandle)
-        let surfaceRaw = parsedArgs.surface ?? (parsedArgs.window == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+        let shouldInheritCallerSurface = parsedArgs.workspace == nil && parsedArgs.pane == nil && parsedArgs.window == nil
+        let surfaceRaw = parsedArgs.surface ?? (shouldInheritCallerSurface ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
         let surfaceHandle = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceHandle, windowHandle: windowHandle)
         let paneHandle = try normalizePaneHandle(parsedArgs.pane, client: client, workspaceHandle: workspaceHandle)
 
@@ -857,7 +859,7 @@ extension CMUXCLI {
             let files = pendingFiles
             pendingFiles.removeAll()
 
-            var params: [String: Any] = ["paths": files, "focus": focus]
+            var params: [String: Any] = ["paths": files, "focus": fileFocus]
             if let windowHandle { params["window_id"] = windowHandle }
             if let workspaceHandle { params["workspace_id"] = workspaceHandle }
             if let surfaceHandle { params["surface_id"] = surfaceHandle }
@@ -878,9 +880,9 @@ extension CMUXCLI {
                 let payload = try client.sendV2(method: "workspace.create", params: params)
                 payloads.append(["kind": "workspace", "payload": payload, "path": directory])
                 directoryCount += 1
-            case .url(let url):
+            case .url(let url, let defaultFocus):
                 try flushPendingFiles()
-                var params: [String: Any] = ["url": url, "focus": focus]
+                var params: [String: Any] = ["url": url, "focus": explicitFocus ?? defaultFocus]
                 if let windowHandle { params["window_id"] = windowHandle }
                 if let workspaceHandle { params["workspace_id"] = workspaceHandle }
                 if let surfaceHandle { params["surface_id"] = surfaceHandle }
@@ -1463,7 +1465,7 @@ extension CMUXCLI {
         if let url = URL(string: raw),
            let scheme = url.scheme?.lowercased(),
            scheme == "http" || scheme == "https" {
-            return .url(url.absoluteString)
+            return .url(url.absoluteString, defaultFocus: true)
         }
 
         let resolved = resolvePath(raw)
@@ -1474,6 +1476,10 @@ extension CMUXCLI {
 
         if isDir.boolValue {
             return .directory(resolved)
+        }
+        let ext = URL(fileURLWithPath: resolved).pathExtension.lowercased()
+        if ext == "html" || ext == "htm" {
+            return .url(URL(fileURLWithPath: resolved).standardizedFileURL.absoluteString, defaultFocus: false)
         }
         return .file(resolved)
     }
@@ -7926,6 +7932,7 @@ extension CMUXCLI {
         Usage: cmux open <path-or-url>... [options]
 
         Open files, directories, or URLs in cmux.
+        HTML files open in browser splits without focusing by default.
         Markdown files open in markdown preview tabs; other files open in file preview tabs.
         Multiple files open as tabs in the same target pane.
 

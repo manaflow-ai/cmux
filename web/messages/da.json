@@ -12,7 +12,8 @@
     "toggleTheme": "Skift tema",
     "backToBlog": "Tilbage til blog",
     "readTheDocs": "Læs dokumentationen",
-    "viewChangelog": "Se ændringslog"
+    "viewChangelog": "Se ændringslog",
+    "otherPlatforms": "Andre platforme"
   },
   "nav": {
     "docs": "Dokumentation",
@@ -846,7 +847,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Valgfri kontekstprædikater pr. handling (VS Code-lignende `when`-klausuler), nøgleindekseret efter cmux-handlings-id. Hver værdi er et boolesk udtryk over kontekstnøgler, kombineret med !, &&, || og parenteser. Boolske nøgler: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Typede nøgler understøtter sammenligninger: strengen sidebarMode (files, find, sessions, feed eller dock) og heltallene paneCount og workspaceCount. Sammenligningsoperatorerne er ==, !=, =~ (regulært udtryk), <, <=, >, >= og `in [a, b]`; en ukendt eller manglende nøgle læses som false. De boolske litteraler true og false accepteres også; `key == false` svarer til `!key`. Handlingens genvej udløses kun (og konflikter kun med andre genveje), når klausulen er sand. Eksempler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } vælger workspaces med Ctrl+1–9 overalt undtagen når højre sidebjælke har fokus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } begrænser en binding til Find-sidebjælken, når workspacet har flere paneler.",
+          "when": "Valgfri kontekstprædikater pr. handling (VS Code-lignende `when`-klausuler), nøgleindekseret efter cmux-handlings-id. Hver værdi er et boolesk udtryk over kontekstnøgler, kombineret med !, &&, || og parenteser. Boolske nøgler: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typede nøgler understøtter sammenligninger: strengen sidebarMode (files, find, sessions, feed eller dock) og heltallene paneCount og workspaceCount. Sammenligningsoperatorerne er ==, !=, =~ (regulært udtryk), <, <=, >, >= og `in [a, b]`; en ukendt eller manglende nøgle læses som false. De boolske litteraler true og false accepteres også; `key == false` svarer til `!key`. Handlingens genvej udløses kun (og konflikter kun med andre genveje), når klausulen er sand. Eksempler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } vælger workspaces med Ctrl+1–9 overalt undtagen når højre sidebjælke har fokus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } begrænser en binding til Find-sidebjælken, når workspacet har flere paneler.",
           "showModifierHoldHints": "Vis genvejstipchips, mens Cmd eller Control holdes nede."
         }
       },
@@ -1868,5 +1869,32 @@
       "faqQ4": "Er cmux gratis at bruge med Cursor CLI?",
       "faqA4": "Ja. cmux er gratis og open source til macOS."
     }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "Tilmeld dig ventelisten til {platform}",
+    "titleAny": "Tilmeld dig ventelisten",
+    "description": "Understøttelse af {platform} er på vej. Efterlad din e-mail, så giver vi besked, så snart den er klar.",
+    "descriptionAny": "cmux er macOS-først lige nu. Efterlad din e-mail, så giver vi besked, så snart Linux, Windows eller Android er klar.",
+    "calloutText": "Kommer til Linux, Windows og Android.",
+    "platformsLabel": "Hvilke platforme?",
+    "selectPlatform": "Vælg mindst én platform.",
+    "emailLabel": "E-mail",
+    "emailPlaceholder": "you@example.com",
+    "join": "Tilmeld venteliste",
+    "joining": "Tilmelder…",
+    "cancel": "Annuller",
+    "invalidEmail": "Indtast en gyldig e-mailadresse.",
+    "sendError": "Kunne ikke sende. Prøv igen.",
+    "successTitle": "Du er på listen",
+    "successBody": "Vi sender dig en e-mail, når {platform}-versionen er klar.",
+    "successBodyAny": "Vi sender dig en e-mail, når cmux er klar til din platform.",
+    "done": "Færdig"
   }
 }

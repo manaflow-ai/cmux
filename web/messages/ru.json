@@ -12,7 +12,8 @@
     "toggleTheme": "Переключить тему",
     "backToBlog": "Назад к блогу",
     "readTheDocs": "Читать документацию",
-    "viewChangelog": "Смотреть историю изменений"
+    "viewChangelog": "Смотреть историю изменений",
+    "otherPlatforms": "Другие платформы"
   },
   "nav": {
     "docs": "Документация",
@@ -846,7 +847,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Необязательные контекстные предикаты для каждой операции (условия `when` в стиле VS Code), заданные по идентификатору операции cmux. Каждое значение — булево выражение над ключами контекста, объединенными с помощью !, &&, || и скобок. Булевы ключи: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Типизированные ключи поддерживают сравнения: строка sidebarMode (files, find, sessions, feed или dock) и целые числа paneCount и workspaceCount. Операторы сравнения: ==, !=, =~ (регулярное выражение), <, <=, >, >= и `in [a, b]`; неизвестный или отсутствующий ключ считается false. Также принимаются булевы литералы true и false; `key == false` эквивалентно `!key`. Сочетание клавиш операции срабатывает (и конфликтует с другими сочетаниями) только когда условие истинно. Примеры: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } выбирает рабочие области с помощью Ctrl+1–9 везде, кроме случаев, когда в фокусе правая боковая панель; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ограничивает привязку боковой панелью поиска, когда в рабочей области несколько панелей.",
+          "when": "Необязательные контекстные предикаты для каждой операции (условия `when` в стиле VS Code), заданные по идентификатору операции cmux. Каждое значение — булево выражение над ключами контекста, объединенными с помощью !, &&, || и скобок. Булевы ключи: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Типизированные ключи поддерживают сравнения: строка sidebarMode (files, find, sessions, feed или dock) и целые числа paneCount и workspaceCount. Операторы сравнения: ==, !=, =~ (регулярное выражение), <, <=, >, >= и `in [a, b]`; неизвестный или отсутствующий ключ считается false. Также принимаются булевы литералы true и false; `key == false` эквивалентно `!key`. Сочетание клавиш операции срабатывает (и конфликтует с другими сочетаниями) только когда условие истинно. Примеры: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } выбирает рабочие области с помощью Ctrl+1–9 везде, кроме случаев, когда в фокусе правая боковая панель; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ограничивает привязку боковой панелью поиска, когда в рабочей области несколько панелей.",
           "showModifierHoldHints": "Показывать подсказки сочетаний клавиш, пока удерживается Cmd или Control."
         }
       },
@@ -1868,5 +1869,32 @@
       "faqQ4": "Бесплатен ли cmux для использования с Cursor CLI?",
       "faqA4": "Да. cmux бесплатный и с открытым исходным кодом для macOS."
     }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "Записаться в список ожидания {platform}",
+    "titleAny": "Записаться в список ожидания",
+    "description": "Поддержка {platform} уже в пути. Оставьте email, и мы сообщим, как только всё будет готово.",
+    "descriptionAny": "Сейчас cmux работает прежде всего на macOS. Оставьте email, и мы сообщим, как только появится версия для Linux, Windows или Android.",
+    "calloutText": "Скоро на Linux, Windows и Android.",
+    "platformsLabel": "Какие платформы?",
+    "selectPlatform": "Выберите хотя бы одну платформу.",
+    "emailLabel": "Эл. почта",
+    "emailPlaceholder": "you@example.com",
+    "join": "В список ожидания",
+    "joining": "Записываем…",
+    "cancel": "Отмена",
+    "invalidEmail": "Введите корректный адрес эл. почты.",
+    "sendError": "Не удалось отправить. Попробуйте ещё раз.",
+    "successTitle": "Вы в списке",
+    "successBody": "Мы напишем вам, когда версия для {platform} будет готова.",
+    "successBodyAny": "Мы напишем вам, когда cmux будет готов для вашей платформы.",
+    "done": "Готово"
   }
 }

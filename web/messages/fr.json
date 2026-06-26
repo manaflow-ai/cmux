@@ -12,7 +12,8 @@
     "toggleTheme": "Changer de thème",
     "backToBlog": "Retour au blog",
     "readTheDocs": "Lire la documentation",
-    "viewChangelog": "Voir le changelog"
+    "viewChangelog": "Voir le changelog",
+    "otherPlatforms": "Autres plateformes"
   },
   "nav": {
     "docs": "Docs",
@@ -846,7 +847,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Prédicats de contexte facultatifs par action (clauses `when` de style VS Code), indexés par identifiant d'action cmux. Chaque valeur est une expression booléenne sur des clés de contexte, combinée avec !, &&, || et des parenthèses. Clés booléennes : sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Les clés typées acceptent des comparaisons : la chaîne sidebarMode (files, find, sessions, feed ou dock) et les entiers paneCount et workspaceCount. Les opérateurs de comparaison sont ==, !=, =~ (expression régulière), <, <=, >, >= et `in [a, b]` ; une clé inconnue ou absente vaut false. Les littéraux booléens true et false sont également acceptés ; `key == false` équivaut à `!key`. Le raccourci de l'action ne se déclenche (et n'entre en conflit avec d'autres raccourcis) que lorsque la clause est vraie. Exemples : { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } sélectionne les espaces de travail avec Ctrl+1–9 partout sauf lorsque la barre latérale droite a le focus ; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limite une liaison à la barre latérale Rechercher lorsque l'espace de travail comporte plusieurs panneaux.",
+          "when": "Prédicats de contexte facultatifs par action (clauses `when` de style VS Code), indexés par identifiant d'action cmux. Chaque valeur est une expression booléenne sur des clés de contexte, combinée avec !, &&, || et des parenthèses. Clés booléennes : sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Les clés typées acceptent des comparaisons : la chaîne sidebarMode (files, find, sessions, feed ou dock) et les entiers paneCount et workspaceCount. Les opérateurs de comparaison sont ==, !=, =~ (expression régulière), <, <=, >, >= et `in [a, b]` ; une clé inconnue ou absente vaut false. Les littéraux booléens true et false sont également acceptés ; `key == false` équivaut à `!key`. Le raccourci de l'action ne se déclenche (et n'entre en conflit avec d'autres raccourcis) que lorsque la clause est vraie. Exemples : { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } sélectionne les espaces de travail avec Ctrl+1–9 partout sauf lorsque la barre latérale droite a le focus ; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limite une liaison à la barre latérale Rechercher lorsque l'espace de travail comporte plusieurs panneaux.",
           "showModifierHoldHints": "Affiche les pastilles d’indication de raccourcis pendant que Cmd ou Control est maintenu enfoncé."
         }
       },
@@ -1868,5 +1869,32 @@
       "faqQ4": "cmux est-il gratuit à utiliser avec Cursor CLI ?",
       "faqA4": "Oui. cmux est gratuit et open source pour macOS."
     }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "Rejoindre la liste d'attente {platform}",
+    "titleAny": "Rejoindre la liste d'attente",
+    "description": "La prise en charge de {platform} arrive. Laissez votre e-mail et nous vous préviendrons dès que c'est prêt.",
+    "descriptionAny": "cmux est d'abord disponible sur macOS. Laissez votre e-mail et nous vous préviendrons dès que Linux, Windows ou Android sera prêt.",
+    "calloutText": "Bientôt sur Linux, Windows et Android.",
+    "platformsLabel": "Quelles plateformes ?",
+    "selectPlatform": "Choisissez au moins une plateforme.",
+    "emailLabel": "E-mail",
+    "emailPlaceholder": "you@example.com",
+    "join": "Rejoindre la liste",
+    "joining": "Inscription…",
+    "cancel": "Annuler",
+    "invalidEmail": "Saisissez une adresse e-mail valide.",
+    "sendError": "Échec de l'envoi. Veuillez réessayer.",
+    "successTitle": "Vous êtes sur la liste",
+    "successBody": "Nous vous enverrons un e-mail dès que la version {platform} sera prête.",
+    "successBodyAny": "Nous vous enverrons un e-mail dès que cmux sera prêt pour votre plateforme.",
+    "done": "Terminé"
   }
 }

@@ -6080,11 +6080,7 @@ struct ContentView: View {
         if let action = Self.commandPaletteShortcutAction(forCommandID: contribution.commandId) {
             let shortcut = KeyboardShortcutSettings.shortcut(for: action)
             guard !shortcut.isUnbound else { return nil }
-            guard action.shortcutContext.isAvailable(
-                focusedBrowserPanel: context.bool(CommandPaletteContextKeys.panelIsBrowser),
-                focusedMarkdownPanel: context.bool(CommandPaletteContextKeys.panelIsMarkdown),
-                rightSidebarFocused: false
-            ) else {
+            guard action.shortcutContext.isAvailable(commandPaletteContext: context) else {
                 return nil
             }
             return shortcut.displayString

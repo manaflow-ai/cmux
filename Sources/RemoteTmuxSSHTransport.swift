@@ -60,6 +60,89 @@ actor RemoteTmuxSSHTransport {
         return RemoteTmuxSessionListParser.parse(result.stdout)
     }
 
+    /// Probes the remote tmux client version via `tmux -V`.
+    ///
+    /// - Returns: the parsed version, or `nil` when `tmux -V` succeeds but its
+    ///   output has no `<major>.<minor>` (a dev/distro build like `tmux master`),
+    ///   which callers treat as "unknown, allow".
+    /// - Throws: ``RemoteTmuxError/commandFailed`` when the command itself fails
+    ///   (e.g. auth required, or `tmux` not installed) so the caller's existing
+    ///   auth/no-server classification still applies.
+    func tmuxClientVersion() async throws -> RemoteTmuxVersion? {
+        let result = try await run(["tmux", "-V"])
+        guard result.succeeded else {
+            throw RemoteTmuxError.commandFailed(exitCode: result.exitCode, stderr: result.stderr)
+        }
+        return RemoteTmuxVersion.parse(result.stdout)
+    }
+
+    /// Probes the running tmux server version via the server's `#{version}` format.
+    private func tmuxServerVersionProbe() async throws -> (serverExists: Bool, version: RemoteTmuxVersion?) {
+        let result = try await runTmux(["display-message", "-p", "#{version}"])
+        guard result.succeeded else {
+            if Self.indicatesNoServer(result.stderr) { return (serverExists: false, version: nil) }
+            throw RemoteTmuxError.commandFailed(exitCode: result.exitCode, stderr: result.stderr)
+        }
+        if let version = RemoteTmuxVersion.parseServerFormat(result.stdout) {
+            return (serverExists: true, version: version)
+        }
+        return (serverExists: true, version: nil)
+    }
+
+    /// Probes the live-subscription capability directly when server version text
+    /// is unparseable. New tmux recognizes `-B` but may fail with "no current
+    /// client" outside control mode; old tmux rejects the flag itself.
+    private func serverSupportsRefreshClientSubscriptions() async throws -> Bool {
+        let result = try await runTmux(["refresh-client", "-B", "cmux_probe::#{version}"])
+        if result.succeeded { return true }
+        if Self.indicatesRefreshClientSubscriptionUnsupported(result.stderr) { return false }
+        if Self.indicatesRefreshClientNeedsCurrentClient(result.stderr) { return true }
+        throw RemoteTmuxError.commandFailed(exitCode: result.exitCode, stderr: result.stderr)
+    }
+
+    /// Asserts that the remote server supports live mirroring.
+    ///
+    /// Call this before any `tmux -CC` control stream can launch. An unparseable
+    /// running-server version falls back to a direct `refresh-client -B`
+    /// capability probe so dev/distro builds are treated consistently with the
+    /// cold-start path while old servers still fail before attach.
+    /// When no server is running, pass `true` only for paths that will create one;
+    /// those paths gate on the tmux client binary that will become the new server.
+    func assertMinimumTmuxVersion(checkClientWhenNoServer: Bool) async throws {
+        let serverProbe = try await tmuxServerVersionProbe()
+        if serverProbe.serverExists {
+            guard let version = serverProbe.version else {
+                if try await serverSupportsRefreshClientSubscriptions() {
+                    return
+                }
+                throw RemoteTmuxError.unsupportedTmux(detected: RemoteTmuxError.unknownVersionDisplayName)
+            }
+            try Self.assertSupportedTmuxVersion(version)
+            return
+        }
+        guard checkClientWhenNoServer else { return }
+        if let version = try await tmuxClientVersion() {
+            try Self.assertSupportedTmuxVersion(version)
+        }
+    }
+
+    private static func assertSupportedTmuxVersion(_ version: RemoteTmuxVersion) throws {
+        if !version.meetsMinimum {
+            throw RemoteTmuxError.unsupportedTmux(detected: version.displayString)
+        }
+    }
+
+    /// Asserts that the remote server supports live mirroring, then discovers sessions.
+    func discoverMirrorSessions(createIfEmpty: Bool) async throws -> [RemoteTmuxSession] {
+        try await assertMinimumTmuxVersion(checkClientWhenNoServer: createIfEmpty)
+        var sessions = try await listSessions()
+        if sessions.isEmpty, createIfEmpty {
+            _ = try? await runTmux(["new-session", "-d"])
+            sessions = try await listSessions()
+        }
+        return sessions
+    }
+
     /// Runs a `tmux <args…>` command on the remote host and returns its result.
     @discardableResult
     func runTmux(_ args: [String]) async throws -> RemoteTmuxCommandResult {
@@ -155,6 +238,37 @@ actor RemoteTmuxSSHTransport {
         return lowered.contains("no server running")
             || lowered.contains("no sessions")
             || (lowered.contains("error connecting to /") && lowered.contains("/tmux-"))
+    }
+
+    static func indicatesRefreshClientSubscriptionUnsupported(_ stderr: String) -> Bool {
+        let lowered = stderr.lowercased()
+        let tokens = lowered.split { character in
+            !(character.isLetter || character.isNumber || character == "-")
+        }.map(String.init)
+        let mentionsBFlag = tokens.enumerated().contains { index, token in
+            if token == "-b" || token == "--b" { return true }
+            guard token == "b" else { return false }
+            if index > 0, tokens[index - 1] == "flag" || tokens[index - 1] == "option" {
+                return true
+            }
+            if index > 1, tokens[index - 1] == "--" {
+                let optionNoun = tokens[index - 2]
+                return optionNoun == "flag" || optionNoun == "option"
+            }
+            return false
+        }
+        let rejectsOption = lowered.contains("unknown flag")
+            || lowered.contains("unknown option")
+            || lowered.contains("invalid option")
+            || lowered.contains("illegal option")
+        return mentionsBFlag && rejectsOption
+    }
+
+    static func indicatesRefreshClientNeedsCurrentClient(_ stderr: String) -> Bool {
+        let lowered = stderr.lowercased()
+        return lowered.contains("no current client")
+            || lowered.contains("not a client")
+            || lowered.contains("not a control client")
     }
 
     /// Whether a failed non-interactive (`BatchMode=yes`) connect failed because

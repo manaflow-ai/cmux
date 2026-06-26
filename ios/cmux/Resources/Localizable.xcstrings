@@ -1480,6 +1480,23 @@
         }
       }
     },
+    "mobile.computers.removeMessageRepresentativeFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This removes paired record %@. Other matching records may still appear."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング済みレコード %@ を削除します。一致する他のレコードは引き続き表示される場合があります。"
+          }
+        }
+      }
+    },
     "mobile.computers.removeTitleFormat": {
       "extractionState": "manual",
       "localizations": {
@@ -1616,6 +1633,193 @@
         }
       }
     },
+    "mobile.computers.ping": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ping"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ping"
+          }
+        }
+      }
+    },
+    "mobile.computers.pinging": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinging…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ping 中…"
+          }
+        }
+      }
+    },
+    "mobile.computers.pingFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ping opens a direct connection to each route to check if this phone can reach the Mac right now. It works even when a workspace shows Disconnected, which usually means the live stream dropped, not that the Mac is offline."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ping は各ルートへ直接接続を開き、この iPhone から今 Mac に到達できるかを確認します。ワークスペースが「切断されました」と表示されていても機能します。これは通常、Mac がオフラインなのではなく、ライブ接続が切れたことを意味します。"
+          }
+        }
+      }
+    },
+    "mobile.computers.ping.reachableFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reachable · %d ms"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "到達可能 · %d ms"
+          }
+        }
+      }
+    },
+    "mobile.computers.ping.refused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reachable, but cmux isn't listening"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "到達可能ですが、cmux が応答していません"
+          }
+        }
+      }
+    },
+    "mobile.computers.ping.unreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No route to host"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホストへのルートがありません"
+          }
+        }
+      }
+    },
+    "mobile.computers.ping.timedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timed out"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイムアウトしました"
+          }
+        }
+      }
+    },
+    "mobile.computers.ping.dnsFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS lookup failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS の解決に失敗しました"
+          }
+        }
+      }
+    },
+    "mobile.computers.ping.permissionDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked by Local Network privacy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルネットワークのプライバシー設定によりブロックされました"
+          }
+        }
+      }
+    },
+    "mobile.computers.ping.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unreachable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "到達できません"
+          }
+        }
+      }
+    },
+    "mobile.computers.ping.unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not pingable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ping 非対応"
+          }
+        }
+      }
+    },
     "mobile.connection.connected": {
       "extractionState": "manual",
       "localizations": {
@@ -1690,13 +1894,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac offline"
+            "value": "Disconnected"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac はオフライン"
+            "value": "切断されました"
           }
         }
       }
@@ -1707,13 +1911,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open cmux on the Mac or wake the computer."
+            "value": "The live connection dropped. The Mac may still be online. Tap Reconnect."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac で cmux を開くか、コンピュータのスリープを解除してください。"
+            "value": "ライブ接続が切断されました。Mac はまだオンラインの可能性があります。再接続をタップしてください。"
           }
         }
       }

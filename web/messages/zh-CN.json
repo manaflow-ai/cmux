@@ -12,7 +12,8 @@
     "toggleTheme": "切换主题",
     "backToBlog": "返回博客",
     "readTheDocs": "阅读文档",
-    "viewChangelog": "查看更新日志"
+    "viewChangelog": "查看更新日志",
+    "otherPlatforms": "其他平台"
   },
   "nav": {
     "docs": "文档",
@@ -846,7 +847,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "每个操作可选的上下文谓词（VS Code 风格的 `when` 子句），按 cmux 操作 id 索引。每个值都是基于上下文键的布尔表达式，可用 !、&&、|| 和括号组合。布尔键：sidebarFocus、browserFocus、markdownFocus、terminalFocus、commandPaletteVisible、terminalFindVisible。类型化键支持比较：字符串 sidebarMode（files、find、sessions、feed 或 dock）以及整数 paneCount 和 workspaceCount。比较运算符为 ==、!=、=~（正则表达式）、<、<=、>、>= 和 `in [a, b]`；未知或不存在的键按 false 处理。也接受布尔字面量 true 和 false；`key == false` 等同于 `!key`。只有当子句成立时，该操作的快捷键才会触发，也只会在这种情况下与其他快捷键冲突。示例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 让 Ctrl+1–9 在右侧边栏未聚焦时选择工作区；{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } 在工作区有多个窗格时将绑定限定在查找侧边栏。",
+          "when": "每个操作可选的上下文谓词（VS Code 风格的 `when` 子句），按 cmux 操作 id 索引。每个值都是基于上下文键的布尔表达式，可用 !、&&、|| 和括号组合。布尔键：sidebarFocus、browserFocus、markdownFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。类型化键支持比较：字符串 sidebarMode（files、find、sessions、feed 或 dock）以及整数 paneCount 和 workspaceCount。比较运算符为 ==、!=、=~（正则表达式）、<、<=、>、>= 和 `in [a, b]`；未知或不存在的键按 false 处理。也接受布尔字面量 true 和 false；`key == false` 等同于 `!key`。只有当子句成立时，该操作的快捷键才会触发，也只会在这种情况下与其他快捷键冲突。示例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 让 Ctrl+1–9 在右侧边栏未聚焦时选择工作区；{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } 在工作区有多个窗格时将绑定限定在查找侧边栏。",
           "showModifierHoldHints": "在按住 Cmd 或 Control 时显示快捷键提示标签。"
         }
       },
@@ -1868,5 +1869,32 @@
       "faqQ4": "搭配 Cursor CLI 使用的 cmux 免费吗？",
       "faqA4": "免费。cmux 是面向 macOS 的免费开源软件。"
     }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "加入 {platform} 候补名单",
+    "titleAny": "加入候补名单",
+    "description": "{platform} 支持即将推出。留下你的邮箱，准备好后我们会第一时间通知你。",
+    "descriptionAny": "目前 cmux 优先支持 macOS。留下邮箱，Linux、Windows 或 Android 版本就绪后我们会通知你。",
+    "calloutText": "即将支持 Linux、Windows 和 Android。",
+    "platformsLabel": "哪些平台？",
+    "selectPlatform": "请至少选择一个平台。",
+    "emailLabel": "邮箱",
+    "emailPlaceholder": "you@example.com",
+    "join": "加入候补名单",
+    "joining": "正在加入…",
+    "cancel": "取消",
+    "invalidEmail": "请输入有效的邮箱地址。",
+    "sendError": "发送失败，请重试。",
+    "successTitle": "你已加入名单",
+    "successBody": "{platform} 版本就绪后，我们会给你发邮件。",
+    "successBodyAny": "cmux 在你的平台上就绪后，我们会给你发邮件。",
+    "done": "完成"
   }
 }

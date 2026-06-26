@@ -12,7 +12,8 @@
     "toggleTheme": "Promijeni temu",
     "backToBlog": "Nazad na blog",
     "readTheDocs": "Pročitaj dokumentaciju",
-    "viewChangelog": "Pogledaj zapisnik promjena"
+    "viewChangelog": "Pogledaj zapisnik promjena",
+    "otherPlatforms": "Druge platforme"
   },
   "nav": {
     "docs": "Dokumentacija",
@@ -846,7 +847,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Opcionalni kontekstni predikati po radnji (VS Code stil `when` klauzula), indeksirani cmux ID-jem radnje. Svaka vrijednost je Booleov izraz nad ključevima konteksta, kombinovan sa !, &&, || i zagradama. Booleovi ključevi: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Tipizirani ključevi podržavaju poređenja: string sidebarMode (files, find, sessions, feed ili dock) i cijeli brojevi paneCount i workspaceCount. Operatori poređenja su ==, !=, =~ (regularni izraz), <, <=, >, >= i `in [a, b]`; nepoznat ili odsutan ključ čita se kao false. Prihvataju se i Booleovi literali true i false; `key == false` je isto što i `!key`. Prečica radnje se pokreće (i sukobljava s drugim prečicama) samo kada je klauzula tačna. Primjeri: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } bira radne prostore pomoću Ctrl+1–9 svuda osim kada je fokusiran desni bočni panel; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ograničava vezivanje na bočni panel za pretragu kada radni prostor ima više okana.",
+          "when": "Opcionalni kontekstni predikati po radnji (VS Code stil `when` klauzula), indeksirani cmux ID-jem radnje. Svaka vrijednost je Booleov izraz nad ključevima konteksta, kombinovan sa !, &&, || i zagradama. Booleovi ključevi: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Tipizirani ključevi podržavaju poređenja: string sidebarMode (files, find, sessions, feed ili dock) i cijeli brojevi paneCount i workspaceCount. Operatori poređenja su ==, !=, =~ (regularni izraz), <, <=, >, >= i `in [a, b]`; nepoznat ili odsutan ključ čita se kao false. Prihvataju se i Booleovi literali true i false; `key == false` je isto što i `!key`. Prečica radnje se pokreće (i sukobljava s drugim prečicama) samo kada je klauzula tačna. Primjeri: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } bira radne prostore pomoću Ctrl+1–9 svuda osim kada je fokusiran desni bočni panel; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ograničava vezivanje na bočni panel za pretragu kada radni prostor ima više okana.",
           "showModifierHoldHints": "Prikaži oznake s prečicama dok držite Cmd ili Control."
         }
       },
@@ -1868,5 +1869,32 @@
       "faqQ4": "Je li cmux besplatan za korištenje s Cursor CLI-jem?",
       "faqA4": "Da. cmux je besplatan i otvorenog koda za macOS."
     }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "Pridruži se listi čekanja za {platform}",
+    "titleAny": "Pridruži se listi čekanja",
+    "description": "Podrška za {platform} stiže. Ostavi svoj email i javit ćemo ti čim bude spremno.",
+    "descriptionAny": "cmux je trenutno prvenstveno za macOS. Ostavi svoj email i javit ćemo ti čim Linux, Windows ili Android bude spreman.",
+    "calloutText": "Uskoro za Linux, Windows i Android.",
+    "platformsLabel": "Koje platforme?",
+    "selectPlatform": "Odaberi barem jednu platformu.",
+    "emailLabel": "Email",
+    "emailPlaceholder": "you@example.com",
+    "join": "Pridruži se listi",
+    "joining": "Pridruživanje…",
+    "cancel": "Otkaži",
+    "invalidEmail": "Unesi ispravnu email adresu.",
+    "sendError": "Slanje nije uspjelo. Pokušaj ponovo.",
+    "successTitle": "Na listi si",
+    "successBody": "Poslat ćemo ti email kada {platform} verzija bude spremna.",
+    "successBodyAny": "Poslat ćemo ti email kada cmux bude spreman za tvoju platformu.",
+    "done": "Gotovo"
   }
 }

@@ -212,6 +212,15 @@
       "severity": "high"
     },
     {
+      "id": "cmux-react-base-ui-accessibility",
+      "rule": "Flag custom React dialogs, popovers, menus, context menus, checkboxes, selects, switches, tabs, tooltips, comboboxes, command menus, or other composite widgets built from raw elements, ad hoc ARIA, tabIndex, or hand-rolled keyboard handlers when @base-ui-components/react or an existing local component provides the relevant primitive. Pass for native semantic controls and for cases with no relevant primitive where the PR owns complete accessibility, keyboard, focus, and disabled/loading behavior.",
+      "scope": [
+        "web/**/*.tsx",
+        "web/**/*.jsx"
+      ],
+      "severity": "high"
+    },
+    {
       "id": "cmux-source-control-artifacts",
       "rule": "Flag local tool output, generated logs, screenshots, recordings, temp folders, dependency checkouts, caches, build output, DerivedData, package-manager downloads, and broad scratch directories that enter source control without a deliberate product, docs, fixture, build, release, or test-system reason. Pass for intentional source files, configs, localization catalogs, review rules, durable docs assets, required fixtures, generated files that are already part of the repo's source-of-truth model, and PRs that only remove or ignore existing accidental artifacts.",
       "scope": [

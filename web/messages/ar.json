@@ -12,7 +12,8 @@
     "toggleTheme": "تبديل المظهر",
     "backToBlog": "العودة إلى المدونة",
     "readTheDocs": "اقرأ الوثائق",
-    "viewChangelog": "عرض سجل التغييرات"
+    "viewChangelog": "عرض سجل التغييرات",
+    "otherPlatforms": "منصات أخرى"
   },
   "nav": {
     "docs": "الوثائق",
@@ -846,7 +847,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "مسندات سياق اختيارية لكل إجراء (عبارات `when` على نمط VS Code)، مفهرسة بمعرّف إجراء cmux. كل قيمة هي تعبير منطقي فوق مفاتيح السياق، مدمجة باستخدام ! و && و || والأقواس. المفاتيح المنطقية: sidebarFocus و browserFocus و markdownFocus و terminalFocus و commandPaletteVisible و terminalFindVisible. تدعم المفاتيح المصنّفة المقارنات: السلسلة النصية sidebarMode (files أو find أو sessions أو feed أو dock) والعددان الصحيحان paneCount و workspaceCount. عوامل المقارنة هي == و != و =~ (تعبير نمطي) و < و <= و > و >= و `in [a, b]`؛ المفتاح غير المعروف أو الغائب يُقرأ على أنه false. تُقبل أيضًا القيمتان المنطقيتان الحرفيتان true و false؛ و`key == false` تكافئ `!key`. لا يعمل اختصار الإجراء (ولا يتعارض مع اختصارات أخرى) إلا عندما تكون العبارة صحيحة. أمثلة: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } يحدد مساحات العمل بواسطة Ctrl+1–9 في كل مكان ما عدا عندما يكون الشريط الجانبي الأيمن مركزًا؛ { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } يقصر الارتباط على الشريط الجانبي للبحث عندما تحتوي مساحة العمل على عدة ألواح.",
+          "when": "مسندات سياق اختيارية لكل إجراء (عبارات `when` على نمط VS Code)، مفهرسة بمعرّف إجراء cmux. كل قيمة هي تعبير منطقي فوق مفاتيح السياق، مدمجة باستخدام ! و && و || والأقواس. المفاتيح المنطقية: sidebarFocus و browserFocus و markdownFocus و terminalFocus و commandPaletteVisible و terminalFindVisible و workspaceCanvasLayout. تدعم المفاتيح المصنّفة المقارنات: السلسلة النصية sidebarMode (files أو find أو sessions أو feed أو dock) والعددان الصحيحان paneCount و workspaceCount. عوامل المقارنة هي == و != و =~ (تعبير نمطي) و < و <= و > و >= و `in [a, b]`؛ المفتاح غير المعروف أو الغائب يُقرأ على أنه false. تُقبل أيضًا القيمتان المنطقيتان الحرفيتان true و false؛ و`key == false` تكافئ `!key`. لا يعمل اختصار الإجراء (ولا يتعارض مع اختصارات أخرى) إلا عندما تكون العبارة صحيحة. أمثلة: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } يحدد مساحات العمل بواسطة Ctrl+1–9 في كل مكان ما عدا عندما يكون الشريط الجانبي الأيمن مركزًا؛ { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } يقصر الارتباط على الشريط الجانبي للبحث عندما تحتوي مساحة العمل على عدة ألواح.",
           "showModifierHoldHints": "إظهار شرائح تلميحات الاختصارات أثناء الضغط باستمرار على Cmd أو Control."
         }
       },
@@ -1868,5 +1869,32 @@
       "faqQ4": "هل cmux مجاني للاستخدام مع Cursor CLI؟",
       "faqA4": "نعم. cmux مجاني ومفتوح المصدر لنظام macOS."
     }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "انضم إلى قائمة انتظار {platform}",
+    "titleAny": "انضم إلى قائمة الانتظار",
+    "description": "دعم {platform} في الطريق. اترك بريدك الإلكتروني وسنخبرك فور أن يصبح جاهزًا.",
+    "descriptionAny": "يدعم cmux حاليًا macOS أولًا. اترك بريدك الإلكتروني وسنخبرك فور أن تصبح نسخة Linux أو Windows أو Android جاهزة.",
+    "calloutText": "قريبًا على Linux وWindows وAndroid.",
+    "platformsLabel": "أي المنصات؟",
+    "selectPlatform": "اختر منصة واحدة على الأقل.",
+    "emailLabel": "البريد الإلكتروني",
+    "emailPlaceholder": "you@example.com",
+    "join": "انضم إلى القائمة",
+    "joining": "جارٍ الانضمام…",
+    "cancel": "إلغاء",
+    "invalidEmail": "أدخل عنوان بريد إلكتروني صالحًا.",
+    "sendError": "تعذّر الإرسال. حاول مرة أخرى.",
+    "successTitle": "أنت في القائمة",
+    "successBody": "سنرسل لك بريدًا إلكترونيًا عندما تصبح نسخة {platform} جاهزة.",
+    "successBodyAny": "سنرسل لك بريدًا إلكترونيًا عندما يصبح cmux جاهزًا لمنصتك.",
+    "done": "تم"
   }
 }

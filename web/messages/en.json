@@ -40,7 +40,8 @@
     "toggleTheme": "Toggle theme",
     "backToBlog": "Back to blog",
     "readTheDocs": "Read the Docs",
-    "viewChangelog": "View Changelog"
+    "viewChangelog": "View Changelog",
+    "otherPlatforms": "Other platforms"
   },
   "nav": {
     "docs": "Docs",
@@ -720,7 +721,7 @@
       "rowPane": "A pane in a native split inside that tab.",
       "mappingPanes": "The new capability is panes inside a tab: a cmux tab used to hold a single terminal, but a tmux window with several panes is now rendered as a real cmux split layout within one tab — each remote pane is a native cmux terminal pane with the usual chrome. The bridge is two-way: splitting or closing a pane in that tab runs tmux split-window, and reordering the tabs reorders the tmux windows with swap-window.",
       "requirementsTitle": "Requirements",
-      "requirementsDesc": "A reachable SSH host (cmux reads your ~/.ssh/config) with tmux installed. Control mode (tmux -CC) is a standard tmux feature, so no special build is needed; a current tmux is recommended for the full feature set. cmux attaches over an SSH ControlMaster connection, and the remote tmux server keeps running when you detach.",
+      "requirementsDesc": "A reachable SSH host (cmux reads your ~/.ssh/config) with tmux 3.2 or newer installed. Control mode (tmux -CC) is a standard tmux feature, so no special build is needed; cmux checks the remote tmux version before attaching and fails clearly on older servers. cmux attaches over an SSH ControlMaster connection, and the remote tmux server keeps running when you detach.",
       "enableTitle": "Enable it",
       "enableDesc": "Open Settings → Beta Features and turn on Remote tmux. The toggle is off by default, so nothing changes for local terminals until you opt in.",
       "attachTitle": "Attaching",
@@ -755,7 +756,7 @@
       "limitationsTitle": "Limitations",
       "limitReconnect": "Transient SSH drops reconnect automatically: if the connection blips mid-session the mirror freezes and cmux retries with capped exponential backoff, re-seeding the panes when it resumes. The mirror only closes for good when the remote session itself ends, or when you close the mirror window or quit cmux — and it isn't restored on relaunch (re-attach with cmux ssh-tmux).",
       "limitPaste": "Only single-line paste/drop (such as a file or image path) is delivered as a real bracketed paste via paste-buffer -p; multi-line text is sent as plain keystrokes, so a remote app won't treat it as one paste.",
-      "limitCwd": "Live working-directory updates use control-mode subscriptions (tmux 3.2+); on older tmux the tab shows the initial folder but doesn't update on cd.",
+      "limitCwd": "Live working-directory updates use control-mode subscriptions, which is why cmux requires tmux 3.2 or newer before it opens the mirror.",
       "limitReflow": "Primary-screen scrollback isn't re-wrapped on resize — cmux leaves reflow to tmux, so older lines can stay at the previous width until the app repaints. Full-screen TUIs, which redraw on resize, are unaffected."
     },
     "layoutTitle": "cmux docs",
@@ -1038,7 +1039,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
+          "when": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
           "showModifierHoldHints": "Show shortcut-hint chips while holding Cmd or Control."
         }
       },
@@ -1888,6 +1889,33 @@
     "metaDescription": "Your cmux download is starting. Explore the docs, join the Discord, and follow cmux on X.",
     "heading": "Thanks for downloading cmux!",
     "subtext": "Click <link>here</link> if your download hasn't started."
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "Join the {platform} waitlist",
+    "titleAny": "Join the waitlist",
+    "description": "{platform} support is on the way. Leave your email and we'll let you know the moment it's ready.",
+    "descriptionAny": "cmux is macOS-first today. Leave your email and we'll tell you the moment Linux, Windows, or Android is ready.",
+    "calloutText": "Coming to Linux, Windows, and Android.",
+    "platformsLabel": "Which platforms?",
+    "selectPlatform": "Pick at least one platform.",
+    "emailLabel": "Email",
+    "emailPlaceholder": "you@example.com",
+    "join": "Join waitlist",
+    "joining": "Joining…",
+    "cancel": "Cancel",
+    "invalidEmail": "Enter a valid email address.",
+    "sendError": "Couldn't send. Please try again.",
+    "successTitle": "You're on the list",
+    "successBody": "We'll email you when the {platform} build is ready.",
+    "successBodyAny": "We'll email you when cmux is ready on your platform.",
+    "done": "Done"
   },
   "legal": {
     "privacyPolicy": "Privacy Policy",
