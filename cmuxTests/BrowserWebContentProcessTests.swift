@@ -369,6 +369,19 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func minimumViewportSizeAccountsForPageZoomChanges() {
+        let panel = BrowserPanel(workspaceId: UUID(), renderInitialNavigation: false)
+        defer { panel.close() }
+        panel.webView.frame = NSRect(x: 0, y: 0, width: 700, height: 600)
+
+        #expect(panel.setMinimumViewportSize(width: 1400, height: 0))
+        #expect(abs(panel.webView.magnification - 0.5) < 0.0001)
+
+        #expect(panel.setPageZoomFactor(2.0))
+        #expect(abs(panel.webView.magnification - 0.25) < 0.0001)
+    }
+
+    @Test
     func floatingPopupInheritsOpenerWebsiteDataStore() throws {
         let panel = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
         defer { panel.close() }

@@ -283,7 +283,7 @@ def main() -> int:
         _run_cli_json(cli, ["browser", surface, "wait", "--function", "window.innerWidth >= 1400", "--timeout-ms", "5000"])
         inner_width = _run_cli_json(cli, ["browser", surface, "eval", "window.innerWidth"])
         _must(int(inner_width.get("value") or 0) >= 1400, f"Expected CLI viewport width >= 1400: {inner_width}")
-        _run_cli_expect_failure(cli, ["browser", surface, "viewport", "1e100", "900"], ["invalid_params"])
+        _run_cli_expect_failure(cli, ["browser", surface, "viewport", "100001", "900"], ["invalid_params"])
 
         legacy_new = _run_cli_text(cli, ["new-pane", "--type", "browser", "--direction", "right", "--url", page_url])
         _must("surface:" in legacy_new, f"Expected new-pane output to prefer short surface refs, got: {legacy_new!r}")
