@@ -60,12 +60,14 @@ Use `Cmd+Shift+U` to jump to the latest unread notification. Use `Ctrl+Cmd+U` to
 
 ## Suppress only the focused surface
 
-By default cmux withdraws a delivered banner when its workspace becomes visible/active, which can retract a banner for a non-focused surface (e.g. a second agent in the same visible workspace) before you notice it. Set the opt-in flag below so the auto-withdraw fires **only** for the exact focused surface — matching the delivery gate. A banner for a non-focused surface then stays up until you focus that surface (or click/dismiss it). Workspace-visible-but-not-focused surfaces and surfaces in non-visible workspaces keep their banners; explicit "mark workspace read" and clicking/typing still clear notifications as before.
+By default cmux withdraws a delivered banner when its workspace becomes visible/active, which can retract a banner for a non-focused surface (e.g. a second agent in the same visible workspace) before you notice it. Set the opt-in flag below to `true` so the auto-withdraw fires **only** for the exact focused surface — matching the delivery gate. A banner for a non-focused surface then stays up until you focus that surface (or click/dismiss it). Workspace-visible-but-not-focused surfaces and surfaces in non-visible workspaces keep their banners; explicit "mark workspace read" and clicking/typing still clear notifications as before.
 
 ```jsonc
 {
   "notifications": {
-    "suppressOnlyFocusedSurface": false
+    // Default: false (legacy workspace-visibility withdraw).
+    // Set to true to auto-withdraw only the exact focused surface.
+    "suppressOnlyFocusedSurface": true
   }
 }
 ```
