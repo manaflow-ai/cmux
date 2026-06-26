@@ -19,6 +19,7 @@ import struct CmuxSettings.CommandPaletteSettingsStore
 import enum CmuxSettings.ConfirmQuitMode
 import struct CmuxSettings.SettingCatalog
 import struct CmuxSettings.UserDefaultsSettingsClient
+import protocol CmuxSidebar.FeedKeyboardFocusResponder
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

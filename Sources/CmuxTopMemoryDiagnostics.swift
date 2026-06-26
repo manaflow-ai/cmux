@@ -1,31 +1,8 @@
+import CMUXAgentLaunch
 import Darwin
 import Foundation
 
 nonisolated let cmuxTopMemoryDiagnosticDefaultGroupLimit = 12
-
-nonisolated struct CmuxTopProcessAttribution: Hashable, Sendable {
-    let workspaceID: UUID?
-    let workspaceRef: String?
-    let paneID: UUID?
-    let paneRef: String?
-    let surfaceID: UUID?
-    let surfaceRef: String?
-    let surfaceType: String?
-    let reason: String
-
-    func payload() -> [String: Any] {
-        [
-            "workspace_id": workspaceID?.uuidString as Any? ?? NSNull(),
-            "workspace_ref": workspaceRef as Any? ?? NSNull(),
-            "pane_id": paneID?.uuidString as Any? ?? NSNull(),
-            "pane_ref": paneRef as Any? ?? NSNull(),
-            "surface_id": surfaceID?.uuidString as Any? ?? NSNull(),
-            "surface_ref": surfaceRef as Any? ?? NSNull(),
-            "surface_type": surfaceType as Any? ?? NSNull(),
-            "reason": reason
-        ]
-    }
-}
 
 nonisolated extension CmuxTopProcessSnapshot {
     func memoryDiagnosticPayload(

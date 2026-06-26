@@ -65,7 +65,7 @@ extension TerminalController: ControlWorkspaceContext {
             customDescription: workspace.customDescription,
             isPinned: workspace.isPinned,
             listeningPorts: workspace.listeningPorts,
-            remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:]),
+            remoteStatus: workspace.controlRemoteStatusJSON,
             currentDirectory: workspace.currentDirectory,
             customColor: workspace.customColor,
             latestConversationMessage: workspace.latestConversationMessage,
@@ -539,7 +539,7 @@ extension TerminalController: ControlWorkspaceContext {
         return .resolved(
             windowID: windowId,
             workspaceID: workspace.id,
-            remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:])
+            remoteStatus: workspace.controlRemoteStatusJSON
         )
     }
 
@@ -560,7 +560,7 @@ extension TerminalController: ControlWorkspaceContext {
         return .resolved(
             windowID: windowId,
             workspaceID: workspace.id,
-            remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:])
+            remoteStatus: workspace.controlRemoteStatusJSON
         )
     }
 
@@ -578,7 +578,7 @@ extension TerminalController: ControlWorkspaceContext {
         return .resolved(
             windowID: windowId,
             workspaceID: workspace.id,
-            remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:])
+            remoteStatus: workspace.controlRemoteStatusJSON
         )
     }
 
@@ -591,7 +591,7 @@ extension TerminalController: ControlWorkspaceContext {
         return .resolved(
             windowID: windowId,
             workspaceID: workspace.id,
-            remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:])
+            remoteStatus: workspace.controlRemoteStatusJSON
         )
     }
 
@@ -677,7 +677,7 @@ extension TerminalController: ControlWorkspaceContext {
             "window_ref": controlCommandCoordinator.windowRefValue(windowId),
             "workspace_id": .string(workspace.id.uuidString),
             "workspace_ref": controlCommandCoordinator.workspaceRefValue(workspace.id),
-            "remote": JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:]),
+            "remote": workspace.controlRemoteStatusJSON,
         ]))
     }
 
@@ -703,7 +703,7 @@ extension TerminalController: ControlWorkspaceContext {
             workspaceID: workspace.id,
             clearedRemotePTYSession: outcome.clearedRemotePTYSession,
             untrackedRemoteTerminal: outcome.untrackedRemoteTerminal,
-            remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:])
+            remoteStatus: workspace.controlRemoteStatusJSON
         )
     }
 
@@ -721,7 +721,7 @@ extension TerminalController: ControlWorkspaceContext {
         return .resolved(
             windowID: windowId,
             workspaceID: workspace.id,
-            remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:])
+            remoteStatus: workspace.controlRemoteStatusJSON
         )
     }
 

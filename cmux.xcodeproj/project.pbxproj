@@ -1016,6 +1016,7 @@
 		E3CD00000000000000000001 /* Workspace+BrowserOpenWorkspaceHandle.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3CD00000000000000000002 /* Workspace+BrowserOpenWorkspaceHandle.swift */; };
 		CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */; };
 		E3B7A4000000000000000CB0 /* Workspace+ClosedBrowserRestoreStagingHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000CB1 /* Workspace+ClosedBrowserRestoreStagingHosting.swift */; };
+		C0DE00000000000000000D62 /* Workspace+ControlRemoteStatusJSON.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000D61 /* Workspace+ControlRemoteStatusJSON.swift */; };
 		9FC97DA1B422776BB1EEC821 /* Workspace+CustomSidebarPullRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42C2726A34F27E7A43B77368 /* Workspace+CustomSidebarPullRequests.swift */; };
 		D7AB00000000000000000015 /* Workspace+DetachedSurfaceTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000016 /* Workspace+DetachedSurfaceTransfer.swift */; };
 		E3309A05 /* Workspace+EqualizeSplitsSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A06 /* Workspace+EqualizeSplitsSupport.swift */; };
@@ -2105,6 +2106,7 @@
 		E3CD00000000000000000002 /* Workspace+BrowserOpenWorkspaceHandle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+BrowserOpenWorkspaceHandle.swift"; sourceTree = "<group>"; };
 		CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CanvasLayout.swift"; sourceTree = "<group>"; };
 		E3B7A4000000000000000CB1 /* Workspace+ClosedBrowserRestoreStagingHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ClosedBrowserRestoreStagingHosting.swift"; sourceTree = "<group>"; };
+		C0DE00000000000000000D61 /* Workspace+ControlRemoteStatusJSON.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ControlRemoteStatusJSON.swift"; sourceTree = "<group>"; };
 		42C2726A34F27E7A43B77368 /* Workspace+CustomSidebarPullRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CustomSidebarPullRequests.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000016 /* Workspace+DetachedSurfaceTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+DetachedSurfaceTransfer.swift"; sourceTree = "<group>"; };
 		E3309A06 /* Workspace+EqualizeSplitsSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+EqualizeSplitsSupport.swift"; sourceTree = "<group>"; };
@@ -2730,6 +2732,7 @@
 				C0DE00000000000000001FE2 /* TerminalController+ControlFeedWorkerReading.swift */,
 				C0DE00000000000000000C45 /* TerminalController+ControlNotificationContext.swift */,
 				C0DE00000000000000000C61 /* TerminalController+ControlWorkspaceContext.swift */,
+				C0DE00000000000000000D61 /* Workspace+ControlRemoteStatusJSON.swift */,
 				D7AB00000000000000B000 /* TerminalController+MobileNotificationSync.swift */,
 				D7AB00000000000000B010 /* TerminalController+MobileScrollPrefetch.swift */,
 				C0DE00000000000000000C81 /* TerminalController+ControlBrowserPanelContext.swift */,
@@ -4468,6 +4471,7 @@
 				E3CD00000000000000000001 /* Workspace+BrowserOpenWorkspaceHandle.swift in Sources */,
 				CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */,
 				E3B7A4000000000000000CB0 /* Workspace+ClosedBrowserRestoreStagingHosting.swift in Sources */,
+				C0DE00000000000000000D62 /* Workspace+ControlRemoteStatusJSON.swift in Sources */,
 				9FC97DA1B422776BB1EEC821 /* Workspace+CustomSidebarPullRequests.swift in Sources */,
 				D7AB00000000000000000015 /* Workspace+DetachedSurfaceTransfer.swift in Sources */,
 				E3309A05 /* Workspace+EqualizeSplitsSupport.swift in Sources */,

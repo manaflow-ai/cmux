@@ -95,7 +95,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     // stays available as an unobserved singleton for actions and pass-down.
     @EnvironmentObject var sidebarUnread: SidebarUnreadModel
     var notificationStore: TerminalNotificationStore { .shared }
-    @EnvironmentObject var sidebarState: SidebarState
+    @Environment(SidebarState.self) var sidebarState
     @Environment(SidebarSelectionState.self) var sidebarSelectionState
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
     @EnvironmentObject var fileExplorerState: FileExplorerState

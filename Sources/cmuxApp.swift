@@ -107,7 +107,7 @@ struct cmuxApp: App {
     // `@State` resolves to that same object, so the menu and the AppDelegate
     // call sites read one store.
     @State var closedItemHistoryStore = ClosedItemHistoryStore.shared
-    @StateObject private var sidebarState = SidebarState()
+    @State private var sidebarState = SidebarState()
     // De-singletonization stage b76: this `@StateObject` is the composition-root
     // owner of the single `KeyboardShortcutSettingsObserver`. `AppDelegate.configure`
     // records it via `installCompositionRootInstance`, so the transitional

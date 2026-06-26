@@ -1,5 +1,6 @@
 import AppKit
 import CmuxFoundation
+import CmuxNotifications
 import Foundation
 import UserNotifications
 
@@ -661,31 +662,10 @@ enum NotificationSoundSettings {
         try data.write(to: metadataURL, options: .atomic)
     }
 
-    private static let customCommandQueue = DispatchQueue(
-        label: "com.cmuxterm.notification-custom-command",
-        qos: .utility
-    )
+    private static let customCommandRunner = NotificationCustomCommandRunner()
 
     static func runCustomCommand(title: String, subtitle: String, body: String, defaults: UserDefaults = .standard) {
-        let command = (defaults.string(forKey: customCommandKey) ?? defaultCustomCommand)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !command.isEmpty else { return }
-        customCommandQueue.async {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/sh")
-            process.arguments = ["-c", command]
-            var env = ProcessInfo.processInfo.environment
-            env["CMUX_NOTIFICATION_TITLE"] = title
-            env["CMUX_NOTIFICATION_SUBTITLE"] = subtitle
-            env["CMUX_NOTIFICATION_BODY"] = body
-            process.environment = env
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = FileHandle.nullDevice
-            do {
-                try process.run()
-            } catch {
-                NSLog("Notification command failed to launch: \(error)")
-            }
-        }
+        let command = defaults.string(forKey: customCommandKey) ?? defaultCustomCommand
+        customCommandRunner.run(command: command, title: title, subtitle: subtitle, body: body)
     }
 }
