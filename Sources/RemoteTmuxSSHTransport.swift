@@ -177,41 +177,26 @@ actor RemoteTmuxSSHTransport {
     }
 
     /// Opens the shared SSH ControlMaster (if it isn't already up) and confirms it
-    /// is accepting multiplexed sessions, so the burst of `tmux -CC attach` control
-    /// connections the controller fires next — each spawned with
-    /// `ControlMaster=auto` (``RemoteTmuxHost/controlModeArguments``) — rides a
-    /// *ready* master instead of all racing to create one at the same `ControlPath`.
+    /// accepts multiplexed sessions, so the burst of `tmux -CC attach` connections
+    /// the controller fires next — each `ControlMaster=auto`
+    /// (``RemoteTmuxHost/controlModeArguments``) — rides a *ready* master instead of
+    /// all racing to create one at the same `ControlPath`.
     ///
-    /// On a cold first attach against a host with many sessions, that creation race
-    /// makes all-but-one connection fail with "ControlSocket … already exists,
-    /// disabling multiplexing", so only one or two sessions mirror; a manual close
-    /// and re-attach happened to work only because the master was still warm from
-    /// `ControlPersist` (https://github.com/manaflow-ai/cmux/issues/6732). Even
-    /// discovery (which opens the master implicitly) leaves a brief background
-    /// hand-off window where the socket exists but isn't yet accepting sessions —
-    /// `ssh -O check` is the authoritative "ready now" signal that closes it.
+    /// On a cold first attach with many sessions, that creation race makes
+    /// all-but-one connection fail with "ControlSocket … already exists, disabling
+    /// multiplexing", so only one or two sessions mirror (#6732). Even discovery
+    /// (which opens the master implicitly) leaves a brief background hand-off window
+    /// where the socket exists but isn't yet accepting sessions; `ssh -O check` is
+    /// the authoritative "ready now" signal that closes it.
     ///
-    /// Idempotent and best-effort:
-    /// - returns `true` immediately when a master is already live (the warm path,
-    ///   e.g. right after ``listSessions`` opened it),
-    /// - otherwise opens it exactly once — a single connection can't lose the
-    ///   burst's creation race — then polls `ssh -O check` (the LOCAL control
-    ///   socket, no network round-trip) until the master accepts sessions, bounded
-    ///   to ~1s before giving up and returning `false`.
+    /// Idempotent and best-effort: returns `true` at once when a master is already
+    /// live (warm path); otherwise opens it exactly once — a single connection can't
+    /// lose the creation race — then polls `ssh -O check` (LOCAL socket, no network)
+    /// until ready, bounded by `pollAttempts`×`pollInterval` (~1s; tests shrink it).
+    /// Callers may proceed on `false` (no worse than today's ungated burst).
     ///
-    /// Callers should `await` it for its master-warming side effect before the
-    /// attach burst, but may still proceed on `false`: an unconfirmed master is no
-    /// worse than today's ungated burst, and any session that does attach is kept.
-    ///
-    /// - Parameters:
-    ///   - pollAttempts: how many `ssh -O check` polls to make after opening the
-    ///     master before giving up (a final check always runs after the loop).
-    ///   - pollInterval: delay between those polls. The product bounds the extra
-    ///     latency when the master is slow to accept sessions (~1s by default);
-    ///     tests shrink it. Production callers use the defaults.
     /// - Throws: `CancellationError` if the caller is cancelled (e.g. a v2VmCall
-    ///   timeout) so it aborts here instead of spinning the poll; every other
-    ///   failure collapses to `false`.
+    ///   timeout) so it aborts instead of spinning; other failures collapse to `false`.
     @discardableResult
     func ensureMasterReady(
         pollAttempts: Int = 8,

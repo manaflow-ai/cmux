@@ -77,7 +77,7 @@
 1209	Packages/macOS/CmuxCommandPalette/Tests/CmuxCommandPaletteTests/CommandPaletteSearchEngineTests.swift
 1204	cmuxTests/FileExplorerStoreTests.swift
 1197	cmuxTests/CodexAppServerSessionTests.swift
-1169	Sources/RemoteTmuxController.swift
+1193	Sources/RemoteTmuxController.swift
 1166	Sources/VaultAgentProcessScanner.swift
 1161	cmuxTests/SidebarOrderingTests.swift
 1144	cmuxTests/PiVaultAgentPersistenceTests.swift
