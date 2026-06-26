@@ -526,7 +526,11 @@ extension Workspace {
                 textBoxDraft: terminalPanel.sessionTextBoxDraftSnapshot(),
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
-                wasAgentRunning: agentWasRunning
+                wasAgentRunning: agentWasRunning,
+                // Persist the workspace's last submitted prompt for agent panels so
+                // restore can re-inject the OSC 133 prompt mark Ghostty's scrollback
+                // export drops (#6691). Non-agent terminals carry no prompt to mark.
+                lastUserMessage: effectiveRestorableAgent != nil ? latestSubmittedMessage : nil
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -1336,7 +1340,11 @@ extension Workspace {
 #endif
             let shouldReplayLocalScrollback = restoredRemotePTYAttachCommand == nil && shouldReplayScrollback
             let restoredScrollback = shouldReplayLocalScrollback ? snapshot.terminal?.scrollback : nil
-            let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(for: restoredScrollback)
+            let restoredLastUserMessage = shouldReplayLocalScrollback ? snapshot.terminal?.lastUserMessage : nil
+            let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
+                for: restoredScrollback,
+                lastUserMessage: restoredLastUserMessage
+            )
             // Reuse the persisted surface id so the restored terminal keeps
             // the same identity (the panel/surface id IS the ghostty surface
             // id), which keeps agent-session terminal bindings valid across

@@ -1398,6 +1398,11 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     /// Whether the agent process was actively running when this snapshot was captured.
     /// Nil means unknown (legacy snapshots); treated as true for backwards compatibility.
     var wasAgentRunning: Bool?
+    /// The workspace's most recent submitted user message at capture time, used
+    /// to re-inject an OSC 133 semantic prompt mark into replayed scrollback on
+    /// restore (Ghostty's VT export drops OSC 133). Nil for non-agent terminals
+    /// and legacy snapshots. See https://github.com/manaflow-ai/cmux/issues/6691.
+    var lastUserMessage: String?
 
     init(
         workingDirectory: String? = nil,
@@ -1409,7 +1414,8 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         textBoxDraft: SessionTextBoxInputDraftSnapshot? = nil,
         isRemoteTerminal: Bool? = nil,
         remotePTYSessionID: String? = nil,
-        wasAgentRunning: Bool? = nil
+        wasAgentRunning: Bool? = nil,
+        lastUserMessage: String? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.scrollback = scrollback
@@ -1421,6 +1427,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.isRemoteTerminal = isRemoteTerminal
         self.remotePTYSessionID = remotePTYSessionID
         self.wasAgentRunning = wasAgentRunning
+        self.lastUserMessage = lastUserMessage
     }
 }
 
@@ -1933,11 +1940,16 @@ enum SessionScrollbackReplayStore {
 
     static func replayEnvironment(
         for scrollback: String?,
+        lastUserMessage: String? = nil,
         tempDirectory: URL = FileManager.default.temporaryDirectory
     ) -> [String: String] {
         guard let replayText = normalizedScrollback(scrollback) else { return [:] }
+        // Ghostty's VT export drops OSC 133 semantic-prompt marks, so re-inject
+        // one before the restored last user message to keep prompt navigation
+        // working after a rebuild (#6691).
+        let markedText = reinjectingLastPromptMark(into: replayText, lastUserMessage: lastUserMessage)
         guard let replayFileURL = writeReplayFile(
-            contents: replayText,
+            contents: markedText,
             tempDirectory: tempDirectory
         ) else {
             return [:]
@@ -2075,10 +2087,102 @@ enum SessionScrollbackReplayStore {
     /// affordances (jump-to-prompt, click-to-move) stay broken. See
     /// https://github.com/manaflow-ai/cmux/issues/6691.
     ///
-    /// Stub: the matching/injection logic lands in the follow-up commit so CI
-    /// proves the regression test fails without it.
     static func reinjectingLastPromptMark(into scrollback: String, lastUserMessage: String?) -> String {
-        scrollback
+        guard let needle = promptMatchNeedle(lastUserMessage) else { return scrollback }
+
+        var lines = scrollback.components(separatedBy: "\n")
+        // Scan from the bottom so the most recent occurrence — the user's last
+        // submitted message — is the row we mark.
+        var targetIndex: Int?
+        for index in stride(from: lines.count - 1, through: 0, by: -1) {
+            let visible = visiblePlainText(of: lines[index])
+            guard !visible.isEmpty else { continue }
+            if visible.contains(needle) {
+                targetIndex = index
+                break
+            }
+        }
+        guard let targetIndex else { return scrollback }
+
+        // Don't double-mark a row that already carries a prompt-start marker
+        // (e.g. a shell whose live OSC 133 survived for some other reason).
+        guard !lines[targetIndex].contains("\u{001B}]133;A") else { return scrollback }
+
+        lines[targetIndex] = semanticPromptStartMark + lines[targetIndex]
+        return lines.joined(separator: "\n")
+    }
+
+    /// Distinctive leading slice of the last user message used to locate its
+    /// row in captured scrollback. A long message that soft-wrapped across
+    /// several captured rows still matches its first row via this prefix.
+    /// Returns nil for empty/too-short messages so re-injection no-ops safely.
+    private static func promptMatchNeedle(_ message: String?) -> String? {
+        guard let message else { return nil }
+        let collapsed = message
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard collapsed.count >= 3 else { return nil }
+        return String(collapsed.prefix(48))
+    }
+
+    /// The visible text of a captured scrollback row with ANSI/OSC escape
+    /// sequences removed and whitespace collapsed, so message matching is
+    /// robust to the SGR colors and OSC markers Ghostty interleaves through the
+    /// exported text. Used only to compute a match key, never as replay output.
+    private static func visiblePlainText(of line: String) -> String {
+        strippingEscapeSequences(line)
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Removes CSI (`ESC [ … final`), OSC (`ESC ] … BEL`/`ST`), and two-byte
+    /// escape sequences from a single line. Best-effort and used only for
+    /// match-key computation, so unterminated sequences simply drop the rest.
+    private static func strippingEscapeSequences(_ line: String) -> String {
+        guard line.contains("\u{001B}") else { return line }
+        let chars = Array(line)
+        let count = chars.count
+        var output = String()
+        output.reserveCapacity(count)
+        var index = 0
+        while index < count {
+            let char = chars[index]
+            guard char == "\u{001B}", index + 1 < count else {
+                if char != "\u{001B}" { output.append(char) }
+                index += 1
+                continue
+            }
+            let introducer = chars[index + 1]
+            switch introducer {
+            case "[":
+                // CSI: consume params/intermediates through a final byte 0x40–0x7E.
+                index += 2
+                while index < count {
+                    let scalar = chars[index].unicodeScalars.first?.value ?? 0
+                    index += 1
+                    if (0x40...0x7E).contains(scalar) { break }
+                }
+            case "]", "P", "X", "^", "_":
+                // String sequences — OSC, DCS, SOS, PM, APC (e.g. Kitty graphics
+                // payloads) — terminate on BEL or ST (`ESC \`). Consume the whole
+                // sequence so its payload can't pollute the match key.
+                index += 2
+                while index < count {
+                    if chars[index] == "\u{0007}" { index += 1; break }
+                    if chars[index] == "\u{001B}" {
+                        if index + 1 < count, chars[index + 1] == "\\" { index += 2 } else { index += 1 }
+                        break
+                    }
+                    index += 1
+                }
+            default:
+                // Two-byte escape (charset designation, `ESC =`, …): drop both.
+                index += 2
+            }
+        }
+        return output
     }
 
     private static func writeReplayFile(contents: String, tempDirectory: URL) -> URL? {

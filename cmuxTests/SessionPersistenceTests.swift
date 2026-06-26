@@ -703,6 +703,76 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    // The last-user-message marker matches even when the captured row has the
+    // message split by interleaved SGR color escapes, and only the most recent
+    // occurrence is marked.
+    func testScrollbackReplayMarksMostRecentMessageRowThroughInterleavedSGR() {
+        let esc = "\u{001B}"
+        let reset = "\(esc)[0m"
+        let message = "fix the flaky test"
+        // First (older) echo, then agent output, then the most recent echo with
+        // SGR sequences interleaved through the message text.
+        let lines = [
+            "> \(message)",
+            "\(esc)[33mthinking…\(reset)",
+            "> \(esc)[1mfix\(reset) the \(esc)[4mflaky\(reset) test",
+        ]
+        let scrollback = lines.joined(separator: "\n")
+
+        let marked = SessionScrollbackReplayStore.reinjectingLastPromptMark(
+            into: scrollback,
+            lastUserMessage: message
+        )
+        let markedLines = marked.components(separatedBy: "\n")
+
+        XCTAssertEqual(markedLines.count, 3)
+        XCTAssertFalse(markedLines[0].contains("\(esc)]133;A"), "older echo must stay unmarked")
+        XCTAssertTrue(
+            markedLines[2].hasPrefix(SessionScrollbackReplayStore.semanticPromptStartMark),
+            "most recent message row must be marked, got: \(markedLines[2])"
+        )
+        // Exactly one marker is injected.
+        XCTAssertEqual(
+            marked.components(separatedBy: "\(esc)]133;A").count - 1, 1
+        )
+    }
+
+    // End-to-end: the replay environment file written for restore carries the
+    // re-injected OSC 133 mark in front of the restored last user message.
+    func testScrollbackReplayEnvironmentReinjectsPromptMarkIntoReplayFile() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let esc = "\u{001B}"
+        let reset = "\(esc)[0m"
+        let message = "add a dark mode toggle"
+        let scrollback = "\(esc)[1mclaude\(reset)\n> \(message)\n\(esc)[32m● Done\(reset)\n"
+
+        let environment = SessionScrollbackReplayStore.replayEnvironment(
+            for: scrollback,
+            lastUserMessage: message,
+            tempDirectory: tempDir
+        )
+        guard let path = environment[SessionScrollbackReplayStore.environmentKey] else {
+            XCTFail("Expected replay file path")
+            return
+        }
+        guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
+            XCTFail("Expected replay file contents")
+            return
+        }
+
+        XCTAssertTrue(
+            contents.contains("\(SessionScrollbackReplayStore.semanticPromptStartMark)> \(message)"),
+            "replay file must carry the OSC 133 mark before the last user message, got: \(contents)"
+        )
+        // Surrounding scrollback survives the round trip.
+        XCTAssertTrue(contents.contains("claude"))
+        XCTAssertTrue(contents.contains("● Done"))
+    }
+
     func testSessionScrollbackPersistenceHonorsReportedShellState() {
         XCTAssertTrue(
             Workspace.shouldPersistSessionScrollback(
