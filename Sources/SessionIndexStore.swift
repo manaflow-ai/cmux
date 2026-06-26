@@ -673,12 +673,13 @@ final class SessionIndexStore: ObservableObject {
         entries: [SessionEntry]
     ) -> IndexSection {
         let ordered = orderedSessionEntries(entries)
-        let pinned: Set<String> = pinnedSessionIds.isEmpty
-            ? []
-            : Set(ordered.lazy.map(\.id).filter { pinnedSessionIds.contains($0) })
-        let archived: Set<String> = archivedSessionIds.isEmpty
-            ? []
-            : Set(ordered.lazy.map(\.id).filter { archivedSessionIds.contains($0) })
+        // Capture the sets into locals so the filter predicates close over a
+        // value, not `self` — an escaping closure (the lazy filter was one)
+        // referencing a stored property requires an explicit `self.` capture.
+        let pinnedIds = pinnedSessionIds
+        let archivedIds = archivedSessionIds
+        let pinned = Set(ordered.map(\.id).filter(pinnedIds.contains))
+        let archived = Set(ordered.map(\.id).filter(archivedIds.contains))
         return IndexSection(
             key: key,
             title: title,
