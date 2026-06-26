@@ -10421,12 +10421,13 @@ final class Workspace: Identifiable, ObservableObject {
     func restoredAgentAutoResumePendingForTesting(panelId: UUID) -> Bool {
         restoredAgentResumeStatesByPanelId[panelId] == .awaitingAutoResumeCommand
     }
-
-    /// Number of times `redrawVisibleSurfaces()` has been invoked on this workspace.
-    /// Used by tests to verify the user-facing "Redraw Window" action routes only to
-    /// the selected workspace.
-    var redrawVisibleSurfacesRequestCount = 0
 #endif
+
+    /// Running count of redraw requests received via `redrawVisibleSurfaces()`.
+    /// Lightweight instrumentation for the "Redraw Window" action; the routing test
+    /// reads it (via `@testable import`) to confirm requests reach only the selected
+    /// workspace.
+    var redrawVisibleSurfacesRequestCount = 0
 
     /// Force the visible terminal surfaces in this workspace to re-run their geometry
     /// reconcile and repaint. This is the user-facing "Redraw Window" escape hatch for
@@ -10435,9 +10436,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// same event-driven geometry-reconcile + `forceRefresh()` pass that runs after split
     /// and move churn, so no content is lost — only the rendering is recomputed.
     func redrawVisibleSurfaces() {
-#if DEBUG
         redrawVisibleSurfacesRequestCount += 1
-#endif
         scheduleTerminalGeometryReconcile()
     }
 

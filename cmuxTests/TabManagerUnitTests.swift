@@ -1,4 +1,5 @@
 import XCTest
+import Testing
 import CmuxCore
 import AppKit
 import SwiftUI
@@ -3925,46 +3926,37 @@ final class CrossWindowWorkspaceMoveTests: XCTestCase {
     }
 }
 
-#if DEBUG
+// Regression coverage for the "Redraw Window" escape hatch (issue #6031): the
+// command-palette / View-menu action must re-run the geometry reconcile + repaint
+// pass on the selected workspace only, never on background workspaces.
 @MainActor
-final class TabManagerRedrawSurfacesTests: XCTestCase {
-    // Regression coverage for the "Redraw Window" escape hatch (issue #6031): the
-    // command-palette / View-menu action must re-run the geometry reconcile + repaint
-    // pass on the *selected* workspace only, never on background workspaces.
-    func testRedrawVisibleSurfacesRoutesToSelectedWorkspaceOnly() {
+@Suite(.serialized)
+struct TabManagerRedrawSurfacesTests {
+    @Test func redrawVisibleSurfacesRoutesToSelectedWorkspaceOnly() {
         let manager = TabManager()
         let first = manager.tabs[0]
         let second = manager.addWorkspace()
 
         guard let selected = manager.selectedWorkspace else {
-            XCTFail("Expected a selected workspace")
+            Issue.record("Expected a selected workspace")
             return
         }
         let other = selected.id == first.id ? second : first
 
-        XCTAssertEqual(selected.redrawVisibleSurfacesRequestCount, 0)
-        XCTAssertEqual(other.redrawVisibleSurfacesRequestCount, 0)
+        #expect(selected.redrawVisibleSurfacesRequestCount == 0)
+        #expect(other.redrawVisibleSurfacesRequestCount == 0)
 
         manager.redrawVisibleSurfaces()
 
-        XCTAssertEqual(
-            selected.redrawVisibleSurfacesRequestCount, 1,
-            "Redraw Window must run on the selected workspace"
-        )
-        XCTAssertEqual(
-            other.redrawVisibleSurfacesRequestCount, 0,
-            "Redraw Window must not touch non-selected workspaces"
-        )
+        // Redraw Window must run on the selected workspace, not background ones.
+        #expect(selected.redrawVisibleSurfacesRequestCount == 1)
+        #expect(other.redrawVisibleSurfacesRequestCount == 0)
 
         // Switching selection must re-target the shared action.
         manager.selectWorkspace(other)
         manager.redrawVisibleSurfaces()
 
-        XCTAssertEqual(other.redrawVisibleSurfacesRequestCount, 1)
-        XCTAssertEqual(
-            selected.redrawVisibleSurfacesRequestCount, 1,
-            "Previously-selected workspace must not redraw again after losing selection"
-        )
+        #expect(other.redrawVisibleSurfacesRequestCount == 1)
+        #expect(selected.redrawVisibleSurfacesRequestCount == 1)
     }
 }
-#endif
