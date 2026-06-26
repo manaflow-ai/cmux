@@ -19,11 +19,7 @@ extension TerminalController: ControlClientCommandDispatching {
         _ line: String,
         authenticated: Bool
     ) -> ControlClientCommandOutcome {
-        let result = processSocketLine(line, authenticated: authenticated)
-        return ControlClientCommandOutcome(
-            response: result.response,
-            authenticated: result.authenticated
-        )
+        processSocketLine(line, authenticated: authenticated)
     }
 
     nonisolated func publishCommandEvents(command: String, response: String) {

@@ -1,28 +1,31 @@
 public import Foundation
 
 /// Coalesces repeated main-thread signals into one callback after a short delay.
-/// Useful for notification storms where only the latest update matters.
 ///
-/// This is the panel-title scheduler for ``SurfaceMetadataCoordinator``: a
-/// faithful copy of the app-target `NotificationBurstCoalescer` (which other
-/// window-chrome call sites still use), moved here so the coordinator owns its
-/// own flush timing instead of reaching back into the app target through a host
-/// seam. Behavior is byte-identical to the legacy app-target type: the same
-/// `1.0 / 30.0` default delay, the same single-pending-action coalescing, the
-/// same re-arm when a flush enqueues another action, and the same
-/// `DispatchQueue.main.asyncAfter` timer.
+/// Useful for notification storms where only the latest update matters: each
+/// `signal(_:)` replaces the pending action and, if no flush is already
+/// scheduled, schedules one `delay` seconds out. When the flush fires it runs
+/// the most recently supplied action; if a new signal arrived while flushing,
+/// it reschedules so the latest action is never dropped.
+///
+/// All access must happen on the main thread; the type is `@MainActor` and
+/// `signal(_:)` and the flush both retain a `precondition(Thread.isMainThread)`
+/// to preserve the original runtime contract.
 @MainActor
-final class NotificationBurstCoalescer: TitleFlushScheduling {
+public final class NotificationBurstCoalescer {
     private let delay: TimeInterval
     private var isFlushScheduled = false
     private var pendingAction: (() -> Void)?
 
-    /// Creates a coalescer that flushes `delay` seconds after the first signal
-    /// in a burst. A negative delay is clamped to zero.
+    /// Creates a coalescer that fires at most once per `delay` seconds.
+    /// - Parameter delay: Minimum interval between flushes. Negative values are
+    ///   clamped to zero. Defaults to one 30 Hz frame (`1.0 / 30.0`).
     public init(delay: TimeInterval = 1.0 / 30.0) {
         self.delay = max(0, delay)
     }
 
+    /// Records `action` as the pending work and schedules a flush if one is not
+    /// already pending. Must be called on the main thread.
     public func signal(_ action: @escaping () -> Void) {
         precondition(Thread.isMainThread, "NotificationBurstCoalescer must be used on the main thread")
         pendingAction = action

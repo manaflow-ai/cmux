@@ -5876,7 +5876,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
 #endif
 }
 
-private enum SidebarFontSizeProvider {
+enum SidebarFontSizeProvider {
     static func loadFromGhosttyConfig() async -> CGFloat {
         await Task.detached(priority: .utility) {
             GhosttyConfig.load().sidebarFontSize
@@ -5975,81 +5975,6 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
 
 }
 
-@MainActor
-private final class SidebarTabItemSettingsStore: ObservableObject {
-    @Published private(set) var snapshot: SidebarTabItemSettingsSnapshot
-
-    private let defaults: UserDefaults
-    private let sidebarFontSizeProvider: () async -> CGFloat
-    private var sidebarFontSize: CGFloat
-    private var sidebarFontSizeLoadTask: Task<Void, Never>?
-    private var defaultsObserver: NSObjectProtocol?
-    private var ghosttyConfigObserver: NSObjectProtocol?
-
-    init(
-        defaults: UserDefaults = .standard,
-        initialSidebarFontSize: CGFloat = GhosttyConfig.defaultSidebarFontSize,
-        sidebarFontSizeProvider: @escaping () async -> CGFloat = SidebarFontSizeProvider.loadFromGhosttyConfig
-    ) {
-        self.defaults = defaults
-        self.sidebarFontSize = GhosttyConfig.clampedSidebarFontSize(initialSidebarFontSize)
-        self.sidebarFontSizeProvider = sidebarFontSizeProvider
-        self.snapshot = SidebarTabItemSettingsSnapshot(
-            defaults: defaults,
-            sidebarFontSize: sidebarFontSize
-        )
-        defaultsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.refreshSnapshot()
-            }
-        }
-        refreshSidebarFontSize()
-        ghosttyConfigObserver = NotificationCenter.default.addObserver(
-            forName: .ghosttyConfigDidReload,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.refreshSidebarFontSize()
-            }
-        }
-    }
-
-    deinit {
-        sidebarFontSizeLoadTask?.cancel()
-        if let defaultsObserver {
-            NotificationCenter.default.removeObserver(defaultsObserver)
-        }
-        if let ghosttyConfigObserver {
-            NotificationCenter.default.removeObserver(ghosttyConfigObserver)
-        }
-    }
-
-    private func refreshSnapshot() {
-        let nextSnapshot = SidebarTabItemSettingsSnapshot(
-            defaults: defaults,
-            sidebarFontSize: sidebarFontSize
-        )
-        guard nextSnapshot != snapshot else { return }
-        snapshot = nextSnapshot
-    }
-
-    private func refreshSidebarFontSize() {
-        sidebarFontSizeLoadTask?.cancel()
-        sidebarFontSizeLoadTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            let loadedSidebarFontSize = await sidebarFontSizeProvider()
-            guard !Task.isCancelled else { return }
-            sidebarFontSize = GhosttyConfig.clampedSidebarFontSize(loadedSidebarFontSize)
-            refreshSnapshot()
-        }
-    }
-}
-
 // `SidebarDragState`, `SidebarWorkspaceDragRegistry`, and the DEBUG-only
 // `SidebarDragStateRegistry` now live in the `CmuxSidebar`// package. This app-side convenience keeps the `SidebarDragState()` call site
 // unchanged by injecting the process-wide cross-window registry the app owns
@@ -6106,7 +6031,7 @@ struct VerticalTabsSidebar: View {
     @State private var dragFailsafeMonitor = SidebarDragFailsafeMonitor(
         debugLog: VerticalTabsSidebar.sidebarDragFailsafeDebugLog
     )
-    @StateObject private var tabItemSettingsStore = SidebarTabItemSettingsStore(
+    @State private var tabItemSettingsStore = SidebarTabItemSettingsStore(
         initialSidebarFontSize: GhosttyConfig.load().sidebarFontSize
     )
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared

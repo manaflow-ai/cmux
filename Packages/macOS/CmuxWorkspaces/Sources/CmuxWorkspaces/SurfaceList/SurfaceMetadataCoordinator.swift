@@ -54,10 +54,10 @@ public final class SurfaceMetadataCoordinator<Tab: WorkspaceTabRepresenting> {
     /// can be driven deterministically.
     public init(
         model: WorkspacesModel<Tab>,
-        titleFlushScheduler: any TitleFlushScheduling = NotificationBurstCoalescer(delay: 1.0 / 30.0)
+        titleFlushScheduler: (any TitleFlushScheduling)? = nil
     ) {
         self.model = model
-        self.titleFlushScheduler = titleFlushScheduler
+        self.titleFlushScheduler = titleFlushScheduler ?? NotificationBurstCoalescer(delay: 1.0 / 30.0)
     }
 
     /// Injects the app-coupled title-effects seam. The window calls this at the

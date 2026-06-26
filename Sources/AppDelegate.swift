@@ -7603,7 +7603,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
 #if DEBUG
-    private let debugColorWorkspaceTitlePrefix = "Debug Color - "
     // Read by `logSlowShortcutMonitorLatencyIfNeeded` here and set by the
     // `DebugStressWorkspaceHosting` conformance in a sibling file; `internal`
     // so the cross-file extension can flip it on at batch start.
@@ -7614,6 +7613,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// ``DebugStressWorkspaceHosting`` and supplies the live workspace / window /
     /// terminal-surface operations.
     private lazy var debugStressWorkspaceDriver = DebugStressWorkspaceDriver(host: self)
+
+    /// Orchestrates the Debug menu's terminal-tab openers (scrollback / lorem /
+    /// agent-session / color-comparison). The coordinator owns each opener's
+    /// logic; this app delegate conforms ``DebugTerminalActionsHosting`` (in a
+    /// sibling file) and supplies the live tab / workspace / terminal-surface
+    /// operations. The `@objc` selector methods below stay here as one-line
+    /// forwarders so NSMenu target-action keeps resolving on the app delegate.
+    private lazy var debugTerminalActionsCoordinator = DebugTerminalActionsCoordinator(host: self)
 
     /// The live objects backing one queued stress surface, the former
     /// `DebugStressTerminalLoadTarget`. Kept app-side because it names
@@ -7630,67 +7637,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var debugStressLoadTargets: [UUID: DebugStressTerminalLoadTarget] = [:]
 
     @objc func openDebugScrollbackTab(_ sender: Any?) {
-        guard let tabManager else { return }
-        let tab = tabManager.addTab()
-        let config = GhosttyConfig.load()
-        let command = DebugTerminalTabContent.scrollback(scrollbackLimit: config.scrollbackLimit).text
-        sendTextWhenReady(command, to: tab)
+        debugTerminalActionsCoordinator.openScrollbackTab()
     }
 
     @objc func openDebugLoremTab(_ sender: Any?) {
-        guard let tabManager else { return }
-        let tab = tabManager.addTab()
-        let payload = DebugTerminalTabContent.lorem.text
-        sendTextWhenReady(payload, to: tab)
+        debugTerminalActionsCoordinator.openLoremTab()
     }
 
     @objc func openDebugAgentSessionReact(_ sender: Any?) {
-        openDebugAgentSession(rendererKind: .react)
+        debugTerminalActionsCoordinator.openAgentSession(rendererKind: .react)
     }
 
     @objc func openDebugAgentSessionSolid(_ sender: Any?) {
-        openDebugAgentSession(rendererKind: .solid)
-    }
-
-    private func openDebugAgentSession(rendererKind: AgentSessionRendererKind) {
-        guard let manager = activeTabManagerForCommands(),
-              let workspace = manager.selectedWorkspace,
-              let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
-            return
-        }
-        _ = workspace.newAgentSessionSurface(
-            inPane: paneId,
-            providerID: .codex,
-            rendererKind: rendererKind,
-            workingDirectory: workspace.currentDirectory,
-            focus: true
-        )
+        debugTerminalActionsCoordinator.openAgentSession(rendererKind: .solid)
     }
 
     @objc func openDebugColorComparisonWorkspaces(_ sender: Any?) {
-        guard let tabManager else { return }
-
-        let palette = WorkspaceTabColorSettings.palette()
-        guard !palette.isEmpty else { return }
-
-        var existingByTitle: [String: Workspace] = [:]
-        for tab in tabManager.tabs {
-            guard let title = tab.customTitle,
-                  title.hasPrefix(debugColorWorkspaceTitlePrefix) else { continue }
-            existingByTitle[title] = tab
-        }
-
-        for entry in palette {
-            let title = "\(debugColorWorkspaceTitlePrefix)\(entry.name)"
-            let targetTab: Workspace
-            if let existing = existingByTitle[title] {
-                targetTab = existing
-            } else {
-                targetTab = tabManager.addTab()
-            }
-            tabManager.setCustomTitle(tabId: targetTab.id, title: title)
-            tabManager.setTabColor(tabId: targetTab.id, color: entry.hex)
-        }
+        debugTerminalActionsCoordinator.openColorComparisonWorkspaces()
     }
 
     @objc func openDebugStressWorkspacesWithLoadedSurfaces(_ sender: Any?) {

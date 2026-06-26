@@ -35,20 +35,6 @@ extension Notification.Name {
     static let reactGrabDidCopySelection = BrowserAutomationController.reactGrabDidCopySelectionName
 }
 
-nonisolated struct SocketLineProcessingResult: Sendable {
-    let response: String?
-    let authenticated: Bool
-}
-
-nonisolated func remotePTYSessionListErrorIsUnsupportedDaemon(_ error: Error) -> Bool {
-    let nsError = error as NSError
-    guard nsError.domain == "cmux.remote.daemon.rpc", nsError.code == 14 else {
-        return false
-    }
-    return error.localizedDescription
-        .range(of: "pty.list failed (method_not_found)", options: [.caseInsensitive]) != nil
-}
-
 /// Unix socket-based controller for programmatic terminal control
 /// Allows automated testing and external control of terminal tabs
 ///
@@ -1071,7 +1057,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
     nonisolated func processSocketLine(
         _ command: String,
         authenticated: Bool
-    ) -> SocketLineProcessingResult {
+    ) -> ControlClientCommandOutcome {
 #if DEBUG
         // Per-command debug-log classification (begin/end lines, slow/error
         // gating, method-token sanitization, JSON status scan) lives in
@@ -1099,7 +1085,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
                 cmuxDebugLog(endMessage)
             }
 #endif
-            return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
+            return ControlClientCommandOutcome(response: response, authenticated: nextAuthenticated)
         }
 
         let response = processCommandUsingSocketExecutionPolicy(command)
@@ -1114,7 +1100,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
             cmuxDebugLog(endMessage)
         }
 #endif
-        return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
+        return ControlClientCommandOutcome(response: response, authenticated: nextAuthenticated)
     }
 
     private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String? {

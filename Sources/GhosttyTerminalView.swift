@@ -2973,8 +2973,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
             usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
         )
-        let sharesWindowBackdrop = Workspace.usesWindowRootTerminalBackdrop()
-        let usesBonsplitPaneBackdrop = Workspace.usesBonsplitPaneTerminalBackdrop(
+        let chromeColorResolver = BonsplitChromeColorResolver()
+        let sharesWindowBackdrop = chromeColorResolver.usesWindowRootTerminalBackdrop()
+        let usesBonsplitPaneBackdrop = chromeColorResolver.usesBonsplitPaneTerminalBackdrop(
             renderingMode: renderingMode,
             sharesWindowBackdrop: sharesWindowBackdrop
         )
