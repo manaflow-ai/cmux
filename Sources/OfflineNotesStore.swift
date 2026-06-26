@@ -178,8 +178,6 @@ final class OfflineNotesStore {
     @ObservationIgnored private let reachability: any OfflineNotesReachabilityMonitoring
     @ObservationIgnored private var isFlushing = false
     @ObservationIgnored private var hasStarted = false
-    @ObservationIgnored private var pendingSnapshot: [OfflineNote]?
-    @ObservationIgnored private var persistTask: Task<Void, Never>?
 
     /// Bounds so the app-lifetime queue and its backing file stay finite: a note
     /// is truncated to ``maxNoteLength`` chars, at most ``maxRetainedSentNotes``
@@ -315,7 +313,7 @@ final class OfflineNotesStore {
     /// the same pass) so a persistently-failing dispatcher cannot spin.
     ///
     /// Each note's terminal state is persisted (off the main actor, awaited via
-    /// ``persistAndWait()``) before the next note is dispatched, so a crash
+    /// ``persistOffMainAndWait()``) before the next note is dispatched, so a crash
     /// mid-flush can't replay a note that was already staged. The transient
     /// ``OfflineNoteStatus/sending`` state is not persisted; it is recovered as
     /// ``OfflineNoteStatus/pending`` on next launch (see ``normalizedForLoad(_:)``).
@@ -359,14 +357,8 @@ final class OfflineNotesStore {
             // Durably record this note's terminal state (off the main actor)
             // before dispatching the next one, so a crash can't replay a note
             // that was already staged into the composer.
-            await persistAndWait()
+            await persistOffMainAndWait()
         }
-    }
-
-    /// Persists the queue and awaits the off-main write, so each flushed hand-off is durable before the next.
-    private func persistAndWait() async {
-        persist()
-        await waitForPendingPersist()
     }
 
     // MARK: - Internal helpers
@@ -420,34 +412,28 @@ final class OfflineNotesStore {
         }
     }
 
-    /// Persists the current queue. Writes are coalesced and performed off the
-    /// main actor: each call records the latest snapshot and a single drain task
-    /// encodes + atomically writes the newest snapshot, so a burst of mutations
-    /// (or a reconnect flush) never blocks the main actor on repeated disk I/O.
+    /// Persists the current queue **synchronously**. Used by discrete user
+    /// mutations (capture/delete/retry/clear) so a note is durable the moment it
+    /// is captured — quitting immediately afterward cannot lose it. It is one
+    /// small atomic write, so the main-actor cost is negligible; the higher-volume
+    /// flush path uses ``persistOffMainAndWait()`` instead.
     private func persist() {
         guard let fileURL else { return }
-        pendingSnapshot = notes
-        guard persistTask == nil else { return }
-        persistTask = Task { [weak self] in
-            await self?.drainPersist(to: fileURL)
-        }
+        Self.writeToDisk(notes, to: fileURL)
     }
 
-    private func drainPersist(to fileURL: URL) async {
-        while let snapshot = pendingSnapshot {
-            pendingSnapshot = nil
-            await Self.writeToDisk(snapshot, to: fileURL)
-        }
-        persistTask = nil
+    /// Persists the current queue off the main actor and awaits the write. Used
+    /// inside ``flush()`` so draining a backlog never blocks the main actor on
+    /// repeated disk I/O, while each hand-off is still durable before the next.
+    private func persistOffMainAndWait() async {
+        guard let fileURL else { return }
+        let snapshot = notes
+        await Task.detached(priority: .utility) {
+            OfflineNotesStore.writeToDisk(snapshot, to: fileURL)
+        }.value
     }
 
-    /// Awaits any in-flight persistence. Useful for flushing queued writes
-    /// before the app terminates, and lets tests observe a settled file.
-    func waitForPendingPersist() async {
-        await persistTask?.value
-    }
-
-    private nonisolated static func writeToDisk(_ notes: [OfflineNote], to fileURL: URL) async {
+    private nonisolated static func writeToDisk(_ notes: [OfflineNote], to fileURL: URL) {
         do {
             try FileManager.default.createDirectory(
                 at: fileURL.deletingLastPathComponent(),
