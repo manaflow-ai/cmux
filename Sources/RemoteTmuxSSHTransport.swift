@@ -196,12 +196,11 @@ actor RemoteTmuxSSHTransport {
     ///
     /// Idempotent and best-effort: returns `true` at once when a master is already
     /// live (warm path); otherwise opens it exactly once with `run(["true"])` — a
-    /// single connection can't lose the creation race — and a successful open IS the
-    /// readiness signal (the mux connection was accepted and `ControlPersist` keeps
-    /// the master alive). Only a *failed* open falls back to one `ssh -O check` probe
-    /// for a concurrent discovery connection still finishing its hand-off. No timers
-    /// or polling — readiness comes from the connection lifecycle. Callers may
-    /// proceed on `false` (no worse than today's ungated burst).
+    /// single connection can't lose the creation race — and then confirms with one
+    /// authoritative `ssh -O check` (a non-multiplexed fallback can make `run`
+    /// succeed without a live master, so the open's exit code is not trusted). A
+    /// single mux-socket query, never a timer or poll. Callers may proceed on
+    /// `false` (no worse than today's ungated burst).
     ///
     /// Single-flight: the actor is reentrant across `await`, so two concurrent
     /// bulk-mirror callers for the same host (e.g. a dedicated-window attach and a
@@ -231,10 +230,10 @@ actor RemoteTmuxSSHTransport {
     private func performMasterReady() async throws -> Bool {
         try? host.ensureControlSocketDirectory()
         if try await masterIsRunning() { return true }
-        // A successful open means ssh established (or reused) the master and ran the
-        // command over it, so it is live and accepting mux sessions — return now.
-        if let opened = try? await run(["true"]), opened.succeeded { return true }
-        // Open didn't confirm a master; probe once for a discovery hand-off in flight.
+        // Warm the shared master once, then confirm. The open's exit code is not
+        // trusted (a non-multiplexed fallback can make `run` exit 0 with no live
+        // master — see the doc comment); the post-open `ssh -O check` is authoritative.
+        _ = try? await run(["true"])
         return try await masterIsRunning()
     }
 

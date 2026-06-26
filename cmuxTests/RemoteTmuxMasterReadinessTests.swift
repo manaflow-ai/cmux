@@ -17,20 +17,23 @@ import Testing
 /// one fail with "ControlSocket … already exists, disabling multiplexing", so only
 /// one or two sessions mirror. The fix —
 /// ``RemoteTmuxSSHTransport/ensureMasterReady()`` — opens the master exactly once (a
-/// single connection can't lose the creation race); a successful open IS the
-/// readiness signal (the mux connection was accepted and `ControlPersist` keeps the
-/// master alive), so the burst rides a live master.
+/// single connection can't lose the creation race), then confirms with one
+/// authoritative `ssh -O check`. The open's exit code is NOT trusted: under
+/// `ControlMaster=auto` ssh can fall back to a non-multiplexed direct connection and
+/// still exit 0 without a live shared master, so only the `-O check` proves the
+/// burst can ride a live master.
 ///
 /// The OpenSSH creation race itself isn't hermetically reproducible (it needs a
 /// real multi-session host), so these tests lock in the *mechanism* that prevents
 /// it: a fake `ssh` that records its invocations and tracks a master-up sentinel,
 /// asserting the gate opens the master once when cold, is idempotent when warm, and
-/// reports not-ready (so callers degrade) when the open fails. The single-flight
-/// coalescing of concurrent callers is an actor-reentrancy property verified by
-/// review rather than a (necessarily timing-dependent) unit test.
+/// — crucially — reports not-ready when the open succeeds but no master is actually
+/// up (the non-multiplexed-fallback hole). The single-flight coalescing of
+/// concurrent callers is an actor-reentrancy property verified by review rather than
+/// a (necessarily timing-dependent) unit test.
 @Suite struct RemoteTmuxMasterReadinessTests {
 
-    @Test func coldOpenSignalsReadinessAndOpensExactlyOnce() async throws {
+    @Test func coldMasterIsOpenedOnceThenConfirmedReady() async throws {
         let env = try FakeSSHEnvironment(behavior: .opensOnFirstRun)
         defer { env.cleanUp() }
 
@@ -45,9 +48,10 @@ import Testing
         // The master must be opened exactly once — a single creator can't lose the
         // burst's creation race. More than one open would reintroduce it.
         #expect(env.openCount() == 1)
-        // A successful open is the readiness signal: no `ssh -O check` confirmation
-        // is issued afterward (only the one initial warm-path probe runs).
-        #expect(env.checkCount() == 1)
+        // Readiness is confirmed by an authoritative `ssh -O check` AFTER the open,
+        // not assumed from the open's exit code: one initial warm-path probe plus
+        // one post-open confirmation = two checks.
+        #expect(env.checkCount() == 2)
     }
 
     @Test func warmMasterShortCircuitsWithoutReopening() async throws {
@@ -67,8 +71,13 @@ import Testing
         #expect(env.openCount() == 0)
     }
 
-    @Test func failedMasterOpenReportsNotReady() async throws {
-        let env = try FakeSSHEnvironment(behavior: .openFails)
+    @Test func openSucceedingWithoutLiveMasterReportsNotReady() async throws {
+        // The regression for the non-multiplexed-fallback hole: `run(["true"])`
+        // exits 0 (ssh fell back to a direct connection) but no shared master is
+        // accepting clients. Trusting the open's exit code here would report ready
+        // and fire the attach burst into the cold-master race; the post-open
+        // `ssh -O check` must catch it and report not-ready instead.
+        let env = try FakeSSHEnvironment(behavior: .openSucceedsButMasterStaysDown)
         defer { env.cleanUp() }
 
         let transport = RemoteTmuxSSHTransport(
@@ -78,10 +87,11 @@ import Testing
 
         let ready = try await transport.ensureMasterReady()
 
-        // A failed open with no live master must report not-ready so the controller
-        // can log/degrade rather than silently assume a clean mirror. The single
-        // fallback probe also fails (no master), so the result is `false`.
         #expect(!ready)
+        // The open ran (and "succeeded"), but the authoritative post-open check
+        // still ran and is what determined the not-ready result.
+        #expect(env.openCount() == 1)
+        #expect(env.checkCount() == 2)
     }
 
     // MARK: - Fake ssh harness
@@ -95,12 +105,13 @@ import Testing
     /// real network, no real `ssh`.
     private struct FakeSSHEnvironment {
         enum Behavior: Equatable {
-            /// Cold: the first non-check run opens the master and exits 0.
+            /// Cold: the first non-check run opens the master (sentinel) and exits 0.
             case opensOnFirstRun
             /// Warm: the master is already up before the first check.
             case alreadyRunning
-            /// Broken: the open exits non-zero and the master never comes up.
-            case openFails
+            /// Fallback hole: the open exits 0 (non-multiplexed direct connection)
+            /// but the shared master never comes up, so `-O check` keeps failing.
+            case openSucceedsButMasterStaysDown
         }
 
         let root: URL
@@ -125,10 +136,12 @@ import Testing
             switch behavior {
             case .opensOnFirstRun, .alreadyRunning:
                 // `.alreadyRunning` never reaches the open (warm check short-circuits),
-                // but keep a well-formed success body.
+                // but keep a well-formed success body that brings the master up.
                 openBody = ": > \"$STATE\"\nexit 0"
-            case .openFails:
-                openBody = "exit 1"
+            case .openSucceedsButMasterStaysDown:
+                // Exit 0 like a non-multiplexed fallback, but never create the
+                // sentinel — the shared master stays down, so `-O check` keeps failing.
+                openBody = "exit 0"
             }
 
             let script = """
