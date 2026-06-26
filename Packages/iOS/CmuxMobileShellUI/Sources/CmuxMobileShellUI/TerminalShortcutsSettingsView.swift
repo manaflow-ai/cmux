@@ -51,15 +51,17 @@ struct TerminalShortcutsSettingsView: View {
                     }
                     .accessibilityIdentifier("TerminalShortcutsAddActionButton")
 
-                    Button {
-                        isAddingMenu = true
-                    } label: {
-                        Label(
-                            L10n.string("mobile.shortcuts.addMenu", defaultValue: "Add Menu"),
-                            systemImage: "ellipsis.circle"
-                        )
+                    if scope == .terminal {
+                        Button {
+                            isAddingMenu = true
+                        } label: {
+                            Label(
+                                L10n.string("mobile.shortcuts.addMenu", defaultValue: "Add Menu"),
+                                systemImage: "ellipsis.circle"
+                            )
+                        }
+                        .accessibilityIdentifier("TerminalShortcutsAddMenuButton")
                     }
-                    .accessibilityIdentifier("TerminalShortcutsAddMenuButton")
                 }
 
                 Section {
