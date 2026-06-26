@@ -1581,6 +1581,154 @@ final class WorkspaceChromeColorTests: XCTestCase {
         XCTAssertEqual(colors.splitButtonBackdropHex, "#00000000")
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
     }
+
+    // MARK: - Top tab bar workspace color tint (issue #6706)
+
+    private var darkChromeBackground: NSColor {
+        NSColor(srgbRed: 30.0 / 255.0, green: 30.0 / 255.0, blue: 30.0 / 255.0, alpha: 1.0)
+    }
+
+    private var lightChromeBackground: NSColor {
+        NSColor(srgbRed: 253.0 / 255.0, green: 246.0 / 255.0, blue: 227.0 / 255.0, alpha: 1.0)
+    }
+
+    func testBonsplitChromeColorsTintsTopTabBarWhenSharingWindowBackdrop() {
+        let customColorHex = "#1565C0" // "Blue" palette entry
+
+        let colors = Workspace.bonsplitChromeColors(
+            backgroundColor: darkChromeBackground,
+            backgroundOpacity: 1.0,
+            sharesWindowBackdrop: true,
+            renderingMode: .windowHostBackdrop,
+            topTabBarTintHex: customColorHex
+        )
+
+        let expectedTint = Workspace.resolvedTopTabBarTintHex(
+            fromCustomColorHex: customColorHex,
+            chromeBackgroundColor: darkChromeBackground
+        )
+        XCTAssertNotNil(expectedTint)
+        // The top tab bar is painted with the workspace color instead of the
+        // shared-backdrop transparent sentinel.
+        XCTAssertEqual(colors.tabBarBackgroundHex, expectedTint)
+        XCTAssertNotEqual(colors.tabBarBackgroundHex, "#00000000")
+        // The remaining chrome surfaces keep their shared-backdrop defaults.
+        XCTAssertEqual(colors.splitButtonBackdropHex, "#00000000")
+        XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
+    }
+
+    func testBonsplitChromeColorsTintsTopTabBarWhenNotSharingWindowBackdrop() {
+        let surfaceHex = Workspace.bonsplitChromeHex(
+            backgroundColor: darkChromeBackground,
+            backgroundOpacity: 1.0
+        )
+        let customColorHex = "#196F3D" // "Green" palette entry
+
+        let colors = Workspace.bonsplitChromeColors(
+            backgroundColor: darkChromeBackground,
+            backgroundOpacity: 1.0,
+            sharesWindowBackdrop: false,
+            renderingMode: .windowHostBackdrop,
+            topTabBarTintHex: customColorHex
+        )
+
+        let expectedTint = Workspace.resolvedTopTabBarTintHex(
+            fromCustomColorHex: customColorHex,
+            chromeBackgroundColor: darkChromeBackground
+        )
+        XCTAssertEqual(colors.tabBarBackgroundHex, expectedTint)
+        XCTAssertNotEqual(colors.tabBarBackgroundHex, surfaceHex)
+        // Only the tab bar is tinted; the rest of the chrome keeps the terminal
+        // surface fill.
+        XCTAssertEqual(colors.backgroundHex, surfaceHex)
+        XCTAssertEqual(colors.splitButtonBackdropHex, surfaceHex)
+    }
+
+    func testBonsplitChromeColorsLeavesTopTabBarDefaultWithoutCustomColor() {
+        let shared = Workspace.bonsplitChromeColors(
+            backgroundColor: darkChromeBackground,
+            backgroundOpacity: 1.0,
+            sharesWindowBackdrop: true,
+            renderingMode: .windowHostBackdrop,
+            topTabBarTintHex: nil
+        )
+        XCTAssertEqual(shared.tabBarBackgroundHex, "#00000000")
+
+        let surfaceHex = Workspace.bonsplitChromeHex(
+            backgroundColor: darkChromeBackground,
+            backgroundOpacity: 1.0
+        )
+        let local = Workspace.bonsplitChromeColors(
+            backgroundColor: darkChromeBackground,
+            backgroundOpacity: 1.0,
+            sharesWindowBackdrop: false,
+            renderingMode: .windowHostBackdrop,
+            topTabBarTintHex: nil
+        )
+        XCTAssertEqual(local.tabBarBackgroundHex, surfaceHex)
+    }
+
+    func testBonsplitChromeColorsIgnoresMalformedCustomColor() {
+        let colors = Workspace.bonsplitChromeColors(
+            backgroundColor: darkChromeBackground,
+            backgroundOpacity: 1.0,
+            sharesWindowBackdrop: true,
+            renderingMode: .windowHostBackdrop,
+            topTabBarTintHex: "not-a-hex"
+        )
+        XCTAssertEqual(colors.tabBarBackgroundHex, "#00000000")
+    }
+
+    func testResolvedTopTabBarTintHexMatchesWorkspaceDisplayColorAndBrightensForDarkChrome() {
+        let customColorHex = "#1565C0"
+
+        let lightExpected = WorkspaceTabColorSettings.displayNSColor(
+            hex: customColorHex,
+            colorScheme: .light
+        )?.hexString()
+        let darkExpected = WorkspaceTabColorSettings.displayNSColor(
+            hex: customColorHex,
+            colorScheme: .dark
+        )?.hexString()
+        XCTAssertNotNil(lightExpected)
+        XCTAssertNotNil(darkExpected)
+        // Dark chrome brightens the color, so the two resolutions differ.
+        XCTAssertNotEqual(lightExpected, darkExpected)
+
+        XCTAssertEqual(
+            Workspace.resolvedTopTabBarTintHex(
+                fromCustomColorHex: customColorHex,
+                chromeBackgroundColor: lightChromeBackground
+            ),
+            lightExpected
+        )
+        XCTAssertEqual(
+            Workspace.resolvedTopTabBarTintHex(
+                fromCustomColorHex: customColorHex,
+                chromeBackgroundColor: darkChromeBackground
+            ),
+            darkExpected
+        )
+    }
+
+    func testResolvedTopTabBarTintHexReturnsNilForMissingOrMalformedHex() {
+        XCTAssertNil(Workspace.resolvedTopTabBarTintHex(
+            fromCustomColorHex: nil,
+            chromeBackgroundColor: darkChromeBackground
+        ))
+        XCTAssertNil(Workspace.resolvedTopTabBarTintHex(
+            fromCustomColorHex: "",
+            chromeBackgroundColor: darkChromeBackground
+        ))
+        XCTAssertNil(Workspace.resolvedTopTabBarTintHex(
+            fromCustomColorHex: "#12",
+            chromeBackgroundColor: darkChromeBackground
+        ))
+        XCTAssertNil(Workspace.resolvedTopTabBarTintHex(
+            fromCustomColorHex: "GGGGGG",
+            chromeBackgroundColor: darkChromeBackground
+        ))
+    }
 }
 
 // WindowTransparencyDecisionTests was deleted: its subjects (the free functions

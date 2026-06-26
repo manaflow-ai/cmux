@@ -2175,6 +2175,13 @@ final class Workspace: Identifiable, ObservableObject {
     /// The group entity itself lives in `TabManager.workspaceGroups`.
     @Published var groupId: UUID?
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
+    /// Terminal background color/opacity most recently fed to the bonsplit
+    /// chrome. Cached so a live `setCustomColor(_:)` can recompute the chrome —
+    /// which tints the top tab bar with the workspace's custom color — without
+    /// waiting for the next Ghostty theme refresh. Updated on every
+    /// `applyGhosttyChrome(...)`.
+    private var lastAppliedChromeBackgroundColor: NSColor = .black
+    private var lastAppliedChromeBackgroundOpacity: Double = 1.0
     /// User-defined environment variables applied to every shell spawned in this
     /// workspace: the initial terminal, every later pane/surface/split, and every
     /// surface recreated on session restore. Managed `CMUX_*` and terminal-identity
@@ -2754,7 +2761,8 @@ final class Workspace: Identifiable, ObservableObject {
         backgroundColor: NSColor,
         backgroundOpacity: Double,
         sharesWindowBackdrop: Bool = false,
-        renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop
+        renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop,
+        topTabBarTintHex: String? = nil
     ) -> BonsplitConfiguration.Appearance.ChromeColors {
         let surfaceHex = bonsplitChromeHex(
             backgroundColor: backgroundColor,
@@ -2764,11 +2772,19 @@ final class Workspace: Identifiable, ObservableObject {
         let borderHex = WindowChromeColorResolver()
             .separatorColor(forChromeBackground: backgroundColor)
             .hexString(includeAlpha: true)
+        // When the workspace carries a custom color, paint the top tab bar with
+        // it (Peacock-style) so the active project is identifiable from the top
+        // chrome and not just the sidebar. `nil` leaves the default fill — and
+        // therefore every existing default-color workspace — untouched.
+        let tabBarTintHex = resolvedTopTabBarTintHex(
+            fromCustomColorHex: topTabBarTintHex,
+            chromeBackgroundColor: backgroundColor
+        )
 
         if sharesWindowBackdrop {
             return .init(
                 backgroundHex: surfaceHex,
-                tabBarBackgroundHex: "#00000000",
+                tabBarBackgroundHex: tabBarTintHex ?? "#00000000",
                 splitButtonBackdropHex: "#00000000",
                 paneBackgroundHex: "#00000000",
                 borderHex: borderHex
@@ -2783,11 +2799,36 @@ final class Workspace: Identifiable, ObservableObject {
             : "#00000000"
         return .init(
             backgroundHex: surfaceHex,
-            tabBarBackgroundHex: surfaceHex,
+            tabBarBackgroundHex: tabBarTintHex ?? surfaceHex,
             splitButtonBackdropHex: surfaceHex,
             paneBackgroundHex: paneBackgroundHex,
             borderHex: borderHex
         )
+    }
+
+    /// Resolves a workspace custom-color hex into a solid top-tab-bar tint.
+    ///
+    /// Brightens the color for dark chrome (mirroring the sidebar's
+    /// dark-appearance handling in `WorkspaceTabColorSettings`) so the same
+    /// workspace color reads consistently in the sidebar and the top tab bar.
+    /// Returns `nil` for a missing or malformed hex, which leaves the default
+    /// tab-bar fill in place.
+    nonisolated static func resolvedTopTabBarTintHex(
+        fromCustomColorHex hex: String?,
+        chromeBackgroundColor: NSColor
+    ) -> String? {
+        guard let hex,
+              let normalized = WorkspaceTabColorSettings.normalizedHex(hex) else {
+            return nil
+        }
+        let prefersBrightTint = chromeBackgroundColor.luminance < 0.5
+        guard let tint = WorkspaceTabColorSettings.displayNSColor(
+            hex: normalized,
+            colorScheme: prefersBrightTint ? .dark : .light
+        ) else {
+            return nil
+        }
+        return tint.hexString()
     }
 
     nonisolated static func resolvedChromeColors(
@@ -2875,6 +2916,8 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func applyGhosttyChrome(from config: GhosttyConfig, reason: String = "unspecified") {
+        lastAppliedChromeBackgroundColor = config.backgroundColor
+        lastAppliedChromeBackgroundOpacity = config.backgroundOpacity
         let sharesWindowBackdrop = Self.usesWindowRootTerminalBackdrop()
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
             usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
@@ -2883,7 +2926,8 @@ final class Workspace: Identifiable, ObservableObject {
             backgroundColor: config.backgroundColor,
             backgroundOpacity: config.backgroundOpacity,
             sharesWindowBackdrop: sharesWindowBackdrop,
-            renderingMode: renderingMode
+            renderingMode: renderingMode,
+            topTabBarTintHex: customColor
         )
         let nextTabTitleFontSize = config.surfaceTabBarFontSize
         let currentAppearance = bonsplitController.configuration.appearance
@@ -2933,6 +2977,8 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func applyGhosttyChrome(backgroundColor: NSColor, backgroundOpacity: Double, reason: String = "unspecified") {
+        lastAppliedChromeBackgroundColor = backgroundColor
+        lastAppliedChromeBackgroundOpacity = backgroundOpacity
         let sharesWindowBackdrop = Self.usesWindowRootTerminalBackdrop()
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
             usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
@@ -2941,7 +2987,8 @@ final class Workspace: Identifiable, ObservableObject {
             backgroundColor: backgroundColor,
             backgroundOpacity: backgroundOpacity,
             sharesWindowBackdrop: sharesWindowBackdrop,
-            renderingMode: renderingMode
+            renderingMode: renderingMode,
+            topTabBarTintHex: customColor
         )
         let currentChromeColors = bonsplitController.configuration.appearance.chromeColors
         let currentUsesSharedBackdrop = bonsplitController.configuration.appearance.usesSharedBackdrop
@@ -3022,6 +3069,8 @@ final class Workspace: Identifiable, ObservableObject {
             backgroundOpacity: GhosttyApp.shared.defaultBackgroundOpacity,
             tabTitleFontSize: initialSurfaceTabBarFontSize
         )
+        self.lastAppliedChromeBackgroundColor = GhosttyApp.shared.defaultBackgroundColor
+        self.lastAppliedChromeBackgroundOpacity = GhosttyApp.shared.defaultBackgroundOpacity
         let config = BonsplitConfiguration(
             allowSplits: true,
             allowCloseTabs: !CloseTabWarningStore(defaults: closeTabWarningDefaults).hidesTabCloseButton,
@@ -4369,6 +4418,15 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             customColor = nil
         }
+        // Reflect the change in the top tab bar immediately. Changing a
+        // workspace's color does not trigger a Ghostty theme refresh, so without
+        // this the tint would only appear on the next unrelated chrome update.
+        // `applyGhosttyChrome` no-ops when the recomputed chrome is unchanged.
+        applyGhosttyChrome(
+            backgroundColor: lastAppliedChromeBackgroundColor,
+            backgroundOpacity: lastAppliedChromeBackgroundOpacity,
+            reason: "customColorChanged"
+        )
     }
 
     func setTerminalScrollBarHidden(_ hidden: Bool) {
