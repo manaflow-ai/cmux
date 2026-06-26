@@ -2015,11 +2015,18 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
-    func testDaemonBootstrapUploadUsesAbsoluteHomePathOverSSHPipe() throws {
+    func testDaemonBootstrapUploadUsesAbsoluteHomePathForScpDestination() throws {
         // Regression for https://github.com/manaflow-ai/cmux/issues/6207: the
         // cmuxd-remote binary must be streamed over the SSH channel itself
         // (`ssh -T … 'cat > tmp'`) instead of scp/sftp, whose path semantics
         // frequently differ (chroot/jail) from the interactive SSH session.
+        //
+        // The method name predates the scp→ssh switch and is kept verbatim so
+        // the deterministic cmuxTests shard distribution (a sha256-ordered
+        // bin-pack over test identifiers in scripts/ci/cmux_unit_test_shard.py)
+        // is byte-identical to main; renaming reshuffles unrelated GUI suites
+        // across shards and has surfaced a pre-existing flaky WebKit
+        // test-isolation crash in another shard.
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-remote-daemon-upload-\(UUID().uuidString)",

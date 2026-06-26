@@ -13,7 +13,7 @@
 8016	CLI/cmux_open.swift
 7952	Sources/Panels/BrowserPanelView.swift
 7366	cmuxTests/WorkspaceUnitTests.swift
-7282	cmuxTests/WorkspaceRemoteConnectionTests.swift
+7289	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6895	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 6317	cmuxTests/SessionPersistenceTests.swift
 6217	cmuxTests/GhosttyConfigTests.swift
