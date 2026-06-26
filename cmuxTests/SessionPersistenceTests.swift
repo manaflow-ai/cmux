@@ -861,6 +861,54 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(contents.contains("● Done"))
     }
 
+    // Integration across the persistence boundary: the terminal snapshot persists
+    // `lastUserMessage`, it survives a Codable round trip, and the restore path
+    // threads it into `replayEnvironment` so the written replay file carries the
+    // re-injected OSC 133 mark. (The capture side persists it whenever replayable
+    // scrollback is saved — see `Workspace.sessionPanelSnapshot`.)
+    func testTerminalSnapshotLastUserMessageRoundTripsIntoReplayInjection() throws {
+        let esc = "\u{001B}"
+        let message = "wire up the settings panel"
+        let snapshot = SessionTerminalPanelSnapshot(
+            scrollback: "\(esc)[1mclaude\(esc)[0m\n> \(message)\n\(esc)[32m● Done\(esc)[0m\n",
+            lastUserMessage: message
+        )
+
+        let data = try JSONEncoder().encode(snapshot)
+        let decoded = try JSONDecoder().decode(SessionTerminalPanelSnapshot.self, from: data)
+        XCTAssertEqual(decoded.lastUserMessage, message, "lastUserMessage must persist through Codable")
+
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let environment = SessionScrollbackReplayStore.replayEnvironment(
+            for: decoded.scrollback,
+            lastUserMessage: decoded.lastUserMessage,
+            tempDirectory: tempDir
+        )
+        guard let path = environment[SessionScrollbackReplayStore.environmentKey],
+              let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
+            XCTFail("Expected replay file")
+            return
+        }
+        XCTAssertTrue(
+            contents.contains("\(SessionScrollbackReplayStore.semanticPromptStartMark)> \(message)"),
+            "restore must re-inject the OSC 133 mark using the persisted lastUserMessage, got: \(contents)"
+        )
+    }
+
+    // A snapshot that omits scrollback must also omit lastUserMessage, so no copy
+    // of user input is persisted for terminals whose contents are not saved.
+    func testTerminalSnapshotWithoutScrollbackDecodesNilLastUserMessage() throws {
+        let snapshot = SessionTerminalPanelSnapshot(workingDirectory: "/tmp")
+        XCTAssertNil(snapshot.lastUserMessage)
+        let data = try JSONEncoder().encode(snapshot)
+        let decoded = try JSONDecoder().decode(SessionTerminalPanelSnapshot.self, from: data)
+        XCTAssertNil(decoded.lastUserMessage)
+    }
+
     func testSessionScrollbackPersistenceHonorsReportedShellState() {
         XCTAssertTrue(
             Workspace.shouldPersistSessionScrollback(
