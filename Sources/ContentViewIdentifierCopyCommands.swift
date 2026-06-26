@@ -3,7 +3,7 @@ import AppKit
 import Foundation
 
 extension ContentView {
-    func appendIdentifierCopyCommandContributions(
+    static func appendIdentifierCopyCommandContributions(
         to contributions: inout [CommandPaletteCommandContribution],
         workspaceSubtitle: @escaping (CommandPaletteContextSnapshot) -> String,
         panelSubtitle: @escaping (CommandPaletteContextSnapshot) -> String

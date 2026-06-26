@@ -6494,7 +6494,7 @@ struct ContentView: View {
             let titleFormat = String(localized: "command.switchExtensionSidebar.title", defaultValue: "Sidebar: %@")
             contributions.append(
                 CommandPaletteCommandContribution(
-                    commandId: commandPaletteExtensionSidebarCommandID(descriptor.id),
+                    commandId: Self.commandPaletteExtensionSidebarCommandID(descriptor.id),
                     title: constant(String.localizedStringWithFormat(titleFormat, title)),
                     subtitle: constant(String(localized: "command.switchExtensionSidebar.subtitle", defaultValue: "Choose Sidebar")),
                     keywords: ["sidebar", "switch", "extension", title.lowercased()]
@@ -6757,7 +6757,7 @@ struct ContentView: View {
         for entry in WorkspaceTabColorSettings.palette() {
             contributions.append(
                 CommandPaletteCommandContribution(
-                    commandId: commandPaletteWorkspaceColorCommandID(entry.name),
+                    commandId: Self.commandPaletteWorkspaceColorCommandID(entry.name),
                     title: constant(workspaceColorCommandTitle(entry.name)),
                     subtitle: workspaceSubtitle,
                     keywords: ["workspace", "color", "palette", entry.name.lowercased()],
@@ -6863,7 +6863,7 @@ struct ContentView: View {
                 enablement: { $0.bool(CommandPaletteContextKeys.workspaceCanMarkUnread) }
             )
         )
-        appendIdentifierCopyCommandContributions(
+        Self.appendIdentifierCopyCommandContributions(
             to: &contributions,
             workspaceSubtitle: workspaceSubtitle,
             panelSubtitle: panelSubtitle
@@ -6891,7 +6891,7 @@ struct ContentView: View {
                 }
             )
         )
-        appendMoveTabToNewWorkspaceCommandContribution(to: &contributions, panelSubtitle: panelSubtitle)
+        Self.appendMoveTabToNewWorkspaceCommandContribution(to: &contributions, panelSubtitle: panelSubtitle)
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.toggleTabPin",
@@ -7516,7 +7516,7 @@ struct ContentView: View {
         return "palette.cmuxConfig.issue.\(String(hash, radix: 16))"
     }
 
-    private func commandPaletteWorkspaceColorCommandID(_ colorName: String) -> String {
+    private static func commandPaletteWorkspaceColorCommandID(_ colorName: String) -> String {
         var hash: UInt64 = 1_469_598_103_934_665_603
         for byte in colorName.utf8 {
             hash ^= UInt64(byte)
@@ -7525,7 +7525,7 @@ struct ContentView: View {
         return "palette.workspaceColor.\(String(hash, radix: 16))"
     }
 
-    private func commandPaletteExtensionSidebarCommandID(_ providerId: String) -> String {
+    private static func commandPaletteExtensionSidebarCommandID(_ providerId: String) -> String {
         var hash: UInt64 = 1_469_598_103_934_665_603
         for byte in providerId.utf8 {
             hash ^= UInt64(byte)
@@ -7698,7 +7698,7 @@ struct ContentView: View {
         // was visible when the flag was on still resolves after a runtime flip.
         // Visibility is gated by `descriptors`; the handler set is the superset.
         for descriptor in CmuxExtensionSidebarSelection.allDescriptors {
-            registry.register(commandId: commandPaletteExtensionSidebarCommandID(descriptor.id)) {
+            registry.register(commandId: Self.commandPaletteExtensionSidebarCommandID(descriptor.id)) {
                 CmuxExtensionSidebarSelection.setProviderId(descriptor.id)
             }
         }
@@ -7833,7 +7833,7 @@ struct ContentView: View {
             tabManager.applyWorkspaceColor(nil, toWorkspaceIds: [workspace.id])
         }
         for entry in WorkspaceTabColorSettings.palette() {
-            registry.register(commandId: commandPaletteWorkspaceColorCommandID(entry.name)) {
+            registry.register(commandId: Self.commandPaletteWorkspaceColorCommandID(entry.name)) {
                 guard let workspace = tabManager.selectedWorkspace else {
                     NSSound.beep()
                     return
