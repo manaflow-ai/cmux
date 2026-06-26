@@ -123,6 +123,23 @@ def main():
             True, "clean body, anti-patterns only in comments/strings",
         ) else 1
 
+        # (b2) A Swift multi-line string literal that contains a bare `"` and
+        # forbidden tokens must not trip the guard. A naive tokenizer closes the
+        # literal at the inner quote and exposes `GeometryReader` as code. (#6870)
+        good_multiline = fixture(
+            GOOD_SCROLL
+            + "\n            .help(\"\"\"\n"
+            + "            Layout note: he said \"GeometryReader\" plus\n"
+            + "            sizeThatFits(ProposedViewSize(width: w, height: nil)) and\n"
+            + "            SidebarRowsFillLayout are all forbidden here.\n"
+            + "            \"\"\")",
+            GOOD_ROWS,
+        )
+        failures += 0 if expect(
+            run_guard(write_fixture(workdir, "GoodMultiline.swift", good_multiline)),
+            True, "multi-line string with bare quote + forbidden tokens passes",
+        ) else 1
+
         # (c) Force-measure reintroduced.
         bad_force = fixture(
             "        let h = subviews.first?.sizeThatFits(\n"

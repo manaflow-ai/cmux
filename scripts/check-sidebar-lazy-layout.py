@@ -102,7 +102,7 @@ def neutralize_swift(source):
     out = []
     i = 0
     n = len(source)
-    LINE_COMMENT, BLOCK_COMMENT, STRING = 1, 2, 3
+    LINE_COMMENT, BLOCK_COMMENT, STRING, MULTILINE_STRING = 1, 2, 3, 4
     state = 0
     while i < n:
         ch = source[i]
@@ -117,6 +117,16 @@ def neutralize_swift(source):
                 out.append("  ")
                 i += 2
                 state = BLOCK_COMMENT
+                continue
+            if source[i:i + 3] == '"""':
+                # Swift multi-line string literal: only a closing `"""` ends it,
+                # so a bare `"` inside must NOT toggle string state -- otherwise
+                # the inner quote would close the literal early and expose the
+                # rest (e.g. a forbidden token named in prose) as apparent code,
+                # tripping the guard with a false positive. (#6870 review)
+                out.append('"""')
+                i += 3
+                state = MULTILINE_STRING
                 continue
             if ch == '"':
                 out.append('"')
@@ -154,6 +164,16 @@ def neutralize_swift(source):
                 i += 1
                 state = 0
                 continue
+            out.append("\n" if ch == "\n" else " ")
+            i += 1
+            continue
+        if state == MULTILINE_STRING:
+            if source[i:i + 3] == '"""':
+                out.append('"""')
+                i += 3
+                state = 0
+                continue
+            # A lone `"` does not close a multi-line string; only `"""` does.
             out.append("\n" if ch == "\n" else " ")
             i += 1
             continue
