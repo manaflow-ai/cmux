@@ -163,20 +163,7 @@ extension TerminalController {
     // MARK: - send_text / send_key
 
     func controlSurfaceInputStrings() -> ControlSurfaceInputStrings {
-        ControlSurfaceInputStrings(
-            inputQueueFull: String(
-                localized: "socket.terminal.inputQueueFull",
-                defaultValue: "The terminal can't accept more input right now. Wait a moment and retry, or reopen the terminal if it stays unavailable."
-            ),
-            surfaceUnavailable: String(
-                localized: "socket.terminal.surfaceUnavailable",
-                defaultValue: "The terminal surface is no longer available; reopen it or create a new terminal session."
-            ),
-            processExited: String(
-                localized: "socket.terminal.processExited",
-                defaultValue: "The terminal session has ended; reopen it or create a new terminal session."
-            )
-        )
+        terminalErrorStrings
     }
 
     /// Resolves the send target surface, matching the legacy

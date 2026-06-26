@@ -218,7 +218,7 @@ extension TerminalController: MobileTerminalRPCHost {
         v2Bool(params, key)
     }
 
-    var mobileTerminalInputQueueFullMessage: String { Self.terminalInputQueueFullMessage }
-    var mobileTerminalSurfaceUnavailableMessage: String { Self.terminalSurfaceUnavailableMessage }
-    var mobileTerminalProcessExitedMessage: String { Self.terminalProcessExitedMessage }
+    var mobileTerminalInputQueueFullMessage: String { terminalErrorStrings.inputQueueFull }
+    var mobileTerminalSurfaceUnavailableMessage: String { terminalErrorStrings.surfaceUnavailable }
+    var mobileTerminalProcessExitedMessage: String { terminalErrorStrings.processExited }
 }

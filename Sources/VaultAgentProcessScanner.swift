@@ -382,21 +382,9 @@ extension RestorableAgentSessionIndex {
         let argvParser = AgentResumeArgvParser()
         switch kind {
         case .claude:
-            return argvParser.sessionId(
-                in: arguments,
-                afterAnyOption: ["--resume", "-r", "--session-id"],
-                valuePrefixes: ["--resume=", "--session-id="]
-            )
+            return argvParser.claudeExplicitResumeSessionId(in: arguments)
         case .codex:
-            if let id = argvParser.sessionId(in: arguments, afterAnyOption: ["--resume", "-r"], valuePrefixes: ["--resume="]) {
-                return id
-            }
-            if let index = arguments.firstIndex(of: "resume"),
-               index + 1 < arguments.endIndex,
-               !arguments[index + 1].hasPrefix("-") {
-                return normalized(arguments[index + 1])
-            }
-            return nil
+            return argvParser.codexExplicitResumeSessionId(in: arguments)
         default:
             return nil
         }

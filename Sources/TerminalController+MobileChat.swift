@@ -94,7 +94,7 @@ extension TerminalController: MobileChatRPCHost {
         v2Int(params, key)
     }
 
-    var mobileChatInputQueueFullMessage: String { Self.terminalInputQueueFullMessage }
-    var mobileChatSurfaceUnavailableMessage: String { Self.terminalSurfaceUnavailableMessage }
-    var mobileChatProcessExitedMessage: String { Self.terminalProcessExitedMessage }
+    var mobileChatInputQueueFullMessage: String { terminalErrorStrings.inputQueueFull }
+    var mobileChatSurfaceUnavailableMessage: String { terminalErrorStrings.surfaceUnavailable }
+    var mobileChatProcessExitedMessage: String { terminalErrorStrings.processExited }
 }

@@ -763,7 +763,7 @@ final class TerminalNotificationStore: ObservableObject {
 
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let authorizedHooks = await NotificationPolicyHookAuthorizer.authorize(
+            let authorizedHooks = await NotificationPolicyHookAuthorizer(trust: .shared).authorize(
                 policyContext.hooks,
                 globalConfigPath: policyContext.globalConfigPath
             )

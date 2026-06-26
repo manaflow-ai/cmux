@@ -117,7 +117,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     @State private var sidebarRenderWorkerClient: RenderWorkerClient?
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
     @StateObject private var fileExplorerStore = FileExplorerStore()
-    @StateObject private var sessionIndexStore = SessionIndexStore()
+    @State private var sessionIndexStore = SessionIndexStore()
     @State private var selectedWorkspaceDirectoryModel = SelectedWorkspaceDirectoryModel()
     @State private var selectedWorkspaceDirectoryReading = SelectedWorkspaceDirectoryReadingAdapter()
     @State private var tmuxWorkspacePaneOverlayRegistry = TmuxWorkspacePaneOverlayRegistry(

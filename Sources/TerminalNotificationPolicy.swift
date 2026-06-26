@@ -89,66 +89,6 @@ enum TerminalNotificationPolicyEngine {
     }
 }
 
-@MainActor
-enum NotificationPolicyHookAuthorizer {
-    static func authorize(
-        _ hooks: [CmuxResolvedNotificationHook],
-        globalConfigPath: String?,
-        presentingWindow: NSWindow? = nil
-    ) async -> [CmuxResolvedNotificationHook] {
-        var authorizedHooks: [CmuxResolvedNotificationHook] = []
-        let resolvedPresentingWindow = presentingWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
-
-        for hook in hooks {
-            guard let descriptor = hook.trustDescriptor else {
-                authorizedHooks.append(hook)
-                continue
-            }
-            guard !CmuxActionTrust.shared.isTrusted(descriptor) else {
-                authorizedHooks.append(hook)
-                continue
-            }
-            guard let globalConfigPath else {
-                continue
-            }
-
-            let isAuthorized = await authorizeHook(
-                hook,
-                descriptor: descriptor,
-                globalConfigPath: globalConfigPath,
-                presentingWindow: resolvedPresentingWindow
-            )
-            if isAuthorized {
-                authorizedHooks.append(hook)
-            }
-        }
-
-        return authorizedHooks
-    }
-
-    private static func authorizeHook(
-        _ hook: CmuxResolvedNotificationHook,
-        descriptor: CmuxActionTrustDescriptor,
-        globalConfigPath: String,
-        presentingWindow: NSWindow?
-    ) async -> Bool {
-        await withCheckedContinuation { continuation in
-            CmuxConfigExecutor.authorizeProjectAutomationIfNeeded(
-                descriptor: descriptor,
-                confirm: false,
-                configSourcePath: hook.sourcePath,
-                globalConfigPath: globalConfigPath,
-                displayCommand: "[\(hook.id)] \(hook.command)",
-                presentingWindow: presentingWindow
-            ) {
-                continuation.resume(returning: true)
-            } onDenied: {
-                continuation.resume(returning: false)
-            }
-        }
-    }
-}
-
 private enum NotificationHookOutputStream {
     case stdout
     case stderr

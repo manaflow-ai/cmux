@@ -116,7 +116,7 @@ struct RightSidebarPanelView: View {
     var tabManager: TabManager
     @ObservedObject var fileExplorerStore: FileExplorerStore
     @ObservedObject var fileExplorerState: FileExplorerState
-    @ObservedObject var sessionIndexStore: SessionIndexStore
+    var sessionIndexStore: SessionIndexStore
     let titlebarHeight: CGFloat
     let workspaceId: UUID?
     let onResumeSession: ((SessionEntry) -> Void)?

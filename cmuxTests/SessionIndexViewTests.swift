@@ -1,5 +1,5 @@
 import AppKit
-import Combine
+import Observation
 import SQLite3
 import SwiftUI
 import XCTest
@@ -9,6 +9,13 @@ import XCTest
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+/// Counts `withObservationTracking` `onChange` fires. The store is `@MainActor`,
+/// so every mutation runs on the test actor; the class only exists so the
+/// `@Sendable` `onChange` closure can capture and mutate it.
+private final class SessionIndexObservationCounter: @unchecked Sendable {
+    var count = 0
+}
 
 @MainActor
 final class SessionIndexViewTests: XCTestCase {
@@ -229,18 +236,28 @@ final class SessionIndexViewTests: XCTestCase {
         )
     }
 
-    func testCurrentDirectorySetterDoesNotPublishEqualValue() {
+    func testCurrentDirectorySetterDoesNotNotifyObserverForEqualValue() {
         let store = SessionIndexStore()
-        var emittedValues: [String?] = []
-        let cancellable = store.$currentDirectory
-            .dropFirst()
-            .sink { emittedValues.append($0) }
-        defer { cancellable.cancel() }
+        let counter = SessionIndexObservationCounter()
 
+        // A genuine change (nil -> "/foo") notifies the observer exactly once.
+        withObservationTracking {
+            _ = store.currentDirectory
+        } onChange: {
+            counter.count += 1
+        }
         store.setCurrentDirectoryIfChanged("/foo")
-        store.setCurrentDirectoryIfChanged("/foo")
+        XCTAssertEqual(counter.count, 1)
 
-        XCTAssertEqual(emittedValues, ["/foo"])
+        // Re-arm; setting the identical value is guarded by
+        // `setCurrentDirectoryIfChanged`, so no `@Observable` mutation fires.
+        withObservationTracking {
+            _ = store.currentDirectory
+        } onChange: {
+            counter.count += 1
+        }
+        store.setCurrentDirectoryIfChanged("/foo")
+        XCTAssertEqual(counter.count, 1)
     }
 
     func testDirectoryOrderBackfillUsesLatestModifiedForDuplicateDirectories() {

@@ -8,7 +8,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct SessionIndexView: View {
-    @ObservedObject var store: SessionIndexStore
+    @Bindable var store: SessionIndexStore
     /// Lives alongside the store but is owned by this view so drag-state
     /// transitions don't invalidate data-subscribed views elsewhere in the
     /// sidebar.

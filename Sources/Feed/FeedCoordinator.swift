@@ -631,7 +631,7 @@ private extension FeedCoordinator {
                 return
             }
 
-            let authorizedHooks = await NotificationPolicyHookAuthorizer.authorize(
+            let authorizedHooks = await NotificationPolicyHookAuthorizer(trust: .shared).authorize(
                 policyContext.hooks,
                 globalConfigPath: policyContext.globalConfigPath
             )

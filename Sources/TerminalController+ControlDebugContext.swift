@@ -850,25 +850,6 @@ extension TerminalController: ControlDebugContext {
         readTerminalTextBase64(surfaceArg: args)
     }
 
-    private struct RenderStatsResponse: Codable {
-        let panelId: String
-        let drawCount: Int
-        let lastDrawTime: Double
-        let metalDrawableCount: Int
-        let metalLastDrawableTime: Double
-        let presentCount: Int
-        let lastPresentTime: Double
-        let layerClass: String
-        let layerContentsKey: String
-        let inWindow: Bool
-        let windowIsKey: Bool
-        let windowOcclusionVisible: Bool
-        let appIsActive: Bool
-        let isActive: Bool
-        let desiredFocus: Bool
-        let isFirstResponder: Bool
-    }
-
     func renderStats(_ args: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
@@ -914,14 +895,12 @@ extension TerminalController: ControlDebugContext {
                 isFirstResponder: stats.isFirstResponder
             )
 
-            let encoder = JSONEncoder()
-            guard let data = try? encoder.encode(payload),
-                  let json = String(data: data, encoding: .utf8) else {
+            guard let line = payload.okResponseLine() else {
                 result = "ERROR: Failed to encode render_stats"
                 return
             }
 
-            result = "OK \(json)"
+            result = line
         }
 
         return result

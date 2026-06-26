@@ -439,13 +439,13 @@ extension TerminalController {
             case .queued:
                 success = true
             case .inputQueueFull:
-                error = Self.terminalInputQueueFullSocketError
+                error = terminalErrorStrings.inputQueueFullSocketError
                 return
             case .surfaceUnavailable:
-                error = Self.terminalSurfaceUnavailableSocketError
+                error = terminalErrorStrings.surfaceUnavailableSocketError
                 return
             case .processExited:
-                error = Self.terminalProcessExitedSocketError
+                error = terminalErrorStrings.processExitedSocketError
                 return
             }
         }
@@ -494,13 +494,13 @@ extension TerminalController {
             case .queued:
                 success = true
             case .inputQueueFull:
-                error = Self.terminalInputQueueFullSocketError
+                error = terminalErrorStrings.inputQueueFullSocketError
                 return
             case .surfaceUnavailable:
-                error = Self.terminalSurfaceUnavailableSocketError
+                error = terminalErrorStrings.surfaceUnavailableSocketError
                 return
             case .processExited:
-                error = Self.terminalProcessExitedSocketError
+                error = terminalErrorStrings.processExitedSocketError
                 return
             }
         }
@@ -574,13 +574,13 @@ extension TerminalController {
             case .queued:
                 success = true
             case .inputQueueFull:
-                error = Self.terminalInputQueueFullSocketError
+                error = terminalErrorStrings.inputQueueFullSocketError
                 return
             case .surfaceUnavailable:
-                error = Self.terminalSurfaceUnavailableSocketError
+                error = terminalErrorStrings.surfaceUnavailableSocketError
                 return
             case .processExited:
-                error = Self.terminalProcessExitedSocketError
+                error = terminalErrorStrings.processExitedSocketError
                 return
             }
         }
@@ -611,11 +611,11 @@ extension TerminalController {
             case .unknownKey:
                 error = "ERROR: Unknown key '\(keyName)'"
             case .inputQueueFull:
-                error = Self.terminalInputQueueFullSocketError
+                error = terminalErrorStrings.inputQueueFullSocketError
             case .surfaceUnavailable:
-                error = Self.terminalSurfaceUnavailableSocketError
+                error = terminalErrorStrings.surfaceUnavailableSocketError
             case .processExited:
-                error = Self.terminalProcessExitedSocketError
+                error = terminalErrorStrings.processExitedSocketError
             }
         }
         if let error { return error }
@@ -646,11 +646,11 @@ extension TerminalController {
             case .unknownKey:
                 error = "ERROR: Unknown key '\(keyName)'"
             case .inputQueueFull:
-                error = Self.terminalInputQueueFullSocketError
+                error = terminalErrorStrings.inputQueueFullSocketError
             case .surfaceUnavailable:
-                error = Self.terminalSurfaceUnavailableSocketError
+                error = terminalErrorStrings.surfaceUnavailableSocketError
             case .processExited:
-                error = Self.terminalProcessExitedSocketError
+                error = terminalErrorStrings.processExitedSocketError
             }
         }
 

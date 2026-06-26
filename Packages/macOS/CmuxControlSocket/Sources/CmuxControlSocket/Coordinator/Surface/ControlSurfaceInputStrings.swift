@@ -31,4 +31,16 @@ public struct ControlSurfaceInputStrings: Sendable, Equatable {
         self.surfaceUnavailable = surfaceUnavailable
         self.processExited = processExited
     }
+
+    /// The `inputQueueFull` message prefixed with the legacy `"ERROR: "` socket
+    /// envelope.
+    public var inputQueueFullSocketError: String { "ERROR: \(inputQueueFull)" }
+
+    /// The `surfaceUnavailable` message prefixed with the legacy `"ERROR: "`
+    /// socket envelope.
+    public var surfaceUnavailableSocketError: String { "ERROR: \(surfaceUnavailable)" }
+
+    /// The `processExited` message prefixed with the legacy `"ERROR: "` socket
+    /// envelope.
+    public var processExitedSocketError: String { "ERROR: \(processExited)" }
 }

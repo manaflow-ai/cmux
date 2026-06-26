@@ -178,38 +178,26 @@ class TerminalController: MobileViewportSurfaceLimiting {
     /// viewport-seam extension in that sibling file can reach it; the model itself
     /// stays the single owner of the state.
     lazy var mobileViewportReportModel = HostMobileViewportReportModel(limiter: self)
-    static var terminalProcessExitedMessage: String {
-        String(
+    /// The localized terminal-input error strings (CmuxControlSocket), resolved
+    /// against the app bundle at construction and held as immutable Sendable
+    /// state. The surface send/notify and mobile terminal/chat command paths read
+    /// the `*` messages and `*SocketError` envelopes from here. Stored
+    /// `nonisolated` because it is an immutable Sendable value read from both the
+    /// main actor and the socket-worker lane.
+    nonisolated let terminalErrorStrings = ControlSurfaceInputStrings(
+        inputQueueFull: String(
+            localized: "socket.terminal.inputQueueFull",
+            defaultValue: "The terminal can't accept more input right now. Wait a moment and retry, or reopen the terminal if it stays unavailable."
+        ),
+        surfaceUnavailable: String(
+            localized: "socket.terminal.surfaceUnavailable",
+            defaultValue: "The terminal surface is no longer available; reopen it or create a new terminal session."
+        ),
+        processExited: String(
             localized: "socket.terminal.processExited",
             defaultValue: "The terminal session has ended; reopen it or create a new terminal session."
         )
-    }
-
-    static var terminalInputQueueFullMessage: String {
-        String(
-            localized: "socket.terminal.inputQueueFull",
-            defaultValue: "The terminal can't accept more input right now. Wait a moment and retry, or reopen the terminal if it stays unavailable."
-        )
-    }
-
-    static var terminalSurfaceUnavailableMessage: String {
-        String(
-            localized: "socket.terminal.surfaceUnavailable",
-            defaultValue: "The terminal surface is no longer available; reopen it or create a new terminal session."
-        )
-    }
-
-    static var terminalProcessExitedSocketError: String {
-        "ERROR: \(terminalProcessExitedMessage)"
-    }
-
-    static var terminalInputQueueFullSocketError: String {
-        "ERROR: \(terminalInputQueueFullMessage)"
-    }
-
-    static var terminalSurfaceUnavailableSocketError: String {
-        "ERROR: \(terminalSurfaceUnavailableMessage)"
-    }
+    )
 
     /// The main-actor RPC dispatch coordinator (CmuxControlSocket). Owns the
     /// `kind:N` handle registry and the moved command domains (window so far,
