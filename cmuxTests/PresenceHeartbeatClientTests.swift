@@ -87,4 +87,27 @@ import Testing
         )
         #expect(JSONSerialization.isValidJSONObject(body))
     }
+
+    @Test func bodyCarriesTransportModeWhenSetAndOmitsItWhenEmpty() throws {
+        let withMode = PresenceHeartbeatClient.heartbeatBody(
+            deviceID: "11111111-2222-4333-8444-555555555555",
+            tag: "default",
+            bundleID: nil,
+            displayName: nil,
+            transportMode: "cmuxRelay",
+            routes: [],
+            stopping: false
+        )
+        #expect(withMode["transportMode"] as? String == "cmuxRelay")
+
+        let withoutMode = PresenceHeartbeatClient.heartbeatBody(
+            deviceID: "11111111-2222-4333-8444-555555555555",
+            tag: "default",
+            bundleID: nil,
+            displayName: nil,
+            routes: [],
+            stopping: false
+        )
+        #expect(withoutMode["transportMode"] == nil)
+    }
 }

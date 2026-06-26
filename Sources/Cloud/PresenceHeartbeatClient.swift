@@ -187,6 +187,7 @@ final class PresenceHeartbeatClient {
             tag: Self.buildTag(),
             bundleID: Bundle.main.bundleIdentifier,
             displayName: MobileHostIdentity.displayName(),
+            transportMode: MobileHostService.currentTransportMode().rawValue,
             routes: currentRoutes,
             stopping: stopping
         )
@@ -228,6 +229,7 @@ final class PresenceHeartbeatClient {
         tag: String,
         bundleID: String?,
         displayName: String?,
+        transportMode: String? = nil,
         routes: [CmxAttachRoute],
         stopping: Bool
     ) -> [String: Any] {
@@ -245,6 +247,12 @@ final class PresenceHeartbeatClient {
         }
         if let displayName, !displayName.isEmpty {
             bodyDict["displayName"] = displayName
+        }
+        // The Mac-chosen transport mode, so the phone can render a read-only badge.
+        // Opaque on the wire (the worker does not enforce the enum); omitted when
+        // empty so an older field shape never wipes a known value.
+        if let transportMode, !transportMode.isEmpty {
+            bodyDict["transportMode"] = transportMode
         }
         if stopping {
             bodyDict["stopping"] = true
