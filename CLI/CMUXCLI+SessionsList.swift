@@ -428,7 +428,9 @@ extension CMUXCLI {
     ) -> [String: Any] {
         let storedPIDAlive = sessionsListStoredPIDAlive(record.pid)
         let hookRecordRestorable = record.isRestorable != false
-        let forkSupported = hookRecordRestorable && sessionsListForkArguments(agent: agent, record: record) != nil
+        let forkArguments = hookRecordRestorable ? sessionsListForkArguments(agent: agent, record: record) : nil
+        let forkSupported = forkArguments != nil
+        let forkStartupInputAvailable = forkArguments.map(sessionsListForkStartupInputAvailable) ?? false
         let unavailableReason: String
         if forkSupported {
             unavailableReason = "available"
@@ -441,7 +443,7 @@ extension CMUXCLI {
         var diagnostics: [String: Any] = [
             "fork_supported": forkSupported,
             "fork_unavailable_reason": unavailableReason,
-            "fork_startup_input_available": forkSupported,
+            "fork_startup_input_available": forkStartupInputAvailable,
             "hook_record_restorable": hookRecordRestorable,
             "stale_pid_blocks_restore_in_0_64_17": record.pid != nil && storedPIDAlive == false && forkSupported,
         ]
@@ -472,6 +474,15 @@ extension CMUXCLI {
                 arguments: record.launchCommand?.arguments ?? []
             )
         }
+    }
+
+    private func sessionsListForkStartupInputAvailable(arguments: [String]) -> Bool {
+        let command = arguments.map(sessionsListShellSingleQuoted).joined(separator: " ")
+        return (command + "\n").utf8.count <= 900
+    }
+
+    private func sessionsListShellSingleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     private func sessionsListStoredPIDAlive(_ pid: Int?) -> Bool? {
