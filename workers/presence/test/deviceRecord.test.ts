@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { DeviceInstanceRecord, DeviceRecord } from "../src/syncDevices";
+import { deriveDeviceRecord, deviceShapeChanged } from "../src/syncDevices";
+import type { PresenceInstance } from "../src/core";
 
 // Cross-language device-record contract. These are the SAME golden fixtures the
 // Swift suite loads (Packages/Shared/CmuxSyncStore/Tests/.../SyncFrameAndProtocolTests.swift,
@@ -32,6 +34,7 @@ function asDeviceRecord(raw: any): DeviceRecord {
         tag: i.tag,
         routes: i.routes,
         lastSeenAtAtRev: i.lastSeenAtAtRev,
+        transportMode: i.transportMode,
       }),
     ),
   };
@@ -52,14 +55,16 @@ function _pinWireTypes(r: DeviceRecord, i: DeviceInstanceRecord): void {
   const tag: string = i.tag;
   const instanceLastSeen: number = i.lastSeenAtAtRev;
   const routes: readonly unknown[] = i.routes;
+  const transportMode: string | undefined = i.transportMode;
   // Optionality pins: `undefined` must remain assignable to these fields. If a
   // future change drops the `?` (optional -> required, a compat break since
-  // production deriveDeviceRecord omits both for unnamed/unowned devices), then
-  // `undefined` no longer assigns and this fails typecheck.
+  // production deriveDeviceRecord omits these for unnamed/unowned/older hosts),
+  // then `undefined` no longer assigns and this fails typecheck.
   const optDisplayName: DeviceRecord["displayName"] = undefined;
   const optOwnerUserId: DeviceRecord["ownerUserId"] = undefined;
+  const optTransportMode: DeviceInstanceRecord["transportMode"] = undefined;
   void [deviceId, platform, displayName, ownerUserId, recordLastSeen, instances, tag,
-    instanceLastSeen, routes, optDisplayName, optOwnerUserId];
+    instanceLastSeen, routes, transportMode, optDisplayName, optOwnerUserId, optTransportMode];
 }
 
 // Exhaustive key maps. `Record<keyof X, true>` forces EVERY interface key to be
@@ -80,6 +85,7 @@ const DEVICE_INSTANCE_KEYS: Record<keyof DeviceInstanceRecord, true> = {
   tag: true,
   routes: true,
   lastSeenAtAtRev: true,
+  transportMode: true,
 };
 
 describe("device-record cross-language contract", () => {
@@ -124,6 +130,8 @@ describe("device-record cross-language contract", () => {
         insts.forEach((ei, i) => {
           const inst = record.instances[i]!;
           if (ei.tag !== undefined) expect(inst.tag, `${name} instance[${i}] tag`).toBe(ei.tag);
+          if (ei.transportMode !== undefined)
+            expect(inst.transportMode, `${name} instance[${i}] transportMode`).toBe(ei.transportMode);
           expect(Array.isArray(inst.routes), `${name} instance[${i}] routes is array`).toBe(true);
           // Pin the route `kind` discriminator at runtime: the raw wire kinds,
           // filtered to known kinds (dropping deliberate unknowns like the
@@ -158,5 +166,36 @@ describe("device-record cross-language contract", () => {
     expect(Object.keys(DEVICE_INSTANCE_KEYS).sort(), "DeviceInstanceRecord source vs lock").toEqual(
       lockKeys("DeviceInstanceRecord"),
     );
+  });
+});
+
+describe("transportMode flows heartbeat -> record and mints a rev on change", () => {
+  const inst = (transportMode?: string): PresenceInstance => ({
+    deviceId: "d",
+    tag: "default",
+    platform: "mac",
+    capabilities: [],
+    online: true,
+    lastSeenAt: 1000,
+    routes: [],
+    transportMode,
+  });
+
+  it("deriveDeviceRecord carries transportMode and omits it when absent", () => {
+    const withMode = deriveDeviceRecord("d", [inst("cmuxRelay")], undefined);
+    expect(withMode?.instances[0]?.transportMode).toBe("cmuxRelay");
+
+    const without = deriveDeviceRecord("d", [inst(undefined)], undefined);
+    expect(without?.instances[0]?.transportMode).toBeUndefined();
+    // Absent (not an explicit `undefined` key): keeps the wire payload minimal.
+    expect("transportMode" in (without!.instances[0] as object)).toBe(false);
+  });
+
+  it("a transportMode change is a shape change (mints a new rev); an identical one is not", () => {
+    const prev = deriveDeviceRecord("d", [inst("tailscale")], undefined)!;
+    const changed = deriveDeviceRecord("d", [inst("cmuxRelay")], undefined)!;
+    const same = deriveDeviceRecord("d", [inst("tailscale")], undefined)!;
+    expect(deviceShapeChanged(prev, changed)).toBe(true);
+    expect(deviceShapeChanged(prev, same)).toBe(false);
   });
 });

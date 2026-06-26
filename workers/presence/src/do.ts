@@ -269,9 +269,15 @@ export class TeamPresence extends DurableObject {
   ): boolean {
     if (existing === undefined) return true;      // new instance (tag added)
     if (ownerPinned) return true;                 // owner pin is list-shape (display/trust)
+    // This hot-path gate must stay in sync with the list-shape fields in
+    // syncDevices.ts `deviceShapeChanged`: any field that can mint a new device
+    // record rev must also be able to trigger projection here, or a heartbeat
+    // changing only that field would emit `seen`, skip syncOneDevice, and never
+    // reach subscribers.
     if (existing.platform !== instance.platform) return true;
     if (existing.displayName !== instance.displayName) return true;
     if (existing.bundleId !== instance.bundleId) return true;
+    if (existing.transportMode !== instance.transportMode) return true; // badge change
     if (!routesEqual(existing.routes, instance.routes)) return true; // covers goodbye-with-routes
     // `online` means the instance came back (a re-add into the list). A pure
     // `seen` event with unchanged identity and routes is the no-op case.

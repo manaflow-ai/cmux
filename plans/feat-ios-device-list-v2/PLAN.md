@@ -157,6 +157,20 @@ contract.
   diff before handoff.
 
 ### Stage 2 — `transport_mode` on the record + fix Mac→worker routes=0
+
+STATUS (2026-06-25): `transportMode` HALF COMPLETE + autoreview-clean (commit
+`8a36529e2d`). Threaded additively, mirroring `bundleId`: HeartbeatInput +
+parseHeartbeat (bounded) → PresenceInstance + both heartbeat-apply paths →
+DeviceInstanceRecord + deriveDeviceRecord; `deviceShapeChanged` AND the
+`do.ts` hot-path gate `heartbeatMayChangeListShape` both treat a mode change as
+list-shape (so a badge change mints a rev and is projected); Swift InstanceRecord
++ TS DeviceInstanceRecord + lock + key map + fixtures; `registryDevice(from:)`
++ `RegistryAppInstance.transportMode` carry it to the UI model. Behavior tests:
+parse, derive, shape-change, facade propagation. Additive → no schemaVersion bump.
+REMAINING (dogfood-dependent): the Mac SENDING transportMode is PR #6689's job;
+the `routes=0` presence fix needs live-presence diagnosis + a tagged dogfood to
+verify (root cause is upstream Mac-heartbeat→worker route delivery, memory
+`ios-dev-presence-routes-gap`), so it is not headlessly completable here.
 - Add `transportMode` (additive) to the instance record + `deriveDeviceRecord`;
   add a fixture + lock entry (additive, so no `schemaVersion` bump per the
   substrate rule).

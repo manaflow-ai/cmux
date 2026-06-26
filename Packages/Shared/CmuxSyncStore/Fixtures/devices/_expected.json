@@ -18,7 +18,7 @@
     "ownerUserId": "user_iroh",
     "lastSeenAtAtRev": 1719000100000,
     "instanceCount": 1,
-    "instances": [{ "tag": "default", "routeKinds": ["iroh"] }]
+    "instances": [{ "tag": "default", "routeKinds": ["iroh"], "transportMode": "cmuxRelay" }]
   },
   "device-multi-instance.json": {
     "decodes": true,
@@ -30,7 +30,7 @@
     "instanceCount": 2,
     "instances": [
       { "tag": "stable", "routeKinds": ["iroh"] },
-      { "tag": "mytag", "routeKinds": ["tailscale"] }
+      { "tag": "mytag", "routeKinds": ["tailscale"], "transportMode": "tailscale" }
     ]
   },
   "device-future-field.json": {

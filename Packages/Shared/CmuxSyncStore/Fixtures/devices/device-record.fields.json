@@ -13,7 +13,8 @@
     "DeviceInstanceRecord": {
       "tag": "string",
       "routes": "CmxAttachRoute[]",
-      "lastSeenAtAtRev": "number"
+      "lastSeenAtAtRev": "number",
+      "transportMode": "string?"
     }
   }
 }

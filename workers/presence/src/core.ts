@@ -40,6 +40,9 @@ export interface PresenceInstance {
   /** The app's bundle id, so clients can label the build channel (Stable /
    * Nightly / RC / DEV). Absent for older hosts that don't report it. */
   bundleId?: string;
+  /** The Mac-chosen mobile transport mode (cmuxRelay/ownRelay/tailscale), shown
+   * as a read-only badge on the phone. Absent for older hosts. */
+  transportMode?: string;
   capabilities: string[];
   online: boolean;
   /** Epoch ms of the last heartbeat received. */
@@ -62,6 +65,7 @@ export interface HeartbeatInput {
   platform: string;
   displayName?: string;
   bundleId?: string;
+  transportMode?: string;
   capabilities?: string[];
   /** True when the host is shutting down cleanly and wants an immediate
    * offline transition instead of waiting out the timeout. */
@@ -119,6 +123,7 @@ export function applyHeartbeat(
     platform: beat.platform,
     displayName: beat.displayName ?? existing?.displayName,
     bundleId: beat.bundleId ?? existing?.bundleId,
+    transportMode: beat.transportMode ?? existing?.transportMode,
     capabilities: beat.capabilities ?? existing?.capabilities ?? [],
     online: true,
     lastSeenAt: nowMs,
@@ -153,6 +158,7 @@ function applyGoodbye(
     platform: beat.platform,
     displayName: beat.displayName ?? existing?.displayName,
     bundleId: beat.bundleId ?? existing?.bundleId,
+    transportMode: beat.transportMode ?? existing?.transportMode,
     capabilities: beat.capabilities ?? existing?.capabilities ?? [],
     online: false,
     lastSeenAt: existing?.lastSeenAt ?? nowMs,

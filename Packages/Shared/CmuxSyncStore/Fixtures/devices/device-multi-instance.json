@@ -25,6 +25,7 @@
     {
       "tag": "mytag",
       "lastSeenAtAtRev": 1719000200000,
+      "transportMode": "tailscale",
       "routes": [
         {
           "id": "tailscale",

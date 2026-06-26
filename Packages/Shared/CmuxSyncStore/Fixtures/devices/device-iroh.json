@@ -8,6 +8,7 @@
     {
       "tag": "default",
       "lastSeenAtAtRev": 1719000100000,
+      "transportMode": "cmuxRelay",
       "routes": [
         {
           "id": "iroh",

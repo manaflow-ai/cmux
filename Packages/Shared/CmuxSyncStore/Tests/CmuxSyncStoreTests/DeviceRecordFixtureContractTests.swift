@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileShellModel
 import Foundation
 import Testing
 @testable import CmuxSyncStore
@@ -64,6 +65,9 @@ import Testing
                 for (i, ei) in insts.enumerated() where i < rec.instances.count {
                     let inst = rec.instances[i]
                     if let tag = ei["tag"] as? String { #expect(inst.tag == tag, "\(name) instance[\(i)] tag") }
+                    if let tm = ei["transportMode"] as? String {
+                        #expect(inst.transportMode == tm, "\(name) instance[\(i)] transportMode")
+                    }
                     if let kinds = ei["routeKinds"] as? [String] {
                         let actual = try inst.routes.map { try Self.routeKind($0) }
                         #expect(actual == kinds, "\(name) instance[\(i)] routeKinds (unknown kinds must be dropped)")
@@ -96,5 +100,20 @@ import Testing
                 "SyncedDeviceRecord fields \(recordFields.sorted()) != lock \(lockKeys("DeviceRecord").sorted())")
         #expect(instanceFields == lockKeys("DeviceInstanceRecord"),
                 "InstanceRecord fields \(instanceFields.sorted()) != lock \(lockKeys("DeviceInstanceRecord").sorted())")
+    }
+
+    /// `registryDevice(from:)` feeds the existing iOS device-tree model
+    /// (`RegistryAppInstance`); transportMode must survive that mapping or the
+    /// read-only badge can never reach the UI.
+    @Test func registryDeviceCarriesTransportMode() throws {
+        let withMode = SyncedDeviceRecord(
+            deviceId: "d", platform: "mac", displayName: nil, ownerUserId: nil, lastSeenAtAtRev: 0,
+            instances: [.init(tag: "default", routes: [], lastSeenAtAtRev: 0, transportMode: "cmuxRelay")])
+        #expect(DeviceSyncFacade.registryDevice(from: withMode).instances.first?.transportMode == "cmuxRelay")
+
+        let withoutMode = SyncedDeviceRecord(
+            deviceId: "d", platform: "mac", displayName: nil, ownerUserId: nil, lastSeenAtAtRev: 0,
+            instances: [.init(tag: "default", routes: [], lastSeenAtAtRev: 0)])
+        #expect(DeviceSyncFacade.registryDevice(from: withoutMode).instances.first?.transportMode == nil)
     }
 }
