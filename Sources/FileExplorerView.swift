@@ -119,14 +119,17 @@ struct FileExplorerPanelView: NSViewRepresentable {
             styleObserver = NotificationCenter.default.addObserver(
                 forName: .fileExplorerStyleDidChange, object: nil, queue: .main
             ) { [weak self] _ in
-                guard let self, let outlineView = self.outlineView else { return }
-                let style = FileExplorerStyle.current
-                self.withProgrammaticOutlineUpdate {
-                    outlineView.indentationPerLevel = style.indentation
-                    outlineView.noteHeightOfRows(withIndexesChanged: IndexSet(0..<outlineView.numberOfRows))
-                    outlineView.reloadData()
-                    self.restoreExpansionState(self.store.expandedPaths, in: outlineView)
-                    self.applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: false)
+                Task { @MainActor [weak self] in
+                    guard let self, let outlineView = self.outlineView else { return }
+                    let style = FileExplorerStyle.current
+                    self.withProgrammaticOutlineUpdate {
+                        outlineView.indentationPerLevel = style.indentation
+                        outlineView.noteHeightOfRows(withIndexesChanged: IndexSet(0..<outlineView.numberOfRows))
+                        outlineView.reloadData()
+                        self.restoreExpansionState(self.store.expandedPaths, in: outlineView)
+                        self.applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: false)
+                    }
+                    self.containerView?.applyCurrentStyle()
                 }
             }
         }
@@ -917,7 +920,7 @@ final class FileExplorerContainerView: NSView {
         headerView.applyFonts()
     }
 
-    private func applyCurrentStyle() {
+    fileprivate func applyCurrentStyle() {
         applyChromeColors()
         headerView.applyColors()
         outlineView.setNeedsDisplay(outlineView.bounds)
