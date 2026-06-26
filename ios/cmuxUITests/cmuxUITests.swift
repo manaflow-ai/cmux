@@ -904,6 +904,87 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testAgentChatMiddleKeyboardUserTapToggleVideoEvidence() throws {
+        for refocusCase in [
+            (delay: 0.10, prefix: "tap-toggle-early", label: "middle user-tap early hide-refocus"),
+            (delay: 0.22, prefix: "tap-toggle-mid", label: "middle user-tap mid hide-refocus"),
+            (delay: 0.34, prefix: "tap-toggle-late", label: "middle user-tap late hide-refocus"),
+        ] {
+            let app = launchAgentChatInlinePreviewApp()
+            let table = app.tables["ChatTranscriptTableView"]
+            XCTAssertTrue(table.waitForExistence(timeout: 8))
+            let composerBar = app.otherElements["ChatComposerBar"]
+            XCTAssertTrue(composerBar.waitForExistence(timeout: 8))
+            let composerField = chatComposerField(in: app)
+            XCTAssertTrue(composerField.waitForExistence(timeout: 8))
+
+            let loadedMetrics = try waitForTranscriptMetrics(table, timeout: 8) {
+                $0.frameHeight > 240 && $0.frameMaxY > 300 && $0.contentHeight > $0.boundsHeight * 1.6
+            }
+            try scrollTranscript(table, direction: .down, timeout: 5) {
+                $0.distanceFromBottom > 180 && $0.offsetY > 100
+            }
+            let beforeKeyboard = try waitForTranscriptMetrics(table, timeout: 2) {
+                abs($0.frameMaxY - loadedMetrics.frameMaxY) < 4 && $0.keyboardOverlap == 0
+            }
+
+            let samples = sampleKeyboardEvidenceFrames(
+                table: table,
+                composerBar: composerBar,
+                duration: 5.0,
+                frameCapturePrefix: refocusCase.prefix,
+                scheduledActions: [
+                    TimedKeyboardAction(delay: 0.08) {
+                        _ = self.tapChatComposerField(composerField, composerBar: composerBar, in: app)
+                    },
+                    TimedKeyboardAction(delay: 1.10) {
+                        self.tapChatTranscriptOnceForDismiss(in: app, table: table)
+                    },
+                    TimedKeyboardAction(delay: 1.10 + refocusCase.delay) {
+                        _ = self.tapChatComposerField(composerField, composerBar: composerBar, in: app)
+                    },
+                ]
+            )
+            let maxKeyboardEvents = samples.map(\.metrics.keyboardEvents).max() ?? 0
+            XCTAssertGreaterThanOrEqual(
+                maxKeyboardEvents,
+                3,
+                "\(refocusCase.label) evidence must capture show, user tap-dismiss, and user refocus transitions. samples=\(samples)"
+            )
+            assertChatKeyboardAnimationStayedAttached(
+                samples,
+                scrollPosition: refocusCase.label
+            )
+            assertChatKeyboardVisibleBottomStayedPinned(
+                samples,
+                baselineVisibleBottomY: beforeKeyboard.visibleBottomY,
+                scrollPosition: refocusCase.label
+            )
+            assertChatKeyboardMotionHasNoLargeSnap(
+                samples,
+                scrollPosition: refocusCase.label
+            )
+            // XCUI taps synchronize on app idleness, so this user-driven path
+            // intentionally asserts the observed transition events and final
+            // attachment/pinning. Dense in-flight frames come from the external
+            // simulator recording used for dogfood evidence.
+            guard let refocused = samples.reversed().first(where: {
+                $0.metrics.keyboardOverlap > 120
+                    && abs($0.metrics.presentationFrameMaxY - $0.metrics.frameMaxY) < 4
+            })?.metrics else {
+                XCTFail("\(refocusCase.label) evidence must end with the keyboard visible. samples=\(samples)")
+                return
+            }
+            XCTAssertEqual(
+                refocused.visibleBottomY,
+                beforeKeyboard.visibleBottomY,
+                accuracy: 36,
+                "\(refocusCase.label) must preserve visible bottom content. before=\(beforeKeyboard) refocused=\(refocused)"
+            )
+        }
+    }
+
+    @MainActor
     private func assertChatKeyboardTracking(
         table: XCUIElement,
         composerBar: XCUIElement,
@@ -1154,7 +1235,12 @@ final class cmuxUITests: XCTestCase {
             launchEnvironment[key] = value
         }
         let app = launchApp(mockData: false, environment: launchEnvironment)
-        XCTAssertTrue(app.tables["ChatTranscriptTableView"].waitForExistence(timeout: 8))
+        let table = app.tables["ChatTranscriptTableView"]
+        XCTAssertTrue(table.waitForExistence(timeout: 8))
+        XCTAssertTrue(
+            settleChatPreviewKeyboardDown(in: app, table: table),
+            "Chat preview must start keyboard-down before keyboard evidence is collected. metrics=\(String(describing: transcriptMetrics(from: table)))"
+        )
         return app
     }
 
@@ -1695,6 +1781,11 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
+    private struct TimedKeyboardAction {
+        let delay: TimeInterval
+        let action: @MainActor () -> Void
+    }
+
     @MainActor
     private func focusTextInputAndSampleTranscriptAnimation(
         _ element: XCUIElement,
@@ -1749,14 +1840,22 @@ final class cmuxUITests: XCTestCase {
         table: XCUIElement,
         composerBar: XCUIElement,
         duration: TimeInterval,
-        frameCapturePrefix: String
+        frameCapturePrefix: String,
+        scheduledActions: [TimedKeyboardAction] = []
     ) -> [ChatKeyboardAnimationSample] {
         var samples: [ChatKeyboardAnimationSample] = []
         let captureStart = Date()
         let deadline = captureStart.addingTimeInterval(duration)
         var nextCaptureTime = captureStart
         var frameIndex = 0
+        var nextActionIndex = 0
         while Date() < deadline {
+            let elapsed = Date().timeIntervalSince(captureStart)
+            while nextActionIndex < scheduledActions.count,
+                  elapsed >= scheduledActions[nextActionIndex].delay {
+                scheduledActions[nextActionIndex].action()
+                nextActionIndex += 1
+            }
             if let metrics = transcriptMetrics(from: table) {
                 if Date() >= nextCaptureTime {
                     captureKeyboardEvidenceFrame(
@@ -1768,7 +1867,6 @@ final class cmuxUITests: XCTestCase {
                     frameIndex += 1
                     nextCaptureTime = Date().addingTimeInterval(0.08)
                 }
-                let elapsed = Date().timeIntervalSince(captureStart)
                 samples.append(ChatKeyboardAnimationSample(
                     elapsed: elapsed,
                     metrics: metrics,
@@ -2127,6 +2225,43 @@ final class cmuxUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         return waitForKeyboardFocus(of: element, timeout: 0.5) || app.keyboards.firstMatch.exists
+    }
+
+    @MainActor
+    private func settleChatPreviewKeyboardDown(in app: XCUIApplication, table: XCUIElement) -> Bool {
+        let deadline = Date().addingTimeInterval(4)
+        var didRequestDismiss = false
+        while Date() < deadline {
+            if let metrics = transcriptMetrics(from: table),
+               abs(metrics.keyboardOverlap) <= 0.5,
+               abs(metrics.presentationFrameMaxY - metrics.frameMaxY) <= 6 {
+                return true
+            }
+            if !didRequestDismiss {
+                didRequestDismiss = true
+                if app.keyboards.firstMatch.exists {
+                    tapChatTranscriptOnceForDismiss(in: app, table: table)
+                    dismissKeyboard(in: app)
+                }
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return false
+    }
+
+    @MainActor
+    private func tapChatTranscriptOnceForDismiss(in app: XCUIApplication, table: XCUIElement) {
+        if let frame = usableFrameNow(of: table) {
+            let visibleTranscriptY = min(
+                frame.maxY - 36,
+                max(frame.minY + 24, frame.maxY - min(140, frame.height * 0.35))
+            )
+            app.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: frame.midX, dy: visibleTranscriptY))
+                .tap()
+        } else {
+            table.tap()
+        }
     }
 
     @MainActor
