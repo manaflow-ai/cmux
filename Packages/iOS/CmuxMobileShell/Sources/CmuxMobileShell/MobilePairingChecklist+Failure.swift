@@ -14,6 +14,14 @@ extension MobilePairingChecklist {
             succeededSteps: succeededSteps ?? category.succeededPairingSteps(phase: phase)
         )
     }
+
+    func applyingOperationalFailure(
+        _ category: MobilePairingFailureCategory,
+        message: String,
+        succeededSteps: Set<MobilePairingStep>? = nil
+    ) -> MobilePairingChecklist {
+        applyingFailure(category, phase: "operation", message: message, succeededSteps: succeededSteps)
+    }
 }
 
 extension MobilePairingFailureCategory {

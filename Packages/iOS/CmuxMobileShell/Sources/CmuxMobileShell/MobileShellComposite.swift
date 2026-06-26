@@ -1448,9 +1448,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connectionError = message
             connectionErrorGuidance = nil
             pairingChecklist = .idle.applyingFailure(.network, message: message)
-            connectionState = .disconnected
-            macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            markConnectionDisconnectedUnavailable()
             analytics.capture("ios_pairing_failed", [
                 "method": .string("manual"),
                 "reason": .string("invalid_host"),
@@ -1464,9 +1462,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connectionError = message
             connectionErrorGuidance = nil
             pairingChecklist = .idle.applyingFailure(.network, message: message)
-            connectionState = .disconnected
-            macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            markConnectionDisconnectedUnavailable()
             analytics.capture("ios_pairing_failed", [
                 "method": .string("manual"),
                 "reason": .string("invalid_port"),
@@ -1503,9 +1499,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         } catch is CancellationError {
             guard isCurrentPairingAttempt(attemptID) else { return }
-            connectionState = .disconnected
-            macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            markConnectionDisconnectedUnavailable()
         } catch {
             guard isCurrentPairingAttempt(attemptID) else { return }
             mobileShellLog.error("manual host pairing failed: \(String(describing: error), privacy: .private)")
@@ -1517,9 +1511,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             let category = MobilePairingFailureCategory.classify(error: error, route: activeRoute ?? directRoute)
             applyPairingFailure(category, phase: "connect")
-            connectionState = .disconnected
-            macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            markConnectionDisconnectedUnavailable()
         }
     }
 
@@ -2831,9 +2823,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 applyPairingValidationFailure(.invalidCode)
             }
             if connectionState != .connected {
-                connectionState = .disconnected
-                macConnectionStatus = .unavailable
-                clearRemoteConnectionContext()
+                markConnectionDisconnectedUnavailable()
             }
             return .failed
         }
@@ -2845,9 +2835,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         ) {
             applyPairingValidationFailure(emailFailure)
             if connectionState != .connected {
-                connectionState = .disconnected
-                macConnectionStatus = .unavailable
-                clearRemoteConnectionContext()
+                markConnectionDisconnectedUnavailable()
             }
             return .failed
         }
@@ -2891,9 +2879,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return .failed
         } catch is CancellationError {
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
-            connectionState = .disconnected
-            macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            markConnectionDisconnectedUnavailable()
             return .failed
         } catch {
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
@@ -2904,9 +2890,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if disconnectForAuthorizationFailureIfNeeded(error) { return .failed }
             let category = MobilePairingFailureCategory.classify(error: error, route: activeRoute)
             applyPairingFailure(category, phase: "connect")
-            connectionState = .disconnected
-            macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            markConnectionDisconnectedUnavailable()
             return .failed
         }
     }
@@ -2919,9 +2903,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         clearPairingVersionWarning()
-        connectionState = .disconnected
-        macConnectionStatus = .unavailable
-        clearRemoteConnectionContext()
+        markConnectionDisconnectedUnavailable()
     }
 
     /// Accepts the pending version mismatch warning and retries the stored pairing URL.
@@ -4446,9 +4428,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 defaultValue: "The terminal can't accept more input right now. Wait a moment and retry, or reopen the terminal if it stays unavailable."
             )
             connectionErrorGuidance = nil
-            connectionState = .disconnected
-            macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            markConnectionDisconnectedUnavailable()
         }
     }
 
@@ -4526,9 +4506,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connectionError = MobilePairingFailureCategory.noSupportedRoute.message
             connectionErrorGuidance = MobilePairingFailureCategory.noSupportedRoute.guidance
             pairingChecklist = pairingChecklist.applyingFailure(.noSupportedRoute, phase: "route_selection")
-            connectionState = .disconnected
-            macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            markConnectionDisconnectedUnavailable()
             return .noSupportedRoute
         }
         // No connect-time expiry gate: a pairing QR never expires (new QRs
@@ -4810,6 +4788,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         activeTicket = nil
         activeRoute = nil
         connectedHostName = ""
+    }
+
+    private func markConnectionDisconnectedUnavailable() {
+        connectionState = .disconnected
+        macConnectionStatus = .unavailable
+        clearRemoteConnectionContext()
     }
 
     private func clearRemoteConnectionContext(preservingOtherMacWorkspaceState: Bool = false) {
@@ -5100,11 +5084,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ? L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to your computer.")
             : category.message
         connectionErrorGuidance = category.guidance
-        pairingChecklist = pairingChecklist.applyingFailure(
-            category,
-            phase: "operation",
-            message: connectionError ?? category.message
-        )
+        pairingChecklist = pairingChecklist.applyingOperationalFailure(category, message: connectionError ?? category.message)
     }
 
     /// How the preflight resolved: proceed, ``.offline`` applied, or superseded.
@@ -5130,9 +5110,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         mobileShellLog.info("pairing preflight: device offline, short-circuiting")
         diagnosticLog?.record(DiagnosticEvent(.pairUnreachable))
         applyPairingFailure(.offline, phase: phase)
-        connectionState = .disconnected
-        macConnectionStatus = .unavailable
-        clearRemoteConnectionContext()
+        markConnectionDisconnectedUnavailable()
         return .failedOffline
     }
 
@@ -6823,16 +6801,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ? L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to your computer.")
             : category.message
         connectionErrorGuidance = category.guidance
-        pairingChecklist = pairingChecklist.applyingFailure(
-            category,
-            phase: "operation",
-            message: connectionError ?? category.message,
-            succeededSteps: [.network]
-        )
+        pairingChecklist = pairingChecklist.applyingOperationalFailure(category, message: connectionError ?? category.message, succeededSteps: [.network])
         connectionRequiresReauth = true
-        connectionState = .disconnected
-        macConnectionStatus = .unavailable
-        clearRemoteConnectionContext()
+        markConnectionDisconnectedUnavailable()
         // Only emits while a pairing attempt is in flight: `recordPairingFailed`
         // no-ops once `pairingAttemptMethod` is nil (cleared on success and by
         // `invalidatePairingAttempt`), so live-connection auth failures that
