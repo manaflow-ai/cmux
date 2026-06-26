@@ -9976,18 +9976,23 @@ struct CMUXCLI {
         if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty {
             scriptLines.append("  cmux_ssh_preflight_control_path")
         }
-        // Stream ssh's stderr through a background `tee` (fd 9 -> FIFO -> tee) so
-        // each attempt's stderr is shown to the user *live* — interactive prompts
-        // such as a host-key confirmation must not be buffered until ssh exits —
-        // while a copy is captured for failure classification. Gated behind a
-        // subshell writability probe and a successful mkfifo so a failed redirect
-        // can never abort the wrapper; otherwise stderr passes straight through.
+        // Stream ssh's stderr through a background tee (fd 9 -> FIFO -> tee) so each
+        // attempt's stderr is shown to the user *live* — interactive prompts such as
+        // a host-key confirmation must not be buffered until ssh exits — while a
+        // BOUNDED copy is captured for failure classification. `tee /dev/stderr`
+        // passes every byte straight to the terminal (unbounded, live); its piped
+        // copy is truncated to the first 64 KiB by `head -c` (ample for the
+        // auth-phase agent-refusal line, which appears at connection time), and the
+        // trailing `cat` drains the rest so a long, stderr-chatty session can never
+        // grow the capture file without bound. Gated behind a subshell writability
+        // probe and a successful mkfifo so a failed redirect can never abort the
+        // wrapper; otherwise stderr passes straight through.
         scriptLines += [
             "  cmux_ssh_capture_active=0",
             "  cmux_ssh_tee_pid=",
             "  if [ -n \"${cmux_ssh_stderr_fifo:-}\" ] && ( : > \"$cmux_ssh_stderr_capture\" ) 2>/dev/null; then",
             "    cmux_ssh_capture_active=1",
-            "    tee -a \"$cmux_ssh_stderr_capture\" < \"$cmux_ssh_stderr_fifo\" >&2 &",
+            "    ( tee /dev/stderr | { head -c 65536 > \"$cmux_ssh_stderr_capture\"; cat > /dev/null; } ) < \"$cmux_ssh_stderr_fifo\" &",
             "    cmux_ssh_tee_pid=$!",
             "    exec 9>\"$cmux_ssh_stderr_fifo\"",
             "  else",
