@@ -429,6 +429,12 @@
           "default": true,
           "description": "Automatically run agent resume commands for restored terminal sessions when cmux reopens after quit. Set false to restore panes while keeping Claude Code, Codex, OpenCode, and other saved agent sessions idle until you resume them manually."
         },
+        "autoTintSplitPanes": {
+          "type": "boolean",
+          "default": true,
+          "descriptionKey": "schemaDescriptions.terminal.autoTintSplitPanes",
+          "description": "Automatically give new terminal split panes subtle distinct background tints."
+        },
         "showTextBoxOnNewTerminals": {
           "type": "boolean",
           "default": false,

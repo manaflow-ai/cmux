@@ -27,6 +27,12 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.autoResumeAgentSessions"
     )
 
+    public let autoTintSplitPanes = DefaultsKey<Bool>(
+        id: "terminal.autoTintSplitPanes",
+        defaultValue: true,
+        userDefaultsKey: "terminal.autoTintSplitPanes"
+    )
+
     public let agentHibernationEnabled = DefaultsKey<Bool>(
         id: "terminal.agentHibernation.enabled",
         defaultValue: false,

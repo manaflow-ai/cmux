@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -86,5 +87,148 @@ import Testing
                 RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
             }
         }
+    }
+}
+
+@MainActor
+@Suite(.serialized) struct WorkspaceSplitPaneTintTests {
+    @Test func terminalSplitsReceiveDistinctPaneBackgroundTintsAndPersistThem() throws {
+        try withIsolatedDefaults { defaults in
+            let workspace = Workspace(terminalSplitPaneTintDefaults: defaults)
+            let sourcePanel = try #require(workspace.focusedTerminalPanel)
+
+            #expect(sourcePanel.surface.paneBackgroundOverrideColor == nil)
+
+            let secondPanel = try #require(
+                workspace.newTerminalSplit(
+                    from: sourcePanel.id,
+                    orientation: .horizontal,
+                    focus: false
+                )
+            )
+            let sourceTint = try #require(sourcePanel.surface.paneBackgroundOverrideColor?.hexString())
+            let secondTint = try #require(secondPanel.surface.paneBackgroundOverrideColor?.hexString())
+
+            #expect(sourceTint != secondTint)
+
+            let thirdPanel = try #require(
+                workspace.newTerminalSplit(
+                    from: secondPanel.id,
+                    orientation: .horizontal,
+                    focus: false
+                )
+            )
+            let thirdTint = try #require(thirdPanel.surface.paneBackgroundOverrideColor?.hexString())
+
+            #expect(Set([sourceTint, secondTint, thirdTint]).count == 3)
+
+            let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+            let persistedTints = Dictionary(uniqueKeysWithValues: snapshot.panels.compactMap { panel -> (UUID, String)? in
+                guard let tint = panel.terminal?.backgroundColorHex else { return nil }
+                return (panel.id, tint)
+            })
+
+            #expect(persistedTints[sourcePanel.id] == sourceTint)
+            #expect(persistedTints[secondPanel.id] == secondTint)
+            #expect(persistedTints[thirdPanel.id] == thirdTint)
+        }
+    }
+
+    @Test func terminalSplitPreservesExistingPaneBackgroundOverride() throws {
+        try withIsolatedDefaults { defaults in
+            let workspace = Workspace(terminalSplitPaneTintDefaults: defaults)
+            let sourcePanel = try #require(workspace.focusedTerminalPanel)
+            let manualColor = try #require(NSColor(hex: "#123456"))
+            sourcePanel.surface.paneBackgroundOverrideColor = manualColor
+
+            let splitPanel = try #require(
+                workspace.newTerminalSplit(
+                    from: sourcePanel.id,
+                    orientation: .horizontal,
+                    focus: false
+                )
+            )
+            let splitTint = try #require(splitPanel.surface.paneBackgroundOverrideColor?.hexString())
+
+            #expect(sourcePanel.surface.paneBackgroundOverrideColor?.hexString() == "#123456")
+            #expect(splitTint != "#123456")
+        }
+    }
+
+    @Test func terminalSplitTintingCanBeDisabled() throws {
+        try withIsolatedDefaults { defaults in
+            defaults.set(false, forKey: TerminalSplitPaneTintSettings.autoTintSplitPanesKey)
+            let workspace = Workspace(terminalSplitPaneTintDefaults: defaults)
+            let sourcePanel = try #require(workspace.focusedTerminalPanel)
+
+            let splitPanel = try #require(
+                workspace.newTerminalSplit(
+                    from: sourcePanel.id,
+                    orientation: .horizontal,
+                    focus: false
+                )
+            )
+
+            #expect(sourcePanel.surface.paneBackgroundOverrideColor == nil)
+            #expect(splitPanel.surface.paneBackgroundOverrideColor == nil)
+        }
+    }
+
+    @Test func remoteTmuxMirrorPanesReceiveDistinctBackgroundTints() throws {
+        try withIsolatedDefaults { defaults in
+            let workspace = Workspace(terminalSplitPaneTintDefaults: defaults)
+            let connection = RemoteTmuxControlConnection(
+                host: RemoteTmuxHost(destination: "user@host"),
+                sessionName: "work"
+            )
+            let mirror = RemoteTmuxWindowMirror(
+                windowId: 1,
+                panelId: UUID(),
+                connection: connection,
+                layout: splitLayout(panes: [1, 2]),
+                paneTintDefaults: defaults,
+                makePanel: { paneId in
+                    workspace.makeRemoteTmuxPanePanel(onInput: { _ in _ = paneId })
+                }
+            )
+            let firstPanel = try #require(mirror.panel(forPane: 1))
+            let secondPanel = try #require(mirror.panel(forPane: 2))
+            let firstTint = try #require(firstPanel.surface.paneBackgroundOverrideColor?.hexString())
+            let secondTint = try #require(secondPanel.surface.paneBackgroundOverrideColor?.hexString())
+
+            #expect(firstTint != secondTint)
+
+            mirror.reconcile(layout: splitLayout(panes: [1, 2, 3]))
+            let thirdPanel = try #require(mirror.panel(forPane: 3))
+            let thirdTint = try #require(thirdPanel.surface.paneBackgroundOverrideColor?.hexString())
+
+            #expect(Set([firstTint, secondTint, thirdTint]).count == 3)
+        }
+    }
+
+    private func withIsolatedDefaults(_ body: (UserDefaults) throws -> Void) throws {
+        let suiteName = "cmux.split-pane-tint.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        try body(defaults)
+    }
+
+    private func splitLayout(panes: [Int]) -> RemoteTmuxLayoutNode {
+        RemoteTmuxLayoutNode(
+            width: max(1, panes.count) * 80,
+            height: 24,
+            x: 0,
+            y: 0,
+            content: .horizontal(panes.enumerated().map { index, paneId in
+                RemoteTmuxLayoutNode(
+                    width: 80,
+                    height: 24,
+                    x: index * 80,
+                    y: 0,
+                    content: .pane(paneId)
+                )
+            })
+        )
     }
 }

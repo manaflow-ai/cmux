@@ -526,6 +526,7 @@ extension Workspace {
                 textBoxDraft: terminalPanel.sessionTextBoxDraftSnapshot(),
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
+                backgroundColorHex: terminalPanel.surface.paneBackgroundOverrideColor?.hexString(),
                 wasAgentRunning: agentWasRunning
             )
             browserSnapshot = nil
@@ -1361,6 +1362,10 @@ extension Workspace {
             ) else {
                 return nil
             }
+            if let backgroundColorHex = snapshot.terminal?.backgroundColorHex,
+               let backgroundColor = NSColor(hex: backgroundColorHex) {
+                terminalPanel.surface.paneBackgroundOverrideColor = backgroundColor
+            }
             if let restoredRemotePTYSessionID {
                 registerRemoteRelayIDAliases(
                     remotePTYSessionID: restoredRemotePTYSessionID,
@@ -2154,6 +2159,18 @@ final class Workspace: Identifiable, ObservableObject {
     static let terminalScrollBarHiddenDidChangeNotification = Notification.Name(
         "cmux.workspaceTerminalScrollBarHiddenDidChange"
     )
+    private static let automaticSplitPaneTintPaletteHexes = [
+        "#6EA8FE",
+        "#F2CC60",
+        "#7BD88F",
+        "#FF9F7A",
+        "#C89CFF",
+        "#6DD6D6",
+        "#FF8FB3",
+        "#B7D66A",
+    ]
+    private static let automaticSplitPaneTintOpacityOnDarkBackground: CGFloat = 0.18
+    private static let automaticSplitPaneTintOpacityOnLightBackground: CGFloat = 0.14
 
     let id: UUID
     /// When this workspace instance came into existence in this app session
@@ -2210,7 +2227,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var extensionSidebarProjectRootRefreshID: UInt64 = 0
     @Published private(set) var surfaceTabBarDirectory: String?
     private(set) var preferredBrowserProfileID: UUID?
-    let closeTabWarningDefaults, agentSessionAutoResumeDefaults: UserDefaults
+    let closeTabWarningDefaults, agentSessionAutoResumeDefaults, terminalSplitPaneTintDefaults: UserDefaults
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
     var portOrdinal: Int = 0
 
@@ -2991,6 +3008,7 @@ final class Workspace: Identifiable, ObservableObject {
         workspaceEnvironment: [String: String] = [:],
         closeTabWarningDefaults: UserDefaults = .standard,
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
+        terminalSplitPaneTintDefaults: UserDefaults = .standard,
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
         sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil
     ) {
@@ -2998,6 +3016,7 @@ final class Workspace: Identifiable, ObservableObject {
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
+        self.terminalSplitPaneTintDefaults = terminalSplitPaneTintDefaults
         let sanitizedWorkspaceEnvironment = Self.sanitizedWorkspaceEnvironment(workspaceEnvironment)
         self.workspaceEnvironment = sanitizedWorkspaceEnvironment
         self.portOrdinal = portOrdinal
@@ -6922,6 +6941,72 @@ final class Workspace: Identifiable, ObservableObject {
         return nil
     }
 
+    static func automaticSplitPaneTintColor(
+        baseColor: NSColor,
+        usedHexes: Set<String>
+    ) -> NSColor? {
+        let palette = automaticSplitPaneTintPaletteHexes.compactMap { hex -> NSColor? in
+            guard let accentColor = NSColor(hex: hex) else { return nil }
+            return automaticSplitPaneTintColor(baseColor: baseColor, accentColor: accentColor)
+        }
+        guard !palette.isEmpty else { return nil }
+        if let unusedColor = palette.first(where: { !usedHexes.contains($0.hexString()) }) {
+            return unusedColor
+        }
+        return palette[usedHexes.count % palette.count]
+    }
+
+    private static func automaticSplitPaneTintColor(baseColor: NSColor, accentColor: NSColor) -> NSColor? {
+        guard let base = baseColor.usingColorSpace(.sRGB),
+              let accent = accentColor.usingColorSpace(.sRGB) else {
+            return nil
+        }
+        let opacity = base.isLightColor
+            ? automaticSplitPaneTintOpacityOnLightBackground
+            : automaticSplitPaneTintOpacityOnDarkBackground
+        var baseRed: CGFloat = 0
+        var baseGreen: CGFloat = 0
+        var baseBlue: CGFloat = 0
+        var baseAlpha: CGFloat = 0
+        var accentRed: CGFloat = 0
+        var accentGreen: CGFloat = 0
+        var accentBlue: CGFloat = 0
+        var accentAlpha: CGFloat = 0
+        base.getRed(&baseRed, green: &baseGreen, blue: &baseBlue, alpha: &baseAlpha)
+        accent.getRed(&accentRed, green: &accentGreen, blue: &accentBlue, alpha: &accentAlpha)
+        let tintOpacity = opacity * accentAlpha
+        return NSColor(
+            srgbRed: baseRed * (1 - tintOpacity) + accentRed * tintOpacity,
+            green: baseGreen * (1 - tintOpacity) + accentGreen * tintOpacity,
+            blue: baseBlue * (1 - tintOpacity) + accentBlue * tintOpacity,
+            alpha: baseAlpha
+        )
+    }
+
+    private func applyAutomaticSplitPaneTints(sourcePanelId: UUID, newPanel: TerminalPanel) {
+        guard TerminalSplitPaneTintSettings.isEnabled(defaults: terminalSplitPaneTintDefaults) else { return }
+        let baseColor = GhosttyApp.shared.defaultBackgroundColor
+        var usedHexes = Set(
+            panels.values.compactMap { panel -> String? in
+                guard let terminalPanel = panel as? TerminalPanel else { return nil }
+                return terminalPanel.surface.paneBackgroundOverrideColor?.hexString()
+            }
+        )
+
+        if let sourcePanel = terminalPanel(for: sourcePanelId),
+           sourcePanel.surface.paneBackgroundOverrideColor == nil,
+           let sourceColor = Self.automaticSplitPaneTintColor(baseColor: baseColor, usedHexes: usedHexes) {
+            sourcePanel.surface.paneBackgroundOverrideColor = sourceColor
+            usedHexes.insert(sourceColor.hexString())
+        }
+
+        guard newPanel.surface.paneBackgroundOverrideColor == nil,
+              let newColor = Self.automaticSplitPaneTintColor(baseColor: baseColor, usedHexes: usedHexes) else {
+            return
+        }
+        newPanel.surface.paneBackgroundOverrideColor = newColor
+    }
+
     /// Create a new split with a terminal panel
     @discardableResult
     func newTerminalSplit(
@@ -7135,6 +7220,7 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
         applyInitialSplitDividerPosition(initialDividerPosition, sourcePaneId: paneId, newPaneId: newPaneId)
+        applyAutomaticSplitPaneTints(sourcePanelId: panelId, newPanel: newPanel)
         publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: newPanel.id, kind: "terminal", origin: "terminal_split", focused: focus)
 
 #if DEBUG

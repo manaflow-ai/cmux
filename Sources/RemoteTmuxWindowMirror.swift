@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxFoundation
 import CmuxTerminal
 import Foundation
 import Observation
@@ -25,6 +26,7 @@ final class RemoteTmuxWindowMirror {
     @ObservationIgnored private weak var connection: RemoteTmuxControlConnection?
     /// Creates a configured manual-I/O pane panel whose input goes to `tmuxPaneId`.
     @ObservationIgnored private let makePanel: (_ tmuxPaneId: Int) -> TerminalPanel?
+    @ObservationIgnored private let paneTintDefaults: UserDefaults
 
     /// The window's current pane layout — drives the SwiftUI split container.
     private(set) var layout: RemoteTmuxLayoutNode
@@ -44,12 +46,14 @@ final class RemoteTmuxWindowMirror {
         panelId: UUID,
         connection: RemoteTmuxControlConnection,
         layout: RemoteTmuxLayoutNode,
+        paneTintDefaults: UserDefaults = .standard,
         makePanel: @escaping (_ tmuxPaneId: Int) -> TerminalPanel?
     ) {
         self.windowId = windowId
         self.panelId = panelId
         self.connection = connection
         self.makePanel = makePanel
+        self.paneTintDefaults = paneTintDefaults
         self.layout = layout
         reconcile(layout: layout)
     }
@@ -95,6 +99,26 @@ final class RemoteTmuxWindowMirror {
             if activePaneId == paneId { activePaneId = nil }
         }
         if layout != newLayout { layout = newLayout }
+        applyAutomaticPaneTints()
+    }
+
+    private func applyAutomaticPaneTints() {
+        guard TerminalSplitPaneTintSettings.isEnabled(defaults: paneTintDefaults) else { return }
+        let baseColor = GhosttyApp.shared.defaultBackgroundColor
+        var usedHexes = Set(
+            panelsByPaneId.values.compactMap { panel in
+                panel.surface.paneBackgroundOverrideColor?.hexString()
+            }
+        )
+        for paneId in paneIDsInOrder {
+            guard let panel = panelsByPaneId[paneId],
+                  panel.surface.paneBackgroundOverrideColor == nil,
+                  let color = Workspace.automaticSplitPaneTintColor(baseColor: baseColor, usedHexes: usedHexes) else {
+                continue
+            }
+            panel.surface.paneBackgroundOverrideColor = color
+            usedHexes.insert(color.hexString())
+        }
     }
 
     /// Routes a tmux `%output` to the surface for `paneId` (no-op if unknown).

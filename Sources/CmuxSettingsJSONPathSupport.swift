@@ -169,6 +169,11 @@ enum TerminalSettingsFileMapping {
             defaultsKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey,
             invalidPath: "terminal.autoResumeAgentSessions"
         ),
+        .init(
+            jsonKey: "autoTintSplitPanes",
+            defaultsKey: TerminalSplitPaneTintSettings.autoTintSplitPanesKey,
+            invalidPath: "terminal.autoTintSplitPanes"
+        ),
     ]
 }
 
@@ -347,6 +352,7 @@ extension CmuxSettingsFileStore {
         "terminal.scrollSpeed",
         "terminal.copyOnSelect",
         "terminal.autoResumeAgentSessions",
+        "terminal.autoTintSplitPanes",
         "terminal.showTextBoxOnNewTerminals",
         "terminal.focusTextBoxOnNewTerminals",
         "terminal.agentHibernation.enabled",

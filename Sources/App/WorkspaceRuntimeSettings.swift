@@ -199,6 +199,18 @@ enum TerminalCopyOnSelectSettings {
     }
 }
 
+enum TerminalSplitPaneTintSettings {
+    static let autoTintSplitPanesKey = "terminal.autoTintSplitPanes"
+    static let defaultAutoTintSplitPanes = true
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: autoTintSplitPanesKey) != nil else {
+            return defaultAutoTintSplitPanes
+        }
+        return defaults.bool(forKey: autoTintSplitPanesKey)
+    }
+}
+
 enum TerminalManagedGhosttySettings {
     static func ghosttyConfigContents(defaults: UserDefaults = .standard, emitsCopyOnSelectFalse: Bool = true) -> String? {
         let lines = [

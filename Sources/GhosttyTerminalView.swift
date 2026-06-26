@@ -308,6 +308,11 @@ extension TerminalSurface {
         }
         return hosted
     }
+
+    var paneBackgroundOverrideColor: NSColor? {
+        get { hostedView.paneBackgroundOverrideColor }
+        set { hostedView.paneBackgroundOverrideColor = newValue }
+    }
 }
 
 // The engine's Metal layer reports vended drawables through this seam
@@ -7975,6 +7980,15 @@ final class GhosttySurfaceScrollView: NSView {
             return terminalSurface.uiWindow
         }
         return window
+    }
+
+    var paneBackgroundOverrideColor: NSColor? {
+        get { surfaceView.backgroundColor }
+        set {
+            surfaceView.backgroundColor = newValue
+            surfaceView.applySurfaceBackground()
+            surfaceView.applyWindowBackgroundIfActive()
+        }
     }
 
     func forwardKeyDownToSurface(_ event: NSEvent) {
