@@ -190,10 +190,22 @@ public struct WindowAppearanceSnapshot {
     }
 
     /// Stable identity for AppKit window mutations.
-    public func appKitWindowMutationID(windowBackgroundPolicy: WindowBackgroundPolicy) -> String {
+    ///
+    /// - Parameters:
+    ///   - glassEffectAvailable: Whether native `NSGlassEffectView` is available.
+    ///   - windowBackgroundPolicy: Window background settings used for non-terminal glass.
+    ///   - suppressNativeTerminalGlassTint: Whether native Ghostty glass styles should omit terminal tint.
+    public func appKitWindowMutationID(
+        glassEffectAvailable: Bool,
+        windowBackgroundPolicy: WindowBackgroundPolicy,
+        suppressNativeTerminalGlassTint: Bool = ProcessInfo.processInfo.isOperatingSystemAtLeast(
+            OperatingSystemVersion(majorVersion: 27, minorVersion: 0, patchVersion: 0)
+        )
+    ) -> String {
         backdropPlan(
-            glassEffectAvailable: false,
-            windowBackgroundPolicy: windowBackgroundPolicy
+            glassEffectAvailable: glassEffectAvailable,
+            windowBackgroundPolicy: windowBackgroundPolicy,
+            suppressNativeTerminalGlassTint: suppressNativeTerminalGlassTint
         ).appKitMutationID
     }
 }

@@ -126,6 +126,37 @@ import Testing
         #expect(plan.glass?.tintColor?.hexString(includeAlpha: true) == "#272822FF")
     }
 
+    @Test func appKitMutationIDTracksNativeGlassTintSuppression() {
+        let resolver = WindowAppearanceResolver(
+            terminalAppearance: WindowTerminalAppearanceSnapshot(
+                backgroundColor: NSColor(hex: "#272822") ?? .black,
+                backgroundOpacity: 1,
+                backgroundBlur: .macosGlassRegular,
+                usesHostLayerBackground: true
+            )
+        )
+
+        let snapshot = resolver.current(settings: makeSettings(
+            unifySurfaceBackdrops: true,
+            sidebarBlendMode: "withinWindow",
+            bgGlassEnabled: false
+        ))
+        let macOS26ID = snapshot.appKitWindowMutationID(
+            glassEffectAvailable: true,
+            windowBackgroundPolicy: makeWindowBackgroundPolicy(),
+            suppressNativeTerminalGlassTint: false
+        )
+        let macOS27ID = snapshot.appKitWindowMutationID(
+            glassEffectAvailable: true,
+            windowBackgroundPolicy: makeWindowBackgroundPolicy(),
+            suppressNativeTerminalGlassTint: true
+        )
+
+        #expect(macOS26ID != macOS27ID)
+        #expect(macOS26ID.contains("#272822FF"))
+        #expect(macOS27ID.contains("|nil|"))
+    }
+
     private func makeSettings(
         unifySurfaceBackdrops: Bool,
         sidebarBlendMode: String,
