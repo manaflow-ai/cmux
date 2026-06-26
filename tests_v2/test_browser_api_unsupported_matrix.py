@@ -101,7 +101,6 @@ EXPECTED_BROWSER_METHODS = {
 
 # Commands that are intentionally exposed but must return not_supported on WKWebView.
 WKWEBVIEW_NOT_SUPPORTED = {
-    "browser.viewport.set": {"width": 1280, "height": 720},
     "browser.geolocation.set": {"latitude": 37.7749, "longitude": -122.4194},
     "browser.offline.set": {"enabled": True},
     "browser.trace.start": {},
@@ -144,6 +143,12 @@ def main() -> int:
         opened = c._call("browser.open_split", {"url": "about:blank"}) or {}
         sid = str(opened.get("surface_id") or "")
         _must(bool(sid), f"browser.open_split returned no surface_id: {opened}")
+
+        viewport = c._call("browser.viewport.set", {"surface_id": sid, "width": 1400, "height": 900}) or {}
+        _must(viewport.get("width") == 1400, f"browser.viewport.set did not echo width: {viewport}")
+        _must(viewport.get("height") == 900, f"browser.viewport.set did not echo height: {viewport}")
+        inner_width = c._call("browser.eval", {"surface_id": sid, "script": "window.innerWidth"}) or {}
+        _must(int(inner_width.get("value") or 0) >= 1400, f"Expected viewport width >= 1400: {inner_width}")
 
         for method, extra in WKWEBVIEW_NOT_SUPPORTED.items():
             payload = {"surface_id": sid}

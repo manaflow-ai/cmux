@@ -278,7 +278,10 @@ def main() -> int:
         _must(str(saved.get("path") or "") == state_file, f"Expected saved state path via CLI: {saved}")
         _run_cli_json(cli, ["browser", surface, "state", "load", state_file])
 
-        _run_cli_expect_failure(cli, ["browser", surface, "viewport", "800", "600"], ["not_supported"])
+        viewport = _run_cli_json(cli, ["browser", surface, "viewport", "1400", "900"])
+        _must(int(viewport.get("width") or 0) == 1400, f"Expected viewport width echo via CLI: {viewport}")
+        inner_width = _run_cli_json(cli, ["browser", surface, "eval", "window.innerWidth"])
+        _must(int(inner_width.get("value") or 0) >= 1400, f"Expected CLI viewport width >= 1400: {inner_width}")
 
         legacy_new = _run_cli_text(cli, ["new-pane", "--type", "browser", "--direction", "right", "--url", page_url])
         _must("surface:" in legacy_new, f"Expected new-pane output to prefer short surface refs, got: {legacy_new!r}")
