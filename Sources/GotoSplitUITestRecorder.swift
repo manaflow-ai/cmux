@@ -585,16 +585,8 @@ final class GotoSplitUITestRecorder: UITestRecording {
             self.evaluateActiveElement(
                 panel: panel,
                 awaitingInputId: expectedInputId
-            ) { snapshot in
-                self.writeData([
-                    "\(keyPrefix)PanelId": panelId.uuidString,
-                    "\(keyPrefix)ActiveElementId": snapshot["id"] ?? "",
-                    "\(keyPrefix)ActiveElementTag": snapshot["tag"] ?? "",
-                    "\(keyPrefix)ActiveElementType": snapshot["type"] ?? "",
-                    "\(keyPrefix)ActiveElementEditable": snapshot["editable"] ?? "false",
-                    "\(keyPrefix)TrackedFocusStateId": snapshot["trackedFocusStateId"] ?? "",
-                    "\(keyPrefix)FocusTrackerInstalled": snapshot["focusTrackerInstalled"] ?? "false"
-                ])
+            ) { probe in
+                self.writeData(probe.recordedFields(keyPrefix: keyPrefix, panelId: panelId))
             }
         }
 
@@ -610,21 +602,13 @@ final class GotoSplitUITestRecorder: UITestRecording {
     private func evaluateActiveElement(
         panel: BrowserPanel,
         awaitingInputId: String? = nil,
-        completion: @escaping ([String: String]) -> Void
+        completion: @escaping (ActiveElementProbeResult) -> Void
     ) {
         let expectedInputIdLiteral = awaitingInputId?.javaScriptStringLiteral ?? "null"
         let script = ActiveElementProbeResult.script(expectedInputIdLiteral: expectedInputIdLiteral)
 
         panel.webView.evaluateJavaScript(script) { result, _ in
-            let probe = ActiveElementProbeResult(jsResult: result)
-            completion([
-                "id": probe.id,
-                "tag": probe.tag,
-                "type": probe.type,
-                "editable": probe.editable,
-                "trackedFocusStateId": probe.trackedFocusStateId,
-                "focusTrackerInstalled": probe.focusTrackerInstalled
-            ])
+            completion(ActiveElementProbeResult(jsResult: result))
         }
     }
 
