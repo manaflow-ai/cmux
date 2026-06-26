@@ -763,29 +763,9 @@ final class WindowTerminalPortal: NSObject {
     }
 #endif
 
-    /// Convert an anchor view's bounds to window coordinates while honoring ancestor clipping.
-    /// SwiftUI/AppKit hosting layers can report an anchor bounds wider than its split pane when
-    /// intrinsic-size content overflows; intersecting through ancestor bounds gives the effective
-    /// visible rect that should drive portal geometry.
-    private func effectiveAnchorFrameInWindow(for anchorView: NSView) -> NSRect {
-        var frameInWindow = anchorView.convert(anchorView.bounds, to: nil)
-        var current = anchorView.superview
-        while let ancestor = current {
-            let ancestorBoundsInWindow = ancestor.convert(ancestor.bounds, to: nil)
-            let finiteAncestorBounds = ancestorBoundsInWindow.hasFiniteComponents
-            if finiteAncestorBounds {
-                frameInWindow = frameInWindow.intersection(ancestorBoundsInWindow)
-                if frameInWindow.isNull { return .zero }
-            }
-            if ancestor === installedReferenceView { break }
-            current = ancestor.superview
-        }
-        return frameInWindow
-    }
-
     private func seededFrameInHost(for anchorView: NSView) -> NSRect? {
         _ = synchronizeHostFrameToReference()
-        let frameInWindow = effectiveAnchorFrameInWindow(for: anchorView)
+        let frameInWindow = anchorView.effectiveAnchorFrameInWindow(stoppingAt: installedReferenceView)
         let frameInHostRaw = hostView.convert(frameInWindow, from: nil)
         let frameInHost = frameInHostRaw.pixelSnapped(in: hostView)
         let hasFiniteFrame = frameInHost.hasFiniteComponents
@@ -1151,7 +1131,7 @@ final class WindowTerminalPortal: NSObject {
         }
 
         _ = synchronizeHostFrameToReference()
-        let frameInWindow = effectiveAnchorFrameInWindow(for: anchorView)
+        let frameInWindow = anchorView.effectiveAnchorFrameInWindow(stoppingAt: installedReferenceView)
         let frameInHostRaw = hostView.convert(frameInWindow, from: nil)
         let frameInHost = frameInHostRaw.pixelSnapped(in: hostView)
 #if DEBUG
