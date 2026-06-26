@@ -105,6 +105,23 @@ final class ReflowParagraphTests: XCTestCase {
         XCTAssertFalse(result.contains("  "), "no padding-run gaps should survive")
     }
 
+    func testNonBreakingSpacePaddingCollapsed() {
+        // Real clipboard data: copied terminal text carries U+00A0 (non-breaking
+        // space) runs as padding at soft-wrap seams. They render as wide gaps and
+        // must collapse to a single normal space.
+        let nbsp = "\u{00A0}"
+        let input = "the perennial vicissitudes of\(String(repeating: nbsp, count: 8)) contemporary existence have"
+        let result = reflowCopiedText(input)
+        XCTAssertEqual(result, "the perennial vicissitudes of contemporary existence have")
+        XCTAssertFalse(result.unicodeScalars.contains("\u{00A0}"), "no non-breaking spaces should survive")
+    }
+
+    func testNonBreakingSpaceLeadingAndTrailingTrimmed() {
+        let nbsp = "\u{00A0}"
+        let input = "\(nbsp)\(nbsp)padded both sides\(nbsp)\(nbsp)\n"
+        XCTAssertEqual(reflowCopiedText(input), "padded both sides\n")
+    }
+
     func testNoLineKeepsTrailingWhitespace() {
         let input = "first standalone line that is short   \n\nsecond standalone line also short\t\n"
         let result = reflowCopiedText(input)

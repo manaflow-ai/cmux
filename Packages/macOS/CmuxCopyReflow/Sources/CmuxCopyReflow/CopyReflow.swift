@@ -45,15 +45,17 @@ public nonisolated func reflowCopiedText(
 
     let commonIndent = computeCommonIndent(rawLines, isFenceLine: isFenceLine)
 
-    // Stripped view of each line (common indent removed, relative indent kept).
-    // Outside fenced code, also right-trim: terminal grid rows are padded with
-    // trailing spaces (the trim=false selection-read path), and that padding must
-    // never survive into joins as internal seam gaps or as trailing whitespace.
+    // Cleaned view of each line (common indent removed, relative indent kept).
+    // Outside fenced code, normalize whitespace: terminal copy carries padding as
+    // runs of spaces AND U+00A0 non-breaking spaces (at soft-wrap seams), which
+    // render as wide gaps. Collapse every internal whitespace run to a single
+    // normal space and drop leading/trailing padding, preserving real list indent.
     // Fence bodies are preserved verbatim.
-    let stripped: [Substring] = rawLines.indices.map { i in
+    let cleanedStorage: [String] = rawLines.indices.map { i in
         let s = stripColumns(rawLines[i], commonIndent)
-        return isFenceLine[i] ? s : rtrim(s)
+        return isFenceLine[i] ? String(s) : cleanProseWhitespace(s)
     }
+    let stripped: [Substring] = cleanedStorage.map { $0[...] }
 
     // Pass 2: block max width. A block is a run of consecutive lines that are
     // neither blank nor part of a fence.
@@ -200,14 +202,34 @@ private func computeCommonIndent(_ lines: [Substring], isFenceLine: [Bool]) -> I
     return minIndent ?? 0
 }
 
-/// Drop trailing space/tab characters.
-private func rtrim(_ s: Substring) -> Substring {
-    var end = s.endIndex
-    while end > s.startIndex {
-        let prev = s.index(before: end)
-        if s[prev] == " " || s[prev] == "\t" { end = prev } else { break }
+/// Any space-like character that copied terminal text may carry: normal space,
+/// tab, and U+00A0 non-breaking space (the seam padding observed on the clipboard).
+private func isSpaceLike(_ ch: Character) -> Bool {
+    ch == " " || ch == "\t" || ch == "\u{00A0}"
+}
+
+/// Normalize a non-fence prose line: keep its leading indent (real spaces/tabs,
+/// for list nesting), then collapse every run of space-like characters in the
+/// remainder to a single normal space, dropping leading and trailing padding.
+/// This turns seam padding (space or non-breaking-space runs) into clean prose.
+private func cleanProseWhitespace(_ s: Substring) -> String {
+    // Leading indent is real spaces/tabs only; U+00A0 is never meaningful indent.
+    var idx = s.startIndex
+    while idx < s.endIndex, s[idx] == " " || s[idx] == "\t" { idx = s.index(after: idx) }
+    var out = String(s[s.startIndex..<idx])
+    var pendingSpace = false
+    var hasContent = false
+    for ch in s[idx...] {
+        if isSpaceLike(ch) {
+            pendingSpace = true
+        } else {
+            if pendingSpace && hasContent { out.append(" ") }
+            out.append(ch)
+            hasContent = true
+            pendingSpace = false
+        }
     }
-    return s[s.startIndex..<end]
+    return out
 }
 
 /// Drop up to `n` leading space/tab columns.
