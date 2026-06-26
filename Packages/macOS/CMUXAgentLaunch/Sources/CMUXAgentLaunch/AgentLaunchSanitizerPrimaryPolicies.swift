@@ -51,6 +51,11 @@ extension AgentLaunchSanitizer {
             "--allowedTools",
             "--allowed-tools",
             "--betas",
+            // Claude Code accepts multiple `server:<name>` values here. Without
+            // this entry preserveOptions consumes only the first value and the
+            // break-on-positional branch silently drops every later flag from
+            // the rebuilt resume command (see issue #6235).
+            "--dangerously-load-development-channels",
             "--disallowedTools",
             "--disallowed-tools",
             "--file",
