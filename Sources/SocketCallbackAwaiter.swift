@@ -26,59 +26,19 @@ func socketAwaitCallback<T>(
     isMainThread: Bool = Thread.isMainThread,
     start: (@escaping (T) -> Void) -> Void
 ) -> T? {
-    if isMainThread {
-        let runLoop = CFRunLoopGetCurrent()
-        let lock = NSLock()
-        var resolved = false
-        var timedOut = false
-        var result: T?
-
-        let finish: (T) -> Void = { value in
-            lock.lock()
-            guard !resolved else {
-                lock.unlock()
-                return
-            }
-            resolved = true
-            result = value
-            lock.unlock()
-            CFRunLoopStop(runLoop)
-        }
-
-        guard let timeoutTimer = CFRunLoopTimerCreateWithHandler(
-            kCFAllocatorDefault,
-            CFAbsoluteTimeGetCurrent() + timeout,
-            0,
-            0,
-            0,
-            { _ in
-                lock.lock()
-                if !resolved {
-                    resolved = true
-                    timedOut = true
-                }
-                lock.unlock()
-                CFRunLoopStop(runLoop)
-            }
-        ) else {
-            return nil
-        }
-        CFRunLoopAddTimer(runLoop, timeoutTimer, .defaultMode)
-        defer { CFRunLoopTimerInvalidate(timeoutTimer) }
-
-        start(finish)
-        while true {
-            lock.lock()
-            if resolved {
-                let value = result
-                let didTimeOut = timedOut
-                lock.unlock()
-                return didTimeOut ? nil : value
-            }
-            lock.unlock()
-
-            CFRunLoopRun()
-        }
+    // Refuse to block the main thread. The callbacks bridged here are delivered
+    // on the main thread, so a synchronous waiter that is *itself* on the main
+    // thread can only make progress by spinning a nested `CFRunLoopRun()` — that
+    // froze the whole app (sidebar + every other CLI client) for the full
+    // timeout (#5830). The execution policy routes every callback-waiting
+    // command onto the socket worker, so arriving here on the main thread is a
+    // dispatch bug; fail the single command fast (callers map nil to a timeout
+    // error) instead of hanging AppKit, and never invoke `start`.
+    guard !isMainThread else {
+#if DEBUG
+        cmuxDebugLog("socketAwaitCallback.invalidMainThread timeout=\(timeout)")
+#endif
+        return nil
     }
 
     let semaphore = DispatchSemaphore(value: 0)
