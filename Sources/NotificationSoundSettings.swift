@@ -24,9 +24,7 @@ enum NotificationSoundSettings {
     private static let systemSoundDirectoryURL = URL(fileURLWithPath: "/System/Library/Sounds", isDirectory: true)
     private static let pendingCustomSoundPreparationLock = NSLock()
     private static var pendingCustomSoundPreparationPaths: Set<String> = []
-    private static let activePlaybackSoundsLock = NSLock()
-    private static var activePlaybackSounds: [ObjectIdentifier: NSSound] = [:]
-    private static let activePlaybackSoundDelegate = ActivePlaybackSoundDelegate()
+    private static let soundPlayer = NotificationSoundPlayer()
     private static let dndAssertionQueue = DispatchQueue(
         label: "com.cmuxterm.notification-dnd-assertion",
         qos: .utility
@@ -37,12 +35,6 @@ enum NotificationSoundSettings {
         "caf",
         "wav",
     ]
-
-    private final class ActivePlaybackSoundDelegate: NSObject, NSSoundDelegate {
-        func sound(_ sound: NSSound, didFinishPlaying finishedPlaying: Bool) {
-            NotificationSoundSettings.releaseActivePlaybackSound(sound)
-        }
-    }
 
     private struct CustomSoundSourceMetadata: Codable, Equatable {
         let sourcePath: String
@@ -256,13 +248,13 @@ enum NotificationSoundSettings {
 
     static func playCustomFileSound(defaults: UserDefaults = .standard) {
         guard let url = customFileURL(defaults: defaults) else { return }
-        playSoundFile(at: url)
+        soundPlayer.playFile(at: url)
     }
 
     static func playCustomFileSound(path: String) {
         guard let normalizedPath = normalizedCustomFilePath(path) else { return }
         let url = URL(fileURLWithPath: (normalizedPath as NSString).expandingTildeInPath)
-        playSoundFile(at: url)
+        soundPlayer.playFile(at: url)
     }
 
     /// Plays the user-selected notification sound unless an active macOS
@@ -327,7 +319,7 @@ enum NotificationSoundSettings {
                 playCustomFileSound(defaults: defaults)
             }
         default:
-            playSystemSound(named: value)
+            soundPlayer.playSystem(named: value)
         }
     }
 
@@ -362,17 +354,6 @@ enum NotificationSoundSettings {
         } catch {
             NSLog("Failed to stage notification system sound \(value): \(error.localizedDescription)")
             return nil
-        }
-    }
-
-    private static func playSystemSound(named value: String) {
-        guard let sound = NSSound(named: NSSound.Name(value)) else {
-            return
-        }
-        retainActivePlaybackSound(sound)
-        sound.delegate = activePlaybackSoundDelegate
-        if !sound.play() {
-            releaseActivePlaybackSound(sound)
         }
     }
 
@@ -429,32 +410,6 @@ enum NotificationSoundSettings {
             }
             _ = prepareCustomFileForNotifications(path: expandedPath)
         }
-    }
-
-    private static func playSoundFile(at url: URL) {
-        DispatchQueue.main.async {
-            guard let sound = NSSound(contentsOf: url, byReference: false) else {
-                NSLog("Notification custom sound failed to load from path: \(url.path)")
-                return
-            }
-            retainActivePlaybackSound(sound)
-            sound.delegate = activePlaybackSoundDelegate
-            if !sound.play() {
-                releaseActivePlaybackSound(sound)
-            }
-        }
-    }
-
-    private static func retainActivePlaybackSound(_ sound: NSSound) {
-        activePlaybackSoundsLock.lock()
-        activePlaybackSounds[ObjectIdentifier(sound)] = sound
-        activePlaybackSoundsLock.unlock()
-    }
-
-    private static func releaseActivePlaybackSound(_ sound: NSSound) {
-        activePlaybackSoundsLock.lock()
-        activePlaybackSounds.removeValue(forKey: ObjectIdentifier(sound))
-        activePlaybackSoundsLock.unlock()
     }
 
     private static func cleanupStaleStagedSoundFiles(

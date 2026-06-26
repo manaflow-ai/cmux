@@ -806,7 +806,7 @@ final class MobileHostService {
         } else {
             routes = []
         }
-        let selectedRoutes = try Self.filteredRoutes(
+        let selectedRoutes = try routeResolver.filteredRoutes(
             routes,
             routeID: routeID,
             routeKind: routeKind
@@ -823,34 +823,6 @@ final class MobileHostService {
             macAppBuild: MobileHostBuildIdentity.current().appBuild
         )
         return try ticketStore.payload(for: ticket)
-    }
-
-    private static func filteredRoutes(
-        _ routes: [CmxAttachRoute],
-        routeID: String?,
-        routeKind: String?
-    ) throws -> [CmxAttachRoute] {
-        let normalizedRouteID = routeID?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedRouteKind = routeKind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let hasRouteID = normalizedRouteID?.isEmpty == false
-        let hasRouteKind = normalizedRouteKind?.isEmpty == false
-        guard hasRouteID || hasRouteKind else {
-            return routes
-        }
-
-        let filtered = routes.filter { route in
-            if hasRouteID, route.id != normalizedRouteID {
-                return false
-            }
-            if hasRouteKind, route.kind.rawValue != normalizedRouteKind {
-                return false
-            }
-            return true
-        }
-        guard !filtered.isEmpty else {
-            throw MobileAttachTicketStoreError.routeUnavailable
-        }
-        return filtered
     }
 
     private func accept(_ connection: NWConnection, generation: UUID) {
