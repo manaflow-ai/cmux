@@ -275,14 +275,14 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    func lookupLatestSession(workspaceId: String?, surfaceId: String?) throws -> ClaudeHookSessionRecord? {
+    func lookupCurrentSession(workspaceId: String?, surfaceId: String?) throws -> ClaudeHookSessionRecord? {
         let normalizedWorkspace = normalizeOptional(workspaceId)
         let normalizedSurface = normalizeOptional(surfaceId)
         guard normalizedWorkspace != nil || normalizedSurface != nil else {
             return nil
         }
         return try withLockedState { state in
-            let matches = state.sessions.values.filter { record in
+            func matchesTarget(_ record: ClaudeHookSessionRecord) -> Bool {
                 if let normalizedWorkspace, normalizeOptional(record.workspaceId) != normalizedWorkspace {
                     return false
                 }
@@ -291,14 +291,39 @@ final class ClaudeHookSessionStore {
                 }
                 return true
             }
+            func activeRecord(_ active: ClaudeHookActiveSessionRecord?) -> ClaudeHookSessionRecord? {
+                guard let active,
+                      let record = state.sessions[active.sessionId],
+                      matchesTarget(record) else {
+                    return nil
+                }
+                return record
+            }
+            if let normalizedSurface,
+               let record = activeRecord(state.activeSessionsBySurface[normalizedSurface]) {
+                return record
+            }
+            if let normalizedWorkspace,
+               let record = activeRecord(state.activeSessionsByWorkspace[normalizedWorkspace]) {
+                return record
+            }
+            let matches = state.sessions.values.filter { record in
+                matchesTarget(record)
+            }
+            func startedEarlier(_ lhs: ClaudeHookSessionRecord, _ rhs: ClaudeHookSessionRecord) -> Bool {
+                if lhs.startedAt != rhs.startedAt {
+                    return lhs.startedAt < rhs.startedAt
+                }
+                return lhs.sessionId < rhs.sessionId
+            }
             guard !matches.isEmpty else { return nil }
             if let normalizedSurface,
                let nonSurfaceSession = matches
                    .filter({ normalizeOptional($0.sessionId) != normalizedSurface })
-                   .max(by: { $0.updatedAt < $1.updatedAt }) {
+                   .max(by: startedEarlier) {
                 return nonSurfaceSession
             }
-            return matches.max(by: { $0.updatedAt < $1.updatedAt })
+            return matches.max(by: startedEarlier)
         }
     }
 
@@ -29657,12 +29682,24 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return nil
         }
         if shouldAdoptSurfaceSessionForIdlessHook(action: action),
-           let target = idlessHookSurfaceLookupTarget(),
-           let existing = try? store.lookupLatestSession(
-                workspaceId: target.workspaceId,
-                surfaceId: target.surfaceId
-           ) {
-            sessionId = existing.sessionId
+           let target = idlessHookSurfaceLookupTarget() {
+            do {
+                if let existing = try store.lookupCurrentSession(
+                    workspaceId: target.workspaceId,
+                    surfaceId: target.surfaceId
+                ) {
+                    sessionId = existing.sessionId
+                }
+            } catch {
+                telemetry.breadcrumb("\(def.name)-hook.idless-session-lookup.failed")
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.idless.lookup.failed agent=\(def.name) subcommand=\(subcommand) workspace=\(agentHookDebugShort(target.workspaceId)) surface=\(agentHookDebugShort(target.surfaceId)) error=\(error)",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
+            }
         }
 #if DEBUG
         agentHookDebugLog(
@@ -29967,7 +30004,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         launchCommand: launchCommand,
                         agentLifecycle: .unknown,
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
-                        updateRuntimeStatus: !suppressVisibleMutations
+                        updateRuntimeStatus: !suppressVisibleMutations,
+                        markActive: def.name == "gemini" && !suppressVisibleMutations
                     )
                     acceptedSessionStart = true
                 }
