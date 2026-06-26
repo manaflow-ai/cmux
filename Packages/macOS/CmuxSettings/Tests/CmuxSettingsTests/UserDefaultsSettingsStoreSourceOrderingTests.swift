@@ -98,4 +98,23 @@ struct UserDefaultsSettingsStoreSourceOrderingTests {
         #expect(acceptedSource == nil)
         #expect(value == "#SOURCELESS")
     }
+
+    @Test func rejectsOlderMutationSourceAfterResetAll() async {
+        let suiteName = "cmux.tests.\(UUID().uuidString)"
+        let store = UserDefaultsSettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
+        let key = SettingCatalog().workspaceColors.selectionColorHex
+        let staleSource = UserDefaultsSettingsMutationSource(
+            ownerID: UUID(),
+            sequence: 1,
+            logicalOrder: 1
+        )
+
+        await store.set("#BEFORE", for: key)
+        await store.resetAll([AnySettingKey(key)])
+        let acceptedSource = await store.set("#STALE-LATE", for: key, source: staleSource)
+
+        let value = await store.value(for: key)
+        #expect(acceptedSource == nil)
+        #expect(value == key.defaultValue)
+    }
 }

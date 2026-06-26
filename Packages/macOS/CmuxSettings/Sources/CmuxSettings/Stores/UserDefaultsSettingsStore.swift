@@ -126,6 +126,7 @@ public actor UserDefaultsSettingsStore {
     public func resetAll(_ keys: [AnySettingKey]) {
         for entry in keys {
             guard case let .userDefaults(storageKey, suite, _) = entry.kind else { continue }
+            recordSourceLessMutation(for: storageKey)
             let defaults: UserDefaults
             if let suite, let custom = UserDefaults(suiteName: suite) {
                 defaults = custom
@@ -157,16 +158,26 @@ public actor UserDefaultsSettingsStore {
                 value: value
             )
         } else {
-            if let record = mutationSources[storageKey] {
-                let sequence = nextMutationSourceSequence(for: storageKey)
-                recordSupersededMutationSource(
-                    record.source,
-                    sequence: sequence,
-                    for: storageKey
-                )
-            }
-            mutationSources.removeValue(forKey: storageKey)
+            recordSourceLessMutation(for: storageKey, recordsAcceptedMutation: false)
         }
+    }
+
+    private func recordSourceLessMutation(
+        for storageKey: String,
+        recordsAcceptedMutation: Bool = true
+    ) {
+        if recordsAcceptedMutation {
+            recordAcceptedMutation(nil, for: storageKey)
+        }
+        if let record = mutationSources[storageKey] {
+            let sequence = nextMutationSourceSequence(for: storageKey)
+            recordSupersededMutationSource(
+                record.source,
+                sequence: sequence,
+                for: storageKey
+            )
+        }
+        mutationSources.removeValue(forKey: storageKey)
     }
 
     private func shouldAcceptMutationSource(
