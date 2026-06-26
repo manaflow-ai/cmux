@@ -482,6 +482,13 @@ extension MarkdownPanel: FindablePanel {
         displayMode == .text && (textView?.selectedRange.length ?? 0) > 0
     }
 
+    /// Reflects whether the `NSTextView` find bar is on screen, or a find that
+    /// was requested in preview mode and is still waiting for the text view.
+    var isFindVisible: Bool {
+        pendingShowFindBar
+            || (displayMode == .text && (textView?.enclosingScrollView?.isFindBarVisible ?? false))
+    }
+
     /// Opens the find bar for the markdown document.
     ///
     /// Find operates on the markdown source via the AppKit `NSTextView` find bar.

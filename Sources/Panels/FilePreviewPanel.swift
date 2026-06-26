@@ -4495,6 +4495,11 @@ extension FilePreviewPanel: FindablePanel {
         previewMode == .text && (textView?.selectedRange.length ?? 0) > 0
     }
 
+    /// Reflects whether the `NSTextView` find bar is on screen.
+    var isFindVisible: Bool {
+        previewMode == .text && (textView?.enclosingScrollView?.isFindBarVisible ?? false)
+    }
+
     /// Opens the `NSTextView` find bar when the file is shown as text.
     /// - Returns: `true` when a text preview handled the request; `false` for
     ///   non-text previews (PDF, image, media, Quick Look) so Cmd+F falls through.

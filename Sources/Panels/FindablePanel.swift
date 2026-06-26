@@ -14,6 +14,11 @@ protocol FindablePanel: AnyObject {
     /// needle (drives "Use Selection for Find" / Cmd+E enablement).
     var hasSelectionForFind: Bool { get }
 
+    /// Whether the panel's find UI is currently visible (drives "Hide Find Bar"
+    /// menu enablement). Should reflect real UI state where the platform exposes
+    /// it, rather than a flag that can drift from the actual bar.
+    var isFindVisible: Bool { get }
+
     /// Opens (or focuses) the panel's find UI.
     /// - Returns: `true` when the panel handled the request, `false` when it has
     ///   nothing to find in its current state so the command should fall through.
@@ -36,6 +41,10 @@ protocol FindablePanel: AnyObject {
 extension FindablePanel {
     /// Most panels do not expose a selection that can seed the find query.
     var hasSelectionForFind: Bool { false }
+
+    /// Panels whose find UI is a permanent control (e.g. an always-present filter
+    /// field) report no dismissible find bar.
+    var isFindVisible: Bool { false }
 
     /// Panels without result navigation (e.g. a live filter field) ignore this.
     func findNext() {}

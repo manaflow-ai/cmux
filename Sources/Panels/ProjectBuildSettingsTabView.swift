@@ -25,14 +25,22 @@ struct ProjectBuildSettingsTabView: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .onChange(of: panel.findFocus.request) { _, newValue in
-            guard newValue == .settings else { return }
-            searchFieldFocused = true
-            panel.findFocus.request = nil
-        }
+        // `onAppear` covers a find requested before this tab mounted (the panel
+        // was still loading, or another tab was active); `onChange` covers a find
+        // requested while this tab is already on screen.
+        .onAppear { applyPendingFindFocusIfNeeded() }
+        .onChange(of: panel.findFocus.request) { _, _ in applyPendingFindFocusIfNeeded() }
         .onChange(of: panel.findFocus.resignToken) { _, _ in
             searchFieldFocused = false
         }
+    }
+
+    /// Moves keyboard focus into the filter field when a find request targets
+    /// the Build Settings tab, then clears the one-shot request.
+    private func applyPendingFindFocusIfNeeded() {
+        guard panel.findFocus.request == .settings else { return }
+        searchFieldFocused = true
+        panel.findFocus.request = nil
     }
 
     @ViewBuilder
