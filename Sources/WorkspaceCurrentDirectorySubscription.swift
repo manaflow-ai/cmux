@@ -1,3 +1,4 @@
+import CmuxWorkspaces
 import Foundation
 
 /// Owns a `.workspaceCurrentDirectoryDidChange` observer and delivers the

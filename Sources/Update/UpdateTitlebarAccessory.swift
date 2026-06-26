@@ -8,6 +8,7 @@ import CmuxSettingsUI
 import CmuxSidebar
 import CmuxTestSupport
 import CmuxWindowing
+import CmuxWorkspaces
 import SwiftUI
 
 enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
