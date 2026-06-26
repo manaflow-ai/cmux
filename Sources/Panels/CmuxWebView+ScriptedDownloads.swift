@@ -379,7 +379,7 @@ extension CmuxWebView {
         )
     }
 
-    fileprivate func handleScriptedDownloadMessage(_ body: [String: Any]) {
+    fileprivate func handleScriptedDownloadMessage(_ body: [String: Any], isMainFrame: Bool) {
         let expectedToken = objc_getAssociatedObject(
             configuration.userContentController,
             &Self.scriptedDownloadTokenKey
@@ -392,7 +392,7 @@ extension CmuxWebView {
 #endif
             return
         }
-        guard let kind = body["kind"] as? String else { return }
+        guard let kind = body["kind"] as? String, isMainFrame || kind == "subframeDownloadIntent" else { return }
         let suggestedFilename = body["suggestedFilename"] as? String
         let urlString: String?
         switch kind {
@@ -537,7 +537,7 @@ private final class ScriptedDownloadMessageHandler: NSObject, WKScriptMessageHan
             return
         }
         MainActor.assumeIsolated {
-            webView.handleScriptedDownloadMessage(body)
+            webView.handleScriptedDownloadMessage(body, isMainFrame: message.frameInfo.isMainFrame)
         }
     }
 }
