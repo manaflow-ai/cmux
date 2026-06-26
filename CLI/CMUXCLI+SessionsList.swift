@@ -385,6 +385,8 @@ extension CMUXCLI {
             parts.append("codex_indexed=\(indexed)")
             parts.append("codex_transcript=\(transcript)")
         }
+        let forkCommandAvailable = ((payload["fork_command_available"] as? Bool) == true) ? "yes" : "no"
+        parts.append("fork_command=\(forkCommandAvailable)")
         let forkSupported = ((payload["fork_supported"] as? Bool) == true) ? "yes" : "no"
         parts.append("fork=\(forkSupported)")
         if let pidExists = payload["stored_pid_exists"] as? Bool {
@@ -429,18 +431,28 @@ extension CMUXCLI {
         let storedPIDExists = sessionsListStoredPIDExists(record.pid)
         let hookRecordRestorable = record.isRestorable != false
         let forkArguments = hookRecordRestorable ? sessionsListForkArguments(agent: agent, record: record) : nil
-        let forkSupported = forkArguments != nil
+        let forkCommandAvailable = forkArguments != nil
+        let support = sessionsListForkSupport(
+            agent: agent,
+            record: record,
+            hookRecordRestorable: hookRecordRestorable,
+            forkCommandAvailable: forkCommandAvailable
+        )
+        let forkSupported = support.supported
         let forkStartupInputAvailable = forkArguments.map(sessionsListForkStartupInputAvailable) ?? false
         let unavailableReason: String
         if forkSupported {
             unavailableReason = "available"
         } else if !hookRecordRestorable {
             unavailableReason = "record_marked_non_restorable"
-        } else {
+        } else if !forkCommandAvailable {
             unavailableReason = "agent_has_no_fork_command"
+        } else {
+            unavailableReason = support.unavailableReason
         }
 
         var diagnostics: [String: Any] = [
+            "fork_command_available": forkCommandAvailable,
             "fork_supported": forkSupported,
             "fork_unavailable_reason": unavailableReason,
             "fork_startup_input_available": forkStartupInputAvailable,
@@ -449,6 +461,53 @@ extension CMUXCLI {
         ]
         diagnostics["stored_pid_exists"] = storedPIDExists ?? NSNull()
         return diagnostics
+    }
+
+    private func sessionsListForkSupport(
+        agent: String,
+        record: ClaudeHookSessionRecord,
+        hookRecordRestorable: Bool,
+        forkCommandAvailable: Bool
+    ) -> (supported: Bool, unavailableReason: String) {
+        guard hookRecordRestorable else {
+            return (false, "record_marked_non_restorable")
+        }
+        guard forkCommandAvailable else {
+            return (false, "agent_has_no_fork_command")
+        }
+        guard agent == "opencode" else {
+            return (true, "available")
+        }
+        if record.launchCommand?.launcher == "omo" {
+            return (true, "available")
+        }
+        if sessionsListOpenCodeLooksRemoteLike(record) {
+            return (true, "available")
+        }
+        if let executable = sessionsListOpenCodeProbeExecutable(record),
+           executable.hasPrefix("/"),
+           !FileManager.default.isExecutableFile(atPath: executable) {
+            return (false, "opencode_executable_missing")
+        }
+        return (false, "opencode_version_unverified")
+    }
+
+    private func sessionsListOpenCodeLooksRemoteLike(_ record: ClaudeHookSessionRecord) -> Bool {
+        guard let workingDirectory = sessionsListNormalized(
+            record.launchCommand?.workingDirectory ?? record.cwd
+        ) else {
+            return false
+        }
+        var isDirectory: ObjCBool = false
+        return !FileManager.default.fileExists(atPath: workingDirectory, isDirectory: &isDirectory)
+            || !isDirectory.boolValue
+    }
+
+    private func sessionsListOpenCodeProbeExecutable(_ record: ClaudeHookSessionRecord) -> String? {
+        if let executablePath = sessionsListNormalized(record.launchCommand?.executablePath) {
+            return executablePath
+        }
+        return record.launchCommand?.arguments.first.flatMap(sessionsListNormalized)
     }
 
     private func sessionsListForkArguments(
