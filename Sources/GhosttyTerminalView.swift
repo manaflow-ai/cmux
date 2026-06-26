@@ -4780,9 +4780,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func copyKeyboardCopyModeSelectionToClipboard(surface: ghostty_surface_t) -> Bool {
+        let reflowEnabled = TerminalReflowCopySettings.isEnabled()
+
         if keyboardCopyModeVisualLineActive {
             guard let selectedText = readKeyboardCopyModeVisualLineSelection(surface: surface) else { return false }
-            GhosttyApp.terminalPasteboard.writeString(selectedText, to: GHOSTTY_CLIPBOARD_STANDARD)
+            let text = reflowEnabled ? reflowCopiedText(selectedText) : selectedText
+            GhosttyApp.terminalPasteboard.writeString(text, to: GHOSTTY_CLIPBOARD_STANDARD)
+            return true
+        }
+
+        // When reflow is enabled, rejoin application-hard-wrapped lines before
+        // writing to the clipboard. The selection snapshot is already soft-wrap
+        // unwrapped by Ghostty, so only residual hard wrapping is reflowed.
+        if reflowEnabled,
+           let selectedText = readSelectionSnapshot(surface: surface)?.string,
+           !selectedText.isEmpty {
+            GhosttyApp.terminalPasteboard.writeString(reflowCopiedText(selectedText), to: GHOSTTY_CLIPBOARD_STANDARD)
             return true
         }
 
@@ -5092,6 +5105,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
         _ = copyKeyboardCopyModeSelectionToClipboard(surface: surface)
+    }
+
+    /// Copies the selection verbatim, bypassing reflow. Wired to the "Copy Raw"
+    /// context-menu item so a raw copy is available even when reflow is the
+    /// default Copy behavior.
+    @IBAction func copyRaw(_ sender: Any?) {
+        guard let surface else {
+            _ = performBindingAction("copy_to_clipboard")
+            return
+        }
+        if keyboardCopyModeVisualLineActive {
+            if let selectedText = readKeyboardCopyModeVisualLineSelection(surface: surface) {
+                GhosttyApp.terminalPasteboard.writeString(selectedText, to: GHOSTTY_CLIPBOARD_STANDARD)
+            }
+            return
+        }
+        _ = copyCurrentGhosttySelectionToClipboard(surface: surface)
     }
 
     @IBAction func copyWorkspaceAndSurfaceIdentifiers(_ sender: Any?) {
