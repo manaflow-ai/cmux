@@ -7,7 +7,7 @@ import Testing
 @Suite struct AppKitContextMenuTests {
     /// Items and separators map to `NSMenuItem`s in order, honoring `isEnabled`.
     @Test func buildsItemsAndSeparatorsInOrder() {
-        let menu = CmuxContextMenu.make(from: [
+        let menu = CmuxContextMenu(from: [
             .button("First") {},
             .separator,
             .button("Disabled", isEnabled: false) {},
@@ -23,13 +23,13 @@ import Testing
 
     /// `autoenablesItems` is off so explicit `isEnabled` is authoritative.
     @Test func disablesAutoEnable() {
-        let menu = CmuxContextMenu.make(from: [.button("Only") {}])
+        let menu = CmuxContextMenu(from: [.button("Only") {}])
         #expect(menu.autoenablesItems == false)
     }
 
     /// A `systemImage` produces an item image; omitting it leaves the image nil.
     @Test func setsImageOnlyWhenSystemImageProvided() {
-        let menu = CmuxContextMenu.make(from: [
+        let menu = CmuxContextMenu(from: [
             .button("With Icon", systemImage: "trash") {},
             .button("No Icon") {},
         ])
@@ -41,7 +41,7 @@ import Testing
     /// Enabled items wire their action to a retained target that runs the closure.
     @Test func invokingTargetRunsAction() {
         var ran = 0
-        let menu = CmuxContextMenu.make(from: [.button("Run") { ran += 1 }])
+        let menu = CmuxContextMenu(from: [.button("Run") { ran += 1 }])
 
         let item = menu.items[0]
         let target = item.target as? CmuxContextMenuActionTarget
@@ -54,14 +54,48 @@ import Testing
 
     /// Disabled items carry no action target (nothing to invoke).
     @Test func disabledItemHasNoTarget() {
-        let menu = CmuxContextMenu.make(from: [.button("Off", isEnabled: false) {}])
+        let menu = CmuxContextMenu(from: [.button("Off", isEnabled: false) {}])
         #expect(menu.items[0].target == nil)
         #expect(menu.items[0].action == nil)
     }
 
+    /// Leading separators are dropped (an entry that only has a trailing group).
+    @Test func dropsLeadingSeparator() {
+        let menu = CmuxContextMenu(from: [.separator, .button("Only") {}])
+        #expect(menu.items.count == 1)
+        #expect(menu.items[0].title == "Only")
+    }
+
+    /// Trailing separators are dropped (an entry whose only group leads the menu).
+    @Test func dropsTrailingSeparator() {
+        let menu = CmuxContextMenu(from: [.button("Only") {}, .separator])
+        #expect(menu.items.count == 1)
+        #expect(menu.items[0].title == "Only")
+    }
+
+    /// Consecutive separators collapse to a single divider, matching SwiftUI.
+    @Test func collapsesConsecutiveSeparators() {
+        let menu = CmuxContextMenu(from: [
+            .button("A") {},
+            .separator,
+            .separator,
+            .button("B") {},
+        ])
+        #expect(menu.items.count == 3)
+        #expect(menu.items[0].title == "A")
+        #expect(menu.items[1].isSeparatorItem == true)
+        #expect(menu.items[2].title == "B")
+    }
+
     /// An empty element list builds an empty menu (capture view treats this as a no-op).
     @Test func emptyElementsBuildEmptyMenu() {
-        let menu = CmuxContextMenu.make(from: [])
+        let menu = CmuxContextMenu(from: [])
+        #expect(menu.items.isEmpty)
+    }
+
+    /// All-separator input builds an empty menu (every separator is degenerate).
+    @Test func allSeparatorsBuildEmptyMenu() {
+        let menu = CmuxContextMenu(from: [.separator, .separator])
         #expect(menu.items.isEmpty)
     }
 
