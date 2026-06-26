@@ -19716,6 +19716,11 @@ struct CMUXCLI {
                     )
                     resetConnectionSubscriptions()
                     try backfillLoadedThreads(connection: connection)
+                    // Backfill resume handlers run with allowThreadSubscribe ==
+                    // false, so a spawn observed during startup is deferred.
+                    // Drain it here, in a non-reentrant context, before the
+                    // listen loop blocks waiting for the next notification.
+                    try drainDeferredSpawnSubscribes(connection: connection)
                     try listenForNotifications(connection: connection)
                 } catch {
                     cliWriteStderr("cmux codex-teams watcher connection failed: \(error)\n")
@@ -19899,16 +19904,22 @@ struct CMUXCLI {
         }
 
         private func drainDeferredSpawnSubscribes(connection: CodexTeamsAppServerConnection) throws {
-            stateLock.lock()
-            let pending = deferredSpawnChildThreadIds
-            deferredSpawnChildThreadIds.removeAll(keepingCapacity: true)
-            stateLock.unlock()
-            guard !pending.isEmpty else { return }
-            for childId in pending {
-                do {
-                    try subscribeToThreadIfNeeded(childId, connection: connection)
-                } catch {
-                    cliWriteStderr("cmux codex-teams watcher could not attach spawned subagent \(childId): \(error)\n")
+            // Loop until empty: a thread/resume issued below runs notification
+            // handlers (allowThreadSubscribe == false) that can defer further
+            // children, so one pass is not enough to guarantee the set is flushed
+            // before the caller blocks for the next notification.
+            while true {
+                stateLock.lock()
+                let pending = deferredSpawnChildThreadIds
+                deferredSpawnChildThreadIds.removeAll(keepingCapacity: true)
+                stateLock.unlock()
+                guard !pending.isEmpty else { return }
+                for childId in pending {
+                    do {
+                        try subscribeToThreadIfNeeded(childId, connection: connection)
+                    } catch {
+                        cliWriteStderr("cmux codex-teams watcher could not attach spawned subagent \(childId): \(error)\n")
+                    }
                 }
             }
         }
