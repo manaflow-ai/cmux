@@ -495,15 +495,6 @@ final class GotoSplitUITestRecorder: UITestRecording {
         panel.webView.evaluateJavaScript(FocusSeedResult.seedScript) { [weak self] result, _ in
             guard let self else { return }
             let seed = FocusSeedResult(jsResult: result)
-            let focused = seed.focused
-            let inputId = seed.inputId
-            let secondaryInputId = seed.secondaryInputId
-            let secondaryCenterX = seed.secondaryCenterX
-            let secondaryCenterY = seed.secondaryCenterY
-            let activeId = seed.activeId
-            let trackerInstalled = seed.trackerInstalled
-            let trackedStateId = seed.trackedStateId
-            let readyState = seed.readyState
             var secondaryClickOffsetX = -1.0
             var secondaryClickOffsetY = -1.0
             if let window = panel.webView.window {
@@ -513,44 +504,17 @@ final class GotoSplitUITestRecorder: UITestRecording {
                     webFrame: webFrame,
                     contentHeight: contentHeight,
                     windowHeight: Double(window.frame.height),
-                    secondaryCenterX: secondaryCenterX,
-                    secondaryCenterY: secondaryCenterY
+                    secondaryCenterX: seed.secondaryCenterX,
+                    secondaryCenterY: seed.secondaryCenterY
                 ) {
                     secondaryClickOffsetX = offset.x
                     secondaryClickOffsetY = offset.y
                 }
             }
-            if focused,
-               !inputId.isEmpty,
-               !secondaryInputId.isEmpty,
-               inputId == activeId,
-               trackerInstalled,
-               !trackedStateId.isEmpty,
-               secondaryCenterX > 0,
-               secondaryCenterX < 1,
-               secondaryCenterY > 0,
-               secondaryCenterY < 1,
-               secondaryClickOffsetX > 0,
-               secondaryClickOffsetY > 0 {
-                self.writeData([
-                    "webInputFocusSeeded": "true",
-                    "webInputFocusElementId": inputId,
-                    "webInputFocusSecondaryElementId": secondaryInputId,
-                    "webInputFocusSecondaryCenterX": "\(secondaryCenterX)",
-                    "webInputFocusSecondaryCenterY": "\(secondaryCenterY)",
-                    "webInputFocusSecondaryClickOffsetX": "\(secondaryClickOffsetX)",
-                    "webInputFocusSecondaryClickOffsetY": "\(secondaryClickOffsetY)",
-                    "webInputFocusActiveElementId": activeId,
-                    "webInputFocusTrackerInstalled": trackerInstalled ? "true" : "false",
-                    "webInputFocusTrackedStateId": trackedStateId,
-                    "webInputFocusReadyState": readyState
-                ])
-                return
-            }
-            self.writeData([
-                "webInputFocusSeeded": "false",
-                "setupError": "Timed out focusing page input for omnibar restore test"
-            ])
+            self.writeData(seed.captureFields(
+                secondaryClickOffsetX: secondaryClickOffsetX,
+                secondaryClickOffsetY: secondaryClickOffsetY
+            ))
         }
     }
 

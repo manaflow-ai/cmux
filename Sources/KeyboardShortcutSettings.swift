@@ -1158,11 +1158,6 @@ enum SystemWideHotkeySettings {
     }
 }
 
-struct CarbonHotKeyRegistration: Equatable {
-    let keyCode: UInt32
-    let modifiers: UInt32
-}
-
 struct ShortcutStroke: Equatable, Hashable {
     enum RecordingResult: Equatable {
         case accepted(ShortcutStroke)

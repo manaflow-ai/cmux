@@ -106,7 +106,7 @@ extension TerminalController {
         guard let direction = SplitDirection(controlToken: inputs.directionRaw) else {
             return .invalidDirection
         }
-        let panelType = inputs.typeRaw.flatMap { surfacePanelType(forRawToken: $0) } ?? .terminal
+        let panelType = inputs.typeRaw.flatMap { PanelType(normalizedControlToken: v2NormalizedToken($0)) } ?? .terminal
         if panelType == .agentSession {
             return .agentSessionRejected(typeRawValue: panelType.rawValue)
         }
@@ -282,7 +282,7 @@ extension TerminalController {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        let panelType = inputs.typeRaw.flatMap { surfacePanelType(forRawToken: $0) } ?? .terminal
+        let panelType = inputs.typeRaw.flatMap { PanelType(normalizedControlToken: v2NormalizedToken($0)) } ?? .terminal
 
         var providerID: AgentSessionProviderID = .codex
         var rendererKind: AgentSessionRendererKind = .react
@@ -427,18 +427,4 @@ extension TerminalController {
         )
     }
 
-    /// The byte-faithful twin of `v2PanelType`'s token mapping (the `v2PanelType`
-    /// helper takes `[String: Any]`; the coordinator passes the raw token, so this
-    /// maps a token directly, identical to the legacy switch).
-    private func surfacePanelType(forRawToken raw: String) -> PanelType? {
-        switch v2NormalizedToken(raw) {
-        case "terminal": return .terminal
-        case "browser": return .browser
-        case "markdown": return .markdown
-        case "filepreview": return .filePreview
-        case "rightsidebartool": return .rightSidebarTool
-        case "agentsession": return .agentSession
-        default: return nil
-        }
-    }
 }

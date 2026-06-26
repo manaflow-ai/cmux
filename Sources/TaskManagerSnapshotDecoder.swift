@@ -7,10 +7,11 @@ import Foundation
 /// `SessionAgentAssetResolver` used to attribute coding-agent assets. The
 /// payload-walking logic (windows, workspaces, tags, panes, surfaces, webviews,
 /// and the recursive process tree) lives here so `CmuxTaskManagerSnapshot`
-/// stays a pure storage value. Localized row titles are produced with
-/// `String(localized:)` so they must remain app-side (the app bundle owns the
-/// `taskManager.*` keys); the decoder is therefore an app-target type, not a
-/// package type.
+/// stays a pure storage value. Every helper is an instance method that reads the
+/// stored `agentAssetResolver` directly rather than threading it through a static
+/// namespace. Localized row titles are produced with `String(localized:)` so they
+/// must remain app-side (the app bundle owns the `taskManager.*` keys); the
+/// decoder is therefore an app-target type, not a package type.
 struct CmuxTaskManagerSnapshotDecoder {
     let payload: [String: Any]
     let agentAssetResolver: SessionAgentAssetResolver
@@ -31,19 +32,19 @@ struct CmuxTaskManagerSnapshotDecoder {
         var rows: [CmuxTaskManagerRow] = []
         let windows = payload["windows"] as? [[String: Any]] ?? []
         for window in windows {
-            Self.appendWindow(window, to: &rows, agentAssetResolver: agentAssetResolver)
+            appendWindow(window, to: &rows)
         }
-        let agentRows = Self.agentRows(from: payload["coding_agents"] as? [[String: Any]] ?? [])
+        let agentRows = self.agentRows(from: payload["coding_agents"] as? [[String: Any]] ?? [])
         let resolvedRows = agentAssetResolver.rowsWithAgentAssets(
             rows,
             assetNameByProcessID: agentAssetResolver.agentAssetNameByProcessID(from: agentRows)
         )
         let programTotalPayloads = payload["program_totals"] as? [[String: Any]] ?? []
         let aggregateRows = programTotalPayloads.isEmpty
-            ? Self.programAggregateRows(from: resolvedRows, agentAssetResolver: agentAssetResolver)
-            : Self.programAggregateRows(fromPayloads: programTotalPayloads, agentAssetResolver: agentAssetResolver)
+            ? programAggregateRows(from: resolvedRows)
+            : programAggregateRows(fromPayloads: programTotalPayloads)
         let memoryDiagnostic = CmuxTaskManagerMemoryDiagnostic(payload["memory_diagnostic"] as? [String: Any])
-        let childMemoryRows = Self.childMemoryRows(from: memoryDiagnostic, agentAssetResolver: agentAssetResolver)
+        let childMemoryRows = self.childMemoryRows(from: memoryDiagnostic)
 
         return CmuxTaskManagerSnapshot(
             rows: resolvedRows,
@@ -56,9 +57,8 @@ struct CmuxTaskManagerSnapshotDecoder {
         )
     }
 
-    static func childMemoryRows(
-        from diagnostic: CmuxTaskManagerMemoryDiagnostic?,
-        agentAssetResolver: SessionAgentAssetResolver
+    func childMemoryRows(
+        from diagnostic: CmuxTaskManagerMemoryDiagnostic?
     ) -> [CmuxTaskManagerRow] {
         guard let diagnostic else { return [] }
         return diagnostic.groups.map { group in
@@ -95,7 +95,7 @@ struct CmuxTaskManagerSnapshotDecoder {
         }
     }
 
-    private static func attributionDetail(_ attribution: CmuxTaskManagerMemoryAttribution?) -> String? {
+    private func attributionDetail(_ attribution: CmuxTaskManagerMemoryAttribution?) -> String? {
         guard let attribution else {
             return String(localized: "taskManager.memory.unattributed", defaultValue: "Unattributed")
         }
@@ -124,7 +124,7 @@ struct CmuxTaskManagerSnapshotDecoder {
         return parts.joined(separator: " / ")
     }
 
-    private static func agentRows(from payloads: [[String: Any]]) -> [CmuxTaskManagerRow] {
+    private func agentRows(from payloads: [[String: Any]]) -> [CmuxTaskManagerRow] {
         payloads.compactMap { payload in
             guard let id = nonEmptyString(payload["id"]),
                   let title = nonEmptyString(payload["display_name"]) else { return nil }
@@ -170,9 +170,8 @@ struct CmuxTaskManagerSnapshotDecoder {
         }
     }
 
-    static func programAggregateRows(
-        from rows: [CmuxTaskManagerRow],
-        agentAssetResolver: SessionAgentAssetResolver
+    func programAggregateRows(
+        from rows: [CmuxTaskManagerRow]
     ) -> [CmuxTaskManagerRow] {
         var aggregatesByKey: [String: ProgramAggregate] = [:]
         var seenProcessIds: Set<Int> = []
@@ -220,9 +219,8 @@ struct CmuxTaskManagerSnapshotDecoder {
             }
     }
 
-    private static func programAggregateRows(
-        fromPayloads payloads: [[String: Any]],
-        agentAssetResolver: SessionAgentAssetResolver
+    private func programAggregateRows(
+        fromPayloads payloads: [[String: Any]]
     ) -> [CmuxTaskManagerRow] {
         payloads.compactMap { payload in
             guard let title = nonEmptyString(payload["name"]) else { return nil }
@@ -248,7 +246,7 @@ struct CmuxTaskManagerSnapshotDecoder {
         }
     }
 
-    private static func processCountDetail(_ processCount: Int) -> String {
+    private func processCountDetail(_ processCount: Int) -> String {
         if processCount == 1 {
             return String(localized: "taskManager.aggregate.processCount.one", defaultValue: "1 process")
         }
@@ -258,10 +256,9 @@ struct CmuxTaskManagerSnapshotDecoder {
         ), Int64(processCount))
     }
 
-    private static func appendWindow(
+    private func appendWindow(
         _ window: [String: Any],
-        to rows: inout [CmuxTaskManagerRow],
-        agentAssetResolver: SessionAgentAssetResolver
+        to rows: inout [CmuxTaskManagerRow]
     ) {
         let handle = displayHandle(window)
         var detailParts: [String] = []
@@ -282,19 +279,18 @@ struct CmuxTaskManagerSnapshotDecoder {
         let processes = window["processes"] as? [[String: Any]] ?? []
         let context = rowID(window, kind: .window)
         for process in processes {
-            appendProcess(process, level: 1, context: context, workspaceId: nil, terminalSurfaceId: nil, agentAssetResolver: agentAssetResolver, to: &rows)
+            appendProcess(process, level: 1, context: context, workspaceId: nil, terminalSurfaceId: nil, to: &rows)
         }
 
         let workspaces = window["workspaces"] as? [[String: Any]] ?? []
         for workspace in workspaces {
-            appendWorkspace(workspace, to: &rows, agentAssetResolver: agentAssetResolver)
+            appendWorkspace(workspace, to: &rows)
         }
     }
 
-    private static func appendWorkspace(
+    private func appendWorkspace(
         _ workspace: [String: Any],
-        to rows: inout [CmuxTaskManagerRow],
-        agentAssetResolver: SessionAgentAssetResolver
+        to rows: inout [CmuxTaskManagerRow]
     ) {
         let workspaceId = uuid(workspace["id"])
         let title = nonEmptyString(workspace["title"]) ?? displayHandle(workspace)
@@ -316,20 +312,19 @@ struct CmuxTaskManagerSnapshotDecoder {
 
         let tags = workspace["tags"] as? [[String: Any]] ?? []
         for tag in tags {
-            appendTag(tag, workspaceId: workspaceId, to: &rows, agentAssetResolver: agentAssetResolver)
+            appendTag(tag, workspaceId: workspaceId, to: &rows)
         }
 
         let panes = workspace["panes"] as? [[String: Any]] ?? []
         for pane in panes {
-            appendPane(pane, workspaceId: workspaceId, to: &rows, agentAssetResolver: agentAssetResolver)
+            appendPane(pane, workspaceId: workspaceId, to: &rows)
         }
     }
 
-    private static func appendTag(
+    private func appendTag(
         _ tag: [String: Any],
         workspaceId: UUID?,
-        to rows: inout [CmuxTaskManagerRow],
-        agentAssetResolver: SessionAgentAssetResolver
+        to rows: inout [CmuxTaskManagerRow]
     ) {
         let key = nonEmptyString(tag["key"]) ?? String(localized: "taskManager.row.unknownTag", defaultValue: "Unknown tag")
         let value = nonEmptyString(tag["value"])
@@ -351,15 +346,14 @@ struct CmuxTaskManagerSnapshotDecoder {
         let processes = tag["processes"] as? [[String: Any]] ?? []
         let context = rowID(tag, kind: .tag)
         for process in processes {
-            appendProcess(process, level: 3, context: context, workspaceId: workspaceId, terminalSurfaceId: nil, agentAssetResolver: agentAssetResolver, to: &rows)
+            appendProcess(process, level: 3, context: context, workspaceId: workspaceId, terminalSurfaceId: nil, to: &rows)
         }
     }
 
-    private static func appendPane(
+    private func appendPane(
         _ pane: [String: Any],
         workspaceId: UUID?,
-        to rows: inout [CmuxTaskManagerRow],
-        agentAssetResolver: SessionAgentAssetResolver
+        to rows: inout [CmuxTaskManagerRow]
     ) {
         let handle = displayHandle(pane)
         rows.append(row(
@@ -373,15 +367,14 @@ struct CmuxTaskManagerSnapshotDecoder {
 
         let surfaces = pane["surfaces"] as? [[String: Any]] ?? []
         for surface in surfaces {
-            appendSurface(surface, workspaceId: workspaceId, to: &rows, agentAssetResolver: agentAssetResolver)
+            appendSurface(surface, workspaceId: workspaceId, to: &rows)
         }
     }
 
-    private static func appendSurface(
+    private func appendSurface(
         _ surface: [String: Any],
         workspaceId: UUID?,
-        to rows: inout [CmuxTaskManagerRow],
-        agentAssetResolver: SessionAgentAssetResolver
+        to rows: inout [CmuxTaskManagerRow]
     ) {
         let type = (nonEmptyString(surface["type"]) ?? "unknown").lowercased()
         let title = nonEmptyString(surface["title"]) ?? displayHandle(surface)
@@ -412,7 +405,7 @@ struct CmuxTaskManagerSnapshotDecoder {
         let webviews = surface["webviews"] as? [[String: Any]] ?? []
         if !webviews.isEmpty {
             for webview in webviews {
-                appendWebView(webview, workspaceId: workspaceId, surfaceId: surfaceId, to: &rows, agentAssetResolver: agentAssetResolver)
+                appendWebView(webview, workspaceId: workspaceId, surfaceId: surfaceId, to: &rows)
             }
         }
         let processes = surface["processes"] as? [[String: Any]] ?? []
@@ -425,18 +418,16 @@ struct CmuxTaskManagerSnapshotDecoder {
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 terminalSurfaceId: terminalSurfaceId,
-                agentAssetResolver: agentAssetResolver,
                 to: &rows
             )
         }
     }
 
-    private static func appendWebView(
+    private func appendWebView(
         _ webview: [String: Any],
         workspaceId: UUID?,
         surfaceId: UUID?,
-        to rows: inout [CmuxTaskManagerRow],
-        agentAssetResolver: SessionAgentAssetResolver
+        to rows: inout [CmuxTaskManagerRow]
     ) {
         let title = nonEmptyString(webview["title"])
             ?? String(localized: "taskManager.row.webview", defaultValue: "WebView")
@@ -470,20 +461,18 @@ struct CmuxTaskManagerSnapshotDecoder {
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 terminalSurfaceId: nil,
-                agentAssetResolver: agentAssetResolver,
                 to: &rows
             )
         }
     }
 
-    private static func appendProcess(
+    private func appendProcess(
         _ process: [String: Any],
         level: Int,
         context: String,
         workspaceId: UUID?,
         surfaceId: UUID? = nil,
         terminalSurfaceId: UUID?,
-        agentAssetResolver: SessionAgentAssetResolver,
         to rows: inout [CmuxTaskManagerRow]
     ) {
         let pid = int(process["pid"])
@@ -525,13 +514,12 @@ struct CmuxTaskManagerSnapshotDecoder {
                 workspaceId: workspaceId,
                 surfaceId: processSurfaceId,
                 terminalSurfaceId: processTerminalSurfaceId,
-                agentAssetResolver: agentAssetResolver,
                 to: &rows
             )
         }
     }
 
-    private static func row(
+    private func row(
         _ payload: [String: Any],
         kind: CmuxTaskManagerRow.Kind,
         level: Int,
@@ -565,7 +553,7 @@ struct CmuxTaskManagerSnapshotDecoder {
         )
     }
 
-    private static func rowID(
+    private func rowID(
         _ payload: [String: Any],
         kind: CmuxTaskManagerRow.Kind,
         context: String? = nil
@@ -593,11 +581,11 @@ struct CmuxTaskManagerSnapshotDecoder {
         return "\(kind.rawValue):\(UUID().uuidString)"
     }
 
-    private static func displayHandle(_ payload: [String: Any]) -> String {
+    private func displayHandle(_ payload: [String: Any]) -> String {
         nonEmptyString(payload["ref"]) ?? nonEmptyString(payload["id"]) ?? "?"
     }
 
-    private static func surfaceTypeLabel(_ type: String) -> String {
+    private func surfaceTypeLabel(_ type: String) -> String {
         switch type {
         case "browser":
             return String(localized: "taskManager.row.surfaceType.browser", defaultValue: "Browser")
@@ -610,24 +598,24 @@ struct CmuxTaskManagerSnapshotDecoder {
         }
     }
 
-    private static func nonEmptyString(_ raw: Any?) -> String? {
+    private func nonEmptyString(_ raw: Any?) -> String? {
         guard let value = raw as? String else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private static func uuid(_ raw: Any?) -> UUID? {
+    private func uuid(_ raw: Any?) -> UUID? {
         guard let value = nonEmptyString(raw) else { return nil }
         return UUID(uuidString: value)
     }
 
-    private static func bool(_ raw: Any?) -> Bool {
+    private func bool(_ raw: Any?) -> Bool {
         if let value = raw as? Bool { return value }
         if let value = raw as? NSNumber { return value.boolValue }
         return false
     }
 
-    private static func int(_ raw: Any?) -> Int? {
+    private func int(_ raw: Any?) -> Int? {
         if let value = raw as? Int { return value }
         if let value = raw as? NSNumber { return value.intValue }
         if let value = raw as? String {
@@ -636,7 +624,7 @@ struct CmuxTaskManagerSnapshotDecoder {
         return nil
     }
 
-    private static func intArray(_ raw: Any?) -> [Int] {
+    private func intArray(_ raw: Any?) -> [Int] {
         if let values = raw as? [Int] { return values }
         guard let values = raw as? [Any] else { return [] }
         return values.compactMap(int)

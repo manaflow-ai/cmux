@@ -51,6 +51,60 @@ public struct FocusSeedResult: Sendable {
         self.readyState = (payload?["readyState"] as? String) ?? ""
     }
 
+    /// Formats the capture key/value fields the recorder writes after seeding,
+    /// applying the same validation gate the legacy inline code used.
+    ///
+    /// When every page-side condition holds (the primary fixture is focused and
+    /// is `document.activeElement`, both fixture ids are present, the tracker is
+    /// installed with a tracked state id, both normalized centers are strictly
+    /// inside `(0, 1)`, and both resolved click offsets are positive) this
+    /// returns the ten `webInputFocus*` fields plus `webInputFocusSeeded:
+    /// "true"`. Otherwise it returns the timeout failure fields. The output is
+    /// byte-identical to the legacy inline `[String: String]` payloads,
+    /// including the `"\(Double)"` interpolation of the four coordinate fields.
+    ///
+    /// - Parameters:
+    ///   - secondaryClickOffsetX: The secondary input's window-content click x
+    ///     (the recorder's `-1` sentinel when unavailable; see
+    ///     ``FocusSeedClickOffset``).
+    ///   - secondaryClickOffsetY: The secondary input's window-content click y
+    ///     (the recorder's `-1` sentinel when unavailable).
+    public func captureFields(
+        secondaryClickOffsetX: Double,
+        secondaryClickOffsetY: Double
+    ) -> [String: String] {
+        if focused,
+           !inputId.isEmpty,
+           !secondaryInputId.isEmpty,
+           inputId == activeId,
+           trackerInstalled,
+           !trackedStateId.isEmpty,
+           secondaryCenterX > 0,
+           secondaryCenterX < 1,
+           secondaryCenterY > 0,
+           secondaryCenterY < 1,
+           secondaryClickOffsetX > 0,
+           secondaryClickOffsetY > 0 {
+            return [
+                "webInputFocusSeeded": "true",
+                "webInputFocusElementId": inputId,
+                "webInputFocusSecondaryElementId": secondaryInputId,
+                "webInputFocusSecondaryCenterX": "\(secondaryCenterX)",
+                "webInputFocusSecondaryCenterY": "\(secondaryCenterY)",
+                "webInputFocusSecondaryClickOffsetX": "\(secondaryClickOffsetX)",
+                "webInputFocusSecondaryClickOffsetY": "\(secondaryClickOffsetY)",
+                "webInputFocusActiveElementId": activeId,
+                "webInputFocusTrackerInstalled": trackerInstalled ? "true" : "false",
+                "webInputFocusTrackedStateId": trackedStateId,
+                "webInputFocusReadyState": readyState
+            ]
+        }
+        return [
+            "webInputFocusSeeded": "false",
+            "setupError": "Timed out focusing page input for omnibar restore test"
+        ]
+    }
+
     public static let seedScript: String = """
         (() => {
           const snapshot = () => {

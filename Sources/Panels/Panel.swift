@@ -76,6 +76,65 @@ extension PanelType {
             return .extensionBrowser
         }
     }
+
+    /// Maps a normalized control-command surface-type token onto a ``PanelType``.
+    ///
+    /// Byte-faithful home of the duplicated `panelType(forRawToken:)` /
+    /// `surfacePanelType(forRawToken:)` switches that the control-socket pane- and
+    /// surface-create paths each carried. Both normalized the caller-supplied type
+    /// string app-side (`TerminalController.v2NormalizedToken`, stripping
+    /// `-`/`_`/spaces and lowercasing) and switched on the result; the
+    /// normalization stays app-side while this owns the single case table.
+    /// `agentSession` is accepted here (the pane-create path rejects it
+    /// downstream), and `project`/`extensionBrowser` remain unmapped, exactly as
+    /// the legacy switches did.
+    public init?(normalizedControlToken token: String) {
+        switch token {
+        case "terminal": self = .terminal
+        case "browser": self = .browser
+        case "markdown": self = .markdown
+        case "filepreview": self = .filePreview
+        case "rightsidebartool": self = .rightSidebarTool
+        case "agentsession": self = .agentSession
+        default: return nil
+        }
+    }
+}
+
+extension PanelType {
+    /// Resolves a control-socket `type` token (from `pane.*`/`surface.*`
+    /// commands) to a ``PanelType``, or `nil` when the token is unrecognized.
+    ///
+    /// Byte-faithful lift of the private `panelType(forRawToken:)` twin of
+    /// `v2PanelType`: the raw token is normalized (strip `-`, `_`, and spaces,
+    /// then lowercase) before matching, so `"file-preview"`, `"file_preview"`,
+    /// and `"FilePreview"` all resolve to ``filePreview``. The normalization is
+    /// inlined here (rather than calling the `TerminalController` helper) so the
+    /// owning value type stays self-contained. Callers that want a default fall
+    /// back to ``terminal`` via `?? .terminal`.
+    public init?(controlToken raw: String) {
+        let normalized = raw
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: " ", with: "")
+            .lowercased()
+        switch normalized {
+        case "terminal":
+            self = .terminal
+        case "browser":
+            self = .browser
+        case "markdown":
+            self = .markdown
+        case "filepreview":
+            self = .filePreview
+        case "rightsidebartool":
+            self = .rightSidebarTool
+        case "agentsession":
+            self = .agentSession
+        default:
+            return nil
+        }
+    }
 }
 
 public enum TerminalPanelFocusIntent: Equatable {

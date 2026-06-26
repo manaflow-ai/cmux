@@ -209,7 +209,10 @@ struct SessionIndexView: View {
         }
         .modifier(ClearScrollBackground())
         .background(
-            DragCancelMonitor(dragCoordinator: dragCoordinator)
+            DragCancelMonitor(
+                isDragActive: { dragCoordinator.draggedKey != nil },
+                onCancel: { dragCoordinator.draggedKey = nil }
+            )
         )
     }
 }
@@ -1093,65 +1096,3 @@ extension SessionEntry {
     }
 }
 
-// MARK: - Drag cancel monitor
-
-/// Clears `dragCoordinator.draggedKey` after any mouseUp OR Escape keypress,
-/// so a cancelled drag (user releases outside any valid drop target, or
-/// presses Esc mid-drag) doesn't leave the section stuck at 0.45 opacity.
-/// Successful drops clear the key themselves via
-/// `SectionGapDropDelegate.performDrop` and that clear happens under
-/// `DispatchQueue.main.async`, so the drop path always wins the race
-/// against this fallback.
-private struct DragCancelMonitor: NSViewRepresentable {
-    let dragCoordinator: SessionDragCoordinator
-
-    func makeNSView(context: Context) -> NSView {
-        let view = DragCancelMonitorView()
-        view.dragCoordinator = dragCoordinator
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        (nsView as? DragCancelMonitorView)?.dragCoordinator = dragCoordinator
-    }
-
-    private final class DragCancelMonitorView: NSView {
-        weak var dragCoordinator: SessionDragCoordinator?
-        private var monitor: Any?
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            if let monitor {
-                NSEvent.removeMonitor(monitor)
-                self.monitor = nil
-            }
-            guard window != nil else { return }
-            // Cover every way a drag can end without a drop firing:
-            // mouse release (default cancellation) and Escape (AppKit
-            // signals drag abort by delivering a keyDown with
-            // kVK_Escape / keyCode 53). Without the Escape branch,
-            // pressing Esc to cancel a section drag leaves the section
-            // stuck at 0.45 opacity until the next mouseUp elsewhere.
-            monitor = NSEvent.addLocalMonitorForEvents(
-                matching: [.leftMouseUp, .otherMouseUp, .keyDown]
-            ) { [weak self] event in
-                guard let coordinator = self?.dragCoordinator,
-                      coordinator.draggedKey != nil else { return event }
-                if event.type == .keyDown, event.keyCode != 53 { // 53 = kVK_Escape
-                    return event
-                }
-                // Defer the clear so any `performDrop` already queued on the
-                // main actor wins first; this path only matters when no drop
-                // fires, i.e. the drag was cancelled.
-                DispatchQueue.main.async {
-                    coordinator.draggedKey = nil
-                }
-                return event
-            }
-        }
-
-        deinit {
-            if let monitor { NSEvent.removeMonitor(monitor) }
-        }
-    }
-}

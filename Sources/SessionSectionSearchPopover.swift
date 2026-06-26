@@ -14,6 +14,7 @@
 
 import AppKit
 import CmuxAppKitSupportUI
+import CmuxFoundation
 import SwiftUI
 
 // MARK: - "Show more" popover with search
@@ -371,15 +372,6 @@ private struct PopoverRow: View, Equatable {
         lhs.entry == rhs.entry
     }
 
-    fileprivate static func flatten(_ s: String) -> String {
-        var out = s
-        out = out.replacingOccurrences(of: "\r\n", with: " ")
-        out = out.replacingOccurrences(of: "\n", with: " ")
-        out = out.replacingOccurrences(of: "\r", with: " ")
-        out = out.replacingOccurrences(of: "\t", with: " ")
-        return out
-    }
-
     fileprivate static func refreshInterval(for modified: Date, now: Date = .now) -> TimeInterval {
         let age = max(0, now.timeIntervalSince(modified))
         if age < 3_600 { return 60 }
@@ -404,7 +396,7 @@ private struct PopoverRow: View, Equatable {
             // envelopes stay single-line; SwiftUI's `lineLimit(1)` doesn't
             // always constrain a Text that has hard line breaks in the
             // source string.
-            Text(Self.flatten(entry.displayTitle))
+            Text(entry.displayTitle.singleLineFlattened)
                 .font(.system(size: 12))
                 .foregroundColor(.primary.opacity(0.92))
                 .lineLimit(1)

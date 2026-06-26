@@ -311,14 +311,8 @@ final class TerminalNotificationStore: ObservableObject {
         effects in
         store.playSuppressedNotificationFeedback(for: notification, effects: effects)
     }
-    private struct NotificationHookFailureThrottleKey: Hashable {
-        let hookId: String
-        let sourcePath: String?
-    }
-
-    private static let notificationHookFailureThrottle: TimeInterval = 300
     private var lastNotificationDateByCooldownKey: [String: Date] = [:]
-    private var lastNotificationHookFailureDateByKey: [NotificationHookFailureThrottleKey: Date] = [:]
+    private var notificationHookFailureThrottle = NotificationHookFailureThrottle()
     private var indexes = NotificationIndexes()
 
     private init() {
@@ -1062,16 +1056,13 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func reportNotificationHookFailure(_ failure: TerminalNotificationPolicyFailure) {
-        let key = NotificationHookFailureThrottleKey(
+        guard notificationHookFailureThrottle.shouldReport(
             hookId: failure.hookId,
-            sourcePath: failure.sourcePath
-        )
-        let now = Date()
-        if let lastDate = lastNotificationHookFailureDateByKey[key],
-           now.timeIntervalSince(lastDate) < Self.notificationHookFailureThrottle {
+            sourcePath: failure.sourcePath,
+            now: Date()
+        ) else {
             return
         }
-        lastNotificationHookFailureDateByKey[key] = now
         terminalNotificationLogger.error(
             "Notification hook failed hookId=\(failure.hookId, privacy: .public) sourcePath=\(failure.sourcePath ?? "<unknown>", privacy: .private) message=\(failure.message, privacy: .private)"
         )

@@ -506,19 +506,13 @@ final class WindowTerminalPortal: NSObject {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             let performSync = {
-                var shouldFlushLatestNow = forceImmediate
-                if !shouldFlushLatestNow {
-                    shouldFlushLatestNow = self.pendingExternalGeometrySyncRequiresImmediate
-                }
-                if !shouldFlushLatestNow {
-                    shouldFlushLatestNow = self.hostView.inLiveResize
-                }
-                if !shouldFlushLatestNow {
-                    shouldFlushLatestNow = self.window?.inLiveResize == true
-                }
-                if !shouldFlushLatestNow {
-                    shouldFlushLatestNow = TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
-                }
+                let shouldFlushLatestNow = ExternalGeometrySyncFlushPolicy(
+                    forceImmediate: forceImmediate,
+                    pendingRequiresImmediate: self.pendingExternalGeometrySyncRequiresImmediate,
+                    hostInLiveResize: self.hostView.inLiveResize,
+                    windowInLiveResize: self.window?.inLiveResize == true,
+                    interactiveResizeActive: TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
+                ).shouldFlushLatest
                 // During sidebar/split drags, new geometry requests can arrive
                 // faster than this queued sync runs. Flush the latest visible
                 // frame instead of rescheduling behind the drag stream.
@@ -533,19 +527,13 @@ final class WindowTerminalPortal: NSObject {
                 self.pendingExternalGeometrySyncRequiresImmediate = false
                 self.synchronizeAllEntriesFromExternalGeometryChange()
             }
-            var shouldPerformNow = forceImmediate
-            if !shouldPerformNow {
-                shouldPerformNow = self.pendingExternalGeometrySyncRequiresImmediate
-            }
-            if !shouldPerformNow {
-                shouldPerformNow = self.hostView.inLiveResize
-            }
-            if !shouldPerformNow {
-                shouldPerformNow = self.window?.inLiveResize == true
-            }
-            if !shouldPerformNow {
-                shouldPerformNow = TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
-            }
+            let shouldPerformNow = ExternalGeometrySyncFlushPolicy(
+                forceImmediate: forceImmediate,
+                pendingRequiresImmediate: self.pendingExternalGeometrySyncRequiresImmediate,
+                hostInLiveResize: self.hostView.inLiveResize,
+                windowInLiveResize: self.window?.inLiveResize == true,
+                interactiveResizeActive: TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
+            ).shouldFlushLatest
             if shouldPerformNow {
                 performSync()
             } else {

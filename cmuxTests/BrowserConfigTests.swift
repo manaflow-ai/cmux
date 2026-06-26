@@ -128,46 +128,40 @@ private final class BrowserMarkedTextProbeTextView: NSTextView {
 final class BrowserAddressBarTrackingPolicyTests: XCTestCase {
     func testNonPointerWebViewFocusPreservesTrackedAddressBarWithLiveOmnibarField() {
         XCTAssertTrue(
-            shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(
-                BrowserAddressBarTrackingContext(
-                    trackedPanelMatchesWebView: true,
-                    omnibarResponderActive: false,
-                    preferredFocusIntentIsAddressBar: true,
-                    suppressesWebViewFocus: false,
-                    pointerInitiatedWebFocus: false,
-                    liveOmnibarFieldExists: true
-                )
-            )
+            BrowserAddressBarTrackingContext(
+                trackedPanelMatchesWebView: true,
+                omnibarResponderActive: false,
+                preferredFocusIntentIsAddressBar: true,
+                suppressesWebViewFocus: false,
+                pointerInitiatedWebFocus: false,
+                liveOmnibarFieldExists: true
+            ).shouldPreserveAddressBarTrackingDuringWebViewFocus
         )
     }
 
     func testPointerWebViewFocusCanClearTrackedAddressBar() {
         XCTAssertFalse(
-            shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(
-                BrowserAddressBarTrackingContext(
-                    trackedPanelMatchesWebView: true,
-                    omnibarResponderActive: false,
-                    preferredFocusIntentIsAddressBar: true,
-                    suppressesWebViewFocus: true,
-                    pointerInitiatedWebFocus: true,
-                    liveOmnibarFieldExists: true
-                )
-            )
+            BrowserAddressBarTrackingContext(
+                trackedPanelMatchesWebView: true,
+                omnibarResponderActive: false,
+                preferredFocusIntentIsAddressBar: true,
+                suppressesWebViewFocus: true,
+                pointerInitiatedWebFocus: true,
+                liveOmnibarFieldExists: true
+            ).shouldPreserveAddressBarTrackingDuringWebViewFocus
         )
     }
 
     func testOtherPanelWebViewFocusDoesNotPreserveAddressBarTracking() {
         XCTAssertFalse(
-            shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(
-                BrowserAddressBarTrackingContext(
-                    trackedPanelMatchesWebView: false,
-                    omnibarResponderActive: true,
-                    preferredFocusIntentIsAddressBar: true,
-                    suppressesWebViewFocus: true,
-                    pointerInitiatedWebFocus: false,
-                    liveOmnibarFieldExists: true
-                )
-            )
+            BrowserAddressBarTrackingContext(
+                trackedPanelMatchesWebView: false,
+                omnibarResponderActive: true,
+                preferredFocusIntentIsAddressBar: true,
+                suppressesWebViewFocus: true,
+                pointerInitiatedWebFocus: false,
+                liveOmnibarFieldExists: true
+            ).shouldPreserveAddressBarTrackingDuringWebViewFocus
         )
     }
 }

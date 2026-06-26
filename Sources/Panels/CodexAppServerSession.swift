@@ -28,6 +28,7 @@ final class CodexAppServerSession {
     private var activePermissionMode: AgentSessionPermissionMode = .standard
     private var isTurnInFlight = false
     private var turnStartRequestIDs: Set<Int> = []
+    private let activityFormatter = CodexAppServerActivityFormatter()
 
     init(
         workingDirectory: String?,
@@ -211,7 +212,7 @@ final class CodexAppServerSession {
             }
         case "item/completed":
             if let item = params?["item"] as? [String: Any] {
-                if Self.itemIsAgentMessage(item) {
+                if activityFormatter.itemIsAgentMessage(item) {
                     completeTurn()
                     return
                 }
@@ -226,18 +227,18 @@ final class CodexAppServerSession {
                 activityID: itemID,
                 kind: "command",
                 status: "inProgress",
-                action: Self.commandAction(status: "inProgress"),
+                action: activityFormatter.commandAction(status: "inProgress"),
                 detail: nil,
                 outputDelta: params?["delta"] as? String
             )
         case "item/fileChange/patchUpdated":
             guard let itemID = params?["itemId"] as? String else { break }
-            let summary = Self.fileChangeSummary(from: params?["changes"])
+            let summary = activityFormatter.fileChangeSummary(from: params?["changes"])
             emitActivity(
                 activityID: itemID,
                 kind: "fileChange",
                 status: "inProgress",
-                action: Self.fileChangeAction(changeType: summary.changeType, status: "inProgress"),
+                action: activityFormatter.fileChangeAction(changeType: summary.changeType, status: "inProgress"),
                 detail: summary.path
             )
         case "error":
@@ -249,7 +250,7 @@ final class CodexAppServerSession {
                 emitCodexRPCFailure(details: details)
             }
         case "warning", "guardianWarning", "configWarning", "deprecationNotice":
-            outputSink("stderr", codexMessage(from: params) ?? Self.unknownWarningMessage())
+            outputSink("stderr", activityFormatter.codexMessage(from: params) ?? activityFormatter.unknownWarningMessage())
         default:
             break
         }
@@ -261,38 +262,28 @@ final class CodexAppServerSession {
         turnCompleteSink()
     }
 
-    private static func itemIsAgentMessage(_ item: [String: Any]) -> Bool {
-        guard let itemType = item["type"] as? String else { return false }
-        switch itemType {
-        case "agentMessage", "assistantMessage", "message":
-            return true
-        default:
-            return false
-        }
-    }
-
     private func emitActivity(for item: [String: Any], defaultStatus: String) {
         guard let itemID = item["id"] as? String,
               let itemType = item["type"] as? String else {
             return
         }
-        let status = Self.activityStatus(from: item, defaultStatus: defaultStatus)
+        let status = activityFormatter.activityStatus(from: item, defaultStatus: defaultStatus)
         switch itemType {
         case "commandExecution":
             emitActivity(
                 activityID: itemID,
                 kind: "command",
                 status: status,
-                action: Self.commandAction(status: status),
-                detail: Self.commandText(from: item)
+                action: activityFormatter.commandAction(status: status),
+                detail: activityFormatter.commandText(from: item)
             )
         case "fileChange":
-            let summary = Self.fileChangeSummary(from: item["changes"])
+            let summary = activityFormatter.fileChangeSummary(from: item["changes"])
             emitActivity(
                 activityID: itemID,
                 kind: "fileChange",
                 status: status,
-                action: Self.fileChangeAction(changeType: summary.changeType, status: status),
+                action: activityFormatter.fileChangeAction(changeType: summary.changeType, status: status),
                 detail: summary.path
             )
         default:
@@ -321,114 +312,6 @@ final class CodexAppServerSession {
             activity["outputDelta"] = outputDelta
         }
         activitySink(activity)
-    }
-
-    private static func activityStatus(from item: [String: Any], defaultStatus: String) -> String {
-        if let parsedCommand = item["parsedCmd"] as? [String: Any],
-           let isFinished = parsedCommand["isFinished"] as? Bool,
-           !isFinished {
-            return "inProgress"
-        }
-        let rawStatus = (item["executionStatus"] as? String) ?? (item["status"] as? String)
-        switch rawStatus?.lowercased() {
-        case "interrupted", "canceled", "cancelled", "stopped", "declined", "denied", "rejected":
-            return "stopped"
-        case "failed", "failure", "error":
-            return "failed"
-        case "inprogress", "in_progress", "running", "started":
-            return "inProgress"
-        case "completed", "complete", "succeeded", "success":
-            return "completed"
-        default:
-            return defaultStatus
-        }
-    }
-
-    private static func commandAction(status: String) -> String {
-        switch status {
-        case "inProgress":
-            return String(localized: "agentSession.codex.activity.command.running", defaultValue: "Running")
-        case "stopped":
-            return String(localized: "agentSession.codex.activity.command.stopped", defaultValue: "Stopped")
-        default:
-            return String(localized: "agentSession.codex.activity.command.ran", defaultValue: "Ran")
-        }
-    }
-
-    private static func commandText(from item: [String: Any]) -> String? {
-        if let parsedCommand = item["parsedCmd"] as? [String: Any] {
-            for key in ["cmd", "command", "name"] {
-                if let value = nonEmptyString(parsedCommand[key]) {
-                    return value
-                }
-            }
-        }
-        for key in ["command", "cmd", "commandText", "name"] {
-            if let value = nonEmptyString(item[key]) {
-                return value
-            }
-        }
-        if let command = item["command"] as? [Any] {
-            let text = command.compactMap { $0 as? String }.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-            return text.isEmpty ? nil : text
-        }
-        return nil
-    }
-
-    private static func fileChangeAction(changeType: String?, status: String) -> String {
-        switch (changeType, status) {
-        case ("add", "inProgress"):
-            return String(localized: "agentSession.codex.activity.file.creating", defaultValue: "Creating")
-        case ("add", _):
-            return String(localized: "agentSession.codex.activity.file.created", defaultValue: "Created")
-        case ("delete", "inProgress"):
-            return String(localized: "agentSession.codex.activity.file.deleting", defaultValue: "Deleting")
-        case ("delete", _):
-            return String(localized: "agentSession.codex.activity.file.deleted", defaultValue: "Deleted")
-        case (_, "inProgress"):
-            return String(localized: "agentSession.codex.activity.file.editing", defaultValue: "Editing")
-        case (_, "stopped"):
-            return String(localized: "agentSession.codex.activity.command.stopped", defaultValue: "Stopped")
-        default:
-            return String(localized: "agentSession.codex.activity.file.edited", defaultValue: "Edited")
-        }
-    }
-
-    private static func fileChangeSummary(from value: Any?) -> (path: String?, changeType: String?) {
-        if let changes = value as? [String: Any] {
-            for key in changes.keys.sorted() {
-                let change = changes[key] as? [String: Any]
-                return (key, fileChangeType(from: change))
-            }
-        }
-        if let changes = value as? [[String: Any]],
-           let first = changes.first {
-            let path = nonEmptyString(first["path"]) ?? nonEmptyString(first["filePath"]) ?? nonEmptyString(first["name"])
-            return (path, fileChangeType(from: first))
-        }
-        return (nil, nil)
-    }
-
-    private static func fileChangeType(from change: [String: Any]?) -> String? {
-        guard let change else { return nil }
-        if let type = nonEmptyString(change["type"]) {
-            return type
-        }
-        if let kind = change["kind"] as? [String: Any] {
-            return nonEmptyString(kind["type"])
-        }
-        return nonEmptyString(change["kind"])
-    }
-
-    private static func nonEmptyString(_ value: Any?) -> String? {
-        let string: String?
-        if let value = value as? String {
-            string = value
-        } else {
-            string = nil
-        }
-        let trimmed = string?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed?.isEmpty == false ? trimmed : nil
     }
 
     private func handleServerRequest(_ object: [String: Any], method: String) {
@@ -607,25 +490,11 @@ final class CodexAppServerSession {
         return nil
     }
 
-    private func codexMessage(from params: [String: Any]?) -> String? {
-        if let message = params?["message"] as? String {
-            return message
-        }
-        if let warning = params?["warning"] as? String {
-            return warning
-        }
-        if let error = params?["error"] as? [String: Any],
-           let message = error["message"] as? String {
-            return message
-        }
-        return nil
-    }
-
     private func emitCodexRPCFailure(_ error: Error) {
 #if DEBUG
         cmuxDebugLog("agentSession.codex.rpc.failed error=\(error.localizedDescription)")
 #endif
-        outputSink("stderr", Self.rpcFailedMessage())
+        outputSink("stderr", activityFormatter.rpcFailedMessage())
     }
 
     private func emitCodexRPCFailure(details: String?) {
@@ -636,14 +505,6 @@ final class CodexAppServerSession {
 #else
         _ = details
 #endif
-        outputSink("stderr", Self.rpcFailedMessage())
-    }
-
-    private static func rpcFailedMessage() -> String {
-        String(localized: "agentSession.codex.error.rpcFailed", defaultValue: "Codex app-server request failed.")
-    }
-
-    private static func unknownWarningMessage() -> String {
-        String(localized: "agentSession.codex.warning.unknown", defaultValue: "Codex app-server reported a warning.")
+        outputSink("stderr", activityFormatter.rpcFailedMessage())
     }
 }
