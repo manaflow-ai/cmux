@@ -160,9 +160,11 @@ extension MobileWorkspacePreview {
     ///   `nil`/an unmatched id to fall back to the first terminal.
     /// - Returns: The active terminal's title when non-empty, otherwise ``name``.
     public func terminalHeaderTitle(selectedTerminalID: MobileTerminalPreview.ID?) -> String {
-        // Behavior-preserving baseline: the header currently shows the workspace
-        // name regardless of the active terminal (issue #6665). The fix makes
-        // this prefer the active terminal's live title.
-        name
+        let active = terminals.first { $0.id == selectedTerminalID } ?? terminals.first
+        if let title = active?.name,
+           !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return title
+        }
+        return name
     }
 }
