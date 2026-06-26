@@ -739,6 +739,16 @@ struct TextBoxSubmitActionTests {
                 terminalAgentContext: "restoredAgent:claude\ntextBoxPendingLaunchCommand:codex"
             )
         )
+        XCTAssertFalse(
+            TextBoxInputContainer.shouldCycleSubmitAction(
+                pendingProviderLaunchAction: TextBoxSubmitAction.builtInActions[0]
+            )
+        )
+        XCTAssertTrue(
+            TextBoxInputContainer.shouldCycleSubmitAction(
+                pendingProviderLaunchAction: nil
+            )
+        )
         XCTAssertTrue(
             TextBoxInputContainer.shouldClearPendingProviderLaunch(
                 shellActivityState: .promptIdle,

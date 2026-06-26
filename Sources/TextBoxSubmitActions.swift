@@ -1,5 +1,4 @@
 import AppKit
-import Combine
 import CmuxWorkspaces
 import SwiftUI
 
@@ -98,11 +97,14 @@ extension TextBoxInputContainer {
     func startPendingProviderLaunch(_ action: TextBoxSubmitAction) {
         pendingProviderLaunchAction = action
         pendingProviderLaunchStartedAt = Date()
+        schedulePendingProviderLaunchTimeout()
     }
 
     func clearPendingProviderLaunch() {
         pendingProviderLaunchAction = nil
         pendingProviderLaunchStartedAt = nil
+        pendingProviderLaunchTimeoutTimer?.invalidate()
+        pendingProviderLaunchTimeoutTimer = nil
     }
 
     func cancelPendingProviderLaunch() {
@@ -127,8 +129,16 @@ extension TextBoxInputContainer {
         }
     }
 
-    var pendingProviderLaunchTimeoutTicker: Publishers.Autoconnect<Timer.TimerPublisher> {
-        Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    func schedulePendingProviderLaunchTimeout() {
+        pendingProviderLaunchTimeoutTimer?.invalidate()
+        pendingProviderLaunchTimeoutTimer = Timer.scheduledTimer(
+            withTimeInterval: Self.pendingProviderLaunchTimeoutSeconds,
+            repeats: false
+        ) { _ in
+            MainActor.assumeIsolated {
+                reconcilePendingProviderLaunch()
+            }
+        }
     }
 
     static func shouldClearPendingProviderLaunch(
@@ -526,6 +536,9 @@ extension TextBoxInputContainer {
     }
 
     func cycleSubmitAction() {
+        guard Self.shouldCycleSubmitAction(pendingProviderLaunchAction: pendingProviderLaunchAction) else {
+            return
+        }
         guard let nextID = Self.nextCycledSubmitActionID(
             defaultSubmitActionID: defaultSubmitActionID,
             submitActions: submitActions,
@@ -534,6 +547,10 @@ extension TextBoxInputContainer {
             return
         }
         defaultSubmitActionID = nextID
+    }
+
+    static func shouldCycleSubmitAction(pendingProviderLaunchAction: TextBoxSubmitAction?) -> Bool {
+        pendingProviderLaunchAction == nil
     }
 
     static func nextCycledSubmitActionID(

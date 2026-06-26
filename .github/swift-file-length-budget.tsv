@@ -19,7 +19,7 @@
 6217	cmuxTests/GhosttyConfigTests.swift
 6187	Sources/TabManager.swift
 5915	cmuxTests/TerminalAndGhosttyTests.swift
-5789	Sources/TextBoxInput.swift
+5787	Sources/TextBoxInput.swift
 5573	cmuxTests/BrowserConfigTests.swift
 4487	Sources/Panels/FilePreviewPanel.swift
 4478	Sources/cmuxApp.swift
@@ -74,7 +74,7 @@
 1285	cmuxUITests/SidebarHelpMenuUITests.swift
 1277	cmuxTests/RestorableAgentSessionIndexTests.swift
 1258	Sources/Feed/FeedCoordinator.swift
-1229	cmuxTests/TextBoxSubmitActionTests.swift
+1239	cmuxTests/TextBoxSubmitActionTests.swift
 1209	Packages/macOS/CmuxCommandPalette/Tests/CmuxCommandPaletteTests/CommandPaletteSearchEngineTests.swift
 1204	cmuxTests/FileExplorerStoreTests.swift
 1197	cmuxTests/CodexAppServerSessionTests.swift
@@ -184,6 +184,7 @@
 580	cmuxTests/CLIHookNoResponseTests.swift
 578	Sources/RightSidebarPanelView.swift
 577	cmuxTests/AppearanceSettingsTests.swift
+573	Sources/TextBoxSubmitActions.swift
 572	Sources/Feed/FeedTextEditorDebugWindowController.swift
 568	Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/MobileTerminalRenderGrid.swift
 567	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/ConfigDiscovery/GhosttyConfigDiscovery.swift
@@ -191,7 +192,6 @@
 561	cmuxTests/GhosttyConfigPathResolverTests.swift
 560	cmuxTests/CLISSHPTYResizeInputTests.swift
 558	Packages/macOS/CmuxGit/Sources/CmuxGit/Parsing/GitMetadataService+Config.swift
-556	Sources/TextBoxSubmitActions.swift
 552	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/BrowserSection.swift
 549	Sources/Panels/BrowserAutomation.swift
 547	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/BackingUpPairedMacStore.swift
