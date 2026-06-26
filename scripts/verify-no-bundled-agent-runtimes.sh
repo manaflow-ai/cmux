@@ -35,6 +35,8 @@ fi
 
 is_allowed_binary_name() {
   case "$1" in
+    # `grok` is cmux's checked-in wrapper script, not the xAI provider binary;
+    # it still goes through the Bun-standalone signature scan below.
     cmux|ghostty|cmux-claude-wrapper|grok|open|start-cmux-profiling|submit-cmux-profile)
       return 0
       ;;
@@ -52,6 +54,9 @@ looks_like_bun_standalone() {
 violations=()
 
 while IFS= read -r -d '' file; do
+  if [ ! -x "$file" ] && [ ! -L "$file" ]; then
+    continue
+  fi
   name="$(basename "$file")"
   if ! is_allowed_binary_name "$name"; then
     violations+=("unexpected executable: ${file#$APP_PATH/}")
@@ -60,7 +65,7 @@ while IFS= read -r -d '' file; do
   if looks_like_bun_standalone "$file"; then
     violations+=("Bun standalone runtime signature: ${file#$APP_PATH/}")
   fi
-done < <(find "$BIN_DIR" -type f -perm -111 -print0)
+done < <(find "$BIN_DIR" \( -type f -o -type l \) -print0)
 
 if [ "${#violations[@]}" -gt 0 ]; then
   echo "error: cmux app bundle contains forbidden bundled provider runtimes:" >&2
