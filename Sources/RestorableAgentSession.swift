@@ -731,7 +731,7 @@ enum AgentResumeCommandBuilder {
         guard let executable = normalized(launchCommand?.executablePath) ?? normalized(arguments.first) else {
             return (fallbackExecutable, [])
         }
-        if AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(arguments) {
+        if AgentLaunchCaptureTrust().argvLooksLikeShellWrapper(arguments) {
             return (fallbackExecutable, [])
         }
         let tail = arguments.isEmpty ? [] : Array(arguments.dropFirst())
@@ -1245,8 +1245,9 @@ struct RestorableAgentSessionIndex: Sendable {
         kind: RestorableAgentKind
     ) -> AgentLaunchCommandSnapshot? {
         guard let launchCommand else { return nil }
-        guard AgentLaunchCaptureTrust.launcherDescribesKind(launchCommand.launcher, kind: kind.rawValue),
-              !AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(launchCommand.arguments) else {
+        let launchCaptureTrust = AgentLaunchCaptureTrust()
+        guard launchCaptureTrust.launcherDescribesKind(launchCommand.launcher, kind: kind.rawValue),
+              !launchCaptureTrust.argvLooksLikeShellWrapper(launchCommand.arguments) else {
             return nil
         }
         return launchCommand

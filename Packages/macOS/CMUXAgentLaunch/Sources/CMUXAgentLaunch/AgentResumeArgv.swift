@@ -15,8 +15,13 @@ import Foundation
 /// per-kind verb (``builtInKind(kind:sessionId:executablePath:arguments:)``). Callers that also
 /// support custom Vault agents slot that resolution between the two.
 public struct AgentResumeArgv: Sendable, Equatable {
-    /// Creates a resume-argv builder. The type holds no state.
-    public init() {}
+    private let launchCaptureTrust: AgentLaunchCaptureTrust
+
+    /// Creates a resume-argv builder.
+    /// - Parameter launchCaptureTrust: The trust policy used to reject inherited shell dispatch captures.
+    public init(launchCaptureTrust: AgentLaunchCaptureTrust = AgentLaunchCaptureTrust()) {
+        self.launchCaptureTrust = launchCaptureTrust
+    }
 
     /// The shell token that resolves cmux's `claude` wrapper at exec time.
     ///
@@ -291,7 +296,7 @@ public struct AgentResumeArgv: Sendable, Equatable {
         guard let executable = normalized(executablePath) ?? normalized(arguments.first) else {
             return (fallbackExecutable, [])
         }
-        if AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(arguments) {
+        if launchCaptureTrust.argvLooksLikeShellWrapper(arguments) {
             return (fallbackExecutable, [])
         }
         let tail = arguments.isEmpty ? [] : Array(arguments.dropFirst())
