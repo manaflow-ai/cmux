@@ -115,10 +115,16 @@ enum AppshotCapturer {
     // MARK: Accessibility text
 
     private static func extractAccessibilityText(pid: pid_t, axTitle: inout String) -> String {
+        // Bound EVERY synchronous AX IPC call in this process for the duration of
+        // the walk. A per-element timeout only covers that one element (not the
+        // window/child elements actually read), so set it on the system-wide
+        // element — which applies process-wide — and restore the default after,
+        // so a hung/hostile app can't block a child read and wedge `isCapturing`.
+        let systemWide = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(systemWide, maxAccessibilityCallTimeout)
+        defer { AXUIElementSetMessagingTimeout(systemWide, 0) }
+
         let app = AXUIElementCreateApplication(pid)
-        // Bound every synchronous AX IPC call into the target app so a hung or
-        // hostile frontmost app can't block a single call past the walk deadline.
-        AXUIElementSetMessagingTimeout(app, maxAccessibilityCallTimeout)
         let root: AXUIElement
         if let focused = copyElement(app, kAXFocusedWindowAttribute) {
             root = focused
