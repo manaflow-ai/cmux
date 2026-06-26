@@ -24,22 +24,22 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
     private let keyboardContentView = UIView(frame: .zero)
     private let transcriptClipView = UIView(frame: .zero)
     private let composerBackgroundView = UIVisualEffectView(effect: nil)
-    private let transcriptHostingController: UIHostingController<Transcript>
-    private let composerHostingController: UIHostingController<Composer>
+    let transcriptHostingController: UIHostingController<Transcript>
+    let composerHostingController: UIHostingController<Composer>
     private var composerHeightConstraint: NSLayoutConstraint?
     private var transcriptHeightConstraint: NSLayoutConstraint?
     private var composerScrollEdgeInteraction: UIInteraction?
     private weak var scrollEdgeInteractionTableView: ChatTranscriptUITableView?
 
-    private var keyboardOverlap: CGFloat = 0
-    private var keyboardTransitionID = 0
+    var keyboardOverlap: CGFloat = 0
+    var keyboardTransitionID = 0
     private var lastKeyboardTransitionDuration: TimeInterval = 0.3833
-    private var isKeyboardAnimationActive = false
-    private var keyboardAnimationStartOverlap: CGFloat = 0
-    private var keyboardAnimationTargetOverlap: CGFloat = 0
+    var isKeyboardAnimationActive = false
+    var keyboardAnimationStartOverlap: CGFloat = 0
+    var keyboardAnimationTargetOverlap: CGFloat = 0
     #if DEBUG
-    private var keyboardDebugEventCount = 0
-    private var keyboardDebugTransitionDuration: TimeInterval = 0
+    var keyboardDebugEventCount = 0
+    var keyboardDebugTransitionDuration: TimeInterval = 0
     #endif
     private var keyboardObservers: [ChatKeyboardNotificationToken] = []
     private weak var installedWindow: UIWindow?
@@ -326,7 +326,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         CATransaction.commit()
     }
 
-    private func currentVisibleKeyboardOverlap() -> CGFloat {
+    func currentVisibleKeyboardOverlap() -> CGFloat {
         if let rawTranslation = keyboardContentView.layer.presentation()?.value(
             forKeyPath: "transform.translation.y"
         ) {
@@ -343,10 +343,6 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
             }
         }
         return keyboardOverlap
-    }
-
-    private func presentationDeltaY() -> CGFloat {
-        keyboardOverlap - currentVisibleKeyboardOverlap()
     }
 
     private func updateConstraint(_ constraint: NSLayoutConstraint?, to constant: CGFloat) {
@@ -424,71 +420,6 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         }
     }
 
-    private func keyboardLayoutGuideOverlap() -> CGFloat {
-        let guideFrame = view.keyboardLayoutGuide.layoutFrame
-        guard !guideFrame.isNull, !guideFrame.isEmpty else { return 0 }
-        return max(0, view.bounds.maxY - guideFrame.minY)
-    }
-
-    #if DEBUG
-    private func updateKeyboardDebugValues(overlap: CGFloat) {
-        let visibleOverlap = currentVisibleKeyboardOverlap()
-        let guideOverlap = keyboardLayoutGuideOverlap()
-        let composerFrame = frameInWindow(for: composerHostingController.view)
-        let composerPresentationFrame = presentationAdjustedFrameInWindow(for: composerHostingController.view)
-            ?? composerFrame
-        let animationProgress = clampedKeyboardAnimationProgress(overlap: overlap)
-        for tableView in trackedTranscriptTables(in: transcriptHostingController.view) {
-            let tableFrame = frameInWindow(for: tableView)
-            tableView.keyboardDebugPresentationFrameMaxYProvider = { [weak self, weak tableView] in
-                guard let self,
-                      let tableView,
-                      let frame = self.frameInWindow(for: tableView)
-                else { return nil }
-                return frame.maxY + self.presentationDeltaY() - tableView.composerOverlayBottomInset
-            }
-            tableView.keyboardDebugComposerPresentationMinYProvider = { [weak self] in
-                guard let self else { return nil }
-                return self.presentationAdjustedFrameInWindow(for: self.composerHostingController.view)?.minY
-            }
-            tableView.keyboardDebugEventCount = keyboardDebugEventCount
-            tableView.keyboardDebugOverlap = visibleOverlap
-            tableView.keyboardDebugTargetOverlap = overlap
-            tableView.keyboardDebugGuideOverlap = guideOverlap
-            tableView.keyboardDebugBottomConstraint = -overlap
-            tableView.keyboardDebugComposerMinY = composerFrame?.minY ?? 0
-            tableView.keyboardDebugComposerPresentationMinY = composerPresentationFrame?.minY ?? 0
-            tableView.keyboardDebugPresentationFrameMaxY = (tableFrame?.maxY ?? 0) + presentationDeltaY()
-            tableView.keyboardDebugAnimationID = keyboardTransitionID
-            tableView.keyboardDebugAnimationActive = isKeyboardAnimationActive
-            tableView.keyboardDebugAnimationProgress = animationProgress
-            tableView.keyboardDebugTransitionDuration = keyboardDebugTransitionDuration
-            tableView.updateDebugAccessibilityValue()
-        }
-    }
-
-    private func clampedKeyboardAnimationProgress(overlap: CGFloat) -> CGFloat {
-        guard keyboardDebugTransitionDuration > 0, isKeyboardAnimationActive else {
-            return currentVisibleKeyboardOverlap() > 0 ? 1 : 0
-        }
-        let delta = keyboardAnimationTargetOverlap - keyboardAnimationStartOverlap
-        guard abs(delta) > 0.5 else { return 1 }
-        return min(max((currentVisibleKeyboardOverlap() - keyboardAnimationStartOverlap) / delta, 0), 1)
-    }
-
-    private func frameInWindow(for targetView: UIView) -> CGRect? {
-        guard let window = targetView.window else { return nil }
-        return targetView.convert(targetView.bounds, to: window)
-    }
-
-    private func presentationAdjustedFrameInWindow(for targetView: UIView?) -> CGRect? {
-        guard let targetView,
-              let frame = frameInWindow(for: targetView)
-        else { return nil }
-        return frame.offsetBy(dx: 0, dy: presentationDeltaY())
-    }
-    #endif
-
     private func updateComposerVisibility() {
         guard isViewLoaded else { return }
         composerHostingController.view.isHidden = !showsComposer
@@ -504,7 +435,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         )
     }
 
-    private func trackedTranscriptTables(in view: UIView) -> [ChatTranscriptUITableView] {
+    func trackedTranscriptTables(in view: UIView) -> [ChatTranscriptUITableView] {
         var tables: [ChatTranscriptUITableView] = []
         if let table = view as? ChatTranscriptUITableView {
             tables.append(table)

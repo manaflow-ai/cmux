@@ -8,9 +8,6 @@ import PhotosUI
 import UIKit
 #endif
 
-/// The keyboard-attached bottom bar: accessory chips, the staged-attachment
-/// strip (iOS), the multiline draft field, and the context-aware send/stop
-/// button.
 public struct ChatComposerView: View {
     private let agentState: ChatAgentState
     private let agentKind: ChatAgentKind
@@ -27,9 +24,6 @@ public struct ChatComposerView: View {
     #if os(iOS)
     @FocusState private var isDraftFocused: Bool
     #endif
-    /// True while picked photos are still loading from the library; a
-    /// send in that window would silently drop them. Declared outside the
-    /// iOS block so shared send logic can read it (always false on macOS).
     @State private var isStagingAttachments = false
     #if os(iOS)
     @State private var pickedItems: [PhotosPickerItem] = []
@@ -229,8 +223,6 @@ public struct ChatComposerView: View {
         agentState == .ended
     }
 
-    /// Replaces the input row when the session can no longer accept input;
-    /// the terminal escape hatch stays reachable.
     private var endedRow: some View {
         HStack(spacing: 12) {
             Text(
@@ -326,8 +318,6 @@ public struct ChatComposerView: View {
     }
 
     private func performSend() {
-        // A send mid-staging would silently drop the images still loading
-        // from the photo library.
         guard hasContent, !isStagingAttachments else { return }
         #if os(iOS)
         dictation.cancel()
@@ -344,8 +334,6 @@ public struct ChatComposerView: View {
         #endif
     }
 
-    /// First tap interrupts politely; a second tap within the window
-    /// escalates to a hard interrupt (Ctrl-C).
     private func performStop() {
         #if os(iOS)
         UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
@@ -370,8 +358,7 @@ public struct ChatComposerView: View {
     private func performPaste() {
         let pasteboard = UIPasteboard.general
         if attachments.count < 4,
-           let attachment = ChatComposerPasteboard.attachment(
-               from: pasteboard,
+           let attachment = pasteboard.chatComposerAttachment(
                maxDimension: Self.maxAttachmentDimension,
                jpegQuality: Self.jpegQuality
            ) {
@@ -379,7 +366,7 @@ public struct ChatComposerView: View {
             isDraftFocused = true
             return
         }
-        guard let string = ChatComposerPasteboard.text(from: pasteboard) else {
+        guard let string = pasteboard.chatComposerText() else {
             return
         }
         draft += string
@@ -484,28 +471,19 @@ public struct ChatComposerView: View {
     private func removeAttachment(id: String) {
         guard let index = attachments.firstIndex(where: { $0.id == id }) else { return }
         attachments.remove(at: index)
-        // Remove the matching picker item by IDENTITY, not by the attachments
-        // index: `loadPickedItems` skips items that fail to decode, so the two
-        // arrays can be misaligned and an index-coupled removal drops the wrong
-        // photo. A staged attachment's id is the item's `itemIdentifier`, so
-        // match on that. Items with no identifier (rare) simply stay selected
-        // in the picker rather than risk removing a different one.
         if let pickedIndex = pickedItems.firstIndex(where: { $0.itemIdentifier == id }) {
             pickedItems.remove(at: pickedIndex)
         }
     }
 
-    /// Loads the picker selection into staged attachments: each item is
-    /// decoded, downscaled to the size cap, and re-encoded as JPEG.
     private func loadPickedItems(_ items: [PhotosPickerItem]) async {
         isStagingAttachments = true
         defer { isStagingAttachments = false }
         var staged: [ChatComposerAttachment] = []
         for (index, item) in items.enumerated() {
             guard let data = try? await item.loadTransferable(type: Data.self),
-                  let attachment = ChatComposerImageEncoder.attachment(
+                  let attachment = data.chatComposerImageAttachment(
                       id: item.itemIdentifier ?? "picked-\(index)",
-                      data: data,
                       maxDimension: Self.maxAttachmentDimension,
                       jpegQuality: Self.jpegQuality
                   )

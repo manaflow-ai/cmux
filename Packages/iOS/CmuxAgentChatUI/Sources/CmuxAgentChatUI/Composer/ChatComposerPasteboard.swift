@@ -4,33 +4,28 @@ import Foundation
 import SwiftUI
 import UIKit
 
-enum ChatComposerImageEncoder {
-    static func attachment(
+extension Data {
+    func chatComposerImageAttachment(
         id: String,
-        data: Data,
         maxDimension: CGFloat,
         jpegQuality: CGFloat
     ) -> ChatComposerAttachment? {
-        guard let image = UIImage(data: data) else { return nil }
-        return attachment(
+        guard let image = UIImage(data: self) else { return nil }
+        return image.chatComposerAttachment(
             id: id,
-            image: image,
             maxDimension: maxDimension,
             jpegQuality: jpegQuality
         )
     }
+}
 
-    static func attachment(
+extension UIImage {
+    func chatComposerAttachment(
         id: String,
-        image: UIImage,
         maxDimension: CGFloat,
         jpegQuality: CGFloat
     ) -> ChatComposerAttachment? {
-        guard let jpeg = downscaledJPEG(
-            from: image,
-            maxDimension: maxDimension,
-            jpegQuality: jpegQuality
-        ),
+        guard let jpeg = chatComposerDownscaledJPEG(maxDimension: maxDimension, jpegQuality: jpegQuality),
               let thumbnailImage = UIImage(data: jpeg)
         else {
             return nil
@@ -43,16 +38,15 @@ enum ChatComposerImageEncoder {
         )
     }
 
-    private static func downscaledJPEG(
-        from image: UIImage,
+    private func chatComposerDownscaledJPEG(
         maxDimension: CGFloat,
         jpegQuality: CGFloat
     ) -> Data? {
-        let pixelWidth = image.size.width * image.scale
-        let pixelHeight = image.size.height * image.scale
+        let pixelWidth = size.width * scale
+        let pixelHeight = size.height * scale
         let longest = max(pixelWidth, pixelHeight)
         guard longest > maxDimension else {
-            return image.jpegData(compressionQuality: jpegQuality)
+            return jpegData(compressionQuality: jpegQuality)
         }
         let scale = maxDimension / longest
         let targetSize = CGSize(width: pixelWidth * scale, height: pixelHeight * scale)
@@ -60,32 +54,30 @@ enum ChatComposerImageEncoder {
         format.scale = 1
         let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
         let resized = renderer.image { _ in
-            image.draw(in: CGRect(origin: .zero, size: targetSize))
+            draw(in: CGRect(origin: .zero, size: targetSize))
         }
         return resized.jpegData(compressionQuality: jpegQuality)
     }
 }
 
-enum ChatComposerPasteboard {
-    static func attachment(
-        from pasteboard: UIPasteboard,
+extension UIPasteboard {
+    func chatComposerAttachment(
         maxDimension: CGFloat,
         jpegQuality: CGFloat
     ) -> ChatComposerAttachment? {
-        guard pasteboard.hasImages, let image = pasteboard.image else {
+        guard hasImages, let image else {
             return nil
         }
-        return ChatComposerImageEncoder.attachment(
+        return image.chatComposerAttachment(
             id: "pasted-\(UUID().uuidString)",
-            image: image,
             maxDimension: maxDimension,
             jpegQuality: jpegQuality
         )
     }
 
-    static func text(from pasteboard: UIPasteboard) -> String? {
-        guard pasteboard.hasStrings,
-              let string = pasteboard.string,
+    func chatComposerText() -> String? {
+        guard hasStrings,
+              let string,
               !string.isEmpty
         else {
             return nil
