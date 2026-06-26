@@ -3,7 +3,6 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 #if os(iOS)
-@preconcurrency import UIKit
 #elseif os(macOS)
 import AppKit
 #endif
@@ -91,11 +90,11 @@ struct WorkspaceListView: View {
     @State private var showingDeviceTree = false
     /// The active row filter (All / Unread), shared-model state behind the
     /// toolbar ``WorkspaceListFilterMenu``. Session-transient like a search.
-    @State private var filter: MobileWorkspaceListFilter = .all
+    @State var filter: MobileWorkspaceListFilter = .all
     /// Which Mac's workspaces the list is focused on. Starts at "All Macs" so
     /// aggregation is explicit in the title picker and can be narrowed from
     /// there.
-    @State private var macSelection: WorkspaceMacSelection = .all
+    @State var macSelection: WorkspaceMacSelection = .all
     /// The workspace whose destructive close action is awaiting confirmation.
     /// Stored at list scope so reusable rows do not own transient presentation
     /// state while `List` is recycling swipe-action rows.
@@ -124,31 +123,6 @@ struct WorkspaceListView: View {
             && filter.readState == .all
             && canRenderGroupsForSelection
     }
-
-    private var canRenderGroupsForSelection: Bool {
-        #if os(iOS)
-        selectedMacCanUseForegroundGroups
-        #else
-        true
-        #endif
-    }
-
-    #if os(iOS)
-    private var selectedMacCanUseForegroundGroups: Bool {
-        switch visibleMacSelection {
-        case .machine(let id):
-            return store?.connectedMacDeviceID == id
-        case .all, .automatic:
-            return visibleRowsAreOnlyForegroundMac
-        }
-    }
-
-    private var visibleRowsAreOnlyForegroundMac: Bool {
-        guard !workspaces.isEmpty else { return false }
-        guard let connectedID = store?.connectedMacDeviceID else { return false }
-        return workspaces.allSatisfy { $0.macDeviceID == connectedID }
-    }
-    #endif
 
     private func matchesQuery(_ workspace: MobileWorkspacePreview, query: String) -> Bool {
         workspace.name.localizedCaseInsensitiveContains(query)
@@ -185,73 +159,6 @@ struct WorkspaceListView: View {
 
     private var groupedWorkspaces: [MobileWorkspacePreview] {
         workspaces.filter { activeFilter.matches($0) }
-    }
-
-    private var activeFilter: MobileWorkspaceListFilter {
-        var active = filter
-        switch visibleMacSelection {
-        case .automatic:
-            break
-        case .all:
-            active.machines.removeAll()
-        case .machine(let id):
-            active.machines = Set([id])
-        }
-        return active
-    }
-
-    private var visibleMacSelection: WorkspaceMacSelection {
-        let machineIDs = Set(macPickerMachines.map(\.id))
-        switch macSelection {
-        case .automatic:
-            return .all
-        case .machine(let id):
-            return machineIDs.contains(id) ? .machine(id) : .all
-        case .all:
-            return .all
-        }
-    }
-
-    private var macPickerMachines: [WorkspaceFilterMachine] {
-        let names = macDisplayNamesByID()
-        var ids = Set(MobileWorkspaceListFilter.machineIDs(in: workspaces))
-        if let connectedID = store?.connectedMacDeviceID {
-            ids.insert(connectedID)
-        }
-        return ids
-            .map { WorkspaceFilterMachine(id: $0, name: names[$0] ?? fallbackMacPickerName) }
-            .sorted { lhs, rhs in
-                let nameOrder = lhs.name.localizedStandardCompare(rhs.name)
-                if nameOrder != .orderedSame {
-                    return nameOrder == .orderedAscending
-                }
-                return lhs.id < rhs.id
-            }
-    }
-
-    private var fallbackMacPickerName: String {
-        L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Mac")
-    }
-
-    private func macDisplayNamesByID() -> [String: String] {
-        var names: [String: String] = [:]
-        for workspace in workspaces {
-            guard let id = workspace.macDeviceID,
-                  let name = workspace.macDisplayName,
-                  !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                continue
-            }
-            names[id] = name
-        }
-        for device in store?.deviceTreeDevices ?? [] {
-            if let name = device.displayName, !name.isEmpty {
-                names[device.deviceId] = name
-            }
-        }
-        for mac in store?.pairedMacs ?? [] {
-            names[mac.macDeviceID] = mac.resolvedName
-        }
-        return names
     }
 
     var body: some View {
@@ -390,48 +297,6 @@ struct WorkspaceListView: View {
     }
 
     #if os(iOS)
-    private var macTitlePickerTitle: String {
-        switch visibleMacSelection {
-        case .all, .automatic:
-            L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Macs")
-        case .machine(let id):
-            macPickerMachines.first { $0.id == id }?.name ?? fallbackMacPickerName
-        }
-    }
-
-    private var macTitlePicker: some View {
-        Menu {
-            Picker(
-                L10n.string("mobile.workspaces.macPicker.title", defaultValue: "Choose Mac"),
-                selection: $macSelection
-            ) {
-                Text(L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Macs"))
-                    .tag(WorkspaceMacSelection.all)
-                ForEach(macPickerMachines) { machine in
-                    Text(machine.name)
-                        .tag(WorkspaceMacSelection.machine(machine.id))
-                }
-            }
-            .labelsVisibility(.visible)
-        } label: {
-            WorkspaceMacTitlePickerLabel(title: macTitlePickerTitle)
-        }
-        .buttonStyle(.plain)
-        .tint(.white)
-        .accessibilityIdentifier("MobileWorkspaceMacPicker")
-    }
-
-    private var showsDevicesButton: Bool {
-        if store != nil {
-            return true
-        }
-        #if DEBUG
-        return UITestConfig.workspaceListLayoutPreviewEnabled
-        #else
-        return false
-        #endif
-    }
-
     private var devicesButton: some View {
         Button {
             showingDeviceTree = true
@@ -597,39 +462,4 @@ struct WorkspaceListView: View {
         workspacePendingCloseID = nil
         closeWorkspace?(workspaceID)
     }
-}
-
-#if os(iOS)
-private struct WorkspaceMacTitlePickerLabel: View {
-    private static let titleWidth: CGFloat = 155
-
-    let title: String
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Spacer(minLength: 0)
-            Text(title)
-                .font(.headline.weight(.bold))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .allowsTightening(true)
-                .minimumScaleFactor(0.9)
-                .layoutPriority(1)
-            Image(systemName: "chevron.down")
-                .font(.caption.weight(.bold))
-                .accessibilityHidden(true)
-            Spacer(minLength: 0)
-        }
-        .foregroundStyle(.white)
-        .frame(width: Self.titleWidth, alignment: .center)
-        .clipped()
-        .contentShape(Rectangle())
-    }
-}
-#endif
-
-private enum WorkspaceMacSelection: Hashable {
-    case automatic
-    case all
-    case machine(String)
 }

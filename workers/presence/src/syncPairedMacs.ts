@@ -520,10 +520,23 @@ export async function listBackupSnapshot(
   return { records, deletedMacDeviceIDs };
 }
 
+function recordWithFreshUnscopedRoutes(
+  scoped: PairedMacBackupRecord,
+  unscoped: PairedMacBackupRecord,
+): PairedMacBackupRecord {
+  if ((unscoped.lastSeenAt ?? 0) <= (scoped.lastSeenAt ?? 0)) return scoped;
+  return {
+    ...unscoped,
+    customName: scoped.customName,
+    customColor: scoped.customColor,
+    customIcon: scoped.customIcon,
+  };
+}
+
 /** Restore a scoped tagged iOS build, falling back to the legacy unscoped Mac
- * self-publish seed only while the scoped collection has never been written.
- * Once the scoped collection has any live record or tombstone, it is
- * authoritative for that build scope. */
+ * self-publish seed before the scoped collection exists. After scoped state
+ * exists, scoped tombstones stay authoritative while newer unscoped live route
+ * self-publishes are merged so reconnects keep dialing fresh Mac endpoints. */
 export async function listBackupSnapshotWithUnscopedFallback(
   storage: SyncStorage,
   userId: string,
@@ -531,12 +544,24 @@ export async function listBackupSnapshotWithUnscopedFallback(
 ): Promise<PairedMacBackupSnapshot> {
   const scoped = await listBackupSnapshot(storage, userId, clientScope);
   if (!normalizeClientScope(clientScope)) return scoped;
-  if (scoped.records.length > 0 || scoped.deletedMacDeviceIDs.length > 0) {
-    return scoped;
-  }
+  const unscoped = await listBackupSnapshot(storage, userId);
   const scopedHead = await storage.get<number>(`${SYNC_HEAD_PREFIX}${pairedMacsCollection(userId, clientScope)}`);
-  if (scopedHead !== undefined) return scoped;
-  return await listBackupSnapshot(storage, userId);
+  if (scoped.records.length === 0 && scoped.deletedMacDeviceIDs.length === 0 && scopedHead === undefined) {
+    return unscoped;
+  }
+  const deleted = new Set(scoped.deletedMacDeviceIDs);
+  const recordsByID = new Map(scoped.records.map((record) => [record.macDeviceID, record]));
+  for (const record of unscoped.records) {
+    if (deleted.has(record.macDeviceID)) continue;
+    const existing = recordsByID.get(record.macDeviceID);
+    if (existing !== undefined) {
+      recordsByID.set(record.macDeviceID, recordWithFreshUnscopedRoutes(existing, record));
+    }
+  }
+  return {
+    records: [...recordsByID.values()].sort((a, b) => (b?.lastSeenAt ?? 0) - (a?.lastSeenAt ?? 0)),
+    deletedMacDeviceIDs: scoped.deletedMacDeviceIDs,
+  };
 }
 
 /** Re-export so the DO can build an empty delta if it ever needs to. */

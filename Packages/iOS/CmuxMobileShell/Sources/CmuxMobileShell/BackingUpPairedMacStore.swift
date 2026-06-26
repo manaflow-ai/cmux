@@ -19,7 +19,7 @@ public import Foundation
 ///   re-sign-in restores again.
 public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshing {
     private let inner: any MobilePairedMacStoring
-    private let backup: any PairedMacBackingUp
+    let backup: any PairedMacBackingUp
     /// The current team id, read live so the restore is scoped per (account,
     /// team): the backup DO is per-team, so switching teams must re-restore.
     private let teamIDProvider: @Sendable () async -> String?
@@ -270,12 +270,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         // Only mirror the delete while signed in; an anonymous removal has no
         // per-user backup to delete and would just fail auth and log noise.
         let backupAccount = account ?? lastSignedInAccount
-        let scope: String?
-        if let backupAccount {
-            scope = await scopeKey(account: backupAccount, teamID: team)
-        } else {
-            scope = nil
-        }
+        let scope = await scopeKey(account: backupAccount, teamID: team)
         if let scope {
             // Persist the delete intent before removing the only local row. If the
             // app dies or the network upload fails after the local delete, the next
@@ -352,7 +347,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         // Coalesce with any in-flight restore for this scope so we never run two
         // merges concurrently against the same store.
         let team = (await teamIDProvider()) ?? ""
-        let scope = await scopeKey(account: account, teamID: team.isEmpty ? nil : team)
+        let scope = await nonoptionalScopeKey(account: account, teamID: team.isEmpty ? nil : team)
         let restoreTeam = team.isEmpty ? nil : team
         await applyPendingLocalDeletes(scope: scope, account: account, teamID: restoreTeam)
         _ = await flushPendingDeletes(scope: scope, account: account, teamID: restoreTeam)
@@ -396,14 +391,6 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     private func resolvedTeam(_ teamID: String?) async -> String? {
         if let teamID { return teamID }
         return await teamIDProvider()
-    }
-
-    private func scopeKey(account: String, teamID: String?) async -> String {
-        let clientScope = await backup.clientScope() ?? ""
-        guard !clientScope.isEmpty else {
-            return "\(account)\u{0}\(teamID ?? "")"
-        }
-        return "\(account)\u{0}\(teamID ?? "")\u{0}\(clientScope)"
     }
 
     /// Resolve the owning Stack account of a paired Mac, or nil if unknown. Reads
@@ -467,7 +454,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         guard let account = stackUserID, !account.isEmpty else { return }
         lastSignedInAccount = account
         let team = (await teamIDProvider()) ?? ""
-        let scope = await scopeKey(account: account, teamID: team.isEmpty ? nil : team)
+        let scope = await nonoptionalScopeKey(account: account, teamID: team.isEmpty ? nil : team)
         let restoreTeam = team.isEmpty ? nil : team
         await applyPendingLocalDeletes(scope: scope, account: account, teamID: restoreTeam)
         _ = await flushPendingDeletes(scope: scope, account: account, teamID: restoreTeam)
@@ -527,7 +514,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
 
     @discardableResult
     private func clearPendingDelete(macDeviceID: String, account: String, teamID: String?) async -> Bool {
-        let scope = await scopeKey(account: account, teamID: teamID)
+        let scope = await nonoptionalScopeKey(account: account, teamID: teamID)
         return await clearPendingDelete(macDeviceID: macDeviceID, scope: scope)
     }
 

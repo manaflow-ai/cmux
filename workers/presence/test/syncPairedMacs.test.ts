@@ -494,6 +494,45 @@ describe("applyBackupOps", () => {
     );
   });
 
+  it("scoped restore merges newer unscoped route self-publishes", async () => {
+    const storage = new FakeStorage();
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [{ kind: "upsert", id: "mac-a", record: { ...record("mac-a", "10.0.0.1", 22), lastSeenAt: T0 } }],
+      T0,
+    );
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [
+        {
+          kind: "upsert",
+          id: "mac-a",
+          record: { ...record("mac-a", "10.0.0.1", 22), customName: "Desk", lastSeenAt: T0 + 1000 },
+        },
+      ],
+      T0 + 1000,
+      "ios:dev",
+    );
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [{ kind: "upsert", id: "mac-a", record: { ...record("mac-a", "10.0.0.2", 2222), lastSeenAt: T0 + 2000 } }],
+      T0 + 2000,
+    );
+
+    const refreshed = await listBackupSnapshotWithUnscopedFallback(storage, "user-1", "ios:dev");
+    expect(refreshed.records).toHaveLength(1);
+    expect(refreshed.records[0]?.routes).toEqual(record("mac-a", "10.0.0.2", 2222).routes);
+    expect(refreshed.records[0]?.customName).toBe("Desk");
+
+    await applyBackupOps(storage, "user-1", [{ kind: "delete", id: "mac-a" }], T0 + 3000, "ios:dev");
+    const deleted = await listBackupSnapshotWithUnscopedFallback(storage, "user-1", "ios:dev");
+    expect(deleted.records).toEqual([]);
+    expect(deleted.deletedMacDeviceIDs).toEqual(["mac-a"]);
+  });
+
   it("scoped delete of an unscoped fallback seed blocks future fallback restores", async () => {
     const storage = new FakeStorage();
     await applyBackupOps(
