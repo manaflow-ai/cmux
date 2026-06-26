@@ -2114,6 +2114,110 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testDaemonBootstrapUploadBracketsIPv6ScpDestination() throws {
+        // Regression for https://github.com/manaflow-ai/cmux/issues/4948 (part
+        // of the "cmux ssh sessions disconnect immediately" cluster,
+        // https://github.com/manaflow-ai/cmux/issues/6353): `scp local host:path`
+        // splits the remote target on the first colon, so a bare IPv6 host is
+        // misparsed — scp silently falls back to a local copy or reports
+        // "Connection closed" and the daemon-binary upload never reaches the
+        // host, leaving the remote workspace unable to stay connected. The host
+        // must be bracketed (`user@[ipv6]:path`), exactly as ssh accepts it.
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-remote-daemon-upload-ipv6-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directoryURL) }
+
+        let fakeDaemonURL = directoryURL.appendingPathComponent("cmuxd-remote", isDirectory: false)
+        try Data("fake daemon".utf8).write(to: fakeDaemonURL)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeDaemonURL.path)
+
+        let previousAllowLocalBuild = getenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD").map { String(cString: $0) }
+        let previousDaemonBinary = getenv("CMUX_REMOTE_DAEMON_BINARY").map { String(cString: $0) }
+        setenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD", "1", 1)
+        setenv("CMUX_REMOTE_DAEMON_BINARY", fakeDaemonURL.path, 1)
+        defer {
+            if let previousAllowLocalBuild {
+                setenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD", previousAllowLocalBuild, 1)
+            } else {
+                unsetenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD")
+            }
+            if let previousDaemonBinary {
+                setenv("CMUX_REMOTE_DAEMON_BINARY", previousDaemonBinary, 1)
+            } else {
+                unsetenv("CMUX_REMOTE_DAEMON_BINARY")
+            }
+        }
+
+        let scpInvoked = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var scpDestination: String?
+        let remoteProcessScript: RemoteProcessScript = { executable, arguments, _, _ in
+            if executable == "/usr/bin/ssh" {
+                let command = arguments.last ?? ""
+                if command.contains("uname -s") {
+                    return (
+                        status: 0,
+                        stdout: """
+                        __CMUX_REMOTE_HOME__=/home/test
+                        __CMUX_REMOTE_OS__=Linux
+                        __CMUX_REMOTE_ARCH__=x86_64
+                        __CMUX_REMOTE_EXISTS__=no
+                        """,
+                        stderr: ""
+                    )
+                }
+                return (status: 0, stdout: "", stderr: "")
+            }
+            if executable == "/usr/bin/scp" {
+                lock.lock()
+                scpDestination = arguments.last
+                lock.unlock()
+                scpInvoked.signal()
+                return (status: 1, stdout: "", stderr: "intentional stop after upload destination capture")
+            }
+            XCTFail("unexpected executable \(executable)")
+            return (status: 1, stdout: "", stderr: "unexpected executable")
+        }
+
+        let workspace = Workspace()
+        workspace.remoteSessionProcessRunnerOverrideForTesting =
+            ScriptedRemoteProcessRunner(script: remoteProcessScript)
+        let config = WorkspaceRemoteConfiguration(
+            destination: "lawrence@2001:db8::5",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: "ssh lawrence@2001:db8::5"
+        )
+        defer { workspace.disconnectRemoteConnection(clearConfiguration: true) }
+
+        workspace.configureRemoteConnection(config, autoConnect: true)
+
+        XCTAssertEqual(scpInvoked.wait(timeout: .now() + 2), .success)
+        lock.lock()
+        let capturedDestination = scpDestination
+        lock.unlock()
+        let destination = try XCTUnwrap(capturedDestination)
+        XCTAssertTrue(
+            destination.hasPrefix("lawrence@[2001:db8::5]:/home/test/.cmux/bin/cmuxd-remote/"),
+            "expected scp to bracket the IPv6 host so the upload reaches the host, got \(destination)"
+        )
+        XCTAssertFalse(
+            destination.hasPrefix("lawrence@2001:db8::5:"),
+            "a bare IPv6 scp destination is misparsed by scp (issue #4948), got \(destination)"
+        )
+    }
+
+    @MainActor
     func testPersistentPTYBootstrapReinstallsOldDaemonMissingPTYCapability() throws {
         let previousAllowLocalBuild = getenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD").map { String(cString: $0) }
         let previousDaemonBinary = getenv("CMUX_REMOTE_DAEMON_BINARY").map { String(cString: $0) }
