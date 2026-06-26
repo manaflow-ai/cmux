@@ -44,5 +44,37 @@ final class CmuxMainWindowFullScreenCapabilityTests: XCTestCase {
             "Main window must never carry .fullScreenNone, which suppresses native fullscreen"
         )
     }
+
+    // The capability decision is a pure, screen-agnostic transform so it runs
+    // deterministically on CI regardless of the test host's display setup.
+
+    func testCanonicalBehaviorAddsFullScreenPrimaryToEmptyBehavior() {
+        let result = CmuxMainWindow.canonicalCollectionBehavior([])
+        XCTAssertTrue(result.contains(.fullScreenPrimary))
+        XCTAssertFalse(result.contains(.fullScreenNone))
+    }
+
+    func testCanonicalBehaviorDropsStaleFullScreenNone() {
+        let result = CmuxMainWindow.canonicalCollectionBehavior([.fullScreenNone])
+        XCTAssertTrue(result.contains(.fullScreenPrimary))
+        XCTAssertFalse(result.contains(.fullScreenNone))
+    }
+
+    func testCanonicalBehaviorPreservesUnrelatedBehaviorBits() {
+        // The window factory may layer `.fullScreenDisallowsTiling` on top when
+        // spawning out of an existing fullscreen Space; canonicalization must
+        // not clobber that (or any other unrelated bit).
+        let base: NSWindow.CollectionBehavior = [.fullScreenDisallowsTiling, .moveToActiveSpace]
+        let result = CmuxMainWindow.canonicalCollectionBehavior(base)
+        XCTAssertTrue(result.contains(.fullScreenPrimary))
+        XCTAssertTrue(result.contains(.fullScreenDisallowsTiling))
+        XCTAssertTrue(result.contains(.moveToActiveSpace))
+    }
+
+    func testCanonicalBehaviorIsIdempotent() {
+        let once = CmuxMainWindow.canonicalCollectionBehavior([])
+        let twice = CmuxMainWindow.canonicalCollectionBehavior(once)
+        XCTAssertEqual(once, twice)
+    }
 }
 #endif
