@@ -94,6 +94,33 @@ public final class DebugWindowsCoordinator {
 
     @ObservationIgnored
     private let startupAppearanceDebugContentProvider: (@MainActor () -> NSView)?
+
+    // App-coupled debug windows whose controllers stay in the app target (they
+    // render live `Bonsplit` tab bars, app `Feed` surfaces, and the running
+    // window's titlebar/PDF chrome). The window/lifecycle shells are NOT package
+    // types, so the app injects a plain open-action per window and the Debug menu
+    // routes through the coordinator instead of reaching the app-side
+    // `…WindowController.shared` singletons directly.
+    @ObservationIgnored
+    private let openBonsplitTabBarDebug: (@MainActor () -> Void)?
+
+    @ObservationIgnored
+    private let openDevWindowDisplayDebug: (@MainActor () -> Void)?
+
+    @ObservationIgnored
+    private let openFeedPreview: (@MainActor () -> Void)?
+
+    @ObservationIgnored
+    private let openFeedTextEditorDebug: (@MainActor () -> Void)?
+
+    @ObservationIgnored
+    private let openFeedButtonStyleDebug: (@MainActor () -> Void)?
+
+    @ObservationIgnored
+    private let openTitlebarLayoutDebug: (@MainActor () -> Void)?
+
+    @ObservationIgnored
+    private let openPDFPreviewChromeDebug: (@MainActor () -> Void)?
     #endif
 
     /// Creates the coordinator.
@@ -150,6 +177,21 @@ public final class DebugWindowsCoordinator {
     ///     configuration, and reads the app-target `AppearanceSettings`/`GhosttyConfig`,
     ///     so the app target injects it here. `nil` (or a `nil` title) disables
     ///     ``showStartupAppearanceDebug()`` (no panel is presented).
+    ///   - openBonsplitTabBarDebug: Opens the app-target Bonsplit Tab Bar Debug
+    ///     window (DEBUG only). The controller stays app-side, so the app injects
+    ///     the open action. `nil` disables ``showBonsplitTabBarDebug()``.
+    ///   - openDevWindowDisplayDebug: Opens the app-target Dev Window Display debug
+    ///     window (DEBUG only). `nil` disables ``showDevWindowDisplayDebug()``.
+    ///   - openFeedPreview: Opens the app-target Feed Preview window (DEBUG only).
+    ///     `nil` disables ``showFeedPreview()``.
+    ///   - openFeedTextEditorDebug: Opens the app-target Feed Text Editor Lab window
+    ///     (DEBUG only). `nil` disables ``showFeedTextEditorDebug()``.
+    ///   - openFeedButtonStyleDebug: Opens the app-target Feed Button Style Debug
+    ///     window (DEBUG only). `nil` disables ``showFeedButtonStyleDebug()``.
+    ///   - openTitlebarLayoutDebug: Opens the app-target Titlebar Layout Debug window
+    ///     (DEBUG only). `nil` disables ``showTitlebarLayoutDebug()``.
+    ///   - openPDFPreviewChromeDebug: Opens the app-target PDF Preview Chrome Debug
+    ///     window (DEBUG only). `nil` disables ``showPDFPreviewChromeDebug()``.
     public init(
         decorator: (any WindowDecorating)?,
         aboutPanelStrings: AboutPanelStrings,
@@ -162,7 +204,14 @@ public final class DebugWindowsCoordinator {
         backgroundDebugContentProvider: (@MainActor () -> NSView)? = nil,
         fileExplorerStyleDebugContentProvider: (@MainActor () -> NSView)? = nil,
         startupAppearanceDebugWindowTitle: String? = nil,
-        startupAppearanceDebugContentProvider: (@MainActor () -> NSView)? = nil
+        startupAppearanceDebugContentProvider: (@MainActor () -> NSView)? = nil,
+        openBonsplitTabBarDebug: (@MainActor () -> Void)? = nil,
+        openDevWindowDisplayDebug: (@MainActor () -> Void)? = nil,
+        openFeedPreview: (@MainActor () -> Void)? = nil,
+        openFeedTextEditorDebug: (@MainActor () -> Void)? = nil,
+        openFeedButtonStyleDebug: (@MainActor () -> Void)? = nil,
+        openTitlebarLayoutDebug: (@MainActor () -> Void)? = nil,
+        openPDFPreviewChromeDebug: (@MainActor () -> Void)? = nil
     ) {
         self.decorator = decorator
         self.aboutPanelStrings = aboutPanelStrings
@@ -178,6 +227,13 @@ public final class DebugWindowsCoordinator {
         self.fileExplorerStyleDebugContentProvider = fileExplorerStyleDebugContentProvider
         self.startupAppearanceDebugWindowTitle = startupAppearanceDebugWindowTitle
         self.startupAppearanceDebugContentProvider = startupAppearanceDebugContentProvider
+        self.openBonsplitTabBarDebug = openBonsplitTabBarDebug
+        self.openDevWindowDisplayDebug = openDevWindowDisplayDebug
+        self.openFeedPreview = openFeedPreview
+        self.openFeedTextEditorDebug = openFeedTextEditorDebug
+        self.openFeedButtonStyleDebug = openFeedButtonStyleDebug
+        self.openTitlebarLayoutDebug = openTitlebarLayoutDebug
+        self.openPDFPreviewChromeDebug = openPDFPreviewChromeDebug
         #else
         _ = debugWindowControlsContentProvider
         _ = menuBarExtraDebugRefresh
@@ -185,6 +241,13 @@ public final class DebugWindowsCoordinator {
         _ = fileExplorerStyleDebugContentProvider
         _ = startupAppearanceDebugWindowTitle
         _ = startupAppearanceDebugContentProvider
+        _ = openBonsplitTabBarDebug
+        _ = openDevWindowDisplayDebug
+        _ = openFeedPreview
+        _ = openFeedTextEditorDebug
+        _ = openFeedButtonStyleDebug
+        _ = openTitlebarLayoutDebug
+        _ = openPDFPreviewChromeDebug
         #endif
     }
 
@@ -360,6 +423,57 @@ public final class DebugWindowsCoordinator {
             )
         startupAppearanceDebugController = controller
         controller.show()
+    }
+
+    /// Opens the app-target Bonsplit Tab Bar Debug window.
+    ///
+    /// No-op when no open action was injected at construction. The controller
+    /// lives in the app target; the coordinator only routes the Debug menu's
+    /// request so the menu no longer reaches the app-side singleton directly.
+    public func showBonsplitTabBarDebug() {
+        openBonsplitTabBarDebug?()
+    }
+
+    /// Opens the app-target Dev Window Display debug window.
+    ///
+    /// No-op when no open action was injected at construction.
+    public func showDevWindowDisplayDebug() {
+        openDevWindowDisplayDebug?()
+    }
+
+    /// Opens the app-target Feed Preview window.
+    ///
+    /// No-op when no open action was injected at construction.
+    public func showFeedPreview() {
+        openFeedPreview?()
+    }
+
+    /// Opens the app-target Feed Text Editor Lab window.
+    ///
+    /// No-op when no open action was injected at construction.
+    public func showFeedTextEditorDebug() {
+        openFeedTextEditorDebug?()
+    }
+
+    /// Opens the app-target Feed Button Style Debug window.
+    ///
+    /// No-op when no open action was injected at construction.
+    public func showFeedButtonStyleDebug() {
+        openFeedButtonStyleDebug?()
+    }
+
+    /// Opens the app-target Titlebar Layout Debug window.
+    ///
+    /// No-op when no open action was injected at construction.
+    public func showTitlebarLayoutDebug() {
+        openTitlebarLayoutDebug?()
+    }
+
+    /// Opens the app-target PDF Preview Chrome Debug window.
+    ///
+    /// No-op when no open action was injected at construction.
+    public func showPDFPreviewChromeDebug() {
+        openPDFPreviewChromeDebug?()
     }
     #endif
 }

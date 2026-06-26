@@ -237,14 +237,14 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             isShellLoading = false
             recoveryPolicy.reset()
             cancelImageLoads()
-            requestedLibs.removeAll()
+            libraryInjector.reset()
         }
 
         func loadShell(theme: MarkdownWebTheme, initialMarkdown: String) {
             pendingMarkdown = initialMarkdown
             pendingTheme = theme
             lastTheme = theme
-            requestedLibs.removeAll()
+            libraryInjector.reset()
             isLoaded = false
             isShellLoading = true
             let html = MarkdownViewerAssets.shared.shellHTML(isDark: theme.isDark)
@@ -389,7 +389,10 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
         }
 
-        private var requestedLibs: Set<String> = []
+        /// Owns the lazy-library injection bookkeeping (which JS libs have been
+        /// requested for the current WebView) and the injection itself. Reset
+        /// whenever the shell reloads.
+        private let libraryInjector = MarkdownLibraryInjector()
 
         // MARK: WKURLSchemeHandler
         //
@@ -457,38 +460,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
         private func handleLibRequest(_ lib: String) {
             guard let webView else { return }
-            // Load each library at most once per WebView lifetime. State is
-            // reset only when the shell is reloaded via loadShell(); theme
-            // switches reuse the already-loaded libs.
-            if requestedLibs.contains(lib) { return }
-            requestedLibs.insert(lib)
-
-            let assets = MarkdownViewerAssets.shared
-            let sources: [String]
-            switch lib {
-            case "mermaid":
-                sources = [assets.lazyAsset(name: "mermaid.min", ext: "js")]
-            case "vega-lite":
-                // Order matters: vega first, then vega-lite, then vega-embed.
-                sources = [
-                    assets.lazyAsset(name: "vega.min", ext: "js"),
-                    assets.lazyAsset(name: "vega-lite.min", ext: "js"),
-                    assets.lazyAsset(name: "vega-embed.min", ext: "js"),
-                ]
-            default:
-                return
-            }
-
-            let script = MarkdownRenderScript.loadLibrary(named: lib, sources: sources)
-            webView.evaluateJavaScript(script.source) { [weak self] _, error in
-                if let error {
-                    // Allow retry on next render if this attempt failed.
-                    self?.requestedLibs.remove(lib)
-#if DEBUG
-                    NSLog("MarkdownPanel: failed to load \(lib): \(error)")
-#endif
-                }
-            }
+            libraryInjector.inject(lib, into: webView)
         }
 
         // MARK: WKNavigationDelegate
@@ -537,7 +509,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             isShellLoading = false
             guard recoveryPolicy.consumeBudget() else {
                 isLoaded = false
-                requestedLibs.removeAll()
+                libraryInjector.reset()
                 return
             }
             loadShell(

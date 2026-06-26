@@ -117,6 +117,19 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             .sorted { $0.pid < $1.pid }
     }
 
+    func cmuxScopedProcessIDsByPanelKey() -> [RestorableAgentSessionIndex.PanelKey: Set<Int>] {
+        var processIDsByPanelKey: [RestorableAgentSessionIndex.PanelKey: Set<Int>] = [:]
+        for process in cmuxScopedProcesses() {
+            guard let workspaceId = process.cmuxWorkspaceID,
+                  let panelId = process.cmuxSurfaceID else {
+                continue
+            }
+            let key = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
+            processIDsByPanelKey[key, default: []].insert(process.pid)
+        }
+        return processIDsByPanelKey
+    }
+
     func process(pid: Int) -> CmuxTopProcessInfo? {
         processesByPID[pid]
     }
