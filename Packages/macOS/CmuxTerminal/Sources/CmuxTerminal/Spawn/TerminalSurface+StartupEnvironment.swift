@@ -121,6 +121,68 @@ extension TerminalSurface {
             let script = """
             #!/usr/bin/env bash
             cmux_wrapper=\(shellSingleQuoted(wrapperURL.path))
+            cmux_claude_builtin_command_name() {
+                case "${1:-}" in
+                    agents|auth|auto-mode|config|api-key|daemon|doctor|install|mcp|\\
+                    experimental-next|plugin|plugins|project|rc|remote-control|setup-token|\\
+                    ultrareview|update|upgrade)
+                        return 0
+                        ;;
+                esac
+                return 1
+            }
+            cmux_claude_option_consumes_value() {
+                case "$1" in
+                    --add-dir|--agent|--agents|--allowedTools|--allowed-tools|\\
+                    --append-system-prompt|--betas|--debug-file|--disallowedTools|\\
+                    --disallowed-tools|--effort|--fallback-model|--file|\\
+                    --input-format|--json-schema|--max-budget-usd|--mcp-config|\\
+                    --model|-m|-n|--name|--output-format|--permission-mode|--plugin-dir|\\
+                    --plugin-url|--remote-control-session-name-prefix|--setting-sources|\\
+                    --settings|--system-prompt|--tools)
+                        return 0
+                        ;;
+                esac
+                return 1
+            }
+            cmux_claude_should_prepare_terminal() {
+                (( $# == 0 )) && return 0
+                local cmux_arg cmux_skip_next=false
+                for cmux_arg in "$@"; do
+                    if [[ "$cmux_skip_next" == true ]]; then
+                        cmux_skip_next=false
+                        continue
+                    fi
+                    case "$cmux_arg" in
+                        --)
+                            return 0
+                            ;;
+                        --help|-h|--version|-v|--print|--print=*|-p)
+                            return 1
+                            ;;
+                        --resume|--resume=*|-r|--continue|-c|\\
+                        --session-id|--session-id=*|--remote-control|--remote-control=*|\\
+                        --from-pr|--from-pr=*|--worktree|--worktree=*|-w|-w=*)
+                            return 0
+                            ;;
+                        -*)
+                            if [[ "$cmux_arg" != *=* ]] && cmux_claude_option_consumes_value "$cmux_arg"; then
+                                cmux_skip_next=true
+                            fi
+                            ;;
+                        *)
+                            cmux_claude_builtin_command_name "$cmux_arg" && return 1
+                            return 0
+                            ;;
+                    esac
+                done
+                return 0
+            }
+            cmux_prepare_claude_terminal_for_tui() {
+                cmux_claude_should_prepare_terminal "$@" || return 0
+                [[ -t 1 ]] || return 0
+                printf '\\033[H\\033[2J'
+            }
             if [[ ! -x "$cmux_wrapper" && -n "${CMUX_BUNDLED_CLI_PATH:-}" ]]; then
                 cmux_candidate="$(dirname "$CMUX_BUNDLED_CLI_PATH")/cmux-claude-wrapper"
                 if [[ -x "$cmux_candidate" ]]; then
@@ -138,6 +200,7 @@ extension TerminalSurface {
             fi
             export CMUX_CLAUDE_WRAPPER_SHIM=\(shellSingleQuoted(shimURL.path))
             export CMUX_CLAUDE_WRAPPER_SHIM_ROOT=\(shellSingleQuoted(shimDirectory.path))
+            cmux_prepare_claude_terminal_for_tui "$@"
             if [[ -x "$cmux_wrapper" ]]; then
                 exec "$cmux_wrapper" "$@"
             fi

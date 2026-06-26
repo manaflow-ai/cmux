@@ -616,6 +616,50 @@ should_inject_claude_hooks() {
     return 0
 }
 
+should_prepare_claude_terminal_for_tui() {
+    (( $# == 0 )) && return 0
+
+    local arg
+    local skip_next=false
+    for arg in "$@"; do
+        if [[ "$skip_next" == true ]]; then
+            skip_next=false
+            continue
+        fi
+        case "$arg" in
+            --)
+                return 0
+                ;;
+            --help|-h|--version|-v|--print|--print=*|-p)
+                return 1
+                ;;
+            --resume|--resume=*|-r|--continue|-c|\
+            --session-id|--session-id=*|--remote-control|--remote-control=*|\
+            --from-pr|--from-pr=*|--worktree|--worktree=*|-w|-w=*)
+                return 0
+                ;;
+            -*)
+                if [[ "$arg" != *=* ]] && claude_option_consumes_value "$arg"; then
+                    skip_next=true
+                fi
+                ;;
+            *)
+                claude_command_like_invocation "$arg" && return 1
+                return 0
+                ;;
+        esac
+    done
+
+    return 0
+}
+
+prepare_claude_terminal_for_tui() {
+    [[ "$IN_CMUX" == "1" ]] || return 0
+    should_prepare_claude_terminal_for_tui "$@" || return 0
+    [[ -t 1 ]] || return 0
+    printf '\033[H\033[2J'
+}
+
 # Only inject hooks for Claude session entrypoints. Command-like invocations
 # pass through so Claude subcommands do not receive session/hook flags.
 if ! should_inject_claude_hooks "$@"; then
@@ -796,8 +840,10 @@ process.stdout.write(JSON.stringify(acc));
 fi
 
 if [[ "$SKIP_SESSION_ID" == true ]]; then
+    prepare_claude_terminal_for_tui "$@"
     exec "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"
 else
     SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+    prepare_claude_terminal_for_tui "$@"
     exec "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$HOOKS_JSON" "$@"
 fi
