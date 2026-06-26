@@ -38,11 +38,10 @@ extension CMUXCLI {
     }
 
     func runSSHListCommand(commandArgs: [String], jsonOutput: Bool) throws {
-        if commandArgs.contains("--help") || commandArgs.contains("-h")
-            || commandArgs.first?.lowercased() == "help" {
-            print(Self.sshListUsage)
-            return
-        }
+        // `--help`/`-h` are handled upstream by the help pre-dispatch in
+        // `cmux.swift` (which prints the `cmux ssh list` header + usage) before
+        // this runs, and the verb is always `list`/`ls`, so no help branch is
+        // needed here.
         let (configOverride, rest) = parseOption(commandArgs, name: "--config")
         let positionals = rest.filter { !$0.hasPrefix("-") }
         // The verb itself (list/ls) is expected; anything else is a user error.
@@ -136,7 +135,10 @@ extension CMUXCLI {
         let directory = ns.deletingLastPathComponent
         guard let entries = try? fileManager.contentsOfDirectory(atPath: directory) else { return [] }
         return entries
-            .filter { fnmatch(last, $0, 0) == 0 }
+            // FNM_PERIOD mirrors glob(3) (what OpenSSH uses to expand Include):
+            // an unqualified `*` must not match dotfiles like `.vault-config`,
+            // so cmux reads exactly the files ssh would.
+            .filter { fnmatch(last, $0, FNM_PERIOD) == 0 }
             .sorted()
             .map { (directory as NSString).appendingPathComponent($0) }
             .filter { candidate in
