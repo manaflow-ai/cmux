@@ -215,6 +215,7 @@ jobs:
           python3 - <<'PY' > "$SIMULATOR_ENV"
           import json
           import os
+          import shlex
           import subprocess
 
           def simctl_json(*args):
@@ -271,8 +272,8 @@ jobs:
                   runtime["identifier"],
               ], text=True).strip()
               selected = {"udid": udid, "name": f"cmux video {device_type['name']}"}
-          print(f"SIMULATOR_ID={selected['udid']}")
-          print(f"SIMULATOR_NAME={selected['name']}")
+          print(f"SIMULATOR_ID={shlex.quote(selected['udid'])}")
+          print(f"SIMULATOR_NAME={shlex.quote(selected['name'])}")
           PY
           # shellcheck source=/dev/null
           . "$SIMULATOR_ENV"
