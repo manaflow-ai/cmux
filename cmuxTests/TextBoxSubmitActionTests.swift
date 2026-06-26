@@ -740,6 +740,26 @@ struct TextBoxSubmitActionTests {
             )
         )
         XCTAssertTrue(
+            TextBoxInputContainer.shouldClearPendingProviderLaunch(
+                shellActivityState: .promptIdle,
+                terminalAgentContext: "textBoxPendingLaunchCommand:codex",
+                pendingLaunchExpired: true
+            )
+        )
+        let startedAt = Date(timeIntervalSinceReferenceDate: 100)
+        XCTAssertFalse(
+            TextBoxInputContainer.isPendingProviderLaunchExpired(
+                startedAt: startedAt,
+                now: Date(timeIntervalSinceReferenceDate: 111.9)
+            )
+        )
+        XCTAssertTrue(
+            TextBoxInputContainer.isPendingProviderLaunchExpired(
+                startedAt: startedAt,
+                now: Date(timeIntervalSinceReferenceDate: 112)
+            )
+        )
+        XCTAssertTrue(
             TextBoxInputContainer.isPendingProviderLaunchAwaitingAgent(
                 pendingProviderLaunchAction: TextBoxSubmitAction.builtInActions[0],
                 terminalAgentContext: ""

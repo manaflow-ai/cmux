@@ -1,8 +1,11 @@
 import AppKit
+import Combine
 import CmuxWorkspaces
 import SwiftUI
 
 extension TextBoxInputContainer {
+    static let pendingProviderLaunchTimeoutSeconds: TimeInterval = 12
+
     var submitActions: [TextBoxSubmitAction] {
         if cachedSubmitActionsJSON == configuredSubmitActionsJSON {
             return cachedSubmitActions
@@ -94,10 +97,12 @@ extension TextBoxInputContainer {
 
     func startPendingProviderLaunch(_ action: TextBoxSubmitAction) {
         pendingProviderLaunchAction = action
+        pendingProviderLaunchStartedAt = Date()
     }
 
     func clearPendingProviderLaunch() {
         pendingProviderLaunchAction = nil
+        pendingProviderLaunchStartedAt = nil
     }
 
     func cancelPendingProviderLaunch() {
@@ -108,21 +113,32 @@ extension TextBoxInputContainer {
 
     func reconcilePendingProviderLaunch() {
         guard pendingProviderLaunchAction != nil else { return }
+        let pendingLaunchExpired = Self.isPendingProviderLaunchExpired(startedAt: pendingProviderLaunchStartedAt)
         if Self.shouldClearPendingProviderLaunch(
             shellActivityState: shellActivityState,
-            terminalAgentContext: terminalAgentContext
+            terminalAgentContext: terminalAgentContext,
+            pendingLaunchExpired: pendingLaunchExpired
         ) {
-            if Self.shouldClearLaunchCommandWhenClearingPending(terminalAgentContext: terminalAgentContext) {
+            if pendingLaunchExpired ||
+                Self.shouldClearLaunchCommandWhenClearingPending(terminalAgentContext: terminalAgentContext) {
                 onClearLaunchCommand()
             }
             clearPendingProviderLaunch()
         }
     }
 
+    var pendingProviderLaunchTimeoutTicker: Publishers.Autoconnect<Timer.TimerPublisher> {
+        Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    }
+
     static func shouldClearPendingProviderLaunch(
         shellActivityState: PanelShellActivityState,
-        terminalAgentContext: String
+        terminalAgentContext: String,
+        pendingLaunchExpired: Bool = false
     ) -> Bool {
+        if pendingLaunchExpired {
+            return true
+        }
         if TextBoxAgentDetection.hasPendingTextBoxLaunchContext(terminalAgentContext) {
             return false
         }
@@ -130,6 +146,15 @@ extension TextBoxInputContainer {
             return true
         }
         return shellActivityState == .promptIdle
+    }
+
+    static func isPendingProviderLaunchExpired(
+        startedAt: Date?,
+        now: Date = Date(),
+        timeoutSeconds: TimeInterval = Self.pendingProviderLaunchTimeoutSeconds
+    ) -> Bool {
+        guard let startedAt else { return false }
+        return now.timeIntervalSince(startedAt) >= timeoutSeconds
     }
 
     static func shouldClearLaunchCommandWhenClearingPending(terminalAgentContext: String) -> Bool {
