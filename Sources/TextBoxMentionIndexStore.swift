@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 actor TextBoxMentionIndexStore {
@@ -11,35 +12,7 @@ actor TextBoxMentionIndexStore {
     private static let maxIndexedSkills = 800
     private static let rootSuggestionLimit = 200
     private static let suggestionLimit = 500
-    private static let skippedDirectoryNames: Set<String> = [
-        ".build",
-        ".git",
-        ".next",
-        ".swiftpm",
-        ".vercel",
-        "DerivedData",
-        "Library",
-        "node_modules",
-        "Pods",
-        "vendor"
-    ]
-    private static let skippedPackageDirectorySuffixes = [
-        ".app",
-        ".appex",
-        ".bundle",
-        ".dSYM",
-        ".framework",
-        ".kext",
-        ".mdimporter",
-        ".plugin",
-        ".prefPane",
-        ".qlgenerator",
-        ".rtfd",
-        ".xcframework",
-        ".xcodeproj",
-        ".xcworkspace",
-        ".playground"
-    ]
+    private static let directorySkipPolicy = IndexedDirectorySkipPolicy()
 
     private var fileIndexesByRoot: [String: TextBoxMentionCachedIndex] = [:]
     private var fileIndexRefreshTasks: [String: TextBoxMentionFileIndexRefreshTask] = [:]
@@ -340,7 +313,7 @@ actor TextBoxMentionIndexStore {
             let name = standardizedURL.lastPathComponent
             let values = try? standardizedURL.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
             if values?.isDirectory == true {
-                if shouldSkipIndexedDirectoryName(name) {
+                if directorySkipPolicy.shouldSkip(name) {
                     enumerator.skipDescendants()
                     continue
                 }
@@ -384,7 +357,7 @@ actor TextBoxMentionIndexStore {
             .filter { url in
                 let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
                 if values?.isDirectory == true {
-                    return !shouldSkipIndexedDirectoryName(url.lastPathComponent)
+                    return !directorySkipPolicy.shouldSkip(url.lastPathComponent)
                 }
                 return values?.isRegularFile == true
             }
@@ -435,11 +408,11 @@ actor TextBoxMentionIndexStore {
         // Apply the same skip list as the fallback enumerator. rg honors
         // .gitignore in a git repo, but in a non-git root it would otherwise
         // descend into node_modules/vendor/Pods/etc. and blow the file budget.
-        for name in skippedDirectoryNames.sorted() {
+        for name in directorySkipPolicy.skippedDirectoryNames.sorted() {
             arguments.append("--glob")
             arguments.append("!\(name)")
         }
-        for suffix in skippedPackageDirectorySuffixes {
+        for suffix in directorySkipPolicy.skippedPackageDirectorySuffixes {
             arguments.append("--iglob")
             arguments.append("!*\(suffix)")
         }
@@ -491,7 +464,7 @@ actor TextBoxMentionIndexStore {
             var currentPath = ""
             for component in components.dropLast() {
                 let componentName = String(component)
-                guard !shouldSkipIndexedDirectoryName(componentName) else { return }
+                guard !directorySkipPolicy.shouldSkip(componentName) else { return }
                 currentPath = currentPath.isEmpty ? componentName : "\(currentPath)/\(componentName)"
                 appendDirectoryCandidate(relativePath: currentPath)
             }
@@ -615,7 +588,7 @@ actor TextBoxMentionIndexStore {
             .map(\.standardizedFileURL)
             .filter {
                 (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true &&
-                    !shouldSkipIndexedDirectoryName($0.lastPathComponent)
+                    !directorySkipPolicy.shouldSkip($0.lastPathComponent)
             }
     }
 
@@ -779,7 +752,7 @@ actor TextBoxMentionIndexStore {
             let name = standardizedURL.lastPathComponent
             let values = try? standardizedURL.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
             if values?.isDirectory == true {
-                if shouldSkipIndexedDirectoryName(name) {
+                if directorySkipPolicy.shouldSkip(name) {
                     enumerator.skipDescendants()
                     continue
                 }
@@ -869,16 +842,6 @@ actor TextBoxMentionIndexStore {
 
     private static func isDirectory(_ url: URL, fileManager: FileManager) -> Bool {
         (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-    }
-
-    private static func shouldSkipIndexedDirectoryName(_ name: String) -> Bool {
-        if skippedDirectoryNames.contains(name) {
-            return true
-        }
-        let normalizedName = name.lowercased()
-        return skippedPackageDirectorySuffixes.contains { suffix in
-            normalizedName.hasSuffix(suffix.lowercased())
-        }
     }
 
     private static func skillName(from skillURL: URL) -> String {
