@@ -10,8 +10,50 @@ import SwiftUI
 /// the phone's connection (green = the phone is talking to this Mac now).
 struct MacComputerRow: View {
     let computer: MacComputerSnapshot
+    /// Request confirmation before removing this computer. When `nil`, the
+    /// destructive affordances are hidden.
+    var requestRemove: ((String) -> Void)? = nil
+    /// Whether this row's destructive remove action is awaiting confirmation.
+    /// The binding is owned by the list so recycled rows do not own presentation
+    /// state, but the presenter stays attached to the swiped row.
+    var isConfirmingRemove: Binding<Bool> = .constant(false)
+    /// Performs the confirmed removal. Separate from ``requestRemove`` so a
+    /// full-swipe can request confirmation without directly removing the row.
+    var confirmRemove: ((String) -> Void)? = nil
 
     var body: some View {
+        NavigationLink(value: computer.deviceId) {
+            rowLabel
+        }
+        .contextMenu { removeMenuButton }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            removeSwipeButton
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("MobileComputerRow-\(computer.deviceId)")
+        .confirmationDialog(
+            removeTitle,
+            isPresented: isConfirmingRemove,
+            titleVisibility: .visible
+        ) {
+            if let confirmRemove {
+                Button(
+                    L10n.string("mobile.computers.remove", defaultValue: "Remove"),
+                    role: .destructive
+                ) {
+                    confirmRemove(computer.deviceId)
+                }
+                .accessibilityIdentifier("MobileComputerRemoveConfirm-\(computer.deviceId)")
+            }
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
+                isConfirmingRemove.wrappedValue = false
+            }
+        } message: {
+            Text(removeMessage)
+        }
+    }
+
+    private var rowLabel: some View {
         HStack(spacing: 12) {
             ZStack {
                 Circle()
@@ -51,8 +93,60 @@ struct MacComputerRow: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("MobileComputerRow-\(computer.deviceId)")
+    }
+
+    @ViewBuilder
+    private var removeSwipeButton: some View {
+        if let requestRemove {
+            Button {
+                requestRemove(computer.deviceId)
+            } label: {
+                Label(
+                    L10n.string("mobile.computers.remove", defaultValue: "Remove"),
+                    systemImage: "trash"
+                )
+            }
+            .tint(.red)
+            .accessibilityIdentifier("MobileComputerRemoveSwipeButton-\(computer.deviceId)")
+        }
+    }
+
+    @ViewBuilder
+    private var removeMenuButton: some View {
+        if let requestRemove {
+            Button(role: .destructive) {
+                requestRemove(computer.deviceId)
+            } label: {
+                Label(
+                    L10n.string("mobile.computers.remove", defaultValue: "Remove"),
+                    systemImage: "trash"
+                )
+            }
+            .accessibilityIdentifier("MobileComputerRemoveMenuButton-\(computer.deviceId)")
+        }
+    }
+
+    private var removeTitle: String {
+        String(
+            format: L10n.string("mobile.computers.removeTitleFormat", defaultValue: "Remove %@?"),
+            computer.title
+        )
+    }
+
+    private var removeMessage: String {
+        guard computer.aliasIDs.count > 1 else {
+            return L10n.string(
+                "mobile.computers.removeMessage",
+                defaultValue: "This computer and its workspaces stop appearing here. Pair it again to add it back."
+            )
+        }
+        return String(
+            format: L10n.string(
+                "mobile.computers.removeMessageRepresentativeFormat",
+                defaultValue: "This removes paired record %@. Other matching records may still appear."
+            ),
+            computer.deviceId
+        )
     }
 
     /// The connection dot: green only when the PHONE is actually connected to this
