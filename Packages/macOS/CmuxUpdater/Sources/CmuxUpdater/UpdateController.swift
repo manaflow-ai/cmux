@@ -3,13 +3,13 @@ public import Foundation
 
 /// Coordinates cmux's custom Sparkle update flow: owns the `SPUUpdater` and its
 /// ``UpdateDriver``, exposes the observable ``UpdateStateModel``, and sequences the
-/// user-facing actions (check, force-install, attempt-and-install).
+/// user-facing actions (check, attempt-and-install).
 ///
 /// The previous implementation observed the model's `@Published` state through Combine
 /// (`$state.sink`, `Publishers.CombineLatest`). This version consumes the model's
 /// ``UpdateStateModel/stateChanges()`` `AsyncStream` in one long-lived main-actor task and
-/// runs the three reactions (force-install, attempt-update, "no updates" auto-dismiss) as
-/// plain state-machine logic gated by flags. Bounded delays (and the updater-readiness wait)
+/// runs its reactions (attempt-update via ``AttemptUpdateCoordinator``, "no updates"
+/// auto-dismiss) as plain state-machine logic. Bounded delays (and the updater-readiness wait)
 /// use the injected ``UpdateClock``.
 ///
 /// Construct one at app startup, set ``actionDelegate``, and inject it where the update menu
@@ -32,9 +32,9 @@ public final class UpdateController {
     }
 
     // Reaction state (replaces the Combine subscriptions).
-    private var isForceInstalling = false
-    private var isAttemptingUpdate = false
-    private var didObserveAttemptUpdateProgress = false
+    /// Sequences "re-resolve to the latest, then install" so the install path never installs the
+    /// version that was captured when the prompt was first surfaced (issue #6366).
+    private var attemptCoordinator = AttemptUpdateCoordinator()
     private var stateReactionTask: Task<Void, Never>?
     private var noUpdateDismissTask: Task<Void, Never>?
     private var backgroundProbeTask: Task<Void, Never>?
@@ -53,9 +53,6 @@ public final class UpdateController {
 
     /// The observable model the UI renders from.
     public var model: UpdateStateModel { driver.model }
-
-    /// Whether a force-install is in progress (auto-confirming each installable state).
-    public var isInstalling: Bool { isForceInstalling }
 
     /// Creates a controller, applying the Sparkle preference defaults and wiring the updater.
     ///
@@ -121,66 +118,34 @@ public final class UpdateController {
         let state = model.state
         let overrideState = model.overrideState
 
-        if isForceInstalling {
-            evaluateForceInstall(state)
-        }
-        if isAttemptingUpdate {
-            evaluateAttempt(state)
+        if attemptCoordinator.isMonitoring {
+            performAttemptAction(attemptCoordinator.handleStateChange(state))
         }
         scheduleNoUpdateDismiss(for: state, overrideState: overrideState)
     }
 
-    // MARK: - Force install
-
-    /// Force install the current update by auto-confirming all installable states.
-    public func installUpdate() {
-        guard model.state.isInstallable else { return }
-        guard !isForceInstalling else { return }
-        isForceInstalling = true
-        evaluateForceInstall(model.state)
-    }
-
-    private func evaluateForceInstall(_ state: UpdateState) {
-        guard state.isInstallable else {
-            isForceInstalling = false
-            return
-        }
-        state.confirm()
-    }
-
     // MARK: - Attempt update
 
-    /// Check for updates and auto-confirm install if one is found.
+    /// Re-check for updates and auto-confirm the install of whatever the fresh check resolves.
+    ///
+    /// This is the single user-facing "install the update" entry point. It deliberately runs a
+    /// fresh check instead of installing the update that was captured when the prompt was first
+    /// surfaced, so a newer release published in the meantime is installed directly rather than
+    /// prompting the user again right after relaunch (issue #6366).
     public func attemptUpdate() {
-        stopAttemptUpdateMonitoring()
-        didObserveAttemptUpdateProgress = false
-        isAttemptingUpdate = true
-        evaluateAttempt(model.state)
-        checkForUpdates()
+        performAttemptAction(attemptCoordinator.requestInstallLatest(currentState: model.state))
     }
 
-    private func evaluateAttempt(_ state: UpdateState) {
-        if state.isInstallable || !state.isIdle {
-            didObserveAttemptUpdateProgress = true
+    private func performAttemptAction(_ action: AttemptUpdateCoordinator.Action) {
+        switch action {
+        case .none:
+            break
+        case .startFreshCheck:
+            checkForUpdates()
+        case .confirmInstall:
+            log.append("attemptUpdate installing freshly resolved update")
+            model.state.confirm()
         }
-
-        if case .updateAvailable = state {
-            log.append("attemptUpdate auto-confirming available update")
-            state.confirm()
-            return
-        }
-
-        // Only stop on terminal failure states (.notFound, .error). Don't stop on .idle —
-        // the check may still be starting up (retry loop, background probe finishing).
-        guard didObserveAttemptUpdateProgress, !state.isInstallable, !state.isIdle else {
-            return
-        }
-        stopAttemptUpdateMonitoring()
-    }
-
-    private func stopAttemptUpdateMonitoring() {
-        isAttemptingUpdate = false
-        didObserveAttemptUpdateProgress = false
     }
 
     // MARK: - "No updates" auto-dismiss
@@ -229,7 +194,6 @@ public final class UpdateController {
             return
         }
 
-        isForceInstalling = false
         model.cancelActiveStateForNewCheck()
 
         // Give Sparkle a beat to tear down the just-dismissed check session before starting a

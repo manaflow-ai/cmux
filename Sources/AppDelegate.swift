@@ -8687,7 +8687,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @objc func applyUpdateIfAvailable(_ sender: Any?) {
         updateController.model.setOverrideState(nil)
-        updateController.installUpdate()
+        // Route through attemptUpdate() so the install re-resolves to the latest available version
+        // instead of installing whatever was captured when the prompt was surfaced (issue #6366).
+        updateController.attemptUpdate()
     }
 
     @objc func attemptUpdate(_ sender: Any?) {
