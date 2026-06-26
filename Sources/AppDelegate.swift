@@ -37,7 +37,7 @@ private enum CmuxThemeNotifications {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation, NSMenuDelegate, CmuxConfigStoreReloadEnvironment {
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation, NSMenuDelegate, CmuxConfigStoreReloadEnvironment, ExternalOpenIntentHosting {
     nonisolated(unsafe) static var shared: AppDelegate?
     /// Stateless control-socket syscall layer (CmuxControlSocket); composition-root owned.
     nonisolated let socketTransport = SocketTransport()
@@ -1518,6 +1518,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let serviceOpenResolver: any ServiceOpenResolving = ServiceOpenPasteboardResolver(
         fileURLReader: PasteboardServiceFileURLReader()
     )
+    /// External open-intent decision/loop coordinator (CmuxWorkspaces);
+    /// composition-root owned. Maps each resolved external-open directory to a
+    /// new-window vs preferred-main-window workspace open. The app conforms to
+    /// ``ExternalOpenIntentHosting`` and injects itself as the host, so the
+    /// three app-only effects (window creation, preferred-window workspace add,
+    /// startup open-intent latch) and the localized error string stay app-side
+    /// while the decision/loop lives in the package.
+    private lazy var externalOpenIntentCoordinator = ExternalOpenIntentCoordinator(host: self)
     /// Deep-link open planner (CmuxWindowing); composition-root owned. The
     /// `application(_:open:)` entry forwards the classified file URLs and
     /// directories here for the partitioned ``DeepLinkOpenPlan``, then executes
@@ -1721,8 +1729,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
         for directory in plan.directories {
-            openWorkspaceForExternalDirectory(
-                workingDirectory: directory,
+            externalOpenIntentCoordinator.openWorkspace(
+                forExternalDirectory: directory,
                 debugSource: "application.openURLs"
             )
         }
@@ -6048,8 +6056,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             panel.directoryURL = URL(fileURLWithPath: cwd)
         }
         if panel.runModal() == .OK, let url = panel.url {
-            openWorkspaceForExternalDirectory(
-                workingDirectory: url.path,
+            externalOpenIntentCoordinator.openWorkspace(
+                forExternalDirectory: url.path,
                 debugSource: "shortcut.openFolder"
             )
         }
@@ -6143,6 +6151,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         openFromServicePasteboard(pasteboard, target: .window, error: error)
     }
 
+    // Conformance witnesses (`createMainWindowForExternalOpen`,
+    // `addWorkspaceInPreferredMainWindowForExternalOpen`,
+    // `prepareForExplicitOpenIntentAtStartup`) are defined below in this file.
+
     @objc func openTab(
         _ pasteboard: NSPasteboard,
         userData: String?,
@@ -6151,9 +6163,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         openFromServicePasteboard(pasteboard, target: .workspace, error: error)
     }
 
-    private enum ServiceOpenTarget {
-        case window
-        case workspace
+    /// Thin app-target host for ``ExternalOpenIntentCoordinator``: the three
+    /// app-only effects the package decision/loop forwards back here.
+    /// `prepareForExplicitOpenIntentAtStartup()` is the existing method below.
+    func createMainWindowForExternalOpen(workingDirectory: String) {
+        _ = createMainWindow(initialWorkingDirectory: workingDirectory)
+    }
+
+    func addWorkspaceInPreferredMainWindowForExternalOpen(
+        workingDirectory: String,
+        debugSource: String
+    ) -> Bool {
+        addWorkspaceInPreferredMainWindow(
+            workingDirectory: workingDirectory,
+            shouldBringToFront: true,
+            debugSource: debugSource
+        ) != nil
     }
 
     private func openFromServicePasteboard(
@@ -6173,26 +6198,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
 
-        prepareForExplicitOpenIntentAtStartup()
-        for directory in directories {
-            switch target {
-            case .window:
-                _ = createMainWindow(initialWorkingDirectory: directory)
-            case .workspace:
-                openWorkspaceFromService(workingDirectory: directory)
-            }
-        }
+        externalOpenIntentCoordinator.open(directories: directories, target: target)
     }
 
     private func servicePathURLs(from pasteboard: NSPasteboard) -> [URL] {
         serviceOpenResolver.pathURLs(from: pasteboard)
-    }
-
-    private func openWorkspaceFromService(workingDirectory: String) {
-        openWorkspaceForExternalDirectory(
-            workingDirectory: workingDirectory,
-            debugSource: "service.openTab"
-        )
     }
 
     func prepareForExplicitOpenIntentAtStartup() {
@@ -6201,20 +6211,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             startupSessionSnapshot = nil
             didAttemptStartupSessionRestore = true
         }
-    }
-
-    private func openWorkspaceForExternalDirectory(
-        workingDirectory: String,
-        debugSource: String
-    ) {
-        if addWorkspaceInPreferredMainWindow(
-            workingDirectory: workingDirectory,
-            shouldBringToFront: true,
-            debugSource: debugSource
-        ) != nil {
-            return
-        }
-        _ = createMainWindow(initialWorkingDirectory: workingDirectory)
     }
 
     private func openTerminalDefaultFileRequest(

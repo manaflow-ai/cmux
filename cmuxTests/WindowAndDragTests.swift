@@ -3590,7 +3590,7 @@ final class BonsplitTabDragPayloadTests: XCTestCase {
         let pasteboard = try makeBonsplitPayloadPasteboard(kind: "filePreview", includesFilePreviewTransferType: true)
 
         XCTAssertNil(
-            BonsplitTabDragPayload.transfer(from: pasteboard),
+            BonsplitTabTransferPasteboard().transfer(from: pasteboard),
             "Sidebar workspace drop targets should ignore file-preview drags instead of treating them as movable tabs"
         )
     }
@@ -3599,7 +3599,7 @@ final class BonsplitTabDragPayloadTests: XCTestCase {
         let pasteboard = try makeBonsplitPayloadPasteboard(kind: "filePreview")
 
         XCTAssertNotNil(
-            BonsplitTabDragPayload.transfer(from: pasteboard),
+            BonsplitTabTransferPasteboard().transfer(from: pasteboard),
             "Existing file-preview tabs should still move through normal Bonsplit tab drag paths"
         )
     }
@@ -3607,21 +3607,21 @@ final class BonsplitTabDragPayloadTests: XCTestCase {
     func testAcceptsRegularCurrentProcessTabPayload() throws {
         let pasteboard = try makeBonsplitPayloadPasteboard(kind: nil)
 
-        XCTAssertNotNil(BonsplitTabDragPayload.transfer(from: pasteboard))
+        XCTAssertNotNil(BonsplitTabTransferPasteboard().transfer(from: pasteboard))
     }
 
     func testWorkspaceDropRoutingAcceptsTabTransferTypeOnly() {
         XCTAssertTrue(
-            BonsplitTabDragPayload.canRouteWorkspaceDrop(
-                pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType]
+            BonsplitTabTransferPasteboard().canRouteWorkspaceDrop(
+                [DragOverlayRoutingPolicy.bonsplitTabTransferType]
             )
         )
     }
 
     func testWorkspaceDropRoutingRejectsFilePreviewCompatibilityTransfer() {
         XCTAssertFalse(
-            BonsplitTabDragPayload.canRouteWorkspaceDrop(
-                pasteboardTypes: [
+            BonsplitTabTransferPasteboard().canRouteWorkspaceDrop(
+                [
                     DragOverlayRoutingPolicy.filePreviewTransferType,
                     DragOverlayRoutingPolicy.bonsplitTabTransferType,
                 ]
@@ -3646,7 +3646,7 @@ final class BonsplitTabDragPayloadTests: XCTestCase {
             "sourceProcessId": Int(ProcessInfo.processInfo.processIdentifier)
         ]
         let data = try JSONSerialization.data(withJSONObject: payload)
-        pasteboard.setData(data, forType: NSPasteboard.PasteboardType(BonsplitTabDragPayload.typeIdentifier))
+        pasteboard.setData(data, forType: NSPasteboard.PasteboardType(BonsplitTabTransferPasteboard.typeIdentifier))
         if includesFilePreviewTransferType {
             pasteboard.setData(data, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
         }

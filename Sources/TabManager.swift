@@ -31,132 +31,12 @@ enum WorkspaceOrderChangeNotificationKey {
     static let movedWorkspaceIds = "movedWorkspaceIds"
 }
 
-#if DEBUG
-// Sample the actual IOSurface-backed terminal layer at vsync cadence so UI tests can reliably
-// catch a single compositor-frame blank flash and any transient compositor scaling (stretched text).
-//
-// This is DEBUG-only and used only for UI tests; no polling or display-link loops exist in normal app runtime.
-//
-// The pure per-frame detection/trace logic lives in CmuxTestSupport's
-// VsyncIOSurfaceTimelineAnalyzer (a Sendable-input, AppKit-free value
-// transform). This app-side state owns the irreducible seam: the
-// CVDisplayLink lifecycle, the NSLock-guarded in-flight/finished
-// coordination read from the C callback, and the GhosttySurfaceScrollView /
-// QuartzCore live sampling closures. Each frame it samples its targets on the
-// main thread, converts them to VsyncFrameSample values, and feeds them to the
-// analyzer.
-fileprivate final class VsyncIOSurfaceTimelineState {
-    struct Target {
-        let label: String
-        let sample: @MainActor () -> GhosttySurfaceScrollView.DebugFrameSample?
-    }
-
-    let analyzer: VsyncIOSurfaceTimelineAnalyzer
-    let lock = NSLock()
-
-    var inFlight = false
-    var finished = false
-
-    var scheduledActions: [(frame: Int, action: () -> Void)] = []
-    var nextActionIndex: Int = 0
-
-    var targets: [Target] = []
-
-    var link: CVDisplayLink?
-    var continuation: CheckedContinuation<Void, Never>?
-
-    var frameCount: Int { analyzer.frameCount }
-    var framesWritten: Int { analyzer.framesWritten }
-    var firstBlank: (label: String, frame: Int)? { analyzer.firstBlank }
-    var firstSizeMismatch: (label: String, frame: Int, ios: String, expected: String)? { analyzer.firstSizeMismatch }
-    var trace: [String] { analyzer.trace }
-
-    init(frameCount: Int, closeFrame: Int) {
-        self.analyzer = VsyncIOSurfaceTimelineAnalyzer(frameCount: frameCount, closeFrame: closeFrame)
-    }
-
-    func tryBeginCapture() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        if finished { return false }
-        if inFlight { return false }
-        inFlight = true
-        return true
-    }
-
-    func endCapture() {
-        lock.lock()
-        inFlight = false
-        lock.unlock()
-    }
-
-    func finish() {
-        lock.lock()
-        if finished {
-            lock.unlock()
-            return
-        }
-        finished = true
-        let cont = continuation
-        continuation = nil
-        lock.unlock()
-        cont?.resume()
-    }
-}
-
-fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
-    _ displayLink: CVDisplayLink,
-    _ inNow: UnsafePointer<CVTimeStamp>,
-    _ inOutputTime: UnsafePointer<CVTimeStamp>,
-    _ flagsIn: CVOptionFlags,
-    _ flagsOut: UnsafeMutablePointer<CVOptionFlags>,
-    _ ctx: UnsafeMutableRawPointer?
-) -> CVReturn {
-    guard let ctx else { return kCVReturnSuccess }
-    let st = Unmanaged<VsyncIOSurfaceTimelineState>.fromOpaque(ctx).takeUnretainedValue()
-    if !st.tryBeginCapture() { return kCVReturnSuccess }
-
-    // Sample on the main thread synchronously so we don't "miss" a single compositor frame.
-    // (The previous Task/@MainActor hop could be delayed long enough to skip the blank frame.)
-    DispatchQueue.main.sync {
-        defer { st.endCapture() }
-        guard !st.analyzer.isComplete else { return }
-
-        while st.nextActionIndex < st.scheduledActions.count {
-            let next = st.scheduledActions[st.nextActionIndex]
-            if next.frame != st.framesWritten { break }
-            st.nextActionIndex += 1
-            next.action()
-        }
-
-        let frameSamples: [VsyncFrameSample] = st.targets.compactMap { t in
-            guard let s = t.sample() else { return nil }
-            return VsyncFrameSample(
-                label: t.label,
-                isProbablyBlank: s.isProbablyBlank,
-                iosurfaceWidthPx: s.iosurfaceWidthPx,
-                iosurfaceHeightPx: s.iosurfaceHeightPx,
-                expectedWidthPx: s.expectedWidthPx,
-                expectedHeightPx: s.expectedHeightPx,
-                layerContentsGravity: s.layerContentsGravity,
-                isStretchRisk: s.layerContentsGravity == CALayerContentsGravity.resize.rawValue,
-                layerContentsKey: s.layerContentsKey
-            )
-        }
-
-        st.analyzer.ingest(frameSamples: frameSamples)
-    }
-
-    // Stop/resume outside the main-thread sync block to avoid reentrancy issues.
-    if st.framesWritten >= st.frameCount, let link = st.link {
-        CVDisplayLinkStop(link)
-        st.finish()
-        Unmanaged<VsyncIOSurfaceTimelineState>.fromOpaque(ctx).release()
-    }
-
-    return kCVReturnSuccess
-}
-#endif
+// The DEBUG-only vsync IOSurface timeline capture seam (CVDisplayLink lifecycle,
+// NSLock-guarded in-flight coordination, C trampoline) lives in
+// CmuxTestSupport's VsyncIOSurfaceTimelineCapture, beside the pure
+// VsyncIOSurfaceTimelineAnalyzer. The app maps each GhosttySurfaceScrollView
+// DebugFrameSample to a VsyncFrameSample at the call site in
+// captureVsyncIOSurfaceTimeline so the package owns no app type.
 
 // WorkspaceGroup, WorkspaceReorderPlanItem, WorkspaceBatchReorderError, and
 // the pure batch-reorder planning live in CmuxWorkspaces.
@@ -4342,34 +4222,30 @@ class TabManager {
 	    ) async -> (firstBlank: (label: String, frame: Int)?, firstSizeMismatch: (label: String, frame: Int, ios: String, expected: String)?, trace: [String]) {
 	        guard frameCount > 0 else { return (nil, nil, []) }
 
-	        let st = VsyncIOSurfaceTimelineState(frameCount: frameCount, closeFrame: closeFrame)
-	        st.scheduledActions = actions.sorted(by: { $0.frame < $1.frame })
-	        st.nextActionIndex = 0
-	        st.targets = targets.map { t in
-	            VsyncIOSurfaceTimelineState.Target(label: t.label, sample: { @MainActor in
-	                t.view.debugSampleIOSurface(normalizedCrop: crop)
-	            })
-	        }
-
-	        let unmanaged = Unmanaged.passRetained(st)
-	        let ctx = unmanaged.toOpaque()
-
-	        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-	            st.continuation = cont
-	            var link: CVDisplayLink?
-	            CVDisplayLinkCreateWithActiveCGDisplays(&link)
-	            guard let link else {
-	                st.finish()
-	                Unmanaged<VsyncIOSurfaceTimelineState>.fromOpaque(ctx).release()
-	                return
+	        let capture = VsyncIOSurfaceTimelineCapture(frameCount: frameCount, closeFrame: closeFrame)
+	        capture.scheduledActions = actions.sorted(by: { $0.frame < $1.frame })
+	        capture.nextActionIndex = 0
+	        // Map each live GhosttySurfaceScrollView DebugFrameSample to a
+	        // VsyncFrameSample here so the package's capture owner never
+	        // references an app type or QuartzCore.
+	        capture.targets = targets.map { t in
+	            { @MainActor in
+	                guard let s = t.view.debugSampleIOSurface(normalizedCrop: crop) else { return nil }
+	                return VsyncFrameSample(
+	                    label: t.label,
+	                    isProbablyBlank: s.isProbablyBlank,
+	                    iosurfaceWidthPx: s.iosurfaceWidthPx,
+	                    iosurfaceHeightPx: s.iosurfaceHeightPx,
+	                    expectedWidthPx: s.expectedWidthPx,
+	                    expectedHeightPx: s.expectedHeightPx,
+	                    layerContentsGravity: s.layerContentsGravity,
+	                    isStretchRisk: s.layerContentsGravity == CALayerContentsGravity.resize.rawValue,
+	                    layerContentsKey: s.layerContentsKey
+	                )
 	            }
-	            st.link = link
-
-	            CVDisplayLinkSetOutputCallback(link, cmuxVsyncIOSurfaceTimelineCallback, ctx)
-	            CVDisplayLinkStart(link)
 	        }
 
-	        return (st.firstBlank, st.firstSizeMismatch, st.trace)
+	        return await capture.run()
 	    }
 
     private func writeSplitCloseRightTestData(_ updates: [String: String], at path: String) {

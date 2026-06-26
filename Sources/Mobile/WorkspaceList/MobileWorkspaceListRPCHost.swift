@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxControlSocket
 import CmuxWindowing
 import Foundation
@@ -32,7 +33,7 @@ protocol MobileWorkspaceListRPCHost: AnyObject {
     /// conflict).
     func mobileWorkspaceListTerminalAliasUUID(
         params: [String: Any]
-    ) -> TerminalController.MobileTerminalAliasUUID
+    ) -> MobileTerminalAliasUUID
 
     /// Resolves the target ``TabManager`` from RPC params through the legacy
     /// `v2ResolveTabManager` precedence (workspace/window/terminal selectors,

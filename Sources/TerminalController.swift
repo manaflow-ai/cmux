@@ -5409,33 +5409,18 @@ class TerminalController: MobileViewportSurfaceLimiting {
         }
     }
 
-    enum MobileTerminalAliasUUID {
-        case missing
-        case value(UUID)
-        case invalid
-        case conflict
-    }
-
     func mobileTerminalAliasUUID(params: [String: Any]) -> MobileTerminalAliasUUID {
-        var selected: UUID?
-        var sawAlias = false
-        for key in ["surface_id", "terminal_id", "tab_id"] {
-            guard v2HasNonNullParam(params, key) else {
-                continue
-            }
-            sawAlias = true
-            guard let candidate = v2UUID(params, key) else {
-                return .invalid
-            }
-            if let selected, selected != candidate {
-                return .conflict
-            }
-            selected = selected ?? candidate
+        // `classify` drives the UUID parse lazily and short-circuits, so `v2UUID`
+        // (a main-actor hop + control-handle lookup for non-UUID strings) runs in
+        // the original loop's order and never for keys past a short-circuit. The
+        // presence check stays eager because it is a pure dict read.
+        let reads = ["surface_id", "terminal_id", "tab_id"].map { key -> MobileTerminalAliasUUID.Read in
+            MobileTerminalAliasUUID.Read(
+                present: v2HasNonNullParam(params, key),
+                resolveUUID: { self.v2UUID(params, key) }
+            )
         }
-        if let selected {
-            return .value(selected)
-        }
-        return sawAlias ? .invalid : .missing
+        return MobileTerminalAliasUUID.classify(reads)
     }
 
     private func mobileTerminalAliasValidationError(params: [String: Any]) -> V2CallResult? {
