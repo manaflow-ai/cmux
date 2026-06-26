@@ -78,7 +78,7 @@ struct PairingView: View {
                     .addDeviceInputBehavior(.number)
                     .accessibilityIdentifier("MobileAddDevicePortField")
                 } header: {
-                    Text(L10n.string("mobile.addDevice.title", defaultValue: "Add device"))
+                    Text(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
                 } footer: {
                     Text(L10n.string("mobile.addDevice.help", defaultValue: "Enter a Tailscale, LAN, or local host and port. QR/link pairing from that computer is still the safest setup path."))
                 }
@@ -88,7 +88,7 @@ struct PairingView: View {
                         Color.clear
                             .frame(width: 1, height: 1)
                             .accessibilityElement(children: .ignore)
-                            .accessibilityLabel(L10n.string("mobile.addDevice.formAccessibilityLabel", defaultValue: "Add device form"))
+                            .accessibilityLabel(L10n.string("mobile.addDevice.formAccessibilityLabel", defaultValue: "Add Computer form"))
                             .accessibilityIdentifier("MobileAddDeviceForm")
                     }
                     #endif
@@ -221,7 +221,7 @@ struct PairingView: View {
                         .ignoresSafeArea(edges: .bottom)
                 }
             }
-            .navigationTitle(L10n.string("mobile.addDevice.title", defaultValue: "Add device"))
+            .navigationTitle(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
             .mobileInlineNavigationTitle()
             .toolbar {
                 #if os(iOS)
