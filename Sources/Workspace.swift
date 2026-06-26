@@ -10082,10 +10082,11 @@ final class Workspace: Identifiable, ObservableObject {
         // (scroll, drag, mouse-move), so re-arming a layout-follow-up attempt from
         // it pumped flushWorkspaceWindowLayouts() — a full-window relayout — on
         // every scroll tick while any follow-up session was open. Convergence is
-        // still driven by the progress-based reschedule below (each attempt that
-        // makes progress re-arms the next), the specific structural-event
-        // observers, and the follow-up timeout; the window-update firehose only
-        // added a per-tick wake that coupled scrolling to a full-window relayout.
+        // instead driven by the self-rescheduling loop in
+        // attemptEventDrivenLayoutFollowUp() (which retries on progress and on
+        // stall, bounded by the follow-up timeout) plus the specific
+        // structural-event observers below; the window-update firehose only added
+        // a per-tick wake that coupled scrolling to a full-window relayout.
         // See the scroll-lag investigation in
         // https://github.com/manaflow-ai/cmux/issues/6790.
         layoutFollowUpObservers.append(NotificationCenter.default.addObserver(
@@ -10352,10 +10353,19 @@ final class Workspace: Identifiable, ObservableObject {
 
         if didMakeProgress {
             layoutFollowUpStalledAttemptCount = 0
-            scheduleLayoutFollowUpAttempt()
         } else {
             layoutFollowUpStalledAttemptCount += 1
         }
+        // Keep retrying while work remains, including on stall. Previously a
+        // stalled attempt (no progress) stopped rescheduling and relied on an
+        // external wake — chiefly NSWindow.didUpdateNotification, which fired on
+        // every event-loop tick during tracking and coupled scrolling to a
+        // full-window relayout. With that observer removed, the loop self-drives
+        // at the stall backoff delay (layoutFollowUpBackoffDelay, capped 0.25s)
+        // and is bounded by the follow-up timeout (refreshLayoutFollowUpTimeout),
+        // so a stalled geometry/focus/reparent repair still converges without
+        // depending on high-frequency window updates.
+        scheduleLayoutFollowUpAttempt()
     }
 
     /// Reconcile remaining terminal view geometries after split topology changes.
