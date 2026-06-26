@@ -5345,6 +5345,26 @@ final class Workspace: Identifiable, ObservableObject {
         isRemoteWorkspace || pendingRemoteTerminalChildExitSurfaceIds.contains(surfaceId)
     }
 
+    /// Whether a local split surface must stay open after its child process exits
+    /// because it was configured to wait after its command. A split created with an
+    /// initial command (e.g. an agent/subtask pane spawned via the `surface.split`
+    /// socket `initial_command`) requests this so the user can keep reading its output
+    /// after the foreground command detaches its real work to the background. Without
+    /// honoring it, the child exit silently collapses the split — the
+    /// "subagent split pane disappears when clicked while the task is still running"
+    /// bug (https://github.com/manaflow-ai/cmux/issues/6244).
+    ///
+    /// Remote surfaces are excluded: they have their own keep-open and teardown
+    /// handling in `TabManager.closePanelAfterChildExited`.
+    @MainActor
+    func shouldKeepSplitOpenAfterCommandExit(surfaceId: UUID) -> Bool {
+        guard !isRemoteWorkspace,
+              !isRemoteTerminalSurface(surfaceId) else {
+            return false
+        }
+        return terminalPanel(for: surfaceId)?.surface.waitAfterCommand == true
+    }
+
     var remoteDisplayTarget: String? {
         remoteConfiguration?.displayTarget
     }

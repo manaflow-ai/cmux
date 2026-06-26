@@ -2870,6 +2870,22 @@ class TabManager: ObservableObject {
             return
         }
 
+        // A split explicitly configured to wait after its command exits must not be
+        // collapsed when that command finishes: the user asked to keep it open to read
+        // the output (e.g. an agent/subtask pane that streams progress and detaches its
+        // real work to the background). Auto-collapsing it here is the "subagent split
+        // pane disappears when clicked while the task is still running" bug (#6244).
+        // Remote surfaces are handled by the keep-open branches above.
+        if tab.shouldKeepSplitOpenAfterCommandExit(surfaceId: surfaceId) {
+#if DEBUG
+            cmuxDebugLog(
+                "surface.close.childExited.keepOpen tab=\(tabId.uuidString.prefix(5)) " +
+                "surface=\(surfaceId.uuidString.prefix(5)) reason=waitAfterCommand"
+            )
+#endif
+            return
+        }
+
         closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
     }
 
