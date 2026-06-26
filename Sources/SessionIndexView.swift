@@ -555,7 +555,7 @@ private struct SessionRow: View, Equatable {
             onPreviewPresentationChange(true)
         }
         .onDrag {
-            sessionDragItemProvider(for: entry)
+            entry.dragItemProvider()
         } preview: {
             HStack(spacing: 6) {
                 AgentIconImage(agent: entry.agent, size: 12)
@@ -1030,83 +1030,67 @@ private final class PopoverAnchorView: NSView {
 
 // MARK: - Drag payload
 
-/// Mirrors `Bonsplit.TabItem`'s Codable shape so we can produce a JSON payload
-/// that bonsplit's external-drop path will decode and accept.
-private struct MirrorTabItem: Codable {
-    let id: UUID
-    let title: String
-    let hasCustomTitle: Bool
-    let icon: String?
-    let iconImageData: Data?
-    let kind: String?
-    let isDirty: Bool
-    let showsNotificationBadge: Bool
-    let isLoading: Bool
-    let isAudioMuted: Bool
-    let isPinned: Bool
-}
-
-/// Mirrors `Bonsplit.TabTransferData` exactly.
-private struct MirrorTabTransferData: Codable {
-    let tab: MirrorTabItem
-    let sourcePaneId: UUID
-    let sourceProcessId: Int32
-}
-
-/// Build the encoded payload bonsplit's external-drop decoder accepts.
-private func sessionTabTransferData(for entry: SessionEntry, dragId: UUID) -> Data? {
-    let mirror = MirrorTabTransferData(
-        tab: MirrorTabItem(
-            id: dragId,
-            title: entry.displayTitle,
-            hasCustomTitle: false,
-            icon: "terminal.fill",
-            iconImageData: nil,
-            kind: "terminal",
-            isDirty: false,
-            showsNotificationBadge: false,
-            isLoading: false,
-            isAudioMuted: false,
-            isPinned: false
-        ),
-        sourcePaneId: UUID(),
-        sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier)
-    )
-    return try? JSONEncoder().encode(mirror)
-}
-
-/// NSItemProvider used by `.onDrag {}`. Registers ONLY
-/// `com.splittabbar.tabtransfer` so the terminal's NSDraggingDestination
-/// (which accepts `.string` / `public.utf8-plain-text`) is not hit-tested
-/// for our drag. With the terminal out of the way, bonsplit's SwiftUI
-/// `.onDrop(of: [.tabTransfer])` overlay can render the blue insert/split
-/// zones across the entire pane (including its center).
-///
-/// Also mirrors the encoded blob onto NSPasteboard(name: .drag) since
-/// bonsplit's external-drop decoder reads from that pasteboard directly
-/// and SwiftUI's NSItemProvider bridge doesn't always surface custom
-/// UTTypes there reliably.
-@MainActor
-func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider {
-    let dragId = SessionDragRegistry.shared.register(entry)
-    let provider = NSItemProvider()
-
-    if let data = sessionTabTransferData(for: entry, dragId: dragId) {
-        provider.registerDataRepresentation(
-            forTypeIdentifier: "com.splittabbar.tabtransfer",
-            visibility: .ownProcess
-        ) { completion in
-            completion(data, nil)
-            return nil
-        }
-        let pb = NSPasteboard(name: .drag)
-        let type = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
-        pb.addTypes([type], owner: nil)
-        pb.setData(data, forType: type)
+extension SessionEntry {
+    /// Build the encoded `com.splittabbar.tabtransfer` payload bonsplit's
+    /// external-drop decoder accepts for this session.
+    ///
+    /// The pure value mirrors of bonsplit's `TabItem`/`TabTransferData` live in
+    /// `CmuxAppKitSupportUI` (`BonsplitTabItemPayload`/`BonsplitTabTransferPayload`);
+    /// this encoder stays app-side because it reads the app `SessionEntry`.
+    func tabTransferPayloadData(dragId: UUID) -> Data? {
+        let payload = BonsplitTabTransferPayload(
+            tab: BonsplitTabItemPayload(
+                id: dragId,
+                title: displayTitle,
+                hasCustomTitle: false,
+                icon: "terminal.fill",
+                iconImageData: nil,
+                kind: "terminal",
+                isDirty: false,
+                showsNotificationBadge: false,
+                isLoading: false,
+                isAudioMuted: false,
+                isPinned: false
+            ),
+            sourcePaneId: UUID(),
+            sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier)
+        )
+        return payload.encoded()
     }
 
-    provider.suggestedName = entry.displayTitle
-    return provider
+    /// NSItemProvider used by `.onDrag {}`. Registers ONLY
+    /// `com.splittabbar.tabtransfer` so the terminal's NSDraggingDestination
+    /// (which accepts `.string` / `public.utf8-plain-text`) is not hit-tested
+    /// for our drag. With the terminal out of the way, bonsplit's SwiftUI
+    /// `.onDrop(of: [.tabTransfer])` overlay can render the blue insert/split
+    /// zones across the entire pane (including its center).
+    ///
+    /// Also mirrors the encoded blob onto NSPasteboard(name: .drag) since
+    /// bonsplit's external-drop decoder reads from that pasteboard directly
+    /// and SwiftUI's NSItemProvider bridge doesn't always surface custom
+    /// UTTypes there reliably.
+    @MainActor
+    func dragItemProvider() -> NSItemProvider {
+        let dragId = SessionDragRegistry.shared.register(self)
+        let provider = NSItemProvider()
+
+        if let data = tabTransferPayloadData(dragId: dragId) {
+            provider.registerDataRepresentation(
+                forTypeIdentifier: "com.splittabbar.tabtransfer",
+                visibility: .ownProcess
+            ) { completion in
+                completion(data, nil)
+                return nil
+            }
+            let pb = NSPasteboard(name: .drag)
+            let type = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
+            pb.addTypes([type], owner: nil)
+            pb.setData(data, forType: type)
+        }
+
+        provider.suggestedName = displayTitle
+        return provider
+    }
 }
 
 // MARK: - Drag cancel monitor

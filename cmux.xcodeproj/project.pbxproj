@@ -984,6 +984,7 @@
 		C0DE7B230000000000000001 /* TextBoxMentionCompletionDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B230000000000000002 /* TextBoxMentionCompletionDetector.swift */; };
 		C0DE7B300000000000000001 /* TextBoxMentionCompletionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B300000000000000002 /* TextBoxMentionCompletionTests.swift */; };
 		C0DE7B320000000000000001 /* TextBoxMentionFileIndexRefreshTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B320000000000000002 /* TextBoxMentionFileIndexRefreshTask.swift */; };
+		C0DE7B500000000000000001 /* TextBoxMentionFileSystemScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B500000000000000002 /* TextBoxMentionFileSystemScanner.swift */; };
 		C0DE7B270000000000000001 /* TextBoxMentionIndexStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B270000000000000002 /* TextBoxMentionIndexStore.swift */; };
 		C0DE7B200000000000000001 /* TextBoxMentionKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B200000000000000002 /* TextBoxMentionKind.swift */; };
 		C0DE7B240000000000000001 /* TextBoxMentionMarkdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B240000000000000002 /* TextBoxMentionMarkdown.swift */; };
@@ -2095,6 +2096,7 @@
 		C0DE7B230000000000000002 /* TextBoxMentionCompletionDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxMentionCompletionDetector.swift; sourceTree = "<group>"; };
 		C0DE7B300000000000000002 /* TextBoxMentionCompletionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxMentionCompletionTests.swift; sourceTree = "<group>"; };
 		C0DE7B320000000000000002 /* TextBoxMentionFileIndexRefreshTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxMentionFileIndexRefreshTask.swift; sourceTree = "<group>"; };
+		C0DE7B500000000000000002 /* TextBoxMentionFileSystemScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxMentionFileSystemScanner.swift; sourceTree = "<group>"; };
 		C0DE7B270000000000000002 /* TextBoxMentionIndexStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxMentionIndexStore.swift; sourceTree = "<group>"; };
 		C0DE7B200000000000000002 /* TextBoxMentionKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxMentionKind.swift; sourceTree = "<group>"; };
 		C0DE7B240000000000000002 /* TextBoxMentionMarkdown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxMentionMarkdown.swift; sourceTree = "<group>"; };
@@ -2630,6 +2632,7 @@
 				C0DE7B280000000000000002 /* TextBoxMentionCompletionController.swift */,
 				C0DE7B230000000000000002 /* TextBoxMentionCompletionDetector.swift */,
 				C0DE7B320000000000000002 /* TextBoxMentionFileIndexRefreshTask.swift */,
+				C0DE7B500000000000000002 /* TextBoxMentionFileSystemScanner.swift */,
 				C0DE7B270000000000000002 /* TextBoxMentionIndexStore.swift */,
 				C0DE7B200000000000000002 /* TextBoxMentionKind.swift */,
 				C0DE7B240000000000000002 /* TextBoxMentionMarkdown.swift */,
@@ -4517,6 +4520,7 @@
 				C0DE7B280000000000000001 /* TextBoxMentionCompletionController.swift in Sources */,
 				C0DE7B230000000000000001 /* TextBoxMentionCompletionDetector.swift in Sources */,
 				C0DE7B320000000000000001 /* TextBoxMentionFileIndexRefreshTask.swift in Sources */,
+				C0DE7B500000000000000001 /* TextBoxMentionFileSystemScanner.swift in Sources */,
 				C0DE7B270000000000000001 /* TextBoxMentionIndexStore.swift in Sources */,
 				C0DE7B200000000000000001 /* TextBoxMentionKind.swift in Sources */,
 				C0DE7B240000000000000001 /* TextBoxMentionMarkdown.swift in Sources */,
