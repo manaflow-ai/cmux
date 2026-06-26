@@ -210,6 +210,9 @@ jobs:
       - name: Validate test determinism gate
         run: python3 scripts/check-test-determinism.py --strict
 
+      - name: Validate device-list sync contract (fixtures + field lock)
+        run: ./scripts/lint-sync-contract.sh "origin/${{ github.base_ref || 'main' }}"
+
   remote-daemon-tests:
     needs: changes
     if: ${{ needs.changes.outputs.go == 'true' }}
@@ -804,6 +807,7 @@ jobs:
             CmuxGit
             CmuxSettings
             CmuxSettingsUI
+            CmuxSyncStore
             CmuxTerminal
             CmuxTerminalCore
             CmuxUpdater

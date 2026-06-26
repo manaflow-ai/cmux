@@ -1,0 +1,26 @@
+{
+  "deviceId": "22222222-2222-4222-8222-222222222222",
+  "platform": "mac",
+  "displayName": "Iroh Mac",
+  "ownerUserId": "user_iroh",
+  "lastSeenAtAtRev": 1719000100000,
+  "instances": [
+    {
+      "tag": "default",
+      "lastSeenAtAtRev": 1719000100000,
+      "routes": [
+        {
+          "id": "iroh",
+          "kind": "iroh",
+          "priority": 20,
+          "endpoint": {
+            "type": "peer",
+            "id": "node-1",
+            "direct_addrs": ["192.168.1.20:49152", "100.64.1.2:49152"],
+            "relay_url": "https://relay.example.test"
+          }
+        }
+      ]
+    }
+  ]
+}

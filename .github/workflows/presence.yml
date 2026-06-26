@@ -19,11 +19,13 @@ on:
   pull_request:
     paths:
       - "workers/presence/**"
+      - "Packages/Shared/CmuxSyncStore/Fixtures/**"
       - ".github/workflows/presence.yml"
   push:
     branches: [main]
     paths:
       - "workers/presence/**"
+      - "Packages/Shared/CmuxSyncStore/Fixtures/**"
       - ".github/workflows/presence.yml"
 
 permissions:

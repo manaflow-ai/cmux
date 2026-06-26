@@ -1,0 +1,60 @@
+{
+  "_doc": "Cross-language contract for the `devices` sync collection payload (DeviceRecord/SyncedDeviceRecord). Both the Swift suite (SyncFrameAndProtocolTests) and the worker suite (sync/deviceRecord test) load the sibling *.json fixtures and assert the decoded value matches the entry here. A field rename/retype/removal on either side makes that side's decode diverge from these expectations and the suite goes red. Additive-only: adding a field is allowed; update fixtures + device-record.fields.json in the same PR. Per the substrate, additive payload fields do NOT bump schemaVersion (the additive-only lint is the compat guarantee). See plans/feat-ios-device-list-v2/PLAN.md Stage 1.",
+  "device-tailscale.json": {
+    "decodes": true,
+    "deviceId": "11111111-1111-4111-8111-111111111111",
+    "platform": "mac",
+    "displayName": "Tailscale Mac",
+    "ownerUserId": "user_tailscale",
+    "lastSeenAtAtRev": 1719000000000,
+    "instanceCount": 1,
+    "instances": [{ "tag": "default", "routeKinds": ["tailscale"] }]
+  },
+  "device-iroh.json": {
+    "decodes": true,
+    "deviceId": "22222222-2222-4222-8222-222222222222",
+    "platform": "mac",
+    "displayName": "Iroh Mac",
+    "ownerUserId": "user_iroh",
+    "lastSeenAtAtRev": 1719000100000,
+    "instanceCount": 1,
+    "instances": [{ "tag": "default", "routeKinds": ["iroh"] }]
+  },
+  "device-multi-instance.json": {
+    "decodes": true,
+    "deviceId": "33333333-3333-4333-8333-333333333333",
+    "platform": "mac",
+    "displayName": "Multi Instance Mac",
+    "ownerUserId": "user_multi",
+    "lastSeenAtAtRev": 1719000300000,
+    "instanceCount": 2,
+    "instances": [
+      { "tag": "stable", "routeKinds": ["iroh"] },
+      { "tag": "mytag", "routeKinds": ["tailscale"] }
+    ]
+  },
+  "device-future-field.json": {
+    "decodes": true,
+    "deviceId": "44444444-4444-4444-8444-444444444444",
+    "platform": "mac",
+    "displayName": "Future Field Mac",
+    "ownerUserId": "user_future",
+    "lastSeenAtAtRev": 1719000400000,
+    "instanceCount": 1,
+    "instances": [{ "tag": "default", "routeKinds": ["tailscale"] }],
+    "_note": "Forward-compat: unknown top-level field (futureTopLevelField) and unknown instance field (futureInstanceField) are ignored; the unknown route kind 'quantum-teleport' is dropped by failable per-route decode, leaving the one valid tailscale route."
+  },
+  "device-no-optionals.json": {
+    "decodes": true,
+    "deviceId": "55555555-5555-4555-8555-555555555555",
+    "platform": "mac",
+    "lastSeenAtAtRev": 1719000500000,
+    "instanceCount": 1,
+    "instances": [{ "tag": "default", "routeKinds": ["tailscale"] }],
+    "_note": "No displayName, no ownerUserId: proves both are truly optional. A future change making either required fails the contract: Swift decode of this fixture throws (drops the device), and the TS undefined-assignability pin in _pinWireTypes stops compiling."
+  },
+  "device-tombstone.json": {
+    "decodes": false,
+    "_note": "Empty payload {} is a tombstone body, not a valid device record. The DeviceSyncFacade decodes with `try?` and skips it (no deviceId/platform/instances), so it never renders a row."
+  }
+}

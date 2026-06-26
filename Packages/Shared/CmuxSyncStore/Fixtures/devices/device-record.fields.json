@@ -1,0 +1,19 @@
+{
+  "_doc": "Append-only field-set lock for the `devices` sync-collection payload (DeviceRecord / SyncedDeviceRecord and DeviceInstanceRecord / InstanceRecord). scripts/lint-sync-contract.sh enforces: (1) every field here appears in >=1 golden fixture, (2) every payload field across the fixtures is listed here, and (3) versus the PR base, no field is removed/renamed/retyped (additions only), and schemaVersion tracks the substrate constants (worker SYNC_SCHEMA_VERSION + Swift syncSchemaVersion). To add to the wire shape: add the field here and add/extend a fixture. Additive fields do NOT bump schemaVersion (the additive-only check is the compat guarantee; see workers/presence/src/sync.ts). See plans/feat-ios-device-list-v2/PLAN.md Stage 1.",
+  "schemaVersion": 1,
+  "types": {
+    "DeviceRecord": {
+      "deviceId": "string",
+      "platform": "string",
+      "displayName": "string?",
+      "ownerUserId": "string?",
+      "lastSeenAtAtRev": "number",
+      "instances": "DeviceInstanceRecord[]"
+    },
+    "DeviceInstanceRecord": {
+      "tag": "string",
+      "routes": "CmxAttachRoute[]",
+      "lastSeenAtAtRev": "number"
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "deviceId": "55555555-5555-4555-8555-555555555555",
+  "platform": "mac",
+  "lastSeenAtAtRev": 1719000500000,
+  "instances": [
+    {
+      "tag": "default",
+      "lastSeenAtAtRev": 1719000500000,
+      "routes": [
+        {
+          "id": "tailscale",
+          "kind": "tailscale",
+          "endpoint": { "type": "host_port", "host": "100.64.1.5", "port": 52000 }
+        }
+      ]
+    }
+  ]
+}
