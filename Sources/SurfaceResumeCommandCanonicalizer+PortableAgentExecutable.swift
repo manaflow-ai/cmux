@@ -164,7 +164,7 @@ extension SurfaceResumeCommandCanonicalizer {
         return (
             innerCommand: payloadWord.value,
             innerCommandRange: payloadWord.range,
-            canRewritePayload: isSingleQuotedShellWord(String(command[payloadWord.range]))
+            canRewritePayload: isLiteralSingleQuotedShellWord(String(command[payloadWord.range]))
         )
     }
 
@@ -172,8 +172,8 @@ extension SurfaceResumeCommandCanonicalizer {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    private static func isSingleQuotedShellWord(_ value: String) -> Bool {
-        value.first == "'" && value.last == "'"
+    private static func isLiteralSingleQuotedShellWord(_ value: String) -> Bool {
+        value.range(of: #"^'(?:[^']|'\\'')*'$"#, options: .regularExpression) != nil
     }
 
     private static func portableAgentExecutableName(for kind: String?, executableBasename: String) -> String? {

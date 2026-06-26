@@ -107,28 +107,26 @@ import Testing
         #expect(!startupInput.contains(staleExecutablePath), "\(startupInput)")
     }
 
-    @Test func agentHookBindingSkipsStaleExecutableRepairInsideDoubleQuotedPortableShellWrapper() throws {
-        let staleExecutablePath = Self.homeManagedExecutablePath(
-            executableName: "codex",
-            ".nvm",
-            "versions",
-            "node",
-            "cmux-missing-\(UUID().uuidString)",
-            "bin"
-        )
-        let command = "/bin/sh -c \"LOCAL_ONLY=$LOCAL_ONLY '\(staleExecutablePath)' resume session-double-quoted-codex\""
-        let binding = SurfaceResumeBindingSnapshot(
-            kind: "codex",
-            command: command,
-            checkpointId: "session-double-quoted-codex",
-            source: "agent-hook",
-            autoResume: true
-        )
+    @Test func agentHookBindingSkipsStaleExecutableRepairInsideNonliteralPortableShellWrapper() throws {
+        let staleExecutablePath = "/tmp/cmux-cli-shims/\(UUID().uuidString)/codex"
+        let commands = [
+            "/bin/sh -c \"LOCAL_ONLY=$LOCAL_ONLY '\(staleExecutablePath)' resume session-double-quoted-codex\"",
+            "/bin/sh -c 'LOCAL_ONLY='$LOCAL_ONLY' \(staleExecutablePath) resume session-mixed-quoted-codex'",
+        ]
 
-        let startupInput = try #require(binding.startupInput)
+        for command in commands {
+            let binding = SurfaceResumeBindingSnapshot(
+                kind: "codex",
+                command: command,
+                checkpointId: "session-quoted-codex",
+                source: "agent-hook",
+                autoResume: true
+            )
+            let startupInput = try #require(binding.startupInput)
 
-        #expect(startupInput == command + "\n")
-        #expect(startupInput.contains(staleExecutablePath), "\(startupInput)")
+            #expect(startupInput == command + "\n")
+            #expect(startupInput.contains(staleExecutablePath), "\(startupInput)")
+        }
     }
 
     @Test func agentHookBindingWithCwdRewritesStaleClaudeExecutableInsidePortableShellWrapper() throws {

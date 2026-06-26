@@ -276,12 +276,12 @@ struct WorkspaceHermesAgentCommandBootstrapper {
         return (
             innerCommand: payloadWord.value,
             innerCommandRange: payloadWord.range,
-            canRewritePayload: isSingleQuotedShellWord(String(command[payloadWord.range]))
+            canRewritePayload: isLiteralSingleQuotedShellWord(String(command[payloadWord.range]))
         )
     }
 
-    private func isSingleQuotedShellWord(_ value: String) -> Bool {
-        value.first == "'" && value.last == "'"
+    private func isLiteralSingleQuotedShellWord(_ value: String) -> Bool {
+        value.range(of: #"^'(?:[^']|'\\'')*'$"#, options: .regularExpression) != nil
     }
 
     private func shellWords(in command: String) -> [ShellWord] {
