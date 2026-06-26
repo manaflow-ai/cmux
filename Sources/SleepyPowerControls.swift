@@ -20,6 +20,9 @@ final class SleepyPowerControls: SleepyPowerControlling {
     /// Low Power. Gates the restore so a value left by a prior run (or a Mac that
     /// was already in Low Power) is never applied system-wide.
     private var switchedToLowThisSession = false
+    /// The `pmset` source flag (`-b`/`-c`/`-u`) we applied Low Power to, so the
+    /// restore targets the same profile even if the active source later changes.
+    private var loweredSourceFlag: String?
     /// Single-flight guard: set true synchronously before the first `await` in
     /// `setLowPowerMode`, so overlapping callers are dropped rather than racing.
     private var isMutatingLowPower = false
@@ -56,35 +59,61 @@ final class SleepyPowerControls: SleepyPowerControlling {
         if isMutatingLowPower { return await isLowPowerOn() }
         isMutatingLowPower = true
         defer { isMutatingLowPower = false }
+        // Target only the active power source (`-b`/`-c`/`-u`), never `-a`, so we
+        // don't overwrite the user's settings for the inactive profiles. Remember
+        // the source we changed so the restore targets that same profile.
         let usesPowerMode = await supportsPowerMode()
         if enabled {
+            let source = await activeSourceFlag()
             if usesPowerMode {
                 let current = await currentEnergyMode()
                 if current != .low {
                     defaults.set(current.rawValue, forKey: previousModeKey)
                     switchedToLowThisSession = true
+                    loweredSourceFlag = source
                 }
-                await runner.runPrivileged("/usr/bin/pmset", ["-a", "powermode", String(SleepyEnergyMode.low.rawValue)])
+                await runner.runPrivileged("/usr/bin/pmset", [source, "powermode", String(SleepyEnergyMode.low.rawValue)])
             } else {
-                await runner.runPrivileged("/usr/bin/pmset", ["-a", "lowpowermode", "1"])
+                if !(await isLowPowerOn()) { loweredSourceFlag = source }
+                await runner.runPrivileged("/usr/bin/pmset", [source, "lowpowermode", "1"])
             }
-        } else if usesPowerMode {
-            // Only restore a mode we actually switched away from this session;
-            // otherwise fall back to Automatic rather than a stale stored value.
-            // Clear the saved value either way so it can't leak into a later run.
-            var restore = SleepyEnergyMode.automatic
-            if switchedToLowThisSession,
-               let storedRaw = defaults.object(forKey: previousModeKey) as? Int,
-               let stored = SleepyEnergyMode(rawValue: storedRaw), stored != .low {
-                restore = stored
-            }
-            defaults.removeObject(forKey: previousModeKey)
-            switchedToLowThisSession = false
-            await runner.runPrivileged("/usr/bin/pmset", ["-a", "powermode", String(restore.rawValue)])
         } else {
-            await runner.runPrivileged("/usr/bin/pmset", ["-a", "lowpowermode", "0"])
+            // Restore the profile we changed (fall back to the active source).
+            let source: String
+            if let loweredSourceFlag {
+                source = loweredSourceFlag
+            } else {
+                source = await activeSourceFlag()
+            }
+            if usesPowerMode {
+                // Only restore a mode we actually switched away from this session;
+                // otherwise fall back to Automatic rather than a stale stored value.
+                // Clear the saved value either way so it can't leak into a later run.
+                var restore = SleepyEnergyMode.automatic
+                if switchedToLowThisSession,
+                   let storedRaw = defaults.object(forKey: previousModeKey) as? Int,
+                   let stored = SleepyEnergyMode(rawValue: storedRaw), stored != .low {
+                    restore = stored
+                }
+                defaults.removeObject(forKey: previousModeKey)
+                switchedToLowThisSession = false
+                await runner.runPrivileged("/usr/bin/pmset", [source, "powermode", String(restore.rawValue)])
+            } else {
+                await runner.runPrivileged("/usr/bin/pmset", [source, "lowpowermode", "0"])
+            }
+            loweredSourceFlag = nil
         }
         return await isLowPowerOn()
+    }
+
+    /// The `pmset` flag for the currently active power source (`-b` battery,
+    /// `-c` charger/AC, `-u` UPS), so changes touch only that profile. Defaults
+    /// to `-c` (AC) for desktops or when the source can't be determined.
+    private func activeSourceFlag() async -> String {
+        guard let out = await runner.capture("/usr/bin/pmset", ["-g", "ps"]) else { return "-c" }
+        if out.contains("Battery Power") { return "-b" }
+        if out.contains("UPS Power") { return "-u" }
+        return "-c"
     }
 
     private func currentEnergyMode() async -> SleepyEnergyMode {
