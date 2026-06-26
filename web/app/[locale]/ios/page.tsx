@@ -186,8 +186,24 @@ export default function IosLanding() {
           </p>
         </section>
 
+        {/* Bottom CTA */}
+        <div
+          className="flex flex-wrap items-center justify-center gap-3 mt-12"
+          data-dev="ios-cta-bottom"
+        >
+          <a
+            href="https://github.com/manaflow-ai/cmux#founders-edition"
+            className={`${ctaButtonBase} ${ctaButtonDefaultSize}`}
+            style={ctaButtonStyle}
+          >
+            <AppleMark size={19} />
+            {t("ctaBeta")}
+          </a>
+          <GitHubButton location="ios-bottom" />
+        </div>
+
         {/* Bottom links */}
-        <div className="flex justify-center gap-4 mt-12">
+        <div className="flex justify-center gap-4 mt-6">
           <Link href="/docs/ios" className={`text-sm text-muted hover:text-foreground transition-colors ${linkClass}`}>
             {t("ctaDocs")}
           </Link>

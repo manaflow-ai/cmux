@@ -54,9 +54,12 @@ import {
 } from "./syncDevices";
 import {
   applyBackupOps,
-  listBackupSnapshot,
+  listBackupSnapshotWithUnscopedFallback,
+  normalizeClientScope,
   pairedMacsCollection,
+  PairedMacBackupApplyError,
   PAIRED_MACS_COLLECTION,
+  PAIRED_MACS_COLLECTION_TOMBSTONE_PREFIXES,
   relabelDelta,
   relabelSnapshot,
   type PairedMacBackupOp,
@@ -321,24 +324,36 @@ export class TeamPresence extends DurableObject {
   /** Back up a user's saved-host (paired-Mac) list. Called only by the worker
    * after it verifies the token, so `userId` is trusted, exactly like
    * `heartbeat`. Writes into the per-user physical `pairedMacs:<userId>`
-   * collection (so one team member never sees another's saved hosts) and
-   * broadcasts the resulting deltas — relabeled to the logical `pairedMacs`
-   * name — to that user's subscribed sockets so a second signed-in device
-   * updates live. Returns the number of records changed (no-op upserts of an
-   * unchanged payload are not counted and broadcast nothing). */
+   * collection (so one team member never sees another's saved hosts). Unscoped
+   * writes broadcast relabeled deltas to that user's `pairedMacs` subscribers.
+   * Scoped writes are not broadcast over the legacy unscoped live-sync channel;
+   * scoped clients restore/push through the scoped HTTP backup API until scoped
+   * WebSocket subscriptions exist. Returns the number of records changed (no-op
+   * upserts of an unchanged payload are not counted). */
   async backupPairedMacs(
     teamId: string,
     userId: string,
     ops: readonly PairedMacBackupOp[],
-  ): Promise<{ ok: true; changed: number }> {
+    clientScope?: string | null,
+  ): Promise<{ ok: true; changed: number } | { ok: false; error: string; status: number }> {
     await this.rememberTeamId(teamId);
-    const deltas = await applyBackupOps(this.syncStorage(), userId, ops, Date.now());
-    for (const delta of deltas) this.broadcastSyncToUser(userId, delta);
+    let deltas;
+    try {
+      deltas = await applyBackupOps(this.syncStorage(), userId, ops, Date.now(), clientScope);
+    } catch (error) {
+      if (error instanceof PairedMacBackupApplyError) {
+        return { ok: false, error: error.code, status: 409 };
+      }
+      throw error;
+    }
+    if (!normalizeClientScope(clientScope)) {
+      for (const delta of deltas) this.broadcastSyncToUser(userId, delta);
+    }
     // A delete creates a tombstone the alarm GCs, but an idle team (no presence
     // instances or subscribers) may never schedule an alarm otherwise, so a
     // create/delete churn would grow DO storage without bound. Schedule the
     // next tombstone-GC deadline for this user's collection now.
-    const gcTime = await nextTombstoneGcTime(this.syncStorage(), pairedMacsCollection(userId));
+    const gcTime = await nextTombstoneGcTime(this.syncStorage(), pairedMacsCollection(userId, clientScope));
     if (gcTime !== null) await this.ensureAlarmAt(gcTime);
     return { ok: true, changed: deltas.length };
   }
@@ -349,9 +364,10 @@ export class TeamPresence extends DurableObject {
   async listPairedMacs(
     teamId: string,
     userId: string,
+    clientScope?: string | null,
   ): Promise<{ records: PairedMacBackupRecord[]; deletedMacDeviceIDs: string[] }> {
     await this.rememberTeamId(teamId);
-    return await listBackupSnapshot(this.syncStorage(), userId);
+    return await listBackupSnapshotWithUnscopedFallback(this.syncStorage(), userId, clientScope);
   }
 
   // ---- Subscribe transports (worker forwards the original Request) ----
@@ -648,18 +664,17 @@ export class TeamPresence extends DurableObject {
       // instances left to schedule a heartbeat-driven alarm) still wakes to GC
       // its tombstones and advance the GC floor (DESIGN.md §3.5).
       tombGc = await nextTombstoneGcTime(this.syncStorage(), DEVICES_COLLECTION);
-      // Each Stack user's paired-Mac backup is its OWN physical collection
-      // (`pairedMacs:<userId>`), so GC every one that currently holds tombstones;
-      // otherwise an authenticated client churning create/delete grows
-      // `synced:`/`synctomb:` storage without bound (the live-record cap resets on
-      // delete). Fold each collection's next-GC deadline into the alarm schedule.
-      for (const collection of await listTombstonedCollections(
-        this.syncStorage(),
-        `${PAIRED_MACS_COLLECTION}:`,
-      )) {
-        await gcTombstones(this.syncStorage(), collection, now);
-        const next = await nextTombstoneGcTime(this.syncStorage(), collection);
-        if (next !== null) tombGc = tombGc === null ? next : Math.min(tombGc, next);
+      // Each Stack user's paired-Mac backup is its OWN physical collection,
+      // including build-scoped variants. GC every collection that currently holds
+      // tombstones; otherwise authenticated create/delete churn grows
+      // `synced:`/`synctomb:` storage without bound. Fold each collection's next
+      // GC deadline into the alarm schedule.
+      for (const prefix of PAIRED_MACS_COLLECTION_TOMBSTONE_PREFIXES) {
+        for (const collection of await listTombstonedCollections(this.syncStorage(), prefix)) {
+          await gcTombstones(this.syncStorage(), collection, now);
+          const next = await nextTombstoneGcTime(this.syncStorage(), collection);
+          if (next !== null) tombGc = tombGc === null ? next : Math.min(tombGc, next);
+        }
       }
     } catch (err) {
       console.error("sync projection/GC failed (alarm); presence unaffected", err);

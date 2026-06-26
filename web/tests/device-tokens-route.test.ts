@@ -17,6 +17,7 @@ const getUser = mock(async () => ({
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
   isStackConfigured: () => true,
+  stackServerApp: { getUser },
 }));
 
 const { DELETE, POST } = await import("../app/api/device-tokens/route");

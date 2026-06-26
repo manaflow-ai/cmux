@@ -42,6 +42,10 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     /// so opening a workspace attaches the right Mac. `nil` when connected to a
     /// Mac old enough not to report it, or before the owning Mac is known.
     public var macDeviceID: String?
+    /// The owning Mac's user-facing display name, stamped during aggregation for
+    /// per-Mac labels such as the workspace-list picker. `nil` when the Mac has
+    /// not reported a name yet.
+    public var macDisplayName: String?
     /// The Mac window that owns this workspace, when reported by the paired Mac.
     public var windowID: String?
     /// The workspace's user-facing display name.
@@ -112,6 +116,7 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     public init(
         id: ID,
         macDeviceID: String? = nil,
+        macDisplayName: String? = nil,
         windowID: String? = nil,
         name: String,
         isPinned: Bool = false,
@@ -125,6 +130,7 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         self.id = id
         self.remoteWorkspaceID = nil
         self.macDeviceID = macDeviceID
+        self.macDisplayName = macDisplayName
         self.windowID = windowID
         self.name = name
         self.isPinned = isPinned
