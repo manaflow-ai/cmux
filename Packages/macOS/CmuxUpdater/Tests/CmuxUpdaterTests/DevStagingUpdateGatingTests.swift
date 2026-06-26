@@ -81,6 +81,40 @@ import Testing
             return
         }
     }
+
+    /// A DEV/staging build disables Sparkle's automatic checks so its scheduler never queries the
+    /// public appcast. (The override is also re-asserted before `start()`, so the DEBUG
+    /// permission-reset path cannot undo it.)
+    @Test func devLikeBundleDisablesAutomaticChecks() throws {
+        let suiteName = "com.cmuxterm.updatertests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        _ = UpdateController(
+            log: NoopUpdateLog(),
+            clock: ImmediateUpdateClock(),
+            hostBundle: .main,
+            defaults: defaults,
+            isDevLikeBundle: true
+        )
+        #expect(defaults.bool(forKey: UpdateSettings.automaticChecksKey) == false)
+    }
+
+    /// The public release train keeps automatic checks enabled.
+    @Test func publicBundleLeavesAutomaticChecksEnabled() throws {
+        let suiteName = "com.cmuxterm.updatertests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        _ = UpdateController(
+            log: NoopUpdateLog(),
+            clock: ImmediateUpdateClock(),
+            hostBundle: .main,
+            defaults: defaults,
+            isDevLikeBundle: false
+        )
+        #expect(defaults.bool(forKey: UpdateSettings.automaticChecksKey) == true)
+    }
 }
 
 private struct NoopUpdateLog: UpdateLogging {

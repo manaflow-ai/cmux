@@ -344,6 +344,13 @@ public final class UpdateController {
             log.append("reset sparkle permission defaults (ui test)")
         }
 #endif
+        if isDevLikeBundle {
+            // Re-assert the dev/staging auto-check override immediately before Sparkle starts.
+            // The init-time override can be cleared between construction and start — notably the
+            // DEBUG reset path above removes this key — and Sparkle reads it at `start()` to decide
+            // whether to schedule its own background checks against the public appcast (#6292).
+            defaults.set(false, forKey: UpdateSettings.automaticChecksKey)
+        }
         do {
             try updater.start()
             didStartUpdater = true
