@@ -5,7 +5,7 @@ import Foundation
 ///
 /// Preference order: the hook store's recorded `transcriptPath`, then the
 /// agent-specific conventional location (claude: encoded-cwd project dir;
-/// codex: rollout filename containing the session id).
+/// codex: rollout whose confirmed session id matches exactly).
 struct AgentChatTranscriptResolver: Sendable {
     private let homeDirectory: URL
     private static let claudeTranscriptTitleReadLimit = 1_048_576
@@ -176,6 +176,8 @@ struct AgentChatTranscriptResolver: Sendable {
     /// the session id.
     private func codexFallbackPath(sessionID: String) -> String? {
         let fileManager = FileManager.default
+        let normalizedSessionID = sessionID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalizedSessionID.isEmpty else { return nil }
         let root = homeDirectory
             .appendingPathComponent(".codex", isDirectory: true)
             .appendingPathComponent("sessions", isDirectory: true)
@@ -184,14 +186,47 @@ struct AgentChatTranscriptResolver: Sendable {
             includingPropertiesForKeys: nil,
             options: [.skipsHiddenFiles]
         ) else { return nil }
-        let needle = sessionID.lowercased()
         for case let url as URL in enumerator {
             guard url.pathExtension == "jsonl" else { continue }
-            if url.lastPathComponent.lowercased().contains(needle) {
+            if Self.codexRollout(url, matchesSessionID: normalizedSessionID) {
                 return url.path
             }
         }
         return nil
+    }
+
+    private static func codexRollout(_ url: URL, matchesSessionID normalizedSessionID: String) -> Bool {
+        if let sessionMetaID = codexSessionMetaID(at: url) {
+            return sessionMetaID.lowercased() == normalizedSessionID
+        }
+        let filename = url.lastPathComponent.lowercased()
+        return filename == "\(normalizedSessionID).jsonl"
+            || filename.hasSuffix("-\(normalizedSessionID).jsonl")
+    }
+
+    private static func codexSessionMetaID(at url: URL) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else {
+            return nil
+        }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: 64 * 1024),
+              !data.isEmpty else {
+            return nil
+        }
+        let lineData: Data
+        if let newline = data.firstIndex(of: 0x0A) {
+            lineData = Data(data[..<newline])
+        } else {
+            lineData = data
+        }
+        guard let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+              object["type"] as? String == "session_meta",
+              let payload = object["payload"] as? [String: Any],
+              let id = payload["id"] as? String else {
+            return nil
+        }
+        let normalized = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? nil : normalized
     }
 
     private static func normalizedClaudeTitle(_ title: String?) -> String? {

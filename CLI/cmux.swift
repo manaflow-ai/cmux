@@ -25341,6 +25341,7 @@ struct CMUXCLI {
     func findCodexTranscriptPath(sessionId: String, env: [String: String]) -> String? {
         let normalizedSessionId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedSessionId.isEmpty else { return nil }
+        let lowercasedSessionId = normalizedSessionId.lowercased()
 
         let codexHome = normalizedHookValue(env["CODEX_HOME"]) ?? "~/.codex"
         let sessionsURL = URL(fileURLWithPath: NSString(string: codexHome).expandingTildeInPath, isDirectory: true)
@@ -25359,7 +25360,7 @@ struct CMUXCLI {
 
             for url in urls {
                 guard url.pathExtension == "jsonl",
-                      url.lastPathComponent.contains(normalizedSessionId) else {
+                      codexTranscript(url, matchesSessionId: lowercasedSessionId) else {
                     continue
                 }
                 let modificationDate = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
@@ -25370,6 +25371,40 @@ struct CMUXCLI {
             }
         }
         return newest?.path
+    }
+
+    private func codexTranscript(_ url: URL, matchesSessionId lowercasedSessionId: String) -> Bool {
+        if let sessionMetaId = codexTranscriptSessionMetaId(at: url) {
+            return sessionMetaId.lowercased() == lowercasedSessionId
+        }
+        let filename = url.lastPathComponent.lowercased()
+        return filename == "\(lowercasedSessionId).jsonl"
+            || filename.hasSuffix("-\(lowercasedSessionId).jsonl")
+    }
+
+    private func codexTranscriptSessionMetaId(at url: URL) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else {
+            return nil
+        }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: 64 * 1024),
+              !data.isEmpty else {
+            return nil
+        }
+        let lineData: Data
+        if let newline = data.firstIndex(of: 0x0A) {
+            lineData = Data(data[..<newline])
+        } else {
+            lineData = data
+        }
+        guard let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+              object["type"] as? String == "session_meta",
+              let payload = object["payload"] as? [String: Any],
+              let id = payload["id"] as? String else {
+            return nil
+        }
+        let normalized = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? nil : normalized
     }
 
     private func recentCodexSessionDirectories(sessionsURL: URL, fileManager: FileManager) -> [URL] {
