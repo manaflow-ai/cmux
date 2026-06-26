@@ -12,8 +12,7 @@ final class BrowserSubframeDownloadIntentTracker {
               let url = navigationAction.request.url,
               Self.isHTTPDownloadIntentURL(url),
               (navigationAction.request.httpMethod?.uppercased() ?? "GET") == "GET" else { return }
-        let now = ProcessInfo.processInfo.systemUptime; prune(now: now)
-        if navigationAction.navigationType == .linkActivated { record(url); return }
+        guard navigationAction.navigationType != .linkActivated else { return }
         guard let sourceURL = navigationAction.targetFrame?.request.url else { return }
         recordRedirectIfNeeded(from: sourceURL, to: url)
     }

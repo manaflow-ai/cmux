@@ -116,10 +116,10 @@ extension CmuxWebView {
         };
         const postSubframeDownloadIntent = (anchor, event) => {
           try {
-            if (!hasUserActivation(event) || !anchor) return;
+            if (isMainFrame || !anchor || !event || !event.isTrusted) return;
             const href = String(anchor.href || anchor.getAttribute("href") || "");
             const scheme = href.split(":", 1)[0].toLowerCase();
-            if (scheme === "http" || scheme === "https") {
+            if ((scheme === "http" || scheme === "https") && reserveDownloadPost()) {
               postMessage({ kind: "subframeDownloadIntent", token: bridgeToken, url: href });
             }
           } catch (_) {}
