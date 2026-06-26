@@ -8456,10 +8456,7 @@ func browserNavigationShouldCreateBlankScriptedPopup(
     navigationType: WKNavigationType,
     requestURL: URL?
 ) -> Bool {
-    // Stubbed to the pre-fix behavior so the #6649 regression test added in this
-    // commit fails (red). The real predicate and delegate wiring land in the next
-    // commit (green).
-    false
+    navigationType == .other && BrowserPanel.isBlankBrowserPageURL(requestURL)
 }
 
 func browserNavigationHasSimpleUserActivation(
@@ -8726,10 +8723,19 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
             popupFeaturesWereSpecified: popupFeaturesWereSpecified,
             hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
         )
+        // ...but a scripted window.open() that targets a blank document is the
+        // deferred-navigation pattern (e.g. VS Code Web auth, #6649) and must get
+        // a live popup web view even without window features, or window.open()
+        // returns null and the later location.href navigation is lost.
+        let isBlankScriptedPopup = browserNavigationShouldCreateBlankScriptedPopup(
+            navigationType: navigationAction.navigationType,
+            requestURL: navigationAction.request.url
+        )
 
-        if isScriptedPopup, let popupWebView = openPopup?(configuration, windowFeatures) {
+        if isScriptedPopup || isBlankScriptedPopup,
+           let popupWebView = openPopup?(configuration, windowFeatures) {
 #if DEBUG
-            cmuxDebugLog("browser.nav.createWebView.action kind=popup")
+            cmuxDebugLog("browser.nav.createWebView.action kind=popup blank=\(isBlankScriptedPopup ? 1 : 0)")
 #endif
             return popupWebView
         }

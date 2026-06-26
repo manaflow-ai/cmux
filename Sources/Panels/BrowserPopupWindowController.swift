@@ -475,8 +475,15 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
             popupFeaturesWereSpecified: browserNavigationPopupFeaturesWereSpecified(windowFeatures: windowFeatures),
             hasRecentMiddleClickIntent: CmuxWebView.hasRecentMiddleClickIntent(for: webView)
         )
+        // Match the opener panel: a blank-targeted scripted window.open() is the
+        // deferred-navigation pattern and needs a live (nested) popup web view so
+        // the returned handle stays navigable (#6649).
+        let isBlankScriptedPopup = browserNavigationShouldCreateBlankScriptedPopup(
+            navigationType: navigationAction.navigationType,
+            requestURL: navigationAction.request.url
+        )
 
-        if isScriptedPopup {
+        if isScriptedPopup || isBlankScriptedPopup {
             return controller?.createNestedPopup(
                 configuration: configuration,
                 windowFeatures: windowFeatures
