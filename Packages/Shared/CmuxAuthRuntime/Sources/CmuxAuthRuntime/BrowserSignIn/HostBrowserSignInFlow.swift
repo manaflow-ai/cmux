@@ -206,18 +206,11 @@ public final class HostBrowserSignInFlow {
         let callbackState = manualCallbackState ?? makeCallbackState()
         activeAttemptID = attemptID
         activeCallbackState = callbackState
-        // A manually issued sign-in URL (`auth.sign_in_url` / the printed CLI
-        // fallback, or any out-of-band link the user already holds) shares this
-        // attempt's callback state, and the user may complete it in their own
-        // browser AFTER this popup attempt ends — e.g. the system popup
-        // auto-dismissed without completing the handoff. Retain that state as an
-        // accepted out-of-band fallback (the same durability the "Open in
-        // Browser" button gets via `activeAttemptSignInURL`), so the late
-        // callback still finishes sign-in instead of being rejected as
-        // "noActiveAttempt" and leaving auth stuck at signed_in=false (#6158).
-        // `finishAttempt` preserves this; sign-out and a replacing attempt clear
-        // it via `cancelActiveAttempt`, and a successful callback clears it in
-        // `completeCallback`.
+        // The manual fallback URL (`auth.sign_in_url` / the printed CLI link)
+        // shares this attempt's state; the user may complete it out-of-band
+        // after the popup ends (e.g. the system popup auto-dismissed). Retain it
+        // as an accepted fallback — like `activeAttemptSignInURL` — so the late
+        // callback completes sign-in instead of being rejected (#6158).
         if let manualCallbackState {
             pendingFallbackCallbackState = manualCallbackState
         }

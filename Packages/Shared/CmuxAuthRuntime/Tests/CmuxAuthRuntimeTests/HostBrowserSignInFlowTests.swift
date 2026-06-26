@@ -217,8 +217,7 @@ import Testing
         // (`auth.sign_in_url` -> `manualSignInURL`) BEFORE it starts the popup
         // attempt (`auth.begin_sign_in`), so the popup and the printed fallback
         // URL deliberately share one callback state. When the system popup
-        // auto-dismisses without completing the handoff (the reporter's "Safari
-        // flashes briefly and closes automatically"), the attempt ends — but a
+        // auto-dismisses without completing the handoff, the attempt ends — but a
         // callback later delivered from the manually opened fallback URL must
         // still complete sign-in instead of being rejected as "noActiveAttempt"
         // and leaving `auth.status` stuck at signed_in=false.
