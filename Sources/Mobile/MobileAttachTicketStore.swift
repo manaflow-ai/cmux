@@ -199,15 +199,34 @@ struct MobileAttachTicketAuthorization {
 enum MobileHostIdentity {
     private static let deviceIDKey = "mobileHost.deviceID"
     private static let sharedDeviceIDFileName = "mobile-host-device-id"
+    private static let stableBundleIdentifier = "com.cmuxterm.app"
 
     static func deviceID() -> String {
-        deviceID(defaults: .standard, sharedIDURL: defaultSharedDeviceIDURL())
+        let stableDefaults = Bundle.main.bundleIdentifier == stableBundleIdentifier
+            ? nil
+            : UserDefaults(suiteName: stableBundleIdentifier)
+        return deviceID(
+            defaults: .standard,
+            sharedIDURL: defaultSharedDeviceIDURL(),
+            stableDefaults: stableDefaults,
+            bundleIdentifier: Bundle.main.bundleIdentifier
+        )
     }
 
-    static func deviceID(defaults: UserDefaults, sharedIDURL: URL?) -> String {
+    static func deviceID(
+        defaults: UserDefaults,
+        sharedIDURL: URL?,
+        stableDefaults: UserDefaults? = nil,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier
+    ) -> String {
         if let id = readSharedDeviceID(from: sharedIDURL) {
             defaults.set(id, forKey: deviceIDKey)
             return id
+        }
+
+        if shouldPreferStableDefaults(bundleIdentifier: bundleIdentifier),
+           let id = normalizedID(stableDefaults?.string(forKey: deviceIDKey)) {
+            return settleSharedDeviceID(id, defaults: defaults, sharedIDURL: sharedIDURL)
         }
 
         if let id = normalizedID(defaults.string(forKey: deviceIDKey)) {
@@ -232,6 +251,14 @@ enum MobileHostIdentity {
             try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         }
         return directory.appendingPathComponent(sharedDeviceIDFileName)
+    }
+
+    private static func shouldPreferStableDefaults(bundleIdentifier: String?) -> Bool {
+        guard let bundleIdentifier,
+              !bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        return bundleIdentifier != stableBundleIdentifier
     }
 
     private static func normalizedID(_ value: String?) -> String? {

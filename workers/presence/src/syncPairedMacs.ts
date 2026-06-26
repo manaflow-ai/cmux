@@ -526,10 +526,10 @@ function recordWithFreshUnscopedRoutes(
 ): PairedMacBackupRecord {
   if ((unscoped.lastSeenAt ?? 0) <= (scoped.lastSeenAt ?? 0)) return scoped;
   return {
-    ...unscoped,
-    customName: scoped.customName,
-    customColor: scoped.customColor,
-    customIcon: scoped.customIcon,
+    ...scoped,
+    displayName: unscoped.displayName,
+    routes: unscoped.routes,
+    lastSeenAt: unscoped.lastSeenAt,
   };
 }
 

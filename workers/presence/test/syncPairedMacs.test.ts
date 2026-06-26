@@ -509,7 +509,7 @@ describe("applyBackupOps", () => {
         {
           kind: "upsert",
           id: "mac-a",
-          record: { ...record("mac-a", "10.0.0.1", 22), customName: "Desk", lastSeenAt: T0 + 1000 },
+          record: { ...record("mac-a", "10.0.0.1", 22), customName: "Desk", isActive: false, lastSeenAt: T0 + 1000 },
         },
       ],
       T0 + 1000,
@@ -526,6 +526,7 @@ describe("applyBackupOps", () => {
     expect(refreshed.records).toHaveLength(1);
     expect(refreshed.records[0]?.routes).toEqual(record("mac-a", "10.0.0.2", 2222).routes);
     expect(refreshed.records[0]?.customName).toBe("Desk");
+    expect(refreshed.records[0]?.isActive).toBe(false);
 
     await applyBackupOps(storage, "user-1", [{ kind: "delete", id: "mac-a" }], T0 + 3000, "ios:dev");
     const deleted = await listBackupSnapshotWithUnscopedFallback(storage, "user-1", "ios:dev");

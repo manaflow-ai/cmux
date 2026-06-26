@@ -45,6 +45,35 @@ struct MobileHostIdentityTests {
         #expect(persisted == defaultID)
     }
 
+    @Test func taggedBuildMigratesStableBundleIDBeforeOwnBundleID() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sharedIDURL = directory.appendingPathComponent("mobile-host-device-id")
+
+        let taggedSuiteName = "mobile-host-identity-tagged-\(UUID().uuidString)"
+        let taggedDefaults = try #require(UserDefaults(suiteName: taggedSuiteName))
+        defer { taggedDefaults.removePersistentDomain(forName: taggedSuiteName) }
+        let taggedID = "91FD1481-336E-4230-BE5F-2EE6800B6E1A"
+        taggedDefaults.set(taggedID, forKey: "mobileHost.deviceID")
+
+        let stableSuiteName = "mobile-host-identity-stable-\(UUID().uuidString)"
+        let stableDefaults = try #require(UserDefaults(suiteName: stableSuiteName))
+        defer { stableDefaults.removePersistentDomain(forName: stableSuiteName) }
+        let stableID = "0BF0E843-17CA-44AF-8B65-FC5C67D1D084"
+        stableDefaults.set(stableID.lowercased(), forKey: "mobileHost.deviceID")
+
+        #expect(MobileHostIdentity.deviceID(
+            defaults: taggedDefaults,
+            sharedIDURL: sharedIDURL,
+            stableDefaults: stableDefaults,
+            bundleIdentifier: "com.cmuxterm.app.debug.mpick"
+        ) == stableID)
+        #expect(taggedDefaults.string(forKey: "mobileHost.deviceID") == stableID)
+        #expect(try String(contentsOf: sharedIDURL, encoding: .utf8) == stableID)
+    }
+
     @Test func readsExistingSharedIDWithoutDefaults() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
