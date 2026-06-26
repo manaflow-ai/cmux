@@ -240,7 +240,8 @@ struct WorkspaceGroupTests {
             forTabId: group.anchorWorkspaceId,
             draggedTabId: originalIds[0],
             dropIndicator: indicator,
-            tabIds: forcedTopLevelIds
+            tabIds: forcedTopLevelIds,
+            indicatorScope: .topLevel
         ))
         #expect(SidebarTabDropIndicatorPredicate().topVisible(
             forTabId: originalIds[3],
