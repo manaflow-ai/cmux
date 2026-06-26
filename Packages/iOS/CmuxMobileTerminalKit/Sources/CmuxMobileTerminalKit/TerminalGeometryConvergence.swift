@@ -47,6 +47,8 @@ public struct TerminalGeometryConvergence: Sendable, Equatable {
     /// Media-time deadline after which the loop gives up; 0 when disarmed.
     private var deadline: Double = 0
 
+    /// Create a disarmed convergence machine. ``arm(now:)`` starts a window
+    /// after a geometry change; until then ``tick(now:presented:)`` is ``Tick/idle``.
     public init() {}
 
     /// Whether a convergence window is currently active.
