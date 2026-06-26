@@ -690,6 +690,26 @@ struct FeedCoordinatorTests {
         #expect(spawned?.childThreadIds == ["thread-child"])
     }
 
+    @Test func codexTeamsSpawnParsesSnakeCaseTypeAndTool() {
+        // The discriminator values themselves must match across camelCase and
+        // snake_case spellings, not just the key names.
+        let message: [String: Any] = [
+            "method": "item/completed",
+            "params": [
+                "threadId": "thread-parent",
+                "item": [
+                    "type": "collab_agent_tool_call",
+                    "tool": "spawn_agent",
+                    "senderThreadId": "thread-parent",
+                    "receiverThreadIds": ["thread-child"]
+                ]
+            ]
+        ]
+        let spawned = CMUXCLI.codexTeamsSpawnedSubagents(fromItemNotification: message)
+        #expect(spawned?.parentThreadId == "thread-parent")
+        #expect(spawned?.childThreadIds == ["thread-child"])
+    }
+
     @Test func codexTeamsSpawnIgnoresFailedSpawnWithNoReceivers() {
         // A failed spawn carries an empty `receiverThreadIds`; there is no child
         // to open, so the watcher must not treat it as a spawn.

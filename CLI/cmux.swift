@@ -19371,6 +19371,7 @@ struct CMUXCLI {
     private static let codexTeamsMaxAutoDepth = 2
     private static let codexTeamsReconcileInterval: TimeInterval = 1
     private static let codexTeamsMaxCachedApprovalItems = 500
+    private static let codexTeamsMaxCachedSpawnHints = 512
     static let codexTeamsApprovalMethods: Set<String> = [
         "item/commandExecution/requestApproval",
         "item/fileChange/requestApproval",
@@ -19662,8 +19663,12 @@ struct CMUXCLI {
         private var subscribedThreadIds = Set<String>()
         // Parent thread id for a child learned from a `spawnAgent` item/completed
         // event, used when the resumed child thread snapshot omits its
-        // source.subAgent metadata. Guarded by `stateLock`.
+        // source.subAgent metadata. Bounded with FIFO eviction (mirrors
+        // `approvalItemById`) so a long-running session does not grow it without
+        // bound; once a hint is consumed it is also baked into `threadById`.
+        // Guarded by `stateLock`.
         private var spawnHintByThreadId: [String: CodexTeamsSpawn] = [:]
+        private var spawnHintOrder: [String] = []
         // Spawned child thread ids discovered while a request was in flight
         // (allowThreadSubscribe == false); drained by the main listen loop where
         // issuing a thread/resume request on the connection is safe. Guarded by
@@ -19852,6 +19857,27 @@ struct CMUXCLI {
                     agentNickname: nil,
                     agentRole: nil
                 )
+                spawnHintOrder.append(childId)
+            }
+            while spawnHintOrder.count > CMUXCLI.codexTeamsMaxCachedSpawnHints {
+                let evicted = spawnHintOrder.removeFirst()
+                spawnHintByThreadId.removeValue(forKey: evicted)
+            }
+            // If the child thread was already observed as a plain root thread
+            // (its snapshot arrived before this spawn event and lacked
+            // source.subAgent metadata), re-run observeThread so the just-recorded
+            // hint is applied and the split opens. Subscribing alone would no-op
+            // because the thread is already subscribed.
+            let knownChildrenToReobserve = spawned.childThreadIds.compactMap { childId -> CodexTeamsThread? in
+                guard !openedThreadIds.contains(childId) else { return nil }
+                return threadById[childId]
+            }
+            for thread in knownChildrenToReobserve {
+                do {
+                    try observeThread(thread)
+                } catch {
+                    cliWriteStderr("cmux codex-teams watcher could not open known spawned subagent \(thread.id): \(error)\n")
+                }
             }
             if !allowThreadSubscribe {
                 // Cannot issue thread/resume re-entrantly from a request's
@@ -20418,9 +20444,16 @@ struct CMUXCLI {
         )
     }
 
+    // Matches a Codex discriminator value (e.g. "spawnAgent", "collabAgentToolCall")
+    // tolerantly across camelCase and snake_case spellings, mirroring the
+    // normalization used for thread status in `codexTeamsThreadMayBeAttachable`.
     private static func codexTeamsStringEquals(_ value: Any?, _ expected: String) -> Bool {
         guard let string = value as? String else { return false }
-        return string.compare(expected, options: .caseInsensitive) == .orderedSame
+        return codexTeamsNormalizedIdentifier(string) == codexTeamsNormalizedIdentifier(expected)
+    }
+
+    private static func codexTeamsNormalizedIdentifier(_ value: String) -> String {
+        value.replacingOccurrences(of: "_", with: "").lowercased()
     }
 
     private static func codexTeamsResumeCommandText(
