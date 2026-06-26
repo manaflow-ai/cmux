@@ -83,9 +83,17 @@ struct InlineVSCodeServeWebOptionsTests {
         #expect(values.port == 7000)
     }
 
-    @Test func readerReturnsEmptyOnTypeMismatch() {
-        // A string where a number is expected fails decoding -> fall back to empty.
-        #expect(readValues("{ \"inlineVSCode\": { \"port\": \"oops\" } }") == .empty)
+    @Test func readerToleratesPerFieldTypeErrors() {
+        // A bad `port` must not discard a valid `persistServeWebState` privacy choice.
+        let values = readValues("{ \"inlineVSCode\": { \"port\": \"oops\", \"persistServeWebState\": false } }")
+        #expect(values.port == nil)
+        #expect(values.persistServeWebState == false)
+    }
+
+    @Test func readerRejectsBooleanForPortAndNumberForPersist() {
+        let values = readValues("{ \"inlineVSCode\": { \"port\": true, \"persistServeWebState\": 1 } }")
+        #expect(values.port == nil) // a JSON boolean is not a valid port
+        #expect(values.persistServeWebState == nil) // a numeric 1 is not a valid boolean
     }
 
     // MARK: - Resolver precedence
@@ -222,6 +230,21 @@ struct InlineVSCodeServeWebOptionsTests {
         let result = args(InlineVSCodeServeWebOptions(port: 0, serverDataDir: nil, persistServeWebState: false, extraArgs: []))
         let index = try! #require(result.firstIndex(of: "--server-data-dir"))
         #expect(result[index + 1] == "/tmp/ephemeral")
+    }
+
+    @Test func ephemeralDirsAreUniquePerLaunchAndDoNotWipeSiblings() {
+        let loader = InlineVSCodeServeWebConfigurationLoader()
+        let first = loader.makeEphemeralServerDataDir()
+        let second = loader.makeEphemeralServerDataDir()
+        defer {
+            try? FileManager.default.removeItem(atPath: first)
+            try? FileManager.default.removeItem(atPath: second)
+        }
+        #expect(first != second)
+        #expect(first.contains("cmux-vscode-serve-web-ephemeral"))
+        // Creating a new ephemeral dir must not remove an existing one — another
+        // cmux instance's running serve-web may be using it.
+        #expect(FileManager.default.fileExists(atPath: first))
     }
 
     @Test func explicitDirWinsOverNonPersistentEphemeral() {

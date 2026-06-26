@@ -291,49 +291,59 @@ struct InlineVSCodeServeWebConfigurationLoader {
     }
 
     /// Reads the presence-aware `inlineVSCode` block from the configured
-    /// cmux.json. JSONC (comments / trailing commas) is tolerated. Any read,
-    /// sanitize, or decode failure resolves to ``InlineVSCodeConfigFileValues/empty``
-    /// so a missing or malformed file simply falls back to environment + defaults.
+    /// cmux.json. JSONC (comments / trailing commas) is tolerated. A missing or
+    /// unparseable file resolves to ``InlineVSCodeConfigFileValues/empty``.
+    ///
+    /// Each field is decoded independently: a single bad value (e.g. a quoted
+    /// `"port"`) leaves that one field `nil` and falls back to environment +
+    /// defaults for it, without discarding the sibling fields. That keeps
+    /// hand-edited config robust and, crucially, a typo elsewhere can never
+    /// silently drop a valid `persistServeWebState: false` privacy choice.
     func readFileValues() -> InlineVSCodeConfigFileValues {
         guard let data = dataReader(configFileURL), !data.isEmpty,
               let sanitized = try? sanitizer.sanitize(data),
-              let wrapper = try? JSONDecoder().decode(ConfigWrapper.self, from: sanitized),
-              let block = wrapper.inlineVSCode else {
+              let root = try? JSONSerialization.jsonObject(with: sanitized) as? [String: Any],
+              let block = root["inlineVSCode"] as? [String: Any] else {
             return .empty
         }
         return InlineVSCodeConfigFileValues(
-            port: block.port,
-            serverDataDir: block.serverDataDir,
-            persistServeWebState: block.persistServeWebState,
-            extraArgs: block.extraArgs
+            port: Self.integerValue(block["port"]),
+            serverDataDir: block["serverDataDir"] as? String,
+            persistServeWebState: Self.booleanValue(block["persistServeWebState"]),
+            extraArgs: (block["extraArgs"] as? [Any])?.compactMap { $0 as? String }
         )
     }
 
     /// Creates a fresh throwaway `serve-web` data directory for non-persistent
-    /// launches. Always returns a unique temp path (never the persistent default
-    /// location), wiping prior ephemeral state first so each non-persistent
-    /// launch starts clean. `serve-web` creates the directory if it is missing,
-    /// so this never has to fail closed back to persistent storage.
+    /// launches. Always returns a unique per-launch temp path (never the
+    /// persistent default location). It does NOT delete the shared parent, so it
+    /// can never recursively remove a data directory another cmux instance's
+    /// running `serve-web` is using; the OS reclaims the temp tree. `serve-web`
+    /// creates the directory if missing, so this never falls back to persistent
+    /// storage. A fresh UUID per launch is what makes the mode non-persistent.
     func makeEphemeralServerDataDir() -> String {
-        let parent = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             .appendingPathComponent("cmux-vscode-serve-web-ephemeral", isDirectory: true)
-        try? FileManager.default.removeItem(at: parent)
-        let directory = parent.appendingPathComponent(UUID().uuidString, isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory.path
     }
 
-    /// Codable shape used to decode just the `inlineVSCode` block, ignoring every
-    /// other cmux.json key. Optional fields give presence-aware decoding and
-    /// strict type checking (so a JSON `true` never silently reads as a port).
-    private struct ConfigWrapper: Decodable {
-        let inlineVSCode: Block?
+    /// Extracts an integer JSON value, rejecting booleans (JSON `true`/`false`
+    /// bridge to `NSNumber` and would otherwise read as `1`/`0`) and non-numbers.
+    private static func integerValue(_ value: Any?) -> Int? {
+        guard let number = value as? NSNumber, !isBooleanNumber(number) else { return nil }
+        return number.intValue
+    }
 
-        struct Block: Decodable {
-            let port: Int?
-            let serverDataDir: String?
-            let persistServeWebState: Bool?
-            let extraArgs: [String]?
-        }
+    /// Extracts a boolean JSON value, accepting only real JSON booleans (not a
+    /// numeric `1`/`0`).
+    private static func booleanValue(_ value: Any?) -> Bool? {
+        guard let number = value as? NSNumber, isBooleanNumber(number) else { return nil }
+        return number.boolValue
+    }
+
+    private static func isBooleanNumber(_ number: NSNumber) -> Bool {
+        CFGetTypeID(number as CFTypeRef) == CFBooleanGetTypeID()
     }
 }

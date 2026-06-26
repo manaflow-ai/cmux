@@ -21,7 +21,13 @@ public struct InlineVSCodeSection: View {
     @State private var serverDataDirLoaded: Bool = false
     @State private var extraArgsDraft: String = ""
     @State private var extraArgsLoaded: Bool = false
-    @FocusState private var extraArgsFocused: Bool
+    @FocusState private var focusedField: Field?
+
+    private enum Field: Hashable {
+        case port
+        case serverDataDir
+        case extraArgs
+    }
 
     public init(
         jsonStore: JSONConfigStore,
@@ -88,9 +94,15 @@ public struct InlineVSCodeSection: View {
                 extraArgsDraft = newValue.joined(separator: "\n")
             }
         }
-        .onChange(of: extraArgsFocused) { _, isFocused in
-            if !isFocused {
-                commitExtraArgs()
+        .onChange(of: focusedField) { previous, _ in
+            // Commit the field that just lost focus so edits aren't lost when the
+            // user tabs away, clicks elsewhere, or closes the Settings window
+            // without pressing Return.
+            switch previous {
+            case .port: commitPort()
+            case .serverDataDir: commitServerDataDir()
+            case .extraArgs: commitExtraArgs()
+            case nil: break
             }
         }
     }
@@ -138,9 +150,10 @@ public struct InlineVSCodeSection: View {
         ) {
             TextField(
                 String(localized: "settings.inlineVSCode.port.placeholder", defaultValue: "random"),
-                text: $portDraft,
-                onCommit: { commitPort() }
+                text: $portDraft
             )
+            .focused($focusedField, equals: .port)
+            .onSubmit { commitPort() }
             .textFieldStyle(.roundedBorder)
             .multilineTextAlignment(.trailing)
             .accessibilityIdentifier("SettingsInlineVSCodePortField")
@@ -157,9 +170,10 @@ public struct InlineVSCodeSection: View {
         ) {
             TextField(
                 String(localized: "settings.inlineVSCode.serverDataDir.placeholder", defaultValue: "e.g. ~/Library/Application Support/cmux/vscode-serve-web"),
-                text: $serverDataDirDraft,
-                onCommit: { serverDataDir.set(serverDataDirDraft.trimmingCharacters(in: .whitespacesAndNewlines)) }
+                text: $serverDataDirDraft
             )
+            .focused($focusedField, equals: .serverDataDir)
+            .onSubmit { commitServerDataDir() }
             .textFieldStyle(.roundedBorder)
             .accessibilityIdentifier("SettingsInlineVSCodeServerDataDirField")
         }
@@ -176,7 +190,7 @@ public struct InlineVSCodeSection: View {
                 EmptyView()
             }
             TextEditor(text: $extraArgsDraft)
-                .focused($extraArgsFocused)
+                .focused($focusedField, equals: .extraArgs)
                 .cmuxFont(.body, design: .monospaced)
                 .frame(minHeight: 56, maxHeight: 120)
                 .scrollContentBackground(.hidden)
@@ -194,8 +208,19 @@ public struct InlineVSCodeSection: View {
     }
 
     private func commitPort() {
-        port.set(Self.parsePort(portDraft))
-        portDraft = Self.portText(Self.parsePort(portDraft))
+        let parsed = Self.parsePort(portDraft)
+        if parsed != port.current {
+            port.set(parsed)
+        }
+        portDraft = Self.portText(parsed)
+    }
+
+    private func commitServerDataDir() {
+        let trimmed = serverDataDirDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed != serverDataDir.current {
+            serverDataDir.set(trimmed)
+        }
+        serverDataDirDraft = trimmed
     }
 
     private func commitExtraArgs() {
