@@ -1,0 +1,233 @@
+import CMUXMobileCore
+import CmuxMobileRPC
+import CmuxMobileShellModel
+import Foundation
+import Testing
+@testable import CmuxMobileShell
+
+// Regression coverage for issue #6349: on iOS, a confirmed workspace delete must
+// remove the workspace AND its sidebar row atomically, and a lagging/stale
+// `workspace.list` response (the Mac removes the workspace synchronously before
+// acking the close, but the immediate re-sync — or a `workspace.updated` refresh
+// already in flight against a pre-close snapshot — can still observe the old
+// list) must never resurrect the deleted row.
+//
+// The scripted Mac here models the worst case: `workspace.close` succeeds, yet
+// every `workspace.list` keeps returning BOTH workspaces (the list never catches
+// up within the test). A correct client drops the row on the confirmed close and
+// keeps it dropped; a buggy client re-adds it from the stale list.
+
+// MARK: - Scripted Mac for the close/reconcile race
+
+private actor CloseReconcileHostRouter {
+    private(set) var closeRequestCount = 0
+    private let capabilities = [
+        "events.v1",
+        "workspace.actions.v1",
+        "workspace.read_state.v1",
+        "workspace.close.v1",
+        "terminal.render_grid.v1",
+        "terminal.replay.v1",
+    ]
+
+    func response(method: String?, id: String?) async -> Data? {
+        switch method {
+        case "workspace.list", "mobile.workspace.list":
+            // Always returns BOTH workspaces, even after `live-workspace` is
+            // closed: the stale snapshot that drives the bug.
+            return try? Self.resultFrame(id: id, result: ["workspaces": Self.workspaceList()])
+        case "workspace.close":
+            closeRequestCount += 1
+            return try? Self.resultFrame(id: id, result: [
+                "closed": true,
+                "workspace_id": "live-workspace",
+            ])
+        case "mobile.host.status":
+            return try? Self.resultFrame(id: id, result: [
+                "terminal_fidelity": "render_grid",
+                "capabilities": capabilities,
+            ])
+        case "mobile.events.subscribe":
+            return try? Self.resultFrame(id: id, result: [
+                "stream_id": "test-stream",
+                "topics": ["workspace.updated", "terminal.render_grid"],
+                "already_subscribed": false,
+            ])
+        case "mobile.events.unsubscribe", "mobile.terminal.replay", "mobile.terminal.viewport":
+            return try? Self.resultFrame(id: id, result: [:])
+        default:
+            return try? Self.errorFrame(id: id, message: "Unexpected method \(method ?? "nil")")
+        }
+    }
+
+    private static func workspaceList() -> [[String: Any]] {
+        [
+            workspaceEntry(id: "live-workspace", title: "Workspace A", selected: true, terminalID: "live-terminal"),
+            workspaceEntry(id: "workspace-b", title: "Workspace B", selected: false, terminalID: "terminal-b"),
+        ]
+    }
+
+    private static func workspaceEntry(
+        id: String,
+        title: String,
+        selected: Bool,
+        terminalID: String
+    ) -> [String: Any] {
+        [
+            "id": id,
+            "title": title,
+            "current_directory": "/Users/test/project",
+            "is_selected": selected,
+            "terminals": [
+                [
+                    "id": terminalID,
+                    "title": "Terminal",
+                    "current_directory": "/Users/test/project",
+                    "is_ready": true,
+                    "is_focused": selected,
+                ],
+            ],
+        ]
+    }
+
+    private static func resultFrame(id: String?, result: [String: Any]) throws -> Data {
+        let envelope: [String: Any] = [
+            "id": id ?? UUID().uuidString,
+            "ok": true,
+            "result": result,
+        ]
+        return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
+    }
+
+    private static func errorFrame(id: String?, message: String) throws -> Data {
+        let envelope: [String: Any] = [
+            "id": id ?? UUID().uuidString,
+            "ok": false,
+            "error": ["message": message],
+        ]
+        return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
+    }
+}
+
+private struct CloseReconcileTransportFactory: CmxByteTransportFactory {
+    let router: CloseReconcileHostRouter
+
+    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
+        CloseReconcileTransport(router: router)
+    }
+}
+
+private actor CloseReconcileTransport: CmxByteTransport {
+    private let router: CloseReconcileHostRouter
+    private var pendingFrames: [Data] = []
+    private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
+    private var isClosed = false
+
+    init(router: CloseReconcileHostRouter) {
+        self.router = router
+    }
+
+    func connect() async throws {}
+
+    func receive() async throws -> Data? {
+        if !pendingFrames.isEmpty {
+            return pendingFrames.removeFirst()
+        }
+        if isClosed {
+            return nil
+        }
+        return await withCheckedContinuation { continuation in
+            receiveWaiters.append(continuation)
+        }
+    }
+
+    func send(_ data: Data) async throws {
+        var buffer = data
+        let payloads = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
+        for payload in payloads {
+            let parsed = (try? JSONSerialization.jsonObject(with: payload)) as? [String: Any]
+            let method = parsed?["method"] as? String
+            let id = parsed?["id"] as? String
+            Task { [router, weak self] in
+                guard let response = await router.response(method: method, id: id) else { return }
+                await self?.deliver(response)
+            }
+        }
+    }
+
+    func close() async {
+        isClosed = true
+        let waiters = receiveWaiters
+        receiveWaiters = []
+        for waiter in waiters {
+            waiter.resume(returning: nil)
+        }
+    }
+
+    private func deliver(_ frame: Data) {
+        if receiveWaiters.isEmpty {
+            pendingFrames.append(frame)
+            return
+        }
+        let waiter = receiveWaiters.removeFirst()
+        waiter.resume(returning: frame)
+    }
+}
+
+@MainActor
+private func makeConnectedCloseStore(
+    router: CloseReconcileHostRouter,
+    clock: TestClock
+) async throws -> MobileShellComposite {
+    let runtime = LivenessTestRuntime(
+        transportFactory: CloseReconcileTransportFactory(router: router),
+        now: { clock.now }
+    )
+    let store = MobileShellComposite.preview(runtime: runtime)
+    store.signIn()
+    let ticket = try makeTicket(clock: clock)
+    let connected = await store.connectPairingURL(try attachURL(for: ticket))
+    #expect(connected, "scripted connect must succeed")
+    return store
+}
+
+// MARK: - Tests
+
+@MainActor
+struct MobileWorkspaceCloseReconcileTests {
+    private let liveWorkspaceID = MobileWorkspacePreview.ID(rawValue: "live-workspace")
+    private let neighborWorkspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-b")
+
+    /// A confirmed close drops the row immediately and a stale `workspace.list`
+    /// that still includes the closed workspace must not bring it back.
+    @Test func confirmedCloseDropsStaleSidebarRow() async throws {
+        let router = CloseReconcileHostRouter()
+        let clock = TestClock()
+        let store = try await makeConnectedCloseStore(router: router, clock: clock)
+
+        // Wait for the list AND the host.status capability resolution that stamps
+        // `supportsCloseActions` onto the rows (a separate async step from the list
+        // arriving); closeWorkspace is a no-op until the row advertises it.
+        #expect(try await pollUntil {
+            store.workspaces.count == 2
+                && (store.workspaces.first { $0.id == liveWorkspaceID }?
+                    .actionCapabilities.supportsCloseActions ?? false)
+        })
+        #expect(store.workspaces.contains { $0.id == liveWorkspaceID })
+
+        await store.closeWorkspace(id: liveWorkspaceID)
+
+        // The Mac confirmed the close; the row is gone even though the scripted
+        // `workspace.list` re-sync (awaited inside closeWorkspace) still lists it.
+        #expect(await router.closeRequestCount == 1)
+        #expect(!store.workspaces.contains { $0.id == liveWorkspaceID })
+        #expect(store.workspaces.contains { $0.id == neighborWorkspaceID })
+        #expect(store.workspaces.count == 1)
+
+        // A later explicit refresh, again served the stale two-workspace list,
+        // must keep the deleted row dropped.
+        await store.refreshWorkspaces()
+        #expect(!store.workspaces.contains { $0.id == liveWorkspaceID })
+        #expect(store.workspaces.count == 1)
+    }
+}
