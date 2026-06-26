@@ -211,12 +211,9 @@ actor RemoteTmuxSSHTransport {
     /// returns as soon as the kills land (well under `timeout`). Kills to the SAME host
     /// serialize on that host's transport actor; different hosts run in parallel.
     ///
-    /// CAVEAT: `runProcess` is not cancellation-aware, so on a HUNG connection the
-    /// abandoned kill child can outlive `timeout` (the structured group still awaits
-    /// it). The hard bound on the user-visible app-quit is therefore the CALLER's
-    /// watchdog (``AppDelegate``'s deferred-terminate reply fires regardless), not this
-    /// `timeout`. The orphaned `ssh` is reaped by the OS on app exit; the kill is
-    /// best-effort (it can't land on a dead connection anyway).
+    /// The underlying process runner observes cancellation across both process
+    /// termination and pipe draining, so the timeout is a hard bound even when an
+    /// unresponsive tmux/ssh descendant keeps stdout or stderr open.
     nonisolated static func killSessions(
         _ jobs: [(transport: RemoteTmuxSSHTransport, target: String)],
         timeout: Duration
@@ -337,17 +334,18 @@ actor RemoteTmuxSSHTransport {
             stderr: errPipe.fileHandleForReading
         )
 
-        // Install the termination handler BEFORE launching, then launch inside the
-        // continuation. If `run()` and the handler assignment were separate steps, a
-        // process that exits in the window between them would terminate before the
-        // handler is installed — and Foundation does not invoke a terminationHandler
-        // assigned after the process has already ended, so the continuation would
-        // never resume and the caller would hang until its timeout. This matters for
-        // the fast auth-failure exits the `cmux ssh-tmux` flow classifies.
-        let exitCode: Int32
         do {
-            exitCode = try await withTaskCancellationHandler {
-                try await withCheckedThrowingContinuation { continuation in
+            return try await withTaskCancellationHandler {
+                // Install the termination handler BEFORE launching, then launch inside
+                // the continuation. If `run()` and the handler assignment were separate
+                // steps, a process that exits in the window between them would terminate
+                // before the handler is installed — and Foundation does not invoke a
+                // terminationHandler assigned after the process has already ended, so the
+                // continuation would never resume and the caller would hang until its
+                // timeout. This matters for the fast auth-failure exits the
+                // `cmux ssh-tmux` flow classifies.
+                try Task.checkCancellation()
+                let exitCode: Int32 = try await withCheckedThrowingContinuation { continuation in
                     process.terminationHandler = { proc in
                         continuation.resume(returning: proc.terminationStatus)
                     }
@@ -360,26 +358,33 @@ actor RemoteTmuxSSHTransport {
                         continuation.resume(throwing: RemoteTmuxError.launchFailed(error.localizedDescription))
                     }
                 }
+
+                try Task.checkCancellation()
+                let outData = await outRead.value
+                try Task.checkCancellation()
+                let errData = await errRead.value
+                try Task.checkCancellation()
+                return RemoteTmuxCommandResult(
+                    exitCode: exitCode,
+                    stdout: String(decoding: outData, as: UTF8.self),
+                    stderr: String(decoding: errData, as: UTF8.self)
+                )
             } onCancel: {
                 cancellation.cancel()
+                outRead.cancel()
+                errRead.cancel()
             }
-            try Task.checkCancellation()
         } catch {
             cancellation.cancel()
             outRead.cancel()
             errRead.cancel()
+            if error is CancellationError {
+                throw error
+            }
             _ = await outRead.value
             _ = await errRead.value
             throw error
         }
-
-        let outData = await outRead.value
-        let errData = await errRead.value
-        return RemoteTmuxCommandResult(
-            exitCode: exitCode,
-            stdout: String(decoding: outData, as: UTF8.self),
-            stderr: String(decoding: errData, as: UTF8.self)
-        )
     }
 
     /// Reads a file descriptor to EOF, returning at most `maxBytes`.
