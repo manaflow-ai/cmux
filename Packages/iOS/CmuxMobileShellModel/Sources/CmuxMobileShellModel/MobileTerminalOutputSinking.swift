@@ -19,9 +19,16 @@ public struct MobileTerminalOutputChunk: Sendable {
     /// Authoritative grid hash stamped by the producer on the render-grid frame
     /// these bytes were synthesized from, or `nil` for raw-byte chunks and
     /// legacy frames. After applying `data`, the surface may verify its grid
-    /// against this and request a keyframe on a mismatch.
+    /// against this and record a divergence on a mismatch.
     public let expectedGridHash: UInt64?
 
+    /// Creates an output chunk.
+    /// - Parameters:
+    ///   - data: The VT bytes to feed into `process_output`.
+    ///   - streamToken: Token identifying the current output stream, echoed back
+    ///     via ``MobileTerminalOutputSinking/terminalOutputDidProcess(surfaceID:streamToken:)``.
+    ///   - expectedGridHash: Producer-stamped ``expectedGridHash`` for divergence
+    ///     verification, or `nil` for raw-byte and legacy chunks.
     public init(data: Data, streamToken: UUID, expectedGridHash: UInt64? = nil) {
         self.data = data
         self.streamToken = streamToken

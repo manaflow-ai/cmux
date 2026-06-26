@@ -2502,8 +2502,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// (``MobileTerminalRenderGridFrame/gridContentHash()``). The consumer
     /// compares this against the ``MobileTerminalRenderGridFrame/gridHash``
     /// stamped on the frame it just applied; a mismatch means a delta silently
-    /// failed to reproduce the authoritative grid, so it should request a
-    /// keyframe instead of staying stale.
+    /// failed to reproduce the authoritative grid (the stale/blank-row class),
+    /// which the consumer records as a diagnostic.
     ///
     /// Pure libghostty C calls on the raw handle, so (like ``surfaceText(_:pointTag:)``)
     /// it MUST run on the serial ``outputQueue`` — `ghostty_surface_render_grid_json`
