@@ -19,6 +19,8 @@ public struct ChatScreen: View {
     @State private var contentCache = ChatContentCache()
 
     @Binding private var draft: String
+    private let accessoryLeadingShortcuts: [ChatAccessoryShortcut]
+    private let accessoryShortcuts: [ChatAccessoryShortcut]
     private let onOpenTerminal: () -> Void
     private let providesOwnChrome: Bool
 
@@ -31,6 +33,9 @@ public struct ChatScreen: View {
     ///     escape hatch); the host owns that navigation.
     ///   - draft: Host-owned composer draft, so a dismissed cover keeps
     ///     the half-typed prompt. Pass `.constant("")` to opt out.
+    ///   - accessoryLeadingShortcuts: Host-provided fixed composer shortcut
+    ///     row items.
+    ///   - accessoryShortcuts: Host-provided composer shortcut row items.
     ///   - providesOwnChrome: When `true` (default, standalone use) the
     ///     screen sets its own navigation title, session-state header, and
     ///     Open-Terminal button. Pass `false` when embedded in a host that
@@ -39,11 +44,15 @@ public struct ChatScreen: View {
     public init(
         store: ChatConversationStore,
         draft: Binding<String> = .constant(""),
+        accessoryLeadingShortcuts: [ChatAccessoryShortcut] = [],
+        accessoryShortcuts: [ChatAccessoryShortcut] = [],
         providesOwnChrome: Bool = true,
         onOpenTerminal: @escaping () -> Void
     ) {
         _store = State(initialValue: store)
         _draft = draft
+        self.accessoryLeadingShortcuts = accessoryLeadingShortcuts
+        self.accessoryShortcuts = accessoryShortcuts
         self.providesOwnChrome = providesOwnChrome
         self.onOpenTerminal = onOpenTerminal
     }
@@ -143,6 +152,8 @@ public struct ChatScreen: View {
                 agentKind: store.descriptor.agentKind,
                 isTerminal: store.descriptor.kind == .terminal,
                 isConnected: store.isConnected,
+                accessoryLeadingShortcuts: accessoryLeadingShortcuts,
+                accessoryShortcuts: accessoryShortcuts,
                 draft: $draft,
                 onSend: { text, attachments in
                     Task { await store.send(text: text, attachments: attachments) }

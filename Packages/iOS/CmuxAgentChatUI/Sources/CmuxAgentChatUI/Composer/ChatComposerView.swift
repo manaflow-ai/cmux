@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxMobileSupport
 import Foundation
 import SwiftUI
 
@@ -15,12 +16,17 @@ public struct ChatComposerView: View {
     private let agentKind: ChatAgentKind
     private let isTerminal: Bool
     private let isConnected: Bool
+    private let accessoryLeadingShortcuts: [ChatAccessoryShortcut]
+    private let accessoryShortcuts: [ChatAccessoryShortcut]
     private let onSend: (String, [ChatOutboundAttachment]) -> Void
     private let onInterrupt: (Bool) -> Void
     private let onOpenTerminal: () -> Void
 
     @Binding private var draft: String
     @State private var lastStopTap: Date?
+    #if os(iOS)
+    @FocusState private var isDraftFocused: Bool
+    #endif
     /// True while picked photos are still loading from the library; a
     /// send in that window would silently drop them. Declared outside the
     /// iOS block so shared send logic can read it (always false on macOS).
@@ -32,30 +38,19 @@ public struct ChatComposerView: View {
 
     @Environment(\.chatTheme) private var theme
 
-    @ScaledMetric(relativeTo: .title) private var sendGlyphSize: CGFloat = 30
     @ScaledMetric(relativeTo: .title) private var sendButtonSize: CGFloat = 36
-    @ScaledMetric(relativeTo: .body) private var attachGlyphSize: CGFloat = 17
 
     private static let maxAttachmentDimension: CGFloat = 2048
     private static let jpegQuality: CGFloat = 0.85
     private static let hardStopWindow: TimeInterval = 2
 
-    /// Creates the composer.
-    ///
-    /// - Parameters:
-    ///   - agentState: Live agent presence; working turns the empty-draft
-    ///     send button into a stop button.
-    ///   - agentKind: The session's agent, for the field placeholder.
-    ///   - isConnected: Whether the live event stream is up.
-    ///   - onSend: Sends the draft and staged attachments.
-    ///   - onInterrupt: Interrupts the agent (`false` = Esc, `true` =
-    ///     Ctrl-C).
-    ///   - onOpenTerminal: Opens the session's raw terminal.
     public init(
         agentState: ChatAgentState,
         agentKind: ChatAgentKind,
         isTerminal: Bool = false,
         isConnected: Bool,
+        accessoryLeadingShortcuts: [ChatAccessoryShortcut] = [],
+        accessoryShortcuts: [ChatAccessoryShortcut] = [],
         draft: Binding<String>,
         onSend: @escaping (String, [ChatOutboundAttachment]) -> Void,
         onInterrupt: @escaping (Bool) -> Void,
@@ -65,6 +60,8 @@ public struct ChatComposerView: View {
         self.agentKind = agentKind
         self.isTerminal = isTerminal
         self.isConnected = isConnected
+        self.accessoryLeadingShortcuts = accessoryLeadingShortcuts
+        self.accessoryShortcuts = accessoryShortcuts
         _draft = draft
         self.onSend = onSend
         self.onInterrupt = onInterrupt
@@ -72,12 +69,51 @@ public struct ChatComposerView: View {
     }
 
     public var body: some View {
+        #if os(iOS)
+        composerSurface
+            .padding(.horizontal, theme.horizontalMargin)
+            .padding(.top, 2)
+            .padding(.bottom, 8)
+            .modifier(ChatComposerMaterialBackground())
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("ChatComposerBar")
+            .background(ChatComposerDebugAutofocusBridge())
+        #else
+        composerStack
+            .padding(.horizontal, theme.horizontalMargin)
+            .padding(.vertical, 8)
+            .modifier(ChatComposerMaterialBackground())
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(theme.hairline)
+                    .frame(height: 0.5)
+            }
+        #endif
+    }
+
+    #if os(iOS)
+    @ViewBuilder
+    private var composerSurface: some View {
+        if #available(iOS 26.0, *) {
+            GlassEffectContainer {
+                composerStack
+            }
+        } else {
+            composerStack
+        }
+    }
+    #endif
+
+    private var composerStack: some View {
         VStack(spacing: 8) {
             if isEnded {
                 endedRow
             } else {
                 ChatAccessoryChipRow(
                     agentState: agentState,
+                    leadingShortcuts: composerAccessoryLeadingShortcuts,
+                    shortcuts: composerAccessoryShortcuts,
                     onInterrupt: onInterrupt,
                     onOpenTerminal: onOpenTerminal
                 )
@@ -89,20 +125,40 @@ public struct ChatComposerView: View {
                 fieldRow
             }
         }
-        .padding(.horizontal, theme.horizontalMargin)
-        .padding(.vertical, 8)
-        .modifier(ChatComposerMaterialBackground())
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(theme.hairline)
-                .frame(height: 0.5)
-        }
+    }
+
+    private var composerAccessoryLeadingShortcuts: [ChatAccessoryShortcut] {
         #if os(iOS)
-        .fixedSize(horizontal: false, vertical: true)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("ChatComposerBar")
+        remapComposerOwnedShortcuts(accessoryLeadingShortcuts)
+        #else
+        accessoryLeadingShortcuts
         #endif
     }
+
+    private var composerAccessoryShortcuts: [ChatAccessoryShortcut] {
+        #if os(iOS)
+        remapComposerOwnedShortcuts(accessoryShortcuts)
+        #else
+        accessoryShortcuts
+        #endif
+    }
+
+    #if os(iOS)
+    private func remapComposerOwnedShortcuts(
+        _ shortcuts: [ChatAccessoryShortcut]
+    ) -> [ChatAccessoryShortcut] {
+        shortcuts.map { shortcut in
+            switch shortcut.semanticAction {
+            case .dismissKeyboard:
+                shortcut.replacingAction(dismissKeyboard)
+            case .paste:
+                shortcut.replacingAction(performPaste)
+            case nil:
+                shortcut
+            }
+        }
+    }
+    #endif
 
     // MARK: - Field row
 
@@ -111,40 +167,32 @@ public struct ChatComposerView: View {
             #if os(iOS)
             attachButton
             #endif
-            TextField(placeholder, text: $draft, axis: .vertical)
-                .lineLimit(1...6)
-                .font(isTerminal ? .system(.body, design: .monospaced) : .body)
-                .textFieldStyle(.plain)
-                .accessibilityIdentifier("ChatComposerField")
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(
-                    Color.secondary.opacity(0.15),
-                    in: .rect(cornerRadius: 18)
-                )
-                #if os(iOS) && DEBUG
-                .background {
-                    ChatComposerDebugAutofocusBridge(delay: debugAutofocusDelay)
-                        .frame(width: 0, height: 0)
-                        .allowsHitTesting(false)
-                }
-                #endif
-            sendButton
+            HStack(alignment: .bottom, spacing: 8) {
+                TextField(placeholder, text: $draft, axis: .vertical)
+                    .lineLimit(1...6)
+                    .font(isTerminal ? .system(.body, design: .monospaced) : .body)
+                    .textFieldStyle(.plain)
+                    .accessibilityIdentifier("ChatComposerField")
+                    .padding(.vertical, 3)
+                    #if os(iOS)
+                    .focused($isDraftFocused)
+                    #endif
+                sendButton
+            }
+            .padding(.leading, 14)
+            .padding(.trailing, 6)
+            .padding(.vertical, 6)
+            .frame(minHeight: 40, alignment: .top)
+            #if os(iOS)
+            .mobileGlassField(cornerRadius: 20)
+            #else
+            .background(
+                Color.secondary.opacity(0.15),
+                in: .rect(cornerRadius: 18)
+            )
+            #endif
         }
     }
-
-    #if os(iOS) && DEBUG
-    private var debugAutofocusDelay: TimeInterval? {
-        guard let raw = ProcessInfo.processInfo.environment["CMUX_UITEST_CHAT_AUTOFOCUS_DELAY"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-            !raw.isEmpty,
-            let value = Double(raw)
-        else {
-            return nil
-        }
-        return value
-    }
-    #endif
 
     private var placeholder: String {
         if isTerminal {
@@ -217,11 +265,17 @@ public struct ChatComposerView: View {
     private var sendButton: some View {
         if hasContent {
             Button(action: performSend) {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: sendGlyphSize))
-                    .foregroundStyle(isConnected ? theme.accent : Color.secondary)
-                    .frame(width: sendButtonSize, height: sendButtonSize)
-                    .contentShape(Circle().inset(by: -4))
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(isConnected ? Color.white : Color.secondary.opacity(0.35))
+                    .frame(width: sendButtonSize - 8, height: sendButtonSize - 8)
+                    .background(
+                        Circle().fill(
+                            isConnected
+                                ? AnyShapeStyle(theme.accent)
+                                : AnyShapeStyle(Color.secondary.opacity(0.12))
+                        )
+                    )
             }
             .buttonStyle(.plain)
             .disabled(!isConnected || isStagingAttachments)
@@ -242,9 +296,7 @@ public struct ChatComposerView: View {
                         .font(.system(size: 11))
                         .foregroundStyle(.white)
                 }
-                .frame(width: sendButtonSize - 4, height: sendButtonSize - 4)
-                .frame(width: sendButtonSize, height: sendButtonSize)
-                .contentShape(Circle().inset(by: -4))
+                .frame(width: sendButtonSize - 8, height: sendButtonSize - 8)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(
@@ -256,11 +308,11 @@ public struct ChatComposerView: View {
             )
         } else {
             Button(action: performSend) {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: sendGlyphSize))
-                    .foregroundStyle(.secondary)
-                    .opacity(0.4)
-                    .frame(width: sendButtonSize, height: sendButtonSize)
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(Color.secondary.opacity(0.35))
+                    .frame(width: sendButtonSize - 8, height: sendButtonSize - 8)
+                    .background(Circle().fill(Color.secondary.opacity(0.12)))
             }
             .buttonStyle(.plain)
             .disabled(true)
@@ -310,16 +362,39 @@ public struct ChatComposerView: View {
     // MARK: - Attachments (iOS)
 
     #if os(iOS)
+    private func dismissKeyboard() {
+        isDraftFocused = false
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+
+    private func performPaste() {
+        let pasteboard = UIPasteboard.general
+        if attachments.count < 4,
+           let attachment = ChatComposerPasteboard.attachment(
+               from: pasteboard,
+               maxDimension: Self.maxAttachmentDimension,
+               jpegQuality: Self.jpegQuality
+           ) {
+            attachments.append(attachment)
+            isDraftFocused = true
+            return
+        }
+        guard let string = ChatComposerPasteboard.text(from: pasteboard) else {
+            return
+        }
+        draft += string
+        isDraftFocused = true
+    }
+
     private var attachButton: some View {
         PhotosPicker(selection: $pickedItems, maxSelectionCount: 4, matching: .images) {
-            Image(systemName: "plus")
-                .font(.system(size: attachGlyphSize, weight: .medium))
-                .foregroundStyle(.secondary)
+            Image(systemName: "paperclip")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.secondary.opacity(0.8))
                 .frame(width: 36, height: 36)
-                .background(Color.secondary.opacity(0.15), in: .circle)
-                .contentShape(Circle().inset(by: -4))
         }
         .buttonStyle(.plain)
+        .mobileGlassCircle()
         .accessibilityLabel(
             String(
                 localized: "chat.composer.attach.accessibility",
@@ -402,40 +477,16 @@ public struct ChatComposerView: View {
         var staged: [ChatComposerAttachment] = []
         for (index, item) in items.enumerated() {
             guard let data = try? await item.loadTransferable(type: Data.self),
-                  let jpeg = Self.downscaledJPEG(from: data),
-                  let thumbnailImage = UIImage(data: jpeg)
+                  let attachment = ChatComposerImageEncoder.attachment(
+                      id: item.itemIdentifier ?? "picked-\(index)",
+                      data: data,
+                      maxDimension: Self.maxAttachmentDimension,
+                      jpegQuality: Self.jpegQuality
+                  )
             else { continue }
-            staged.append(
-                ChatComposerAttachment(
-                    id: item.itemIdentifier ?? "picked-\(index)",
-                    data: jpeg,
-                    format: .jpeg,
-                    thumbnail: Image(uiImage: thumbnailImage)
-                )
-            )
+            staged.append(attachment)
         }
         attachments = staged
-    }
-
-    /// Re-encodes image data as JPEG, downscaling so the longest side is at
-    /// most ``maxAttachmentDimension`` points.
-    private static func downscaledJPEG(from data: Data) -> Data? {
-        guard let image = UIImage(data: data) else { return nil }
-        let pixelWidth = image.size.width * image.scale
-        let pixelHeight = image.size.height * image.scale
-        let longest = max(pixelWidth, pixelHeight)
-        guard longest > maxAttachmentDimension else {
-            return image.jpegData(compressionQuality: jpegQuality)
-        }
-        let scale = maxAttachmentDimension / longest
-        let targetSize = CGSize(width: pixelWidth * scale, height: pixelHeight * scale)
-        let format = UIGraphicsImageRendererFormat.default()
-        format.scale = 1
-        let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
-        let resized = renderer.image { _ in
-            image.draw(in: CGRect(origin: .zero, size: targetSize))
-        }
-        return resized.jpegData(compressionQuality: jpegQuality)
     }
     #endif
 }

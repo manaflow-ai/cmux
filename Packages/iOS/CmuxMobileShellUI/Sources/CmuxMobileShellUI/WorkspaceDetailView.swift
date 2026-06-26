@@ -162,7 +162,8 @@ struct WorkspaceDetailView: View {
                     isChatMode = false
                 }
                 pinnedChatSessionID = nil
-            }
+            },
+            sendTerminalInput: sendTerminalInput
         )
         .id(session.id)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

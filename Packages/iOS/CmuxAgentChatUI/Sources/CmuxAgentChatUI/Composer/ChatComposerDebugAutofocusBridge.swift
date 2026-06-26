@@ -1,11 +1,10 @@
-#if os(iOS) && DEBUG
+#if os(iOS)
+import Darwin
 import Foundation
 import SwiftUI
 import UIKit
 
 struct ChatComposerDebugAutofocusBridge: UIViewRepresentable {
-    let delay: TimeInterval?
-
     func makeCoordinator() -> Coordinator {
         Coordinator()
     }
@@ -16,13 +15,13 @@ struct ChatComposerDebugAutofocusBridge: UIViewRepresentable {
         view.isAccessibilityElement = false
         view.accessibilityElementsHidden = true
         context.coordinator.view = view
-        context.coordinator.schedule(delay: delay)
+        context.coordinator.schedule()
         return view
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {
         context.coordinator.view = uiView
-        context.coordinator.schedule(delay: delay)
+        context.coordinator.schedule()
     }
 
     @MainActor
@@ -30,12 +29,13 @@ struct ChatComposerDebugAutofocusBridge: UIViewRepresentable {
         weak var view: UIView?
         private var didSchedule = false
 
-        func schedule(delay: TimeInterval?) {
-            guard !didSchedule, let delay else { return }
+        func schedule() {
+            guard !didSchedule, let delay = Self.timeInterval("CMUX_UITEST_CHAT_AUTOFOCUS_DELAY") else {
+                return
+            }
             didSchedule = true
-            let nanoseconds = UInt64(max(0, delay) * 1_000_000_000)
             Task { @MainActor [weak self] in
-                try? await Task.sleep(nanoseconds: nanoseconds)
+                try? await Task.sleep(for: .seconds(Self.remainingDelaySinceProcessLaunch(delay)))
                 guard !Task.isCancelled, let view = self?.view else { return }
                 let root = view.window ?? view.cmuxRootView()
                 let input = root.cmuxFirstFocusableTextInput(preferredIdentifier: "ChatComposerField")
@@ -47,25 +47,27 @@ struct ChatComposerDebugAutofocusBridge: UIViewRepresentable {
                     didFocus ? 1 : 0,
                     input?.isFirstResponder == true ? 1 : 0
                 )
-                if let autoDismissDelay = Self.autoDismissDelay {
-                    let dismissNanoseconds = UInt64(max(0, autoDismissDelay) * 1_000_000_000)
-                    Task { @MainActor [weak input] in
-                        try? await Task.sleep(nanoseconds: dismissNanoseconds)
-                        guard !Task.isCancelled else { return }
-                        input?.resignFirstResponder()
-                        if let autoRefocusDelay = Self.autoRefocusAfterDismissDelay {
-                            let refocusNanoseconds = UInt64(max(0, autoRefocusDelay) * 1_000_000_000)
-                            try? await Task.sleep(nanoseconds: refocusNanoseconds)
-                            guard !Task.isCancelled else { return }
-                            _ = input?.becomeFirstResponder()
-                        }
-                    }
-                }
+                await Self.scheduleDismissAndRefocus(for: input)
             }
         }
 
-        private static var autoDismissDelay: TimeInterval? {
-            guard let raw = ProcessInfo.processInfo.environment["CMUX_UITEST_CHAT_AUTO_DISMISS_DELAY"]?
+        private static func scheduleDismissAndRefocus(for input: UIView?) async {
+            guard let autoDismissDelay = timeInterval("CMUX_UITEST_CHAT_AUTO_DISMISS_DELAY") else {
+                return
+            }
+            try? await Task.sleep(for: .seconds(max(0, autoDismissDelay)))
+            guard !Task.isCancelled else { return }
+            input?.resignFirstResponder()
+            guard let autoRefocusDelay = timeInterval("CMUX_UITEST_CHAT_AUTO_REFOCUS_AFTER_DISMISS_DELAY") else {
+                return
+            }
+            try? await Task.sleep(for: .seconds(max(0, autoRefocusDelay)))
+            guard !Task.isCancelled else { return }
+            _ = input?.becomeFirstResponder()
+        }
+
+        private static func timeInterval(_ name: String) -> TimeInterval? {
+            guard let raw = ProcessInfo.processInfo.environment[name]?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
                 !raw.isEmpty,
                 let value = Double(raw)
@@ -75,15 +77,23 @@ struct ChatComposerDebugAutofocusBridge: UIViewRepresentable {
             return value
         }
 
-        private static var autoRefocusAfterDismissDelay: TimeInterval? {
-            guard let raw = ProcessInfo.processInfo.environment["CMUX_UITEST_CHAT_AUTO_REFOCUS_AFTER_DISMISS_DELAY"]?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-                !raw.isEmpty,
-                let value = Double(raw)
-            else {
+        private static func remainingDelaySinceProcessLaunch(_ delay: TimeInterval) -> TimeInterval {
+            guard let elapsed = elapsedSinceProcessLaunch else {
+                return max(0, delay)
+            }
+            return max(0, delay - elapsed)
+        }
+
+        private static var elapsedSinceProcessLaunch: TimeInterval? {
+            var mib = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
+            var info = kinfo_proc()
+            var size = MemoryLayout<kinfo_proc>.stride
+            guard sysctl(&mib, u_int(mib.count), &info, &size, nil, 0) == 0 else {
                 return nil
             }
-            return value
+            let startedAt = TimeInterval(info.kp_proc.p_starttime.tv_sec)
+                + TimeInterval(info.kp_proc.p_starttime.tv_usec) / 1_000_000
+            return Date().timeIntervalSince1970 - startedAt
         }
     }
 }

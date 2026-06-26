@@ -23,7 +23,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
 
     private let keyboardContentView = UIView(frame: .zero)
     private let transcriptClipView = UIView(frame: .zero)
-    private let composerBackgroundView = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
+    private let composerBackgroundView = UIVisualEffectView(effect: nil)
     private let transcriptHostingController: UIHostingController<Transcript>
     private let composerHostingController: UIHostingController<Composer>
     private var composerHeightConstraint: NSLayoutConstraint?
@@ -89,6 +89,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         composerBackgroundView.translatesAutoresizingMaskIntoConstraints = false
         composerBackgroundView.isUserInteractionEnabled = false
         composerBackgroundView.clipsToBounds = true
+        configureComposerBackground()
         keyboardContentView.addSubview(composerBackgroundView)
 
         addChild(composerHostingController)
@@ -358,6 +359,16 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         )
         let measured = composerHostingController.sizeThatFits(in: fittingSize)
         return max(0, ceil(measured.height))
+    }
+
+    private func configureComposerBackground() {
+        if #available(iOS 26.0, *) {
+            composerBackgroundView.effect = nil
+            composerBackgroundView.backgroundColor = .clear
+        } else {
+            composerBackgroundView.effect = UIBlurEffect(style: .systemThinMaterial)
+            composerBackgroundView.backgroundColor = .clear
+        }
     }
 
     private func keyboardLayoutGuideOverlap() -> CGFloat {

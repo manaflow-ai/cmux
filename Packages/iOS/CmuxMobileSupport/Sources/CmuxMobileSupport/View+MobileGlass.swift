@@ -1,6 +1,6 @@
-import SwiftUI
+public import SwiftUI
 
-extension View {
+public extension View {
     /// Glass (iOS 26+) or bordered button styling for secondary sign-in actions.
     @ViewBuilder
     func mobileGlassButton() -> some View {

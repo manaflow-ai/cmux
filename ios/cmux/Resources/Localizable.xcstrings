@@ -4234,6 +4234,40 @@
         }
       }
     },
+    "mobile.shortcuts.chat.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose which compatible terminal buttons also appear on the chat keyboard bar, and drag to reorder them. Terminal-only controls stay available in terminal mode."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットのキーボードバーにも表示する互換性のあるターミナルボタンを選び、ドラッグして並べ替えできます。ターミナル専用のコントロールはターミナルモードで引き続き使えます。"
+          }
+        }
+      }
+    },
+    "mobile.shortcuts.chat.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat Shortcuts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットショートカット"
+          }
+        }
+      }
+    },
     "mobile.shortcuts.footer": {
       "extractionState": "manual",
       "localizations": {

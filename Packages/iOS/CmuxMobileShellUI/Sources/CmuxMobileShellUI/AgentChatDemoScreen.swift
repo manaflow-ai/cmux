@@ -1,6 +1,7 @@
 #if DEBUG
 import CmuxAgentChat
 import CmuxAgentChatUI
+import CmuxMobileSupport
 import SwiftUI
 
 /// Debug-only host for the agent chat surface fed by the fixture

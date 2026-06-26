@@ -216,11 +216,15 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     /// stable; its default on-bar position is curated separately in
     /// ``defaultConfigurableOrder``.
     case returnKey
-    var title: String {
+    /// Short label rendered on the terminal accessory button.
+    public var title: String {
         title(isMacRemote: false)
     }
 
-    func title(isMacRemote: Bool) -> String {
+    /// Short label rendered on the terminal accessory button for the remote kind.
+    /// - Parameter isMacRemote: Whether the target terminal is a macOS remote.
+    /// - Returns: The compact title used by the accessory bar.
+    public func title(isMacRemote: Bool) -> String {
         switch self {
         case .control:
             return isMacRemote ? "⌃" : String(localized: "terminal.input_accessory.title.control", defaultValue: "Ctrl")
@@ -285,7 +289,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         }
     }
 
-    var accessibilityIdentifier: String {
+    /// Stable accessibility identifier used by the terminal accessory button.
+    public var accessibilityIdentifier: String {
         switch self {
         case .control: return "terminal.inputAccessory.control"
         case .alternate: return "terminal.inputAccessory.alt"
@@ -320,7 +325,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         }
     }
 
-    var accessibilityLabel: String? {
+    /// VoiceOver label for icon-only accessory actions.
+    public var accessibilityLabel: String? {
         switch self {
         case .zoomOut:
             return String(localized: "terminal.input_accessory.zoom_out", defaultValue: "Zoom Out")
@@ -335,7 +341,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         }
     }
 
-    var symbolName: String? {
+    /// SF Symbol name for icon-only accessory actions.
+    public var symbolName: String? {
         switch self {
         case .zoomOut:
             return "minus.magnifyingglass"
@@ -362,7 +369,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     }
 
     /// Whether this action is a modifier key (toggleable armed state).
-    var isModifier: Bool {
+    public var isModifier: Bool {
         switch self {
         case .control, .alternate, .command, .shift: return true
         default: return false
