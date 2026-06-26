@@ -348,7 +348,10 @@ struct SessionEntry: Identifiable, Hashable {
             if let effort, !effort.isEmpty {
                 parts.append("-c model_reasoning_effort=\(Self.shellQuote(effort))")
             }
-            return parts.joined(separator: " ")
+            return CodexResumeRetryShell().wrappedCommand(
+                parts.joined(separator: " "),
+                quote: Self.shellSingleQuote
+            )
         case let .grok(model, permissionMode, sandboxMode, grokHome):
             var argv = ["grok", "-r", sessionId]
             if let model, !model.isEmpty {

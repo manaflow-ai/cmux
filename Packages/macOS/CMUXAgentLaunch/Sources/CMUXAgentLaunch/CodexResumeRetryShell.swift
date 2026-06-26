@@ -1,0 +1,67 @@
+import Foundation
+
+/// Renders a shell wrapper that retries transient Codex state database locks.
+///
+/// Use this around already-rendered `codex resume` or `codex fork` shell commands. The wrapper keeps
+/// stdin/stdout connected to the terminal and mirrors stderr while capturing it, then retries only
+/// when Codex exits non-zero with the shared `state_5.sqlite` lock diagnostics.
+public struct CodexResumeRetryShell: Sendable, Equatable {
+    /// The default number of total launch attempts, including the first attempt.
+    public static let defaultMaxAttempts = 4
+
+    /// The number of total launch attempts, including the first attempt.
+    public var maxAttempts: Int
+
+    /// Creates a Codex retry shell renderer.
+    ///
+    /// - Parameter maxAttempts: Total launch attempts, including the first attempt. Values below
+    ///   `1` are clamped to `1`.
+    public init(maxAttempts: Int = Self.defaultMaxAttempts) {
+        self.maxAttempts = max(1, maxAttempts)
+    }
+
+    /// Wraps a rendered Codex command in a retrying `/bin/zsh -lc` launcher.
+    ///
+    /// - Parameters:
+    ///   - command: The already shell-rendered Codex command to execute.
+    ///   - quote: A shell quoting function for the generated zsh script.
+    /// - Returns: `command` unchanged when retries are disabled; otherwise a shell command that
+    ///   retries transient Codex state database lock failures with bounded jittered backoff.
+    public func wrappedCommand(_ command: String, quote: (String) -> String) -> String {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard maxAttempts > 1, !trimmed.isEmpty else { return command }
+        guard !trimmed.contains("_cmux_codex_retry_limit") else { return trimmed }
+        return "/bin/zsh -lc \(quote(retryScript(command: trimmed)))"
+    }
+
+    private func retryScript(command: String) -> String {
+        """
+        _cmux_codex_retry_attempt=1
+        _cmux_codex_retry_limit=\(maxAttempts)
+        while true; do
+          _cmux_codex_retry_stderr="$(mktemp "${TMPDIR:-/tmp}/cmux-codex-resume.XXXXXX")" || exit 1
+          { \(command); } 2> >(tee "$_cmux_codex_retry_stderr" >&2)
+          _cmux_codex_retry_status=$?
+          _cmux_codex_retry_output="$(cat "$_cmux_codex_retry_stderr" 2>/dev/null)"
+          rm -f "$_cmux_codex_retry_stderr" 2>/dev/null || true
+          if [ "$_cmux_codex_retry_status" -eq 0 ]; then
+            exit 0
+          fi
+          if [ "$_cmux_codex_retry_attempt" -ge "$_cmux_codex_retry_limit" ]; then
+            exit "$_cmux_codex_retry_status"
+          fi
+          case "$_cmux_codex_retry_output" in
+            *"database is locked"*|*"another Codex process is using its local data"*|*"failed to initialize sqlite state db"*) ;;
+            *) exit "$_cmux_codex_retry_status" ;;
+          esac
+          case "$_cmux_codex_retry_attempt" in
+            1) _cmux_codex_retry_delay="0.$((150 + (RANDOM % 100)))" ;;
+            2) _cmux_codex_retry_delay="0.$((300 + (RANDOM % 150)))" ;;
+            *) _cmux_codex_retry_delay="0.$((600 + (RANDOM % 250)))" ;;
+          esac
+          sleep "$_cmux_codex_retry_delay"
+          _cmux_codex_retry_attempt=$((_cmux_codex_retry_attempt + 1))
+        done
+        """
+    }
+}

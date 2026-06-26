@@ -399,9 +399,12 @@ enum AgentResumeCommandBuilder {
         // `/bin/sh -c '…'` to parse everywhere; the cwd guard stays outside so
         // cd-prefix rewriting keeps composing.
         // https://github.com/manaflow-ai/cmux/issues/5639
-        let shellCommand = kind == .claude
+        var shellCommand = kind == .claude
             ? AgentResumeArgv.renderedPortableClaudeResumeShellCommand(parts: sanitizedCommandParts, quote: shellSingleQuoted)
             : sanitizedCommandParts.map(shellSingleQuoted).joined(separator: " ")
+        if kind == .codex {
+            shellCommand = CodexResumeRetryShell().wrappedCommand(shellCommand, quote: shellSingleQuoted)
+        }
         return TerminalStartupWorkingDirectoryPrefix.prefix(shellCommand, workingDirectory: cwd)
     }
 

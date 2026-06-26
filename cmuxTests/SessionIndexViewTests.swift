@@ -1,4 +1,5 @@
 import AppKit
+import CMUXAgentLaunch
 import Combine
 import SQLite3
 import SwiftUI
@@ -160,7 +161,7 @@ final class SessionIndexViewTests: XCTestCase {
         let command = entry.resumeCommand ?? ""
         XCTAssertEqual(
             command,
-            "codex resume codex-session-123 -m gpt-5.5 --dangerously-bypass-approvals-and-sandbox -c model_reasoning_effort=high"
+            codexRetryWrappedForTest("codex resume codex-session-123 -m gpt-5.5 --dangerously-bypass-approvals-and-sandbox -c model_reasoning_effort=high")
         )
         XCTAssertFalse(
             command.contains("-s disabled"),
@@ -188,7 +189,7 @@ final class SessionIndexViewTests: XCTestCase {
         )
 
         let command = entry.resumeCommand ?? ""
-        XCTAssertEqual(command, "codex resume codex-session-managed -a on-request")
+        XCTAssertEqual(command, codexRetryWrappedForTest("codex resume codex-session-managed -a on-request"))
         XCTAssertFalse(
             command.contains("-s managed"),
             "Codex resume must not emit the invalid `-s managed` flag (issue #5262)"
@@ -210,7 +211,10 @@ final class SessionIndexViewTests: XCTestCase {
                 effort: nil
             )
         )
-        XCTAssertEqual(readOnly.resumeCommand, "codex resume codex-ro -a untrusted -s read-only")
+        XCTAssertEqual(
+            readOnly.resumeCommand,
+            codexRetryWrappedForTest("codex resume codex-ro -a untrusted -s read-only")
+        )
 
         let dangerFullAccess = makeEntry(
             agent: .codex,
@@ -225,8 +229,16 @@ final class SessionIndexViewTests: XCTestCase {
         )
         XCTAssertEqual(
             dangerFullAccess.resumeCommand,
-            "codex resume codex-dfa -m gpt-5.5 -a never -s danger-full-access"
+            codexRetryWrappedForTest("codex resume codex-dfa -m gpt-5.5 -a never -s danger-full-access")
         )
+    }
+
+    private func codexRetryWrappedForTest(_ command: String) -> String {
+        CodexResumeRetryShell().wrappedCommand(command, quote: Self.shellSingleQuoted)
+    }
+
+    private static func shellSingleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     func testCurrentDirectorySetterDoesNotPublishEqualValue() {

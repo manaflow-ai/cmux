@@ -88,13 +88,28 @@ extension SurfaceResumeBindingSnapshot {
     }
 
     private func resolvedStartupCommand(repairPortableAgentExecutable: Bool) -> String {
-        guard repairPortableAgentExecutable, isAgentHookBinding else {
-            return startupCommand
+        let command = if repairPortableAgentExecutable, isAgentHookBinding {
+            SurfaceResumeCommandCanonicalizer.replacingPortableAgentExecutable(
+                in: startupCommand,
+                kind: kind
+            )
+        } else {
+            startupCommand
         }
-        return SurfaceResumeCommandCanonicalizer.replacingPortableAgentExecutable(
-            in: startupCommand,
-            kind: kind
+        guard isAgentHookBinding,
+              kind?.trimmingCharacters(in: .whitespacesAndNewlines) == "codex" else {
+            return command
+        }
+        let commandWithoutCwdPrefix = TerminalStartupWorkingDirectoryPrefix.replacingRequiredChangeDirectoryPrefix(
+            in: command,
+            previousWorkingDirectory: cwd,
+            workingDirectory: nil
         )
+        let wrappedCommand = CodexResumeRetryShell().wrappedCommand(
+            commandWithoutCwdPrefix,
+            quote: Self.shellSingleQuoted
+        )
+        return TerminalStartupWorkingDirectoryPrefix.prefix(wrappedCommand, workingDirectory: cwd)
     }
 }
 

@@ -1,5 +1,6 @@
 import XCTest
 import Darwin
+import CMUXAgentLaunch
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -7,6 +8,14 @@ import Darwin
 #endif
 
 final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
+    private func codexRetryWrappedForTest(_ command: String) -> String {
+        CodexResumeRetryShell().wrappedCommand(command, quote: Self.shellSingleQuoted)
+    }
+
+    private static func shellSingleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
     func testClaudeClearSessionStartMarksWorkspaceRunning() throws {
         let context = try makeClaudeHookContext(name: "claude-clear-running")
         defer { context.cleanup() }
@@ -7899,7 +7908,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["auto_resume"] as? Bool, true)
         XCTAssertEqual(
             request["command"] as? String,
-            "{ cd -- '\(root.path)' 2>/dev/null || [ ! -d '\(root.path)' ]; } && '/usr/local/bin/cmux' 'codex-teams' 'resume' '\(sessionId)' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
+            "{ cd -- '\(root.path)' 2>/dev/null || [ ! -d '\(root.path)' ]; } && "
+                + codexRetryWrappedForTest("'/usr/local/bin/cmux' 'codex-teams' 'resume' '\(sessionId)' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'")
         )
     }
 

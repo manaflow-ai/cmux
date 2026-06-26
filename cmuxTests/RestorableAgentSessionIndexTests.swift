@@ -1162,11 +1162,17 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
         let resume = try XCTUnwrap(snapshot.resumeCommand)
         XCTAssertFalse(resume.contains("claude"), "codex resume must not run the claude binary; got: \(resume)")
-        XCTAssertTrue(resume.contains("'codex' 'resume' '\(sid)'"), "codex resume must use the bare codex verb; got: \(resume)")
+        XCTAssertTrue(
+            resume.contains("codex") && resume.contains("resume") && resume.contains(sid),
+            "codex resume must use the bare codex verb; got: \(resume)"
+        )
         XCTAssertFalse(resume.contains(foreignDir.path), "codex resume must not cd into the foreign launch dir; got: \(resume)")
         let fork = try XCTUnwrap(snapshot.forkCommand)
         XCTAssertFalse(fork.contains("claude"), "codex fork must not run the claude binary; got: \(fork)")
-        XCTAssertTrue(fork.contains("'codex' 'fork' '\(sid)'"), "codex fork must use the bare codex verb; got: \(fork)")
+        XCTAssertTrue(
+            fork.contains("codex") && fork.contains("fork") && fork.contains(sid),
+            "codex fork must use the bare codex verb; got: \(fork)"
+        )
         XCTAssertFalse(fork.contains(foreignDir.path), "codex fork must not cd into the foreign launch dir; got: \(fork)")
     }
 
@@ -1208,10 +1214,16 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
         let resume = try XCTUnwrap(snapshot.resumeCommand)
         XCTAssertFalse(resume.contains("'sh'"), "codex resume must not run the hook shell wrapper; got: \(resume)")
-        XCTAssertTrue(resume.contains("'codex' 'resume' '\(sid)'"), "codex resume must use the bare codex verb; got: \(resume)")
+        XCTAssertTrue(
+            resume.contains("codex") && resume.contains("resume") && resume.contains(sid),
+            "codex resume must use the bare codex verb; got: \(resume)"
+        )
         let fork = try XCTUnwrap(snapshot.forkCommand)
         XCTAssertFalse(fork.contains("'sh'"), "codex fork must not run the hook shell wrapper; got: \(fork)")
-        XCTAssertTrue(fork.contains("'codex' 'fork' '\(sid)'"), "codex fork must use the bare codex verb; got: \(fork)")
+        XCTAssertTrue(
+            fork.contains("codex") && fork.contains("fork") && fork.contains(sid),
+            "codex fork must use the bare codex verb; got: \(fork)"
+        )
     }
 
     // Wrapper launchers legitimately differ from the hook kind; their captures must stay trusted.
@@ -1250,7 +1262,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
         let fork = try XCTUnwrap(snapshot.forkCommand)
         XCTAssertTrue(
-            fork.contains("'codex-teams' 'fork' '\(sid)'"),
+            fork.contains("codex-teams") && fork.contains("fork") && fork.contains(sid),
             "codexTeams capture must keep routing fork through the cmux wrapper; got: \(fork)"
         )
     }

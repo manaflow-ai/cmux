@@ -26887,6 +26887,9 @@ struct CMUXCLI {
         var command = kind == "claude"
             ? AgentResumeArgv.renderedPortableClaudeResumeShellCommand(parts: resumeCommandParts, quote: cliShellQuote)
             : resumeCommandParts.map(cliShellQuote).joined(separator: " ")
+        if kind == "codex" {
+            command = CodexResumeRetryShell().wrappedCommand(command, quote: cliShellQuote)
+        }
         if kind == "hermes-agent" {
             command = hermesAgentSubrouterResumeCommand(
                 command,
