@@ -27,10 +27,10 @@ final class TitlebarAccessoryContainerView: NSView {
             }
         }
 
-        guard !isWindowDragSuppressed(window: window) else { return }
+        guard window?.isWindowDragSuppressed != true else { return }
 
         if let window {
-            withTemporaryWindowMovableEnabled(window: window) {
+            window.withTemporaryWindowMovableEnabled {
                 window.performDrag(with: event)
             }
         } else {

@@ -515,30 +515,13 @@ final class TerminalNotificationStore: ObservableObject {
         terminalNotificationLogger.info("Authorization \(message, privacy: .private)")
     }
 
-    private static func authorizationStatusLabel(_ status: UNAuthorizationStatus) -> String {
-        switch status {
-        case .notDetermined:
-            return "notDetermined"
-        case .denied:
-            return "denied"
-        case .authorized:
-            return "authorized"
-        case .provisional:
-            return "provisional"
-        case .ephemeral:
-            return "ephemeral"
-        @unknown default:
-            return "unknown(\(status.rawValue))"
-        }
-    }
-
     func refreshAuthorizationStatus() {
         center.getNotificationSettings { [weak self] settings in
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.authorizationState = Self.authorizationState(from: settings.authorizationStatus)
+                self.authorizationState = NotificationAuthorizationState(authorizationStatus: settings.authorizationStatus)
                 self.logAuthorization(
-                    "refresh status=\(Self.authorizationStatusLabel(settings.authorizationStatus)) mapped=\(self.authorizationState.statusLabel)"
+                    "refresh status=\(settings.authorizationStatus.diagnosticLabel) mapped=\(self.authorizationState.statusLabel)"
                 )
             }
         }
@@ -1444,10 +1427,10 @@ final class TerminalNotificationStore: ObservableObject {
         var usedNotificationIds = Set(notifications.filter { $0.tabId != tabId }.map(\.id))
         let restoredForTab = restoredNotifications
             .filter { $0.tabId == tabId }
-            .sorted(by: Self.notificationSortPrecedes)
+            .sorted(by: TerminalNotification.sortPrecedes)
             .map { Self.notificationWithUniqueId($0, usedIds: &usedNotificationIds) }
         let keptNotifications = notifications.filter { $0.tabId != tabId }
-        let nextNotifications = (restoredForTab + keptNotifications).sorted(by: Self.notificationSortPrecedes)
+        let nextNotifications = (restoredForTab + keptNotifications).sorted(by: TerminalNotification.sortPrecedes)
 
         let didChangeNotifications = nextNotifications != notifications
         if didChangeNotifications {
@@ -1760,9 +1743,9 @@ final class TerminalNotificationStore: ObservableObject {
                     return
                 }
 
-                self.authorizationState = Self.authorizationState(from: settings.authorizationStatus)
+                self.authorizationState = NotificationAuthorizationState(authorizationStatus: settings.authorizationStatus)
                 self.logAuthorization(
-                    "ensure status origin=\(origin.rawValue) status=\(Self.authorizationStatusLabel(settings.authorizationStatus)) mapped=\(self.authorizationState.statusLabel) appActive=\(AppFocusState.isAppActive())"
+                    "ensure status origin=\(origin.rawValue) status=\(settings.authorizationStatus.diagnosticLabel) mapped=\(self.authorizationState.statusLabel) appActive=\(AppFocusState.isAppActive())"
                 )
                 switch settings.authorizationStatus {
                 case .authorized, .provisional, .ephemeral:
@@ -1871,23 +1854,6 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
-    static func authorizationState(from status: UNAuthorizationStatus) -> NotificationAuthorizationState {
-        switch status {
-        case .authorized:
-            return .authorized
-        case .denied:
-            return .denied
-        case .notDetermined:
-            return .notDetermined
-        case .provisional:
-            return .provisional
-        case .ephemeral:
-            return .ephemeral
-        @unknown default:
-            return .unknown
-        }
-    }
-
     static func shouldDeferAutomaticAuthorizationRequest(
         status: UNAuthorizationStatus,
         isAppActive: Bool
@@ -1910,13 +1876,6 @@ final class TerminalNotificationStore: ObservableObject {
     ) -> Bool {
         guard origin == .notificationDelivery else { return false }
         return shouldDeferAutomaticAuthorizationRequest(status: status, isAppActive: isAppActive)
-    }
-
-    private static func notificationSortPrecedes(_ lhs: TerminalNotification, _ rhs: TerminalNotification) -> Bool {
-        if lhs.createdAt != rhs.createdAt {
-            return lhs.createdAt > rhs.createdAt
-        }
-        return lhs.id.uuidString < rhs.id.uuidString
     }
 
 #if DEBUG

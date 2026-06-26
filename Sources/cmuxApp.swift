@@ -1171,12 +1171,12 @@ struct cmuxApp: App {
 
     @ViewBuilder
     func splitCommandButton(title: String, shortcut: StoredShortcut, action: @escaping () -> Void) -> some View {
-        if let key = shortcut.keyEquivalent {
-            Button(title, action: action)
-                .keyboardShortcut(key, modifiers: shortcut.eventModifiers)
-        } else {
-            Button(title, action: action)
-        }
+        ShortcutCommandButton(
+            title: title,
+            keyEquivalent: shortcut.keyEquivalent,
+            eventModifiers: shortcut.eventModifiers,
+            action: action
+        )
     }
 
     private func dispatchReloadConfigurationMenuCommand() {

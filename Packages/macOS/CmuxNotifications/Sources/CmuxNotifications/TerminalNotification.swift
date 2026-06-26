@@ -68,4 +68,14 @@ public struct TerminalNotification: Identifiable, Hashable, Sendable {
         }
         return surfaceId == targetSurfaceId || panelId == targetSurfaceId
     }
+
+    /// Recency ordering used to sort the store's notifications: newest
+    /// (`createdAt` descending) first, with the id's UUID string breaking ties
+    /// ascending so the order is stable. Suitable for `sorted(by:)`.
+    public static func sortPrecedes(_ lhs: TerminalNotification, _ rhs: TerminalNotification) -> Bool {
+        if lhs.createdAt != rhs.createdAt {
+            return lhs.createdAt > rhs.createdAt
+        }
+        return lhs.id.uuidString < rhs.id.uuidString
+    }
 }

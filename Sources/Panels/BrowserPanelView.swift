@@ -2398,7 +2398,7 @@ struct BrowserPanelView: View {
 
     private func handleInlineDeleteWordBackward() {
         guard let completion = inlineCompletion else { return }
-        let updated = omnibarPrefixAfterDeletingTrailingWord(from: completion.typedText)
+        let updated = completion.typedText.omnibarPrefixAfterDeletingTrailingWord
         // Modified Backspace dismisses the current inline suggestion instead of
         // refetching suggestions for the shorter prefix.
         _ = omnibarState.reduce(.bufferChanged(updated))
@@ -2481,7 +2481,7 @@ struct BrowserPanelView: View {
     }
 
     private func refreshInlineCompletion() {
-        inlineCompletion = omnibarInlineCompletionForDisplay(
+        inlineCompletion = OmnibarInlineCompletion.forDisplay(
             typedText: omnibarState.buffer,
             suggestions: omnibarState.suggestions,
             isFocused: addressBarFocused,
@@ -2528,7 +2528,7 @@ struct BrowserPanelView: View {
             return panel.historyStore.suggestions(for: query, limit: 12)
         }()
         let openTabMatches = query.isEmpty ? [] : matchingOpenTabSuggestions(for: query, limit: 12)
-        let isSingleCharacterQuery = omnibarSingleCharacterQuery(for: query) != nil
+        let isSingleCharacterQuery = query.omnibarSingleCharacterQuery != nil
         let remoteSuggestionsEngine = searchConfiguration.remoteSuggestionsEngine
         let allowsRemoteSuggestions = remoteSuggestionsEnabled && remoteSuggestionsEngine != nil
         if !allowsRemoteSuggestions {
@@ -2649,7 +2649,7 @@ struct BrowserPanelView: View {
 
     private func matchingOpenTabSuggestions(for query: String, limit: Int) -> [OmnibarOpenTabMatch] {
         guard !query.isEmpty, limit > 0 else { return [] }
-        let singleCharacterQuery = omnibarSingleCharacterQuery(for: query)
+        let singleCharacterQuery = query.omnibarSingleCharacterQuery
         let includeCurrentPanelForSingleCharacterQuery = singleCharacterQuery != nil
         let currentPanelSnapshot = BrowserOpenTabSuggestionSnapshot(
             workspaceId: panel.workspaceId,
@@ -2783,58 +2783,6 @@ func omnibarInputIntent(for query: String) -> OmnibarInputIntent {
     return .queryLike
 }
 
-func omnibarSingleCharacterQuery(for query: String) -> String? {
-    let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    guard trimmed.utf16.count == 1 else { return nil }
-    return trimmed
-}
-
-func omnibarStrippedURL(_ value: String) -> String {
-    return value.strippingHTTPSchemeAndWWWPrefix
-}
-
-func omnibarScoringCandidate(_ value: String) -> String {
-    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty else { return "" }
-
-    if let components = URLComponents(string: trimmed), let host = components.host?.lowercased() {
-        let hostWithoutWWW = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
-        let normalizedScheme = components.scheme?.lowercased()
-        let isDefaultPort = (normalizedScheme == "http" && components.port == 80)
-            || (normalizedScheme == "https" && components.port == 443)
-        let portSuffix = {
-            guard let port = components.port, !isDefaultPort else { return "" }
-            return ":\(port)"
-        }()
-
-        var normalized = "\(hostWithoutWWW)\(portSuffix)"
-        let path = components.percentEncodedPath
-        if !path.isEmpty && path != "/" {
-            normalized += path
-        } else if path == "/" {
-            normalized += "/"
-        }
-
-        if let query = components.percentEncodedQuery, !query.isEmpty {
-            normalized += "?\(query)"
-        }
-        if let fragment = components.percentEncodedFragment, !fragment.isEmpty {
-            normalized += "#\(fragment)"
-        }
-        return normalized
-    }
-
-    return trimmed.strippingHTTPSchemeAndWWWPrefix
-}
-
-func omnibarHasSingleCharacterPrefixMatch(query: String, url: String, title: String?) -> Bool {
-    guard let trimmedQuery = omnibarSingleCharacterQuery(for: query) else { return false }
-
-    let normalizedURL = omnibarStrippedURL(url).lowercased()
-    let normalizedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
-    return normalizedURL.hasPrefix(trimmedQuery) || normalizedTitle.hasPrefix(trimmedQuery)
-}
-
 func buildOmnibarSuggestions(
     query: String,
     engineName: String,
@@ -2851,17 +2799,17 @@ func buildOmnibarSuggestions(
     if trimmedQuery.isEmpty {
         return Array(historyEntries.prefix(limit).map { .history($0) })
     }
-    let singleCharacterQuery = omnibarSingleCharacterQuery(for: trimmedQuery)
+    let singleCharacterQuery = trimmedQuery.omnibarSingleCharacterQuery
     let isSingleCharacterQuery = singleCharacterQuery != nil
     let shouldIncludeRemoteSuggestions = !isSingleCharacterQuery
     let filteredHistoryEntries: [BrowserHistoryStore.Entry]
     let filteredOpenTabMatches: [OmnibarOpenTabMatch]
     if let singleCharacterQuery {
         filteredHistoryEntries = historyEntries.filter {
-            omnibarHasSingleCharacterPrefixMatch(query: singleCharacterQuery, url: $0.url, title: $0.title)
+            OmnibarSuggestion.hasSingleCharacterPrefixMatch(query: singleCharacterQuery, url: $0.url, title: $0.title)
         }
         filteredOpenTabMatches = openTabMatches.filter {
-            omnibarHasSingleCharacterPrefixMatch(query: singleCharacterQuery, url: $0.url, title: $0.title)
+            OmnibarSuggestion.hasSingleCharacterPrefixMatch(query: singleCharacterQuery, url: $0.url, title: $0.title)
         }
     } else {
         filteredHistoryEntries = historyEntries
@@ -2900,7 +2848,7 @@ func buildOmnibarSuggestions(
         let q = normalizedQuery
         guard !c.isEmpty, !q.isEmpty else { return 0 }
 
-        let scoringCandidate = omnibarScoringCandidate(c)
+        let scoringCandidate = c.omnibarScoringCandidate
         if !scoringCandidate.isEmpty {
             if scoringCandidate == q { return 260 }
             if scoringCandidate.hasPrefix(q) { return 220 }
@@ -3099,203 +3047,6 @@ func staleOmnibarRemoteSuggestionsForDisplay(
         return []
     }
     return Array(sanitized.prefix(limit))
-}
-
-func omnibarInlineCompletionForDisplay(
-    typedText: String,
-    suggestions: [OmnibarSuggestion],
-    isFocused: Bool,
-    selectionRange: NSRange,
-    hasMarkedText: Bool
-) -> OmnibarInlineCompletion? {
-    guard isFocused else { return nil }
-    guard !hasMarkedText else { return nil }
-
-    let query = typedText.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !query.isEmpty else { return nil }
-    let loweredQuery = query.lowercased()
-    let typedIncludesScheme = loweredQuery.hasPrefix("https://") || loweredQuery.hasPrefix("http://")
-    let typedIncludesWWWPrefix = loweredQuery.hasPrefix("www.")
-    let queryCount = query.utf16.count
-
-    let urlCandidate = suggestions.first { suggestion in
-        guard let completion = suggestion.autocompletionCompletion else { return false }
-        return OmnibarSuggestion.matchesTypedPrefix(
-            typedText: query,
-            suggestionCompletion: completion,
-            suggestionTitle: suggestion.autocompletionTitle
-        )
-    }
-    guard let candidate = urlCandidate else {
-        return nil
-    }
-
-    let acceptedText = candidate.completion
-    let displayText: String
-    if typedQueryHasExplicitPathOrQuery(query) {
-        if typedIncludesScheme {
-            displayText = acceptedText
-        } else if typedIncludesWWWPrefix {
-            displayText = acceptedText.strippingHTTPSchemePrefix
-        } else {
-            displayText = acceptedText.strippingHTTPSchemeAndWWWPrefix
-        }
-    } else if let hostOnlyDisplay = inlineCompletionHostDisplayText(
-        for: acceptedText,
-        typedIncludesScheme: typedIncludesScheme,
-        typedIncludesWWWPrefix: typedIncludesWWWPrefix
-    ) {
-        displayText = hostOnlyDisplay
-    } else {
-        if typedIncludesScheme {
-            displayText = acceptedText
-        } else if typedIncludesWWWPrefix {
-            displayText = acceptedText.strippingHTTPSchemePrefix
-        } else {
-            displayText = acceptedText.strippingHTTPSchemeAndWWWPrefix
-        }
-    }
-
-    guard candidate.supportsAutocompletion(query: query) else { return nil }
-    // The display text must start with the typed query so the inline completion
-    // visually extends what the user typed rather than replacing it (e.g. a
-    // history entry matched via title "localhost:3000" whose URL is google.com
-    // should not replace a typed "l" with "g").
-    guard displayText.lowercased().hasPrefix(loweredQuery) else { return nil }
-    guard displayText.utf16.count > queryCount else {
-        return nil
-    }
-
-    let displayCount = displayText.utf16.count
-
-    let resolvedSelectionRange: NSRange = {
-        if selectionRange.location == NSNotFound {
-            return NSRange(location: queryCount, length: 0)
-        }
-        let clampedLocation = min(selectionRange.location, displayCount)
-        let remaining = max(0, displayCount - clampedLocation)
-        let clampedLength = min(selectionRange.length, remaining)
-        return NSRange(location: clampedLocation, length: clampedLength)
-    }()
-
-    let suffixRange = NSRange(location: queryCount, length: max(0, displayCount - queryCount))
-    let isCaretAtTypedBoundary = (resolvedSelectionRange.length == 0 && resolvedSelectionRange.location == queryCount)
-    let isSuffixSelection = NSEqualRanges(resolvedSelectionRange, suffixRange)
-    let isSelectAllSelection = (resolvedSelectionRange.location == 0 && resolvedSelectionRange.length == displayCount)
-    // Command+A can briefly report just the typed prefix selection before the full
-    // select-all range lands. Keep inline completion alive through that transition.
-    let typedPrefixSelection = NSRange(location: 0, length: queryCount)
-    let isTypedPrefixSelection = NSEqualRanges(resolvedSelectionRange, typedPrefixSelection)
-    guard isCaretAtTypedBoundary || isSuffixSelection || isSelectAllSelection || isTypedPrefixSelection else {
-        return nil
-    }
-
-    return OmnibarInlineCompletion(typedText: query, displayText: displayText, acceptedText: acceptedText)
-}
-
-func omnibarDesiredSelectionRangeForInlineCompletion(
-    currentSelection: NSRange,
-    inlineCompletion: OmnibarInlineCompletion
-) -> NSRange {
-    let typedCount = inlineCompletion.typedText.utf16.count
-    let typedPrefixSelection = NSRange(location: 0, length: typedCount)
-    let displayCount = inlineCompletion.displayText.utf16.count
-    let isSelectAll = currentSelection.location == 0 && currentSelection.length == displayCount
-    if isSelectAll ||
-        NSEqualRanges(currentSelection, inlineCompletion.suffixRange) ||
-        NSEqualRanges(currentSelection, typedPrefixSelection) {
-        return currentSelection
-    }
-    return inlineCompletion.suffixRange
-}
-
-func omnibarPublishedBufferTextForFieldChange(
-    fieldValue: String,
-    inlineCompletion: OmnibarInlineCompletion?,
-    selectionRange: NSRange?,
-    hasMarkedText: Bool
-) -> String {
-    guard !hasMarkedText else { return fieldValue }
-    guard let inlineCompletion else { return fieldValue }
-    guard fieldValue == inlineCompletion.displayText else { return fieldValue }
-    guard let selectionRange else { return inlineCompletion.typedText }
-
-    let typedCount = inlineCompletion.typedText.utf16.count
-    let displayCount = inlineCompletion.displayText.utf16.count
-    let typedPrefixSelection = NSRange(location: 0, length: typedCount)
-    let isCaretAtTypedBoundary = selectionRange.location == typedCount && selectionRange.length == 0
-    let isSuffixSelection = NSEqualRanges(selectionRange, inlineCompletion.suffixRange)
-    let isSelectAllSelection = selectionRange.location == 0 && selectionRange.length == displayCount
-    let isTypedPrefixSelection = NSEqualRanges(selectionRange, typedPrefixSelection)
-    if isCaretAtTypedBoundary || isSuffixSelection || isSelectAllSelection || isTypedPrefixSelection {
-        return inlineCompletion.typedText
-    }
-
-    return fieldValue
-}
-
-func omnibarInlineCompletionIfBufferMatchesTypedPrefix(
-    bufferText: String,
-    inlineCompletion: OmnibarInlineCompletion?
-) -> OmnibarInlineCompletion? {
-    guard let inlineCompletion else { return nil }
-    guard bufferText == inlineCompletion.typedText else { return nil }
-    return inlineCompletion
-}
-
-func omnibarPrefixAfterDeletingTrailingWord(from text: String) -> String {
-    let nsText = text as NSString
-    let fullRange = NSRange(location: 0, length: nsText.length)
-    var deletionStart = nsText.length
-    nsText.enumerateSubstrings(in: fullRange, options: [.byWords, .reverse]) { _, range, _, stop in
-        deletionStart = range.location
-        stop.pointee = true
-    }
-    return nsText.substring(to: deletionStart)
-}
-
-private func typedQueryHasExplicitPathOrQuery(_ typedQuery: String) -> Bool {
-    var normalized = typedQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    if normalized.hasPrefix("https://") {
-        normalized.removeFirst("https://".count)
-    } else if normalized.hasPrefix("http://") {
-        normalized.removeFirst("http://".count)
-    }
-    return normalized.contains("/") || normalized.contains("?") || normalized.contains("#")
-}
-
-private func inlineCompletionHostDisplayText(
-    for acceptedText: String,
-    typedIncludesScheme: Bool,
-    typedIncludesWWWPrefix: Bool
-) -> String? {
-    guard let components = URLComponents(string: acceptedText),
-          var host = components.host?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-          !host.isEmpty else {
-        return nil
-    }
-
-    if !typedIncludesWWWPrefix, host.hasPrefix("www.") {
-        host.removeFirst("www.".count)
-    }
-
-    let portSuffix: String
-    if let port = components.port {
-        let scheme = components.scheme?.lowercased()
-        let isDefaultPort =
-            (scheme == "https" && port == 443) ||
-            (scheme == "http" && port == 80)
-        portSuffix = isDefaultPort ? "" : ":\(port)"
-    } else {
-        portSuffix = ""
-    }
-
-    let hostWithPort = "\(host)\(portSuffix)"
-    if typedIncludesScheme {
-        let scheme = (components.scheme?.lowercased() == "http") ? "http" : "https"
-        return "\(scheme)://\(hostWithPort)"
-    }
-    return hostWithPort
 }
 
 private struct OmnibarPillFramePreferenceKey: PreferenceKey {
@@ -3832,7 +3583,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             guard let field = obj.object as? NSTextField else { return }
             let editor = field.currentEditor() as? NSTextView
             publishSelectionState()
-            parent.text = omnibarPublishedBufferTextForFieldChange(
+            parent.text = OmnibarInlineCompletion.publishedBufferText(
                 fieldValue: field.stringValue,
                 inlineCompletion: parent.inlineCompletion,
                 selectionRange: editor?.selectedRange(),
@@ -4194,7 +3945,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         }
         context.coordinator.queueSelectAllRequest(selectAllRequestId)
 
-        let activeInlineCompletion = omnibarInlineCompletionIfBufferMatchesTypedPrefix(
+        let activeInlineCompletion = OmnibarInlineCompletion.ifBufferMatchesTypedPrefix(
             bufferText: text,
             inlineCompletion: inlineCompletion
         )
@@ -4290,10 +4041,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         if let editor = nsView.currentEditor() as? NSTextView, !editor.hasMarkedText() {
             if let activeInlineCompletion {
                 let currentSelection = editor.selectedRange()
-                let desiredSelection = omnibarDesiredSelectionRangeForInlineCompletion(
-                    currentSelection: currentSelection,
-                    inlineCompletion: activeInlineCompletion
-                )
+                let desiredSelection = activeInlineCompletion.desiredSelectionRange(currentSelection: currentSelection)
                 if context.coordinator.appliedInlineCompletion != activeInlineCompletion ||
                     !NSEqualRanges(currentSelection, desiredSelection) {
                     context.coordinator.isProgrammaticMutation = true

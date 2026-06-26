@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import CmuxBrowser
 import CmuxCommandPalette
+import CmuxWindowing
 import Foundation
 import CmuxTerminal
 
@@ -590,11 +591,6 @@ func shouldSuppressWindowMoveForFolderDrag(window: NSWindow, event: NSEvent) -> 
     return shouldSuppressWindowMoveForFolderDrag(hitView: hitView)
 }
 
-enum WindowMoveSuppressionReason: String {
-    case folderDrag
-    case bonsplitPaneTabDrag
-}
-
 func shouldSuppressWindowMoveForBonsplitPaneTabDrag(window: NSWindow, event: NSEvent) -> Bool {
     guard event.type == .leftMouseDown else {
         return false
@@ -618,23 +614,23 @@ func beginOrContinueWindowMoveSuppressionSequenceForEvent(
     event: NSEvent,
     pressedMouseButtons: Int = NSEvent.pressedMouseButtons
 ) -> WindowMoveSuppressionReason? {
-    if let activeReason = activeWindowMoveSuppressionSequenceReason(window: window) {
+    if let activeReason = window.activeWindowMoveSuppressionSequenceReason {
         if event.type == .leftMouseDown {
-            _ = finishWindowMoveSuppressionSequence(window: window)
+            _ = window.finishWindowMoveSuppressionSequence()
         } else if event.type == .leftMouseUp || event.type == .leftMouseDragged || (pressedMouseButtons & 0x1) != 0 {
-            ensureWindowMoveSuppressionSequenceIsImmovable(window: window)
+            window.ensureWindowMoveSuppressionSequenceIsImmovable()
             return activeReason
         } else {
-            _ = finishWindowMoveSuppressionSequence(window: window)
+            _ = window.finishWindowMoveSuppressionSequence()
         }
     }
 
     guard let reason = windowMoveSuppressionReason(window: window, event: event) else {
         return nil
     }
-    return beginWindowMoveSuppressionSequence(window: window, reason: reason)
+    return window.beginWindowMoveSuppressionSequence(reason: reason)
 }
 
 func shouldFinishWindowMoveSuppressionSequenceAfterDispatch(window: NSWindow, event: NSEvent) -> Bool {
-    activeWindowMoveSuppressionSequenceReason(window: window) != nil && event.type == .leftMouseUp
+    window.activeWindowMoveSuppressionSequenceReason != nil && event.type == .leftMouseUp
 }

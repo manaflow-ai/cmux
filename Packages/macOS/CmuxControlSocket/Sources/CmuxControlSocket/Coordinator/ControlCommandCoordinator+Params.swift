@@ -227,4 +227,32 @@ extension ControlCommandCoordinator {
         let surfaceRef = handles.ensureRef(kind: .surface, uuid: uuid)
         return .string(surfaceRef.replacingOccurrences(of: "surface:", with: "tab:"))
     }
+
+    /// The `workspace:N` ref JSON value for a workspace id, minted through the
+    /// same handle registry the coordinator uses so refs stay consistent.
+    ///
+    /// Public so the app-resident `workspace.remote.configure` witness shapes its
+    /// `workspace_ref` payload values (the former app-side
+    /// `controlWorkspaceRefValue`).
+    public func workspaceRefValue(_ uuid: UUID) -> JSONValue {
+        .string(handles.ensureRef(kind: .workspace, uuid: uuid))
+    }
+
+    /// The `window:N` ref JSON value (or JSON `null` when absent).
+    ///
+    /// Public so the app-resident `workspace.remote.configure` witness shapes its
+    /// `window_ref` payload value (the former app-side `controlWindowRefValue`).
+    public func windowRefValue(_ uuid: UUID?) -> JSONValue {
+        guard let uuid else { return .null }
+        return .string(handles.ensureRef(kind: .window, uuid: uuid))
+    }
+
+    /// The window id JSON value (or JSON `null` when absent).
+    ///
+    /// Public so the app-resident `workspace.remote.configure` witness shapes its
+    /// `window_id` payload value (the former app-side `controlWindowOrNull`).
+    public func windowIDValue(_ uuid: UUID?) -> JSONValue {
+        guard let uuid else { return .null }
+        return .string(uuid.uuidString)
+    }
 }

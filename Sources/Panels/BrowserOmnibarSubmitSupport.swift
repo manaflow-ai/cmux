@@ -41,7 +41,7 @@ func omnibarSubmitDecision(
     // the per-keystroke path uses (inline-completion and marked-text aware).
     // If that differs from the published buffer, the field is ahead of the
     // state any suggestion selection was computed for.
-    let publishedEquivalent = omnibarPublishedBufferTextForFieldChange(
+    let publishedEquivalent = OmnibarInlineCompletion.publishedBufferText(
         fieldValue: liveField.text,
         inlineCompletion: inlineCompletion,
         selectionRange: liveField.selectionRange,

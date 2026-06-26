@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import CMUXAgentLaunch
 import CmuxAppKitSupportUI
+import CmuxSidebar
 import SwiftUI
 #if DEBUG
 private func feedDebugResponderSummary(_ responder: NSResponder?) -> String {
@@ -765,7 +766,7 @@ final class FeedKeyboardFocusView: NSView {
             onEscape?()
             return true
         }
-        if let delta = RightSidebarKeyboardNavigation.moveDelta(for: event) {
+        if let delta = event.rightSidebarMoveDelta {
             onMoveSelection?(delta)
             return true
         }
@@ -789,7 +790,7 @@ final class FeedKeyboardFocusView: NSView {
             return
         }
 
-        if let delta = RightSidebarKeyboardNavigation.moveDelta(for: event) {
+        if let delta = event.rightSidebarMoveDelta {
             onMoveSelection?(delta)
             return
         }

@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import Bonsplit
+import CmuxBrowser
 import CmuxWorkspaces
 import WebKit
 
@@ -99,11 +100,11 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
         let size = CGSize(width: 240, height: 180)
 
         XCTAssertEqual(
-            BrowserPaneDropRouting.zone(for: CGPoint(x: size.width * 0.5, y: size.height - 8), in: size),
+            PaneDropRouting.zone(for: CGPoint(x: size.width * 0.5, y: size.height - 8), in: size),
             .top
         )
         XCTAssertEqual(
-            BrowserPaneDropRouting.zone(for: CGPoint(x: size.width * 0.5, y: 8), in: size),
+            PaneDropRouting.zone(for: CGPoint(x: size.width * 0.5, y: 8), in: size),
             .bottom
         )
     }
@@ -112,7 +113,7 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
         let size = CGSize(width: 240, height: 180)
 
         XCTAssertEqual(
-            BrowserPaneDropRouting.zone(
+            PaneDropRouting.zone(
                 for: CGPoint(x: size.width * 0.5, y: 110),
                 in: size,
                 topChromeHeight: 36
@@ -120,7 +121,7 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
             .center
         )
         XCTAssertEqual(
-            BrowserPaneDropRouting.zone(
+            PaneDropRouting.zone(
                 for: CGPoint(x: size.width * 0.5, y: 150),
                 in: size,
                 topChromeHeight: 36
@@ -189,7 +190,7 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            BrowserPaneDropRouting.action(for: transfer, target: target, zone: .center),
+            BrowserPaneDropAction.action(for: transfer, target: target, zone: .center),
             .noOp
         )
     }
@@ -209,7 +210,7 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            BrowserPaneDropRouting.action(for: transfer, target: target, zone: .right),
+            BrowserPaneDropAction.action(for: transfer, target: target, zone: .right),
             .move(
                 tabId: tabId,
                 targetWorkspaceId: target.workspaceId,
@@ -244,7 +245,11 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
             kind: "filePreview",
             includesFilePreviewTransferType: false
         )
-        let realTabTransfer = try XCTUnwrap(BrowserPaneDragTransfer.decode(from: realTabPasteboard))
+        let realTabTransfer = try XCTUnwrap(BrowserPaneDragTransfer.decode(
+            from: realTabPasteboard,
+            filePreviewTransferType: DragOverlayRoutingPolicy.filePreviewTransferType,
+            bonsplitTabTransferType: DragOverlayRoutingPolicy.bonsplitTabTransferType
+        ))
         XCTAssertFalse(realTabTransfer.isFilePreview)
         XCTAssertEqual(realTabTransfer.kind, "filePreview")
 
@@ -252,7 +257,11 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
             kind: "filePreview",
             includesFilePreviewTransferType: true
         )
-        let syntheticTransfer = try XCTUnwrap(BrowserPaneDragTransfer.decode(from: syntheticPasteboard))
+        let syntheticTransfer = try XCTUnwrap(BrowserPaneDragTransfer.decode(
+            from: syntheticPasteboard,
+            filePreviewTransferType: DragOverlayRoutingPolicy.filePreviewTransferType,
+            bonsplitTabTransferType: DragOverlayRoutingPolicy.bonsplitTabTransferType
+        ))
         XCTAssertTrue(syntheticTransfer.isFilePreview)
     }
 
@@ -385,7 +394,7 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
             paneId: paneId
         )
 
-        switch BrowserPaneDropRouting.filePreviewDestination(target: target, zone: .center) {
+        switch PaneDropRouting.filePreviewDestination(targetPane: target.paneId, zone: .center) {
         case .insert(let destinationPane, let index):
             XCTAssertEqual(destinationPane, paneId)
             XCTAssertNil(index)
@@ -393,7 +402,7 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
             XCTFail("Center file-preview drops should insert into the target pane")
         }
 
-        switch BrowserPaneDropRouting.filePreviewDestination(target: target, zone: .left) {
+        switch PaneDropRouting.filePreviewDestination(targetPane: target.paneId, zone: .left) {
         case .split(let destinationPane, let orientation, let insertFirst):
             XCTAssertEqual(destinationPane, paneId)
             XCTAssertEqual(orientation, .horizontal)

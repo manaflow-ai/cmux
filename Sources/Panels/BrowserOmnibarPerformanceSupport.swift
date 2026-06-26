@@ -86,14 +86,14 @@ final class BrowserOpenTabSuggestionIndex {
         seedIfNeeded(seedSnapshots)
 
         let loweredQuery = trimmedQuery.lowercased()
-        let singleCharacterQuery = omnibarSingleCharacterQuery(for: trimmedQuery)
+        let singleCharacterQuery = trimmedQuery.omnibarSingleCharacterQuery
         var matches: [OmnibarOpenTabMatch] = []
         matches.reserveCapacity(min(limit, suggestionOrder.count + 1))
         var seenKeys = Set<String>()
 
         func snapshotMatches(_ snapshot: BrowserOpenTabSuggestionSnapshot) -> Bool {
             if let singleCharacterQuery {
-                return omnibarHasSingleCharacterPrefixMatch(
+                return OmnibarSuggestion.hasSingleCharacterPrefixMatch(
                     query: singleCharacterQuery,
                     url: snapshot.url,
                     title: snapshot.title

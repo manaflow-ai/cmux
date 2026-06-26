@@ -1250,10 +1250,10 @@ final class NotificationDockBadgeTests: XCTestCase {
     }
 
     func testNotificationAuthorizationStateMappingCoversKnownUNAuthorizationStatuses() {
-        XCTAssertEqual(TerminalNotificationStore.authorizationState(from: .notDetermined), .notDetermined)
-        XCTAssertEqual(TerminalNotificationStore.authorizationState(from: .denied), .denied)
-        XCTAssertEqual(TerminalNotificationStore.authorizationState(from: .authorized), .authorized)
-        XCTAssertEqual(TerminalNotificationStore.authorizationState(from: .provisional), .provisional)
+        XCTAssertEqual(NotificationAuthorizationState(authorizationStatus: .notDetermined), .notDetermined)
+        XCTAssertEqual(NotificationAuthorizationState(authorizationStatus: .denied), .denied)
+        XCTAssertEqual(NotificationAuthorizationState(authorizationStatus: .authorized), .authorized)
+        XCTAssertEqual(NotificationAuthorizationState(authorizationStatus: .provisional), .provisional)
     }
 
     func testNotificationAuthorizationStateDeliveryCapability() {

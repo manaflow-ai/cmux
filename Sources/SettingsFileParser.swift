@@ -670,7 +670,7 @@ struct SettingsFileParser {
                 settingsFileParserLogger.warning("ignoring unknown shortcut action '\(rawAction, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
                 continue
             }
-            guard let shortcut = parseShortcutBindingValue(rawBinding, action: action) else {
+            guard let shortcut = StoredShortcut.parseSettingsFileBinding(rawBinding, action: action) else {
                 settingsFileParserLogger.warning("ignoring invalid shortcut binding for '\(rawAction, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
                 continue
             }
@@ -707,105 +707,6 @@ struct SettingsFileParser {
             }
             snapshot.whenClauses[action] = clause
         }
-    }
-
-    private func parseShortcutBindingValue(
-        _ rawValue: Any,
-        action: KeyboardShortcutSettings.Action
-    ) -> StoredShortcut? {
-        let shortcut: StoredShortcut? = {
-            if rawValue is NSNull { return .unbound }
-            if let stroke = jsonString(rawValue) {
-                return StoredShortcut.parseConfig(stroke, allowBareFirstStroke: action.allowsBareFirstStroke)
-            }
-            if let strokes = jsonStringArray(rawValue) {
-                return strokes.isEmpty ? .unbound : StoredShortcut.parseConfig(
-                    strokes: strokes,
-                    allowBareFirstStroke: action.allowsBareFirstStroke
-                )
-            }
-            // Object form written by the CmuxSettings package recorder (the
-            // in-app Settings UI): { "first": { key, command, ... }, "second": { ... }? }.
-            // The package serializes StoredShortcut as nested stroke objects, so
-            // a rebinding made in Settings only reaches this store in that shape.
-            // Decode it here so every action resolved through this store — most
-            // visibly the system-wide Carbon hotkeys (globalSearch,
-            // showHideAllWindows) — honors the rebinding instead of silently
-            // dropping it and falling back to the built-in default.
-            if let object = rawValue as? [String: Any] {
-                return parseShortcutObjectForm(object, action: action)
-            }
-            return nil
-        }()
-
-        guard let shortcut else { return nil }
-        // Settings-file parsing runs while the shared store may still be initializing.
-        // Avoid the UI recorder's conflict lookup here because it reads the shared store.
-        return action.normalizedSettingsFileShortcut(shortcut)
-    }
-
-    /// Decodes the nested-object binding the CmuxSettings package writes
-    /// (`{ "first": { stroke }, "second": { stroke }? }`) into the app-target
-    /// ``StoredShortcut``. An empty primary key is the package's explicit
-    /// "unbound" marker. Returns `nil` when `first` is missing or malformed —
-    /// and, to stay consistent with the string parser, when a present `second`
-    /// stroke is malformed (a chord must not silently degrade to a single
-    /// stroke) or when a bare first stroke is used by an action that requires a
-    /// modifier.
-    private func parseShortcutObjectForm(
-        _ object: [String: Any],
-        action: KeyboardShortcutSettings.Action
-    ) -> StoredShortcut? {
-        guard let firstValue = object["first"],
-              let first = parseShortcutStrokeObject(firstValue) else {
-            return nil
-        }
-        if first.key.isEmpty {
-            return .unbound
-        }
-        // Mirror StoredShortcut.parseConfig(strokes:allowBareFirstStroke:): a
-        // bare first stroke is only valid for actions that opt into it, or for
-        // the space key.
-        guard action.allowsBareFirstStroke || !first.modifierFlags.isEmpty || first.key == "space" else {
-            return nil
-        }
-        let second: ShortcutStroke?
-        if let secondValue = object["second"], !(secondValue is NSNull) {
-            // A present-but-malformed second stroke invalidates the whole
-            // binding rather than silently dropping the chord half.
-            guard let parsedSecond = parseShortcutStrokeObject(secondValue) else {
-                return nil
-            }
-            second = parsedSecond
-        } else {
-            second = nil
-        }
-        return StoredShortcut(first: first, second: second)
-    }
-
-    private func parseShortcutStrokeObject(_ rawValue: Any) -> ShortcutStroke? {
-        if rawValue is NSNull { return nil }
-        guard let dict = rawValue as? [String: Any],
-              let key = jsonString(dict["key"]) else {
-            return nil
-        }
-        // An out-of-range keyCode is a corrupt binding, not a key to silently
-        // wrap into a valid UInt16 (which would re-target a different key).
-        let keyCode: UInt16?
-        if let rawKeyCode = jsonInt(dict["keyCode"]) {
-            guard let value = UInt16(exactly: rawKeyCode) else { return nil }
-            keyCode = value
-        } else {
-            keyCode = nil
-        }
-        return ShortcutStroke(
-            key: key,
-            command: jsonBool(dict["command"]) ?? false,
-            shift: jsonBool(dict["shift"]) ?? false,
-            option: jsonBool(dict["option"]) ?? false,
-            control: jsonBool(dict["control"]) ?? false,
-            keyCode: keyCode
-        )
     }
 
     private func parseNullableHex(

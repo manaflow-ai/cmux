@@ -1,8 +1,10 @@
 import AppKit
 import Bonsplit
 import Carbon
+import CmuxFoundation
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxShortcuts
 import CmuxWorkspaces
 import SwiftUI
 
@@ -987,6 +989,86 @@ enum KeyboardShortcutSettings {
     static func openBrowserShortcut() -> StoredShortcut { shortcut(for: .openBrowser) }
     static func toggleBrowserDeveloperToolsShortcut() -> StoredShortcut { shortcut(for: .toggleBrowserDeveloperTools) }
     static func showBrowserJavaScriptConsoleShortcut() -> StoredShortcut { shortcut(for: .showBrowserJavaScriptConsole) }
+}
+
+extension KeyboardShortcutSettings.Action {
+    /// Resolves a `set_shortcut` debug-command name token to the action it
+    /// targets, or `nil` when the token is unrecognized. The accepted aliases
+    /// match the v1 `set_shortcut` control command exactly; callers lowercase
+    /// the token before resolving.
+    init?(debugSetShortcutName name: String) {
+        switch name {
+        case "focus_left", "focusleft":
+            self = .focusLeft
+        case "focus_right", "focusright":
+            self = .focusRight
+        case "focus_up", "focusup":
+            self = .focusUp
+        case "focus_down", "focusdown":
+            self = .focusDown
+        case "split_right", "splitright":
+            self = .splitRight
+        case "split_down", "splitdown":
+            self = .splitDown
+        case "workspace_digits", "workspace_number", "select_workspace_by_number":
+            self = .selectWorkspaceByNumber
+        case "surface_digits", "surface_number", "select_surface_by_number":
+            self = .selectSurfaceByNumber
+        default:
+            return nil
+        }
+    }
+}
+
+extension KeyboardShortcutSettings {
+    /// Parses and applies the v1 `set_shortcut <name> <combo|clear>` debug
+    /// command, returning the legacy `OK`/`ERROR: …` response string verbatim.
+    /// Lifted from the `TerminalController` debug command bodies; references no
+    /// controller state, so it lives with the shortcut store it mutates.
+    static func applyDebugSetShortcutCommand(_ args: String) -> String {
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
+        guard parts.count == 2 else {
+            return "ERROR: Usage: set_shortcut <name> <combo|clear>"
+        }
+
+        let name = parts[0].lowercased()
+        let combo = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard let action = Action(debugSetShortcutName: name) else {
+            return "ERROR: Unknown shortcut name. Supported: focus_left, focus_right, focus_up, focus_down, split_right, split_down, workspace_digits, surface_digits"
+        }
+
+        if combo.lowercased() == "clear" || combo.lowercased() == "unbound" || combo.lowercased() == "none" {
+            clearShortcut(for: action)
+            return "OK"
+        }
+
+        if combo.lowercased() == "default" || combo.lowercased() == "reset" {
+            resetShortcut(for: action)
+            return "OK"
+        }
+
+        guard let parsed = ParsedShortcutCombo(combo: combo) else {
+            return "ERROR: Invalid combo. Example: cmd+ctrl+h"
+        }
+
+        let shortcut = StoredShortcut(
+            key: parsed.storedKey,
+            command: parsed.modifierFlags.contains(.command),
+            shift: parsed.modifierFlags.contains(.shift),
+            option: parsed.modifierFlags.contains(.option),
+            control: parsed.modifierFlags.contains(.control)
+        )
+        if action.usesNumberedDigitMatching,
+           action.normalizedRecordedShortcut(shortcut) == nil {
+            return "ERROR: Numbered shortcuts must use a digit key (1-9). Example: ctrl+1"
+        }
+
+        let storedShortcut = action.normalizedRecordedShortcut(shortcut) ?? shortcut
+        setShortcut(storedShortcut, for: action)
+        return "OK"
+    }
 }
 
 enum SystemWideHotkeySettings {
@@ -2095,6 +2177,37 @@ extension ShortcutStroke {
         )
     }
 
+    /// Decodes a single settings-file stroke object
+    /// (`{ "key": "...", "command": ..., "keyCode": ... }`) into a
+    /// ``ShortcutStroke``. Untyped JSON values are narrowed with
+    /// `CmuxFoundation.JSONScalar`. An out-of-range `keyCode` is treated as a
+    /// corrupt binding (returns `nil`) rather than silently wrapped into a valid
+    /// `UInt16`, which would re-target a different key.
+    static func parseSettingsFileStrokeObject(_ rawValue: Any) -> ShortcutStroke? {
+        if rawValue is NSNull { return nil }
+        guard let dict = rawValue as? [String: Any],
+              let key = JSONScalar(dict["key"]).string else {
+            return nil
+        }
+        // An out-of-range keyCode is a corrupt binding, not a key to silently
+        // wrap into a valid UInt16 (which would re-target a different key).
+        let keyCode: UInt16?
+        if let rawKeyCode = JSONScalar(dict["keyCode"]).int {
+            guard let value = UInt16(exactly: rawKeyCode) else { return nil }
+            keyCode = value
+        } else {
+            keyCode = nil
+        }
+        return ShortcutStroke(
+            key: key,
+            command: JSONScalar(dict["command"]).bool ?? false,
+            shift: JSONScalar(dict["shift"]).bool ?? false,
+            option: JSONScalar(dict["option"]).bool ?? false,
+            control: JSONScalar(dict["control"]).bool ?? false,
+            keyCode: keyCode
+        )
+    }
+
     func configString(preserveDigit: Bool = true) -> String {
         var parts: [String] = []
         if command { parts.append("cmd") }
@@ -2188,6 +2301,88 @@ extension ShortcutStroke {
 }
 
 extension StoredShortcut {
+    /// Decodes a raw settings-file binding value (string, string array, object
+    /// form, or `NSNull`) into a ``StoredShortcut`` for `action`, then applies
+    /// the action's settings-file normalization.
+    ///
+    /// Co-located with the string ``parseConfig(_:allowBareFirstStroke:)`` so
+    /// every settings-file shortcut decoder lives on the owning type. The
+    /// untyped JSON inputs are narrowed with `CmuxFoundation.JSONScalar`, the
+    /// same coercion the settings-file parser uses elsewhere.
+    static func parseSettingsFileBinding(
+        _ rawValue: Any,
+        action: KeyboardShortcutSettings.Action
+    ) -> StoredShortcut? {
+        let shortcut: StoredShortcut? = {
+            if rawValue is NSNull { return .unbound }
+            if let stroke = JSONScalar(rawValue).string {
+                return StoredShortcut.parseConfig(stroke, allowBareFirstStroke: action.allowsBareFirstStroke)
+            }
+            if let strokes = JSONScalar(rawValue).stringArray {
+                return strokes.isEmpty ? .unbound : StoredShortcut.parseConfig(
+                    strokes: strokes,
+                    allowBareFirstStroke: action.allowsBareFirstStroke
+                )
+            }
+            // Object form written by the CmuxSettings package recorder (the
+            // in-app Settings UI): { "first": { key, command, ... }, "second": { ... }? }.
+            // The package serializes StoredShortcut as nested stroke objects, so
+            // a rebinding made in Settings only reaches this store in that shape.
+            // Decode it here so every action resolved through this store — most
+            // visibly the system-wide Carbon hotkeys (globalSearch,
+            // showHideAllWindows) — honors the rebinding instead of silently
+            // dropping it and falling back to the built-in default.
+            if let object = rawValue as? [String: Any] {
+                return parseSettingsFileObjectForm(object, action: action)
+            }
+            return nil
+        }()
+
+        guard let shortcut else { return nil }
+        // Settings-file parsing runs while the shared store may still be initializing.
+        // Avoid the UI recorder's conflict lookup here because it reads the shared store.
+        return action.normalizedSettingsFileShortcut(shortcut)
+    }
+
+    /// Decodes the nested-object binding the CmuxSettings package writes
+    /// (`{ "first": { stroke }, "second": { stroke }? }`) into the app-target
+    /// ``StoredShortcut``. An empty primary key is the package's explicit
+    /// "unbound" marker. Returns `nil` when `first` is missing or malformed —
+    /// and, to stay consistent with the string parser, when a present `second`
+    /// stroke is malformed (a chord must not silently degrade to a single
+    /// stroke) or when a bare first stroke is used by an action that requires a
+    /// modifier.
+    static func parseSettingsFileObjectForm(
+        _ object: [String: Any],
+        action: KeyboardShortcutSettings.Action
+    ) -> StoredShortcut? {
+        guard let firstValue = object["first"],
+              let first = ShortcutStroke.parseSettingsFileStrokeObject(firstValue) else {
+            return nil
+        }
+        if first.key.isEmpty {
+            return .unbound
+        }
+        // Mirror StoredShortcut.parseConfig(strokes:allowBareFirstStroke:): a
+        // bare first stroke is only valid for actions that opt into it, or for
+        // the space key.
+        guard action.allowsBareFirstStroke || !first.modifierFlags.isEmpty || first.key == "space" else {
+            return nil
+        }
+        let second: ShortcutStroke?
+        if let secondValue = object["second"], !(secondValue is NSNull) {
+            // A present-but-malformed second stroke invalidates the whole
+            // binding rather than silently dropping the chord half.
+            guard let parsedSecond = ShortcutStroke.parseSettingsFileStrokeObject(secondValue) else {
+                return nil
+            }
+            second = parsedSecond
+        } else {
+            second = nil
+        }
+        return StoredShortcut(first: first, second: second)
+    }
+
     static func parseConfig(_ rawValue: String, allowBareFirstStroke: Bool = false) -> StoredShortcut? {
         if isUnboundConfigToken(rawValue) {
             return .unbound

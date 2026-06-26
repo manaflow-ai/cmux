@@ -162,6 +162,7 @@ final class BrowserWebAuthnCoordinator: NSObject, WKScriptMessageHandlerWithRepl
     private var activeAuthorizationContinuation: CheckedContinuation<[String: Any], Error>?
     private var activePresentationWindow: NSWindow?
     private let requestParser = BrowserWebAuthnRequestParser()
+    private let replyMarshaler = BrowserWebAuthnCredentialReplyMarshaler()
 
     override init() {
         super.init()
@@ -273,7 +274,7 @@ extension BrowserWebAuthnCoordinator: ASAuthorizationControllerDelegate, ASAutho
         do {
             finishAuthorization(
                 with: .success(
-                    try successCredentialReply(from: authorization.credential)
+                    try replyMarshaler.successCredentialReply(from: authorization.credential)
                 )
             )
         } catch {
@@ -504,142 +505,6 @@ private extension BrowserWebAuthnCoordinator {
         case .failure(let error):
             continuation?.resume(throwing: error)
         }
-    }
-
-    func successCredentialReply(from credential: ASAuthorizationCredential) throws -> [String: Any] {
-        if let registration = credential as? ASAuthorizationPlatformPublicKeyCredentialRegistration {
-            return [
-                "ok": true,
-                "credential": try registrationReply(
-                    credentialID: registration.credentialID,
-                    clientDataJSON: registration.rawClientDataJSON,
-                    attestationObject: registration.rawAttestationObject,
-                    attachment: registration.attachment.browserAttachmentValue,
-                    transports: []
-                ),
-            ]
-        }
-
-        if let registration = credential as? ASAuthorizationSecurityKeyPublicKeyCredentialRegistration {
-            return [
-                "ok": true,
-                "credential": try registrationReply(
-                    credentialID: registration.credentialID,
-                    clientDataJSON: registration.rawClientDataJSON,
-                    attestationObject: registration.rawAttestationObject,
-                    attachment: "cross-platform",
-                    transports: securityKeyTransportValues(from: registration)
-                ),
-            ]
-        }
-
-        if let assertion = credential as? ASAuthorizationPlatformPublicKeyCredentialAssertion {
-            return [
-                "ok": true,
-                "credential": assertionReply(
-                    credentialID: assertion.credentialID,
-                    clientDataJSON: assertion.rawClientDataJSON,
-                    authenticatorData: assertion.rawAuthenticatorData,
-                    signature: assertion.signature,
-                    userHandle: assertion.userID,
-                    attachment: assertion.attachment.browserAttachmentValue,
-                    clientExtensionResults: [:]
-                ),
-            ]
-        }
-
-        if let assertion = credential as? ASAuthorizationSecurityKeyPublicKeyCredentialAssertion {
-            return [
-                "ok": true,
-                "credential": assertionReply(
-                    credentialID: assertion.credentialID,
-                    clientDataJSON: assertion.rawClientDataJSON,
-                    authenticatorData: assertion.rawAuthenticatorData,
-                    signature: assertion.signature,
-                    userHandle: assertion.userID,
-                    attachment: "cross-platform",
-                    clientExtensionResults: appIDExtensionResults(from: assertion)
-                ),
-            ]
-        }
-
-        throw BrowserWebAuthnBridgeError.unknown("The passkey request failed.")
-    }
-
-    func registrationReply(
-        credentialID: Data,
-        clientDataJSON: Data,
-        attestationObject: Data?,
-        attachment: String,
-        transports: [String]
-    ) throws -> [String: Any] {
-        guard let attestationObject else {
-            throw BrowserWebAuthnBridgeError.unknown("The passkey request failed.")
-        }
-
-        var credential: [String: Any] = [
-            "type": "public-key",
-            "id": credentialID.base64URLEncodedString(),
-            "rawId": credentialID.base64URLEncodedString(),
-            "authenticatorAttachment": attachment,
-            "responseKind": "attestation",
-            "response": [
-                "clientDataJSON": clientDataJSON.base64URLEncodedString(),
-                "attestationObject": attestationObject.base64URLEncodedString(),
-                "transports": transports,
-            ],
-            "clientExtensionResults": [:],
-        ]
-
-        if !transports.isEmpty {
-            credential["transports"] = transports
-        }
-
-        return credential
-    }
-
-    func assertionReply(
-        credentialID: Data,
-        clientDataJSON: Data,
-        authenticatorData: Data,
-        signature: Data,
-        userHandle: Data,
-        attachment: String,
-        clientExtensionResults: [String: Any]
-    ) -> [String: Any] {
-        var response: [String: Any] = [
-            "clientDataJSON": clientDataJSON.base64URLEncodedString(),
-            "authenticatorData": authenticatorData.base64URLEncodedString(),
-            "signature": signature.base64URLEncodedString(),
-        ]
-
-        if !userHandle.isEmpty {
-            response["userHandle"] = userHandle.base64URLEncodedString()
-        }
-
-        return [
-            "type": "public-key",
-            "id": credentialID.base64URLEncodedString(),
-            "rawId": credentialID.base64URLEncodedString(),
-            "authenticatorAttachment": attachment,
-            "responseKind": "assertion",
-            "response": response,
-            "clientExtensionResults": clientExtensionResults,
-        ]
-    }
-
-    func securityKeyTransportValues(
-        from registration: ASAuthorizationSecurityKeyPublicKeyCredentialRegistration
-    ) -> [String] {
-        guard #available(macOS 14.5, *) else { return [] }
-        return registration.transports.map(\.rawValue)
-    }
-
-    func appIDExtensionResults(
-        from assertion: ASAuthorizationSecurityKeyPublicKeyCredentialAssertion
-    ) -> [String: Any] {
-        guard #available(macOS 14.5, *), assertion.appID else { return [:] }
-        return ["appid": true]
     }
 
     func bridgeError(from error: Error) -> BrowserWebAuthnBridgeError {
