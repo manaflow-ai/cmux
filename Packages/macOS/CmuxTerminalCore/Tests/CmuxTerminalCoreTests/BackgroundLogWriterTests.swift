@@ -54,7 +54,7 @@ struct BackgroundLogWriterTests {
                 lastChange = ContinuousClock.now
             } else if !contents.isEmpty,
                       contents.hasSuffix("\n"),
-                      lastChange.duration(to: .now) >= settle {
+                      (ContinuousClock.now - lastChange) >= settle {
                 break
             }
             try await Task.sleep(for: .milliseconds(20))
