@@ -982,20 +982,6 @@ class TabManager: ObservableObject {
         applyTabBarLeadingInset(inheritedLeadingInset, to: newWorkspace)
     }
 
-    func applyAutoWorkspaceColorIfNeeded(
-        to newWorkspace: Workspace,
-        workingDirectory: String?
-    ) {
-        guard newWorkspace.customColor == nil,
-              settings.value(for: settingsCatalog.workspaceColors.autoColorFromCwd),
-              let color = WorkspaceTabColorSettings.autoColorHex(
-                  forWorkingDirectory: workingDirectory ?? newWorkspace.currentDirectory
-              ) else {
-            return
-        }
-        newWorkspace.setCustomColor(color)
-    }
-
     func syncWorkspaceTabBarLeadingInset(_ inset: CGFloat) {
         let normalizedInset = max(0, inset)
         currentWindowTabBarLeadingInset = normalizedInset
@@ -1012,7 +998,6 @@ class TabManager: ObservableObject {
 
     /// Test seam for mutating live workspace state after the creation snapshot is captured.
     func didCaptureWorkspaceCreationSnapshot() {}
-
 #if DEBUG
     /// Test seam: invoked when an initial workspace git-metadata refresh is
     /// scheduled, so tests can observe scheduling without the network probe.
