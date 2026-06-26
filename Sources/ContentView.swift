@@ -100,6 +100,11 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
     @EnvironmentObject var fileExplorerState: FileExplorerState
     @Environment(\.colorScheme) private var colorScheme
+    /// Process-wide cross-window sidebar drag registry injected from the app
+    /// composition root (`AppDelegate`). Threaded into `VerticalTabsSidebar` so
+    /// its `SidebarDragState` is wired to the shared registry without reaching
+    /// the `AppDelegate.shared` singleton.
+    @Environment(\.sidebarWorkspaceDragRegistry) private var sidebarWorkspaceDragRegistry
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyleRawValue = TitlebarControlsStyle.classic.rawValue
     @AppStorage(RightSidebarWidthSettings.maxWidthKey) private var rightSidebarMaxWidthSetting = RightSidebarWidthSettings.noOverrideValue
     @AppStorage(SessionPersistencePolicy.sidebarMinimumWidthKey) private var sidebarMinimumWidthSetting = SessionPersistencePolicy.defaultMinimumSidebarWidth
@@ -635,7 +640,8 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             },
             observedWindow: observedWindow,
             selection: $sidebarSelectionState.selection,
-            selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, sidebarRenderWorkerClient: $sidebarRenderWorkerClient
+            selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, sidebarRenderWorkerClient: $sidebarRenderWorkerClient,
+            workspaceDragRegistry: sidebarWorkspaceDragRegistry ?? SidebarWorkspaceDragRegistry()
         )
         .frame(width: sidebarWidth)
         .frame(maxHeight: .infinity, alignment: .topLeading)
@@ -5815,22 +5821,6 @@ extension SidebarTabItemSettingsSnapshot {
     }
 }
 
-// `SidebarDragState`, `SidebarWorkspaceDragRegistry`, and the DEBUG-only
-// `SidebarDragStateRegistry` now live in the `CmuxSidebar`// package. This app-side convenience keeps the `SidebarDragState()` call site
-// unchanged by injecting the process-wide cross-window registry the app owns
-// at its composition root (`AppDelegate`).
-extension SidebarDragState {
-    /// Builds a drag state wired to the app's process-wide cross-window drag
-    /// registry. Falls back to a fresh registry only if `AppDelegate.shared` is
-    /// not yet available (never the case once a sidebar has mounted).
-    convenience init() {
-        self.init(
-            workspaceDragRegistry: AppDelegate.shared?.sidebarWorkspaceDragRegistry
-                ?? SidebarWorkspaceDragRegistry()
-        )
-    }
-}
-
 /// Freezes `showsModifierShortcutHints` for the row whose context menu is open,
 /// so pressing/releasing the modifier key while the menu is up does not flip
 /// the underlying row's shortcut badges (which would be visible around the
@@ -5875,7 +5865,44 @@ struct VerticalTabsSidebar: View {
         initialSidebarFontSize: GhosttyConfig.load().sidebarFontSize
     )
     private let keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
-    @State var dragState = SidebarDragState()
+    @State var dragState: SidebarDragState
+
+    /// Seeds the `@State` `SidebarDragState` with the cross-window drag registry
+    /// injected from the app composition root. `@State` initializers cannot read
+    /// the SwiftUI environment, so the owning view (`ContentView`) reads
+    /// `\.sidebarWorkspaceDragRegistry` and threads the registry here, inverting
+    /// the former `AppDelegate.shared` lookup the `SidebarDragState()`
+    /// convenience initializer performed.
+    @MainActor
+    init(
+        updateViewModel: UpdateStateModel,
+        fileExplorerState: FileExplorerState,
+        windowId: UUID,
+        onSendFeedback: @escaping () -> Void,
+        onToggleSidebar: @escaping () -> Void,
+        onNewTab: @escaping () -> Void,
+        observedWindow: NSWindow?,
+        selection: Binding<SidebarSelection>,
+        selectedTabIds: Binding<Set<UUID>>,
+        lastSidebarSelectionIndex: Binding<Int?>,
+        sidebarRenderWorkerClient: Binding<RenderWorkerClient?>,
+        workspaceDragRegistry: any SidebarWorkspaceDragRegistering
+    ) {
+        self.updateViewModel = updateViewModel
+        self._fileExplorerState = ObservedObject(wrappedValue: fileExplorerState)
+        self.windowId = windowId
+        self.onSendFeedback = onSendFeedback
+        self.onToggleSidebar = onToggleSidebar
+        self.onNewTab = onNewTab
+        self.observedWindow = observedWindow
+        self._selection = selection
+        self._selectedTabIds = selectedTabIds
+        self._lastSidebarSelectionIndex = lastSidebarSelectionIndex
+        self._sidebarRenderWorkerClient = sidebarRenderWorkerClient
+        self._dragState = State(
+            initialValue: SidebarDragState(workspaceDragRegistry: workspaceDragRegistry)
+        )
+    }
     // Bonsplit tab drags arrive through AppKit pasteboard callbacks, not
     // `SidebarDragState`, so they need a separate transient collection flag.
     @State private var isBonsplitWorkspaceDropTargetCollectionActive = false

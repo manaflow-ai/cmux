@@ -6369,6 +6369,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // optional, so a nil runtime just leaves reads at their seeded
             // catalog default.
             .environment(\.settingsRuntime, settingsRuntime)
+            // Inject the composition-root-owned cross-window sidebar drag
+            // registry so the sidebar's `SidebarDragState` wires to the shared
+            // registry by injection instead of an `AppDelegate.shared` lookup.
+            .environment(\.sidebarWorkspaceDragRegistry, sidebarWorkspaceDragRegistry)
 
         // Use the current key window's size for new windows so Cmd+Shift+N
         // creates a window matching the previous one's dimensions.

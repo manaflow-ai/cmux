@@ -1439,7 +1439,14 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         } else {
             cellView = FileExplorerSearchResultCellView(identifier: identifier)
         }
-        cellView.configure(with: searchSnapshot.results[row])
+        let result = searchSnapshot.results[row]
+        cellView.configure(
+            relativePath: result.relativePath,
+            lineNumber: result.lineNumber,
+            columnNumber: result.columnNumber,
+            path: result.path,
+            preview: result.preview
+        )
         return cellView
     }
 
@@ -1532,54 +1539,6 @@ final class FileExplorerSearchResultsTableView: NSTableView {
         for row in visibleRows.location..<upperBound {
             rowView(atRow: row, makeIfNecessary: false)?.needsDisplay = true
         }
-    }
-}
-
-private final class FileExplorerSearchResultCellView: NSTableCellView {
-    private let pathLabel = NSTextField(labelWithString: "")
-    private let previewLabel = NSTextField(labelWithString: "")
-
-    init(identifier: NSUserInterfaceItemIdentifier) {
-        super.init(frame: .zero)
-        self.identifier = identifier
-        setupViews()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    private func setupViews() {
-        pathLabel.translatesAutoresizingMaskIntoConstraints = false
-        pathLabel.font = .systemFont(ofSize: 12, weight: .semibold)
-        pathLabel.textColor = .labelColor
-        pathLabel.lineBreakMode = .byTruncatingMiddle
-        pathLabel.maximumNumberOfLines = 1
-
-        previewLabel.translatesAutoresizingMaskIntoConstraints = false
-        previewLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-        previewLabel.textColor = .secondaryLabelColor
-        previewLabel.lineBreakMode = .byTruncatingTail
-        previewLabel.maximumNumberOfLines = 1
-
-        addSubview(pathLabel)
-        addSubview(previewLabel)
-
-        NSLayoutConstraint.activate([
-            pathLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
-            pathLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
-            pathLabel.topAnchor.constraint(equalTo: topAnchor, constant: 5),
-
-            previewLabel.leadingAnchor.constraint(equalTo: pathLabel.leadingAnchor),
-            previewLabel.trailingAnchor.constraint(equalTo: pathLabel.trailingAnchor),
-            previewLabel.topAnchor.constraint(equalTo: pathLabel.bottomAnchor, constant: 2),
-        ])
-    }
-
-    func configure(with result: FileSearchResult) {
-        pathLabel.stringValue = "\(result.relativePath):\(result.lineNumber)"
-        previewLabel.stringValue = result.preview.isEmpty ? " " : result.preview
-        toolTip = "\(result.path):\(result.lineNumber):\(result.columnNumber)"
     }
 }
 

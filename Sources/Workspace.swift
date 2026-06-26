@@ -40,10 +40,6 @@ private func debugWorkspaceDescriptionPreview(_ text: String?, limit: Int = 120)
 }
 #endif
 
-private final class WorkspacePendingTerminalInputObserver: @unchecked Sendable {
-    var observer: NSObjectProtocol?
-}
-
 private struct SessionPaneRestoreEntry {
     let paneId: PaneID
     let snapshot: SessionPaneLayoutSnapshot
@@ -1463,102 +1459,45 @@ extension Workspace {
         layoutCoordinator.applyCustomLayout(layout.workspaceCustomLayoutNode, baseCwd: baseCwd)
     }
 
-    /// Sends `text` to the terminal panel once its surface is ready, registering
-    /// a one-shot not-ready observer (with a timeout drop) when it is not. Kept on
-    /// `Workspace` because it touches the workspace panel registry, the pending
-    /// observer machinery, and `NotificationCenter`; the custom-layout coordinator
-    /// reaches it through ``WorkspaceLayoutHosting/layoutSendStartupCommand(_:toTerminalPanelId:)``.
-    func sendInputWhenReady(
-        _ text: String,
-        to panel: TerminalPanel,
-        reason: WorkspacePendingTerminalInputReason = .configurationCommand
-    ) {
-        if panel.surface.surface != nil {
+}
+
+
+/// Live panel/surface seam for ``PendingTerminalInputCoordinator``. These
+/// witnesses keep the app-target `TerminalPanel`, its `TerminalSurface`, and the
+/// `.terminalSurfaceDidBecomeReady` notification app-side; the coordinator owns
+/// only the pending surface-ready registry. Lifted verbatim from the legacy
+/// `Workspace.sendInputWhenReady(_:to:)` body (surface-ready check, `sendInput`,
+/// the not-ready observer registration, and `requestBackgroundSurfaceStartIfNeeded`).
+extension Workspace {
+    func pendingInputIsSurfaceReady(forPanelId panelId: UUID) -> Bool {
+        guard let panel = panels[panelId] as? TerminalPanel else { return false }
+        return panel.surface.surface != nil
+    }
+
+    func pendingInputSendInput(_ text: String, toPanelId panelId: UUID) {
+        if let panel = panels[panelId] as? TerminalPanel {
             panel.sendInput(text)
-            return
         }
+    }
 
-        let timeout = reason.timeout
-        let panelId = panel.id
-        let registration = WorkspacePendingTerminalInputObserver()
-
-        registration.observer = NotificationCenter.default.addObserver(
+    func pendingInputObserveSurfaceReady(
+        forPanelId panelId: UUID,
+        onReady: @escaping @Sendable () -> Void
+    ) -> (any NSObjectProtocol)? {
+        guard let panel = panels[panelId] as? TerminalPanel else { return nil }
+        return NotificationCenter.default.addObserver(
             forName: .terminalSurfaceDidBecomeReady,
             object: panel.surface,
             queue: .main
-        ) { [weak self, registration] _ in
-            Task { @MainActor [weak self, registration] in
-                guard
-                    let self,
-                    self.hasPendingTerminalInputObserver(registration, forPanelId: panelId)
-                else {
-                    return
-                }
-
-                self.removePendingTerminalInputObserver(registration, forPanelId: panelId)
-                if let panel = self.panels[panelId] as? TerminalPanel {
-                    panel.sendInput(text)
-                }
-            }
+        ) { _ in
+            onReady()
         }
-        pendingTerminalInputObserversByPanelId[panelId, default: []].append(registration)
+    }
+
+    func pendingInputRequestBackgroundSurfaceStart(forPanelId panelId: UUID) {
+        guard let panel = panels[panelId] as? TerminalPanel else { return }
         panel.surface.requestBackgroundSurfaceStartIfNeeded()
-
-        guard let timeout else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self, registration] in
-            Task { @MainActor [weak self, registration] in
-                guard
-                    let self,
-                    self.hasPendingTerminalInputObserver(registration, forPanelId: panelId)
-                else {
-                    return
-                }
-
-                self.removePendingTerminalInputObserver(registration, forPanelId: panelId)
-                #if DEBUG
-                NSLog("[CmuxConfig] surface not ready after 3s, dropping command (%d chars)", text.count)
-                #endif
-            }
-        }
     }
-
-    private func hasPendingTerminalInputObserver(
-        _ registration: WorkspacePendingTerminalInputObserver,
-        forPanelId panelId: UUID
-    ) -> Bool {
-        pendingTerminalInputObserversByPanelId[panelId]?.contains {
-            $0 === registration
-        } == true
-    }
-
-    private func removePendingTerminalInputObserver(
-        _ registration: WorkspacePendingTerminalInputObserver,
-        forPanelId panelId: UUID
-    ) {
-        if let observer = registration.observer {
-            NotificationCenter.default.removeObserver(observer)
-            registration.observer = nil
-        }
-        pendingTerminalInputObserversByPanelId[panelId]?.removeAll {
-            $0 === registration
-        }
-        if pendingTerminalInputObserversByPanelId[panelId]?.isEmpty == true {
-            pendingTerminalInputObserversByPanelId.removeValue(forKey: panelId)
-        }
-    }
-
-    func removePendingTerminalInputObservers(forPanelId panelId: UUID) {
-        guard let observers = pendingTerminalInputObserversByPanelId.removeValue(forKey: panelId) else {
-            return
-        }
-        for registration in observers {
-            if let observer = registration.observer {
-                NotificationCenter.default.removeObserver(observer)
-                registration.observer = nil
-            }
-        }
-    }
-
 }
 
 
@@ -1589,7 +1528,7 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
 /// only flips the class and keeps the Combine seam.
 @MainActor
 @Observable
-final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHosting, WorkspaceTitleHosting, WorkspaceAppearanceHosting, SurfaceRegistryHosting {
+final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHosting, WorkspaceTitleHosting, WorkspaceAppearanceHosting, SurfaceRegistryHosting, PendingTerminalInputHosting {
     /// The browser-panel creation policy now lives in `CmuxBrowser` as a
     /// top-level `Sendable` value. This nested typealias keeps the existing
     /// unqualified `BrowserPanelCreationPolicy` and `Workspace.BrowserPanelCreationPolicy`
@@ -2358,7 +2297,13 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         get { agentHibernation.invalidatedRestoredAgentFingerprintsByPanelId }
         set { agentHibernation.invalidatedRestoredAgentFingerprintsByPanelId = newValue }
     }
-    private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
+    /// Queues terminal input until a panel's surface shell is ready
+    /// (CmuxWorkspaces). Owns the pending surface-ready registration registry and
+    /// its bookkeeping; `Workspace` is its ``PendingTerminalInputHosting`` host
+    /// (conformed below) and supplies the live panel/surface reads, `sendInput`,
+    /// and the `.terminalSurfaceDidBecomeReady` observer. The custom-layout
+    /// startup-command send reaches it through `layoutSendStartupCommand`.
+    let pendingTerminalInput = PendingTerminalInputCoordinator()
     private let sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>
 
     typealias SurfaceResumeStartupLaunch = WorkspaceSurfaceResumeStartupLaunch
@@ -2743,6 +2688,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         surfaceList.attach(tree: self)
         surfaceLifecycle.attach(host: self)
         layoutCoordinator.attach(host: self)
+        pendingTerminalInput.attach(host: self)
         layoutFollowUpCoordinator.attach(host: self)
         splitMoveReorder.attach(host: self)
         splitClose.attach(host: self)
@@ -2973,13 +2919,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     // this MainActor state or call the `@MainActor` `RemoteSessionCoordinator.stop()`.
     // Isolating the deinit preserves the exact prior teardown semantics.
     isolated deinit {
-        for registrations in pendingTerminalInputObserversByPanelId.values {
-            for registration in registrations {
-                if let observer = registration.observer {
-                    NotificationCenter.default.removeObserver(observer)
-                }
-            }
-        }
+        pendingTerminalInput.removeAllObserverTokens()
         activeRemoteSessionControllerID = nil
         remoteSessionController?.stop()
     }
@@ -3620,7 +3560,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
 
     private func hasBackgroundSurfaceStartWork(for panel: TerminalPanel) -> Bool {
         panel.surface.hasDeferredStartupWorkForBackgroundStart() ||
-            pendingTerminalInputObserversByPanelId[panel.id]?.isEmpty == false
+            pendingTerminalInput.hasObservers(forPanelId: panel.id)
     }
 
     private var backgroundPrimeTerminalPanelsNeedingSurfaceStart: [TerminalPanel] {
@@ -4411,9 +4351,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     }
 
     func pruneSurfaceMetadata(validSurfaceIds: Set<UUID>) {
-        for panelId in Array(pendingTerminalInputObserversByPanelId.keys) where !validSurfaceIds.contains(panelId) {
-            removePendingTerminalInputObservers(forPanelId: panelId)
-        }
+        pendingTerminalInput.removeObservers(forPanelIdsNotIn: validSurfaceIds)
         panelDirectories = panelDirectories.filter { validSurfaceIds.contains($0.key) }
         panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
@@ -7336,7 +7274,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         debugSessionSnapshotScrollbackFallbackPanelIds.removeAll(keepingCapacity: false)
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeAll(keepingCapacity: false)
 #endif
-        pendingTerminalInputObserversByPanelId.removeAll(keepingCapacity: false)
+        pendingTerminalInput.clearRegistry()
         terminalInheritanceFontPointsByPanelId.removeAll(keepingCapacity: false)
         lastTerminalConfigInheritancePanelId = nil
         lastTerminalConfigInheritanceFontPoints = nil

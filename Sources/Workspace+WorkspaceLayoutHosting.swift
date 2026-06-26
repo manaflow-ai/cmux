@@ -84,8 +84,8 @@ extension Workspace: WorkspaceLayoutHosting {
     }
 
     func layoutSendStartupCommand(_ command: String, toTerminalPanelId panelId: UUID) {
-        guard let terminal = terminalPanel(for: panelId) else { return }
-        sendInputWhenReady(command, to: terminal)
+        guard terminalPanel(for: panelId) != nil else { return }
+        pendingTerminalInput.sendInputWhenReady(command, toPanelId: panelId)
     }
 
     func layoutResolveCwd(_ cwd: String?, relativeTo baseCwd: String) -> String {

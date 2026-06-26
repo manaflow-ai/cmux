@@ -54,26 +54,6 @@ extension TerminalController: ControlWorkspaceContext {
         resolveTabManager(routing: routing) != nil
     }
 
-    // MARK: - Snapshots
-
-    /// Builds the Sendable summary of one workspace (the legacy
-    /// `v2WorkspaceSummaryPayload` data, minus the index/selected/ref minting the
-    /// coordinator now owns), bridging the app-typed `remoteStatusPayload()`.
-    private func controlWorkspaceSummary(_ workspace: Workspace) -> ControlWorkspaceSummary {
-        ControlWorkspaceSummary(
-            id: workspace.id, title: workspace.title, customTitle: workspace.customTitle,
-            customDescription: workspace.customDescription,
-            isPinned: workspace.isPinned,
-            listeningPorts: workspace.listeningPorts,
-            remoteStatus: workspace.controlRemoteStatusJSON,
-            currentDirectory: workspace.currentDirectory,
-            customColor: workspace.customColor,
-            latestConversationMessage: workspace.latestConversationMessage,
-            latestSubmittedMessage: workspace.latestSubmittedMessage,
-            latestSubmittedAt: workspace.latestSubmittedAt.map(CmuxEventBus.isoTimestamp)
-        )
-    }
-
     // MARK: - List / current
 
     func controlWorkspaceList(routing: ControlRoutingSelectors) -> ControlWorkspaceListResolution {
@@ -86,7 +66,7 @@ extension TerminalController: ControlWorkspaceContext {
             if ws.id == selectedId {
                 selectedIndex = index
             }
-            return controlWorkspaceSummary(ws)
+            return ws.controlWorkspaceSummary
         }
         let windowId = AppDelegate.shared?.windowId(for: tabManager)
         return .resolved(windowID: windowId, workspaces: summaries, selectedIndex: selectedIndex)
@@ -108,7 +88,7 @@ extension TerminalController: ControlWorkspaceContext {
             windowID: windowId,
             workspaceID: workspaceId,
             index: index,
-            summary: workspace.map { controlWorkspaceSummary($0) }
+            summary: workspace.map { $0.controlWorkspaceSummary }
         )
     }
 
