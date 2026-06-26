@@ -165,6 +165,21 @@ struct TerminalComposerView: View {
         }
         .onAppear {
             recordComposerEvent(.composerViewAppear)
+            // Re-measure the band on appear. A RESTORED draft is written into
+            // `store.terminalInputText` while this composer is OFF-SCREEN (returning
+            // from the workspace list re-selects the same terminal, whose draft is
+            // already in the store, or it is re-loaded asynchronously before this view
+            // re-appears), so it produces NO content change during this view's
+            // lifecycle and the `.onChange(of: store.terminalInputText)` remeasure
+            // above never fires for it. The host's only mount-time measure can run
+            // before SwiftUI lays out the restored multi-line text, leaving the band
+            // one line tall. Deferred one runloop (like `focusField()` below) so the
+            // restored text is laid out before the host's `sizeThatFits` runs; the
+            // remeasure is idempotent (`setComposerBandHeight` no-ops on an unchanged
+            // height) and animated, so it is safe for the normal empty-composer open.
+            Task { @MainActor in
+                requestHeightRemeasure()
+            }
             // Focus only when an explicit request preceded this mount (an
             // explicit open after a dismissal, or a terminal switch while the
             // user was mid-compose). A default-open presentation arrives with no
