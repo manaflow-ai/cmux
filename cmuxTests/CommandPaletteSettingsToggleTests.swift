@@ -28,15 +28,15 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
             let offState = String(localized: "command.toggleSetting.state.off", defaultValue: "Off")
             let onState = String(localized: "command.toggleSetting.state.on", defaultValue: "On")
             XCTAssertFalse(descriptor.isOn(defaults))
-            XCTAssertEqual(descriptor.commandTitle(defaults: defaults), enableTitle)
-            XCTAssertTrue(descriptor.commandSubtitle(defaults: defaults).contains(offState))
+            XCTAssertEqual(descriptor.commandTitle(strings: CommandPaletteSettingsToggleCommands.toggleStrings, defaults: defaults), enableTitle)
+            XCTAssertTrue(descriptor.commandSubtitle(strings: CommandPaletteSettingsToggleCommands.toggleStrings, defaults: defaults).contains(offState))
 
             descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
 
             XCTAssertEqual(defaults.object(forKey: IMessageModeSettings.key) as? Bool, true)
             XCTAssertTrue(descriptor.isOn(defaults))
-            XCTAssertEqual(descriptor.commandTitle(defaults: defaults), disableTitle)
-            XCTAssertTrue(descriptor.commandSubtitle(defaults: defaults).contains(onState))
+            XCTAssertEqual(descriptor.commandTitle(strings: CommandPaletteSettingsToggleCommands.toggleStrings, defaults: defaults), disableTitle)
+            XCTAssertTrue(descriptor.commandSubtitle(strings: CommandPaletteSettingsToggleCommands.toggleStrings, defaults: defaults).contains(onState))
         }
     }
 
@@ -235,7 +235,7 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
             let offState = String(localized: "command.toggleSetting.state.off", defaultValue: "Off")
             let onState = String(localized: "command.toggleSetting.state.on", defaultValue: "On")
             XCTAssertTrue(descriptor.isOn(defaults))
-            XCTAssertTrue(descriptor.commandSubtitle(defaults: defaults).contains(onState))
+            XCTAssertTrue(descriptor.commandSubtitle(strings: CommandPaletteSettingsToggleCommands.toggleStrings, defaults: defaults).contains(onState))
 
             descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
 
@@ -244,7 +244,7 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
                 false
             )
             XCTAssertFalse(descriptor.isOn(defaults))
-            XCTAssertTrue(descriptor.commandSubtitle(defaults: defaults).contains(offState))
+            XCTAssertTrue(descriptor.commandSubtitle(strings: CommandPaletteSettingsToggleCommands.toggleStrings, defaults: defaults).contains(offState))
         }
     }
 

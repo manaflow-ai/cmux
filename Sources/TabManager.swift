@@ -203,13 +203,21 @@ class TabManager {
 #endif
             }
     }
-    // NotificationCenter observer tokens. `@Observable` makes the class deinit
-    // nonisolated, so it cannot read MainActor storage; `nonisolated(unsafe)`
-    // lets the deinit unregister them. Safe: mutated only on the MainActor at
-    // construction, read once in deinit. `@ObservationIgnored` (bookkeeping, not
-    // observable UI state).
+    // Typed NotificationCenter subscriptions, each owning its observer token and
+    // unregistering it in its own (nonisolated) deinit when this TabManager
+    // deallocates. `@ObservationIgnored` (bookkeeping, not observable UI state).
+    // Built in `init` after the first `addWorkspace`, matching the legacy
+    // inline-observer registration site/order; their decode + `queue: .main` +
+    // `MainActor.assumeIsolated` synchronous delivery preserves the original
+    // emission timing.
     @ObservationIgnored
-    nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
+    private var ghosttyTitleSubscription: GhosttyTitleChangeSubscription?
+    @ObservationIgnored
+    private var ghosttyFocusSurfaceSubscription: GhosttyFocusSurfaceSubscription?
+    @ObservationIgnored
+    private var workspaceCurrentDirectorySubscription: WorkspaceCurrentDirectorySubscription?
+    @ObservationIgnored
+    private var userDefaultsChangeSubscription: UserDefaultsChangeSubscription?
     /// Per-window focused-surface bookkeeping (remembered focused panel per
     /// workspace) + the deferred previous-workspace unfocus state machine
     /// (CmuxWorkspaces). TabManager hosts its seam
@@ -503,83 +511,52 @@ class TabManager {
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: autoWelcomeIfNeeded
         )
-        observers.append(NotificationCenter.default.addObserver(
-            forName: .ghosttyDidSetTitle,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            MainActor.assumeIsolated { [weak self] in
-                guard let self else { return }
-                guard let change = GhosttyTitleChange(notification: notification) else { return }
-                enqueuePanelTitleUpdate(tabId: change.tabId, panelId: change.surfaceId, title: change.title)
-            }
-        })
-        observers.append(NotificationCenter.default.addObserver(
-            forName: .ghosttyDidFocusSurface,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            MainActor.assumeIsolated { [weak self] in
-                guard let self else { return }
-                guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID else { return }
-                guard let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID else { return }
-                let explicitFocusIntent = notification.userInfo?[GhosttyNotificationKey.explicitFocusIntent] as? Bool ?? false
-                let panelId = panelIdForFocusHistorySurface(surfaceId, workspaceId: tabId)
-                if selectedTabId == tabId {
-                    if explicitFocusIntent {
-                        focusHistoryNavigation.recordFocusInHistory(
-                            workspaceId: tabId,
-                            panelId: panelId,
-                            preservingForwardBranch: false
-                        )
-                    } else {
-                        focusHistoryNavigation.recordImplicitFocusInHistory(workspaceId: tabId, panelId: panelId)
-                    }
+        ghosttyTitleSubscription = GhosttyTitleChangeSubscription(synchronous: true) { [weak self] change in
+            guard let self else { return }
+            enqueuePanelTitleUpdate(tabId: change.tabId, panelId: change.surfaceId, title: change.title)
+        }
+        ghosttyFocusSurfaceSubscription = GhosttyFocusSurfaceSubscription { [weak self] change in
+            guard let self else { return }
+            let panelId = panelIdForFocusHistorySurface(change.surfaceId, workspaceId: change.tabId)
+            if selectedTabId == change.tabId {
+                if change.explicitFocusIntent {
+                    focusHistoryNavigation.recordFocusInHistory(
+                        workspaceId: change.tabId,
+                        panelId: panelId,
+                        preservingForwardBranch: false
+                    )
+                } else {
+                    focusHistoryNavigation.recordImplicitFocusInHistory(workspaceId: change.tabId, panelId: panelId)
                 }
-                dismissPanelNotificationOnFocus(tabId: tabId, panelId: panelId, explicitFocusIntent: explicitFocusIntent)
-                focusedSurfaceTitleDidChange(tabId: tabId)
             }
-        })
-        observers.append(NotificationCenter.default.addObserver(
-            forName: .workspaceCurrentDirectoryDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            MainActor.assumeIsolated { [weak self] in
-                guard let self else { return }
-                let workspaceId = notification.userInfo?["workspaceId"] as? UUID
-                    ?? (notification.object as? Workspace)?.id
-                guard let workspaceId else { return }
-                workspaceCurrentDirectoryDidChange(workspaceId: workspaceId)
-            }
-        })
+            dismissPanelNotificationOnFocus(tabId: change.tabId, panelId: panelId, explicitFocusIntent: change.explicitFocusIntent)
+            focusedSurfaceTitleDidChange(tabId: change.tabId)
+        }
+        workspaceCurrentDirectorySubscription = WorkspaceCurrentDirectorySubscription { [weak self] workspaceId in
+            guard let self else { return }
+            workspaceCurrentDirectoryDidChange(workspaceId: workspaceId)
+        }
 
         // Wire and arm the agent-PID liveness sweep. Attached after the first
         // workspace is added (matching the legacy call site at the end of init),
         // so the first sweep one interval later sees the initial workspace.
         agentPIDLivenessSweep.attach(host: self)
         agentPIDLivenessSweep.start()
-        observers.append(NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { [weak self] in
-                self?.sidebarMetadataSettingsDidChange()
-                self?.refreshTabCloseButtonVisibility()
-                self?.refreshWindowTitle()
-            }
-        })
+        userDefaultsChangeSubscription = UserDefaultsChangeSubscription { [weak self] in
+            self?.sidebarMetadataSettingsDidChange()
+            self?.refreshTabCloseButtonVisibility()
+            self?.refreshWindowTitle()
+        }
 #if DEBUG
         setupUITestSplitScaffoldsIfNeeded()
 #endif
     }
 
     deinit {
-        for observer in observers {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        observers.removeAll()
+        // The typed NotificationCenter subscriptions
+        // (ghosttyTitle/ghosttyFocusSurface/workspaceCurrentDirectory/userDefaultsChange)
+        // unregister their observer tokens in their own deinits as this
+        // TabManager deallocates and releases them; no explicit teardown here.
         // The workspace-cycle cooldown task is owned by `workspaceSelection`
         // (CmuxWorkspaces); it deallocates with this TabManager and its task's
         // `[weak self]` guard no-ops after dealloc, so no explicit cancel is

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxTerminal
 import Bonsplit
+import Observation
 import SwiftUI
 
 struct DockControlDefinition: Codable, Equatable, Identifiable {
@@ -98,13 +99,14 @@ struct DockTrustRequest: Identifiable {
 }
 
 @MainActor
-final class DockControlRuntime: ObservableObject, Identifiable {
+@Observable
+final class DockControlRuntime: Identifiable {
     let id: String
     let definition: DockControlDefinition
     let baseDirectory: String
     let workspaceId: UUID
     let paneId: PaneID
-    @Published private(set) var panel: TerminalPanel
+    private(set) var panel: TerminalPanel
 
     init(definition: DockControlDefinition, baseDirectory: String, workspaceId: UUID) {
         self.id = definition.id
@@ -237,11 +239,12 @@ fileprivate struct DockControlSnapshot: Identifiable {
 fileprivate struct DockTerminalAttachment { let paneId: PaneID; let panelId: UUID; let terminalSurface: TerminalSurface; let searchState: TerminalSurface.SearchState?; let reattachToken: UInt64 }
 
 @MainActor
-final class DockControlsStore: ObservableObject {
-    @Published private(set) var controls: [DockControlRuntime] = []
-    @Published private(set) var sourceLabel = ""
-    @Published private(set) var errorMessage: String?
-    @Published private(set) var trustRequest: DockTrustRequest?
+@Observable
+final class DockControlsStore {
+    private(set) var controls: [DockControlRuntime] = []
+    private(set) var sourceLabel = ""
+    private(set) var errorMessage: String?
+    private(set) var trustRequest: DockTrustRequest?
 
     private var lastRootDirectory: String?
     private var lastWorkspaceId: UUID?
@@ -566,7 +569,7 @@ final class DockControlsStore: ObservableObject {
 struct DockPanelView: View {
     let rootDirectory: String?
     let workspaceId: UUID?
-    @ObservedObject var store: DockControlsStore
+    let store: DockControlsStore
 
     var body: some View {
         VStack(spacing: 0) {
@@ -864,7 +867,7 @@ private struct DockErrorView: View {
 }
 
 private struct DockKeyboardFocusBridge: NSViewRepresentable {
-    @ObservedObject var store: DockControlsStore
+    let store: DockControlsStore
 
     func makeNSView(context: Context) -> DockKeyboardFocusView {
         DockKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))

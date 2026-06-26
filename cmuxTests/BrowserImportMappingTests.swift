@@ -21,7 +21,7 @@ final class BrowserImportMappingTests: XCTestCase {
             makeSourceProfile(displayName: "austin", path: "/tmp/browser-import-austin", isDefault: false),
         ]
 
-        let plan = BrowserImportPlanResolver.defaultPlan(
+        let plan = BrowserImportPlanResolver().defaultPlan(
             selectedSourceProfiles: sourceProfiles,
             destinationProfiles: [defaultProfile],
             preferredSingleDestinationProfileID: defaultProfile.id
@@ -41,7 +41,7 @@ final class BrowserImportMappingTests: XCTestCase {
             isDefault: true
         )
 
-        let plan = BrowserImportPlanResolver.defaultPlan(
+        let plan = BrowserImportPlanResolver().defaultPlan(
             selectedSourceProfiles: [sourceProfile],
             destinationProfiles: [],
             preferredSingleDestinationProfileID: defaultProfileID
@@ -67,7 +67,7 @@ final class BrowserImportMappingTests: XCTestCase {
             makeSourceProfile(displayName: " you ", path: "/tmp/browser-import-match", isDefault: true)
         ]
 
-        let plan = BrowserImportPlanResolver.separateProfilesPlan(
+        let plan = BrowserImportPlanResolver().separateProfilesPlan(
             selectedSourceProfiles: sourceProfiles,
             destinationProfiles: destinationProfiles
         )
@@ -83,7 +83,7 @@ final class BrowserImportMappingTests: XCTestCase {
             makeSourceProfile(displayName: "Work", path: "/tmp/browser-import-work-2", isDefault: false),
         ]
 
-        let plan = BrowserImportPlanResolver.separateProfilesPlan(
+        let plan = BrowserImportPlanResolver().separateProfilesPlan(
             selectedSourceProfiles: sourceProfiles,
             destinationProfiles: []
         )
@@ -214,7 +214,7 @@ final class BrowserImportMappingTests: XCTestCase {
             ]
         )
 
-        let realized = try BrowserImportPlanResolver.realize(plan: plan, profileStore: store)
+        let realized = try BrowserImportPlanResolver().realize(plan: plan, profileStore: store)
 
         XCTAssertEqual(realized.createdProfiles.map(\.displayName), ["You"])
         XCTAssertEqual(store.profiles.map(\.displayName), ["Default", "You"])
@@ -245,7 +245,7 @@ final class BrowserImportMappingTests: XCTestCase {
             ]
         )
 
-        let realized = try BrowserImportPlanResolver.realize(plan: plan, profileStore: store)
+        let realized = try BrowserImportPlanResolver().realize(plan: plan, profileStore: store)
 
         XCTAssertTrue(realized.createdProfiles.isEmpty)
         XCTAssertEqual(realized.entries[0].destinationProfileID, existing.id)

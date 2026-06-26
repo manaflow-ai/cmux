@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import Testing
 
@@ -19,10 +20,10 @@ struct FilePreviewKindResolverTests {
             defer { try? FileManager.default.removeItem(at: url) }
 
             #expect(
-                FilePreviewKindResolver.initialMode(for: url) == .text,
+                FilePreviewKindResolver().initialMode(for: url) == .text,
                 "Expected .\(fileExtension) to avoid the QuickLook/media backend before async resolution."
             )
-            #expect(FilePreviewKindResolver.mode(for: url) == .text)
+            #expect(FilePreviewKindResolver().mode(for: url) == .text)
         }
     }
 
@@ -35,8 +36,8 @@ struct FilePreviewKindResolverTests {
             )
             defer { try? FileManager.default.removeItem(at: url) }
 
-            #expect(FilePreviewKindResolver.initialMode(for: url) == .media)
-            #expect(FilePreviewKindResolver.mode(for: url) == .media)
+            #expect(FilePreviewKindResolver().initialMode(for: url) == .media)
+            #expect(FilePreviewKindResolver().mode(for: url) == .media)
         }
     }
 
@@ -48,8 +49,8 @@ struct FilePreviewKindResolverTests {
         )
         defer { try? FileManager.default.removeItem(at: url) }
 
-        #expect(FilePreviewKindResolver.initialMode(for: url) == .text)
-        #expect(FilePreviewKindResolver.mode(for: url) == .media)
+        #expect(FilePreviewKindResolver().initialMode(for: url) == .text)
+        #expect(FilePreviewKindResolver().mode(for: url) == .media)
     }
 
     @MainActor
@@ -108,7 +109,7 @@ struct FilePreviewKindResolverTests {
         let handle = try FileHandle(forWritingTo: url)
         defer { try? handle.close() }
         try handle.write(contentsOf: mpegTransportStreamData(packetSize: packetSize, syncOffset: syncOffset))
-        try handle.truncate(atOffset: FilePreviewTextLoader.maximumLoadedTextBytes + 1)
+        try handle.truncate(atOffset: FilePreviewTextLoader().maximumLoadedTextBytes + 1)
         return url
     }
 
