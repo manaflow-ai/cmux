@@ -37,8 +37,9 @@ struct CmuxCommandTemplate {
         guard rawValue.contains("{{") else { return [] }
         var seen = Set<String>()
         var result: [CmuxCommandVariable] = []
-        for case let .variable(variable, _) in scan() where seen.insert(variable.name).inserted {
-            result.append(variable)
+        for match in Self.variableMatches(in: Array(rawValue))
+        where seen.insert(match.variable.name).inserted {
+            result.append(match.variable)
         }
         return result
     }
@@ -46,8 +47,7 @@ struct CmuxCommandTemplate {
     /// Whether the command contains at least one recognized variable placeholder.
     var containsVariables: Bool {
         guard rawValue.contains("{{") else { return false }
-        for case .variable in scan() { return true }
-        return false
+        return !Self.variableMatches(in: Array(rawValue)).isEmpty
     }
 
     /// Resolves the command for execution: replaces every recognized
@@ -62,20 +62,22 @@ struct CmuxCommandTemplate {
     /// command and run as separate shell words.
     func substituting(_ values: [String: String]) -> String {
         guard rawValue.contains("{{") else { return rawValue }
+        let chars = Array(rawValue)
+        let matches = Self.variableMatches(in: chars)
+        guard !matches.isEmpty else { return rawValue }
         var result = ""
-        result.reserveCapacity(rawValue.count)
-        for token in scan() {
-            switch token {
-            case .literal(let text):
-                result.append(text)
-            case .variable(let variable, let raw):
-                if let value = values[variable.name] {
-                    result.append(Self.shellQuote(value))
-                } else {
-                    result.append(raw)
-                }
+        result.reserveCapacity(chars.count)
+        var cursor = 0
+        for match in matches {
+            result.append(String(chars[cursor..<match.range.lowerBound]))
+            if let value = values[match.variable.name] {
+                result.append(Self.shellQuote(value))
+            } else {
+                result.append(String(chars[match.range]))
             }
+            cursor = match.range.upperBound
         }
+        result.append(String(chars[cursor...]))
         return result
     }
 
@@ -101,37 +103,24 @@ struct CmuxCommandTemplate {
 
     // MARK: - Scanning
 
-    private enum Token {
-        /// Text emitted verbatim (plain text, quoted text, and unrecognized
-        /// `{{…}}` template expressions).
-        case literal(String)
-        /// A recognized variable placeholder; `raw` is the original `{{…}}`
-        /// text used when no value is supplied.
-        case variable(CmuxCommandVariable, raw: String)
-    }
-
-    /// Walks the command tracking shell-quote state (honouring backslash escapes
-    /// outside single quotes), here-doc bodies, and comments, recognizing a
-    /// `{{identifier}}` placeholder only when it appears at an unquoted
-    /// shell-word position. Quoted text, here-doc bodies (`<<EOF … EOF`), and
-    /// `#` comments are left literal so existing template commands run unchanged.
-    private func scan() -> [Token] {
-        let chars = Array(rawValue)
+    /// Finds the `{{identifier}}` placeholders that sit at unquoted shell-word
+    /// positions, returning each variable with its character range in `chars`.
+    ///
+    /// The scan tracks single/double shell-quote state (honouring backslash
+    /// escapes outside single quotes), here-doc bodies (`<<EOF … EOF`), and `#`
+    /// comments, so quoted text, here-doc bodies, and comments are left
+    /// untouched and existing template commands run unchanged.
+    private static func variableMatches(
+        in chars: [Character]
+    ) -> [(variable: CmuxCommandVariable, range: Range<Int>)] {
+        var matches: [(variable: CmuxCommandVariable, range: Range<Int>)] = []
         let count = chars.count
-        var tokens: [Token] = []
-        var literalStart = 0
         var index = 0
         var inSingleQuote = false
         var inDoubleQuote = false
         // FIFO of here-doc delimiters opened on the current line whose bodies
         // are skipped once the line's newline is reached.
         var pendingHeredocs: [(delimiter: String, stripTabs: Bool)] = []
-
-        func flushLiteral(upTo upperBound: Int) {
-            if literalStart < upperBound {
-                tokens.append(.literal(String(chars[literalStart..<upperBound])))
-            }
-        }
 
         while index < count {
             let character = chars[index]
@@ -161,14 +150,14 @@ struct CmuxCommandTemplate {
             if character == "\n" {
                 index += 1
                 if !pendingHeredocs.isEmpty {
-                    index = Self.skipHeredocBodies(chars, from: index, delimiters: pendingHeredocs)
+                    index = skipHeredocBodies(chars, from: index, delimiters: pendingHeredocs)
                     pendingHeredocs.removeAll()
                 }
                 continue
             }
 
             // `#` at a word boundary starts a comment that runs to end of line.
-            if character == "#", Self.isCommentStart(chars, at: index) {
+            if character == "#", isCommentStart(chars, at: index) {
                 while index < count, chars[index] != "\n" { index += 1 }
                 continue
             }
@@ -182,28 +171,24 @@ struct CmuxCommandTemplate {
                 }
                 // `<<`/`<<-` here-doc: queue the delimiter and skip the body at
                 // the next newline so the literal body is left unchanged.
-                index = Self.consumeHeredocOperator(chars, from: index, into: &pendingHeredocs)
+                index = consumeHeredocOperator(chars, from: index, into: &pendingHeredocs)
                 continue
             }
 
             // A `{{identifier}}` at this unquoted position is a cmux variable.
             if character == "{", index + 1 < count, chars[index + 1] == "{" {
                 let innerStart = index + 2
-                if let close = Self.indexOfCloseBraces(chars, from: innerStart) {
+                if let close = indexOfCloseBraces(chars, from: innerStart) {
                     let inner = chars[innerStart..<close]
                     let innerHasIllegalCharacter = inner.contains { c in
                         c == "{" || c == "}" || c == "\n" || c == "\r"
                     }
-                    if !innerHasIllegalCharacter, let parsed = Self.parse(inner: String(inner)) {
-                        flushLiteral(upTo: index)
-                        tokens.append(
-                            .variable(
-                                CmuxCommandVariable(name: parsed.name, defaultValue: parsed.defaultValue),
-                                raw: String(chars[index..<(close + 2)])
-                            )
-                        )
+                    if !innerHasIllegalCharacter, let parsed = parse(inner: String(inner)) {
+                        matches.append((
+                            CmuxCommandVariable(name: parsed.name, defaultValue: parsed.defaultValue),
+                            index..<(close + 2)
+                        ))
                         index = close + 2
-                        literalStart = index
                         continue
                     }
                 }
@@ -220,8 +205,7 @@ struct CmuxCommandTemplate {
             index += 1
         }
 
-        flushLiteral(upTo: count)
-        return tokens
+        return matches
     }
 
     /// Whether `chars[i]` (a `#`) begins a shell comment: it must sit at a word
