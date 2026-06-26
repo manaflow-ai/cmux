@@ -656,6 +656,24 @@ struct TextBoxSubmitActionTests {
             allowsCommandTemplateSubmit: true
         ))
         XCTAssertEqual(
+            TextBoxInputContainer.submitActionPresentation(
+                selectedSubmitAction: codex,
+                shouldForceTextEntrySubmit: shouldForceTextEntry
+            ).action.id,
+            codex.id
+        )
+        XCTAssertEqual(
+            TextBoxInputContainer.dispatchPlan(
+                [.text("ordinary shell input")],
+                applying: codex,
+                shouldForceTextEntrySubmit: shouldForceTextEntry,
+                allowsCommandTemplateSubmit: false,
+                terminalAgentContext: "",
+                pendingProviderLaunchAction: nil
+            ).events,
+            TextBoxSubmit.dispatchEvents(for: [.text("ordinary shell input")], terminalAgentContext: "")
+        )
+        XCTAssertEqual(
             TextBoxInputContainer.nextCycledSubmitActionID(
                 defaultSubmitActionID: codex.id,
                 submitActions: TextBoxSubmitAction.builtInActions,

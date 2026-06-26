@@ -165,8 +165,7 @@ extension TextBoxInputContainer {
     var submitActionPresentation: TextBoxSubmitActionPresentation {
         Self.submitActionPresentation(
             selectedSubmitAction: selectedSubmitAction,
-            shouldForceTextEntrySubmit: shouldForceTextEntrySubmit ||
-                shouldUseTextEntryFallbackForCommandTemplate
+            shouldForceTextEntrySubmit: shouldForceTextEntrySubmit
         )
     }
 
