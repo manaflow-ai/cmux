@@ -1,0 +1,187 @@
+name: Approved fork artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to build after maintainer approval
+        required: true
+        type: string
+      approved_head_sha:
+        description: Exact pull_request.head.sha approved by the maintainer
+        required: true
+        type: string
+
+run-name: "approved fork artifact PR #${{ inputs.pr_number }} @ ${{ inputs.approved_head_sha }}"
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: approved-fork-artifact-${{ inputs.pr_number }}-${{ inputs.approved_head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  resolve-pr:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    outputs:
+      base_ref: ${{ steps.pr.outputs.base_ref }}
+      head_ref: ${{ steps.pr.outputs.head_ref }}
+      head_repo: ${{ steps.pr.outputs.head_repo }}
+      head_sha: ${{ steps.pr.outputs.head_sha }}
+      is_fork: ${{ steps.pr.outputs.is_fork }}
+      short_sha: ${{ steps.pr.outputs.short_sha }}
+    steps:
+      - name: Resolve and validate requested PR head
+        id: pr
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          APPROVED_HEAD_SHA: ${{ inputs.approved_head_sha }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        with:
+          script: |
+            const prNumberText = (process.env.PR_NUMBER || '').trim();
+            const approvedHeadSha = (process.env.APPROVED_HEAD_SHA || '').trim().toLowerCase();
+
+            if (!/^[1-9][0-9]*$/.test(prNumberText)) {
+              throw new Error(`pr_number must be a positive integer, got ${JSON.stringify(prNumberText)}`);
+            }
+            if (!/^[0-9a-f]{40}$/.test(approvedHeadSha)) {
+              throw new Error('approved_head_sha must be the full 40-character hexadecimal pull_request.head.sha');
+            }
+
+            const prNumber = Number.parseInt(prNumberText, 10);
+            const { data: pull } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+
+            if (pull.state !== 'open') {
+              throw new Error(`PR #${prNumber} is ${pull.state}; refusing to build a non-open PR`);
+            }
+            if (!pull.head.repo || !pull.head.repo.full_name) {
+              throw new Error(`PR #${prNumber} has no readable head repository`);
+            }
+
+            const actualHeadSha = pull.head.sha.toLowerCase();
+            if (actualHeadSha !== approvedHeadSha) {
+              throw new Error(
+                `PR #${prNumber} head SHA changed: approved ${approvedHeadSha}, current ${actualHeadSha}. ` +
+                'Re-review the new commit and dispatch this workflow with the current head SHA.'
+              );
+            }
+
+            const baseRepo = `${context.repo.owner}/${context.repo.repo}`.toLowerCase();
+            const headRepo = pull.head.repo.full_name;
+            core.setOutput('base_ref', pull.base.ref);
+            core.setOutput('head_ref', pull.head.ref);
+            core.setOutput('head_repo', headRepo);
+            core.setOutput('head_sha', actualHeadSha);
+            core.setOutput('is_fork', String(headRepo.toLowerCase() !== baseRepo));
+            core.setOutput('short_sha', actualHeadSha.slice(0, 12));
+
+            await core.summary
+              .addHeading('Approved fork artifact')
+              .addRaw(`PR: #${prNumber}\n\n`)
+              .addRaw(`Repository: \`${headRepo}\`\n\n`)
+              .addRaw(`Head SHA: \`${actualHeadSha}\`\n\n`)
+              .addRaw(`Base ref: \`${pull.base.ref}\`\n`)
+              .write();
+
+  build-macos:
+    needs: resolve-pr
+    runs-on: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 60
+    env:
+      APPROVED_HEAD_REPO: ${{ needs.resolve-pr.outputs.head_repo }}
+      APPROVED_HEAD_SHA: ${{ needs.resolve-pr.outputs.head_sha }}
+      APPROVED_IS_FORK: ${{ needs.resolve-pr.outputs.is_fork }}
+      APPROVED_PR_NUMBER: ${{ inputs.pr_number }}
+      BUILD_TAG: pr-${{ inputs.pr_number }}-${{ needs.resolve-pr.outputs.short_sha }}
+      CMUX_SKIP_ZIG_BUILD: "1"
+      SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
+    steps:
+      - name: Clear stale git locks
+        shell: bash
+        run: |
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+          if [ -d "$ws/.git/modules" ]; then
+            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
+          fi
+
+      - name: Checkout approved PR head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: ${{ needs.resolve-pr.outputs.head_repo }}
+          ref: ${{ needs.resolve-pr.outputs.head_sha }}
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          ./scripts/select-ci-xcode.sh
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Provision GhosttyKit
+        run: ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
+
+      - name: Build approved macOS app
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/approved-fork-artifact.log"
+          ./scripts/reload.sh --tag "$BUILD_TAG" --swift-frontend-workaround 2>&1 | tee "$log"
+          app_path="$(awk '/^App path:/{getline; sub(/^  /,""); print; exit}' "$log")"
+          [ -n "$app_path" ] && [ -d "$app_path" ] || { echo "could not locate built app" >&2; exit 1; }
+
+          mkdir -p artifact/logs
+          cp "$log" artifact/logs/reload.log
+          ( cd "$(dirname "$app_path")" && ditto -c -k --sequesterRsrc --keepParent "$(basename "$app_path")" "$GITHUB_WORKSPACE/artifact/app.zip" )
+
+      - name: Write artifact provenance
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = {
+              "artifact": "app.zip",
+              "build_tag": os.environ["BUILD_TAG"],
+              "head_repo": os.environ["APPROVED_HEAD_REPO"],
+              "head_sha": os.environ["APPROVED_HEAD_SHA"],
+              "is_fork": os.environ["APPROVED_IS_FORK"] == "true",
+              "pr_number": int(os.environ["APPROVED_PR_NUMBER"]),
+              "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "workflow": os.environ["GITHUB_WORKFLOW"],
+          }
+          Path("artifact/provenance.json").write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          PY
+
+      - name: Upload approved app artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: approved-pr-${{ inputs.pr_number }}-${{ needs.resolve-pr.outputs.short_sha }}-macos
+          path: artifact/
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Summarize artifact
+        run: |
+          {
+            echo "### Approved fork artifact"
+            echo ""
+            echo "- PR: #$APPROVED_PR_NUMBER"
+            echo "- Head repo: \`$APPROVED_HEAD_REPO\`"
+            echo "- Head SHA: \`$APPROVED_HEAD_SHA\`"
+            echo "- Artifact: \`approved-pr-$APPROVED_PR_NUMBER-${APPROVED_HEAD_SHA:0:12}-macos\`"
+            echo "- Download: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID#artifacts"
+          } >> "$GITHUB_STEP_SUMMARY"

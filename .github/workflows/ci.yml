@@ -174,6 +174,9 @@ jobs:
       - name: Validate release-build timeout guard
         run: ./tests/test_ci_release_build_timeout.sh
 
+      - name: Validate approved fork artifact workflow
+        run: ./tests/test_ci_approved_fork_artifact_workflow.sh
+
       - name: Validate current GhosttyKit checksum pin
         run: ./tests/test_ci_ghosttykit_checksum_present.sh
 

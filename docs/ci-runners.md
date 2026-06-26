@@ -93,6 +93,32 @@ manual choice wins over the variable; both dropdowns expose Blacksmith, Warp,
 and `depot-macos-*` choices, with a Depot identity guard for GUI-activation
 runs.
 
+## Maintainer-approved fork artifacts
+
+External fork PRs can wait for GitHub Actions approval before contributors can
+download a macOS app artifact. Maintainers can build an exact reviewed PR head
+with the manual `approved-fork-artifact.yml` workflow:
+
+```bash
+HEAD_SHA="$(gh pr view 5491 --repo manaflow-ai/cmux --json headRefOid --jq .headRefOid)"
+gh workflow run approved-fork-artifact.yml \
+  --repo manaflow-ai/cmux \
+  -f pr_number=5491 \
+  -f approved_head_sha="$HEAD_SHA"
+```
+
+The workflow verifies that `approved_head_sha` is still the PR's current
+`pull_request.head.sha` before any PR code is checked out. If the contributor
+pushes another commit, the run fails and a maintainer must re-review the new
+head SHA and dispatch the workflow again.
+
+The build job checks out `pull_request.head.repo.full_name` at the approved SHA
+with `persist-credentials: false`, uses read-only `contents` and `pull-requests`
+permissions, does not reference repository secrets, and uploads `app.zip`,
+`logs/reload.log`, and `provenance.json` as the
+`approved-pr-<number>-<short-sha>-macos` artifact. Share the run's artifact link
+with the contributor after the workflow finishes.
+
 ## Guard
 
 `tests/test_ci_self_hosted_guard.sh` (run by the `workflow-guard-tests` job)
