@@ -55,6 +55,7 @@ actor LivenessHostRouter {
     struct RecordedRequest: Sendable {
         var method: String?
         var topics: [String]?
+        var surfaceID: String?
     }
 
     private var recorded: [RecordedRequest] = []
@@ -67,22 +68,27 @@ actor LivenessHostRouter {
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
     private var capabilities = ["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
     private let terminalInputSeq: UInt64 = 12
-    private var replayFrames: [(seq: UInt64, text: String)] = []
+    private var replayFramesBySurfaceID: [String: [(seq: UInt64, text: String)]] = [:]
+    private var replayResponseCountsBySurfaceID: [String: Int] = [:]
 
-    func record(method: String?, topics: [String]?) {
-        recorded.append(RecordedRequest(method: method, topics: topics))
+    func record(method: String?, topics: [String]?, surfaceID: String?) {
+        recorded.append(RecordedRequest(method: method, topics: topics, surfaceID: surfaceID))
     }
 
-    func count(of method: String) -> Int {
-        recorded.filter { $0.method == method }.count
+    func count(of method: String, surfaceID: String? = nil) -> Int {
+        recorded.filter { request in
+            request.method == method
+                && (surfaceID == nil || request.surfaceID == surfaceID)
+        }.count
     }
 
     func setCapabilities(_ capabilities: [String]) {
         self.capabilities = capabilities
     }
 
-    func setReplayFrames(_ frames: [(seq: UInt64, text: String)]) {
-        replayFrames = frames
+    func setReplayFrames(_ frames: [(seq: UInt64, text: String)], surfaceID: String = "live-terminal") {
+        replayFramesBySurfaceID[surfaceID] = frames
+        replayResponseCountsBySurfaceID[surfaceID] = 0
     }
 
     /// Hold every `mobile.events.subscribe` response until released.
@@ -122,7 +128,7 @@ actor LivenessHostRouter {
         }
     }
 
-    func response(method: String?, id: String?) async -> Data? {
+    func response(method: String?, id: String?, surfaceID: String?) async -> Data? {
         switch method {
         case "workspace.list", "mobile.workspace.list":
             return try? Self.resultFrame(id: id, result: [
@@ -139,6 +145,13 @@ actor LivenessHostRouter {
                                 "current_directory": "/Users/test/project",
                                 "is_ready": true,
                                 "is_focused": true,
+                            ],
+                            [
+                                "id": "secondary-terminal",
+                                "title": "Secondary Terminal",
+                                "current_directory": "/Users/test/project",
+                                "is_ready": true,
+                                "is_focused": false,
                             ],
                         ],
                     ],
@@ -170,20 +183,24 @@ actor LivenessHostRouter {
         case "terminal.input":
             return try? Self.resultFrame(id: id, result: [
                 "workspace_id": "live-workspace",
-                "surface_id": "live-terminal",
+                "surface_id": surfaceID ?? "live-terminal",
                 "queued": false,
                 "terminal_seq": terminalInputSeq,
             ])
         case "mobile.events.unsubscribe", "mobile.terminal.viewport":
             return try? Self.resultFrame(id: id, result: [:])
         case "mobile.terminal.replay":
-            let replayIndex = max(0, count(of: "mobile.terminal.replay") - 1)
-            guard !replayFrames.isEmpty else {
+            let replaySurfaceID = surfaceID ?? "live-terminal"
+            let replayIndex = replayResponseCountsBySurfaceID[replaySurfaceID] ?? 0
+            replayResponseCountsBySurfaceID[replaySurfaceID] = replayIndex + 1
+            guard let replayFrames = replayFramesBySurfaceID[replaySurfaceID],
+                  !replayFrames.isEmpty else {
                 return try? Self.resultFrame(id: id, result: [:])
             }
             let frame = replayFrames[min(replayIndex, replayFrames.count - 1)]
             return try? Self.replayResultFrame(
                 id: id,
+                surfaceID: replaySurfaceID,
                 seq: frame.seq,
                 text: frame.text
             )
@@ -216,9 +233,9 @@ actor LivenessHostRouter {
         return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
     }
 
-    private static func replayResultFrame(id: String?, seq: UInt64, text: String) throws -> Data {
+    private static func replayResultFrame(id: String?, surfaceID: String, seq: UInt64, text: String) throws -> Data {
         let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
-            surfaceID: "live-terminal",
+            surfaceID: surfaceID,
             stateSeq: seq,
             columns: 16,
             rows: 4,
@@ -226,7 +243,7 @@ actor LivenessHostRouter {
         )
         return try resultFrame(id: id, result: [
             "workspace_id": "live-workspace",
-            "surface_id": "live-terminal",
+            "surface_id": surfaceID,
             "seq": NSNumber(value: seq),
             "columns": 16,
             "rows": 4,
@@ -292,13 +309,15 @@ actor LivenessTransport: CmxByteTransport {
             let parsed = (try? JSONSerialization.jsonObject(with: payload)) as? [String: Any]
             let method = parsed?["method"] as? String
             let id = parsed?["id"] as? String
-            let topics = (parsed?["params"] as? [String: Any])?["topics"] as? [String]
-            await router.record(method: method, topics: topics)
+            let params = parsed?["params"] as? [String: Any]
+            let topics = params?["topics"] as? [String]
+            let surfaceID = params?["surface_id"] as? String
+            await router.record(method: method, topics: topics, surfaceID: surfaceID)
             // Answer each request concurrently so one held response cannot
             // head-of-line block later RPCs, matching the Mac host's
             // per-frame response tasks.
-            Task { [router, weak self] in
-                guard let response = await router.response(method: method, id: id) else {
+            Task { [router, weak self, surfaceID] in
+                guard let response = await router.response(method: method, id: id, surfaceID: surfaceID) else {
                     return
                 }
                 await self?.deliver(response)

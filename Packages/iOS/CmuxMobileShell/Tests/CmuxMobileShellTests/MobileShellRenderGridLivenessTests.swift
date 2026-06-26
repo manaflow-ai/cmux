@@ -215,6 +215,63 @@ import Testing
     collector.unmount()
 }
 
+/// A repaired `input_seq_wait` re-subscribe is global: when the host reports
+/// `already_subscribed: false`, every mounted surface may have missed
+/// render-grid events during the registration gap, not just the surface that
+/// sent input.
+@MainActor
+@Test func inputSeqWaitRepairingLostSubscriptionReplaysAllMountedSurfaces() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    await router.setReplayFrames([
+        (seq: 4, text: "primary-old"),
+        (seq: 12, text: "primary-repaired"),
+    ])
+    await router.setReplayFrames([
+        (seq: 6, text: "secondary-old"),
+        (seq: 14, text: "secondary-repaired"),
+    ], surfaceID: "secondary-terminal")
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
+    #expect(sawSubscribe, "listener must establish the push subscription")
+
+    let primaryCollector = OutputCollector()
+    let secondaryCollector = OutputCollector()
+    primaryCollector.mount(store: store, surfaceID: "live-terminal")
+    secondaryCollector.mount(store: store, surfaceID: "secondary-terminal")
+    let sawMountReplays = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 2 }
+    #expect(sawMountReplays, "mounting two sinks arms cold-attach replays for both")
+    let deliveredInitialReplays = try await pollUntil {
+        primaryCollector.lines.contains { $0.contains("primary-old") }
+            && secondaryCollector.lines.contains { $0.contains("secondary-old") }
+    }
+    #expect(deliveredInitialReplays, "the mount replays establish both local rendered sequences")
+
+    await router.dropSubscription()
+    await store.submitTerminalRawInput(Data("x".utf8), surfaceID: "live-terminal")
+
+    let replayedPrimaryAfterRepair = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay", surfaceID: "live-terminal") >= 2
+    }
+    let replayedSecondaryAfterRepair = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay", surfaceID: "secondary-terminal") >= 2
+    }
+    #expect(replayedPrimaryAfterRepair)
+    #expect(
+        replayedSecondaryAfterRepair,
+        "a repaired global subscription must replay every mounted surface, including surfaces that did not send the input"
+    )
+    let deliveredRepairReplays = try await pollUntil {
+        primaryCollector.lines.contains { $0.contains("primary-repaired") }
+            && secondaryCollector.lines.contains { $0.contains("secondary-repaired") }
+    }
+    #expect(deliveredRepairReplays)
+    primaryCollector.unmount()
+    secondaryCollector.unmount()
+}
+
 /// The watchdog's original purpose (the ~85s silent-death hang) must keep
 /// working: silence past the threshold plus a host that stops answering the
 /// probe must still tear down and re-subscribe.
