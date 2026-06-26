@@ -8554,13 +8554,19 @@ struct ContentView: View {
         }
     }
 
-    /// Runs the palette command with `commandId` directly (no palette UI) — the
-    /// handler for a custom `shortcuts.commands` keyboard shortcut fired on this
-    /// window. The command list is rebuilt with the window's live context, so a
-    /// command gated out by its `when`/`enablement` clause is simply absent and
-    /// the press is a silent no-op (the app-level handler still consumes the
-    /// event on any binding match). Usage is recorded so frequently-fired
-    /// commands keep their palette ranking boost.
+    /// Runs the palette command with `commandId` — the handler for a custom
+    /// `shortcuts.commands` keyboard shortcut fired on this window. The command
+    /// list is rebuilt with the window's live context, so a command gated out by
+    /// its `when`/`enablement` clause is simply absent and the press is a silent
+    /// no-op (the app-level handler still consumes the event on any binding
+    /// match). Usage is recorded so frequently-fired commands keep their palette
+    /// ranking boost.
+    ///
+    /// A `dismissOnRun == false` command drives an *in-palette* input flow (e.g.
+    /// rename / edit-description, which switch `commandPaletteMode` to an input
+    /// mode that only renders while the palette is presented). For those, the
+    /// palette is presented first so the flow's UI is visible; self-contained
+    /// commands run directly without showing any palette UI.
     private func runCommandPaletteCommandById(_ commandId: String) {
         let commands = commandPaletteEntries(for: .commands)
         guard let command = commands.first(where: { $0.id == commandId }) else {
@@ -8570,9 +8576,12 @@ struct ContentView: View {
             return
         }
 #if DEBUG
-        cmuxDebugLog("palette.runById commandId=\(commandId) result=run")
+        cmuxDebugLog("palette.runById commandId=\(commandId) result=run dismissOnRun=\(command.dismissOnRun ? 1 : 0)")
 #endif
         recordCommandPaletteUsage(command.id)
+        if !command.dismissOnRun, !isCommandPalettePresented {
+            presentCommandPalette(initialQuery: Self.commandPaletteCommandsPrefix)
+        }
         command.action()
     }
 
