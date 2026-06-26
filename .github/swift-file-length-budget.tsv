@@ -33,7 +33,7 @@
 3397	Sources/CmuxConfig.swift
 3364	cmuxTests/TabManagerSessionSnapshotTests.swift
 3053	Sources/Update/UpdateTitlebarAccessory.swift
-3019	Sources/SessionIndexView.swift
+3023	Sources/SessionIndexView.swift
 2876	cmuxTests/CMUXOpenCommandTests.swift
 2606	Sources/KeyboardShortcutSettings.swift
 2565	Sources/Panels/CmuxWebView.swift
@@ -46,7 +46,7 @@
 2126	cmuxTests/CmuxConfigTests.swift
 2091	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2078	Sources/SessionPersistence.swift
-1981	Sources/SessionIndexStore.swift
+1983	Sources/SessionIndexStore.swift
 1952	Sources/KeyboardShortcutSettingsFileStore.swift
 1945	Sources/RestorableAgentSession.swift
 1900	cmuxTests/NotificationAndMenuBarTests.swift

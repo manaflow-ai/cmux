@@ -301,8 +301,9 @@ final class SessionIndexStore: ObservableObject {
         didSet {
             guard showArchived != oldValue else { return }
             defaults.set(showArchived, forKey: Self.showArchivedDefaultsKey)
+            // Only the curated list filters on `showArchived`; the browse
+            // snapshot is archive-inclusive, so it needs no invalidation here.
             invalidateSectionsCache()
-            invalidateDirectorySnapshots()
         }
     }
 
@@ -474,9 +475,10 @@ final class SessionIndexStore: ObservableObject {
         } else {
             scoped = entries
         }
-        // Archived sessions drop out of the active list unless the user opts
-        // to show them. Their transcripts are untouched — search and the
-        // browse popover can still surface them when "Show archived" is on.
+        // Archived sessions drop out of the curated active list unless the user
+        // opts to show them. Their transcripts are untouched, and the "Show
+        // more" browse popover and search both still surface them (dimmed), so
+        // an archived session is always recoverable / unarchivable from there.
         guard !showArchived, !archivedSessionIds.isEmpty else { return scoped }
         return scoped.filter { !archivedSessionIds.contains($0.id) }
     }
@@ -767,14 +769,14 @@ final class SessionIndexStore: ObservableObject {
         if noFolderScope {
             merged = merged.filter { ($0.cwd ?? "").isEmpty }
         }
-        var sorted = merged.sorted { $0.modified > $1.modified }
-        // Mirror the in-list view: hide archived (unless showing) and float
-        // pinned to the top. The snapshot is invalidated whenever pin/archive
-        // state or `showArchived` changes, so the cache can't go stale.
-        if !showArchived, !archivedSessionIds.isEmpty {
-            sorted = sorted.filter { !archivedSessionIds.contains($0.id) }
-        }
-        sorted = orderedSessionEntries(sorted)
+        // The "Show more" popover is the full, archive-inclusive browse of a
+        // folder — the curated sidebar list is what hides archived sessions.
+        // Keep every entry here, but float pinned to the top and sink archived
+        // to the bottom (orderedSessionEntries) so archived rows read as
+        // de-emphasized and the popover doubles as the unarchive recovery
+        // surface for sessions that have scrolled out of the active scan window.
+        // Invalidated on pin/archive change so the cached ordering can't go stale.
+        let sorted = orderedSessionEntries(merged.sorted { $0.modified > $1.modified })
         let snapshot = DirectorySnapshot(cwd: key, entries: sorted, errors: bag.snapshot())
         // Only cache this result if no `reload()` raced in while the
         // build was running. Otherwise the caller gets a fresh snapshot
@@ -1311,12 +1313,12 @@ final class SessionIndexStore: ObservableObject {
     ///
     /// Archived sessions are intentionally NOT filtered here. A typed query is
     /// the "find a related thread" path (issue #6186), and archive only removes
-    /// a thread from the *active list* and the empty-query browse snapshot, not
-    /// from history — so search must still surface archived threads (the popover
-    /// renders them dimmed with an Unarchive action). Filtering the paginated
-    /// results would also desync the `offset = loaded.count` cursor from the
-    /// store's unfiltered position, reintroducing the re-fetch loop documented
-    /// in `SectionPopoverView.applyOutcome`.
+    /// a thread from the curated active sidebar list, not from history or the
+    /// "Show more" browse/search — so search must still surface archived threads
+    /// (the popover renders them dimmed with an Unarchive action). Filtering the
+    /// paginated results would also desync the `offset = loaded.count` cursor
+    /// from the store's unfiltered position, reintroducing the re-fetch loop
+    /// documented in `SectionPopoverView.applyOutcome`.
     func searchSessions(
         query: String,
         scope: SearchScope,

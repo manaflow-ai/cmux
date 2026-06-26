@@ -2233,8 +2233,31 @@ private struct SectionPopoverView: View {
     /// only). When non-nil, `loadMore()` slices this array in memory
     /// instead of hitting the store.
     @State private var fullSnapshot: [SessionEntry]?
+    /// Bumped when the user pins/archives from inside the popover. The popover
+    /// holds no store reference, so this local revision is what re-evaluates the
+    /// rows (pin glyph / archived dim) after a context-menu toggle. The popover
+    /// shows archived sessions dimmed rather than hiding them, so a toggle only
+    /// needs a visual refresh — it never has to mutate `loaded`/`fullSnapshot`.
+    @State private var stateRevision: Int = 0
 
     private static let pageSize = 100
+
+    /// `stateActions` with the pin/archive toggles wrapped to also bump
+    /// `stateRevision`, so an in-popover toggle re-evaluates the row bodies.
+    private var popoverStateActions: SessionRowStateActions {
+        SessionRowStateActions(
+            isPinned: stateActions.isPinned,
+            isArchived: stateActions.isArchived,
+            togglePinned: { entry in
+                stateActions.togglePinned(entry)
+                stateRevision &+= 1
+            },
+            toggleArchived: { entry in
+                stateActions.toggleArchived(entry)
+                stateRevision &+= 1
+            }
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -2316,15 +2339,18 @@ private struct SectionPopoverView: View {
                             .padding(.vertical, 10)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
+                        // Reading stateRevision re-evaluates these rows after an
+                        // in-popover pin/archive toggle (the popover doesn't observe
+                        // the store, so the wrapped toggles bump this revision to
+                        // refresh the pin glyph / archived dim / menu labels).
+                        let _ = stateRevision
+                        let rowStateActions = popoverStateActions
                         ForEach(loaded) { entry in
-                            // Read-only pin/archive indicators. The popover is a
-                            // find/resume surface — pin/archive happen in the
-                            // sidebar list — so these can't go stale from here, and
-                            // archiving never has to mutate `loaded`/`fullSnapshot`.
                             PopoverRow(
                                 entry: entry,
-                                isPinned: stateActions.isPinned(entry.id),
-                                isArchived: stateActions.isArchived(entry.id)
+                                isPinned: rowStateActions.isPinned(entry.id),
+                                isArchived: rowStateActions.isArchived(entry.id),
+                                stateActions: rowStateActions
                             ) {
                                 onResume?(entry)
                                 onDismiss()
@@ -2554,12 +2580,15 @@ private struct SectionPopoverView: View {
 
 private struct PopoverRow: View, Equatable {
     let entry: SessionEntry
-    /// Read-only pin/archive snapshot for the glyph + dim, included in `==`.
-    /// The popover doesn't offer pin/archive toggles (those live in the sidebar
-    /// list), so these reflect the state as of when the popover content loaded
-    /// and never go stale from inside the popover.
+    /// Pin/archive snapshot for the glyph + dim, included in `==` so the row
+    /// refreshes after an in-popover toggle (the parent recomputes these from
+    /// the wrapped `stateActions` and bumps its revision to force it).
     let isPinned: Bool
     let isArchived: Bool
+    /// Read/toggle bundle for the context menu. Not part of `==` (stable
+    /// closures). The popover offers pin/archive so archived sessions surfaced
+    /// only by search remain unarchivable.
+    let stateActions: SessionRowStateActions
     let onActivate: () -> Void
 
     @State private var isHovered: Bool = false
@@ -2630,7 +2659,7 @@ private struct PopoverRow: View, Equatable {
         }
         .help(entry.cwdLabel ?? entry.displayTitle)
         .contextMenu {
-            sessionRowMenuItems(entry: entry, onResume: { _ in onActivate() })
+            sessionRowMenuItems(entry: entry, onResume: { _ in onActivate() }, stateActions: stateActions)
         }
     }
 }
