@@ -12,4 +12,13 @@ final class SleepyOverlayWindow: NSWindow {
     override func keyDown(with event: NSEvent) { onExit?() }
     override func mouseDown(with event: NSEvent) { onExit?() }
     override func rightMouseDown(with event: NSEvent) { onExit?() }
+
+    /// AppKit resolves command-key menu equivalents (Cmd-Q/Cmd-W/Cmd-H, …)
+    /// before `keyDown`. While the screensaver is up and we promise "any key
+    /// wakes it," consume those here so they dismiss Sleepy Mode instead of
+    /// quitting/hiding/closing cmux behind the cover.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        onExit?()
+        return true
+    }
 }

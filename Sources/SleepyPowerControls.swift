@@ -9,6 +9,10 @@ final class SleepyPowerControls: SleepyPowerControlling {
     private let runner: SleepyCommandRunning
     private let defaults: UserDefaults
     private let previousModeKey = "sleepyMode.preLowPowerMode"
+    /// True only after THIS instance switched the Mac from a non-low mode into
+    /// Low Power. Gates the restore so a value left by a prior run (or a Mac that
+    /// was already in Low Power) is never applied system-wide.
+    private var switchedToLowThisSession = false
 
     init(runner: SleepyCommandRunning = SystemCommandRunner(), defaults: UserDefaults = .standard) {
         self.runner = runner
@@ -41,15 +45,26 @@ final class SleepyPowerControls: SleepyPowerControlling {
         if enabled {
             if usesPowerMode {
                 let current = await currentEnergyMode()
-                if current != .low { defaults.set(current.rawValue, forKey: previousModeKey) }
+                if current != .low {
+                    defaults.set(current.rawValue, forKey: previousModeKey)
+                    switchedToLowThisSession = true
+                }
                 await runner.runPrivileged("/usr/bin/pmset", ["-a", "powermode", String(SleepyEnergyMode.low.rawValue)])
             } else {
                 await runner.runPrivileged("/usr/bin/pmset", ["-a", "lowpowermode", "1"])
             }
         } else if usesPowerMode {
-            let storedRaw = defaults.object(forKey: previousModeKey) as? Int ?? SleepyEnergyMode.automatic.rawValue
-            var restore = SleepyEnergyMode(rawValue: storedRaw) ?? .automatic
-            if restore == .low { restore = .automatic }
+            // Only restore a mode we actually switched away from this session;
+            // otherwise fall back to Automatic rather than a stale stored value.
+            // Clear the saved value either way so it can't leak into a later run.
+            var restore = SleepyEnergyMode.automatic
+            if switchedToLowThisSession,
+               let storedRaw = defaults.object(forKey: previousModeKey) as? Int,
+               let stored = SleepyEnergyMode(rawValue: storedRaw), stored != .low {
+                restore = stored
+            }
+            defaults.removeObject(forKey: previousModeKey)
+            switchedToLowThisSession = false
             await runner.runPrivileged("/usr/bin/pmset", ["-a", "powermode", String(restore.rawValue)])
         } else {
             await runner.runPrivileged("/usr/bin/pmset", ["-a", "lowpowermode", "0"])
