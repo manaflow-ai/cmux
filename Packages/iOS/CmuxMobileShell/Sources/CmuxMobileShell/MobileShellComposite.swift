@@ -704,6 +704,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// stream's continuation.
     private var terminalLiveFontTokensBySurfaceID: [String: UUID]
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
+    private var rawTerminalInputDrainTask: Task<Void, Never>?
+    private var rawTerminalInputDrainTaskID: UUID?
     private var pairingAttemptID: UUID
 
     /// High-level shell phase derived from sign-in and connection state.
@@ -875,6 +877,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalLiveFontContinuationsBySurfaceID = [:]
         self.terminalLiveFontTokensBySurfaceID = [:]
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
+        self.rawTerminalInputDrainTask = nil
+        self.rawTerminalInputDrainTaskID = nil
         self.pairingAttemptID = UUID()
     }
 
@@ -890,6 +894,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         createTerminalTask?.cancel()
         workspaceListRefreshTask?.cancel()
         pullToRefreshTask?.cancel()
+        rawTerminalInputDrainTask?.cancel()
         teardownSecondaryMacSubscriptions()
         if let remoteClient {
             Task { await remoteClient.disconnect() }
@@ -1011,7 +1016,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let refresher = pairedMacStore as? any PairedMacBackupRefreshing {
             Task { await refresher.cancelInFlightRestores() }
         }
-        rawTerminalInputBuffer.clear()
+        clearRawTerminalInputBuffer()
         reportedViewportSizesByTerminalKey = [:]
         // Reset foreground identity to anonymous BEFORE seeding the anonymous
         // preview entry below: otherwise `foregroundMacKey` stays the old real Mac
@@ -4385,17 +4390,92 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             #endif
             return
         }
+        enqueueRawTerminalInput(text, workspaceID: workspaceID, terminalID: terminalID)
+    }
+
+    /// Queue raw bytes to the surface that produced them.
+    ///
+    /// The iOS terminal view calls this synchronously from its UIKit input
+    /// delegate so bytes enter the FIFO in the exact order UIKit emits them.
+    public func sendTerminalRawInput(_ data: Data, surfaceID: String) {
+        guard let input = rawTerminalInput(textData: data, surfaceID: surfaceID) else { return }
+        enqueueRawTerminalInput(
+            input.text,
+            workspaceID: input.workspaceID,
+            terminalID: input.terminalID
+        )
+    }
+
+    /// Submit raw text to the currently selected terminal when one is available.
+    public func submitTerminalRawInput(_ text: String) async {
+        guard !text.isEmpty else { return }
+        guard let workspaceID = selectedWorkspace?.id,
+              let terminalID = selectedTerminalID else {
+            return
+        }
+        let drainTask = enqueueRawTerminalInput(
+            text,
+            workspaceID: workspaceID,
+            terminalID: terminalID
+        )
+        await drainTask?.value
+    }
+
+    /// Raw-bytes overload. The libghostty render path on iOS uses this
+    /// for input that may include binary sequences (mouse reports,
+    /// kitty keyboard, IME byte streams). The wire RPC encodes bytes
+    /// as the UTF-8-stringified payload of `mobile.terminal.input`,
+    /// then the Mac decodes back to Data. If we ever need true binary
+    /// fidelity (paste of mid-codepoint bytes, etc.), upgrade the
+    /// `input` param to a base64 field.
+    public func submitTerminalRawInput(_ data: Data, surfaceID: String) async {
+        guard let input = rawTerminalInput(textData: data, surfaceID: surfaceID) else { return }
+        let drainTask = enqueueRawTerminalInput(
+            input.text,
+            workspaceID: input.workspaceID,
+            terminalID: input.terminalID
+        )
+        await drainTask?.value
+    }
+
+    private func rawTerminalInput(
+        textData data: Data,
+        surfaceID: String
+    ) -> (
+        text: String,
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID
+    )? {
+        guard !data.isEmpty else { return nil }
+        guard let text = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        let workspaceCandidate = workspaces.first(where: { workspace in
+            workspace.terminals.contains(where: { $0.id.rawValue == surfaceID })
+        })
+        guard let workspace = workspaceCandidate else { return nil }
+        return (
+            text: text,
+            workspaceID: workspace.id,
+            terminalID: MobileTerminalPreview.ID(rawValue: surfaceID)
+        )
+    }
+
+    @discardableResult
+    private func enqueueRawTerminalInput(
+        _ text: String,
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID
+    ) -> Task<Void, Never>? {
         switch rawTerminalInputBuffer.enqueue(
             text,
             workspaceID: workspaceID,
             terminalID: terminalID
         ) {
         case .startDraining:
-            Task { @MainActor [weak self] in
-                await self?.drainRawTerminalInputBuffer()
-            }
+            return startRawTerminalInputDrainTask()
         case .queued:
-            return
+            return rawTerminalInputDrainTask
         case .rejected:
             mobileShellLog.error("disconnecting mobile terminal input because pending byte count exceeded limit")
             // Real error-rate signal: the core input loop silently broke because
@@ -4412,37 +4492,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
+            return nil
         }
     }
 
-    /// Submit raw text to the currently selected terminal when one is available.
-    public func submitTerminalRawInput(_ text: String) async {
-        guard !text.isEmpty else { return }
-        guard let workspaceID = selectedWorkspace?.id,
-              let terminalID = selectedTerminalID else {
-            return
+    private func startRawTerminalInputDrainTask() -> Task<Void, Never> {
+        let taskID = UUID()
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.drainRawTerminalInputBuffer(taskID: taskID)
         }
-        await submitTerminalRawInput(text, workspaceID: workspaceID, terminalID: terminalID)
+        rawTerminalInputDrainTaskID = taskID
+        rawTerminalInputDrainTask = task
+        return task
     }
 
-    /// Raw-bytes overload. The libghostty render path on iOS uses this
-    /// for input that may include binary sequences (mouse reports,
-    /// kitty keyboard, IME byte streams). The wire RPC encodes bytes
-    /// as the UTF-8-stringified payload of `mobile.terminal.input`,
-    /// then the Mac decodes back to Data. If we ever need true binary
-    /// fidelity (paste of mid-codepoint bytes, etc.), upgrade the
-    /// `input` param to a base64 field.
-    public func submitTerminalRawInput(_ data: Data, surfaceID: String) async {
-        guard !data.isEmpty else { return }
-        guard let text = String(data: data, encoding: .utf8) else {
-            return
-        }
-        let workspaceCandidate = workspaces.first(where: { workspace in
-            workspace.terminals.contains(where: { $0.id.rawValue == surfaceID })
-        })
-        guard let workspace = workspaceCandidate else { return }
-        let terminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
-        await submitTerminalRawInput(text, workspaceID: workspace.id, terminalID: terminalID)
+    private func clearRawTerminalInputBuffer() {
+        rawTerminalInputDrainTask?.cancel()
+        rawTerminalInputDrainTask = nil
+        rawTerminalInputDrainTaskID = nil
+        rawTerminalInputBuffer.clear()
     }
 
     private func submitTerminalRawInput(
@@ -4455,8 +4524,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         await sendRemoteTerminalInput(text, workspaceID: workspaceID, terminalID: terminalID)
     }
 
-    private func drainRawTerminalInputBuffer() async {
-        while let chunk = rawTerminalInputBuffer.nextBatch() {
+    private func drainRawTerminalInputBuffer(taskID: UUID) async {
+        defer {
+            if rawTerminalInputDrainTaskID == taskID {
+                rawTerminalInputDrainTask = nil
+                rawTerminalInputDrainTaskID = nil
+            }
+        }
+        while !Task.isCancelled, let chunk = rawTerminalInputBuffer.nextBatch() {
             await submitTerminalRawInput(
                 chunk.text,
                 workspaceID: chunk.workspaceID,
@@ -4480,7 +4555,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionGeneration = generation
         diagnosticLog?.record(DiagnosticEvent(.connect))
         cancelRemoteOperationTasks()
-        rawTerminalInputBuffer.clear()
+        clearRawTerminalInputBuffer()
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         let supportedRoutes = Self.supportedRoutes(for: ticket, supportedKinds: supportedKinds)
         guard let firstRoute = supportedRoutes.first else {
@@ -4800,7 +4875,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             offline.status = .unavailable
             workspacesByMac[offlineForegroundKey] = offline
         }
-        rawTerminalInputBuffer.clear()
+        clearRawTerminalInputBuffer()
     }
 
     /// Set `remoteClient` to a new value (possibly nil) and disconnect the
@@ -4855,7 +4930,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()
         cancelRemoteOperationTasks()
-        rawTerminalInputBuffer.clear()
+        clearRawTerminalInputBuffer()
         clearPairingError()
         clearPairingVersionWarning()
         return attemptID
