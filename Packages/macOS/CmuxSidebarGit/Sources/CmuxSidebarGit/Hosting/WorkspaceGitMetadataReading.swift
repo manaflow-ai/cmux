@@ -16,7 +16,13 @@ public protocol WorkspaceGitMetadataReading: Sendable {
     ) async -> GitWorkspaceMetadata
 }
 
+/// Default cache-generation behavior for readers that only implement a full
+/// metadata read.
 public extension WorkspaceGitMetadataReading {
+    /// Returns uncached git metadata for `directory`.
+    ///
+    /// Reader implementations that cannot consume a tracked-path generation can
+    /// rely on this default to conservatively bypass tracked-change cache reuse.
     func workspaceMetadata(
         for directory: String,
         trackedPathEventGeneration: GitTrackedPathEventGeneration?

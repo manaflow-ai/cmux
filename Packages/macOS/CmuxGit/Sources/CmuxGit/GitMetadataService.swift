@@ -31,7 +31,7 @@ import Foundation
 /// if meta.isRepository, meta.isDirty { showDirtyIndicator() }
 /// ```
 public struct GitMetadataService: Sendable {
-    private let fileStatusReader: any GitFileStatusReading
+    let fileStatusReader: any GitFileStatusReading
     private let trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache
 
     /// Creates a git-metadata service.
@@ -101,10 +101,7 @@ public struct GitMetadataService: Sendable {
         let indexURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("index")
         guard let trackedPathEventGeneration,
               let indexStatus = fileStatusReader.status(atPath: indexURL.path) else {
-            return Self.gitTrackedChangesSnapshot(
-                repository: repository,
-                fileStatusReader: fileStatusReader
-            )
+            return gitTrackedChangesSnapshot(repository: repository)
         }
 
         let indexStatSignature = indexStatus.indexStatSignature
@@ -116,10 +113,7 @@ public struct GitMetadataService: Sendable {
             return snapshot
         }
 
-        let snapshot = Self.gitTrackedChangesSnapshot(
-            repository: repository,
-            fileStatusReader: fileStatusReader
-        )
+        let snapshot = gitTrackedChangesSnapshot(repository: repository)
         await trackedChangesSnapshotCache.store(
             snapshot,
             repository: repository,
