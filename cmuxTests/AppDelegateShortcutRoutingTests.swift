@@ -6017,6 +6017,41 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testBrowserFirstDocumentEditingRoutingIncludesItalics() {
+        // Cmd+I (italics) must reach focused web content first so writing apps
+        // (Notion, Google Docs, …) in a browser pane can italicize text, instead of
+        // the keystroke being swallowed by the Show Notifications shortcut or the
+        // View-menu "Show Notifications" key equivalent (issue #6776).
+        let event = makeKeyEvent(
+            modifierFlags: [.command],
+            characters: "i",
+            charactersIgnoringModifiers: "i",
+            keyCode: 34 // kVK_ANSI_I
+        )
+
+        XCTAssertTrue(
+            shouldRouteBrowserDocumentEditingCommandEquivalentThroughWebContentFirst(event),
+            "Cmd+I must be routed through web content first while a browser pane is focused"
+        )
+    }
+
+    func testBrowserFirstDocumentEditingRoutingStillExcludesPlainShortcuts() {
+        // Guard against over-broadening the editing allowlist: a bare Cmd+I with no
+        // browser semantics is the only italics addition; an unrelated combo such as
+        // Cmd+J must not be treated as a browser-first editing command.
+        let event = makeKeyEvent(
+            modifierFlags: [.command],
+            characters: "j",
+            charactersIgnoringModifiers: "j",
+            keyCode: 38 // kVK_ANSI_J
+        )
+
+        XCTAssertFalse(
+            shouldRouteBrowserDocumentEditingCommandEquivalentThroughWebContentFirst(event),
+            "Cmd+J is not a browser document-editing command"
+        )
+    }
+
     func testBrowserFirstFindShortcutRoutingDoesNotUseANSIPositionsForMismatchedASCIICharacters() {
         let cases: [(name: String, modifiers: NSEvent.ModifierFlags, chars: String, keyCode: UInt16)] = [
             ("cmd-u-on-ansi-f", [.command], "u", 3),
@@ -12006,6 +12041,41 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(harness.webView.performKeyEquivalent(with: commandReturn))
         XCTAssertEqual(probe.callCount, 0, "Focus mode must consume unhandled Cmd+Return instead of falling through to the app menu")
         XCTAssertTrue(harness.panel.isBrowserFocusModeActive)
+    }
+
+    func testShowNotificationsShortcutYieldsToFocusedBrowserPane() {
+        // With a browser pane focused, Cmd+I must no longer match the Show
+        // Notifications shortcut, so the keystroke falls through to the focused web
+        // view and writing apps (Notion, Google Docs, …) can italicize (issue #6776).
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+        guard let harness = makeBrowserFocusModeHarness() else { return }
+        defer { closeWindow(withId: harness.windowId) }
+
+        guard let event = makeKeyDownEvent(
+            key: "i",
+            modifiers: [.command],
+            keyCode: 34, // kVK_ANSI_I
+            windowNumber: harness.window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+I event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertFalse(
+            appDelegate.debugMatchesConfiguredShortcut(event: event, action: .showNotifications),
+            "Cmd+I must not match Show Notifications while a browser pane is focused"
+        )
+        XCTAssertFalse(
+            appDelegate.debugHandleCustomShortcut(event: event),
+            "Cmd+I must not be captured by app shortcut routing while a browser pane is focused"
+        )
+#else
+        XCTFail("debug shortcut hooks are only available in DEBUG")
+#endif
     }
 
     private func makeBrowserFocusModeHarness(

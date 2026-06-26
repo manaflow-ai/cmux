@@ -134,6 +134,23 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(KeyboardShortcutSettings.Action.renameWorkspace.shortcutContext, .nonBrowserPanel)
     }
 
+    func testShowNotificationsYieldsToFocusedBrowserPaneTextEditors() {
+        // Cmd+I (the Show Notifications default) collided with the standard italics
+        // keybinding in web writing apps (Notion, Google Docs, …). Scoping the action
+        // outside browser panels lets the keystroke reach focused web content so
+        // italics keeps working there (issue #6776).
+        let context = KeyboardShortcutSettings.Action.showNotifications.shortcutContext
+        XCTAssertEqual(context, .nonBrowserPanel)
+        XCTAssertFalse(
+            context.isAvailable(focusedBrowserPanel: true, focusedMarkdownPanel: false, rightSidebarFocused: false),
+            "Show Notifications must not capture Cmd+I while a browser pane is focused"
+        )
+        XCTAssertTrue(
+            context.isAvailable(focusedBrowserPanel: false, focusedMarkdownPanel: false, rightSidebarFocused: false),
+            "Show Notifications still fires from terminal/app focus"
+        )
+    }
+
     func testRightSidebarContextIsOnlyAvailableWhenRightSidebarHasFocus() {
         let context = KeyboardShortcutSettings.Action.switchRightSidebarToFiles.shortcutContext
 
