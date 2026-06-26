@@ -181,7 +181,7 @@ struct BrowserHiddenWebViewDiscardMemoryPressureTests {
     }
 
     @Test func delayedDiscardRechecksActiveWorkspaceBlockerBeforeDiscarding() throws {
-        withMemoryPressureHiddenWebViewDiscardPolicyEnabled { defaults in
+        try withMemoryPressureHiddenWebViewDiscardPolicyEnabled { defaults in
             let scheduler = ManualHiddenWebViewDiscardScheduler()
             let manager = BrowserHiddenWebViewDiscardManager(
                 policyDefaults: defaults,
