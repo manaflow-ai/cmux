@@ -225,6 +225,39 @@ import WebKit
         #expect(!subframeScript.source.contains("revokeObjectURL"))
     }
 
+    @MainActor
+    @Test func promptedDownloadCompletionCallbacksPostFinalEvents() throws {
+        let panel = BrowserPanel(workspaceId: UUID(), renderInitialNavigation: false)
+        let delegate = try #require(panel.downloadDelegate)
+        let capture = BrowserDownloadEventCapture()
+        let observer = NotificationCenter.default.addObserver(
+            forName: .browserDownloadEventDidArrive,
+            object: panel,
+            queue: nil
+        ) { notification in
+            capture.append(notification)
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        let savedURL = URL(fileURLWithPath: "/tmp/cmux-download-report.csv")
+        delegate.onDownloadSaved?("report.csv", savedURL, false)
+        delegate.onDownloadCancelled?("cancelled.txt", false)
+        delegate.onDownloadFailed?(
+            NSError(domain: "cmux.download.test", code: 7, userInfo: [
+                NSLocalizedDescriptionKey: "disk full"
+            ]),
+            false
+        )
+
+        let events = capture.snapshot()
+        try #require(events.count == 3)
+        #expect(events.map { $0["type"] as? String } == ["saved", "cancelled", "failed"])
+        #expect(events[0]["filename"] as? String == "report.csv")
+        #expect(events[0]["path"] as? String == savedURL.path)
+        #expect(events[1]["filename"] as? String == "cancelled.txt")
+        #expect(events[2]["error"] as? String == "disk full")
+    }
+
     @Test func rejectsNonSuccessHTTPStatusBeforeSavePanelNaming() throws {
         let url = try #require(URL(string: "https://example.test/logo.jpg"))
         let response = try #require(HTTPURLResponse(
@@ -355,6 +388,25 @@ import WebKit
             properties[.expires] = expires
         }
         return try #require(HTTPCookie(properties: properties))
+    }
+
+    private final class BrowserDownloadEventCapture: @unchecked Sendable {
+        private let lock = NSLock()
+        private var events: [[String: Any]] = []
+
+        func append(_ notification: Notification) {
+            guard let event = notification.userInfo?["event"] as? [String: Any] else { return }
+            lock.lock()
+            events.append(event)
+            lock.unlock()
+        }
+
+        func snapshot() -> [[String: Any]] {
+            lock.lock()
+            let result = events
+            lock.unlock()
+            return result
+        }
     }
 
     private static let onePixelPNG = Data([
