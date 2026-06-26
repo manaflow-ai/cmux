@@ -13159,8 +13159,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Notifications. This special-cases only the editing collision: the action
         // stays generally available, so non-colliding custom bindings (e.g.
         // Cmd+Shift+I) still open notifications from a browser pane, and the URL bar
-        // is excluded since italics is meaningless there (issue #6776).
-        if !hasFocusedAddressBarInShortcutContext,
+        // is excluded since italics is meaningless there (issue #6776). Gated to the
+        // no-active-chord case so a configured chord whose second stroke is
+        // Cmd+I/C/X/A still completes instead of being swallowed here.
+        if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+           !hasFocusedAddressBarInShortcutContext,
            shortcutEventFocusContext(event).browserPanel != nil,
            shouldRouteBrowserDocumentEditingCommandEquivalentThroughWebContentFirst(event) {
             return false

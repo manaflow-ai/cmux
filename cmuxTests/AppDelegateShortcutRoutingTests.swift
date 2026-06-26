@@ -12158,6 +12158,63 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
+    func testChordCompletionWithCmdISecondStrokeStillFiresOverBrowserPane() {
+        // The browser document-editing bypass is gated to the no-active-chord case.
+        // A configured chord whose second stroke is Cmd+I (Ctrl+K, Cmd+I here) must
+        // still complete over a focused browser pane instead of the second stroke
+        // being swallowed by the editing bypass (issue #6776).
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+        guard let harness = makeBrowserFocusModeHarness() else { return }
+        defer { closeWindow(withId: harness.windowId) }
+
+        guard let firstStroke = makeKeyDownEvent(
+            key: "k",
+            modifiers: [.control],
+            keyCode: 40, // kVK_ANSI_K
+            windowNumber: harness.window.windowNumber
+        ), let secondStroke = makeKeyDownEvent(
+            key: "i",
+            modifiers: [.command],
+            keyCode: 34, // kVK_ANSI_I
+            windowNumber: harness.window.windowNumber
+        ) else {
+            XCTFail("Failed to construct chord stroke events")
+            return
+        }
+
+        withTemporaryShortcut(
+            action: .showNotifications,
+            shortcut: StoredShortcut(
+                key: "k",
+                command: false,
+                shift: false,
+                option: false,
+                control: true,
+                chordKey: "i",
+                chordCommand: true,
+                chordShift: false,
+                chordOption: false,
+                chordControl: false
+            )
+        ) {
+#if DEBUG
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: firstStroke),
+                "First chord stroke (Ctrl+K) should arm the chord"
+            )
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: secondStroke),
+                "Cmd+I as a chord second stroke must complete the chord, not be swallowed by the browser editing bypass"
+            )
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+    }
+
     func testBrowserPaneCmdISkipsShowNotificationsAppMenuFallback() {
         // A browser pane is focused (not browser focus mode). When the page does
         // not claim Cmd+I, cmux must swallow it via the document-editing route
