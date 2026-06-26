@@ -43,20 +43,20 @@ struct AttemptUpdateCoordinator {
     /// Whether the coordinator is mid-flow and should be fed state changes.
     var isMonitoring: Bool { phase != .inactive }
 
-    /// The user asked to install the available update.
+    /// The user asked to install the available update. Always re-resolve via a fresh check rather
+    /// than installing whatever was captured when the prompt was surfaced (issue #6366), unless an
+    /// install is already in progress (in which case there is nothing newer to resolve and
+    /// restarting would interrupt it).
     ///
-    /// - Parameter currentState: The phase showing when the user requested the install.
+    /// - Parameter currentState: The phase showing when the user requested the install. Its
+    ///   captured update is deliberately *not* installed; it only gates the mid-install no-op.
     mutating func requestInstallLatest(currentState: UpdateState) -> Action {
         switch currentState {
         case .downloading, .extracting, .installing:
             // An install is already underway; don't interrupt it to re-resolve.
             return .none
-        case .updateAvailable:
-            // NOTE: pre-#6366 behavior — install the version that was captured when the prompt was
-            // surfaced. This is the bug the regression test pins; the fix replaces this branch.
-            phase = .inactive
-            return .confirmInstall
-        case .idle, .permissionRequest, .checking, .notFound, .error:
+        case .idle, .permissionRequest, .checking, .updateAvailable, .notFound, .error:
+            // Ignore any update captured in `currentState`; re-resolve the feed to the latest.
             phase = .awaitingCheckRestart
             return .startFreshCheck
         }
