@@ -8,16 +8,6 @@ public struct AgentForkArgv: Sendable, Equatable {
     /// Creates a fork-argv builder. The type holds no state.
     public init() {}
 
-    /// The result of resolving a cmux wrapper launcher to its fork command.
-    public enum LauncherResolution: Sendable, Equatable {
-        /// The launcher is a cmux wrapper; the associated value is its fork argv, or `nil` when
-        /// the wrapper has no forkable form.
-        case resolved([String]?)
-        /// The launcher is a plain agent executable; fall through to
-        /// ``builtInKind(kind:sessionId:executablePath:arguments:)``.
-        case passthrough
-    }
-
     /// Resolves a fork argv from a cmux wrapper launcher.
     ///
     /// - Parameters:
@@ -32,7 +22,7 @@ public struct AgentForkArgv: Sendable, Equatable {
         sessionId: String,
         executablePath: String?,
         arguments: [String]
-    ) -> LauncherResolution {
+    ) -> AgentForkLauncherResolution {
         switch launcher {
         case "claudeTeams":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "cmux")
