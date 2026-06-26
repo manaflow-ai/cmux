@@ -48,8 +48,9 @@ final class ChatScrollEdgeCoordinator {
         owner: UIViewController
     ) {
         if #available(iOS 26.0, *) {
-            owner.setContentScrollView(tableView, for: [.top, .bottom])
-            let topController = tableView == nil ? nil : nearestNavigationContentViewController(from: owner)
+            let topController = tableView == nil
+                ? nil
+                : nearestNavigationContentViewController(from: owner) ?? owner
             if topContentScrollViewController !== topController {
                 clearTopContentScrollViewController()
                 topContentScrollViewController = topController

@@ -1012,7 +1012,7 @@ final class cmuxUITests: XCTestCase {
     @MainActor
     func testAgentChatTopScrollEdgeUnderlapsNavigationBarEvidence() throws {
         guard #available(iOS 26.0, *) else {
-            throw XCTSkip("Top scroll-edge underlap uses iOS 26 UIScrollEdgeElementContainerInteraction.")
+            throw XCTSkip("Top scroll-edge underlap uses iOS 26 content scroll view registration.")
         }
 
         let app = launchAgentChatInlinePreviewApp()
