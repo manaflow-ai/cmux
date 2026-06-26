@@ -884,9 +884,10 @@ final class TerminalNotificationStore: ObservableObject {
         cooldownInterval: TimeInterval? = nil,
         clickAction: TerminalNotificationClickAction? = nil
     ) {
+        let target = resolveNotificationTarget(tabId: tabId, surfaceId: surfaceId)
 #if DEBUG
         cmuxDebugLog(
-            "notification.store.add workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId?.uuidString.prefix(8) ?? "nil") titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count) cooldown=\(cooldownKey == nil ? 0 : 1)"
+            "notification.store.add workspace=\(target.tabId.uuidString.prefix(8)) surface=\(target.surfaceId?.uuidString.prefix(8) ?? "nil") titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count) cooldown=\(cooldownKey == nil ? 0 : 1)"
         )
 #endif
         let now = Date()
@@ -902,7 +903,7 @@ final class TerminalNotificationStore: ObservableObject {
            now.timeIntervalSince(lastNotificationDate) < resolvedCooldownInterval {
 #if DEBUG
             cmuxDebugLog(
-                "notification.store.add.skip workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId?.uuidString.prefix(8) ?? "nil") reason=cooldown"
+                "notification.store.add.skip workspace=\(target.tabId.uuidString.prefix(8)) surface=\(target.surfaceId?.uuidString.prefix(8) ?? "nil") reason=cooldown"
             )
 #endif
             return
@@ -916,8 +917,8 @@ final class TerminalNotificationStore: ObservableObject {
         }
 
         let policyContext = makeNotificationPolicyContext(
-            tabId: tabId,
-            surfaceId: surfaceId,
+            tabId: target.tabId,
+            surfaceId: target.surfaceId,
             title: title,
             subtitle: subtitle,
             body: body
@@ -974,6 +975,17 @@ final class TerminalNotificationStore: ObservableObject {
                 self.reportNotificationHookFailure(failure)
             }
         }
+    }
+
+    private func resolveNotificationTarget(tabId: UUID, surfaceId: UUID?) -> (tabId: UUID, surfaceId: UUID?) {
+        guard let surfaceId,
+              let resolved = AppDelegate.shared?.workspaceContainingPanel(
+                panelId: surfaceId,
+                preferredWorkspaceId: tabId
+              ) else {
+            return (tabId, surfaceId)
+        }
+        return (resolved.workspace.id, surfaceId)
     }
 
     private struct NotificationCooldownReservation: Sendable {

@@ -415,7 +415,7 @@ extension TerminalNotificationStore {
         ) else {
             return false
         }
-        return target.workspace.id == notification.key.tabId
+        return target.workspace.panels[surfaceId] != nil
     }
 
     static func cachedDeliveryAuthorizationDecision(

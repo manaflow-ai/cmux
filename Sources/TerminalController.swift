@@ -11280,6 +11280,19 @@ class TerminalController {
            let panelId = UUID(uuidString: panelArg) {
             var result = "OK"
             v2MainSync {
+                if let target = AppDelegate.shared?.workspaceContainingPanel(
+                    panelId: panelId,
+                    preferredWorkspaceId: workspaceId
+                ) {
+                    deliverNotificationSynchronously(
+                        tabId: target.workspace.id,
+                        surfaceId: panelId,
+                        title: title,
+                        subtitle: subtitle,
+                        body: body
+                    )
+                    return
+                }
                 guard let tab = self.tabForSidebarMutation(id: workspaceId) else {
                     result = "ERROR: Tab not found"
                     return
@@ -11312,12 +11325,20 @@ class TerminalController {
                 return
             }
             guard let panelId = UUID(uuidString: panelArg),
-                  tab.panels[panelId] != nil else {
+                  tab.panels[panelId] != nil ||
+                  AppDelegate.shared?.workspaceContainingPanel(
+                    panelId: panelId,
+                    preferredWorkspaceId: tab.id
+                  ) != nil else {
                 result = "ERROR: Panel not found"
                 return
             }
+            let resolvedTabId = AppDelegate.shared?.workspaceContainingPanel(
+                panelId: panelId,
+                preferredWorkspaceId: tab.id
+            )?.workspace.id ?? tab.id
             deliverNotificationSynchronously(
-                tabId: tab.id,
+                tabId: resolvedTabId,
                 surfaceId: panelId,
                 title: title,
                 subtitle: subtitle,
