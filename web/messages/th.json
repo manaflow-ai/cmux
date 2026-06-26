@@ -823,7 +823,16 @@
         "browser": {
           "defaultSearchEngine": "เครื่องมือค้นหาเริ่มต้นสำหรับคำค้นในแถบที่อยู่ของเบราว์เซอร์ที่ไม่ใช่ URL ใช้ custom กับ customSearchEngineURLTemplate สำหรับผู้ให้บริการอื่น",
           "customSearchEngineName": "ชื่อที่แสดงเมื่อ defaultSearchEngine เป็น custom",
-          "customSearchEngineURLTemplate": "URL ค้นหาที่ใช้เมื่อ defaultSearchEngine เป็น custom ใส่ตัวแทนคำค้นหรือ %s สำหรับคำค้นที่เข้ารหัส หากไม่มีตัวแทน cmux จะเพิ่ม q= ให้กับ URL"
+          "customSearchEngineURLTemplate": "URL ค้นหาที่ใช้เมื่อ defaultSearchEngine เป็น custom ใส่ตัวแทนคำค้นหรือ %s สำหรับคำค้นที่เข้ารหัส หากไม่มีตัวแทน cmux จะเพิ่ม q= ให้กับ URL",
+          "proxy": {
+            "description": "กำหนดเส้นทางบานหน้าต่างเบราว์เซอร์ฝังตัวภายในเครื่องผ่านพร็อกซี HTTP CONNECT หรือ SOCKSv5 (WKWebsiteDataStore.proxyConfigurations) ใช้กับบานหน้าต่างภายในเครื่องเท่านั้น บานหน้าต่างของเวิร์กสเปซระยะไกลจะยังคงใช้อุโมงค์เวิร์กสเปซของตน สามารถโหลดซ้ำได้ผ่าน cmux reload-config ตัวแปรสภาพแวดล้อม CMUX_BROWSER_PROXY (เช่น socks5://127.0.0.1:1080) จะแทนที่ค่านี้",
+            "type": "โปรโตคอลพร็อกซี off จะไม่ใช้พร็อกซีเบราว์เซอร์ของ cmux (พร็อกซีระบบ macOS ที่ใช้งานอยู่จะยังคงถูกมิเรอร์ไว้สำหรับการแก้ไข loopback) socks5 ใช้พร็อกซี SOCKSv5 ส่วน httpConnect ใช้พร็อกซี HTTP CONNECT",
+            "host": "ชื่อโฮสต์หรือ IP ของเซิร์ฟเวอร์พร็อกซี เช่น 127.0.0.1",
+            "port": "พอร์ตของเซิร์ฟเวอร์พร็อกซี เช่น 1080",
+            "username": "ชื่อผู้ใช้ (ไม่บังคับ) สำหรับพร็อกซีที่ต้องตรวจสอบสิทธิ์",
+            "password": "รหัสผ่าน (ไม่บังคับ) สำหรับพร็อกซีที่ต้องตรวจสอบสิทธิ์",
+            "bypass": "คำต่อท้ายชื่อโฮสต์ที่จะเชื่อมต่อโดยตรงแทนการผ่านพร็อกซี เช่น localhost, *.localhost, 127.0.0.1 โฮสต์ loopback และ link-local จะถูกข้ามเสมอ"
+          }
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "ค่าเริ่มต้นส่วนกลางสำหรับตำแหน่งที่ Cmd-N ภายในกลุ่ม ปุ่ม + ในหัวกลุ่ม และการกระทำของกลุ่มที่ตั้งค่าไว้จะวาง workspace ใหม่: `afterCurrent` (หลัง workspace ที่ใช้งานอยู่ในกลุ่ม และ fallback เป็น top), `top` (ตำแหน่งที่สอง ถัดจาก anchor ทันที) หรือ `end` (หลังสมาชิกสุดท้าย).",

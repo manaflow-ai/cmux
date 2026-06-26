@@ -823,7 +823,16 @@
         "browser": {
           "defaultSearchEngine": "브라우저 주소 표시줄에서 URL이 아닌 입력에 사용할 기본 검색 엔진입니다. 다른 제공자는 custom과 customSearchEngineURLTemplate을 사용하세요.",
           "customSearchEngineName": "defaultSearchEngine이 custom일 때 사용할 표시 이름입니다.",
-          "customSearchEngineURLTemplate": "defaultSearchEngine이 custom일 때 사용할 검색 URL입니다. 인코딩된 검색어에는 쿼리 자리표시자 또는 %s를 포함하세요. 자리표시자가 없으면 cmux가 URL에 q=를 추가합니다."
+          "customSearchEngineURLTemplate": "defaultSearchEngine이 custom일 때 사용할 검색 URL입니다. 인코딩된 검색어에는 쿼리 자리표시자 또는 %s를 포함하세요. 자리표시자가 없으면 cmux가 URL에 q=를 추가합니다.",
+          "proxy": {
+            "description": "로컬 임베디드 브라우저 창을 HTTP CONNECT 또는 SOCKSv5 프록시(WKWebsiteDataStore.proxyConfigurations)를 통해 라우팅합니다. 로컬 창에만 적용되며, 원격 워크스페이스 창은 워크스페이스 터널을 유지합니다. cmux reload-config로 다시 로드할 수 있습니다. CMUX_BROWSER_PROXY 환경 변수(예: socks5://127.0.0.1:1080)가 이를 재정의합니다.",
+            "type": "프록시 프로토콜. off는 cmux 브라우저 프록시를 적용하지 않습니다(루프백 수정을 위해 활성화된 macOS 시스템 프록시는 계속 미러링됩니다). socks5는 SOCKSv5 프록시를 사용하고, httpConnect는 HTTP CONNECT 프록시를 사용합니다.",
+            "host": "프록시 서버 호스트 이름 또는 IP. 예: 127.0.0.1.",
+            "port": "프록시 서버 포트. 예: 1080.",
+            "username": "인증된 프록시를 위한 선택적 사용자 이름.",
+            "password": "인증된 프록시를 위한 선택적 비밀번호.",
+            "bypass": "프록시를 거치지 않고 직접 연결하는 호스트 이름 접미사. 예: localhost, *.localhost, 127.0.0.1. 루프백 및 링크 로컬 호스트는 항상 우회됩니다."
+          }
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "그룹 안에서 Cmd-N, 그룹 헤더의 + 버튼, 구성된 그룹 액션이 새 workspace를 배치할 위치의 전역 기본값입니다: `afterCurrent` (활성 그룹 내 workspace 바로 뒤, 없으면 top), `top` (앵커 바로 뒤의 두 번째 위치), `end` (마지막 멤버 뒤).",

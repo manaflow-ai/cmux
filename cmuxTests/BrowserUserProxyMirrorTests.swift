@@ -132,4 +132,45 @@ import Testing
         )
         #expect(merged == BrowserSystemProxyMirror.implicitExclusions + ["corp.example"])
     }
+
+    // MARK: - Injectable resolution (no app singleton)
+
+    @Test("Resolution uses the injected file configuration when no env override is set")
+    func resolutionUsesFileConfigurationWithoutEnvOverride() {
+        let mirror = BrowserUserProxyMirror(
+            fileConfiguration: socksConfiguration(host: "file-host", port: 1080),
+            environment: [:]
+        )
+        #expect(mirror.resolvedConfiguration().host == "file-host")
+        let configurations = mirror.proxyConfigurations()
+        #expect(configurations?.count == 1)
+    }
+
+    @Test("A CMUX_BROWSER_PROXY override wins over the injected file configuration")
+    func envOverrideWinsOverFileConfiguration() {
+        let mirror = BrowserUserProxyMirror(
+            fileConfiguration: socksConfiguration(host: "file-host", port: 1),
+            environment: ["CMUX_BROWSER_PROXY": "socks5://127.0.0.1:1080"]
+        )
+        let resolved = mirror.resolvedConfiguration()
+        #expect(resolved.host == "127.0.0.1")
+        #expect(resolved.port == 1080)
+        #expect(mirror.proxyConfigurations()?.count == 1)
+    }
+
+    @Test("A CMUX_BROWSER_PROXY=off override disables an injected file proxy")
+    func envOffOverrideDisablesFileProxy() {
+        let mirror = BrowserUserProxyMirror(
+            fileConfiguration: socksConfiguration(host: "file-host", port: 1080),
+            environment: ["CMUX_BROWSER_PROXY": "off"]
+        )
+        #expect(mirror.resolvedConfiguration() == .disabled)
+        #expect(mirror.proxyConfigurations() == nil)
+    }
+
+    @Test("A disabled injected configuration produces no proxy")
+    func disabledInjectedConfigurationProducesNoProxy() {
+        let mirror = BrowserUserProxyMirror(fileConfiguration: .disabled, environment: [:])
+        #expect(mirror.proxyConfigurations() == nil)
+    }
 }

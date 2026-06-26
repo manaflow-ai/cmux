@@ -94,8 +94,6 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   "customSearchEngineURLTemplate": "https://search.example.com/?q={query}",
   //   "openTerminalLinksInCmuxBrowser": true,
   //   "hostsToOpenInEmbeddedBrowser": ["localhost", "*.internal.example"],
-  //   // Route local browser panes through a proxy. Override with
-  //   // CMUX_BROWSER_PROXY=socks5://127.0.0.1:1080. Reload with cmux reload-config.
   //   "proxy": {
   //     "type": "socks5",
   //     "host": "127.0.0.1",

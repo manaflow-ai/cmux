@@ -823,7 +823,16 @@
         "browser": {
           "defaultSearchEngine": "Motor de búsqueda predeterminado para consultas de la barra de direcciones del navegador que no son URL. Usa custom con customSearchEngineURLTemplate para otros proveedores.",
           "customSearchEngineName": "Nombre visible usado cuando defaultSearchEngine es custom.",
-          "customSearchEngineURLTemplate": "URL de búsqueda usada cuando defaultSearchEngine es custom. Incluye el marcador de consulta o %s para la consulta codificada. Si no hay marcador, cmux añade q= a la URL."
+          "customSearchEngineURLTemplate": "URL de búsqueda usada cuando defaultSearchEngine es custom. Incluye el marcador de consulta o %s para la consulta codificada. Si no hay marcador, cmux añade q= a la URL.",
+          "proxy": {
+            "description": "Enruta los paneles del navegador integrado local a través de un proxy HTTP CONNECT o SOCKSv5 (WKWebsiteDataStore.proxyConfigurations). Se aplica solo a los paneles locales; los paneles de espacios de trabajo remotos mantienen su túnel de espacio de trabajo. Se puede recargar mediante cmux reload-config. La variable de entorno CMUX_BROWSER_PROXY (p. ej., socks5://127.0.0.1:1080) anula esto.",
+            "type": "Protocolo del proxy. off no aplica ningún proxy de navegador de cmux (un proxy del sistema macOS activo se sigue reflejando para la corrección de loopback). socks5 usa un proxy SOCKSv5; httpConnect usa un proxy HTTP CONNECT.",
+            "host": "Nombre de host o IP del servidor proxy, p. ej., 127.0.0.1.",
+            "port": "Puerto del servidor proxy, p. ej., 1080.",
+            "username": "Nombre de usuario opcional para un proxy autenticado.",
+            "password": "Contraseña opcional para un proxy autenticado.",
+            "bypass": "Sufijos de nombre de host que se conectan directamente en lugar de a través del proxy, p. ej., localhost, *.localhost, 127.0.0.1. Los hosts de loopback y de enlace local siempre se omiten."
+          }
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Valor predeterminado global para dónde Cmd-N dentro de un grupo, el botón + del encabezado del grupo y las acciones de grupo configuradas colocan el nuevo workspace: `afterCurrent` (después del workspace activo dentro del grupo, con top como reserva), `top` (segunda posición, justo después del ancla) o `end` (después del último miembro).",

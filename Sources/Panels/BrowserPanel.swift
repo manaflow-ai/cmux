@@ -4288,7 +4288,7 @@ final class BrowserPanel: Panel, ObservableObject {
             // proxy with loopback excluded (#5888).
             if usesRemoteWorkspaceProxy {
                 store.proxyConfigurations = []
-            } else if let userProxy = BrowserUserProxyMirror.currentProxyConfigurations() {
+            } else if let userProxy = BrowserUserProxyMirror.appDefault().proxyConfigurations() {
                 store.proxyConfigurations = userProxy
             } else {
                 store.proxyConfigurations = BrowserSystemProxyMirror.currentProxyConfigurations()
