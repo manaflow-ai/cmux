@@ -15,7 +15,7 @@ extension CommandPaletteCoordinator {
     ) {
         let stateQuery = host.presentationQuery()
         let effectiveQuery = query ?? stateQuery
-        let scope = CommandPaletteCoordinator.listScope(for: effectiveQuery)
+        let scope = queryScopePolicy.listScope(for: effectiveQuery)
 
         let plan = host.corpusBuildPlan(scope, effectiveQuery)
         let fingerprint = plan.fingerprint
@@ -90,7 +90,7 @@ extension CommandPaletteCoordinator {
             guard index != nil else { return }
             let query = host.presentationQuery()
             if host.isCommandPalettePresented(),
-               CommandPaletteCoordinator.listScope(for: query) == scope {
+               queryScopePolicy.listScope(for: query) == scope {
                 host.scheduleResultsRefresh(query, true)
             }
         }
@@ -112,13 +112,4 @@ extension CommandPaletteCoordinator {
     public func invalidateSearchCorpusFingerprintCache() {
         cachedCorpusFingerprint = nil
     }
-
-    /// The list scope for `query`: the `>`-prefixed command list or the
-    /// workspace/surface switcher.
-    public static func listScope(for query: String) -> CommandPaletteListScope {
-        query.hasPrefix(commandsScopePrefix) ? .commands : .switcher
-    }
-
-    /// The query prefix that selects the command list scope.
-    public static let commandsScopePrefix = ">"
 }

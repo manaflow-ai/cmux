@@ -27,10 +27,6 @@ typealias Tab = Workspace
 
 private let tabManagerLogger = Logger(subsystem: "com.cmuxterm.app", category: "TabManager")
 
-enum WorkspaceOrderChangeNotificationKey {
-    static let movedWorkspaceIds = "movedWorkspaceIds"
-}
-
 // The DEBUG-only vsync IOSurface timeline capture seam (CVDisplayLink lifecycle,
 // NSLock-guarded in-flight coordination, C trampoline) lives in
 // CmuxTestSupport's VsyncIOSurfaceTimelineCapture, beside the pure
@@ -1300,9 +1296,9 @@ class TabManager {
     func workspaceOrderDidChange(movedWorkspaceIds: [UUID]) {
         guard !movedWorkspaceIds.isEmpty else { return }
         NotificationCenter.default.post(
-            name: .workspaceOrderDidChange,
+            name: WorkspaceOrderDidChangeEvent.notificationName,
             object: self,
-            userInfo: [WorkspaceOrderChangeNotificationKey.movedWorkspaceIds: movedWorkspaceIds]
+            userInfo: WorkspaceOrderDidChangeEvent(movedWorkspaceIds: movedWorkspaceIds).userInfo()
         )
         CmuxEventBus.shared.publishWorkspaceReordered(
             workspaceIds: tabs.map(\.id),
@@ -4912,7 +4908,6 @@ extension Notification.Name {
     static let webViewDidReceiveClick = Notification.Name("webViewDidReceiveClick")
     static let terminalPortalVisibilityDidChange = Notification.Name("cmux.terminalPortalVisibilityDidChange")
     static let browserPortalRegistryDidChange = Notification.Name("cmux.browserPortalRegistryDidChange")
-    static let workspaceOrderDidChange = Notification.Name("cmux.workspaceOrderDidChange")
     /// Posted when an existing workspace group's `name` changes (rename). The
     /// imperatively-cached window-chrome surfaces (custom title bar in
     /// `ContentView`, toolbar command label in `WindowToolbarController`) read

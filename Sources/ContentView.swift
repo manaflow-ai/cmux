@@ -385,7 +385,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         image: NSCursor.resizeLeftRight.image,
         hotSpot: NSCursor.resizeLeftRight.hotSpot
     )
-    nonisolated private static let commandPaletteCommandsPrefix = ">"
+    nonisolated private static let commandPaletteQueryScopePolicy = CommandPaletteQueryScopePolicy()
     private static let commandPaletteVisiblePreviewResultLimit = 48
     private static let commandPaletteVisiblePreviewCandidateLimit = 128
     private static let minimumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.minimumWidth)
@@ -2405,10 +2405,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     }
 
     nonisolated private static func commandPaletteListScope(for query: String) -> CommandPaletteListScope {
-        if query.hasPrefix(Self.commandPaletteCommandsPrefix) {
-            return .commands
-        }
-        return .switcher
+        commandPaletteQueryScopePolicy.listScope(for: query)
     }
 
     static func commandPaletteShouldResetVisibleResultsForQueryTransition(
@@ -2416,11 +2413,15 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         newQuery: String,
         hasVisibleResults: Bool
     ) -> Bool {
-        hasVisibleResults && commandPaletteListScope(for: oldQuery) != commandPaletteListScope(for: newQuery)
+        commandPaletteQueryScopePolicy.shouldResetVisibleResultsForQueryTransition(
+            oldQuery: oldQuery,
+            newQuery: newQuery,
+            hasVisibleResults: hasVisibleResults
+        )
     }
 
     nonisolated static func commandPaletteListIdentity(for query: String) -> String {
-        commandPaletteListScope(for: query).rawValue
+        commandPaletteQueryScopePolicy.listIdentity(for: query)
     }
 
     private var commandPaletteSwitcherIncludesSurfaceEntries: Bool {
@@ -2490,13 +2491,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         query: String,
         scope: CommandPaletteListScope
     ) -> String {
-        switch scope {
-        case .commands:
-            let suffix = String(query.dropFirst(Self.commandPaletteCommandsPrefix.count))
-            return suffix.trimmingCharacters(in: .whitespacesAndNewlines)
-        case .switcher:
-            return query.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
+        commandPaletteQueryScopePolicy.queryForMatching(query: query, scope: scope)
     }
 
     private func commandPaletteEntries(for scope: CommandPaletteListScope) -> [CommandPaletteCommand] {
@@ -2523,9 +2518,10 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         searchAllSurfaces: Bool,
         query: String
     ) -> Bool {
-        let scope = commandPaletteListScope(for: query)
-        guard scope == .switcher else { return false }
-        return searchAllSurfaces && !commandPaletteQueryForMatching(query: query, scope: scope).isEmpty
+        commandPaletteQueryScopePolicy.switcherIncludesSurfaceEntries(
+            searchAllSurfaces: searchAllSurfaces,
+            query: query
+        )
     }
 
     /// Builds the corpus-pipeline seam value the coordinator drives its corpus
@@ -2616,11 +2612,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     }
 
     nonisolated static func commandPaletteForkPriorityBoost(commandId: String, query: String) -> Int {
-        guard CommandPaletteFuzzyMatcher.normalizeForSearch(query) == "fork",
-              commandId == "palette.forkAgentConversationRight" else {
-            return 0
-        }
-        return 10_000
+        commandPaletteQueryScopePolicy.forkPriorityBoost(commandId: commandId, query: query)
     }
 
     private static func commandPaletteMaterializedSearchResults(
@@ -5012,7 +5004,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         if isCommandPalettePresented {
             dismissCommandPalette()
         } else {
-            presentCommandPalette(initialQuery: Self.commandPaletteCommandsPrefix)
+            presentCommandPalette(initialQuery: Self.commandPaletteQueryScopePolicy.commandsPrefix)
         }
     }
 
@@ -5025,7 +5017,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     }
 
     private func handleCommandPaletteListRequest(scope: CommandPaletteListScope) {
-        let initialQuery = (scope == .commands) ? Self.commandPaletteCommandsPrefix : ""
+        let initialQuery = (scope == .commands) ? Self.commandPaletteQueryScopePolicy.commandsPrefix : ""
         guard isCommandPalettePresented else {
             presentCommandPalette(initialQuery: initialQuery)
             return
@@ -6370,7 +6362,7 @@ struct VerticalTabsSidebar: View {
             return
         }
         guard let selectedWorkspaceId = tabManager.selectedTabId else { return }
-        let movedWorkspaceIds = notification.userInfo?[WorkspaceOrderChangeNotificationKey.movedWorkspaceIds] as? [UUID] ?? []
+        let movedWorkspaceIds = WorkspaceOrderDidChangeEvent(notification)?.movedWorkspaceIds ?? []
         guard movedWorkspaceIds.contains(selectedWorkspaceId) else { return }
         pendingSelectedWorkspaceScrollId = selectedWorkspaceId
     }
@@ -6687,7 +6679,7 @@ struct VerticalTabsSidebar: View {
                     }
                     requestSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
                 }
-                .onReceive(NotificationCenter.default.publisher(for: .workspaceOrderDidChange)) { notification in
+                .onReceive(NotificationCenter.default.publisher(for: WorkspaceOrderDidChangeEvent.notificationName)) { notification in
                     requestSelectedWorkspaceScrollAfterWorkspaceOrderChange(notification)
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .workspaceCurrentDirectoryDidChange)) { _ in
@@ -10211,7 +10203,7 @@ extension ContentView: CommandPaletteEditFlowHost {
     }
 
     func commandPaletteEditFlowPresent() {
-        presentCommandPalette(initialQuery: Self.commandPaletteCommandsPrefix)
+        presentCommandPalette(initialQuery: Self.commandPaletteQueryScopePolicy.commandsPrefix)
     }
 
     func commandPaletteEditFlowDismiss() {

@@ -1,4 +1,5 @@
 import CmuxControlSocket
+import CmuxWindowing
 import Foundation
 
 /// `TerminalController` conforms to ``ControlCommandContext`` as the interim
@@ -60,7 +61,13 @@ extension TerminalController: ControlWindowContext {
     }
 
     func controlAvailableDisplays() -> [ControlDisplayInfo] {
-        (AppDelegate.shared?.availableDisplays() ?? []).map { display in
+        // Preserve the legacy `AppDelegate.shared?.availableDisplays() ?? []`
+        // nil-guard: before launch wiring (and at teardown) `shared` is nil, and
+        // the command must report no displays rather than read live NSScreen
+        // state. The display-summary body itself is the lifted
+        // `DisplayInfo.connectedDisplays()`.
+        guard AppDelegate.shared != nil else { return [] }
+        return DisplayInfo.connectedDisplays().map { display in
             ControlDisplayInfo(
                 name: display.name,
                 index: display.index,

@@ -116,6 +116,9 @@ public final class CommandPaletteCoordinator {
     /// Whether a search is in flight whose resolved results have not yet applied.
     @ObservationIgnored public var isSearchPending: Bool = false
 
+    /// Pure query/scope policy the corpus pipeline resolves list scope through.
+    @ObservationIgnored let queryScopePolicy = CommandPaletteQueryScopePolicy()
+
     /// Creates a coordinator with an empty command list.
     public init() {}
 

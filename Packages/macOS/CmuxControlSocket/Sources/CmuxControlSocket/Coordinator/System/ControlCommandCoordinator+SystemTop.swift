@@ -11,6 +11,31 @@ internal import Foundation
 /// `TabManager` / `Workspace` / `BrowserPanel`), and only the dictionary shaping
 /// — including the tag id/ref percent-escaping — moves into the package.
 extension ControlCommandCoordinator {
+    /// Shapes one window node into the `system.top` / `system.memory` window
+    /// payload.
+    ///
+    /// Byte-faithful to the legacy `v2TopWindowNode`: the `kind` marker, the
+    /// minted window / selected-workspace refs, the `workspace_count` taken from
+    /// the node's own workspace list (not the summary total, so a workspace
+    /// filter reports `1`), and the nested workspace payloads are all preserved.
+    ///
+    /// - Parameter node: The live-state window node.
+    /// - Returns: The window payload object.
+    public func systemTopWindowPayload(_ node: ControlSystemTopWindowNode) -> JSONValue {
+        .object([
+            "kind": .string("window"),
+            "id": .string(node.summary.windowID.uuidString),
+            "ref": ref(.window, node.summary.windowID),
+            "index": .int(Int64(node.index)),
+            "key": .bool(node.summary.isKeyWindow),
+            "visible": .bool(node.summary.isVisible),
+            "workspace_count": .int(Int64(node.workspaces.count)),
+            "selected_workspace_id": orNull(node.summary.selectedWorkspaceID?.uuidString),
+            "selected_workspace_ref": ref(.workspace, node.summary.selectedWorkspaceID),
+            "workspaces": .array(node.workspaces.map(systemTopWorkspacePayload)),
+        ])
+    }
+
     /// Shapes one workspace node into the `system.top` workspace payload.
     ///
     /// Byte-faithful to the legacy `v2TopWorkspaceNode`: the `kind` markers, the

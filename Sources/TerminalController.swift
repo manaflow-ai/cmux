@@ -1605,7 +1605,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
             for (windowIndex, summary) in summaries.enumerated() {
                 guard let manager = app.tabManagerFor(windowId: summary.windowId) else { continue }
                 let workspaceNodes = manager.tabs.enumerated().map { workspaceIndex, workspace in
-                    v2TopWorkspaceNode(
+                    systemTopWorkspaceNode(
                         workspace: workspace,
                         index: workspaceIndex,
                         selected: workspace.id == manager.selectedTabId
@@ -1789,7 +1789,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
                         continue
                     }
                     let workspace = manager.tabs[workspaceIndex]
-                    let workspaceNode = v2TopWorkspaceNode(
+                    let workspaceNode = systemTopWorkspaceNode(
                         workspace: workspace,
                         index: workspaceIndex,
                         selected: workspace.id == manager.selectedTabId
@@ -1810,7 +1810,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
                 }
 
                 let workspaceNodesForWindow = manager.tabs.enumerated().map { workspaceIndex, workspace in
-                    v2TopWorkspaceNode(
+                    systemTopWorkspaceNode(
                         workspace: workspace,
                         index: workspaceIndex,
                         selected: workspace.id == manager.selectedTabId
@@ -1851,30 +1851,12 @@ class TerminalController: MobileViewportSurfaceLimiting {
         ])
     }
 
-    private func v2TopWindowNode(
-        summary: AppDelegate.MainWindowSummary,
-        index: Int,
-        workspaceNodes: [[String: Any]]
-    ) -> [String: Any] {
-        return [
-            "kind": "window",
-            "id": summary.windowId.uuidString,
-            "ref": v2Ref(kind: .window, uuid: summary.windowId),
-            "index": index,
-            "key": summary.isKeyWindow,
-            "visible": summary.isVisible,
-            "workspace_count": workspaceNodes.count,
-            "selected_workspace_id": v2OrNull(summary.selectedWorkspaceId?.uuidString),
-            "selected_workspace_ref": v2Ref(kind: .workspace, uuid: summary.selectedWorkspaceId),
-            "workspaces": workspaceNodes
-        ]
-    }
-
-    // The byte-faithful `v2TopWorkspaceNode` / `v2TopTagNodes` payload builders
-    // moved to TerminalController+ControlSystemTopContext.swift (live-state tree
-    // walk producing typed `ControlSystemTopWorkspaceNode`s) and
-    // ControlCommandCoordinator+SystemTop.swift (the dictionary shaping). The
-    // app `v2TopWorkspaceNode(workspace:index:selected:)` bridge lives in that
+    // The byte-faithful `v2TopWindowNode` / `v2TopWorkspaceNode` / `v2TopTagNodes`
+    // payload builders moved to TerminalController+ControlSystemTopContext.swift
+    // (live-state tree walk producing typed `ControlSystemTopWindowNode` /
+    // `ControlSystemTopWorkspaceNode`) and ControlCommandCoordinator+SystemTop.swift
+    // (the dictionary shaping, including the window/selected-workspace ref minting).
+    // The app `v2TopWindowNode(summary:index:workspaceNodes:)` bridge lives in that
     // conformance file.
 
     // MARK: - V2 Helpers (encoding + result plumbing)
