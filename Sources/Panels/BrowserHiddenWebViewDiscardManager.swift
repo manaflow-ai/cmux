@@ -19,6 +19,12 @@ protocol BrowserHiddenWebViewDiscardManagerDelegate: AnyObject {
 
 @MainActor
 final class BrowserHiddenWebViewDiscardManager {
+    typealias ScheduledDiscardCancel = @MainActor () -> Void
+    typealias ScheduleDiscardTimer = @MainActor (
+        _ delay: TimeInterval,
+        _ handler: @escaping @MainActor () -> Void
+    ) -> ScheduledDiscardCancel
+
     struct BlockerSnapshot {
         let isClosing: Bool
         let isActiveInWorkspace: Bool
@@ -43,16 +49,21 @@ final class BrowserHiddenWebViewDiscardManager {
 
     weak var delegate: BrowserHiddenWebViewDiscardManagerDelegate?
 
-    private var discardTimer: DispatchSourceTimer?
+    private var cancelScheduledDiscard: ScheduledDiscardCancel?
     private var policyObserver: NSObjectProtocol?
     private var systemSleepObservers: [NSObjectProtocol] = []
     private var systemSleepObserverCenter: NotificationCenter?
     private let policyDefaults: UserDefaults
+    private let scheduleDiscardTimer: ScheduleDiscardTimer
     private var policyState: BrowserHiddenWebViewDiscardPolicy.ResolvedPolicy
     private var scheduleGeneration: UInt64 = 0
 
-    init(policyDefaults: UserDefaults = .standard) {
+    init(
+        policyDefaults: UserDefaults = .standard,
+        scheduleDiscardTimer: @escaping ScheduleDiscardTimer = BrowserHiddenWebViewDiscardManager.scheduleDispatchTimer
+    ) {
         self.policyDefaults = policyDefaults
+        self.scheduleDiscardTimer = scheduleDiscardTimer
         self.policyState = BrowserHiddenWebViewDiscardPolicy.resolved(defaults: policyDefaults)
     }
 
@@ -69,7 +80,7 @@ final class BrowserHiddenWebViewDiscardManager {
     private(set) var restoredSessionShouldRenderWebView: Bool?
 
     var hasScheduledDiscard: Bool {
-        discardTimer != nil
+        cancelScheduledDiscard != nil
     }
 
     func blockers(for snapshot: BlockerSnapshot) -> [String] {
@@ -102,8 +113,8 @@ final class BrowserHiddenWebViewDiscardManager {
 
     func scheduleIfNeeded(reason: String, now: Date = Date()) {
         scheduleGeneration &+= 1
-        discardTimer?.cancel()
-        discardTimer = nil
+        cancelScheduledDiscard?()
+        cancelScheduledDiscard = nil
 
         guard let delegate else { return }
         guard blockers(for: delegate.hiddenWebViewDiscardSnapshot).isEmpty else { return }
@@ -124,23 +135,17 @@ final class BrowserHiddenWebViewDiscardManager {
             return
         }
 
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now() + remaining)
-        timer.setEventHandler { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                guard !self.isSystemSleeping else { return }
-                guard self.scheduleGeneration == generation else { return }
-                guard let delegate = self.delegate else { return }
-                guard delegate.hiddenWebViewDiscardWebViewInstanceID == observedWebViewInstanceID else { return }
-                self.discardTimer?.cancel()
-                self.discardTimer = nil
-                guard self.blockers(for: delegate.hiddenWebViewDiscardSnapshot).isEmpty else { return }
-                delegate.hiddenWebViewDiscardManagerDidRequestDiscard(self, reason: reason)
-            }
+        cancelScheduledDiscard = scheduleDiscardTimer(remaining) { [weak self] in
+            guard let self else { return }
+            guard !self.isSystemSleeping else { return }
+            guard self.scheduleGeneration == generation else { return }
+            guard let delegate = self.delegate else { return }
+            guard delegate.hiddenWebViewDiscardWebViewInstanceID == observedWebViewInstanceID else { return }
+            self.cancelScheduledDiscard?()
+            self.cancelScheduledDiscard = nil
+            guard self.blockers(for: delegate.hiddenWebViewDiscardSnapshot).isEmpty else { return }
+            delegate.hiddenWebViewDiscardManagerDidRequestDiscard(self, reason: reason)
         }
-        discardTimer = timer
-        timer.resume()
     }
 
     @discardableResult
@@ -158,16 +163,16 @@ final class BrowserHiddenWebViewDiscardManager {
         }
 
         scheduleGeneration &+= 1
-        discardTimer?.cancel()
-        discardTimer = nil
+        cancelScheduledDiscard?()
+        cancelScheduledDiscard = nil
         delegate.hiddenWebViewDiscardManagerDidRequestDiscard(self, reason: reason)
         return true
     }
 
     func cancel() {
         scheduleGeneration &+= 1
-        discardTimer?.cancel()
-        discardTimer = nil
+        cancelScheduledDiscard?()
+        cancelScheduledDiscard = nil
     }
 
     /// Tracks system sleep/wake so discard countdowns armed before sleep do not
@@ -299,6 +304,24 @@ final class BrowserHiddenWebViewDiscardManager {
     private func isInPostWakeDiscardDelay(now: Date) -> Bool {
         guard let lastSystemWakeAt else { return false }
         return now.timeIntervalSince(lastSystemWakeAt) < BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: policyDefaults)
+    }
+
+    private static func scheduleDispatchTimer(
+        _ delay: TimeInterval,
+        _ handler: @escaping @MainActor () -> Void
+    ) -> ScheduledDiscardCancel {
+        // DispatchSourceTimer backs this non-async lifecycle object; callers get only a cancel closure.
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + delay)
+        timer.setEventHandler {
+            MainActor.assumeIsolated {
+                handler()
+            }
+        }
+        timer.resume()
+        return {
+            timer.cancel()
+        }
     }
 
     private func stopOnMainActor() {
