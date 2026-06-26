@@ -3,12 +3,13 @@ internal import CmuxMobileShellModel
 extension MobilePairingChecklist {
     func applyingFailure(
         _ category: MobilePairingFailureCategory,
-        phase: String,
+        phase: MobilePairingFailurePhase,
         message: String? = nil,
         succeededSteps: Set<MobilePairingStep>? = nil
     ) -> MobilePairingChecklist {
-        applyingFailure(
-            category.pairingStep,
+        guard let step = category.pairingStep else { return self }
+        return applyingFailure(
+            step,
             message: message ?? category.message,
             guidance: category.guidance,
             succeededSteps: succeededSteps ?? category.succeededPairingSteps(phase: phase)
@@ -20,18 +21,20 @@ extension MobilePairingChecklist {
         message: String,
         succeededSteps: Set<MobilePairingStep>? = nil
     ) -> MobilePairingChecklist {
-        applyingFailure(category, phase: "operation", message: message, succeededSteps: succeededSteps)
+        applyingFailure(category, phase: .operation, message: message, succeededSteps: succeededSteps)
     }
 }
 
 extension MobilePairingFailureCategory {
-    func succeededPairingSteps(phase: String) -> Set<MobilePairingStep> {
+    func succeededPairingSteps(phase: MobilePairingFailurePhase) -> Set<MobilePairingStep> {
         switch pairingStep {
-        case .network:
+        case .network?:
             return []
-        case .authentication:
-            return phase == "validation" ? [] : [.network]
-        case .trust:
+        case .authentication?:
+            return phase == .validation ? [] : [.network]
+        case .trust?:
+            return []
+        case nil:
             return []
         }
     }

@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileRPC
+import CmuxMobileShellModel
 import CmuxMobileTransport
 import Foundation
 import Testing
@@ -216,8 +217,31 @@ import Testing
         )
         #expect(category == .cancelled)
         #expect(category.analyticsReason == "cancelled")
+        #expect(category.pairingStep == nil)
         // Cancellation is the only category with an intentionally empty headline.
         #expect(category.message.isEmpty)
+    }
+
+    @Test func validationAuthFailureDoesNotClaimNetworkSucceeded() {
+        let checklist = MobilePairingChecklist.inProgress.applyingFailure(
+            .authFailed,
+            phase: .validation
+        )
+
+        #expect(checklist.network.status == .pending)
+        #expect(checklist.authentication.status == .failed)
+        #expect(checklist.trust.status == .pending)
+    }
+
+    @Test func connectAuthFailurePreservesNetworkSuccess() {
+        let checklist = MobilePairingChecklist.inProgress.applyingFailure(
+            .authFailed,
+            phase: .connect
+        )
+
+        #expect(checklist.network.status == .succeeded)
+        #expect(checklist.authentication.status == .failed)
+        #expect(checklist.trust.status == .pending)
     }
 
     @Test func offlineCategoryHasNonEmptyMessage() {

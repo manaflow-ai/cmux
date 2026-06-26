@@ -75,17 +75,18 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
 }
 
 extension MobilePairingFailureCategory {
-    var pairingStep: MobilePairingStep {
+    var pairingStep: MobilePairingStep? {
         switch self {
         case .offline, .hostUnreachable, .listenerNotRunning, .localNetworkBlocked,
-             .dnsFailed, .handshakeTimedOut, .connectionDropped, .unknown,
-             .cancelled:
+             .dnsFailed, .handshakeTimedOut, .connectionDropped, .unknown:
             return .network
         case .accountMismatch, .emailMismatch, .authFailed, .ticketExpired:
             return .authentication
         case .invalidCode, .unrecognizedVersion, .loopbackRejected,
              .unsupportedRoute, .noSupportedRoute:
             return .trust
+        case .cancelled:
+            return nil
         }
     }
 
