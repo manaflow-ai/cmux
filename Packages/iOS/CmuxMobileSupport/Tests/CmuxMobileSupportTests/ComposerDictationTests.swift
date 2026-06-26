@@ -209,4 +209,90 @@ import Testing
             #expect(takesGracefulPath == (state == .listening))
         }
     }
+
+    // MARK: - Async engine-start supersession (issue #6284)
+
+    @Test func startDispositionAppliesForCurrentAttemptWhileRequestingPermission() {
+        // The engine-ready callback for the in-flight attempt, still awaiting the
+        // engine in `.requestingPermission`, applies: create the recognition task
+        // and move to `.listening`.
+        #expect(
+            composerDictationStartDisposition(
+                callbackToken: 7,
+                currentToken: 7,
+                state: .requestingPermission
+            ) == .apply
+        )
+    }
+
+    @Test func startDispositionDiscardsWhenTokenSuperseded() {
+        // A second mic tap, a send, or a navigation during the ~100-300ms off-main
+        // engine spin-up bumps the token. The stale callback must be discarded so
+        // it cannot drive the UI into `.listening` for an abandoned session — and
+        // so it does not double-start the engine.
+        #expect(
+            composerDictationStartDisposition(
+                callbackToken: 7,
+                currentToken: 8,
+                state: .requestingPermission
+            ) == .discardStale
+        )
+    }
+
+    @Test func startDispositionDiscardsWhenNoLongerRequestingPermission() {
+        // Even with a matching token, a state that already left
+        // `.requestingPermission` means the callback is stale: the controller
+        // already moved on (listening, or torn down to idle/unavailable/stopping)
+        // and must not re-apply.
+        for state in [
+            ComposerDictationState.idle,
+            .listening,
+            .stopping,
+            .unavailable,
+        ] {
+            #expect(
+                composerDictationStartDisposition(
+                    callbackToken: 3,
+                    currentToken: 3,
+                    state: state
+                ) == .discardStale
+            )
+        }
+    }
+
+    @Test func startDispositionDiscardsWhenBothTokenAndStateMoved() {
+        // The common abandon case: the token advanced AND the state settled back to
+        // idle. Still stale; the superseding teardown owns the engine cleanup.
+        #expect(
+            composerDictationStartDisposition(
+                callbackToken: 1,
+                currentToken: 2,
+                state: .idle
+            ) == .discardStale
+        )
+    }
+
+    @Test func startDispositionAppliesOnlyForTheSingleCurrentRequestingAttempt() {
+        // Exhaustive partition: across a small token window and every state, the
+        // callback applies for EXACTLY one combination — token matches AND state is
+        // `.requestingPermission` — and is discarded for all others. This is what
+        // guarantees at most one engine-ready callback ever transitions to
+        // listening, no matter how the user taps during spin-up.
+        let allStates: [ComposerDictationState] = [
+            .idle, .requestingPermission, .listening, .stopping, .unavailable,
+        ]
+        for callbackToken in 0...3 {
+            for currentToken in 0...3 {
+                for state in allStates {
+                    let disposition = composerDictationStartDisposition(
+                        callbackToken: callbackToken,
+                        currentToken: currentToken,
+                        state: state
+                    )
+                    let shouldApply = callbackToken == currentToken && state == .requestingPermission
+                    #expect(disposition == (shouldApply ? .apply : .discardStale))
+                }
+            }
+        }
+    }
 }
