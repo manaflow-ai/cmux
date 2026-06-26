@@ -1101,6 +1101,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // True while remote tmux kill-before-quit owns the terminate reply.
     private var isAwaitingTerminateKills = false
     private var terminateKillWatchdogTask: Task<Void, Never>?
+    /// Hard deadline that force-exits if AppKit's terminate gauntlet wedges on an
+    /// observer we don't own (e.g. CFPasteboardResolveAllPromisedData, #6758).
+    private let terminationWatchdog = TerminationWatchdog()
     private var activeQuitConfirmationAlertPresenter: QuitConfirmationAlertPresenter?
     private var activeQuitConfirmationOwnsTerminateRequest = false
     private var didInstallLifecycleSnapshotObservers = false
@@ -1876,7 +1879,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // observer (e.g. CFPasteboardResolveAllPromisedData, #6758) can't hang
         // the main thread for ~30s. Idempotent and a no-op if the process exits
         // first.
-        TerminationWatchdog.shared.arm()
+        terminationWatchdog.arm()
     }
 
     private func presentQuitConfirmationAlert(
@@ -1995,7 +1998,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Apple's promised-pasteboard observer can fire before this delegate
         // method, so the primary arm above is what bounds #6758; this only
         // widens coverage to other entrypoints.
-        TerminationWatchdog.shared.arm()
+        terminationWatchdog.arm()
         sentryStopMemoryContextRefresh()
         isTerminatingApp = true
         // Plain quit detaches local ssh clients; explicit close already killed marked sessions.

@@ -18,18 +18,16 @@ import Foundation
 /// no run-loop, GCD-queue, or main-actor dependency, so it fires even while the
 /// main thread is parked in `mach_msg`. Arm it the instant the app commits to
 /// quitting; if the process has not exited within `deadline`, it force-exits,
-/// turning a multi-second hang into a bounded quit. cmux's critical
-/// session/state save runs synchronously *before* the watchdog is armed, so the
-/// bytes that matter are already on disk if the deadline ever fires.
+/// turning a multi-second hang into a bounded quit. The firing path is
+/// deliberately unconditional and lock-free — it does no Foundation/filesystem
+/// work before exiting, because the termination it guards against may itself be
+/// wedged on exactly such a lock. cmux's critical session/state save runs
+/// synchronously *before* the watchdog is armed, so the bytes that matter are
+/// already on disk if the deadline ever fires.
+///
+/// Not a singleton: the app's lifecycle owner (`AppDelegate`) holds the
+/// instance, alongside its other terminate-control state.
 final class TerminationWatchdog: Sendable {
-    /// The process-wide watchdog. `onFire` logs a breadcrumb and force-exits
-    /// cleanly — the user asked to quit, so an immediate exit is the desired
-    /// outcome once the deadline proves the graceful path is wedged.
-    static let shared = TerminationWatchdog {
-        StartupBreadcrumbLog.append("appDelegate.terminate.watchdogFired")
-        _exit(EXIT_SUCCESS)
-    }
-
     /// Budget for the committed-quit sequence (remote-session kill defer plus
     /// AppKit's will-terminate gauntlet). Normal teardown finishes in well under
     /// a second; this leaves generous headroom while still beating the OS's
@@ -43,8 +41,11 @@ final class TerminationWatchdog: Sendable {
     private let onFire: @Sendable () -> Void
 
     /// - Parameter onFire: invoked at most once, on the watchdog thread, when
-    ///   the deadline elapses. Defaults to a clean force-exit; tests inject an
-    ///   observer in its place.
+    ///   the deadline elapses. It MUST stay lock-free and non-blocking — it runs
+    ///   precisely when termination is suspected to be wedged, so any Foundation,
+    ///   filesystem, or lock work before exiting could itself stall and
+    ///   reintroduce the unbounded hang. The default is a bare `_exit`; tests
+    ///   inject an observer in its place.
     init(onFire: @escaping @Sendable () -> Void = { _exit(EXIT_SUCCESS) }) {
         self.onFire = onFire
     }
@@ -61,6 +62,12 @@ final class TerminationWatchdog: Sendable {
         isArmed = true
         lock.unlock()
 
+        // A raw Thread + Thread.sleep, deliberately NOT a GCD queue or
+        // DispatchSourceTimer: the wedged termination we guard against can sit on
+        // Foundation, GCD, or run-loop infrastructure, so the firing path must
+        // depend on none of it. The thread parks only during the brief quit
+        // window and is reclaimed when the process exits (the common path, well
+        // before the deadline). `onFire` must likewise stay lock-free.
         let onFire = self.onFire
         let thread = Thread {
             Thread.sleep(forTimeInterval: deadline)
