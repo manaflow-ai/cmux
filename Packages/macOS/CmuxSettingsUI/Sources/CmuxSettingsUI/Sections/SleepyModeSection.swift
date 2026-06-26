@@ -10,7 +10,7 @@ public struct SleepyModeSection: View {
     /// `store` defaults to the app-wide shared instance because the Sleepy Mode
     /// scene (in the app target) and this section read one source of truth; pass
     /// an isolated store for previews/tests.
-    public init(hostActions: SettingsHostActions, store: SleepyModeSettingsStore = .shared) {
+    public init(hostActions: SettingsHostActions, store: SleepyModeSettingsStore) {
         self.hostActions = hostActions
         self._store = Bindable(store)
     }

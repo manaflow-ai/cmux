@@ -81,6 +81,10 @@ final class HostSettingsActions: SettingsHostActions {
         SleepyModeController.shared.activate()
     }
 
+    func sleepyModeStore() -> SleepyModeSettingsStore {
+        SleepyModeController.shared.store
+    }
+
     func openConfigInExternalEditor() {
         // Honor the user's configured editor (`preferredEditorCommand`),
         // falling back to the OS default. Opening the config file directly

@@ -151,9 +151,14 @@ public protocol SettingsHostActions: AnyObject {
     /// exits, no Touch ID). The host owns the overlay window.
     func sleepyModePreview()
 
-    /// Starts Sleepy Mode using the user's current settings (locks when "Require
-    /// Touch ID to exit" is enabled). The host owns the overlay window.
+    /// Starts Sleepy Mode using the user's current settings. The host owns the
+    /// overlay window.
     func sleepyModeStart()
+
+    /// The app-owned Sleepy Mode settings store, so the Preferences section binds
+    /// to the same instance the overlay renderer reads (rather than a package
+    /// singleton). Previews/tests get a fresh isolated store via the default.
+    func sleepyModeStore() -> SleepyModeSettingsStore
 }
 
 public extension SettingsHostActions {
@@ -162,6 +167,7 @@ public extension SettingsHostActions {
     /// Default no-ops for package previews and tests with no Sleepy Mode host.
     func sleepyModePreview() {}
     func sleepyModeStart() {}
+    func sleepyModeStore() -> SleepyModeSettingsStore { SleepyModeSettingsStore() }
 
     /// Default no-op for package previews and tests that have no activation-policy host.
     func setMenuBarOnly(_ enabled: Bool) -> Bool { false }

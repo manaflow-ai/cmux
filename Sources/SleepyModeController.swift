@@ -16,6 +16,10 @@ import SwiftUI
 final class SleepyModeController {
     static let shared = SleepyModeController()
 
+    /// The single Sleepy Mode settings store, owned here (the app composition
+    /// root) and injected into the overlay scene and the Preferences section.
+    let store = SleepyModeSettingsStore()
+
     private(set) var isActive = false
 
     /// Invoked whenever sleepy mode turns on or off so menu UI can refresh.
@@ -95,7 +99,7 @@ final class SleepyModeController {
         window.acceptsMouseMovedEvents = true
         window.setFrame(screen.frame, display: true)
         window.onExit = { [weak self] in self?.deactivate() }
-        window.contentView = NSHostingView(rootView: SleepyFaceView())
+        window.contentView = NSHostingView(rootView: SleepyFaceView(store: store))
         return window
     }
 

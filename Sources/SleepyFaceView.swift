@@ -6,7 +6,7 @@ import SwiftUI
 /// toggle changes preview instantly. Pixels are drawn on an integer grid so the
 /// art stays crisp; all motion is a pure function of the timeline date.
 struct SleepyFaceView: View {
-    var store = SleepyModeSettingsStore.shared
+    var store: SleepyModeSettingsStore
     @State private var lowPowerOn = false
 
     // Easter-egg reactions: timeIntervalSinceReferenceDate when poked.

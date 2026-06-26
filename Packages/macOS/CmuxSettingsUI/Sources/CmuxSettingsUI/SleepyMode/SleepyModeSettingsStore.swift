@@ -58,10 +58,10 @@ public struct SleepyModeConfig: Equatable, Sendable {
 /// `snapshot()` fresh each animation frame, so changing any value updates the
 /// full-screen overlay immediately; the settings section binds to the same
 /// store via `@Bindable`. Accessed only on the main thread in practice.
+/// Owned by the app composition root (`SleepyModeController`) and injected into
+/// the renderer and this section, rather than published as a package singleton.
 @Observable
 public final class SleepyModeSettingsStore {
-    nonisolated(unsafe) public static let shared = SleepyModeSettingsStore()
-
     public var theme: SleepyTheme { didSet { persist(theme.rawValue, Keys.theme) } }
     public var mascot: SleepyMascot { didSet { persist(mascot.rawValue, Keys.mascot) } }
     public var glow: SleepyGlow { didSet { persist(glow.rawValue, Keys.glow) } }

@@ -11475,7 +11475,7 @@ class TerminalController {
         var isActive = false
         var holding = false
         v2MainSync {
-            let store = SleepyModeSettingsStore.shared
+            let store = SleepyModeController.shared.store
             switch cmd {
             case "on", "activate", "start":
                 SleepyModeController.shared.activate()

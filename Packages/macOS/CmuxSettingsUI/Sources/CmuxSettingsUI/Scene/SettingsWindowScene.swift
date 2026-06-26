@@ -454,7 +454,7 @@ public struct SettingsWindowRoot: View {
         TextBoxSection(defaultsStore: defaultsStore, catalog: catalog)
             .id(anchorID(for: .textBox))
 
-        SleepyModeSection(hostActions: hostActions)
+        SleepyModeSection(hostActions: hostActions, store: hostActions.sleepyModeStore())
             .id(anchorID(for: .sleepyMode))
 
         MobileSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
