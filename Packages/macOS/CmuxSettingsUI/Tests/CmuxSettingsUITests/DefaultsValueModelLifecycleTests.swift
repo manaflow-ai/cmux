@@ -33,9 +33,14 @@ import Testing
 
     private func event<Value: SettingCodable>(
         _ value: Value,
-        source: UserDefaultsSettingsMutationSource? = nil
+        source: UserDefaultsSettingsMutationSource? = nil,
+        supersededSource: UserDefaultsSettingsMutationSource? = nil
     ) -> DefaultsEvent<Value> {
-        DefaultsEvent(value: value, mutationSource: source)
+        DefaultsEvent(
+            value: value,
+            mutationSource: source,
+            supersededMutationSource: supersededSource
+        )
     }
 
     @Test func droppingModelTearsDownObservation() async {
@@ -196,6 +201,34 @@ import Testing
 
         #expect(model.current == false)
         #expect(model.revision == 2)
+    }
+
+    @Test func supersededLocalWriteObservationClearsPendingEcho() async {
+        let store = UserDefaultsSettingsStore(
+            defaults: UserDefaults(suiteName: "defaults-value-model-superseded-local-echo")!
+        )
+        let key = SettingCatalog().workspaceColors.selectionColorHex
+        let (stream, continuation) = AsyncStream<DefaultsEvent<String>>.makeStream()
+        let model = DefaultsValueModel(
+            store: store,
+            key: key,
+            initialValue: "#000000",
+            makeStream: { _ in stream }
+        )
+        model.startObserving()
+
+        continuation.yield(event("#000000"))
+        await waitUntil { model.revision == 1 }
+
+        let source = model.set("#111111")
+        #expect(model.current == "#111111")
+        #expect(model.revision == 2)
+
+        continuation.yield(event("#000000", supersededSource: source))
+        await waitUntil { model.current == "#000000" }
+
+        #expect(model.current == "#000000")
+        #expect(model.revision == 3)
     }
 
     @Test func lateLocalCommitAfterExternalObservationReconcilesCurrent() async {
@@ -437,5 +470,13 @@ import Testing
         }
 
         #expect(valueObservedAfterCommit == true)
+    }
+
+    private func waitUntil(_ condition: () -> Bool) async {
+        var spins = 0
+        while !condition(), spins < 100_000 {
+            await Task.yield()
+            spins += 1
+        }
     }
 }

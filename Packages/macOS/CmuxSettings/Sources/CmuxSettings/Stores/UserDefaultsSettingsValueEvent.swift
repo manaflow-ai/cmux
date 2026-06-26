@@ -6,7 +6,7 @@ public struct UserDefaultsSettingsValueEvent<Value: SettingCodable>: Sendable, E
     /// One-shot source attached to this observed store-owned write, if any.
     public let mutationSource: UserDefaultsSettingsMutationSource?
 
-    /// Pending source whose stored value was overwritten before observation.
+    /// Source whose stored value was overwritten before observation emitted it.
     public let supersededMutationSource: UserDefaultsSettingsMutationSource?
 
     /// Creates an observed value event.

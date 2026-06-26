@@ -198,6 +198,38 @@ struct UserDefaultsSettingsStoreTests {
         #expect(initial?.supersededMutationSource == source)
     }
 
+    @Test func valueEventsYieldSupersededSourceWhenSourceLessWriteKeepsLastValue() async {
+        let (store, catalog) = makeStore()
+        let key = catalog.app.appearance
+        let recorder = UserDefaultsSettingsEventRecorder<AppearanceMode>()
+        let task = Task {
+            let stream = await store.valueEvents(for: key)
+            for await event in stream {
+                await recorder.append(event)
+                if await recorder.count() >= 3 {
+                    break
+                }
+            }
+        }
+        defer {
+            task.cancel()
+        }
+
+        await waitForEventCount(1, in: recorder)
+
+        let source = UserDefaultsSettingsMutationSource()
+        await store.set(.system, for: key, source: source)
+        await waitForEventCount(2, in: recorder)
+        await store.set(.system, for: key)
+        await waitForEventCount(3, in: recorder)
+
+        let events = await recorder.snapshot()
+        #expect(events.count == 3)
+        #expect(events.last?.value == .system)
+        #expect(events.last?.mutationSource == nil)
+        #expect(events.last?.supersededMutationSource == source)
+    }
+
     @Test func valueEventsTagWritesAfterStreamCreationBeforeFirstRead() async {
         let (store, catalog) = makeStore()
         let key = catalog.app.appearance

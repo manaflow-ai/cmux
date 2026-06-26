@@ -33,7 +33,9 @@ public actor UserDefaultsSettingsStore {
     /// typed operations.
     private let storage: UserDefaultsSettingsStorage
     private var mutationSources: [String: UserDefaultsSettingsMutationSourceRecord] = [:]
-    private var supersededMutationSources: [String: [UserDefaultsSettingsMutationSource]] = [:]
+    private var supersededMutationSources: [
+        String: [(source: UserDefaultsSettingsMutationSource, sequence: UInt64)]
+    ] = [:]
     private var mutationSourceSequences: [String: UInt64] = [:]
     private let maximumSupersededMutationSourcesPerKey = 64
 
@@ -133,7 +135,12 @@ public actor UserDefaultsSettingsStore {
             )
         } else {
             if let record = mutationSources[storageKey] {
-                recordSupersededMutationSource(record.source, for: storageKey)
+                let sequence = nextMutationSourceSequence(for: storageKey)
+                recordSupersededMutationSource(
+                    record.source,
+                    sequence: sequence,
+                    for: storageKey
+                )
             }
             mutationSources.removeValue(forKey: storageKey)
         }
@@ -141,11 +148,12 @@ public actor UserDefaultsSettingsStore {
 
     private func recordSupersededMutationSource(
         _ source: UserDefaultsSettingsMutationSource,
+        sequence: UInt64,
         for storageKey: String
     ) {
         var sources = supersededMutationSources[storageKey] ?? []
-        if !sources.contains(source) {
-            sources.append(source)
+        if !sources.contains(where: { $0.source == source }) {
+            sources.append((source, sequence))
         }
         let overflow = sources.count - maximumSupersededMutationSourcesPerKey
         if overflow > 0 {
@@ -177,16 +185,23 @@ public actor UserDefaultsSettingsStore {
             nextConsumedSourceSequence = max(record.sequence, consumedSourceSequence)
             if record.matches(value) {
                 source = record.source
-            } else if includedMutationSources.contains(record.source) {
+            } else {
                 supersededSource = record.source
             }
         }
-        if supersededSource == nil,
-           source == nil,
-           let storedSupersededSource = supersededMutationSources[key.userDefaultsKey]?.first(where: {
-               includedMutationSources.contains($0)
-           }) {
-            supersededSource = storedSupersededSource
+        if source == nil,
+           let storedSupersededSources = supersededMutationSources[key.userDefaultsKey] {
+            var selectedSupersededSource: UserDefaultsSettingsMutationSource?
+            for record in storedSupersededSources {
+                let shouldDeliver = record.sequence > consumedSourceSequence
+                    || includedMutationSources.contains(record.source)
+                guard shouldDeliver else { continue }
+                nextConsumedSourceSequence = max(record.sequence, nextConsumedSourceSequence)
+                if selectedSupersededSource == nil || includedMutationSources.contains(record.source) {
+                    selectedSupersededSource = record.source
+                }
+            }
+            supersededSource = supersededSource ?? selectedSupersededSource
         }
 
         return (
@@ -311,7 +326,9 @@ public actor UserDefaultsSettingsStore {
                     )
                     consumedSourceSequence = snapshot.consumedSourceSequence
                     let currentEvent = snapshot.event
-                    if currentEvent.value != lastYieldedEvent.value || currentEvent.mutationSource != nil {
+                    if currentEvent.value != lastYieldedEvent.value
+                        || currentEvent.mutationSource != nil
+                        || currentEvent.supersededMutationSource != nil {
                         lastYieldedEvent = currentEvent
                         continuation.yield(currentEvent)
                     }
