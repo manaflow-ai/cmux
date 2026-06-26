@@ -1,4 +1,5 @@
 import AppKit
+import CmuxWorkspaces
 import Observation
 import SwiftUI
 

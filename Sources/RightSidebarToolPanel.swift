@@ -1,6 +1,7 @@
 import AppKit
 import CmuxFoundation
 import CmuxNotifications
+import CmuxSidebar
 import Combine
 import SwiftUI
 

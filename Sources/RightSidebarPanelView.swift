@@ -30,16 +30,6 @@ extension RightSidebarMode {
         }
     }
 
-    var symbolName: String {
-        switch self {
-        case .files: return "folder"
-        case .find: return "magnifyingglass"
-        case .sessions: return "books.vertical"
-        case .feed: return "dot.radiowaves.left.and.right"
-        case .dock: return "dock.rectangle"
-        }
-    }
-
     var shortcutAction: KeyboardShortcutSettings.Action? {
         switch self {
         case .files: return .switchRightSidebarToFiles
@@ -48,14 +38,6 @@ extension RightSidebarMode {
         case .feed: return .switchRightSidebarToFeed
         case .dock: return .switchRightSidebarToDock
         }
-    }
-}
-
-extension RightSidebarMode {
-    static let paneModes: [RightSidebarMode] = [.files, .find, .sessions]
-
-    var canOpenAsPane: Bool {
-        Self.paneModes.contains(self)
     }
 }
 
@@ -484,9 +466,12 @@ private struct RightSidebarKeyboardFocusBridge: NSViewRepresentable {
     }
 }
 
-final class RightSidebarKeyboardFocusView: NSView {
+final class RightSidebarKeyboardFocusView: NSView, RightSidebarHostFocusing {
     override var acceptsFirstResponder: Bool { true }
     override var canBecomeKeyView: Bool { true }
+
+    /// `RightSidebarHostFocusing`: the host view is its own focus responder.
+    var focusResponder: NSResponder { self }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()

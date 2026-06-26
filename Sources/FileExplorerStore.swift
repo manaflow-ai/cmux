@@ -529,7 +529,7 @@ final class FileExplorerStore: ObservableObject {
         #if DEBUG
         NSLog("[FileExplorer] setRootPath: \(rootPath) -> \(path)")
         #endif
-        if let selectedPath, !Self.path(selectedPath, isContainedIn: path) {
+        if let selectedPath, !selectedPath.isPath(containedIn: path) {
             self.selectedPath = nil
             selectedPaths = []
             pendingDescendIntoFirstChildPath = nil
@@ -574,7 +574,7 @@ final class FileExplorerStore: ObservableObject {
         guard let sshProvider = provider as? SSHFileExplorerProvider else {
             throw FileExplorerError.providerUnavailable
         }
-        let cacheURL = Self.remotePreviewCacheURL(
+        let cacheURL = URL.remoteFilePreviewCache(
             displayTarget: sshProvider.displayTarget,
             remotePath: path
         )
@@ -874,7 +874,7 @@ final class FileExplorerStore: ObservableObject {
             return
         }
 
-        let requestedRootPath = Self.normalizedRootPath(requestedRootPath)
+        let requestedRootPath = requestedRootPath?.normalizedFileExplorerRootPath
         if let requestedRootPath {
             cancelRemoteHomeResolution()
             setRootStatusMessage(nil)
@@ -959,40 +959,6 @@ final class FileExplorerStore: ObservableObject {
     private func setRootStatusMessage(_ message: String?) {
         guard rootStatusMessage != message else { return }
         rootStatusMessage = message
-    }
-
-    private static func path(_ candidate: String, isContainedIn root: String) -> Bool {
-        guard !root.isEmpty else { return false }
-        if root == "/" {
-            return candidate.hasPrefix("/")
-        }
-        return candidate == root || candidate.hasPrefix(root + "/")
-    }
-
-    private static func normalizedRootPath(_ path: String?) -> String? {
-        guard let path else { return nil }
-        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        return trimmed
-    }
-
-    private static func remotePreviewCacheURL(displayTarget: String, remotePath: String) -> URL {
-        let cacheRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-remote-file-previews", isDirectory: true)
-        let target = sanitizedCacheComponent(displayTarget)
-        let remote = sanitizedCacheComponent(remotePath)
-        let basename = URL(fileURLWithPath: remotePath).lastPathComponent
-        let filename = basename.isEmpty ? remote : "\(remote)-\(basename)"
-        return cacheRoot
-            .appendingPathComponent(target, isDirectory: true)
-            .appendingPathComponent(filename, isDirectory: false)
-    }
-
-    private static func sanitizedCacheComponent(_ value: String) -> String {
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
-        let scalars = value.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" }
-        let candidate = String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
-        return candidate.isEmpty ? UUID().uuidString : String(candidate.prefix(160))
     }
 
     deinit {
