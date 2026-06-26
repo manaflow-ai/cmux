@@ -1,5 +1,6 @@
 import Combine
 import CmuxCore
+import Darwin
 import Foundation
 import CmuxSidebar
 
@@ -39,8 +40,15 @@ private struct SidebarObservationState: Equatable {
     let remoteConnectionDetail: String?
     let activeRemoteTerminalSessionCount: Int
     let listeningPorts: [Int]
-    let agentRuntimeObservationToken: UInt64
+    let agentRuntime: SidebarAgentRuntimeObservationState
     let browserMediaActivity: BrowserMediaActivity
+}
+
+private struct SidebarAgentRuntimeObservationState: Equatable {
+    let agentPIDs: [String: pid_t]
+    let agentPIDPanelIdsByKey: [String: UUID]
+    let agentPIDKeysByPanelId: [UUID: Set<String>]
+    let agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]]
 }
 
 extension Workspace {
@@ -100,9 +108,23 @@ extension Workspace {
             $remoteConnectionDetail,
             $activeRemoteTerminalSessionCount
         )
+        let agentRuntimeFields = Publishers.CombineLatest4(
+            $agentPIDs,
+            $agentPIDPanelIdsByKey,
+            $agentPIDKeysByPanelId,
+            $agentLifecycleStatesByPanelId
+        )
+            .map { agentPIDs, agentPIDPanelIdsByKey, agentPIDKeysByPanelId, agentLifecycleStatesByPanelId in
+                SidebarAgentRuntimeObservationState(
+                    agentPIDs: agentPIDs,
+                    agentPIDPanelIdsByKey: agentPIDPanelIdsByKey,
+                    agentPIDKeysByPanelId: agentPIDKeysByPanelId,
+                    agentLifecycleStatesByPanelId: agentLifecycleStatesByPanelId
+                )
+            }
         let presentationInvalidationFields = Publishers.CombineLatest(
             $listeningPorts,
-            $sidebarAgentRuntimeObservationToken
+            agentRuntimeFields
         )
 
         return Publishers.CombineLatest4(
@@ -119,7 +141,7 @@ extension Workspace {
                 let gitFields = groupedFields.2
                 let remoteFields = groupedFields.3
                 let listeningPorts = presentationInvalidationFields.0
-                let agentRuntimeObservationToken = presentationInvalidationFields.1
+                let agentRuntime = presentationInvalidationFields.1
                 return SidebarObservationState(
                     currentDirectory: workspaceFields.0,
                     extensionSidebarProjectRootPath: workspaceFields.1,
@@ -138,7 +160,7 @@ extension Workspace {
                     remoteConnectionDetail: remoteFields.2,
                     activeRemoteTerminalSessionCount: remoteFields.3,
                     listeningPorts: listeningPorts,
-                    agentRuntimeObservationToken: agentRuntimeObservationToken,
+                    agentRuntime: agentRuntime,
                     browserMediaActivity: self.browserMediaActivity
                 )
             }

@@ -2511,11 +2511,10 @@ final class Workspace: Identifiable, ObservableObject {
     }
     /// PIDs associated with agent status entries (e.g. claude_code), keyed by status key.
     /// Used for stale-session detection: if the PID is dead, the status entry is cleared.
-    var agentPIDs: [String: pid_t] = [:]
-    var agentPIDPanelIdsByKey: [String: UUID] = [:]
-    var agentPIDKeysByPanelId: [UUID: Set<String>] = [:]
-    var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] = [:]
-    @Published var sidebarAgentRuntimeObservationToken: UInt64 = 0
+    @Published var agentPIDs: [String: pid_t] = [:]
+    @Published var agentPIDPanelIdsByKey: [String: UUID] = [:]
+    @Published var agentPIDKeysByPanelId: [UUID: Set<String>] = [:]
+    @Published var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] = [:]
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 #if DEBUG
     var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
@@ -4559,12 +4558,8 @@ final class Workspace: Identifiable, ObservableObject {
     ) {
         let targetPanelId = panelId ?? focusedPanelId
         guard let targetPanelId, panels[targetPanelId] != nil else { return }
-        let previousLifecycle = agentLifecycleStatesByPanelId[targetPanelId]?[key]
         agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
         recordAgentLifecycleChange(panelId: targetPanelId)
-        if previousLifecycle != lifecycle {
-            sidebarAgentRuntimeObservationToken &+= 1
-        }
     }
 
     @discardableResult
@@ -4580,16 +4575,12 @@ final class Workspace: Identifiable, ObservableObject {
             didClear = true
             recordAgentLifecycleChange(panelId: panelId)
         }
-        if didClear {
-            sidebarAgentRuntimeObservationToken &+= 1
-        }
         return didClear
     }
 
     func clearAgentLifecycleStates(panelId: UUID) {
         guard agentLifecycleStatesByPanelId.removeValue(forKey: panelId) != nil else { return }
         recordAgentLifecycleChange(panelId: panelId)
-        sidebarAgentRuntimeObservationToken &+= 1
     }
 
     func clearAllAgentLifecycleStates() {
@@ -4599,7 +4590,6 @@ final class Workspace: Identifiable, ObservableObject {
         for panelId in panelIds {
             recordAgentLifecycleChange(panelId: panelId)
         }
-        sidebarAgentRuntimeObservationToken &+= 1
     }
 
     private func recordAgentLifecycleChange(panelId: UUID) {
