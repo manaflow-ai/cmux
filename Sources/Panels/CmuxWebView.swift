@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxBrowser
 import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
@@ -466,11 +467,11 @@ final class CmuxWebView: WKWebView {
         }
         let result = super.becomeFirstResponder()
         if result {
-            let pointerInitiatedKey = BrowserFirstResponderNotificationUserInfoKey.pointerInitiated
+            let event = BrowserFirstResponderEvent(pointerInitiated: pointerFocusAllowanceDepth > 0)
             NotificationCenter.default.post(
-                name: .browserDidBecomeFirstResponderWebView,
+                name: BrowserFirstResponderEvent.notificationName,
                 object: self,
-                userInfo: [pointerInitiatedKey: pointerFocusAllowanceDepth > 0]
+                userInfo: event.userInfo
             )
         }
 #if DEBUG

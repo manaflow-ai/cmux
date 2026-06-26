@@ -1690,24 +1690,11 @@ class GhosttyApp {
         logBackground("theme action \(message)")
     }
 
-    private func actionLabel(for action: ghostty_action_s) -> String {
-        switch action.tag {
-        case GHOSTTY_ACTION_RELOAD_CONFIG:
-            return "reload_config"
-        case GHOSTTY_ACTION_CONFIG_CHANGE:
-            return "config_change"
-        case GHOSTTY_ACTION_COLOR_CHANGE:
-            return "color_change"
-        default:
-            return String(describing: action.tag)
-        }
-    }
-
     private func logAction(_ action: ghostty_action_s, target: ghostty_target_s, tabId: UUID?, surfaceId: UUID?) {
         guard backgroundLogEnabled else { return }
         let targetLabel = target.tag == GHOSTTY_TARGET_SURFACE ? "surface" : "app"
         logBackground(
-            "action event target=\(targetLabel) action=\(actionLabel(for: action)) tab=\(tabId?.uuidString ?? "nil") surface=\(surfaceId?.uuidString ?? "nil")"
+            "action event target=\(targetLabel) action=\(action.tag.diagnosticLabel) tab=\(tabId?.uuidString ?? "nil") surface=\(surfaceId?.uuidString ?? "nil")"
         )
     }
 
@@ -1718,19 +1705,6 @@ class GhosttyApp {
             blue: CGFloat(change.b) / 255,
             alpha: 1.0
         )
-    }
-
-    private func colorKindLabel(_ kind: ghostty_action_color_kind_e) -> String {
-        switch kind {
-        case GHOSTTY_ACTION_COLOR_KIND_FOREGROUND:
-            return "foreground"
-        case GHOSTTY_ACTION_COLOR_KIND_BACKGROUND:
-            return "background"
-        case GHOSTTY_ACTION_COLOR_KIND_CURSOR:
-            return "cursor"
-        default:
-            return "palette:\(kind.rawValue)"
-        }
     }
 
     @MainActor
@@ -1772,7 +1746,7 @@ class GhosttyApp {
         default:
             if backgroundLogEnabled {
                 logBackground(
-                    "app color change ignored kind=\(colorKindLabel(change.kind)) color=\(newColor.hexString()) source=\(source)"
+                    "app color change ignored kind=\(change.kind.diagnosticLabel) color=\(newColor.hexString()) source=\(source)"
                 )
             }
         }
@@ -2268,7 +2242,7 @@ class GhosttyApp {
                 }
             } else if backgroundLogEnabled {
                 logBackground(
-                    "surface color change observed tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil") kind=\(colorKindLabel(change.kind)) color=\(newColor.hexString()) source=action.color_change.surface"
+                    "surface color change observed tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil") kind=\(change.kind.diagnosticLabel) color=\(newColor.hexString()) source=action.color_change.surface"
                 )
             }
             return true

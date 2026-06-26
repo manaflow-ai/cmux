@@ -244,44 +244,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             targetView = nil
         }
         guard let targetView else { return nil }
-        return tmuxWorkspacePaneExactRect(for: targetView, in: contentView)
-    }
-
-    static func tmuxWorkspacePaneExactRect(
-        for targetView: NSView,
-        in contentView: NSView
-    ) -> CGRect? {
-        guard let contentWindow = contentView.window,
-              let targetWindow = targetView.window,
-              contentWindow === targetWindow,
-              targetView.superview != nil else {
-            return nil
-        }
-
-        let rectInWindow = targetView.convert(targetView.bounds, to: nil)
-        let rectInContent = contentView.convert(rectInWindow, from: nil)
-        guard rectInContent.width > 1, rectInContent.height > 1 else { return nil }
-        return rectInContent
-    }
-
-    static func preferredTmuxWorkspacePaneWindowOverlayRect(
-        exactRect: CGRect?,
-        paneRect: CGRect?
-    ) -> CGRect? {
-        guard let paneRect else { return exactRect }
-        guard let exactRect,
-              exactRect.width > 1,
-              exactRect.height > 1 else {
-            return paneRect
-        }
-
-        let tolerance: CGFloat = 0.5
-        let exactFitsWithinPane =
-            exactRect.minX >= paneRect.minX - tolerance &&
-            exactRect.maxX <= paneRect.maxX + tolerance &&
-            exactRect.minY >= paneRect.minY - tolerance &&
-            exactRect.maxY <= paneRect.maxY + tolerance
-        return exactFitsWithinPane ? exactRect : paneRect
+        return TmuxPaneOverlayGeometry.exactRect(for: targetView, in: contentView)
     }
 
     private func tmuxWorkspacePaneWindowOverlayState(for window: NSWindow) -> TmuxWorkspacePaneOverlayRenderState? {
@@ -322,7 +285,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
                     paneId: workspace.paneId(forPanelId: panelId)
                 )
                 let exactRect = Self.tmuxWorkspacePaneExactRect(for: panel, in: contentView)
-                return Self.preferredTmuxWorkspacePaneWindowOverlayRect(
+                return TmuxPaneOverlayGeometry.preferredWindowOverlayRect(
                     exactRect: exactRect,
                     paneRect: paneRect
                 )
@@ -344,7 +307,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
                 paneId: workspace.paneId(forPanelId: panelId)
             )
             let exactRect = Self.tmuxWorkspacePaneExactRect(for: panel, in: contentView)
-            flashRect = Self.preferredTmuxWorkspacePaneWindowOverlayRect(
+            flashRect = TmuxPaneOverlayGeometry.preferredWindowOverlayRect(
                 exactRect: exactRect,
                 paneRect: paneRect
             )
