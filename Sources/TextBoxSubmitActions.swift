@@ -89,6 +89,7 @@ extension TextBoxInputContainer {
     }
 
     func cancelPendingProviderLaunch() {
+        guard pendingProviderLaunchAction != nil else { return }
         clearPendingProviderLaunch()
         onClearLaunchCommand()
     }
