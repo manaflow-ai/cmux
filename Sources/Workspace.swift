@@ -10421,7 +10421,25 @@ final class Workspace: Identifiable, ObservableObject {
     func restoredAgentAutoResumePendingForTesting(panelId: UUID) -> Bool {
         restoredAgentResumeStatesByPanelId[panelId] == .awaitingAutoResumeCommand
     }
+
+    /// Number of times `redrawVisibleSurfaces()` has been invoked on this workspace.
+    /// Used by tests to verify the user-facing "Redraw Window" action routes only to
+    /// the selected workspace.
+    var redrawVisibleSurfacesRequestCount = 0
 #endif
+
+    /// Force the visible terminal surfaces in this workspace to re-run their geometry
+    /// reconcile and repaint. This is the user-facing "Redraw Window" escape hatch for
+    /// clearing transient visual distortion (e.g. stale/garbled terminal frames that can
+    /// appear after a window-restore on app/Mac restart — see issue #6031). It reuses the
+    /// same event-driven geometry-reconcile + `forceRefresh()` pass that runs after split
+    /// and move churn, so no content is lost — only the rendering is recomputed.
+    func redrawVisibleSurfaces() {
+#if DEBUG
+        redrawVisibleSurfacesRequestCount += 1
+#endif
+        scheduleTerminalGeometryReconcile()
+    }
 
     func scheduleTerminalGeometryReconcile() {
         beginEventDrivenLayoutFollowUp(

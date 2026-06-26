@@ -4317,6 +4317,14 @@ class TabManager: ObservableObject {
         tab.triggerFocusFlash(panelId: panelId)
     }
 
+    /// Force the visible terminal surfaces in the selected workspace to re-layout and
+    /// repaint. User-facing "Redraw Window" escape hatch for clearing transient visual
+    /// distortion (e.g. stale/garbled frames after a window-restore on restart — #6031).
+    func redrawVisibleSurfaces() {
+        guard let tab = selectedWorkspace else { return }
+        tab.redrawVisibleSurfaces()
+    }
+
     /// Ensure AppKit first responder matches the currently focused terminal panel.
     /// This keeps real keyboard events (including Ctrl+D) on the same panel as the
     /// bonsplit focus indicator after rapid split topology changes.

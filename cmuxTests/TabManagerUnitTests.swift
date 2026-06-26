@@ -3924,3 +3924,47 @@ final class CrossWindowWorkspaceMoveTests: XCTestCase {
         XCTAssertTrue(destination.tabs.contains { $0.id == moving.id })
     }
 }
+
+#if DEBUG
+@MainActor
+final class TabManagerRedrawSurfacesTests: XCTestCase {
+    // Regression coverage for the "Redraw Window" escape hatch (issue #6031): the
+    // command-palette / View-menu action must re-run the geometry reconcile + repaint
+    // pass on the *selected* workspace only, never on background workspaces.
+    func testRedrawVisibleSurfacesRoutesToSelectedWorkspaceOnly() {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+
+        guard let selected = manager.selectedWorkspace else {
+            XCTFail("Expected a selected workspace")
+            return
+        }
+        let other = selected.id == first.id ? second : first
+
+        XCTAssertEqual(selected.redrawVisibleSurfacesRequestCount, 0)
+        XCTAssertEqual(other.redrawVisibleSurfacesRequestCount, 0)
+
+        manager.redrawVisibleSurfaces()
+
+        XCTAssertEqual(
+            selected.redrawVisibleSurfacesRequestCount, 1,
+            "Redraw Window must run on the selected workspace"
+        )
+        XCTAssertEqual(
+            other.redrawVisibleSurfacesRequestCount, 0,
+            "Redraw Window must not touch non-selected workspaces"
+        )
+
+        // Switching selection must re-target the shared action.
+        manager.selectWorkspace(other)
+        manager.redrawVisibleSurfaces()
+
+        XCTAssertEqual(other.redrawVisibleSurfacesRequestCount, 1)
+        XCTAssertEqual(
+            selected.redrawVisibleSurfacesRequestCount, 1,
+            "Previously-selected workspace must not redraw again after losing selection"
+        )
+    }
+}
+#endif

@@ -20,6 +20,12 @@ extension ContentView {
                 subtitle: constant(String(localized: "command.closeWindow.subtitle", defaultValue: "Window")),
                 keywords: ["task", "manager", "process", "cpu", "memory", "kill"]
             ),
+            CommandPaletteCommandContribution(
+                commandId: "palette.redrawWindow",
+                title: constant(String(localized: "command.redrawWindow.title", defaultValue: "Redraw Window")),
+                subtitle: constant(String(localized: "command.redrawWindow.subtitle", defaultValue: "View")),
+                keywords: ["redraw", "refresh", "reload", "repaint", "render", "distortion", "glitch", "window", "layout", "surface"]
+            ),
         ]
     }
 
@@ -29,6 +35,9 @@ extension ContentView {
         }
         registry.register(commandId: "palette.openTaskManager") {
             TaskManagerWindowController.shared.show()
+        }
+        registry.register(commandId: "palette.redrawWindow") {
+            tabManager.redrawVisibleSurfaces()
         }
     }
 }
