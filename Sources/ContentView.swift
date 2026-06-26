@@ -888,6 +888,7 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
         let remoteConnectionState: WorkspaceRemoteConnectionState?
         let remoteConnectionDetail: String?
         let remoteDaemonStatus: WorkspaceRemoteDaemonStatus?
+        let activeRemoteTerminalSessionCount: Int?
     }
 
     @Published private(set) var directoryChangeGeneration: UInt64 = 0
@@ -912,7 +913,8 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                             remoteConfiguration: nil,
                             remoteConnectionState: nil,
                             remoteConnectionDetail: nil,
-                            remoteDaemonStatus: nil
+                            remoteDaemonStatus: nil,
+                            activeRemoteTerminalSessionCount: nil
                         )
                     )
                     .eraseToAnyPublisher()
@@ -924,7 +926,9 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                         workspace.$remoteConnectionDetail
                     )
                     .combineLatest(workspace.$remoteDaemonStatus)
-                    .map { values, remoteDaemonStatus in
+                    .combineLatest(workspace.$activeRemoteTerminalSessionCount)
+                    .map { values, activeRemoteTerminalSessionCount in
+                        let (values, remoteDaemonStatus) = values
                         let (
                             currentDirectory,
                             remoteConfiguration,
@@ -937,7 +941,8 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                             remoteConfiguration: remoteConfiguration,
                             remoteConnectionState: remoteConnectionState,
                             remoteConnectionDetail: remoteConnectionDetail,
-                            remoteDaemonStatus: remoteDaemonStatus
+                            remoteDaemonStatus: remoteDaemonStatus,
+                            activeRemoteTerminalSessionCount: activeRemoteTerminalSessionCount
                         )
                     }
                     .eraseToAnyPublisher()
@@ -2309,7 +2314,7 @@ struct ContentView: View {
         }
 
         sidebarSelectionState.selection = .tabs
-        if workspace.isRemoteWorkspace {
+        if workspace.shouldUseRemoteWorkspaceRootForSidebars {
             Task { [weak workspace, fileExplorerStore] in
                 guard let workspace else { return }
                 do {
@@ -2346,7 +2351,7 @@ struct ContentView: View {
 
         fileExplorerStore.showHiddenFiles = true
 
-        if tab.isRemoteWorkspace {
+        if tab.shouldUseRemoteWorkspaceRootForSidebars {
             sessionIndexStore.setCurrentDirectoryIfChanged(nil)
             guard shouldSyncFileExplorerStore else {
                 fileExplorerStore.applyWorkspaceRoot(.none)
