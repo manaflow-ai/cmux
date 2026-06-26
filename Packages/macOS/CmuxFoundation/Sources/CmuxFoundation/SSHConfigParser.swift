@@ -307,12 +307,19 @@ public struct SSHConfigParser: Sendable {
         return String(value.dropFirst().dropLast())
     }
 
+    /// Whether a `Host` pattern contains a wildcard. OpenSSH `Host`/`Match`
+    /// pattern matching (match.c) supports only `*` and `?` — NOT glob(3)
+    /// `[...]` character classes — so `db[12]` is a literal host, not a pattern
+    /// (verified against `ssh -G`: `ssh db1` does not match `Host db[12]`).
+    /// Brackets are therefore not wildcards.
     static func isWildcard(_ pattern: String) -> Bool {
         pattern.contains("*") || pattern.contains("?")
     }
 
     /// Classic shell-style wildcard match supporting `*` and `?`, case-sensitive
-    /// like `ssh(1)` host matching.
+    /// like `ssh(1)` host matching. Any other character — including `[` / `]` —
+    /// is matched literally, matching OpenSSH (which does not treat brackets as
+    /// character classes in `Host` patterns).
     static func glob(_ pattern: String, matches text: String) -> Bool {
         let p = Array(pattern)
         let t = Array(text)

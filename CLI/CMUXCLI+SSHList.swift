@@ -169,16 +169,19 @@ extension CMUXCLI {
         var globResult = glob_t()
         defer { globfree(&globResult) }
         guard pattern.withCString({ glob($0, 0, nil, &globResult) }) == 0 else { return [] }
-        let fileManager = FileManager.default
         var matches: [String] = []
         if let pathv = globResult.gl_pathv {
             for index in 0..<Int(globResult.gl_pathc) {
                 guard let cString = pathv[index] else { continue }
-                let path = String(cString: cString)
-                var isDirectory: ObjCBool = false
-                if fileManager.fileExists(atPath: path, isDirectory: &isDirectory), !isDirectory.boolValue {
-                    matches.append(path)
-                }
+                // Only read regular files. `glob` can match directories, FIFOs,
+                // devices, or sockets; reading a FIFO via String(contentsOfFile:)
+                // would block `cmux ssh list` indefinitely and a device could
+                // consume unbounded resources. `stat` follows symlinks, so a
+                // symlink to a regular file (what ssh would read) is kept.
+                var info = stat()
+                guard stat(cString, &info) == 0,
+                      (Int32(info.st_mode) & S_IFMT) == S_IFREG else { continue }
+                matches.append(String(cString: cString))
             }
         }
         return matches

@@ -409,6 +409,23 @@ import Testing
         #expect(decoded == host)
     }
 
+    @Test func bracketsInHostPatternAreLiteralNotCharacterClass() {
+        // OpenSSH `Host` patterns support only `*` and `?` (match.c), NOT
+        // glob(3) `[...]` classes. Verified against `ssh -G`: `ssh db1` does not
+        // match `Host db[12]`, but `ssh 'db[12]'` does. So `db[12]` is a literal
+        // concrete alias, listed as-is, and its directives apply to it.
+        let config = """
+        Host db[12]
+            HostName bracket.example.com
+        """
+        let hosts = parser.hosts(configText: config)
+        #expect(hosts.map(\.alias) == ["db[12]"])
+        #expect(hosts[0].hostName == "bracket.example.com")
+        #expect(!SSHConfigParser.isWildcard("db[12]"))
+        #expect(SSHConfigParser.glob("db[12]", matches: "db[12]"))
+        #expect(!SSHConfigParser.glob("db[12]", matches: "db1"))
+    }
+
     @Test func globMatchesWildcards() {
         #expect(SSHConfigParser.glob("db-*", matches: "db-1"))
         #expect(SSHConfigParser.glob("*.example.com", matches: "gpu.example.com"))
