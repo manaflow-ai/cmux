@@ -33,7 +33,9 @@ public actor UserDefaultsSettingsStore {
     /// typed operations.
     private let storage: UserDefaultsSettingsStorage
     private var mutationSources: [String: UserDefaultsSettingsMutationSourceRecord] = [:]
+    private var supersededMutationSources: [String: [UserDefaultsSettingsMutationSource]] = [:]
     private var mutationSourceSequences: [String: UInt64] = [:]
+    private let maximumSupersededMutationSourcesPerKey = 64
 
     /// Creates a store backed by the given `UserDefaults` instance.
     ///
@@ -130,8 +132,26 @@ public actor UserDefaultsSettingsStore {
                 value: value
             )
         } else {
+            if let record = mutationSources[storageKey] {
+                recordSupersededMutationSource(record.source, for: storageKey)
+            }
             mutationSources.removeValue(forKey: storageKey)
         }
+    }
+
+    private func recordSupersededMutationSource(
+        _ source: UserDefaultsSettingsMutationSource,
+        for storageKey: String
+    ) {
+        var sources = supersededMutationSources[storageKey] ?? []
+        if !sources.contains(source) {
+            sources.append(source)
+        }
+        let overflow = sources.count - maximumSupersededMutationSourcesPerKey
+        if overflow > 0 {
+            sources.removeFirst(overflow)
+        }
+        supersededMutationSources[storageKey] = sources
     }
 
     private func nextMutationSourceSequence(for storageKey: String) -> UInt64 {
@@ -142,7 +162,8 @@ public actor UserDefaultsSettingsStore {
 
     private func valueEvent<Value>(
         for key: DefaultsKey<Value>,
-        consumedSourceSequence: UInt64
+        consumedSourceSequence: UInt64,
+        includedMutationSources: Set<UserDefaultsSettingsMutationSource> = []
     ) -> (
         event: UserDefaultsSettingsValueEvent<Value>,
         consumedSourceSequence: UInt64
@@ -150,16 +171,30 @@ public actor UserDefaultsSettingsStore {
         let value = storage.value(for: key)
         var nextConsumedSourceSequence = consumedSourceSequence
         var source: UserDefaultsSettingsMutationSource?
+        var supersededSource: UserDefaultsSettingsMutationSource?
         if let record = mutationSources[key.userDefaultsKey],
-           record.sequence > consumedSourceSequence {
-            nextConsumedSourceSequence = record.sequence
+           record.sequence > consumedSourceSequence || includedMutationSources.contains(record.source) {
+            nextConsumedSourceSequence = max(record.sequence, consumedSourceSequence)
             if record.matches(value) {
                 source = record.source
+            } else if includedMutationSources.contains(record.source) {
+                supersededSource = record.source
             }
+        }
+        if supersededSource == nil,
+           source == nil,
+           let storedSupersededSource = supersededMutationSources[key.userDefaultsKey]?.first(where: {
+               includedMutationSources.contains($0)
+           }) {
+            supersededSource = storedSupersededSource
         }
 
         return (
-            UserDefaultsSettingsValueEvent(value: value, mutationSource: source),
+            UserDefaultsSettingsValueEvent(
+                value: value,
+                mutationSource: source,
+                supersededMutationSource: supersededSource
+            ),
             nextConsumedSourceSequence
         )
     }
@@ -228,8 +263,13 @@ public actor UserDefaultsSettingsStore {
     /// ``reset(_:source:)``. Callers use it to distinguish their own async
     /// store echoes from external settings changes without relying on lossy
     /// value equality.
+    ///
+    /// - Parameter includedMutationSources: Caller-owned pending sources to
+    ///   classify even if their writes reached the store before this stream was
+    ///   created.
     public func valueEvents<Value>(
-        for key: DefaultsKey<Value>
+        for key: DefaultsKey<Value>,
+        includingSources includedMutationSources: Set<UserDefaultsSettingsMutationSource> = []
     ) -> AsyncStream<UserDefaultsSettingsValueEvent<Value>> {
         let initialConsumedSourceSequence = mutationSourceSequences[key.userDefaultsKey] ?? 0
         return AsyncStream<UserDefaultsSettingsValueEvent<Value>>(bufferingPolicy: .bufferingNewest(1)) { continuation in
@@ -256,7 +296,8 @@ public actor UserDefaultsSettingsStore {
                 var consumedSourceSequence = initialConsumedSourceSequence
                 let initialSnapshot = await self.valueEvent(
                     for: key,
-                    consumedSourceSequence: consumedSourceSequence
+                    consumedSourceSequence: consumedSourceSequence,
+                    includedMutationSources: includedMutationSources
                 )
                 consumedSourceSequence = initialSnapshot.consumedSourceSequence
                 var lastYieldedEvent = initialSnapshot.event

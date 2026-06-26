@@ -53,7 +53,7 @@ import Testing
         var model: DefaultsValueModel<Bool>? = DefaultsValueModel(
             store: store,
             key: key,
-            makeStream: { stream }
+            makeStream: { _ in stream }
         )
         model?.startObserving()
 
@@ -92,7 +92,7 @@ import Testing
         _ = DefaultsValueModel(
             store: store,
             key: key,
-            makeStream: {
+            makeStream: { _ in
                 streamCreations += 1
                 return stream
             }
@@ -110,7 +110,7 @@ import Testing
         let model = DefaultsValueModel(
             store: store,
             key: key,
-            makeStream: { stream }
+            makeStream: { _ in stream }
         )
 
         #expect(model.current == false)
@@ -132,7 +132,7 @@ import Testing
         let model = DefaultsValueModel(
             store: store,
             key: key,
-            makeStream: { stream }
+            makeStream: { _ in stream }
         )
 
         #expect(model.current == false)
@@ -150,7 +150,7 @@ import Testing
         let model = DefaultsValueModel(
             store: store,
             key: key,
-            makeStream: { stream }
+            makeStream: { _ in stream }
         )
 
         #expect(model.current == false)
@@ -178,7 +178,7 @@ import Testing
         let model = DefaultsValueModel(
             store: store,
             key: key,
-            makeStream: { stream }
+            makeStream: { _ in stream }
         )
         model.startObserving()
 
@@ -198,64 +198,6 @@ import Testing
         #expect(model.revision == 2)
     }
 
-    @Test func initialStaleObservationDoesNotConsumePendingLocalEcho() async {
-        let store = UserDefaultsSettingsStore(
-            defaults: UserDefaults(suiteName: "defaults-value-model-stale-initial")!
-        )
-        let key = SettingCatalog().workspaceColors.selectionColorHex
-        let (stream, continuation) = AsyncStream<DefaultsEvent<String>>.makeStream()
-        let model = DefaultsValueModel(
-            store: store,
-            key: key,
-            initialValue: "#000000",
-            makeStream: { stream }
-        )
-
-        let source = model.set("#111111")
-        model.startObserving()
-
-        continuation.yield(event("#000000"))
-        for _ in 0..<10 {
-            await Task.yield()
-        }
-
-        #expect(model.current == "#111111")
-        #expect(model.revision == 1)
-        continuation.yield(event("#111111", source: source))
-        for _ in 0..<10 {
-            await Task.yield()
-        }
-
-        #expect(model.current == "#111111")
-        #expect(model.revision == 1)
-    }
-
-    @Test func initialExternalObservationWhilePendingLocalWriteUpdatesCurrent() async {
-        let store = UserDefaultsSettingsStore(
-            defaults: UserDefaults(suiteName: "defaults-value-model-initial-external-update")!
-        )
-        let key = SettingCatalog().workspaceColors.selectionColorHex
-        let (stream, continuation) = AsyncStream<DefaultsEvent<String>>.makeStream()
-        let model = DefaultsValueModel(
-            store: store,
-            key: key,
-            initialValue: "#000000",
-            makeStream: { stream }
-        )
-
-        _ = model.set("#111111")
-        model.startObserving()
-        continuation.yield(event("#222222"))
-        var spins = 0
-        while model.current != "#222222", spins < 100_000 {
-            await Task.yield()
-            spins += 1
-        }
-
-        #expect(model.current == "#222222")
-        #expect(model.revision == 2)
-    }
-
     @Test func lateLocalCommitAfterExternalObservationReconcilesCurrent() async {
         let store = UserDefaultsSettingsStore(
             defaults: UserDefaults(suiteName: "defaults-value-model-late-local-commit")!
@@ -265,7 +207,7 @@ import Testing
         let model = DefaultsValueModel(
             store: store,
             key: key,
-            makeStream: { stream }
+            makeStream: { _ in stream }
         )
         model.startObserving()
 
@@ -310,7 +252,7 @@ import Testing
             store: store,
             key: key,
             initialValue: "#000000",
-            makeStream: { stream }
+            makeStream: { _ in stream }
         )
         model.startObserving()
 
@@ -343,7 +285,7 @@ import Testing
             store: store,
             key: key,
             initialValue: "#000000",
-            makeStream: { stream }
+            makeStream: { _ in stream }
         )
         model.startObserving()
 
@@ -380,7 +322,7 @@ import Testing
             store: store,
             key: key,
             initialValue: "#000000",
-            makeStream: { stream }
+            makeStream: { _ in stream }
         )
         model.startObserving()
 
@@ -411,7 +353,7 @@ import Testing
             store: store,
             key: key,
             initialValue: "#000000",
-            makeStream: { stream }
+            makeStream: { _ in stream }
         )
         model.startObserving()
 
@@ -442,7 +384,7 @@ import Testing
             store: store,
             key: key,
             initialValue: "#000000",
-            makeStream: { stream }
+            makeStream: { _ in stream }
         )
         model.startObserving()
 
@@ -485,7 +427,7 @@ import Testing
         let model = DefaultsValueModel(
             store: store,
             key: key,
-            makeStream: { stream }
+            makeStream: { _ in stream }
         )
 
         let valueObservedAfterCommit = await withCheckedContinuation { continuation in

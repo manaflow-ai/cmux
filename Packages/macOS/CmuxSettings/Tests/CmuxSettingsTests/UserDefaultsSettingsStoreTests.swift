@@ -150,6 +150,54 @@ struct UserDefaultsSettingsStoreTests {
         #expect(initial?.mutationSource == nil)
     }
 
+    @Test func valueEventsCanIncludePendingSourceCreatedBeforeStreamCreation() async {
+        let (store, catalog) = makeStore()
+        let key = catalog.app.appearance
+        let source = UserDefaultsSettingsMutationSource()
+        await store.set(.dark, for: key, source: source)
+
+        let stream = await store.valueEvents(for: key, includingSources: [source])
+        var iterator = stream.makeAsyncIterator()
+        let initial = await iterator.next()
+        #expect(initial?.value == .dark)
+        #expect(initial?.mutationSource == source)
+        #expect(initial?.supersededMutationSource == nil)
+    }
+
+    @Test func valueEventsMarkIncludedSourceSupersededWhenValueWasOverwritten() async {
+        let suiteName = "cmux.tests.\(UUID().uuidString)"
+        let store = UserDefaultsSettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
+        let key = SettingCatalog().app.appearance
+        let source = UserDefaultsSettingsMutationSource()
+        await store.set(.dark, for: key, source: source)
+        UserDefaults(suiteName: suiteName)!.set(
+            AppearanceMode.system.encodeForUserDefaults(),
+            forKey: key.userDefaultsKey
+        )
+
+        let stream = await store.valueEvents(for: key, includingSources: [source])
+        var iterator = stream.makeAsyncIterator()
+        let initial = await iterator.next()
+        #expect(initial?.value == .system)
+        #expect(initial?.mutationSource == nil)
+        #expect(initial?.supersededMutationSource == source)
+    }
+
+    @Test func valueEventsMarkIncludedSourceSupersededAfterSourceLessStoreWrite() async {
+        let (store, catalog) = makeStore()
+        let key = catalog.app.appearance
+        let source = UserDefaultsSettingsMutationSource()
+        await store.set(.dark, for: key, source: source)
+        await store.set(.system, for: key)
+
+        let stream = await store.valueEvents(for: key, includingSources: [source])
+        var iterator = stream.makeAsyncIterator()
+        let initial = await iterator.next()
+        #expect(initial?.value == .system)
+        #expect(initial?.mutationSource == nil)
+        #expect(initial?.supersededMutationSource == source)
+    }
+
     @Test func valueEventsTagWritesAfterStreamCreationBeforeFirstRead() async {
         let (store, catalog) = makeStore()
         let key = catalog.app.appearance

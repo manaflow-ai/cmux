@@ -39,7 +39,8 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     private let store: UserDefaultsSettingsStore
     private let key: DefaultsKey<Value>
     private let initialStoreValue: Value
-    @ObservationIgnored private let makeStream: @MainActor () async -> AsyncStream<UserDefaultsSettingsValueEvent<Value>>
+    @ObservationIgnored private let makeStream:
+        @MainActor (Set<UserDefaultsSettingsMutationSource>) async -> AsyncStream<UserDefaultsSettingsValueEvent<Value>>
     @ObservationIgnored private var pendingStoreEchoes: [(source: UserDefaultsSettingsMutationSource, value: Value)] = []
     @ObservationIgnored private let maximumPendingStoreEchoes = 16
     @ObservationIgnored private let mutationOwnerID = UUID()
@@ -61,7 +62,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
             store: store,
             key: key,
             initialValue: store.initialValue(for: key),
-            makeStream: { await store.valueEvents(for: key) }
+            makeStream: { sources in await store.valueEvents(for: key, includingSources: sources) }
         )
     }
 
@@ -81,7 +82,9 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         store: UserDefaultsSettingsStore,
         key: DefaultsKey<Value>,
         initialValue: Value? = nil,
-        makeStream: @escaping @MainActor () async -> AsyncStream<UserDefaultsSettingsValueEvent<Value>>
+        makeStream: @escaping @MainActor (
+            Set<UserDefaultsSettingsMutationSource>
+        ) async -> AsyncStream<UserDefaultsSettingsValueEvent<Value>>
     ) {
         self.store = store
         self.key = key
@@ -100,7 +103,9 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     /// ignored by ``SettingReadDriver``. Views should call this from a mounted
     /// lifecycle hook such as `.task`, not from their initializer.
     public func startObserving() {
-        observation.activateAsync(makeStream) { [weak self] value in
+        let pendingSources = Set(pendingStoreEchoes.map(\.source))
+        let makeStream = self.makeStream
+        observation.activateAsync({ await makeStream(pendingSources) }) { [weak self] value in
             self?.acceptObservedValue(value)
         }
     }
@@ -176,6 +181,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         }
         if isInitialStoreEvent,
            event.mutationSource == nil,
+           event.supersededMutationSource == nil,
            !pendingStoreEchoes.isEmpty,
            event.value == initialStoreValue {
             return
