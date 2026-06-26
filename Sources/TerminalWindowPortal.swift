@@ -1850,10 +1850,7 @@ enum TerminalWindowPortalRegistry {
     static func hostWindowAttachmentBindAction(
         hostWindowAttachmentInProgress: Bool
     ) -> HostWindowAttachmentBindAction {
-        // NOTE(#5704): intentionally returns `.bindImmediately` unconditionally until the fix
-        // commit. The regression test locks the deferral invariant and stays red until then.
-        _ = hostWindowAttachmentInProgress
-        return .bindImmediately
+        hostWindowAttachmentInProgress ? .deferUntilHostWindowAttachmentCompletes : .bindImmediately
     }
 
     static var isInteractiveGeometryResizeActive: Bool {
