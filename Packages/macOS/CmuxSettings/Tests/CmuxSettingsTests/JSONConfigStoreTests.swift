@@ -50,9 +50,7 @@ struct JSONConfigStoreTests {
         let json = #"{"shortcuts":{"commands":{"palette.newWindow":"cmd+ctrl+n"}}}"#
         try Data(json.utf8).write(to: fileURL)
 
-        let objectForm: [String: Any] = [
-            "first": ["key": "y", "command": true, "control": true, "option": true],
-        ]
+        let objectForm = StoredShortcut(first: ShortcutStroke(key: "y", command: true, option: true, control: true))
         try await store.setMapEntry(objectForm, forKey: "palette.openFolder", in: catalog.shortcuts.commands)
 
         let data = try Data(contentsOf: fileURL)
@@ -67,7 +65,7 @@ struct JSONConfigStoreTests {
         let json = #"{"shortcuts":{"commands":{"palette.newWindow":"cmd+ctrl+n"}}}"#
         try Data(json.utf8).write(to: fileURL)
 
-        try await store.setMapEntry(nil, forKey: "palette.newWindow", in: catalog.shortcuts.commands)
+        try await store.setMapEntry(StoredShortcut?.none, forKey: "palette.newWindow", in: catalog.shortcuts.commands)
 
         let data = try Data(contentsOf: fileURL)
         let parsed = try JSONSerialization.jsonObject(with: data) as? [String: Any]

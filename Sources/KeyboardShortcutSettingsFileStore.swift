@@ -71,6 +71,11 @@ final class CmuxSettingsFileStore {
     private var shortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     private var whenClausesByAction: [KeyboardShortcutSettings.Action: ShortcutWhenClause] = [:]
     private var commandShortcutsByCommandId: [String: StoredShortcut] = [:]
+    /// Prefiltered (non-unbound), deterministically ordered (by command id)
+    /// snapshot of ``commandShortcutsByCommandId``, recomputed once per reload so
+    /// the per-event keyboard dispatcher (`firstMatchingCommandShortcut`) can
+    /// iterate a ready array instead of filtering + sorting on every keystroke.
+    private var commandShortcutsOrderedSnapshot: [(commandId: String, shortcut: StoredShortcut)] = []
     private var activeManagedUserDefaults: [String: ManagedSettingsValue] = [:]
     private var importedManagedDefaults: [String: ManagedSettingsValue] = [:]
     private var activeLegacyDerivedManagedUserDefaultKeys: Set<String> = []
@@ -174,6 +179,10 @@ final class CmuxSettingsFileStore {
             shortcutsByAction = resolved.shortcuts
             whenClausesByAction = resolved.whenClauses
             commandShortcutsByCommandId = resolved.commandShortcuts
+            commandShortcutsOrderedSnapshot = resolved.commandShortcuts
+                .filter { !$0.value.isUnbound }
+                .sorted { $0.key < $1.key }
+                .map { (commandId: $0.key, shortcut: $0.value) }
             activeManagedUserDefaults = resolved.managedUserDefaults
             importedManagedDefaults = resolved.managedUserDefaults
             activeLegacyDerivedManagedUserDefaultKeys = resolved.legacyDerivedManagedUserDefaultKeys
@@ -201,6 +210,14 @@ final class CmuxSettingsFileStore {
         synchronized {
             commandShortcutsByCommandId.filter { !$0.value.isUnbound }
         }
+    }
+
+    /// The prefiltered, deterministically ordered command-shortcut snapshot for
+    /// the per-event keyboard dispatcher. Computed once per reload; reading it is
+    /// a single lock-guarded copy-on-write array fetch (no per-keystroke filter
+    /// or sort).
+    func commandShortcutsOrderedList() -> [(commandId: String, shortcut: StoredShortcut)] {
+        synchronized { commandShortcutsOrderedSnapshot }
     }
 
     /// The `when`-clause override for an action parsed from `shortcuts.when` in

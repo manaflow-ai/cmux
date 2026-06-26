@@ -66,6 +66,13 @@ extension KeyboardShortcutSettings {
         settingsFileStore.commandShortcuts()
     }
 
+    /// The prefiltered, deterministically ordered command-shortcut snapshot used
+    /// by the per-event keyboard dispatcher. Recomputed on reload, so reading it
+    /// on the hot path avoids the per-keystroke filter + sort.
+    static func commandShortcutsOrderedList() -> [(commandId: String, shortcut: StoredShortcut)] {
+        settingsFileStore.commandShortcutsOrderedList()
+    }
+
     /// The effective focus predicate gating `action`: the `shortcuts.when`
     /// override from cmux.json if present, otherwise the action's built-in
     /// ``KeyboardShortcutSettings/Action/shortcutContext`` expressed as a

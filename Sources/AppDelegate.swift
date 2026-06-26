@@ -13944,16 +13944,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// The command id whose user-assigned `shortcuts.commands` binding matches
-    /// `event`, or `nil`. Bindings are single-stroke; ids are checked in a
-    /// stable (sorted) order so a match is deterministic even if cmux.json was
-    /// hand-edited to bind the same keystroke to two commands.
+    /// `event`, or `nil`. Bindings are single-stroke; the list is a prefiltered,
+    /// deterministically ordered snapshot recomputed on reload (not per event),
+    /// so a match stays stable even if cmux.json bound the same keystroke twice
+    /// without rebuilding/sorting on every keystroke.
     private func firstMatchingCommandShortcut(event: NSEvent) -> String? {
-        let commandShortcuts = KeyboardShortcutSettings.commandShortcuts()
+        let commandShortcuts = KeyboardShortcutSettings.commandShortcutsOrderedList()
         guard !commandShortcuts.isEmpty else { return nil }
-        for commandId in commandShortcuts.keys.sorted() {
-            guard let shortcut = commandShortcuts[commandId] else { continue }
-            if matchConfiguredShortcut(event: event, shortcut: shortcut) {
-                return commandId
+        for entry in commandShortcuts {
+            if matchConfiguredShortcut(event: event, shortcut: entry.shortcut) {
+                return entry.commandId
             }
         }
         return nil

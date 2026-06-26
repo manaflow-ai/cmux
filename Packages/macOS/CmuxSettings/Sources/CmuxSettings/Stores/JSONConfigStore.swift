@@ -118,19 +118,24 @@ public actor JSONConfigStore {
     /// re-encoded value and therefore drops any sibling this process cannot
     /// decode (e.g. a shortcut written in string form `"cmd+n"` when the typed
     /// value is the object form) — this reads the map as raw JSON, mutates only
-    /// `entryKey`, and writes it back. Pass `rawValue: nil` to remove the entry.
+    /// `entryKey`, and writes it back. Pass `value: nil` to remove the entry.
     /// The map (and its parents) are pruned when the last entry is removed.
     ///
+    /// The value is taken as the typed (`Sendable`) `Value` and encoded *inside*
+    /// the actor (matching ``set(_:for:)``) so no non-`Sendable` `Any` crosses
+    /// the actor boundary; only the sibling entries are handled as raw JSON, and
+    /// they never leave this method.
+    ///
     /// - Throws: Errors from `FileManager` or `JSONSerialization` writing the file.
-    public func setMapEntry<Value>(
-        _ rawValue: Any?,
+    public func setMapEntry<Value: SettingCodable>(
+        _ value: Value?,
         forKey entryKey: String,
         in key: JSONKey<[String: Value]>
     ) throws {
         try mutateRoot { root in
             var map = (key.path.lookup(in: root) as? [String: Any]) ?? [:]
-            if let rawValue {
-                map[entryKey] = rawValue
+            if let value {
+                map[entryKey] = value.encodeForJSON()
             } else {
                 map.removeValue(forKey: entryKey)
             }

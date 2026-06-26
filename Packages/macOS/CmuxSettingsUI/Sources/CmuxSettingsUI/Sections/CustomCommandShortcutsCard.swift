@@ -263,11 +263,7 @@ struct CustomCommandShortcutsCard: View {
         // replacing the whole map. Update local state optimistically; the host
         // re-seed on the next appear reconciles with the authoritative parse.
         do {
-            try await jsonStore.setMapEntry(
-                shortcut.encodeForJSON(),
-                forKey: commandId,
-                in: catalog.shortcuts.commands
-            )
+            try await jsonStore.setMapEntry(shortcut, forKey: commandId, in: catalog.shortcuts.commands)
             commandShortcuts[commandId] = shortcut
         } catch {
             errorLog.record(error, keyID: catalog.shortcuts.commands.id)
@@ -276,7 +272,11 @@ struct CustomCommandShortcutsCard: View {
 
     private func remove(_ commandId: String) async {
         do {
-            try await jsonStore.setMapEntry(nil, forKey: commandId, in: catalog.shortcuts.commands)
+            try await jsonStore.setMapEntry(
+                StoredShortcut?.none,
+                forKey: commandId,
+                in: catalog.shortcuts.commands
+            )
             commandShortcuts.removeValue(forKey: commandId)
         } catch {
             errorLog.record(error, keyID: catalog.shortcuts.commands.id)
