@@ -27,6 +27,7 @@ final class TerminalPanelTextBoxState {
     func updateShellActivityState(_ state: PanelShellActivityState) {
         guard launchCommand != nil else { return }
         if state == .commandRunning {
+            guard !observedCommandRunningSinceLaunch else { return }
             observedCommandRunningSinceLaunch = true
             return
         }

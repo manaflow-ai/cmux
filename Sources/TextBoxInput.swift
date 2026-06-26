@@ -2498,7 +2498,9 @@ struct TextBoxInputContainer: View {
             hasPendingAttachmentUpload: hasPendingAttachmentUpload,
             hasMarkedText: hasMarkedText
         )
-        let canSend = baseCanSend && !isPendingProviderLaunchAwaitingAgent
+        let canSend = baseCanSend &&
+            !isPendingProviderLaunchAwaitingAgent &&
+            !shouldBlockSubmitForCommandTemplateFallback
 
         VStack(alignment: .leading, spacing: 6) {
             if pendingCommentCount > 0 {
@@ -2735,6 +2737,10 @@ struct TextBoxInputContainer: View {
             return
         }
         if isPendingProviderLaunchAwaitingAgent {
+            NSSound.beep()
+            return
+        }
+        if shouldBlockSubmitForCommandTemplateFallback {
             NSSound.beep()
             return
         }

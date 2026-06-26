@@ -18,7 +18,7 @@
 6217	cmuxTests/GhosttyConfigTests.swift
 6187	Sources/TabManager.swift
 5915	cmuxTests/TerminalAndGhosttyTests.swift
-5904	Sources/TextBoxInput.swift
+5910	Sources/TextBoxInput.swift
 5573	cmuxTests/BrowserConfigTests.swift
 5507	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 4487	Sources/Panels/FilePreviewPanel.swift
@@ -100,9 +100,9 @@
 905	Sources/CmuxSSHURLRequest.swift
 904	Sources/Panels/TerminalPanel.swift
 899	Sources/Panels/MarkdownWebRenderer.swift
+887	cmuxTests/TextBoxSubmitActionTests.swift
 877	Packages/Shared/CmuxAgentChat/Tests/CmuxAgentChatTests/ChatConversationStoreTests.swift
 871	cmuxTests/ClaudeHookSurfaceResolutionSwiftTests.swift
-870	cmuxTests/TextBoxSubmitActionTests.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift
 865	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
 859	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Workspace/ControlCommandCoordinator+Workspace.swift
