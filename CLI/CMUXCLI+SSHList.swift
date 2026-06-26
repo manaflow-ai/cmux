@@ -30,9 +30,15 @@ extension CMUXCLI {
 
     /// Whether `cmux ssh ...` is the local `list`/`ls` subcommand (handled
     /// without a socket because it only reads the local ssh_config) rather than
-    /// a connect request. The verb is the first non-flag token.
+    /// a connect request.
+    ///
+    /// The verb must be the *first* token. Scanning for the first non-dash
+    /// token instead would misread an option value: `cmux ssh --name list
+    /// dev@host` (or `--ssh-option list …`) would treat the `--name` value
+    /// `list` as the subcommand and hijack a real connect. Like `vm ls` /
+    /// `remotes list`, `list`/`ls` are reserved only in leading position.
     func sshCommandIsListing(_ commandArgs: [String]) -> Bool {
-        guard let first = commandArgs.first(where: { !$0.hasPrefix("-") }) else { return false }
+        guard let first = commandArgs.first else { return false }
         let verb = first.lowercased()
         return verb == "list" || verb == "ls"
     }
