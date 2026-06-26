@@ -528,30 +528,12 @@ final class TerminalCmdClickUITestRecorder: UITestRecording {
             terminalPanel.focus()
 
             do {
-                try FileManager.default.createDirectory(
-                    at: fixtureDirectoryURL,
-                    withIntermediateDirectories: true
-                )
-                try FileManager.default.createDirectory(
-                    at: expectedFileURL.deletingLastPathComponent(),
-                    withIntermediateDirectories: true
-                )
-                if !FileManager.default.fileExists(atPath: expectedFileURL.path) {
-                    try "fixture\n".write(to: expectedFileURL, atomically: true, encoding: .utf8)
-                }
-                if !FileManager.default.fileExists(atPath: siblingFileURL.path) {
-                    try "fixture\n".write(to: siblingFileURL, atomically: true, encoding: .utf8)
-                }
-                for extraFileName in extraFileNames where !extraFileName.isEmpty {
-                    let extraFileURL = fixtureDirectoryURL.appendingPathComponent(extraFileName)
-                    try FileManager.default.createDirectory(
-                        at: extraFileURL.deletingLastPathComponent(),
-                        withIntermediateDirectories: true
-                    )
-                    if !FileManager.default.fileExists(atPath: extraFileURL.path) {
-                        try "fixture\n".write(to: extraFileURL, atomically: true, encoding: .utf8)
-                    }
-                }
+                try TerminalCmdClickFixtureWriter(
+                    fixtureDirectory: fixtureDirectoryURL,
+                    expectedFile: expectedFileURL,
+                    siblingFile: siblingFileURL,
+                    extraFileNames: extraFileNames
+                ).seed()
             } catch {
                 writeState(
                     terminalPanel: terminalPanel,
