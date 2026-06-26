@@ -1,4 +1,4 @@
-enum RemoteTmuxConnectionState: Sendable, Equatable {
+public enum RemoteTmuxConnectionState: Sendable, Equatable {
     /// The initial connection is being established before the first control-mode
     /// `%enter`.
     case connecting

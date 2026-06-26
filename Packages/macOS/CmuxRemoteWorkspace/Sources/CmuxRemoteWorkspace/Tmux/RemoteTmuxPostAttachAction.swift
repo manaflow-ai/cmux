@@ -1,4 +1,4 @@
-enum RemoteTmuxPostAttachAction {
+public enum RemoteTmuxPostAttachAction {
     /// Reconnect: re-seed every mirrored pane after the fresh client lost the
     /// screen, subscriptions, and client size.
     case reseed

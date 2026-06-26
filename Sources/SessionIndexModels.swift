@@ -384,7 +384,7 @@ struct SessionEntry: Identifiable, Hashable {
                 hermesHome: hermesHome
             )
         case .registered(let registration):
-            if let command = AgentResumeCommandBuilder.resumeShellCommand(
+            if let command = AgentResumeCommandBuilder().resumeShellCommand(
                 kind: .custom(registration.id),
                 sessionId: sessionId,
                 launchCommand: AgentLaunchCommandSnapshot(

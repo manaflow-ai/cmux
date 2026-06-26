@@ -1,3 +1,4 @@
+import CmuxRemoteWorkspace
 import Foundation
 
 /// Incremental parser for a tmux control-mode (`tmux -CC`) byte stream.

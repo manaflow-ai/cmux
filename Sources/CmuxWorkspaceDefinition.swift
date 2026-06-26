@@ -1,3 +1,4 @@
+import CmuxWorkspaces
 import Foundation
 
 struct CmuxWorkspaceDefinition: Codable, Sendable {

@@ -136,48 +136,19 @@ struct cmuxApp: App {
         // shared static.
         let settingsCatalog = SettingCatalog()
         let configFileURL = CmuxConfigLocation().userConfigFile
-        // Relocate a pre-existing socket password out of the legacy
-        // Application Support directory before any store reads it. The CLI reads
-        // this file on every agent hook, and a cross-identity reach into
-        // Application Support triggers the macOS Sequoia "access data from other
-        // apps" prompt; the password now lives in the non-protected cmux state
-        // directory (https://github.com/manaflow-ai/cmux/issues/5146). The app
-        // owns its Application Support data, so it can perform this move silently.
-        // This App initializer is the composition root, so it is where the
-        // concrete `FileManager.default` is named for the package's injected seams.
-        SocketControlPasswordStore.migrateLegacyApplicationSupportPasswordFileIfNeeded(fileManager: .default)
-        // Secrets live in their own 0600 files under the cmux state directory,
-        // the same directory (and `socket-control-password` file) the socket
-        // auth path reads via SocketControlPasswordStore, so the Settings UI
-        // and the listener share one source of truth.
-        let secretBaseDirectory = SocketControlPasswordStore.defaultPasswordFileURL(fileManager: .default)?
-            .deletingLastPathComponent()
-            ?? CmuxStateDirectory.url(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
-        let secretStore = SecretFileStore(baseDirectory: secretBaseDirectory)
-
-        // Lift any plaintext socket-control password out of `cmux.json` into the
-        // secure store, then scrub it from the config. This runs here, in the App
-        // initializer, on purpose: it completes before the managed-config layer
-        // (`CmuxSettingsFileStore`, loaded later during app launch) reads the
-        // file, so removing the key can never be misread as a removed managed
-        // override that would trigger a restore. The secure file the migration
-        // writes is the same one both the Settings UI (via `secretStore`) and the
-        // socket listener (via `SocketControlPasswordStore`) read.
-        let socketPasswordStore = SocketControlPasswordStore()
-        let secretMigrationTimestamp: String = {
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withYear, .withMonth, .withDay, .withTime]
-            return formatter.string(from: Date())
-                .replacingOccurrences(of: ":", with: "")
-                .replacingOccurrences(of: "-", with: "")
-        }()
-        PlaintextSecretMigration.scrub(
-            plaintextKeyPath: ["automation", "socketPassword"],
-            configURL: configFileURL,
-            loadCurrentSecret: { (try? socketPasswordStore.loadPassword()) ?? nil },
-            saveSecret: { try socketPasswordStore.savePassword($0) },
-            backupTimestamp: secretMigrationTimestamp
-        )
+        // Bootstrap the secure secret store before any managed-config layer reads
+        // `cmux.json`: relocate a pre-existing socket password out of the legacy
+        // Application Support directory, derive the secret base directory,
+        // construct the store, and lift any plaintext socket-control password out
+        // of the config into the secure store (then scrub it). This App
+        // initializer is the composition root, so it names the concrete
+        // `FileManager.default` and `configFileURL` and injects them; the
+        // sequencing lives in `SecretStoreBootstrap`.
+        // See https://github.com/manaflow-ai/cmux/issues/5146.
+        let secretStore = SecretStoreBootstrap(
+            fileManager: .default,
+            configFileURL: configFileURL
+        ).configureSecretStore()
         let authComposition = MacAuthComposition()
         self.authComposition = authComposition
         self.settingsRuntime = SettingsRuntime(

@@ -1,3 +1,4 @@
+import CmuxRemoteWorkspace
 import Foundation
 import os
 

@@ -1,3 +1,4 @@
+import CmuxRemoteWorkspace
 import Foundation
 
 /// A tmux window within a mirrored session, assembled from the control-mode

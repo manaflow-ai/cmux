@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxRemoteWorkspace
 import CmuxTerminal
 import Foundation
 import Observation
