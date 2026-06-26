@@ -1277,20 +1277,17 @@ final class NotificationDockBadgeTests: XCTestCase {
 
     func testNotificationAuthorizationDefersFirstPromptWhileAppIsInactive() {
         XCTAssertTrue(
-            TerminalNotificationStore.shouldDeferAutomaticAuthorizationRequest(
-                status: .notDetermined,
+            UNAuthorizationStatus.notDetermined.shouldDeferAutomaticAuthorizationRequest(
                 isAppActive: false
             )
         )
         XCTAssertFalse(
-            TerminalNotificationStore.shouldDeferAutomaticAuthorizationRequest(
-                status: .notDetermined,
+            UNAuthorizationStatus.notDetermined.shouldDeferAutomaticAuthorizationRequest(
                 isAppActive: true
             )
         )
         XCTAssertFalse(
-            TerminalNotificationStore.shouldDeferAutomaticAuthorizationRequest(
-                status: .authorized,
+            UNAuthorizationStatus.authorized.shouldDeferAutomaticAuthorizationRequest(
                 isAppActive: false
             )
         )
@@ -1298,22 +1295,22 @@ final class NotificationDockBadgeTests: XCTestCase {
 
     func testNotificationAuthorizationRequestGatingAllowsSettingsRetry() {
         XCTAssertTrue(
-            TerminalNotificationStore.shouldRequestAuthorization(
+            NotificationAuthorizationRequestGate(
                 isAutomaticRequest: false,
                 hasRequestedAutomaticAuthorization: true
-            )
+            ).shouldRequestAuthorization
         )
         XCTAssertTrue(
-            TerminalNotificationStore.shouldRequestAuthorization(
+            NotificationAuthorizationRequestGate(
                 isAutomaticRequest: true,
                 hasRequestedAutomaticAuthorization: false
-            )
+            ).shouldRequestAuthorization
         )
         XCTAssertFalse(
-            TerminalNotificationStore.shouldRequestAuthorization(
+            NotificationAuthorizationRequestGate(
                 isAutomaticRequest: true,
                 hasRequestedAutomaticAuthorization: true
-            )
+            ).shouldRequestAuthorization
         )
     }
 

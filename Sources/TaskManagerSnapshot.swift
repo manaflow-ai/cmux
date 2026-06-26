@@ -11,6 +11,10 @@ struct CmuxTaskManagerSnapshot {
         memoryDiagnostic: nil
     )
 
+    /// Pure name->asset classifier seam used by the parse helpers below to map a
+    /// row's free-form name candidates to a brand-mark asset name.
+    private static let agentAssetResolver = SessionAgentAssetResolver.standard
+
     let rows: [CmuxTaskManagerRow]
     let agentRows: [CmuxTaskManagerRow]
     let aggregateRows: [CmuxTaskManagerRow]
@@ -127,7 +131,7 @@ struct CmuxTaskManagerSnapshot {
                 processId: nil,
                 rootProcessIds: group.processIds,
                 foregroundProcessGroupIds: [],
-                agentAssetName: SessionAgent.assetName(forNameCandidates: [group.name])
+                agentAssetName: Self.agentAssetResolver.assetName(forNameCandidates: [group.name])
             )
         }
     }
@@ -296,7 +300,7 @@ struct CmuxTaskManagerSnapshot {
                     processId: nil,
                     rootProcessIds: processIds,
                     foregroundProcessGroupIds: [],
-                    agentAssetName: SessionAgent.assetName(forNameCandidates: [aggregate.title])
+                    agentAssetName: Self.agentAssetResolver.assetName(forNameCandidates: [aggregate.title])
                 )
             }
     }
@@ -321,7 +325,7 @@ struct CmuxTaskManagerSnapshot {
                 processId: nil,
                 rootProcessIds: resources.processIds,
                 foregroundProcessGroupIds: [],
-                agentAssetName: SessionAgent.assetName(forNameCandidates: [title])
+                agentAssetName: Self.agentAssetResolver.assetName(forNameCandidates: [title])
             )
         }
     }
@@ -414,7 +418,7 @@ struct CmuxTaskManagerSnapshot {
             detail: detail,
             isDimmed: bool(tag["visible"]) == false,
             workspaceId: workspaceId,
-            agentAssetName: SessionAgent.assetName(forNameCandidates: [key, value])
+            agentAssetName: Self.agentAssetResolver.assetName(forNameCandidates: [key, value])
         ))
 
         let processes = tag["processes"] as? [[String: Any]] ?? []
@@ -465,7 +469,7 @@ struct CmuxTaskManagerSnapshot {
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             terminalSurfaceId: terminalSurfaceId,
-            agentAssetName: SessionAgent.assetName(forNameCandidates: [title])
+            agentAssetName: Self.agentAssetResolver.assetName(forNameCandidates: [title])
         ))
 
         let webviews = surface["webviews"] as? [[String: Any]] ?? []
@@ -564,7 +568,7 @@ struct CmuxTaskManagerSnapshot {
             terminalSurfaceId: processTerminalSurfaceId,
             processId: pid,
             rootProcessIds: processRootIds,
-            agentAssetName: SessionAgent.assetName(forNameCandidates: [
+            agentAssetName: Self.agentAssetResolver.assetName(forNameCandidates: [
                 nonEmptyString(process["name"]),
                 nonEmptyString(process["path"]).map { URL(fileURLWithPath: $0).lastPathComponent }
             ])

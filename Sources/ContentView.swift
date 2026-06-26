@@ -6192,7 +6192,7 @@ struct VerticalTabsSidebar: View {
 
     private var minimalModeSidebarTitlebarControlsTopPadding: CGFloat {
         guard let observedWindow else {
-            return MinimalModeSidebarTitlebarControlsMetrics.topInset
+            return MinimalModeSidebarTitlebarControlsMetrics().topInset
         }
         return minimalModeSidebarTitlebarControlsTopInset(in: observedWindow)
     }

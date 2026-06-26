@@ -100,45 +100,10 @@ enum GhosttyBackgroundTheme {
     }
 }
 
-enum BrowserThemeSettings {
-    static let modeKey = "browserThemeMode"
-    static let legacyForcedDarkModeEnabledKey = "browserForcedDarkModeEnabled"
-    static let defaultMode: BrowserThemeMode = .system
-
-    static func mode(for rawValue: String?) -> BrowserThemeMode {
-        guard let rawValue, let mode = BrowserThemeMode(rawValue: rawValue) else {
-            return defaultMode
-        }
-        return mode
-    }
-
-    static func mode(defaults: UserDefaults = .standard) -> BrowserThemeMode {
-        let resolvedMode = mode(for: defaults.string(forKey: modeKey))
-        if defaults.string(forKey: modeKey) != nil {
-            return resolvedMode
-        }
-
-        // Migrate the legacy bool toggle only when the new mode key is unset.
-        if defaults.object(forKey: legacyForcedDarkModeEnabledKey) != nil {
-            let migratedMode: BrowserThemeMode = defaults.bool(forKey: legacyForcedDarkModeEnabledKey) ? .dark : .system
-            defaults.set(migratedMode.rawValue, forKey: modeKey)
-            return migratedMode
-        }
-
-        return defaultMode
-    }
-
-    static func apply(_ mode: BrowserThemeMode, to webView: WKWebView) {
-        switch mode {
-        case .system:
-            webView.appearance = nil
-        case .light:
-            webView.appearance = NSAppearance(named: .aqua)
-        case .dark:
-            webView.appearance = NSAppearance(named: .darkAqua)
-        }
-    }
-}
+// `BrowserThemeSettings` (theme-mode UserDefaults keys, default mode, the
+// `mode(for:)`/`mode(defaults:)` resolution + legacy migration, and
+// `apply(_:to:)`) now lives in the `CmuxBrowser` package (imported above); the
+// call sites reference it unqualified through that import.
 
 // `BrowserImportHintVariant`, `BrowserImportHintBlankTabPlacement`,
 // `BrowserImportHintSettingsStatus`, `BrowserImportHintPresentation`, and the

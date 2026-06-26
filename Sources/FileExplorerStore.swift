@@ -19,22 +19,7 @@ import SwiftUI
 
 // MARK: - Local Provider
 
-final class LocalFileExplorerProvider: FileExplorerProvider {
-    var homePath: String { NSHomeDirectory() }
-    var isAvailable: Bool { true }
-
-    func listDirectory(path: String, showHidden: Bool) async throws -> [FileExplorerEntry] {
-        let fm = FileManager.default
-        let contents = try fm.contentsOfDirectory(atPath: path)
-        return contents.compactMap { name in
-            guard showHidden || !name.hasPrefix(".") else { return nil }
-            let fullPath = (path as NSString).appendingPathComponent(name)
-            var isDir: ObjCBool = false
-            guard fm.fileExists(atPath: fullPath, isDirectory: &isDir) else { return nil }
-            return FileExplorerEntry(name: name, path: fullPath, isDirectory: isDir.boolValue)
-        }
-    }
-}
+// LocalFileExplorerProvider moved to CmuxFoundation (Sources/CmuxFoundation/FileExplorer/LocalFileExplorerProvider.swift).
 
 // MARK: - SSH Provider
 

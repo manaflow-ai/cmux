@@ -5,9 +5,6 @@ import ExtensionFoundation
 import SwiftUI
 
 struct CMUXInstalledExtensionSidebarHostView: View {
-    private static let selectedExtensionBundleIDDefaultsKey = "cmuxExtensionSidebar.selectedExtensionBundleId"
-    private static let selectedExtensionNameDefaultsKey = "cmuxExtensionSidebar.selectedExtensionName"
-
     // Wire messages the host coordinator returns to the extension process.
     // Resolved here, in the app target, so `String(localized:)` binds to the app
     // bundle's localized catalog (including Japanese) rather than the
@@ -33,15 +30,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     var actionHandler: @MainActor (CmuxSidebarAction) -> CmuxSidebarActionResult
     var onUseDefaultSidebar: @MainActor () -> Void = {}
 
-    @State private var identity: AppExtensionIdentity?
-    @State private var enabledIdentities: [AppExtensionIdentity] = []
-    @State private var selectedExtensionBundleID = UserDefaults.standard.string(
-        forKey: Self.selectedExtensionBundleIDDefaultsKey
-    )
-    @State private var isLoading = true
-    @State private var errorText: String?
-    @State private var disabledExtensionCount = 0
-    @State private var unapprovedExtensionCount = 0
+    @State private var selectionModel = CMUXSidebarExtensionSelectionModel()
     @State private var browserAnchorView: NSView?
     @State private var xpcHost = CMUXSidebarExtensionHostXPC(
         strings: Self.hostXPCStrings,
@@ -56,7 +45,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
 
     var body: some View {
         Group {
-            if let identity {
+            if let identity = selectionModel.identity {
                 VStack(alignment: .leading, spacing: 0) {
                     extensionControlStrip(activeIdentity: identity)
                     if let effectiveGrant, shouldShowAccessBanner(identity: identity, effectiveGrant: effectiveGrant) {
@@ -81,10 +70,10 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                         onDeactivation: { error in
                             xpcHost.invalidate()
                             effectiveGrant = nil
-                            if self.identity?.bundleIdentifier == identity.bundleIdentifier {
+                            if selectionModel.identity?.bundleIdentifier == identity.bundleIdentifier {
                                 blockedManifestReason = .connectionInterrupted
                             }
-                            errorText = error?.localizedDescription
+                            selectionModel.errorText = error?.localizedDescription
                         },
                         onTeardown: {
                             xpcHost.invalidate()
@@ -99,7 +88,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                         blockedExtensionView(reason: blockedManifestReason)
                     }
                 }
-            } else if isLoading {
+            } else if selectionModel.isLoading {
                 VStack(spacing: 10) {
                     ProgressView()
                         .controlSize(.small)
@@ -125,12 +114,12 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(.primary)
                             .multilineTextAlignment(.center)
-                        Text(errorText ?? emptyStateDetail)
+                        Text(selectionModel.errorText ?? emptyStateDetail)
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                             .fixedSize(horizontal: false, vertical: true)
-                        if disabledExtensionCount > 0 || unapprovedExtensionCount > 0 {
+                        if selectionModel.disabledExtensionCount > 0 || selectionModel.unapprovedExtensionCount > 0 {
                             Text(extensionAvailabilityDetail)
                                 .font(.system(size: 12))
                                 .foregroundStyle(.secondary)
@@ -149,7 +138,14 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         }
         .task {
             xpcHost.update(snapshotProvider: snapshotProvider, actionHandler: actionHandler)
-            await observeExtensionAvailability()
+            await selectionModel.observeExtensionAvailability(
+                loadFailureText: String(
+                    localized: "sidebar.extensions.error",
+                    defaultValue: "CMUX could not load sidebar extensions."
+                ),
+                onSelectedIdentityChange: resetHostForSelectedIdentityChange,
+                onLoadFailure: resetHostForLoadFailure
+            )
         }
         .onChange(of: snapshotProvider().sequence) { _, _ in
             xpcHost.sendSnapshotDidChange()
@@ -161,40 +157,37 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             xpcHost.invalidate()
         }
         .sheet(isPresented: $isShowingAccessReview) {
-            if let identity, let effectiveGrant {
+            if let identity = selectionModel.identity, let effectiveGrant {
                 accessReviewSheet(identity: identity, effectiveGrant: effectiveGrant)
             }
         }
     }
 
-    private func observeExtensionAvailability() async {
-        isLoading = true
-        errorText = nil
-        do {
-            try await observeIdentitySequence(
-                extensionPointIdentifier: CmuxSidebarExtensionPoint.identifier()
-            )
-        } catch {
-            identity = nil
-            xpcHost.invalidate()
-            blockedManifestReason = nil
-            isLoading = false
-            errorText = String(
-                localized: "sidebar.extensions.error",
-                defaultValue: "CMUX could not load sidebar extensions."
-            )
-        }
+    /// Tears down the stale XPC host and clears its effective grant when the
+    /// selection model is about to switch the hosted identity. Injected into the
+    /// selection model so the model owns selection state while the view keeps
+    /// ownership of the live connection.
+    private func resetHostForSelectedIdentityChange() {
+        xpcHost.invalidate()
+        effectiveGrant = nil
+    }
+
+    /// Tears down the host and clears blocked-manifest state when identity
+    /// discovery fails. Injected into the selection model's failure path.
+    private func resetHostForLoadFailure() {
+        xpcHost.invalidate()
+        blockedManifestReason = nil
     }
 
     private var emptyStateTitle: String {
-        if enabledIdentities.count > 1 {
+        if selectionModel.enabledIdentities.count > 1 {
             return String(localized: "sidebar.extensions.choose.title", defaultValue: "Choose a sidebar extension")
         }
         return String(localized: "sidebar.extensions.empty.title", defaultValue: "No sidebar extension enabled")
     }
 
     private var emptyStateDetail: String {
-        if enabledIdentities.count > 1 {
+        if selectionModel.enabledIdentities.count > 1 {
             return String(
                 localized: "sidebar.extensions.choose.detail",
                 defaultValue: "Choose which enabled extension should replace the sidebar."
@@ -207,7 +200,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
     }
 
     private var extensionAvailabilityDetail: String {
-        if unapprovedExtensionCount > 0 {
+        if selectionModel.unapprovedExtensionCount > 0 {
             return String(
                 localized: "sidebar.extensions.unapproved.detail",
                 defaultValue: "An installed sidebar extension needs approval before CMUX can use it."
@@ -233,11 +226,14 @@ struct CMUXInstalledExtensionSidebarHostView: View {
 
     @ViewBuilder
     private func extensionEmptyActionButtons() -> some View {
-        if enabledIdentities.count > 1 {
+        if selectionModel.enabledIdentities.count > 1 {
             Menu {
-                ForEach(enabledIdentities, id: \.bundleIdentifier) { enabledIdentity in
+                ForEach(selectionModel.enabledIdentities, id: \.bundleIdentifier) { enabledIdentity in
                     Button {
-                        selectExtension(enabledIdentity)
+                        selectionModel.selectExtension(
+                            enabledIdentity,
+                            onSelectedIdentityChange: resetHostForSelectedIdentityChange
+                        )
                     } label: {
                         Label(enabledIdentity.localizedName, systemImage: "puzzlepiece.extension")
                     }
@@ -546,11 +542,14 @@ struct CMUXInstalledExtensionSidebarHostView: View {
 
     @ViewBuilder
     private func extensionIdentityControl(activeIdentity: AppExtensionIdentity?) -> some View {
-        if enabledIdentities.count > 1 {
+        if selectionModel.enabledIdentities.count > 1 {
             Menu {
-                ForEach(enabledIdentities, id: \.bundleIdentifier) { enabledIdentity in
+                ForEach(selectionModel.enabledIdentities, id: \.bundleIdentifier) { enabledIdentity in
                     Button {
-                        selectExtension(enabledIdentity)
+                        selectionModel.selectExtension(
+                            enabledIdentity,
+                            onSelectedIdentityChange: resetHostForSelectedIdentityChange
+                        )
                     } label: {
                         Label(
                             enabledIdentity.localizedName,
@@ -744,78 +743,6 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         }
         return pendingReadScopes.map(\.permissionDescription) +
             pendingActionScopes.map(\.permissionDescription)
-    }
-
-    private func observeIdentitySequence(extensionPointIdentifier: String) async throws {
-        var identities = try AppExtensionIdentity.matching(appExtensionPointIDs: extensionPointIdentifier)
-            .makeAsyncIterator()
-        let availabilityTask = Task {
-            var availabilityUpdates = AppExtensionIdentity.availabilityUpdates.makeAsyncIterator()
-            while !Task.isCancelled {
-                guard let availability = await availabilityUpdates.next() else { break }
-                disabledExtensionCount = availability.disabledCount
-                unapprovedExtensionCount = availability.unapprovedCount
-            }
-        }
-        defer {
-            availabilityTask.cancel()
-        }
-        while !Task.isCancelled {
-            guard let update = await identities.next() else { break }
-            applyEnabledExtensionIdentities(update)
-        }
-    }
-
-    private func applyEnabledExtensionIdentities(_ identities: [AppExtensionIdentity]) {
-        let sortedIdentities = deduplicatedExtensionIdentities(identities)
-        enabledIdentities = sortedIdentities
-        let nextIdentity: AppExtensionIdentity?
-        if let selectedExtensionBundleID,
-           let selectedIdentity = sortedIdentities.first(where: { $0.bundleIdentifier == selectedExtensionBundleID }) {
-            nextIdentity = selectedIdentity
-        } else if selectedExtensionBundleID == nil, sortedIdentities.count == 1 {
-            nextIdentity = sortedIdentities[0]
-            selectedExtensionBundleID = nextIdentity?.bundleIdentifier
-            UserDefaults.standard.set(nextIdentity?.bundleIdentifier, forKey: Self.selectedExtensionBundleIDDefaultsKey)
-        } else {
-            nextIdentity = nil
-        }
-        updateSelectedExtensionName(nextIdentity)
-        if nextIdentity?.bundleIdentifier != identity?.bundleIdentifier {
-            xpcHost.invalidate()
-            effectiveGrant = nil
-            identity = nextIdentity
-        }
-        isLoading = false
-        errorText = nil
-    }
-
-    private func deduplicatedExtensionIdentities(_ identities: [AppExtensionIdentity]) -> [AppExtensionIdentity] {
-        let sortedIdentities = identities.sorted {
-            if $0.localizedName == $1.localizedName {
-                return $0.bundleIdentifier < $1.bundleIdentifier
-            }
-            return $0.localizedName < $1.localizedName
-        }
-        var seenBundleIdentifiers = Set<String>()
-        return sortedIdentities.filter { identity in
-            seenBundleIdentifiers.insert(identity.bundleIdentifier).inserted
-        }
-    }
-
-    private func selectExtension(_ selectedIdentity: AppExtensionIdentity) {
-        selectedExtensionBundleID = selectedIdentity.bundleIdentifier
-        UserDefaults.standard.set(selectedIdentity.bundleIdentifier, forKey: Self.selectedExtensionBundleIDDefaultsKey)
-        UserDefaults.standard.set(selectedIdentity.localizedName, forKey: Self.selectedExtensionNameDefaultsKey)
-        applyEnabledExtensionIdentities(enabledIdentities)
-    }
-
-    private func updateSelectedExtensionName(_ selectedIdentity: AppExtensionIdentity?) {
-        if let selectedIdentity {
-            UserDefaults.standard.set(selectedIdentity.localizedName, forKey: Self.selectedExtensionNameDefaultsKey)
-        } else if selectedExtensionBundleID == nil {
-            UserDefaults.standard.removeObject(forKey: Self.selectedExtensionNameDefaultsKey)
-        }
     }
 
 }
