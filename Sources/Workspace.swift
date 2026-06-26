@@ -129,6 +129,7 @@ extension Workspace {
             hasUnreadIndicator: hasWorkspaceUnreadIndicator,
             notifications: workspaceNotificationSnapshots.isEmpty ? nil : workspaceNotificationSnapshots,
             defaultWorkingDirectory: defaultWorkingDirectory,
+            workspaceProfileName: workspaceProfileName,
             currentDirectory: currentDirectory,
             focusedPanelId: focusedPanelId,
             layout: layout,
@@ -188,6 +189,7 @@ extension Workspace {
         if defaultWorkingDirectory == nil, !normalizedCurrentDirectory.isEmpty {
             currentDirectory = normalizedCurrentDirectory
         }
+        setWorkspaceProfileName(snapshot.workspaceProfileName)
 
         // Restore the per-workspace environment before any surface is rebuilt so
         // every restored terminal (all of which spawn fresh shells — PTYs do not
@@ -2200,6 +2202,10 @@ final class Workspace: Identifiable, ObservableObject {
     /// created with an explicit cwd. Live terminal PWD reports update
     /// `panelDirectories` but do not replace this value.
     @Published private(set) var defaultWorkingDirectory: String?
+    /// Stable binding for a workspace created or managed by `workspaceProfiles`.
+    /// This survives user renames so config reload can update the intended
+    /// workspace without matching unrelated titles.
+    @Published private(set) var workspaceProfileName: String?
     @Published var currentDirectory: String {
         didSet {
             let oldDirectory = oldValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3018,6 +3024,7 @@ final class Workspace: Identifiable, ObservableObject {
         self.customTitle = nil
         self.customTitleSource = nil
         self.customDescription = nil
+        self.workspaceProfileName = nil
 
         let trimmedWorkingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let hasWorkingDirectory = !trimmedWorkingDirectory.isEmpty
@@ -4461,6 +4468,14 @@ final class Workspace: Identifiable, ObservableObject {
         let trackingDirectory = configTrackingDirectory(for: focusedPanelId)
         if surfaceTabBarDirectory != trackingDirectory {
             surfaceTabBarDirectory = trackingDirectory
+        }
+    }
+
+    func setWorkspaceProfileName(_ name: String?) {
+        let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let normalized = trimmed.isEmpty ? nil : trimmed
+        if workspaceProfileName != normalized {
+            workspaceProfileName = normalized
         }
     }
 

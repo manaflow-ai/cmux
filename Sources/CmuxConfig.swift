@@ -2507,12 +2507,10 @@ final class CmuxConfigStore: ObservableObject {
         guard let tabManager, !profiles.isEmpty else { return }
         for profile in profiles {
             if let existing = tabManager.tabs.first(where: { workspace in
-                workspace.customTitle == profile.name || workspace.title == profile.name
+                workspace.workspaceProfileName == profile.name
             }) {
                 existing.setDefaultWorkingDirectory(profile.cwd)
-                if existing.customTitle != profile.name {
-                    existing.setCustomTitle(profile.name)
-                }
+                existing.setCustomTitle(profile.name, source: .auto)
                 existing.isPinned = profile.pinned
                 continue
             }
@@ -2524,7 +2522,8 @@ final class CmuxConfigStore: ObservableObject {
                 select: false,
                 autoWelcomeIfNeeded: false
             )
-            workspace.setCustomTitle(profile.name)
+            workspace.setWorkspaceProfileName(profile.name)
+            workspace.setCustomTitle(profile.name, source: .auto)
             workspace.setDefaultWorkingDirectory(profile.cwd)
             workspace.isPinned = profile.pinned
         }

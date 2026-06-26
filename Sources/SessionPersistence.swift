@@ -1839,6 +1839,9 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// Stable workspace root. Optional so snapshots written before persistent
     /// workspace defaults decode unchanged.
     var defaultWorkingDirectory: String? = nil
+    /// Stable binding to a configured workspace profile. Optional so snapshots
+    /// written before profile bindings decode unchanged.
+    var workspaceProfileName: String? = nil
     var currentDirectory: String
     var focusedPanelId: UUID?
     var layout: SessionWorkspaceLayoutSnapshot
