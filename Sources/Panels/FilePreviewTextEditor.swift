@@ -402,6 +402,11 @@ final class SavingTextView: NSTextView {
 
     private func scheduleSyntaxHighlightRefresh() {
         pendingSyntaxHighlightTask?.cancel()
+        // Bounded, cancellable debounce: the fixed delay is itself the intended
+        // behavior — coalesce a burst of edits into one re-highlight so the
+        // O(token) temporary-attribute apply does not run on every keystroke.
+        // Not a poll/settle/race; each edit cancels and reschedules the single
+        // pending task, and the task is cancelled on the next edit or on close.
         pendingSyntaxHighlightTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: Self.syntaxHighlightDebounceNanoseconds)
             guard !Task.isCancelled, let self else { return }

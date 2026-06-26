@@ -479,10 +479,14 @@
 		C0DE31390000000000000103 /* FilePreviewReviewFeedbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000104 /* FilePreviewReviewFeedbackTests.swift */; };
 		F11E52270000000000006007 /* FilePreviewSyntaxGrammar.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11E52270000000000006008 /* FilePreviewSyntaxGrammar.swift */; };
 		F11E52270000000000006005 /* FilePreviewSyntaxHighlighterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11E52270000000000006006 /* FilePreviewSyntaxHighlighterTests.swift */; };
-		F11E52270000000000006001 /* FilePreviewSyntaxHighlighting.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11E52270000000000006002 /* FilePreviewSyntaxHighlighting.swift */; };
 		F11E52270000000000006003 /* FilePreviewSyntaxHighlightSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11E52270000000000006004 /* FilePreviewSyntaxHighlightSettings.swift */; };
+		F11E52270000000000006021 /* FilePreviewSyntaxKeywords.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11E52270000000000006022 /* FilePreviewSyntaxKeywords.swift */; };
+		F11E52270000000000006017 /* FilePreviewSyntaxLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11E52270000000000006018 /* FilePreviewSyntaxLanguage.swift */; };
+		F11E52270000000000006019 /* FilePreviewSyntaxTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11E52270000000000006020 /* FilePreviewSyntaxTheme.swift */; };
+		F11E52270000000000006015 /* FilePreviewSyntaxToken.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11E52270000000000006016 /* FilePreviewSyntaxToken.swift */; };
 		F11E52270000000000006009 /* FilePreviewSyntaxTokenizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11E52270000000000006010 /* FilePreviewSyntaxTokenizer.swift */; };
-		F11E52270000000000006011 /* FilePreviewSyntaxVocabulary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11E52270000000000006012 /* FilePreviewSyntaxVocabulary.swift */; };
+		F11E52270000000000006013 /* FilePreviewSyntaxTokenKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11E52270000000000006014 /* FilePreviewSyntaxTokenKind.swift */; };
+		F11E52270000000000006023 /* FilePreviewSyntaxTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11E52270000000000006024 /* FilePreviewSyntaxTypes.swift */; };
 		D0B10016A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10017A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift */; };
 		C0DEFC100000000000000001 /* FilePreviewTextEditorTextKitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFC100000000000000002 /* FilePreviewTextEditorTextKitTests.swift */; };
 		F11E52270000000000005227 /* FilePreviewWordWrapSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11E52270000000000005228 /* FilePreviewWordWrapSettings.swift */; };
@@ -1626,10 +1630,14 @@
 		C0DE31390000000000000104 /* FilePreviewReviewFeedbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePreviewReviewFeedbackTests.swift; sourceTree = "<group>"; };
 		F11E52270000000000006008 /* FilePreviewSyntaxGrammar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewSyntaxGrammar.swift; sourceTree = "<group>"; };
 		F11E52270000000000006006 /* FilePreviewSyntaxHighlighterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePreviewSyntaxHighlighterTests.swift; sourceTree = "<group>"; };
-		F11E52270000000000006002 /* FilePreviewSyntaxHighlighting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewSyntaxHighlighting.swift; sourceTree = "<group>"; };
 		F11E52270000000000006004 /* FilePreviewSyntaxHighlightSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewSyntaxHighlightSettings.swift; sourceTree = "<group>"; };
+		F11E52270000000000006022 /* FilePreviewSyntaxKeywords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewSyntaxKeywords.swift; sourceTree = "<group>"; };
+		F11E52270000000000006018 /* FilePreviewSyntaxLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewSyntaxLanguage.swift; sourceTree = "<group>"; };
+		F11E52270000000000006020 /* FilePreviewSyntaxTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewSyntaxTheme.swift; sourceTree = "<group>"; };
+		F11E52270000000000006016 /* FilePreviewSyntaxToken.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewSyntaxToken.swift; sourceTree = "<group>"; };
 		F11E52270000000000006010 /* FilePreviewSyntaxTokenizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewSyntaxTokenizer.swift; sourceTree = "<group>"; };
-		F11E52270000000000006012 /* FilePreviewSyntaxVocabulary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewSyntaxVocabulary.swift; sourceTree = "<group>"; };
+		F11E52270000000000006014 /* FilePreviewSyntaxTokenKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewSyntaxTokenKind.swift; sourceTree = "<group>"; };
+		F11E52270000000000006024 /* FilePreviewSyntaxTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewSyntaxTypes.swift; sourceTree = "<group>"; };
 		D0B10017A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewTextEditor.swift; sourceTree = "<group>"; };
 		C0DEFC100000000000000002 /* FilePreviewTextEditorTextKitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePreviewTextEditorTextKitTests.swift; sourceTree = "<group>"; };
 		F11E52270000000000005228 /* FilePreviewWordWrapSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewWordWrapSettings.swift; sourceTree = "<group>"; };
@@ -2991,11 +2999,15 @@
 				F5168A070000000000000002 /* MarkdownFontFamilyCache.swift */,
 				F5168A050000000000000002 /* MarkdownMaxWidthSettings.swift */,
 				F11E52270000000000005228 /* FilePreviewWordWrapSettings.swift */,
-				F11E52270000000000006002 /* FilePreviewSyntaxHighlighting.swift */,
 				F11E52270000000000006004 /* FilePreviewSyntaxHighlightSettings.swift */,
 				F11E52270000000000006008 /* FilePreviewSyntaxGrammar.swift */,
+				F11E52270000000000006014 /* FilePreviewSyntaxTokenKind.swift */,
+				F11E52270000000000006016 /* FilePreviewSyntaxToken.swift */,
+				F11E52270000000000006018 /* FilePreviewSyntaxLanguage.swift */,
+				F11E52270000000000006020 /* FilePreviewSyntaxTheme.swift */,
+				F11E52270000000000006022 /* FilePreviewSyntaxKeywords.swift */,
+				F11E52270000000000006024 /* FilePreviewSyntaxTypes.swift */,
 				F11E52270000000000006010 /* FilePreviewSyntaxTokenizer.swift */,
-				F11E52270000000000006012 /* FilePreviewSyntaxVocabulary.swift */,
 				F5168A060000000000000002 /* MarkdownTypographyDefaults.swift */,
 				F5168A020000000000000002 /* MarkdownTypographyControl.swift */,
 				A5001419 /* MarkdownPanelView.swift */,
@@ -4195,10 +4207,14 @@
 				C0DE64020000000000001002 /* FilePreviewQuickLookContainerView.swift in Sources */,
 				DD62AFF1D95A1D5D1850AC10 /* FilePreviewQuickLookSession.swift in Sources */,
 					F11E52270000000000006007 /* FilePreviewSyntaxGrammar.swift in Sources */,
-					F11E52270000000000006001 /* FilePreviewSyntaxHighlighting.swift in Sources */,
 					F11E52270000000000006003 /* FilePreviewSyntaxHighlightSettings.swift in Sources */,
+					F11E52270000000000006021 /* FilePreviewSyntaxKeywords.swift in Sources */,
+					F11E52270000000000006017 /* FilePreviewSyntaxLanguage.swift in Sources */,
+					F11E52270000000000006019 /* FilePreviewSyntaxTheme.swift in Sources */,
+					F11E52270000000000006015 /* FilePreviewSyntaxToken.swift in Sources */,
 					F11E52270000000000006009 /* FilePreviewSyntaxTokenizer.swift in Sources */,
-					F11E52270000000000006011 /* FilePreviewSyntaxVocabulary.swift in Sources */,
+					F11E52270000000000006013 /* FilePreviewSyntaxTokenKind.swift in Sources */,
+					F11E52270000000000006023 /* FilePreviewSyntaxTypes.swift in Sources */,
 				D0B10016A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift in Sources */,
 					F11E52270000000000005227 /* FilePreviewWordWrapSettings.swift in Sources */,
 				A5001445A5001445A5001445 /* FilePreviewWorkspaceOpenSupport.swift in Sources */,

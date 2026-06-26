@@ -5,7 +5,7 @@ import Foundation
 /// parameters differ.
 struct FilePreviewSyntaxGrammar: Sendable {
     var lineComments: [String]
-    var blockComment: BlockComment?
+    var blockComment: (open: String, close: String)?
     var stringDelimiters: [Unicode.Scalar]
     var supportsTripleQuotedStrings: Bool
     var allowsDollarInIdentifiers: Bool
@@ -15,14 +15,9 @@ struct FilePreviewSyntaxGrammar: Sendable {
     var types: Set<String>
     var detectFunctionCalls: Bool
 
-    struct BlockComment: Sendable {
-        let open: String
-        let close: String
-    }
-
     init(
         lineComments: [String] = [],
-        blockComment: BlockComment? = nil,
+        blockComment: (open: String, close: String)? = nil,
         stringDelimiters: [Unicode.Scalar] = ["\""],
         supportsTripleQuotedStrings: Bool = false,
         allowsDollarInIdentifiers: Bool = false,
@@ -49,7 +44,7 @@ struct FilePreviewSyntaxGrammar: Sendable {
         case .swift:
             return FilePreviewSyntaxGrammar(
                 lineComments: ["//"],
-                blockComment: BlockComment(open: "/*", close: "*/"),
+                blockComment: (open: "/*", close: "*/"),
                 stringDelimiters: ["\""],
                 supportsTripleQuotedStrings: true,
                 usesAtDecorators: true,
@@ -59,7 +54,7 @@ struct FilePreviewSyntaxGrammar: Sendable {
         case .cFamily:
             return FilePreviewSyntaxGrammar(
                 lineComments: ["//"],
-                blockComment: BlockComment(open: "/*", close: "*/"),
+                blockComment: (open: "/*", close: "*/"),
                 stringDelimiters: ["\"", "'"],
                 usesPreprocessorHash: true,
                 keywords: FilePreviewSyntaxKeywords.c,
@@ -68,7 +63,7 @@ struct FilePreviewSyntaxGrammar: Sendable {
         case .cpp:
             return FilePreviewSyntaxGrammar(
                 lineComments: ["//"],
-                blockComment: BlockComment(open: "/*", close: "*/"),
+                blockComment: (open: "/*", close: "*/"),
                 stringDelimiters: ["\"", "'"],
                 usesPreprocessorHash: true,
                 keywords: FilePreviewSyntaxKeywords.cpp,
@@ -77,7 +72,7 @@ struct FilePreviewSyntaxGrammar: Sendable {
         case .objc:
             return FilePreviewSyntaxGrammar(
                 lineComments: ["//"],
-                blockComment: BlockComment(open: "/*", close: "*/"),
+                blockComment: (open: "/*", close: "*/"),
                 stringDelimiters: ["\"", "'"],
                 usesAtDecorators: true,
                 usesPreprocessorHash: true,
@@ -87,7 +82,7 @@ struct FilePreviewSyntaxGrammar: Sendable {
         case .java:
             return FilePreviewSyntaxGrammar(
                 lineComments: ["//"],
-                blockComment: BlockComment(open: "/*", close: "*/"),
+                blockComment: (open: "/*", close: "*/"),
                 stringDelimiters: ["\"", "'"],
                 supportsTripleQuotedStrings: true,
                 usesAtDecorators: true,
@@ -97,7 +92,7 @@ struct FilePreviewSyntaxGrammar: Sendable {
         case .kotlin:
             return FilePreviewSyntaxGrammar(
                 lineComments: ["//"],
-                blockComment: BlockComment(open: "/*", close: "*/"),
+                blockComment: (open: "/*", close: "*/"),
                 stringDelimiters: ["\"", "'"],
                 supportsTripleQuotedStrings: true,
                 usesAtDecorators: true,
@@ -107,7 +102,7 @@ struct FilePreviewSyntaxGrammar: Sendable {
         case .csharp:
             return FilePreviewSyntaxGrammar(
                 lineComments: ["//"],
-                blockComment: BlockComment(open: "/*", close: "*/"),
+                blockComment: (open: "/*", close: "*/"),
                 stringDelimiters: ["\"", "'"],
                 usesPreprocessorHash: true,
                 keywords: FilePreviewSyntaxKeywords.csharp,
@@ -116,7 +111,7 @@ struct FilePreviewSyntaxGrammar: Sendable {
         case .javascript:
             return FilePreviewSyntaxGrammar(
                 lineComments: ["//"],
-                blockComment: BlockComment(open: "/*", close: "*/"),
+                blockComment: (open: "/*", close: "*/"),
                 stringDelimiters: ["\"", "'", "`"],
                 allowsDollarInIdentifiers: true,
                 usesAtDecorators: true,
@@ -126,7 +121,7 @@ struct FilePreviewSyntaxGrammar: Sendable {
         case .typescript:
             return FilePreviewSyntaxGrammar(
                 lineComments: ["//"],
-                blockComment: BlockComment(open: "/*", close: "*/"),
+                blockComment: (open: "/*", close: "*/"),
                 stringDelimiters: ["\"", "'", "`"],
                 allowsDollarInIdentifiers: true,
                 usesAtDecorators: true,
@@ -154,7 +149,7 @@ struct FilePreviewSyntaxGrammar: Sendable {
         case .go:
             return FilePreviewSyntaxGrammar(
                 lineComments: ["//"],
-                blockComment: BlockComment(open: "/*", close: "*/"),
+                blockComment: (open: "/*", close: "*/"),
                 stringDelimiters: ["\"", "'", "`"],
                 keywords: FilePreviewSyntaxKeywords.go,
                 types: FilePreviewSyntaxTypes.go
@@ -162,7 +157,7 @@ struct FilePreviewSyntaxGrammar: Sendable {
         case .rust:
             return FilePreviewSyntaxGrammar(
                 lineComments: ["//"],
-                blockComment: BlockComment(open: "/*", close: "*/"),
+                blockComment: (open: "/*", close: "*/"),
                 stringDelimiters: ["\"", "'"],
                 usesAtDecorators: true,
                 keywords: FilePreviewSyntaxKeywords.rust,
@@ -171,7 +166,7 @@ struct FilePreviewSyntaxGrammar: Sendable {
         case .php:
             return FilePreviewSyntaxGrammar(
                 lineComments: ["//", "#"],
-                blockComment: BlockComment(open: "/*", close: "*/"),
+                blockComment: (open: "/*", close: "*/"),
                 stringDelimiters: ["\"", "'"],
                 allowsDollarInIdentifiers: true,
                 keywords: FilePreviewSyntaxKeywords.php,
@@ -190,7 +185,7 @@ struct FilePreviewSyntaxGrammar: Sendable {
         case .sql:
             return FilePreviewSyntaxGrammar(
                 lineComments: ["--"],
-                blockComment: BlockComment(open: "/*", close: "*/"),
+                blockComment: (open: "/*", close: "*/"),
                 stringDelimiters: ["'", "\""],
                 keywords: FilePreviewSyntaxKeywords.sql,
                 types: FilePreviewSyntaxTypes.sql,
@@ -199,7 +194,7 @@ struct FilePreviewSyntaxGrammar: Sendable {
         case .css:
             return FilePreviewSyntaxGrammar(
                 lineComments: ["//"],
-                blockComment: BlockComment(open: "/*", close: "*/"),
+                blockComment: (open: "/*", close: "*/"),
                 stringDelimiters: ["\"", "'"],
                 usesAtDecorators: true,
                 keywords: [],
