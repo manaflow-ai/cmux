@@ -235,25 +235,17 @@ final class GotoSplitUITestRecorder: UITestRecording {
             return
         }
 
-        var resolved = false
-        var observers: [NSObjectProtocol] = []
-        var panelsCancellable: AnyCancellable?
-
-        func cleanup() {
-            observers.forEach { NotificationCenter.default.removeObserver($0) }
-            observers.removeAll()
-            panelsCancellable?.cancel()
-        }
+        let waiter = UITestSettleWaiter()
 
         func recordFocusedState() {
-            guard !resolved else { return }
+            guard !waiter.isResolved else { return }
             guard let panel = tab.browserPanel(for: browserPanelId) else {
-                resolved = true
-                cleanup()
-                writeData([
-                    "webViewFocused": "false",
-                    "setupError": "Browser panel missing"
-                ])
+                waiter.resolveOnce {
+                    self.writeData([
+                        "webViewFocused": "false",
+                        "setupError": "Browser panel missing"
+                    ])
+                }
                 return
             }
 
@@ -267,35 +259,35 @@ final class GotoSplitUITestRecorder: UITestRecording {
                 return
             }
 
-            resolved = true
-            cleanup()
-            self.startRecorder(browserPanelId: browserPanelId)
-            let shortcuts = appDelegate.ghosttyGotoSplitShortcutDisplayStrings
-            writeData([
-                "browserPanelId": browserPanelId.uuidString,
-                "browserPaneId": browserPaneId.description,
-                "terminalPaneId": terminalPaneId.description,
-                "initialPaneCount": String(tab.bonsplitController.allPaneIds.count),
-                "focusedPaneId": tab.bonsplitController.focusedPaneId?.description ?? "",
-                "ghosttyGotoSplitLeftShortcut": shortcuts.left,
-                "ghosttyGotoSplitRightShortcut": shortcuts.right,
-                "ghosttyGotoSplitUpShortcut": shortcuts.up,
-                "ghosttyGotoSplitDownShortcut": shortcuts.down,
-                "webViewFocused": "true"
-            ])
-            if environment["CMUX_UI_TEST_GOTO_SPLIT_INPUT_SETUP"] == "1" {
-                setupFocusedInput(panel: panel)
+            waiter.resolveOnce {
+                self.startRecorder(browserPanelId: browserPanelId)
+                let shortcuts = self.appDelegate.ghosttyGotoSplitShortcutDisplayStrings
+                self.writeData([
+                    "browserPanelId": browserPanelId.uuidString,
+                    "browserPaneId": browserPaneId.description,
+                    "terminalPaneId": terminalPaneId.description,
+                    "initialPaneCount": String(tab.bonsplitController.allPaneIds.count),
+                    "focusedPaneId": tab.bonsplitController.focusedPaneId?.description ?? "",
+                    "ghosttyGotoSplitLeftShortcut": shortcuts.left,
+                    "ghosttyGotoSplitRightShortcut": shortcuts.right,
+                    "ghosttyGotoSplitUpShortcut": shortcuts.up,
+                    "ghosttyGotoSplitDownShortcut": shortcuts.down,
+                    "webViewFocused": "true"
+                ])
+                if self.environment["CMUX_UI_TEST_GOTO_SPLIT_INPUT_SETUP"] == "1" {
+                    self.setupFocusedInput(panel: panel)
+                }
             }
         }
 
-        observers.append(NotificationCenter.default.addObserver(
+        waiter.track(NotificationCenter.default.addObserver(
             forName: .browserDidBecomeFirstResponderWebView,
             object: nil,
             queue: .main
         ) { _ in
             Task { @MainActor in recordFocusedState() }
         })
-        observers.append(NotificationCenter.default.addObserver(
+        waiter.track(NotificationCenter.default.addObserver(
             forName: .ghosttyDidFocusSurface,
             object: nil,
             queue: .main
@@ -304,13 +296,13 @@ final class GotoSplitUITestRecorder: UITestRecording {
                   surfaceId == browserPanelId else { return }
             Task { @MainActor in recordFocusedState() }
         })
-        panelsCancellable = tab.panelsPublisher
+        waiter.track(tab.panelsPublisher
             .map { _ in () }
-            .sink { _ in Task { @MainActor in recordFocusedState() } }
+            .sink { _ in Task { @MainActor in recordFocusedState() } })
         DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) { [weak self] in
             guard let self else { return }
-            if !resolved {
-                cleanup()
+            if !waiter.isResolved {
+                waiter.cleanup()
                 self.writeData([
                     "webViewFocused": "false",
                     "setupError": "Timed out waiting for WKWebView focus"
@@ -422,31 +414,21 @@ final class GotoSplitUITestRecorder: UITestRecording {
             return
         }
 
-        var resolved = false
-        var observers: [NSObjectProtocol] = []
-        var panelsCancellable: AnyCancellable?
-
-        func cleanup() {
-            observers.forEach { NotificationCenter.default.removeObserver($0) }
-            observers.removeAll()
-            panelsCancellable?.cancel()
-            panelsCancellable = nil
-        }
+        let waiter = UITestSettleWaiter()
 
         @MainActor
         func finish(with focused: Bool) {
-            guard !resolved else { return }
-            resolved = true
-            cleanup()
-            self.writeData([
-                key: focused ? "true" : "false",
-                "\(key)PanelId": panelId.uuidString
-            ])
+            waiter.resolveOnce {
+                self.writeData([
+                    key: focused ? "true" : "false",
+                    "\(key)PanelId": panelId.uuidString
+                ])
+            }
         }
 
         @MainActor
         func evaluate() {
-            guard !resolved,
+            guard !waiter.isResolved,
                   let currentTabManager = self.tabManager,
                   let currentTab = currentTabManager.selectedWorkspace,
                   let currentPanel = currentTab.browserPanel(for: panelId) else {
@@ -456,7 +438,7 @@ final class GotoSplitUITestRecorder: UITestRecording {
             finish(with: true)
         }
 
-        observers.append(NotificationCenter.default.addObserver(
+        waiter.track(NotificationCenter.default.addObserver(
             forName: .browserDidBecomeFirstResponderWebView,
             object: nil,
             queue: .main
@@ -466,7 +448,7 @@ final class GotoSplitUITestRecorder: UITestRecording {
                 evaluate()
             }
         })
-        observers.append(NotificationCenter.default.addObserver(
+        waiter.track(NotificationCenter.default.addObserver(
             forName: .ghosttyDidFocusSurface,
             object: nil,
             queue: .main
@@ -475,15 +457,15 @@ final class GotoSplitUITestRecorder: UITestRecording {
                   surfaceId == panelId else { return }
             Task { @MainActor in evaluate() }
         })
-        panelsCancellable = tab.panelsPublisher
+        waiter.track(tab.panelsPublisher
             .map { _ in () }
             .sink { _ in
                 Task { @MainActor in evaluate() }
-            }
+            })
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
             guard let self else { return }
             Task { @MainActor in
-                guard !resolved else { return }
+                guard !waiter.isResolved else { return }
                 let focused = (self.tabManager?.selectedWorkspace?.browserPanel(for: panelId)).map(self.appDelegate.isWebViewFocused) ?? false
                 finish(with: focused)
             }
@@ -627,63 +609,53 @@ final class GotoSplitUITestRecorder: UITestRecording {
             return (updates, zoomSnapshot.settled)
         }
 
-        var resolved = false
-        var observers: [NSObjectProtocol] = []
-        var panelsCancellable: AnyCancellable?
-
-        func cleanup() {
-            observers.forEach { NotificationCenter.default.removeObserver($0) }
-            observers.removeAll()
-            panelsCancellable?.cancel()
-            panelsCancellable = nil
-        }
+        let waiter = UITestSettleWaiter()
 
         @MainActor
         func finish(with updates: [String: String]) {
-            guard !resolved else { return }
-            resolved = true
-            cleanup()
-            self.writeData(updates)
+            waiter.resolveOnce {
+                self.writeData(updates)
+            }
         }
 
         @MainActor
         func evaluate() {
-            guard !resolved, let currentWorkspace = (tabManager ?? self.tabManager)?.selectedWorkspace else { return }
+            guard !waiter.isResolved, let currentWorkspace = (tabManager ?? self.tabManager)?.selectedWorkspace else { return }
             let (updates, settled) = snapshot(for: currentWorkspace)
             guard settled else { return }
             finish(with: updates)
         }
 
-        observers.append(NotificationCenter.default.addObserver(
+        waiter.track(NotificationCenter.default.addObserver(
             forName: NSWindow.didUpdateNotification,
             object: nil,
             queue: .main
         ) { _ in
             Task { @MainActor in evaluate() }
         })
-        observers.append(NotificationCenter.default.addObserver(
+        waiter.track(NotificationCenter.default.addObserver(
             forName: .terminalSurfaceHostedViewDidMoveToWindow,
             object: nil,
             queue: .main
         ) { _ in
             Task { @MainActor in evaluate() }
         })
-        observers.append(NotificationCenter.default.addObserver(
+        waiter.track(NotificationCenter.default.addObserver(
             forName: .terminalSurfaceDidBecomeReady,
             object: nil,
             queue: .main
         ) { _ in
             Task { @MainActor in evaluate() }
         })
-        panelsCancellable = workspace.panelsPublisher
+        waiter.track(workspace.panelsPublisher
             .map { _ in () }
             .sink { _ in
                 Task { @MainActor in evaluate() }
-            }
+            })
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
             guard let self else { return }
             Task { @MainActor in
-                guard !resolved, let currentWorkspace = (tabManager ?? self.tabManager)?.selectedWorkspace else { return }
+                guard !waiter.isResolved, let currentWorkspace = (tabManager ?? self.tabManager)?.selectedWorkspace else { return }
                 finish(with: snapshot(for: currentWorkspace).0)
             }
         }
