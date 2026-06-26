@@ -527,18 +527,17 @@ extension Workspace {
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
                 wasAgentRunning: agentWasRunning,
-                // Persist the workspace's last submitted prompt whenever we are
-                // actually saving replayable scrollback — that is exactly the path
-                // restore replays and re-injects the OSC 133 prompt mark into
-                // (#6691). It must NOT be gated on `effectiveRestorableAgent`:
-                // scrollback is only persisted for non-restorable-agent terminals
-                // (`shouldReplaySessionScrollback` is false when there is a
-                // restorable agent), so the two conditions are mutually exclusive
-                // and would leave this always nil. `latestSubmittedMessage` is nil
-                // for workspaces without agent prompts, and gating on
-                // `resolvedScrollback` avoids writing input to disk for snapshots
-                // that intentionally omit terminal contents.
-                lastUserMessage: resolvedScrollback != nil ? latestSubmittedMessage : nil
+                // Persist the workspace's last submitted prompt ONLY into the
+                // snapshot of the terminal whose saved scrollback actually contains
+                // that prompt row, so restore can re-inject the OSC 133 mark Ghostty's
+                // export drops (#6691). `latestSubmittedMessage` is workspace-scoped,
+                // so gating on `scrollbackContainsPromptRow` keeps it out of unrelated
+                // panels' snapshots and never persists any input the saved scrollback
+                // does not already carry (also nil when scrollback is omitted).
+                lastUserMessage: SessionScrollbackReplayStore.scrollbackContainsPromptRow(
+                    resolvedScrollback,
+                    lastUserMessage: latestSubmittedMessage
+                ) ? latestSubmittedMessage : nil
             )
             browserSnapshot = nil
             markdownSnapshot = nil

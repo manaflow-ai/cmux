@@ -2094,30 +2094,49 @@ enum SessionScrollbackReplayStore {
     /// affordances (jump-to-prompt, click-to-move) stay broken. See
     /// https://github.com/manaflow-ai/cmux/issues/6691.
     static func reinjectingLastPromptMark(into scrollback: String, lastUserMessage: String?) -> String {
-        guard let needle = promptMatchNeedle(lastUserMessage) else { return scrollback }
-        // Compare with whitespace removed so the match is robust to BOTH soft
-        // wraps (split at a space) and hard wraps (split mid-word on a narrow
-        // grid), which a space-preserving compare would miss.
-        let needleChars = Array(needle.filter { !$0.isWhitespace })
-        guard needleChars.count >= 3 else { return scrollback }
-
         var lines = scrollback.components(separatedBy: "\n")
-        // Whitespace-stripped visible text per captured row.
-        let compactRows: [[Character]] = lines.map { Array(visiblePlainText(of: $0).filter { !$0.isWhitespace }) }
+        guard let targetIndex = promptRowIndex(in: lines, lastUserMessage: lastUserMessage) else { return scrollback }
 
-        // A user prompt row BEGINS with the message text, possibly after a short
-        // prompt sigil ("> ", "❯ ", "│ > ", "$ "). Two filters, in order:
-        //  1. Anchoring to the row start, allowing only known prompt sigils (not an
-        //     unconstrained substring scan and not arbitrary punctuation), excludes
-        //     agent output that echoes the user's words mid-sentence ("I'll refactor
-        //     the login flow") AND Markdown list/heading echoes ("- refactor the
-        //     login flow", "# Refactor the login flow"), since those don't lead with
-        //     a prompt sigil.
-        //  2. Among the anchored prompt rows, keep the BOTTOM-most so jump-to-prompt
-        //     lands on the user's MOST RECENT prompt (duplicate/repeated prompt text
-        //     resolves to the latest turn). Bottom-most is safe here precisely
-        //     because anchoring already removed the agent echoes.
-        // The match may continue into following rows for wrapped prompts.
+        // Don't double-mark a row that already carries a prompt-start marker
+        // (e.g. a shell whose live OSC 133 survived for some other reason).
+        guard !lines[targetIndex].contains("\u{001B}]133;A") else { return scrollback }
+
+        lines[targetIndex] = semanticPromptStartMark + lines[targetIndex]
+        return lines.joined(separator: "\n")
+    }
+
+    /// Whether the captured scrollback contains a prompt row for
+    /// `lastUserMessage`. Used at capture so the workspace-scoped last prompt is
+    /// persisted only in the snapshot of the terminal whose scrollback actually
+    /// carries it — never copied into an unrelated panel's snapshot, and never
+    /// adding any user input that the saved scrollback does not already contain.
+    static func scrollbackContainsPromptRow(_ scrollback: String?, lastUserMessage: String?) -> Bool {
+        guard let scrollback else { return false }
+        return promptRowIndex(in: scrollback.components(separatedBy: "\n"), lastUserMessage: lastUserMessage) != nil
+    }
+
+    /// Index of the row to mark: the BOTTOM-most row that *begins* with
+    /// `lastUserMessage` after an optional known prompt sigil, or nil.
+    ///
+    /// Two filters, in order:
+    ///  1. Anchoring to the row start, allowing only known prompt sigils (`>`,
+    ///     `❯`, `│`, `$`, …) — not an unconstrained substring scan and not
+    ///     arbitrary punctuation — excludes agent output that echoes the user's
+    ///     words mid-sentence ("I'll refactor the login flow") and Markdown
+    ///     list/heading echoes ("- refactor…", "# Refactor…"), which don't lead
+    ///     with a prompt sigil.
+    ///  2. Among the anchored rows, keep the BOTTOM-most so jump-to-prompt lands on
+    ///     the user's MOST RECENT prompt (repeated prompt text resolves to the
+    ///     latest turn); bottom-most is safe because anchoring already removed the
+    ///     agent echoes.
+    /// The match is whitespace-stripped (robust to soft and hard wraps) and may
+    /// continue into following rows for wrapped prompts.
+    private static func promptRowIndex(in lines: [String], lastUserMessage: String?) -> Int? {
+        guard let needle = promptMatchNeedle(lastUserMessage) else { return nil }
+        let needleChars = Array(needle.filter { !$0.isWhitespace })
+        guard needleChars.count >= 3 else { return nil }
+
+        let compactRows: [[Character]] = lines.map { Array(visiblePlainText(of: $0).filter { !$0.isWhitespace }) }
         var targetIndex: Int?
         for index in compactRows.indices where !compactRows[index].isEmpty {
             // Leading run of up to 4 known prompt-sigil characters.
@@ -2136,14 +2155,7 @@ enum SessionScrollbackReplayStore {
                 break
             }
         }
-        guard let targetIndex else { return scrollback }
-
-        // Don't double-mark a row that already carries a prompt-start marker
-        // (e.g. a shell whose live OSC 133 survived for some other reason).
-        guard !lines[targetIndex].contains("\u{001B}]133;A") else { return scrollback }
-
-        lines[targetIndex] = semanticPromptStartMark + lines[targetIndex]
-        return lines.joined(separator: "\n")
+        return targetIndex
     }
 
     /// Whether `needle` matches the compacted row text starting at

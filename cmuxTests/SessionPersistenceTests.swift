@@ -931,6 +931,27 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    // The capture gate: the workspace-scoped last prompt is persisted only into
+    // the snapshot of the terminal whose scrollback actually contains that prompt
+    // row — never an unrelated panel's snapshot, never when scrollback is omitted.
+    func testScrollbackContainsPromptRowGatesPersistence() {
+        let esc = "\u{001B}"
+        let message = "refactor the login flow"
+        let withPrompt = "\(esc)[2m> \(esc)[0m\(message)\n\(esc)[32m● working\(esc)[0m\n"
+        let unrelated = "building project…\n$ swift build\nCompiling…\n"
+
+        XCTAssertTrue(
+            SessionScrollbackReplayStore.scrollbackContainsPromptRow(withPrompt, lastUserMessage: message),
+            "scrollback containing the prompt row must gate persistence on"
+        )
+        XCTAssertFalse(
+            SessionScrollbackReplayStore.scrollbackContainsPromptRow(unrelated, lastUserMessage: message),
+            "an unrelated panel's scrollback must not persist another terminal's prompt"
+        )
+        XCTAssertFalse(SessionScrollbackReplayStore.scrollbackContainsPromptRow(nil, lastUserMessage: message))
+        XCTAssertFalse(SessionScrollbackReplayStore.scrollbackContainsPromptRow(withPrompt, lastUserMessage: nil))
+    }
+
     // A snapshot that omits scrollback must also omit lastUserMessage, so no copy
     // of user input is persisted for terminals whose contents are not saved.
     func testTerminalSnapshotWithoutScrollbackDecodesNilLastUserMessage() throws {
