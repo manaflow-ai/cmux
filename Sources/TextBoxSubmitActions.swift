@@ -104,7 +104,17 @@ extension TextBoxInputContainer {
     }
 
     static func allowsCommandTemplateSubmit(shellActivityState: PanelShellActivityState) -> Bool {
-        shellActivityState != .commandRunning
+        shellActivityState == .promptIdle
+    }
+
+    static func shouldAwaitCommandTemplateReadiness(
+        action: TextBoxSubmitAction,
+        shouldForceTextEntrySubmit: Bool,
+        allowsCommandTemplateSubmit: Bool
+    ) -> Bool {
+        !shouldForceTextEntrySubmit &&
+            !allowsCommandTemplateSubmit &&
+            action.kind == .commandTemplate
     }
 
     static func textEntryTerminalAgentContext(

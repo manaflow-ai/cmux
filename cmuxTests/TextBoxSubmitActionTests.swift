@@ -584,10 +584,34 @@ struct TextBoxSubmitActionTests {
     }
 
     @Test
-    func testCommandTemplateSubmitAllowedWhenShellStateIsUnknown() {
+    func testCommandTemplateSubmitRequiresPromptIdleShellState() {
         #expect(TextBoxInputContainer.allowsCommandTemplateSubmit(shellActivityState: .promptIdle))
-        #expect(TextBoxInputContainer.allowsCommandTemplateSubmit(shellActivityState: .unknown))
+        #expect(!TextBoxInputContainer.allowsCommandTemplateSubmit(shellActivityState: .unknown))
         #expect(!TextBoxInputContainer.allowsCommandTemplateSubmit(shellActivityState: .commandRunning))
+    }
+
+    @Test
+    func testUnknownShellStateBlocksProviderSubmitWithoutBlockingCycle() throws {
+        let codex = try #require(TextBoxSubmitAction.builtInActions.first { $0.id == "codex" })
+        let shouldForceTextEntry = TextBoxInputContainer.shouldForceTextEntrySubmit(
+            allowsCommandTemplateSubmit: false,
+            terminalAgentContext: ""
+        )
+
+        #expect(!shouldForceTextEntry)
+        #expect(TextBoxInputContainer.shouldAwaitCommandTemplateReadiness(
+            action: codex,
+            shouldForceTextEntrySubmit: shouldForceTextEntry,
+            allowsCommandTemplateSubmit: false
+        ))
+        XCTAssertEqual(
+            TextBoxInputContainer.nextCycledSubmitActionID(
+                defaultSubmitActionID: codex.id,
+                submitActions: TextBoxSubmitAction.builtInActions,
+                shouldForceTextEntrySubmit: shouldForceTextEntry
+            ),
+            "opencode"
+        )
     }
 
     @Test

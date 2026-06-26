@@ -2492,11 +2492,16 @@ struct TextBoxInputContainer: View {
         let clampedHeight = max(minHeight, min(maxHeight, textViewHeight))
         let foreground = Color(nsColor: terminalForegroundColor)
         let background = Color(nsColor: terminalBackgroundColor)
-        let canSend = TextBoxSubmitAvailability.shouldEnableSubmit(
+        let baseCanSend = TextBoxSubmitAvailability.shouldEnableSubmit(
             text: text,
             attachmentCount: attachments.count + pendingCommentCount,
             hasPendingAttachmentUpload: hasPendingAttachmentUpload,
             hasMarkedText: hasMarkedText
+        )
+        let canSend = baseCanSend && !Self.shouldAwaitCommandTemplateReadiness(
+            action: selectedSubmitAction,
+            shouldForceTextEntrySubmit: shouldForceTextEntrySubmit,
+            allowsCommandTemplateSubmit: allowsCommandTemplateSubmit
         )
 
         VStack(alignment: .leading, spacing: 6) {
@@ -2730,6 +2735,14 @@ struct TextBoxInputContainer: View {
         let poolWorkspaceId = surface.owningWorkspace()?.id
         let hasTypedContent = TextBoxSubmissionFormatter.hasSubmittableContent(submittedParts)
         guard hasTypedContent || pendingCommentCount > 0 else {
+            NSSound.beep()
+            return
+        }
+        if Self.shouldAwaitCommandTemplateReadiness(
+            action: selectedSubmitAction,
+            shouldForceTextEntrySubmit: shouldForceTextEntrySubmit,
+            allowsCommandTemplateSubmit: allowsCommandTemplateSubmit
+        ) {
             NSSound.beep()
             return
         }
