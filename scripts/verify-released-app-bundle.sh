@@ -110,7 +110,10 @@ verify_dmg() {
   trap "/usr/bin/hdiutil detach -force '$mountpoint' >/dev/null 2>&1 || true; rm -rf '$mountpoint' '$extractdir'" EXIT
 
   log "==> mounting $dmg"
-  /usr/bin/hdiutil attach -nobrowse -readonly -noverify -mountpoint "$mountpoint" "$dmg" >/dev/null
+  # Verify the DMG container's own checksum on attach (no -noverify): for a gate
+  # that exists to catch silent packaging regressions, a corrupted container
+  # must fail here rather than be mounted and extracted anyway.
+  /usr/bin/hdiutil attach -nobrowse -readonly -mountpoint "$mountpoint" "$dmg" >/dev/null
 
   local app
   app="$(/usr/bin/find "$mountpoint" -maxdepth 1 -name '*.app' -print -quit)"
@@ -129,7 +132,9 @@ verify_dmg() {
 # the same failure class as issue #6670. Runs on macOS without any secrets.
 self_test() {
   command -v /usr/bin/codesign >/dev/null || fail "self-test requires codesign (macOS)"
-  REQUIRE_NOTARIZED=0
+  # Dynamic scoping: run_checks (called below) sees this, but the global stays
+  # clean for any other call path.
+  local REQUIRE_NOTARIZED=0
 
   local workdir app
   workdir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-verify-selftest.XXXXXX")"
