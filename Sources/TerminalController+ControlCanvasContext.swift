@@ -41,7 +41,7 @@ extension TerminalController: ControlCanvasContext {
         var magnification: Double?
         var centerX: Double?
         var centerY: Double?
-        if ws.layoutMode == .canvas, let viewport = ws.canvasModel.viewport {
+        if ws.layoutMode.usesCanvasHost, let viewport = ws.canvasModel.viewport {
             magnification = Double(viewport.currentMagnification)
             let center = viewport.currentCenterInCanvas
             centerX = Double(center.x)
@@ -67,6 +67,8 @@ extension TerminalController: ControlCanvasContext {
         switch mode {
         case "toggle":
             ws.toggleCanvasLayout()
+        case "niri":
+            ws.setLayoutMode(.niri)
         case "canvas":
             ws.setLayoutMode(.canvas)
         default:
@@ -114,7 +116,7 @@ extension TerminalController: ControlCanvasContext {
         guard let ws = resolveCanvasWorkspace(routing: routing) else {
             return .workspaceNotFound
         }
-        guard ws.layoutMode == .canvas else { return .notCanvasMode }
+        guard ws.layoutMode.usesCanvasHost else { return .notCanvasMode }
         guard let target = surfaceID ?? ws.focusedPanelId else {
             return .noFocusedPane
         }
@@ -131,8 +133,9 @@ extension TerminalController: ControlCanvasContext {
         guard let ws = resolveCanvasWorkspace(routing: routing) else {
             return .workspaceNotFound
         }
-        guard ws.layoutMode == .canvas else { return .notCanvasMode }
-        ws.canvasModel.viewport?.toggleOverview()
+        guard CanvasActionExecutor(workspace: ws).perform(.toggleOverview) else {
+            return .notCanvasMode
+        }
         return .ok(mode: ws.layoutMode.rawValue)
     }
 
@@ -143,15 +146,17 @@ extension TerminalController: ControlCanvasContext {
         guard let ws = resolveCanvasWorkspace(routing: routing) else {
             return .workspaceNotFound
         }
-        guard ws.layoutMode == .canvas else { return .notCanvasMode }
         let executor = CanvasActionExecutor(workspace: ws)
-        switch direction {
+        let didZoom = switch direction {
         case .zoomIn:
             executor.perform(.zoomIn)
         case .zoomOut:
             executor.perform(.zoomOut)
         case .reset:
             executor.perform(.zoomReset)
+        }
+        guard didZoom else {
+            return .notCanvasMode
         }
         return .ok(mode: ws.layoutMode.rawValue)
     }
@@ -164,7 +169,7 @@ extension TerminalController: ControlCanvasContext {
         guard let ws = resolveCanvasWorkspace(routing: routing) else {
             return .workspaceNotFound
         }
-        guard ws.layoutMode == .canvas else { return .notCanvasMode }
+        guard ws.layoutMode.usesCanvasHost else { return .notCanvasMode }
         guard ws.canvasModel.frame(of: surfaceID) != nil else { return .paneNotFound(surfaceID) }
         guard ws.canvasModel.frame(of: targetSurfaceID) != nil else { return .paneNotFound(targetSurfaceID) }
         if ws.canvasModel.joinPanel(surfaceID, withPaneContaining: targetSurfaceID) {
@@ -181,7 +186,7 @@ extension TerminalController: ControlCanvasContext {
         guard let ws = resolveCanvasWorkspace(routing: routing) else {
             return .workspaceNotFound
         }
-        guard ws.layoutMode == .canvas else { return .notCanvasMode }
+        guard ws.layoutMode.usesCanvasHost else { return .notCanvasMode }
         guard ws.canvasModel.frame(of: surfaceID) != nil else { return .paneNotFound(surfaceID) }
         if ws.canvasModel.breakOutPanel(surfaceID) {
             ws.canvasModel.viewport?.modelDidChangeExternally(animated: true)
@@ -198,7 +203,7 @@ extension TerminalController: ControlCanvasContext {
         guard let ws = resolveCanvasWorkspace(routing: routing) else {
             return .workspaceNotFound
         }
-        guard ws.layoutMode == .canvas else { return .notCanvasMode }
+        guard ws.layoutMode.usesCanvasHost else { return .notCanvasMode }
         guard ws.canvasModel.frame(of: surfaceID) != nil else { return .paneNotFound(surfaceID) }
         // focusPanel selects the tab in canvas mode and moves keyboard focus.
         ws.focusPanel(surfaceID)
@@ -215,7 +220,7 @@ extension TerminalController: ControlCanvasContext {
         guard let ws = resolveCanvasWorkspace(routing: routing) else {
             return .workspaceNotFound
         }
-        guard ws.layoutMode == .canvas else { return .notCanvasMode }
+        guard ws.layoutMode.usesCanvasHost else { return .notCanvasMode }
         ws.canvasModel.viewport?.setViewport(
             center: CGPoint(x: centerX, y: centerY),
             magnification: magnification.map { CGFloat($0) }
@@ -230,7 +235,7 @@ extension TerminalController: ControlCanvasContext {
         guard let ws = resolveCanvasWorkspace(routing: routing) else {
             return .workspaceNotFound
         }
-        guard ws.layoutMode == .canvas else { return .notCanvasMode }
+        guard ws.layoutMode.usesCanvasHost else { return .notCanvasMode }
         let paneType: CanvasNewPaneType = (type == "browser") ? .browser : .terminal
         guard let surfaceID = ws.openNewCanvasPane(type: paneType, focus: true) else {
             return .tabManagerUnavailable

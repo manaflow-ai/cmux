@@ -25,6 +25,8 @@ public protocol CanvasViewportControlling: AnyObject {
     var currentMagnification: CGFloat { get }
     /// Current viewport center, in canvas coordinates.
     var currentCenterInCanvas: CGPoint { get }
+    /// Panel ids whose content is currently mounted in the viewport.
+    var renderedPanelIds: Set<UUID> { get }
     /// Re-reads the model after an external mutation (palette command,
     /// automation verb) and animates pane views to their new frames.
     func modelDidChangeExternally(animated: Bool)

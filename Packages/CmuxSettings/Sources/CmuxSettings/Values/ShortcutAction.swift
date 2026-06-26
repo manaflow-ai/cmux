@@ -357,7 +357,7 @@ extension ShortcutAction {
         case .splitBrowserDown: return "Split Browser Down"
         case .toggleRightSidebar: return "Toggle Right Sidebar"
         case .toggleCanvasLayout:
-            return String(localized: "shortcut.toggleCanvasLayout.label", defaultValue: "Toggle Canvas Layout")
+            return String(localized: "shortcut.toggleCanvasLayout.label", defaultValue: "Cycle Layout Mode")
         case .canvasRevealFocusedPane:
             return String(localized: "shortcut.canvasRevealFocusedPane.label", defaultValue: "Canvas: Reveal Focused Pane")
         case .canvasOverview:

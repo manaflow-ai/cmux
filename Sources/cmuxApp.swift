@@ -1021,7 +1021,7 @@ struct cmuxApp: App {
             equalizeSplitsCommandButton()
             Divider()
 
-            splitCommandButton(title: String(localized: "menu.view.toggleCanvasLayout", defaultValue: "Toggle Canvas Layout"), shortcut: menuShortcut(for: .toggleCanvasLayout)) {
+            splitCommandButton(title: String(localized: "menu.view.toggleCanvasLayout", defaultValue: "Cycle Layout Mode"), shortcut: menuShortcut(for: .toggleCanvasLayout)) {
                 guard let workspace = activeTabManager.selectedWorkspace else { return }
                 CanvasActionExecutor(workspace: workspace).perform(.toggleLayout)
             }

@@ -18,8 +18,10 @@ extension CanvasRootView: CanvasViewportControlling {
                     }
                 }
             }, completionHandler: { [weak self] in
-                guard let self else { return }
-                self.callbacks.onViewportGeometryChanged(self.window)
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.callbacks.onViewportGeometryChanged(self.window)
+                }
             })
         } else {
             applyAllPaneFrames()
@@ -68,6 +70,11 @@ extension CanvasRootView: CanvasViewportControlling {
         return CGPoint(x: canvas.midX, y: canvas.midY)
     }
 
+    /// Panel ids whose pane content is currently mounted for rendering.
+    public var renderedPanelIds: Set<UUID> {
+        Set(model.layout.panes.map(\.selectedPanelId.rawValue))
+    }
+
     public func setViewport(center: CGPoint, magnification: CGFloat?) {
         // An explicit viewport set invalidates the overview round-trip restore.
         overviewRestore = nil
@@ -100,6 +107,21 @@ extension CanvasRootView: CanvasViewportControlling {
         scrollView.reflectScrolledClipView(scrollView.contentView)
         callbacks.onViewportGeometryChanged(window)
         callbacks.onViewportSettled(window)
+    }
+
+    func setClipOrigin(_ origin: CGPoint, animated: Bool) {
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.28
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                context.allowsImplicitAnimation = true
+                scrollView.contentView.animator().setBoundsOrigin(origin)
+                scrollView.reflectScrolledClipView(scrollView.contentView)
+            }
+        } else {
+            scrollView.contentView.setBoundsOrigin(origin)
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
     }
 
     /// Zooms by `factor` while keeping the document point under

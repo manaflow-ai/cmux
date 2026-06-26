@@ -8734,7 +8734,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return }
         // In canvas mode, focusing a panel also brings it forward as its
         // pane's selected tab so focus and visibility never diverge.
-        if layoutMode == .canvas {
+        if layoutMode.usesCanvasHost {
             canvasModel.selectPanel(panelId)
         }
         let currentlyFocusedPanelId = focusedPanelId
@@ -8882,7 +8882,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func moveFocus(direction: NavigationDirection) {
-        if layoutMode == .canvas {
+        if layoutMode.usesCanvasHost {
             moveCanvasFocus(direction: direction)
             return
         }
@@ -8908,7 +8908,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Select the next surface in the currently focused pane
     func selectNextSurface() {
-        if layoutMode == .canvas, selectAdjacentCanvasTab(offset: 1) { return }
+        if layoutMode.usesCanvasHost, selectAdjacentCanvasTab(offset: 1) { return }
         bonsplitController.selectNextTab()
 
         if let paneId = bonsplitController.focusedPaneId,
@@ -8919,7 +8919,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Select the previous surface in the currently focused pane
     func selectPreviousSurface() {
-        if layoutMode == .canvas, selectAdjacentCanvasTab(offset: -1) { return }
+        if layoutMode.usesCanvasHost, selectAdjacentCanvasTab(offset: -1) { return }
         bonsplitController.selectPreviousTab()
 
         if let paneId = bonsplitController.focusedPaneId,
@@ -8959,7 +8959,7 @@ final class Workspace: Identifiable, ObservableObject {
         // In canvas mode, Cmd+T means "new tab in the focused canvas pane":
         // remember the anchor panel so the new one joins its pane instead of
         // floating as a separate canvas pane.
-        let canvasAnchorPanelId = layoutMode == .canvas ? focusedPanelId : nil
+        let canvasAnchorPanelId = layoutMode.usesCanvasHost ? focusedPanelId : nil
         let panel = newTerminalSurface(
             inPane: focusedPaneId,
             focus: focus,
@@ -9770,8 +9770,8 @@ final class Workspace: Identifiable, ObservableObject {
         // the terminal window portal float them at stale frames (chromeless
         // slivers). Offscreen clipping of the selected tabs is the canvas
         // viewport's job.
-        if layoutMode == .canvas {
-            return Set(canvasModel.layout.panes.map(\.selectedPanelId.rawValue))
+        if layoutMode.usesCanvasHost {
+            return canvasModel.viewport?.renderedPanelIds ?? []
         }
         let renderedPaneIds = bonsplitController.zoomedPaneId.map { [$0] } ?? bonsplitController.allPaneIds
         var visiblePanelIds: Set<UUID> = []
@@ -9800,6 +9800,12 @@ final class Workspace: Identifiable, ObservableObject {
         guard agentHibernationAutoResumePresentationVisible else { return [] }
         return renderedVisiblePanelIdsForCurrentLayout()
     }
+
+#if DEBUG
+    func renderedVisiblePanelIdsForTesting() -> Set<UUID> {
+        renderedVisiblePanelIdsForCurrentLayout()
+    }
+#endif
 
     @discardableResult
     func reconcileTerminalPortalVisibilityForCurrentRenderedLayout() -> Bool {

@@ -1489,6 +1489,7 @@ struct ContentView: View {
         static let workspaceHasPullRequests = "workspace.hasPullRequests"
         static let workspaceHasSplits = "workspace.hasSplits"
         static let workspaceCanvasLayout = "workspace.canvasLayout"
+        static let workspaceFreeformCanvasLayout = "workspace.freeformCanvasLayout"
         static let workspaceHasPeers = "workspace.hasPeers"
         static let workspaceHasAbove = "workspace.hasAbove"
         static let workspaceHasBelow = "workspace.hasBelow"
@@ -6666,6 +6667,10 @@ struct ContentView: View {
             )
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceCanvasLayout,
+                workspace.layoutMode.usesCanvasHost
+            )
+            snapshot.setBool(
+                CommandPaletteContextKeys.workspaceFreeformCanvasLayout,
                 workspace.layoutMode == .canvas
             )
             let workspaceIndex = tabManager.tabs.firstIndex { $0.id == workspace.id }
@@ -19201,4 +19206,3 @@ enum SidebarPresetOption: String, CaseIterable, Identifiable {
         }
     }
 }
-

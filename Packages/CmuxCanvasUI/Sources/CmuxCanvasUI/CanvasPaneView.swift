@@ -49,6 +49,17 @@ final class CanvasPaneView: NSView {
     private var tabScrollOffset: CGFloat = 0
     private var tabContentWidth: CGFloat = 0
 
+    /// Whether the pane exposes freeform resize hit regions and cursors.
+    var allowsResize = true {
+        didSet {
+            guard allowsResize != oldValue else { return }
+            discardCursorRects()
+        }
+    }
+
+    /// Whether the title bar can drag panes/tabs around the canvas.
+    var allowsTitleBarDrag = true
+
     /// Pane fill behind the content, resolved by the host through
     /// ``CanvasTheme``.
     var paneBackground: NSColor = .windowBackgroundColor {
@@ -124,8 +135,7 @@ final class CanvasPaneView: NSView {
             },
             onContentWidthChanged: { [weak self] width in
                 guard let self, self.tabContentWidth != width else { return }
-                self.tabContentWidth = width
-                self.clampTabScrollOffset()
+                self.setMeasuredTabContentWidth(width)
             }
         )
         applyChromeColors()
@@ -136,6 +146,12 @@ final class CanvasPaneView: NSView {
         max(0, tabContentWidth - bounds.width)
     }
 
+    func setMeasuredTabContentWidth(_ width: CGFloat) {
+        guard tabContentWidth != width else { return }
+        tabContentWidth = width
+        clampTabScrollOffset()
+    }
+
     private func clampTabScrollOffset() {
         let clamped = min(max(0, tabScrollOffset), maxTabScrollOffset)
         if clamped != tabScrollOffset {
@@ -144,11 +160,17 @@ final class CanvasPaneView: NSView {
         }
     }
 
+    func canHandleTitleBarScroll(at point: NSPoint, in coordinateView: NSView?) -> Bool {
+        let local = convert(point, from: coordinateView)
+        return bounds.contains(local)
+            && local.y <= CanvasPaneTitleBarView.height
+            && maxTabScrollOffset > 0
+    }
+
     override func scrollWheel(with event: NSEvent) {
         // Only handle scrolls over the title bar with overflowing tabs;
         // everything else (content scroll, no overflow) passes through.
-        let local = convert(event.locationInWindow, from: nil)
-        guard local.y <= CanvasPaneTitleBarView.height, maxTabScrollOffset > 0 else {
+        guard canHandleTitleBarScroll(at: event.locationInWindow, in: nil) else {
             super.scrollWheel(with: event)
             return
         }
@@ -181,22 +203,24 @@ final class CanvasPaneView: NSView {
 
     private func hitRegion(at point: CGPoint) -> CanvasPaneHitRegion? {
         var edges: CanvasResizeEdges = []
-        if point.x <= Self.resizeBandWidth { edges.insert(.left) }
-        if point.x >= bounds.width - Self.resizeBandWidth { edges.insert(.right) }
-        if point.y <= Self.resizeBandWidth { edges.insert(.top) }
-        if point.y >= bounds.height - Self.resizeBandWidth { edges.insert(.bottom) }
+        if allowsResize {
+            if point.x <= Self.resizeBandWidth { edges.insert(.left) }
+            if point.x >= bounds.width - Self.resizeBandWidth { edges.insert(.right) }
+            if point.y <= Self.resizeBandWidth { edges.insert(.top) }
+            if point.y >= bounds.height - Self.resizeBandWidth { edges.insert(.bottom) }
 
-        // Widen corners so diagonal grabs are easy.
-        if edges == .left || edges == .right {
-            if point.y <= Self.cornerBandWidth { edges.insert(.top) }
-            if point.y >= bounds.height - Self.cornerBandWidth { edges.insert(.bottom) }
-        } else if edges == .top || edges == .bottom {
-            if point.x <= Self.cornerBandWidth { edges.insert(.left) }
-            if point.x >= bounds.width - Self.cornerBandWidth { edges.insert(.right) }
-        }
+            // Widen corners so diagonal grabs are easy.
+            if edges == .left || edges == .right {
+                if point.y <= Self.cornerBandWidth { edges.insert(.top) }
+                if point.y >= bounds.height - Self.cornerBandWidth { edges.insert(.bottom) }
+            } else if edges == .top || edges == .bottom {
+                if point.x <= Self.cornerBandWidth { edges.insert(.left) }
+                if point.x >= bounds.width - Self.cornerBandWidth { edges.insert(.right) }
+            }
 
-        if !edges.isEmpty {
-            return .resize(edges)
+            if !edges.isEmpty {
+                return .resize(edges)
+            }
         }
         if point.y <= CanvasPaneTitleBarView.height {
             return .titleBar
@@ -255,6 +279,11 @@ final class CanvasPaneView: NSView {
             let dx = abs(documentPoint.x - dragStartDocumentPoint.x)
             let dy = abs(documentPoint.y - dragStartDocumentPoint.y)
             guard dx >= Self.dragActivationDistance || dy >= Self.dragActivationDistance else { return }
+            guard allowsTitleBarDrag || region != .titleBar else {
+                activeDragRegion = nil
+                pendingTabClick = nil
+                return
+            }
             dragStartedMoving = true
             // A drag that began on a tab (not its close glyph) of a multi-tab
             // pane tears that tab out into its own pane and keeps dragging it,
@@ -306,6 +335,7 @@ final class CanvasPaneView: NSView {
 
     override func resetCursorRects() {
         super.resetCursorRects()
+        guard allowsResize else { return }
         let band = Self.resizeBandWidth
         let width = bounds.width
         let height = bounds.height

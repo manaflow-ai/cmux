@@ -51,8 +51,8 @@ extension CanvasRootView {
 
             // A plain scroll that lands on a pane is consumed by the pane's
             // content (the canvas doesn't pan), so this is the teachable
-            // moment for Command+scroll. Empty-canvas scrolls already pan and
-            // need no hint.
+            // moment for the command-scroll hint. Empty-canvas scrolls
+            // already pan and need no hint.
             if self.paneView(at: location) != nil {
                 self.noteInPaneScrollForHint()
             }
@@ -106,13 +106,13 @@ extension CanvasRootView {
         commandScrollMonitor = nil
     }
 
-    // MARK: Command+scroll discovery hint
+    // MARK: Scroll discovery hint
 
     /// Debounced trigger: after ~1.2s of scrolling inside a pane, show a
-    /// one-time hint that Command+scroll pans the canvas. Cancellable Task
+    /// one-time hint for the current canvas-hosted mode. Cancellable Task
     /// (no banned asyncAfter); re-entry restarts the debounce.
     func noteInPaneScrollForHint() {
-        guard !Self.didShowCommandScrollHintThisSession else { return }
+        guard !didShowCurrentScrollHint else { return }
         commandScrollHintTask?.cancel()
         commandScrollHintTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 1_200_000_000)
@@ -122,10 +122,13 @@ extension CanvasRootView {
     }
 
     func presentCommandScrollHint() {
-        guard !Self.didShowCommandScrollHintThisSession, commandScrollHintHost == nil else { return }
-        Self.didShowCommandScrollHintThisSession = true
+        guard !didShowCurrentScrollHint, commandScrollHintHost == nil else { return }
+        markCurrentScrollHintShown()
 
-        let host = NSHostingView(rootView: CanvasCommandScrollHint(text: commandScrollHintText))
+        let host = NSHostingView(rootView: CanvasCommandScrollHint(
+            text: currentScrollHintText,
+            style: currentScrollHintStyle
+        ))
         host.translatesAutoresizingMaskIntoConstraints = false
         host.wantsLayer = true
         addSubview(host, positioned: .above, relativeTo: nil)
@@ -149,8 +152,26 @@ extension CanvasRootView {
             context.duration = 0.25
             host.animator().alphaValue = 0
         }, completionHandler: { [weak host] in
-            host?.removeFromSuperview()
+            Task { @MainActor in
+                host?.removeFromSuperview()
+            }
         })
         commandScrollHintHost = nil
+    }
+
+    private var currentScrollHintStyle: CanvasScrollHintStyle {
+        .commandPan
+    }
+
+    private var currentScrollHintText: String {
+        commandScrollHintText
+    }
+
+    private var didShowCurrentScrollHint: Bool {
+        Self.didShowCommandScrollHintThisSession
+    }
+
+    private func markCurrentScrollHintShown() {
+        Self.didShowCommandScrollHintThisSession = true
     }
 }

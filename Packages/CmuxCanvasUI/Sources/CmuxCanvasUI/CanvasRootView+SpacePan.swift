@@ -10,7 +10,7 @@ extension CanvasRootView {
     }
 
     func handleSpacePanEvent(_ event: NSEvent) -> NSEvent? {
-        guard canvasSpacePanShouldHandleEvents(isWorkspaceVisible: isWorkspaceVisible) else {
+        guard spacePanBehavior.shouldHandleEvents(isWorkspaceVisible: isWorkspaceVisible) else {
             cancelSpacePan()
             return event
         }
@@ -19,7 +19,7 @@ extension CanvasRootView {
             guard isSpacePanKeyEvent(event) else { return event }
             isSpacePanKeyDown = true
             if event.isARepeat {
-                return canvasSpacePanShouldConsumeSpaceKeyRepeat(
+                return spacePanBehavior.shouldConsumeSpaceKeyRepeat(
                     didConsumeSpaceKey: didConsumeSpacePanKeyDown,
                     isPanning: spacePanSession != nil
                 ) ? nil : event
@@ -40,7 +40,7 @@ extension CanvasRootView {
         case .leftMouseDown:
             refreshSpacePanKeyState()
             let pointerInsideCanvas = bounds.contains(convert(event.locationInWindow, from: nil))
-            guard canvasSpacePanCanBegin(
+            guard spacePanBehavior.canBeginPan(
                 didConsumeSpaceKey: didConsumeSpacePanKeyDown,
                 isPhysicalSpaceKeyPressed: Self.isPhysicalSpaceKeyPressed,
                 isPointerInsideCanvas: pointerInsideCanvas
@@ -90,7 +90,7 @@ extension CanvasRootView {
         // not owned by the canvas background. If the key was not swallowed, the
         // later mouse-down must not start a pan because a literal Space may
         // already have been delivered to that responder.
-        return canvasSpacePanShouldConsumeSpaceKey(
+        return spacePanBehavior.shouldConsumeSpaceKey(
             isPointerInsideCanvas: true,
             canInterceptKeyboardTarget: canInterceptSpacePanKeyboardTarget(in: window),
             isPanning: spacePanSession != nil
@@ -102,7 +102,7 @@ extension CanvasRootView {
         if responder === window {
             return true
         }
-        if canvasSpacePanIsTextInputOrControlResponder(responder) {
+        if isTextInputOrControlResponder(responder) {
             return false
         }
         guard let view = responder as? NSView else { return false }
@@ -135,7 +135,7 @@ extension CanvasRootView {
 
     private func updateSpacePan(with event: NSEvent) {
         guard let session = spacePanSession else { return }
-        let origin = canvasSpacePanClipOrigin(
+        let origin = spacePanBehavior.clipOrigin(
             startClipOrigin: session.startClipOrigin,
             startWindowPoint: session.startWindowPoint,
             currentWindowPoint: event.locationInWindow,
@@ -166,53 +166,11 @@ extension CanvasRootView {
         NSCursor.pop()
         didPushSpacePanCursor = false
     }
-}
 
-func canvasSpacePanClipOrigin(
-    startClipOrigin: CGPoint,
-    startWindowPoint: CGPoint,
-    currentWindowPoint: CGPoint,
-    magnification: CGFloat
-) -> CGPoint {
-    let scale = max(magnification, 0.0001)
-    let dx = (currentWindowPoint.x - startWindowPoint.x) / scale
-    let dy = (currentWindowPoint.y - startWindowPoint.y) / scale
-    return CGPoint(
-        x: startClipOrigin.x - dx,
-        y: startClipOrigin.y + dy
-    )
-}
-
-func canvasSpacePanShouldConsumeSpaceKey(
-    isPointerInsideCanvas: Bool,
-    canInterceptKeyboardTarget: Bool,
-    isPanning: Bool
-) -> Bool {
-    isPanning || (isPointerInsideCanvas && canInterceptKeyboardTarget)
-}
-
-func canvasSpacePanShouldConsumeSpaceKeyRepeat(
-    didConsumeSpaceKey: Bool,
-    isPanning: Bool
-) -> Bool {
-    didConsumeSpaceKey || isPanning
-}
-
-func canvasSpacePanCanBegin(
-    didConsumeSpaceKey: Bool,
-    isPhysicalSpaceKeyPressed: Bool,
-    isPointerInsideCanvas: Bool
-) -> Bool {
-    didConsumeSpaceKey && isPhysicalSpaceKeyPressed && isPointerInsideCanvas
-}
-
-func canvasSpacePanShouldHandleEvents(isWorkspaceVisible: Bool) -> Bool {
-    isWorkspaceVisible
-}
-
-private func canvasSpacePanIsTextInputOrControlResponder(_ responder: NSResponder) -> Bool {
-    if responder is NSText || responder is any NSTextInputClient {
-        return true
+    private func isTextInputOrControlResponder(_ responder: NSResponder) -> Bool {
+        if responder is NSText || responder is any NSTextInputClient {
+            return true
+        }
+        return responder is NSControl
     }
-    return responder is NSControl
 }

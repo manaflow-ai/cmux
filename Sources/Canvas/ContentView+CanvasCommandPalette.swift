@@ -21,6 +21,21 @@ extension ContentView {
         ("palette.canvas.distributeHorizontally", .canvasDistributeHorizontally, ["canvas", "distribute", "horizontal", "gap", "pack"]),
         ("palette.canvas.distributeVertically", .canvasDistributeVertically, ["canvas", "distribute", "vertical", "gap", "pack"]),
     ]
+    private static let freeformOnlyCanvasPaletteActions: Set<KeyboardShortcutSettings.Action> = [
+        .canvasOverview,
+        .canvasZoomIn,
+        .canvasZoomOut,
+        .canvasZoomReset,
+        .canvasTidy,
+        .canvasAlignLeft,
+        .canvasAlignRight,
+        .canvasAlignTop,
+        .canvasAlignBottom,
+        .canvasEqualizeWidths,
+        .canvasEqualizeHeights,
+        .canvasDistributeHorizontally,
+        .canvasDistributeVertically,
+    ]
 
     static func commandPaletteCanvasCommandContributions() -> [CommandPaletteCommandContribution] {
         let subtitle = String(localized: "command.canvas.subtitle", defaultValue: "Canvas")
@@ -34,8 +49,13 @@ extension ContentView {
                     guard snapshot.bool(CommandPaletteContextKeys.hasWorkspace) else { return false }
                     // The mode toggle is always offered; everything else is
                     // canvas-only.
-                    return command.action == .toggleCanvasLayout
-                        || snapshot.bool(CommandPaletteContextKeys.workspaceCanvasLayout)
+                    if command.action == .toggleCanvasLayout {
+                        return true
+                    }
+                    if freeformOnlyCanvasPaletteActions.contains(command.action) {
+                        return snapshot.bool(CommandPaletteContextKeys.workspaceFreeformCanvasLayout)
+                    }
+                    return snapshot.bool(CommandPaletteContextKeys.workspaceCanvasLayout)
                 }
             )
         }

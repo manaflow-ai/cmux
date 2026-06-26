@@ -8,7 +8,7 @@ import CmuxCanvasUI
 /// `canvas.*` debug-socket verbs all construct a `CanvasAction` and run it
 /// through ``CanvasActionExecutor`` — no surface carries its own logic.
 enum CanvasAction: Equatable {
-    /// Toggle the workspace between split and canvas layout.
+    /// Cycle the workspace through split, canvas, and horizontal pages layout.
     case toggleLayout
     /// Scroll the focused pane fully into view.
     case revealFocusedPane
@@ -85,7 +85,7 @@ struct CanvasActionExecutor {
             workspace.toggleCanvasLayout()
             return true
         case .revealFocusedPane:
-            guard workspace.layoutMode == .canvas,
+            guard workspace.layoutMode.usesCanvasHost,
                   let panelId = workspace.focusedPanelId else { return false }
             workspace.canvasModel.viewport?.revealPane(panelId, animated: true)
             return true

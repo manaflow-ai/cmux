@@ -183,4 +183,5 @@ struct CanvasModelTests {
         #expect(changed)
         #expect(model.frame(of: b)?.origin.y == 0)
     }
+
 }

@@ -191,6 +191,14 @@ struct ControlCommandCoordinatorCanvasTests {
         #expect(result == .ok(.object(["mode": .string("canvas")])))
     }
 
+    @Test func setModeAcceptsNiriMode() {
+        let (coordinator, context) = makeCoordinator()
+        context.actionResolution = .ok(mode: "niri")
+        let result = coordinator.handle(request("canvas.set_mode", ["mode": .string("niri")]))
+        #expect(context.lastMode == "niri")
+        #expect(result == .ok(.object(["mode": .string("niri")])))
+    }
+
     @Test func setFrameRequiresSurfaceAndPositiveSize() {
         let (coordinator, context) = makeCoordinator()
         let surfaceID = UUID()

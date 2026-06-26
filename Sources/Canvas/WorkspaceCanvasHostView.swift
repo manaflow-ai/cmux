@@ -19,12 +19,23 @@ struct WorkspaceCanvasHostView: View {
     let appearance: PanelAppearance
 
     var body: some View {
-        CanvasRootRepresentable(
-            workspace: workspace,
-            descriptors: descriptors,
-            focusedPanelId: workspace.focusedPanelId,
-            isWorkspaceVisible: isWorkspaceVisible
-        )
+        Group {
+            if workspace.layoutMode == .niri {
+                CanvasPagesRootRepresentable(
+                    workspace: workspace,
+                    descriptors: descriptors,
+                    focusedPanelId: workspace.focusedPanelId,
+                    isWorkspaceVisible: isWorkspaceVisible
+                )
+            } else {
+                CanvasRootRepresentable(
+                    workspace: workspace,
+                    descriptors: descriptors,
+                    focusedPanelId: workspace.focusedPanelId,
+                    isWorkspaceVisible: isWorkspaceVisible
+                )
+            }
+        }
     }
 
     private var descriptors: [CanvasPaneDescriptor] {

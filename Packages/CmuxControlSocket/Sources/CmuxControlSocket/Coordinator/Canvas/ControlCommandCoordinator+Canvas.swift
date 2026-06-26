@@ -82,14 +82,14 @@ extension ControlCommandCoordinator {
 
     // MARK: - set_mode
 
-    /// `canvas.set_mode` — switch the workspace between `canvas`, `splits`,
-    /// or `toggle`.
+    /// `canvas.set_mode` — switch the workspace between `canvas`, `niri`,
+    /// `splits`, or `toggle`.
     func canvasSetMode(_ params: [String: JSONValue]) -> ControlCallResult {
         guard let mode = string(params, "mode"),
-              ["canvas", "splits", "toggle"].contains(mode) else {
+              ["canvas", "niri", "splits", "toggle"].contains(mode) else {
             return .err(
                 code: "invalid_params",
-                message: "mode must be canvas, splits, or toggle",
+                message: "mode must be canvas, niri, splits, or toggle",
                 data: nil
             )
         }
