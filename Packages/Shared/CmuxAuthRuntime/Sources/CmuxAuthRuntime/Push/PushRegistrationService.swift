@@ -176,7 +176,13 @@ public actor PushRegistrationService: PushRegistering {
 
     private func perform(_ request: URLRequest, label: String) async {
         do {
-            let (_, response) = try await session.data(for: request)
+            // Route through the redirect-preserving delegate so a canonicalizing
+            // 301/302 keeps this POST/DELETE a POST/DELETE instead of silently
+            // becoming a body-less GET that never registers the token (#6270).
+            let (_, response) = try await session.data(
+                for: request,
+                delegate: RedirectMethodPreservingDelegate.shared
+            )
             if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
                 pushLog.error("\(label, privacy: .public) failed status=\(http.statusCode, privacy: .public)")
             }
