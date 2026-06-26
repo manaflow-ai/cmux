@@ -1,11 +1,13 @@
 public import AppKit
 
 /// Caches `AXWindows` responses so repeated AX polls can reuse the same
-/// snapshot while the app window graph is unchanged. Only `.windows` is
-/// cached; `.children` and `.visibleChildren` fall through to AppKit so the
-/// menu bar stays present in the accessibility tree for VoiceOver and other
-/// AX clients. `.mainWindow` / `.focusedWindow` also fall through, so AppKit
-/// remains authoritative on focus transitions.
+/// snapshot while the app window graph is unchanged. Help-tag tooltip windows
+/// are excluded from the snapshot because AX clients expect every element in
+/// `AXWindows` to behave like a window. Only `.windows` is cached; `.children`
+/// and `.visibleChildren` fall through to AppKit so the menu bar stays present
+/// in the accessibility tree for VoiceOver and other AX clients. `.mainWindow`
+/// / `.focusedWindow` also fall through, so AppKit remains authoritative on
+/// focus transitions.
 ///
 /// Construct one instance at the composition root and inject it behind
 /// ``AccessibilityWindowCaching``; the app-target `NSApplication` swizzle
@@ -57,9 +59,11 @@ public final class AccessibilityWindowCache: AccessibilityWindowCaching, @unchec
     public struct Snapshot {
         let windows: [NSWindow]
 
-        /// Builds a snapshot from a window list.
+        /// Builds a snapshot from a window list. `@MainActor` because it reads
+        /// main-actor-isolated accessibility roles from `NSWindow`.
+        @MainActor
         public init(windows: [NSWindow]) {
-            self.windows = windows
+            self.windows = windows.filter(AccessibilityWindowCache.isPublishableAXWindow)
         }
     }
 
@@ -108,6 +112,7 @@ public final class AccessibilityWindowCache: AccessibilityWindowCaching, @unchec
     /// Returns the cached value for `attribute`, building a fresh snapshot via
     /// `builder` only when `stateToken` differs from the cached one. Returns
     /// nil for attributes this cache does not handle.
+    @MainActor
     public func value(
         for attribute: NSAccessibility.Attribute,
         stateToken: StateToken,
@@ -134,5 +139,10 @@ public final class AccessibilityWindowCache: AccessibilityWindowCaching, @unchec
 
     private static func supportsCaching(_ attribute: NSAccessibility.Attribute) -> Bool {
         attribute.rawValue == NSAccessibility.Attribute.windows.rawValue
+    }
+
+    @MainActor
+    private static func isPublishableAXWindow(_ window: NSWindow) -> Bool {
+        window.accessibilityRole() != .helpTag
     }
 }
