@@ -88,9 +88,10 @@ struct AppshotCapture: Equatable {
     ///
     /// - control characters (e.g. ESC) are dropped so a title can't inject a
     ///   terminal escape sequence when typed into a surface;
-    /// - shell command/expansion/redirect metacharacters (`` ` ``, `$`, `;`,
-    ///   `|`, `&`, `<`, `>`, `(`, `)`, `{`, `}`, `\`) are dropped so a title like
-    ///   `$(rm -rf ~)` can't become a command if the line is run in a shell;
+    /// - shell command/expansion/redirect/history metacharacters (`` ` ``, `$`,
+    ///   `;`, `|`, `&`, `<`, `>`, `(`, `)`, `{`, `}`, `\`, `!`) are dropped so a
+    ///   title like `$(rm -rf ~)` or `!!` can't become a command if the line is
+    ///   run in a shell;
     /// - whitespace/newlines are treated as separators, collapsed, and length is
     ///   clamped — preserving the single-line invariant of ``promptText()``.
     static func singleLine(_ raw: String, max: Int) -> String {
@@ -108,6 +109,7 @@ struct AppshotCapture: Equatable {
     }
 
     /// Shell metacharacters that enable command execution, substitution,
-    /// chaining, grouping, or redirection. Stripped from captured labels.
-    private static let shellMetacharacters = CharacterSet(charactersIn: "`$;|&<>(){}\\")
+    /// chaining, grouping, redirection, or history expansion (`!` in interactive
+    /// zsh/bash). Stripped from captured labels.
+    private static let shellMetacharacters = CharacterSet(charactersIn: "`$;|&<>(){}\\!")
 }

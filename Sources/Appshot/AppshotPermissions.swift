@@ -56,10 +56,10 @@ struct AppshotPermissions: Equatable {
         switch alert.runModal() {
         case .alertFirstButtonReturn:
             requestScreenRecording()
-            openSettingsPane(SettingsPane.screenRecording)
+            openSettingsPane("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
         case .alertSecondButtonReturn:
             requestAccessibility()
-            openSettingsPane(SettingsPane.accessibility)
+            openSettingsPane("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
         default:
             break
         }
@@ -77,11 +77,6 @@ struct AppshotPermissions: Equatable {
         // global `var`; use its documented, stable string value instead.
         let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
-    }
-
-    enum SettingsPane {
-        static let screenRecording = "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
-        static let accessibility = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
     }
 
     @MainActor

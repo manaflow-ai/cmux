@@ -17,8 +17,8 @@ enum AppshotCapturer {
     /// Per-message AX IPC timeout. Each `AXUIElementCopyAttributeValue` is a
     /// synchronous round-trip into the frontmost app; without this a hung app
     /// could block a single call indefinitely (before the walk deadline is even
-    /// re-checked) and wedge every later appshot. Set on the app element, which
-    /// applies to all of that app's elements.
+    /// re-checked) and wedge every later appshot. Set process-wide via the
+    /// system-wide AX element so every element's reads are bounded.
     private static let maxAccessibilityCallTimeout: Float = 1.0
     /// How many artifact files (PNGs + text dumps) to retain on disk. Appshots
     /// are sensitive window captures triggered by a repeated global hotkey, so
@@ -32,37 +32,44 @@ enum AppshotCapturer {
         let screenRecording = CGPreflightScreenCaptureAccess()
         let accessibility = AXIsProcessTrusted()
 
-        var imagePath: String?
-        if screenRecording, let image = await captureWindowImage(windowID: window.windowID, scale: scale) {
-            imagePath = writePNG(image)
-        }
+        // ScreenCaptureKit capture is genuinely async (suspends, doesn't block);
+        // do it first, then PNG-encode the result.
+        let image: CGImage? = screenRecording
+            ? await captureWindowImage(windowID: window.windowID, scale: scale)
+            : nil
+        let imagePath = image.flatMap { writePNG($0) }
 
-        // Prefer the Accessibility window title (available without Screen
-        // Recording) and fall back to the CGWindowList title.
-        var title = window.title
-        var textPath: String?
-        if accessibility {
-            let extracted = extractAccessibilityText(pid: frontPID, axTitle: &title)
-            if !extracted.isEmpty {
-                textPath = writeText(extracted)
+        // The Accessibility walk is synchronous IPC — up to thousands of
+        // round-trips — so run it and the file writes off the bounded
+        // cooperative thread pool rather than blocking a pool thread for the
+        // whole walk. (The window/app title prefers the AX title, falling back
+        // to the CGWindowList title captured above.)
+        return await withCheckedContinuation { (continuation: CheckedContinuation<AppshotCapture?, Never>) in
+            DispatchQueue.global(qos: .userInitiated).async {
+                var title = window.title
+                var textPath: String?
+                if accessibility {
+                    let extracted = extractAccessibilityText(pid: frontPID, axTitle: &title)
+                    if !extracted.isEmpty {
+                        textPath = writeText(extracted)
+                    }
+                }
+                pruneOldArtifacts()
+                continuation.resume(returning: AppshotCapture(
+                    appName: appName,
+                    windowTitle: title,
+                    imagePath: imagePath,
+                    textPath: textPath,
+                    screenRecordingDenied: !screenRecording,
+                    accessibilityDenied: !accessibility
+                ))
             }
         }
-
-        pruneOldArtifacts()
-
-        return AppshotCapture(
-            appName: appName,
-            windowTitle: title,
-            imagePath: imagePath,
-            textPath: textPath,
-            screenRecordingDenied: !screenRecording,
-            accessibilityDenied: !accessibility
-        )
     }
 
     // MARK: Frontmost window
 
-    private struct FrontmostWindow {
+    private struct FrontmostWindow: Sendable {
         let windowID: CGWindowID
         let title: String
     }

@@ -9267,13 +9267,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// Opens a fresh workspace with the appshot context staged in its terminal
     /// (no trailing Return, so a plain shell does not execute it). Does not
-    /// bring cmux to the front. Returns the new surface for recency tracking.
+    /// bring cmux to the front. Returns the new surface for recency tracking, or
+    /// `nil` if no workspace could be created (so the caller signals failure).
     func openAppshotInNewWorkspace(_ text: String) -> (workspaceId: UUID, panelId: UUID)? {
         guard let workspace = addWorkspaceInPreferredMainWindow(
             initialTerminalInput: text,
             shouldBringToFront: false,
             debugSource: "appshot.newThread"
-        ), let panelId = workspace.focusedPanelId else { return nil }
+        ) else { return nil }
+        guard let panelId = workspace.focusedPanelId else {
+            // A new workspace is created with a focused terminal, so this is not
+            // expected; log it so a staged-but-untracked workspace is visible
+            // rather than silently accumulating on repeated hotkey presses.
+            cmuxDebugLog("appshot.newThread workspace=\(workspace.id.uuidString.prefix(5)) created without focusedPanelId")
+            return nil
+        }
         return (workspace.id, panelId)
     }
 

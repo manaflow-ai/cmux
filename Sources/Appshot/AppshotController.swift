@@ -74,17 +74,19 @@ final class AppshotController {
         }
         let now = Date()
 
-        var state = routingState
         // While cmux is frontmost the focused agent is, by definition, the agent
-        // the user is interacting with right now.
+        // the user is interacting with right now. Persist it (not just a local
+        // copy) so a later appshot routes to the agent that actually received
+        // this one, even if no resign-active snapshot has fired since.
         if NSApp.isActive, let ref = AppDelegate.shared?.appshotFocusedAgentRef() {
-            state.lastInteractiveAgent = AppshotAgentRef(
+            routingState.lastInteractiveAgent = AppshotAgentRef(
                 workspaceId: ref.workspaceId,
                 panelId: ref.panelId,
                 at: now
             )
         }
 
+        let state = routingState
         let lastRouteSurfaceExists = state.lastRoute.map {
             AppDelegate.shared?.appshotSurfaceExists(workspaceId: $0.workspaceId, panelId: $0.panelId) ?? false
         } ?? false
@@ -92,9 +94,8 @@ final class AppshotController {
             AppDelegate.shared?.appshotSurfaceExists(workspaceId: $0.workspaceId, panelId: $0.panelId) ?? false
         } ?? false
 
-        let route = AppshotRouteResolver.resolve(
+        let route = state.resolvedRoute(
             now: now,
-            state: state,
             lastRouteSurfaceExists: lastRouteSurfaceExists,
             lastInteractiveSurfaceExists: lastInteractiveSurfaceExists
         )

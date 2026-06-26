@@ -10,6 +10,10 @@ import Testing
 /// Unit tests for the pure appshot logic: the single-line prompt formatting and
 /// the 60-second recency routing decision. The capture itself (ScreenCaptureKit
 /// + Accessibility) is integration-only and exercised manually.
+///
+/// Prompt assertions are locale-neutral (paths, interpolated names, structural
+/// invariants, and presence/absence-by-behavior) so they don't depend on the
+/// English wording of the localized strings.
 @Suite struct AppshotRoutingTests {
 
     private func capture(
@@ -43,38 +47,25 @@ import Testing
         #expect(!prompt.contains("\n"), "prompt must be a single line")
     }
 
-    @Test func promptImageOnlyShowsAccessibilityHintWhenDenied() throws {
-        let prompt = try #require(
-            capture(image: "/tmp/a.png", text: nil, accessibilityDenied: true).promptText()
-        )
-        #expect(prompt.contains("/tmp/a.png"))
-        #expect(!prompt.contains(".txt"))
-        #expect(prompt.localizedCaseInsensitiveContains("Accessibility"))
-        #expect(!prompt.contains("\n"))
+    @Test func promptImageOnlyConditionallyAddsAccessibilityHint() throws {
+        // Locale-neutral: the denied variant adds an extra hint, so it differs
+        // from and is longer than the granted variant.
+        let denied = try #require(capture(image: "/tmp/a.png", text: nil, accessibilityDenied: true).promptText())
+        let granted = try #require(capture(image: "/tmp/a.png", text: nil, accessibilityDenied: false).promptText())
+        #expect(denied != granted)
+        #expect(denied.count > granted.count)
+        #expect(denied.contains("/tmp/a.png"))
+        #expect(!denied.contains(".txt"))
+        #expect(!denied.contains("\n"))
     }
 
-    @Test func promptImageOnlyOmitsHintWhenAccessibilityWasGranted() throws {
-        // Accessibility granted but the app exposed no readable text.
-        let prompt = try #require(
-            capture(image: "/tmp/a.png", text: nil, accessibilityDenied: false).promptText()
-        )
-        #expect(!prompt.contains("Grant cmux Accessibility"))
-    }
-
-    @Test func promptTextOnlyShowsScreenRecordingHintWhenDenied() throws {
-        let prompt = try #require(
-            capture(image: nil, text: "/tmp/a.txt", screenRecordingDenied: true).promptText()
-        )
-        #expect(prompt.contains("/tmp/a.txt"))
-        #expect(prompt.localizedCaseInsensitiveContains("Screen Recording"))
-        #expect(!prompt.contains("\n"))
-    }
-
-    @Test func promptFramesCapturedFilesAsUntrusted() throws {
-        let prompt = try #require(
-            capture(image: "/tmp/a.png", text: "/tmp/a.txt").promptText()
-        )
-        #expect(prompt.localizedCaseInsensitiveContains("untrusted"))
+    @Test func promptTextOnlyConditionallyAddsScreenRecordingHint() throws {
+        let denied = try #require(capture(image: nil, text: "/tmp/a.txt", screenRecordingDenied: true).promptText())
+        let granted = try #require(capture(image: nil, text: "/tmp/a.txt", screenRecordingDenied: false).promptText())
+        #expect(denied != granted)
+        #expect(denied.count > granted.count)
+        #expect(denied.contains("/tmp/a.txt"))
+        #expect(!denied.contains("\n"))
     }
 
     @Test func promptIsNilWhenNothingCaptured() {
@@ -102,10 +93,10 @@ import Testing
 
     @Test func sanitizerStripsShellMetacharactersFromAttackerLabel() {
         // The captured (attacker-influenceable) window/app label is the security
-        // boundary: it is sanitized so it can't inject a command if the staged
-        // line is run in a plain shell.
-        let sanitized = AppshotCapture.singleLine("$(rm -rf ~) `whoami` a;b|c&d>e<f{g}h\\i", max: 500)
-        for metacharacter in ["`", "$", ";", "|", "&", "<", ">", "(", ")", "{", "}", "\\"] {
+        // boundary: it is sanitized so it can't inject a command — including via
+        // history expansion (`!`) — if the staged line is run in a plain shell.
+        let sanitized = AppshotCapture.singleLine("$(rm -rf ~) `whoami` !! !$ a;b|c&d>e<f{g}h\\i", max: 500)
+        for metacharacter in ["`", "$", ";", "|", "&", "<", ">", "(", ")", "{", "}", "\\", "!"] {
             #expect(!sanitized.contains(metacharacter), "shell metacharacter \(metacharacter) survived sanitization")
         }
         #expect(!sanitized.contains("\n"))
@@ -121,9 +112,7 @@ import Testing
         let state = AppshotRoutingState(
             lastRoute: AppshotAgentRef(workspaceId: workspace, panelId: panel, at: now.addingTimeInterval(-30))
         )
-        let route = AppshotRouteResolver.resolve(
-            now: now, state: state, lastRouteSurfaceExists: true, lastInteractiveSurfaceExists: false
-        )
+        let route = state.resolvedRoute(now: now, lastRouteSurfaceExists: true, lastInteractiveSurfaceExists: false)
         #expect(route == .append(workspaceId: workspace, panelId: panel))
     }
 
@@ -135,9 +124,7 @@ import Testing
             lastRoute: AppshotAgentRef(workspaceId: routed.workspace, panelId: routed.panel, at: now.addingTimeInterval(-50)),
             lastInteractiveAgent: AppshotAgentRef(workspaceId: interactive.workspace, panelId: interactive.panel, at: now.addingTimeInterval(-1))
         )
-        let route = AppshotRouteResolver.resolve(
-            now: now, state: state, lastRouteSurfaceExists: true, lastInteractiveSurfaceExists: true
-        )
+        let route = state.resolvedRoute(now: now, lastRouteSurfaceExists: true, lastInteractiveSurfaceExists: true)
         #expect(route == .append(workspaceId: routed.workspace, panelId: routed.panel))
     }
 
@@ -148,9 +135,7 @@ import Testing
             lastRoute: AppshotAgentRef(workspaceId: UUID(), panelId: UUID(), at: now.addingTimeInterval(-120)),
             lastInteractiveAgent: AppshotAgentRef(workspaceId: interactive.workspace, panelId: interactive.panel, at: now.addingTimeInterval(-10))
         )
-        let route = AppshotRouteResolver.resolve(
-            now: now, state: state, lastRouteSurfaceExists: true, lastInteractiveSurfaceExists: true
-        )
+        let route = state.resolvedRoute(now: now, lastRouteSurfaceExists: true, lastInteractiveSurfaceExists: true)
         #expect(route == .append(workspaceId: interactive.workspace, panelId: interactive.panel))
     }
 
@@ -160,9 +145,7 @@ import Testing
             lastRoute: AppshotAgentRef(workspaceId: UUID(), panelId: UUID(), at: now.addingTimeInterval(-200)),
             lastInteractiveAgent: AppshotAgentRef(workspaceId: UUID(), panelId: UUID(), at: now.addingTimeInterval(-61))
         )
-        let route = AppshotRouteResolver.resolve(
-            now: now, state: state, lastRouteSurfaceExists: true, lastInteractiveSurfaceExists: true
-        )
+        let route = state.resolvedRoute(now: now, lastRouteSurfaceExists: true, lastInteractiveSurfaceExists: true)
         #expect(route == .newThread)
     }
 
@@ -171,15 +154,13 @@ import Testing
         let state = AppshotRoutingState(
             lastRoute: AppshotAgentRef(workspaceId: UUID(), panelId: UUID(), at: now.addingTimeInterval(-5))
         )
-        let route = AppshotRouteResolver.resolve(
-            now: now, state: state, lastRouteSurfaceExists: false, lastInteractiveSurfaceExists: false
-        )
+        let route = state.resolvedRoute(now: now, lastRouteSurfaceExists: false, lastInteractiveSurfaceExists: false)
         #expect(route == .newThread)
     }
 
     @Test func newThreadWhenStateIsEmpty() {
-        let route = AppshotRouteResolver.resolve(
-            now: Date(), state: AppshotRoutingState(), lastRouteSurfaceExists: false, lastInteractiveSurfaceExists: false
+        let route = AppshotRoutingState().resolvedRoute(
+            now: Date(), lastRouteSurfaceExists: false, lastInteractiveSurfaceExists: false
         )
         #expect(route == .newThread)
     }
@@ -191,9 +172,7 @@ import Testing
         let state = AppshotRoutingState(
             lastRoute: AppshotAgentRef(workspaceId: workspace, panelId: panel, at: now.addingTimeInterval(-60))
         )
-        let route = AppshotRouteResolver.resolve(
-            now: now, window: 60, state: state, lastRouteSurfaceExists: true, lastInteractiveSurfaceExists: false
-        )
+        let route = state.resolvedRoute(now: now, window: 60, lastRouteSurfaceExists: true, lastInteractiveSurfaceExists: false)
         #expect(route == .append(workspaceId: workspace, panelId: panel))
     }
 }
