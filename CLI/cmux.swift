@@ -23149,6 +23149,14 @@ struct CMUXCLI {
                         surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
                         telemetry: telemetry
                     )
+            if shouldRegisterPID, !suppressVisibleMutations {
+                clearPersistedAgentSessionTitle(
+                    workspaceId: workspaceId,
+                    client: client,
+                    telemetryKey: "claude-hook.session-start",
+                    telemetry: telemetry
+                )
+            }
             if shouldRegisterPID, let claudePid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
                     "set_agent_pid \(Self.claudeCodeStatusKey) \(claudePid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
@@ -23622,6 +23630,13 @@ struct CMUXCLI {
                     env: ProcessInfo.processInfo.environment
                 )
                 if shouldClearVisibleState, !suppressVisibleMutations {
+                    persistAgentSessionTitleAfterExit(
+                        agentSessionExitTitle(agent: "claude", record: consumedSession),
+                        workspaceId: workspaceId,
+                        client: client,
+                        telemetryKey: "claude-hook.session-end",
+                        telemetry: telemetry
+                    )
                     _ = try? sendV1Command(
                         "clear_agent_pid \(Self.claudeCodeStatusKey) --tab=\(workspaceId)\(socketPanelOption(consumedSession.surfaceId)) --clear-status",
                         client: client
@@ -29613,6 +29628,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             if suppressVisibleMutations {
                 telemetry.breadcrumb("\(def.name)-hook.session-end.nested-suppressed")
             } else if let consumed = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
+                persistAgentSessionTitleAfterExit(
+                    agentSessionExitTitle(agent: def.name, record: consumed),
+                    workspaceId: consumed.workspaceId,
+                    client: client,
+                    telemetryKey: "\(def.name)-hook.session-end",
+                    telemetry: telemetry
+                )
                 clearAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: consumed.workspaceId,
@@ -29961,6 +29983,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 didSendFeedTelemetry = true
                 print("{}")
                 return
+            }
+            if !suppressVisibleMutations {
+                clearPersistedAgentSessionTitle(
+                    workspaceId: workspaceId,
+                    client: client,
+                    telemetryKey: "\(def.name)-hook.session-start",
+                    telemetry: telemetry
+                )
             }
             if let pid, !suppressVisibleMutations {
                 _ = try? sendV1Command(

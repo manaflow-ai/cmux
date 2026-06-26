@@ -3240,11 +3240,13 @@ class TerminalController {
 
     /// `workspace.set_auto_title`: applies an AI-generated title to a workspace
     /// (and optionally one of its panels/tabs) with `.auto` provenance, so a
-    /// user-set title is never overwritten. Gated on the opt-in
-    /// `workspaceAutoNamingEnabled` setting; `{"probe": true}` reads the live
-    /// setting state without writing, which lets hook processes honor
-    /// mid-session toggles. `panel_id` accepts either a panel UUID or a
-    /// surface UUID.
+    /// user-set title is never overwritten. Normal auto-naming writes are
+    /// gated on the opt-in `workspaceAutoNamingEnabled` setting; `{"probe":
+    /// true}` reads the live setting state without writing, which lets hook
+    /// processes honor mid-session toggles. Agent lifecycle writes use
+    /// `persist_after_exit` / `clear_auto` to preserve or remove only
+    /// auto-owned titles independently of that setting. `panel_id` accepts
+    /// either a panel UUID or a surface UUID.
     private func v2WorkspaceSetAutoTitle(params: [String: Any]) -> V2CallResult {
         let enabled = AutomationCatalogSection().workspaceAutoNaming.value(in: .standard)
         if v2Bool(params, "probe") == true {
@@ -3267,7 +3269,38 @@ class TerminalController {
             }
             return .ok(result)
         }
-        guard enabled else {
+        let clearAuto = v2Bool(params, "clear_auto") == true
+        let persistAfterExit = v2Bool(params, "persist_after_exit") == true
+        if clearAuto {
+            guard let tabManager = v2ResolveTabManager(params: params) else {
+                return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            }
+            guard let workspaceId = v2UUID(params, "workspace_id") else {
+                return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+            }
+            var found = false
+            var workspaceCleared = false
+            v2MainSync {
+                guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+                found = true
+                if workspace.effectiveCustomTitleSource == .auto {
+                    workspaceCleared = tabManager.setCustomTitle(tabId: workspaceId, title: nil)
+                }
+            }
+            guard found else {
+                return .err(code: "not_found", message: "Workspace not found", data: [
+                    "workspace_id": workspaceId.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId)
+                ])
+            }
+            return .ok([
+                "workspace_id": workspaceId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                "workspace_cleared": workspaceCleared,
+                "enabled": enabled
+            ])
+        }
+        guard enabled || persistAfterExit else {
             return .err(code: "disabled", message: "Workspace auto-naming is disabled in Settings", data: ["enabled": false])
         }
         // A naming pass reporting a problem (rate limit / out of tokens / signed
@@ -3324,7 +3357,7 @@ class TerminalController {
 
         // A title landed, so the naming agent is working again: clear any stale
         // failure the Settings status line may be showing.
-        if workspaceApplied {
+        if workspaceApplied, !persistAfterExit {
             AutoNamingStatusStore.clear()
         }
 
@@ -3334,7 +3367,8 @@ class TerminalController {
             "title": title,
             "workspace_applied": workspaceApplied,
             "panel_applied": v2OrNull(panelApplied),
-            "enabled": true
+            "persist_after_exit": persistAfterExit,
+            "enabled": enabled
         ])
     }
 

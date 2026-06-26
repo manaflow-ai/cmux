@@ -99,6 +99,84 @@ extension CMUXCLI {
         ])
     }
 
+    func clearPersistedAgentSessionTitle(
+        workspaceId: String,
+        client: SocketClient,
+        telemetryKey: String,
+        telemetry: CLISocketSentryTelemetry
+    ) {
+        guard (try? client.sendV2(method: "workspace.set_auto_title", params: [
+            "workspace_id": workspaceId,
+            "clear_auto": true
+        ])) != nil else {
+            telemetry.breadcrumb("\(telemetryKey).clear-title.socket-failed")
+            return
+        }
+        telemetry.breadcrumb("\(telemetryKey).clear-title.sent")
+    }
+
+    func persistAgentSessionTitleAfterExit(
+        _ title: String?,
+        workspaceId: String,
+        client: SocketClient,
+        telemetryKey: String,
+        telemetry: CLISocketSentryTelemetry
+    ) {
+        guard let title = normalizedAgentSessionExitTitle(title) else { return }
+        guard let payload = try? client.sendV2(method: "workspace.set_auto_title", params: [
+            "workspace_id": workspaceId,
+            "title": title,
+            "persist_after_exit": true
+        ]) else {
+            telemetry.breadcrumb("\(telemetryKey).persist-title.socket-failed")
+            return
+        }
+        if payload["workspace_applied"] as? Bool == true {
+            telemetry.breadcrumb("\(telemetryKey).persist-title.applied")
+        } else {
+            telemetry.breadcrumb("\(telemetryKey).persist-title.rejected")
+        }
+    }
+
+    func agentSessionExitTitle(
+        agent: String,
+        record: ClaudeHookSessionRecord
+    ) -> String? {
+        normalizedAgentSessionExitTitle(record.autoNameLastTitle)
+            ?? (agent == "claude" ? latestClaudeTranscriptTitle(path: record.transcriptPath) : nil)
+    }
+
+    private func latestClaudeTranscriptTitle(path: String?) -> String? {
+        guard let path = normalizedHookValue(path),
+              let lines = readRecentTextFileLines(path: path, maxBytes: 512 * 1024) else {
+            return nil
+        }
+        for line in lines.reversed() {
+            if let title = claudeTranscriptTitle(in: line) {
+                return title
+            }
+        }
+        return nil
+    }
+
+    private func claudeTranscriptTitle(in line: String) -> String? {
+        guard line.contains(#""ai-title""#),
+              let data = line.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["type"] as? String == "ai-title" else {
+            return nil
+        }
+        return normalizedAgentSessionExitTitle(object["aiTitle"] as? String)
+    }
+
+    private func normalizedAgentSessionExitTitle(_ title: String?) -> String? {
+        let collapsed = title?
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !collapsed.isEmpty else { return nil }
+        return String(collapsed.prefix(120))
+    }
+
     // MARK: - Per-agent summarizer invocations (moved verbatim from the hooks)
 
     private func summarizeWithClaude(
