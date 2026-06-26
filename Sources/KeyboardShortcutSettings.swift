@@ -1018,6 +1018,20 @@ extension KeyboardShortcutSettings.Action {
             return nil
         }
     }
+
+    /// Returns `true` when `event` matches this action's hardcoded default
+    /// shortcut while the action is no longer actually bound to that default
+    /// (it was unbound or rebound to a different combo). Lets a surface
+    /// suppress a stale default keystroke that AppKit might otherwise route to
+    /// the action's standard menu item. Byte-faithful predicate lifted from
+    /// `BrowserPopupWindowController` (was hardcoded to `.closeTab`).
+    func shouldSuppressStaleDefaultShortcut(matching event: NSEvent) -> Bool {
+        let currentShortcut = KeyboardShortcutSettings.shortcut(for: self)
+        guard currentShortcut.isUnbound || currentShortcut != defaultShortcut else {
+            return false
+        }
+        return defaultShortcut.matches(event: event)
+    }
 }
 
 extension KeyboardShortcutSettings {

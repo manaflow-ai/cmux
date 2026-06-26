@@ -65,4 +65,15 @@ extension String {
         }
         return url.path
     }
+
+    /// Interpreting `self` as a filesystem path, returns its canonical absolute
+    /// form: tilde-expanded and standardized (`standardizedFileURL`). Unlike
+    /// `canonicalDirectoryPath()`, this performs no existence or directory check
+    /// and always returns a string, so it is suitable for fingerprinting a
+    /// configured path that may not exist on disk.
+    public var canonicalizedFilePath: String {
+        URL(fileURLWithPath: (self as NSString).expandingTildeInPath)
+            .standardizedFileURL
+            .path
+    }
 }

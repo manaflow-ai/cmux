@@ -1142,7 +1142,7 @@ final class RemoteTmuxControlConnection {
 // MARK: - RemoteTmuxClientSizeHost
 
 /// Command/state seam the ``clientSize`` sub-model drives. Keeps the window/pane
-/// geometry (`windowsByID`, the app-only ``RemoteTmuxWindow``) and the app's
+/// geometry (the app's `windowsByID` topology) and the app's
 /// `cmuxDebugLog` on this side, exposing only plain `Int`/`Bool`/`String` to the
 /// package controller.
 extension RemoteTmuxControlConnection: RemoteTmuxClientSizeHost {

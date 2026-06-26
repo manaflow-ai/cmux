@@ -1,4 +1,5 @@
 import CmuxSettings
+import CmuxWorkspaces
 import Foundation
 #if canImport(Security)
 import Security
@@ -197,7 +198,7 @@ struct SurfaceResumeApprovalStore {
         guard !binding.isProcessDetected, !binding.isAgentHookBinding else {
             return false
         }
-        guard SurfaceResumeCommandCanonicalizer.tokens(from: binding.command) != nil else {
+        guard binding.command.surfaceResumeCommandTokens() != nil else {
             return false
         }
         guard let existingRecord else { return true }
@@ -232,7 +233,7 @@ struct SurfaceResumeApprovalStore {
     ) -> SurfaceResumeApprovalRecord? {
         let signingSecret = explicitSigningSecret ?? Self.defaultSigningSecret(fileManager: fileManager)
         guard let signingSecret,
-              let tokens = SurfaceResumeCommandCanonicalizer.tokens(from: binding.command) else {
+              let tokens = binding.command.surfaceResumeCommandTokens() else {
             return nil
         }
         let prefix = commandPrefix ?? tokens

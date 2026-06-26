@@ -16,12 +16,6 @@ extension WKWebView {
     }
 }
 
-enum BrowserFocusModeKeyDecision: Equatable {
-    case inactive
-    case forwardToWebView
-    case consume
-}
-
 /// WKWebView tends to consume some app command equivalents,
 /// preventing the app menu/SwiftUI Commands from receiving them. Route app/menu
 /// shortcuts first by default, but allow browser content to try browser-local

@@ -1138,8 +1138,18 @@ final class WindowTerminalPortal: NSObject {
         logBonsplitContainerFrameIfNeeded(anchorView: anchorView, hostedView: hostedView)
 #endif
         let hostBounds = hostView.bounds
-        let hasFiniteHostBounds = hostBounds.hasFiniteComponents
-        let hostBoundsReady = hasFiniteHostBounds && hostBounds.width > 1 && hostBounds.height > 1
+        let anchorHidden = anchorView.isHiddenOrAncestorHidden
+        let geometry = PortalEntryGeometryResolution(
+            frameInHost: frameInHost,
+            hostBounds: hostBounds,
+            visibleInUI: entry.visibleInUI,
+            anchorHidden: anchorHidden,
+            hostedViewIsHidden: hostedView.isHidden,
+            tinyHideThreshold: Self.tinyHideThreshold,
+            minimumRevealWidth: Self.minimumRevealWidth,
+            minimumRevealHeight: Self.minimumRevealHeight
+        )
+        let hostBoundsReady = geometry.hostBoundsReady
         if !hostBoundsReady {
 #if DEBUG
             cmuxDebugLog(
@@ -1183,28 +1193,13 @@ final class WindowTerminalPortal: NSObject {
             }
             return
         }
-        let hasFiniteFrame = frameInHost.hasFiniteComponents
-        let clampedFrame = frameInHost.intersection(hostBounds)
-        let hasVisibleIntersection =
-            !clampedFrame.isNull &&
-            clampedFrame.width > 1 &&
-            clampedFrame.height > 1
-        let targetFrame = (hasFiniteFrame && hasVisibleIntersection) ? clampedFrame : frameInHost
-        let anchorHidden = anchorView.isHiddenOrAncestorHidden
-        let tinyFrame =
-            targetFrame.width <= Self.tinyHideThreshold ||
-            targetFrame.height <= Self.tinyHideThreshold
-        let revealReadyForDisplay =
-            targetFrame.width >= Self.minimumRevealWidth &&
-            targetFrame.height >= Self.minimumRevealHeight
-        let outsideHostBounds = !hasVisibleIntersection
-        let shouldHide =
-            !entry.visibleInUI ||
-            anchorHidden ||
-            tinyFrame ||
-            !hasFiniteFrame ||
-            outsideHostBounds
-        let shouldDeferReveal = !shouldHide && hostedView.isHidden && !revealReadyForDisplay
+        let hasFiniteFrame = geometry.hasFiniteFrame
+        let targetFrame = geometry.targetFrame
+        let tinyFrame = geometry.tinyFrame
+        let revealReadyForDisplay = geometry.revealReadyForDisplay
+        let outsideHostBounds = geometry.outsideHostBounds
+        let shouldHide = geometry.shouldHide
+        let shouldDeferReveal = geometry.shouldDeferReveal
         let transientRecoveryReason: String? = {
             guard Self.transientRecoveryEnabled else { return nil }
             guard entry.visibleInUI else { return nil }
