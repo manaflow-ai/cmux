@@ -128,6 +128,13 @@ public actor UserDefaultsSettingsStore {
     ) {
         if let source {
             let sequence = nextMutationSourceSequence(for: storageKey)
+            if let record = mutationSources[storageKey] {
+                recordSupersededMutationSource(
+                    record.source,
+                    sequence: sequence,
+                    for: storageKey
+                )
+            }
             mutationSources[storageKey] = UserDefaultsSettingsMutationSourceRecord(
                 source: source,
                 sequence: sequence,

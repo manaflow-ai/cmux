@@ -198,6 +198,21 @@ struct UserDefaultsSettingsStoreTests {
         #expect(initial?.supersededMutationSource == source)
     }
 
+    @Test func valueEventsMarkIncludedSourceSupersededAfterTaggedStoreWrite() async {
+        let (store, catalog) = makeStore()
+        let key = catalog.app.appearance
+        let source = UserDefaultsSettingsMutationSource()
+        await store.set(.dark, for: key, source: source)
+        await store.set(.light, for: key, source: UserDefaultsSettingsMutationSource())
+
+        let stream = await store.valueEvents(for: key, includingSources: [source])
+        var iterator = stream.makeAsyncIterator()
+        let initial = await iterator.next()
+        #expect(initial?.value == .light)
+        #expect(initial?.mutationSource == nil)
+        #expect(initial?.supersededMutationSource == source)
+    }
+
     @Test func valueEventsYieldSupersededSourceWhenSourceLessWriteKeepsLastValue() async {
         let (store, catalog) = makeStore()
         let key = catalog.app.appearance
