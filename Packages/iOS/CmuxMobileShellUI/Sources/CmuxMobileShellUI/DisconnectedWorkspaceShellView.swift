@@ -91,7 +91,7 @@ struct DisconnectedWorkspaceShellView: View {
                 Button(action: showAddDevice) {
                     Text(
                         savedMacs.isEmpty
-                            ? L10n.string("mobile.addDevice.title", defaultValue: "Add device")
+                            ? L10n.string("mobile.addDevice.title", defaultValue: "Add Computer")
                             : L10n.string("mobile.addDevice.another", defaultValue: "Add another Mac")
                     )
                 }
@@ -199,7 +199,7 @@ struct DisconnectedWorkspaceShellView: View {
         Button(action: showAddDevice) {
             Image(systemName: "plus")
         }
-        .accessibilityLabel(L10n.string("mobile.addDevice.title", defaultValue: "Add device"))
+        .accessibilityLabel(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
         .accessibilityIdentifier("MobileShowAddDeviceToolbarButton")
     }
 }
