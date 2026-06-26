@@ -186,6 +186,7 @@
 572	Sources/Feed/FeedTextEditorDebugWindowController.swift
 568	Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/MobileTerminalRenderGrid.swift
 567	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/ConfigDiscovery/GhosttyConfigDiscovery.swift
+567	cmuxTests/WorkspaceTerminalFocusRecoveryTests.swift
 562	cmuxTests/AgentExecutableResolverTests.swift
 561	cmuxTests/GhosttyConfigPathResolverTests.swift
 560	cmuxTests/CLISSHPTYResizeInputTests.swift
@@ -226,7 +227,6 @@
 503	Sources/Settings/ConfigSource.swift
 502	Sources/CmuxEventPublishing.swift
 502	Sources/RemoteTmuxSessionMirror.swift
-501	cmuxTests/WorkspaceTerminalFocusRecoveryTests.swift
 500	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/CMUXMobileRootView.swift
 500	Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandContextTestStubs.swift
 500	Sources/KeyboardShortcutRecorder.swift
