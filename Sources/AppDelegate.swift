@@ -506,8 +506,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     nonisolated let socketTransport = SocketTransport()
     /// Self-heal decision logic for a refused control-socket listener (#6406).
     private let socketListenerActivationRecoveryPolicy = SocketListenerActivationRecoveryPolicy()
-    /// Last activation readiness check, used to throttle the ping probe (#6406).
+    /// Last completed activation readiness check, used to throttle the ping probe (#6406).
     private var lastSocketListenerActivationCheck: Date?
+    /// True while an activation readiness probe is in flight, so checks never overlap (#6406).
+    private var socketListenerActivationCheckInFlight = false
     /// Owns the About Titlebar Debug subsystem (CmuxAppKitSupportUI); composition-root
     /// owned and created lazily so the window-decoration seam can point back at `self`.
     lazy var debugWindowsCoordinator = DebugWindowsCoordinator(decorator: self)
@@ -3971,18 +3973,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Self-heals a refused control-socket listener on reactivation, so a dead
     /// socket (issue #6406, errno 61) recovers without an app restart. The
     /// authoritative `ping` probe blocks, so it runs off the main actor and
-    /// only a confirmed-not-serving listener is rebound; the check is throttled.
-    /// See ``SocketListenerActivationRecoveryPolicy`` for the decision logic.
+    /// only a confirmed-not-serving listener is rebound. The throttle window is
+    /// stamped when the probe *resolves* (not when it is dispatched) and an
+    /// in-flight guard keeps probes from overlapping. See
+    /// ``SocketListenerActivationRecoveryPolicy`` for the decision logic.
     private func healControlSocketListenerOnActivationIfNeeded() {
-        guard tabManager != nil,
+        guard !socketListenerActivationCheckInFlight,
+              tabManager != nil,
               let config = socketListenerConfigurationIfEnabled() else { return }
 
-        let now = Date()
-        let secondsSinceLastCheck = lastSocketListenerActivationCheck.map { now.timeIntervalSince($0) }
+        let secondsSinceLastCheck = lastSocketListenerActivationCheck.map { Date().timeIntervalSince($0) }
         guard socketListenerActivationRecoveryPolicy.shouldRunReadinessCheck(
             secondsSinceLastCheck: secondsSinceLastCheck
         ) else { return }
-        lastSocketListenerActivationCheck = now
+        socketListenerActivationCheckInFlight = true
 
         let controller = TerminalController.shared
         let transport = socketTransport
@@ -3994,8 +3998,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let pingResponse = health.isHealthy
                 ? transport.probeCommand("ping", at: path, timeout: 1.0)
                 : nil
-            guard policy.shouldRebindListener(health: health, pingResponse: pingResponse) else { return }
-            await self?.rebindRefusedControlSocketListenerOnActivation(
+            let shouldRebind = policy.shouldRebindListener(health: health, pingResponse: pingResponse)
+            await self?.finishSocketListenerActivationCheck(
+                shouldRebind: shouldRebind,
                 path: path,
                 health: health,
                 pingResponse: pingResponse
@@ -4003,14 +4008,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    /// Main-actor tail of ``healControlSocketListenerOnActivationIfNeeded()``:
-    /// records the heal breadcrumb and rebinds through the shared restart path.
+    /// Main-actor completion of the activation readiness check: clears the
+    /// in-flight guard, opens the next throttle window now that the probe has
+    /// resolved, and rebinds through the shared restart path when the listener
+    /// is confirmed not serving.
     @MainActor
-    private func rebindRefusedControlSocketListenerOnActivation(
+    private func finishSocketListenerActivationCheck(
+        shouldRebind: Bool,
         path: String,
         health: SocketListenerHealth,
         pingResponse: String?
     ) {
+        socketListenerActivationCheckInFlight = false
+        lastSocketListenerActivationCheck = Date()
+        guard shouldRebind else { return }
         sentryBreadcrumb("socket.listener.heal", category: "socket", data: [
             "source": "app.didBecomeActive",
             "path": path,
