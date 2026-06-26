@@ -1015,7 +1015,9 @@ final class cmuxUITests: XCTestCase {
             throw XCTSkip("Top scroll-edge underlap uses iOS 26 content scroll view registration.")
         }
 
-        let app = launchAgentChatInlinePreviewApp()
+        let app = launchAgentChatInlinePreviewApp(environment: [
+            "CMUX_UITEST_CHAT_INITIAL_SCROLL": "top",
+        ])
         let table = app.tables["ChatTranscriptTableView"]
         XCTAssertTrue(table.waitForExistence(timeout: 8))
         let navigationBar = app.navigationBars.firstMatch
@@ -1037,25 +1039,22 @@ final class cmuxUITests: XCTestCase {
             startedAt: Date(),
             metrics: loadedMetrics
         )
-        let topMetrics = try scrollTranscript(table, direction: .down, timeout: 20) {
+        let topMetrics = try waitForTranscriptMetrics(table, timeout: 8) {
             abs($0.visibleTopY) <= 3
                 && $0.adjustedTopInset > 20
                 && $0.contentHeight > $0.boundsHeight * 1.6
         }
-        XCTAssertNotNil(topMetrics)
-        if let topMetrics {
-            XCTAssertEqual(
-                topMetrics.offsetY,
-                -topMetrics.adjustedTopInset,
-                accuracy: 3,
-                "At the beginning of the chat, the transcript offset must include the top chrome reservation so the first date header is not hidden behind the toolbar. metrics=\(topMetrics)"
-            )
-            XCTAssertGreaterThan(
-                topMetrics.topChromeOverlayInset,
-                20,
-                "The transcript table must own the top chrome inset when it underlaps the navigation bar. metrics=\(topMetrics)"
-            )
-        }
+        XCTAssertEqual(
+            topMetrics.offsetY,
+            -topMetrics.adjustedTopInset,
+            accuracy: 3,
+            "At the beginning of the chat, the transcript offset must include the top chrome reservation so the first date header is not hidden behind the toolbar. metrics=\(topMetrics)"
+        )
+        XCTAssertGreaterThan(
+            topMetrics.topChromeOverlayInset,
+            20,
+            "The transcript table must own the top chrome inset when it underlaps the navigation bar. metrics=\(topMetrics)"
+        )
         let todayHeader = app.staticTexts["ChatDateHeader"].firstMatch
         XCTAssertTrue(todayHeader.waitForExistence(timeout: 2))
         XCTAssertGreaterThanOrEqual(

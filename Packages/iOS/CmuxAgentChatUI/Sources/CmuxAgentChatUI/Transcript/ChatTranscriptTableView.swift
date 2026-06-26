@@ -287,7 +287,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         #if DEBUG
         private func applyDebugInitialScrollIfNeeded(in tableView: UITableView) {
             guard !didApplyDebugInitialScroll,
-                  ProcessInfo.processInfo.environment["CMUX_UITEST_CHAT_INITIAL_SCROLL"] == "middle",
+                  let requestedInitialScroll = ProcessInfo.processInfo.environment["CMUX_UITEST_CHAT_INITIAL_SCROLL"],
                   tableView.bounds.height > 0,
                   tableView.contentSize.height > tableView.bounds.height * 1.4
             else {
@@ -296,7 +296,15 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             didApplyDebugInitialScroll = true
             let minY = -tableView.adjustedContentInset.top
             let maxY = maxOffsetY(in: tableView)
-            let targetY = clampedOffsetY(minY + ((maxY - minY) * 0.5), in: tableView)
+            let targetY: CGFloat
+            switch requestedInitialScroll {
+            case "top":
+                targetY = minY
+            case "middle":
+                targetY = minY + ((maxY - minY) * 0.5)
+            default:
+                return
+            }
             tableView.setContentOffset(CGPoint(x: tableView.contentOffset.x, y: targetY), animated: false)
             setAtBottom(false)
         }
