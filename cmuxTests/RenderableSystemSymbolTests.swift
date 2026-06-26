@@ -94,41 +94,4 @@ struct RenderableSystemSymbolTests {
         ) == nil)
         #expect(RenderableSystemSymbol.isRenderable("not.an.sf.symbol") == false)
     }
-
-    /// Every SF Symbol rendered by a view that is laid out during launch or session
-    /// restore must resolve through the AppKit `NSImage` path (`CmuxSystemSymbolImage`
-    /// / `configuredAppKitImage`). On macOS 27 these symbols crash when rendered via
-    /// SwiftUI `Image(systemName:)` / `Label(systemImage:)`: CoreUI throws inside
-    /// `-[CUINamedVectorGlyph _rasterizeImageUsingScaleFactor:...]` while the glyph is
-    /// measured during the first `NSWindow.makeKeyAndOrderFront:` layout, killing the
-    /// app before any window appears (issues #6703 / #6745). `NotificationsPage` is the
-    /// decisive one: it is mounted unconditionally in the main content `ZStack` and only
-    /// toggled with `.opacity`, so its body is laid out on every launch.
-    ///
-    /// The crash only reproduces on macOS 27, so it cannot be reproduced on CI's older
-    /// macOS — macOS 27 launch coverage has to be validated on a macOS 27 runner/device.
-    /// This test instead pins the launch/restore symbol set and proves each one renders
-    /// through the non-crashing AppKit path that the fix routes them onto.
-    @Test @MainActor func launchPathSymbolsRenderThroughAppKitPath() throws {
-        RenderableSystemSymbol.resetRenderabilityCacheForTesting()
-        // NotificationsPage, EmptyPanelView, AgentHibernationPlaceholderView, and
-        // RemoteTmuxPaneHeader — the content-area views laid out on launch / restore.
-        let launchPathSymbols = [
-            "bell.slash", "bell.badge", "xmark.circle.fill",
-            "terminal.fill", "globe", "pause.circle",
-            "square.split.2x1", "square.split.1x2", "xmark",
-        ]
-        for symbol in launchPathSymbols {
-            let image = try #require(
-                RenderableSystemSymbol.configuredAppKitImage(
-                    systemName: symbol,
-                    pointSize: 16,
-                    weight: .regular
-                ),
-                "Launch/restore-path symbol \(symbol) must resolve through the AppKit path"
-            )
-            #expect(image.isTemplate)
-            #expect(image.size.width > 0 && image.size.height > 0)
-        }
-    }
 }

@@ -298,6 +298,10 @@ private struct NotificationRow: View {
                     .foregroundColor(.secondary)
             }
             .buttonStyle(.plain)
+            // CmuxSystemSymbolImage renders an AppKit NSImage with no accessibility
+            // description, so the icon-only button needs an explicit label (the prior
+            // SwiftUI system-symbol path used to supply one implicitly).
+            .accessibilityLabel(String(localized: "notifications.row.clear", defaultValue: "Clear notification"))
         }
         .padding(12)
         .background(
