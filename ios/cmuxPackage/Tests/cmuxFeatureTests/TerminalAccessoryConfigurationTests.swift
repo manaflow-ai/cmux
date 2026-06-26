@@ -2,6 +2,9 @@ import CmuxMobileTerminal
 import CmuxMobileTerminalKit
 import Foundation
 import Testing
+#if os(iOS)
+@testable import CmuxMobileShellUI
+#endif
 
 /// Behavioral tests for ``TerminalAccessoryConfiguration``: the source of truth
 /// for the reorderable terminal accessory bar. These verify the fresh-install
@@ -205,6 +208,16 @@ struct TerminalAccessoryConfigurationTests {
         #expect(restored.symbolName == "sparkles")
         #expect(restored.title == "Run")
     }
+
+    #if os(iOS)
+    /// Verifies the editor rejects icon names UIKit cannot render.
+    @Test("custom action icon editor validates SF Symbol names before saving")
+    func customActionIconEditorValidatesSymbolNames() {
+        #expect(CustomToolbarActionEditorView.validatedSymbolName("  star  ") == "star")
+        #expect(CustomToolbarActionEditorView.validatedSymbolName("cmux.not.a.real.symbol") == nil)
+        #expect(CustomToolbarActionEditorView.validatedSymbolName("   ") == nil)
+    }
+    #endif
 
     // MARK: - Gating test #2: v2 → v3 widening migration
 

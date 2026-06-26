@@ -6189,6 +6189,23 @@
         }
       }
     },
+    "mobile.toolbar.editor.iconInvalidFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a valid SF Symbol name, or leave the field blank."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効な SF Symbol 名を入力するか、空欄のままにしてください。"
+          }
+        }
+      }
+    },
     "mobile.toolbar.editor.iconHeader": {
       "extractionState": "manual",
       "localizations": {
