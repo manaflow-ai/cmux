@@ -1163,9 +1163,9 @@ struct RestorableAgentSessionIndex: Sendable {
                 if hookCandidatesBySession[sessionKey]?.updatedAt ?? -Double.infinity <= effectiveRecord.updatedAt {
                     hookCandidatesBySession[sessionKey] = entry
                 }
-                guard effectiveRecord.pid == nil || liveProcessID != nil else {
-                    continue
-                }
+                // A saved PID is liveness evidence only. It can go stale while the
+                // transcript and hook record are still restorable, so keep the
+                // snapshot and leave processIDs empty when the process is gone.
                 if let existing = resolved[key], existing.updatedAt > effectiveRecord.updatedAt {
                     continue
                 }

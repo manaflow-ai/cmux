@@ -834,6 +834,8 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         let index = RestorableAgentSessionIndex.load(
             homeDirectory: root.path,
             fileManager: fm,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [:],
             processArgumentsProvider: { _ in nil }
         )
         let snapshot = try XCTUnwrap(
@@ -845,7 +847,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         XCTAssertEqual(index.processIDs(workspaceId: ws, panelId: panel), [])
         XCTAssertFalse(index.hasLiveProcess(workspaceId: ws, panelId: panel))
         let fork = try XCTUnwrap(snapshot.forkCommand)
-        XCTAssertTrue(fork.contains("'codex' 'fork' '\(sid)'"), "codex fork command expected; got: \(fork)")
+        XCTAssertTrue(fork.contains("'fork' '\(sid)'"), "codex fork command expected; got: \(fork)")
     }
 
     // Agents without a fork verb must not emit a fork command (a malformed one would launch a broken

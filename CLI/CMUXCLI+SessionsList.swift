@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 extension CMUXCLI {
     private typealias SessionListAgentSpec = (name: String, displayName: String, sessionStoreSuffix: String, configDirEnvOverride: String?)
@@ -108,9 +109,9 @@ extension CMUXCLI {
             selectedSpecs = agentSpecs
         }
 
-        let sessionFilter = sessionsListNormalized(sessionRaw)
-        let workspaceFilter = sessionsListNormalized(workspaceRaw)
-        let surfaceFilter = sessionsListNormalized(surfaceRaw)
+        let sessionFilter = sessionsListNormalized(sessionRaw)?.lowercased()
+        let workspaceFilter = sessionsListNormalizedIDRef(workspaceRaw)?.lowercased()
+        let surfaceFilter = sessionsListNormalizedIDRef(surfaceRaw)?.lowercased()
         let cwdFilter = sessionsListNormalized(cwdRaw)?.lowercased()
         var codexIndexes: [String: CodexSessionListIndex] = [:]
         var entries: [SessionListEntry] = []
@@ -139,9 +140,9 @@ extension CMUXCLI {
             stores.append(storePayload)
 
             for record in store.sessions.values {
-                guard sessionFilter == nil || record.sessionId == sessionFilter else { continue }
-                guard workspaceFilter == nil || record.workspaceId == workspaceFilter else { continue }
-                guard surfaceFilter == nil || record.surfaceId == surfaceFilter else { continue }
+                guard sessionFilter == nil || record.sessionId.lowercased() == sessionFilter else { continue }
+                guard workspaceFilter == nil || record.workspaceId.lowercased() == workspaceFilter else { continue }
+                guard surfaceFilter == nil || record.surfaceId.lowercased() == surfaceFilter else { continue }
                 if let cwdFilter {
                     let cwd = (record.cwd ?? "").lowercased()
                     let launchCwd = (record.launchCommand?.workingDirectory ?? "").lowercased()
@@ -168,6 +169,13 @@ extension CMUXCLI {
                 payload["active_prompt_turn_id"] = record.activePromptTurnId ?? NSNull()
                 payload["launch_working_directory"] = record.launchCommand?.workingDirectory ?? NSNull()
                 payload["launch_arguments"] = record.launchCommand?.arguments ?? []
+                payload.merge(
+                    sessionsListForkDiagnostics(
+                        agent: spec.name,
+                        record: record
+                    ),
+                    uniquingKeysWith: { _, new in new }
+                )
 
                 let workspaceActive = store.activeSessionsByWorkspace[record.workspaceId]
                 let surfaceActive = store.activeSessionsBySurface[record.surfaceId]
@@ -376,6 +384,11 @@ extension CMUXCLI {
             parts.append("codex_indexed=\(indexed)")
             parts.append("codex_transcript=\(transcript)")
         }
+        let forkSupported = ((payload["fork_supported"] as? Bool) == true) ? "yes" : "no"
+        parts.append("fork=\(forkSupported)")
+        if let pidAlive = payload["stored_pid_alive"] as? Bool {
+            parts.append("pid_alive=\(pidAlive ? "yes" : "no")")
+        }
         return parts.joined(separator: "  ")
     }
 
@@ -395,6 +408,63 @@ extension CMUXCLI {
             return nil
         }
         return trimmed
+    }
+
+    private func sessionsListNormalizedIDRef(_ value: String?) -> String? {
+        guard let normalized = sessionsListNormalized(value) else { return nil }
+        if UUID(uuidString: normalized) != nil {
+            return normalized
+        }
+        if let uuid = sessionsListUUIDs(in: normalized).last {
+            return uuid
+        }
+        return normalized
+    }
+
+    private func sessionsListForkDiagnostics(
+        agent: String,
+        record: ClaudeHookSessionRecord
+    ) -> [String: Any] {
+        let storedPIDAlive = sessionsListStoredPIDAlive(record.pid)
+        let agentSupportsFork = sessionsListAgentSupportsFork(agent)
+        let hookRecordRestorable = record.isRestorable != false
+        let forkSupported = agentSupportsFork && hookRecordRestorable
+        let unavailableReason: String
+        if forkSupported {
+            unavailableReason = "available"
+        } else if !hookRecordRestorable {
+            unavailableReason = "record_marked_non_restorable"
+        } else {
+            unavailableReason = "agent_has_no_fork_command"
+        }
+
+        var diagnostics: [String: Any] = [
+            "fork_supported": forkSupported,
+            "fork_unavailable_reason": unavailableReason,
+            "fork_startup_input_available": forkSupported,
+            "hook_record_restorable": hookRecordRestorable,
+            "stale_pid_blocks_restore_in_0_64_17": record.pid != nil && storedPIDAlive == false && forkSupported,
+        ]
+        diagnostics["stored_pid_alive"] = storedPIDAlive ?? NSNull()
+        return diagnostics
+    }
+
+    private func sessionsListAgentSupportsFork(_ agent: String) -> Bool {
+        switch agent {
+        case "claude", "codex", "opencode", "pi", "omp":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func sessionsListStoredPIDAlive(_ pid: Int?) -> Bool? {
+        guard let pid, pid > 0 else { return nil }
+        errno = 0
+        if Darwin.kill(pid_t(pid), 0) == 0 {
+            return true
+        }
+        return errno == EPERM
     }
 
 }
