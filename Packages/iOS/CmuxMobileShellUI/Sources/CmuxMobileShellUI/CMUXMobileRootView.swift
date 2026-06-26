@@ -35,6 +35,7 @@ struct CMUXMobileRootView: View {
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
     @State var authCallbackError: String?
+    @State var shouldShowAuthCodeEntry = false
     #endif
     /// The app's one tailnet detector, built at the composition root and
     /// injected through the environment so pairing, the disconnected shell,
@@ -149,6 +150,7 @@ struct CMUXMobileRootView: View {
             }
             #if os(iOS)
             authCallbackError = nil
+            shouldShowAuthCodeEntry = false
             #endif
             if consumePendingURLIfReady() {
                 return
@@ -185,7 +187,10 @@ struct CMUXMobileRootView: View {
         } else if shouldShowWorkspaceListLayoutPreview {
             workspaceListLayoutPreview
         } else if !isAuthenticated {
-            SignInView(externalError: $authCallbackError)
+            SignInView(
+                externalError: $authCallbackError,
+                shouldShowCodeEntry: $shouldShowAuthCodeEntry
+            )
         } else if store.connectionState != .connected && shouldShowRestoringStoredMac {
             RestoringStoredMacWorkspaceShell(
                 store: store,
@@ -442,6 +447,7 @@ struct CMUXMobileRootView: View {
     private func signOut() {
         #if os(iOS)
         authCallbackError = nil
+        shouldShowAuthCodeEntry = false
         // The hook receives the tokens captured before the local-first clear:
         // by the time it runs, the live token store is already empty.
         let pushCoordinator = pushCoordinator

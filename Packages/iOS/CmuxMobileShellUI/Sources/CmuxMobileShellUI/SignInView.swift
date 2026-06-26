@@ -14,6 +14,7 @@ struct SignInView: View {
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(\.analytics) private var analytics
     @Binding private var externalError: String?
+    @Binding private var shouldShowCodeEntry: Bool
     @State private var email = ""
     @State private var code = ""
     @State private var showCodeEntry = false
@@ -26,8 +27,12 @@ struct SignInView: View {
     @FocusState private var isEmailFocused: Bool
     @FocusState private var isCodeFocused: Bool
 
-    init(externalError: Binding<String?> = .constant(nil)) {
+    init(
+        externalError: Binding<String?> = .constant(nil),
+        shouldShowCodeEntry: Binding<Bool> = .constant(false)
+    ) {
         _externalError = externalError
+        _shouldShowCodeEntry = shouldShowCodeEntry
     }
 
     var body: some View {
@@ -48,6 +53,10 @@ struct SignInView: View {
                 }
             }
             .mobileInlineNavigationTitle()
+            .onAppear(perform: showRequestedCodeEntryIfNeeded)
+            .onChange(of: shouldShowCodeEntry) { _, _ in
+                showRequestedCodeEntryIfNeeded()
+            }
         }
     }
 
@@ -173,7 +182,7 @@ struct SignInView: View {
                 VStack(spacing: 6) {
                     Text(L10n.string("mobile.signIn.checkEmail", defaultValue: "Check your email"))
                         .font(.headline)
-                    Text(String(format: L10n.string("mobile.signIn.sentCodeFormat", defaultValue: "We sent a code to %@"), email))
+                    Text(codeEntrySubtitle)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -258,9 +267,29 @@ struct SignInView: View {
         return nil
     }
 
+    private var codeEntrySubtitle: String {
+        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedEmail.isEmpty else {
+            return L10n.string("mobile.signIn.sentCodeGeneric", defaultValue: "Enter the code from the email.")
+        }
+        return String(
+            format: L10n.string("mobile.signIn.sentCodeFormat", defaultValue: "We sent a code to %@"),
+            trimmedEmail
+        )
+    }
+
     private func clearErrors() {
         error = nil
         externalError = nil
+    }
+
+    private func showRequestedCodeEntryIfNeeded() {
+        guard shouldShowCodeEntry else { return }
+        shouldAutofocusCode = true
+        withAnimation(.snappy(duration: 0.18)) {
+            showCodeEntry = true
+        }
+        shouldShowCodeEntry = false
     }
 
     private func sendCode(autofocusCodeOnSuccess: Bool) async {
