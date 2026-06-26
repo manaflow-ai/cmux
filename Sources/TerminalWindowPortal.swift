@@ -853,7 +853,7 @@ final class WindowTerminalPortal: NSObject {
             frameInContainer.size.height.isFinite
         guard hasFiniteFrame else { return false }
 
-        if !Self.rectApproximatelyEqual(hostView.frame, frameInContainer) {
+        if !hostView.frame.isApproximatelyEqual(to: frameInContainer, epsilon: 0.01) {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             hostView.frame = frameInContainer
@@ -883,7 +883,7 @@ final class WindowTerminalPortal: NSObject {
             hostView.addSubview(dividerOverlayView, positioned: .above, relativeTo: nil)
         }
 
-        if !Self.rectApproximatelyEqual(dividerOverlayView.frame, hostView.bounds) {
+        if !dividerOverlayView.frame.isApproximatelyEqual(to: hostView.bounds, epsilon: 0.01) {
             dividerOverlayView.frame = hostView.bounds
         }
         dividerOverlayView.needsDisplay = true
@@ -919,17 +919,17 @@ final class WindowTerminalPortal: NSObject {
             installedContainerView = container
             installedReferenceView = reference
         } else if let browserHost {
-            if !Self.isView(browserHost, above: hostView, in: container) {
+            if !browserHost.isOrdered(above: hostView, in: container) {
                 container.addSubview(hostView, positioned: .below, relativeTo: browserHost)
             }
-        } else if !Self.isView(hostView, above: reference, in: container) {
+        } else if !hostView.isOrdered(above: reference, in: container) {
             container.addSubview(hostView, positioned: .above, relativeTo: reference)
         }
 
         // Keep the drag/mouse forwarding overlay above portal-hosted terminal views.
         if let overlay = objc_getAssociatedObject(window, &fileDropOverlayKey) as? NSView,
            overlay.superview === container,
-           !Self.isView(overlay, above: hostView, in: container) {
+           !overlay.isOrdered(above: hostView, in: container) {
             container.addSubview(overlay, positioned: .above, relativeTo: hostView)
         }
 
@@ -963,50 +963,6 @@ final class WindowTerminalPortal: NSObject {
             .contentOverlayTargetResolver
             .installationTarget(for: window) else { return nil }
         return (target.container, target.reference)
-    }
-
-    private static func isHiddenOrAncestorHidden(_ view: NSView) -> Bool {
-        if view.isHidden { return true }
-        var current = view.superview
-        while let v = current {
-            if v.isHidden { return true }
-            current = v.superview
-        }
-        return false
-    }
-
-    private static func rectApproximatelyEqual(_ lhs: NSRect, _ rhs: NSRect, epsilon: CGFloat = 0.01) -> Bool {
-        abs(lhs.origin.x - rhs.origin.x) <= epsilon &&
-            abs(lhs.origin.y - rhs.origin.y) <= epsilon &&
-            abs(lhs.size.width - rhs.size.width) <= epsilon &&
-            abs(lhs.size.height - rhs.size.height) <= epsilon
-    }
-
-    private static func pixelSnappedRect(_ rect: NSRect, in view: NSView) -> NSRect {
-        guard rect.origin.x.isFinite,
-              rect.origin.y.isFinite,
-              rect.size.width.isFinite,
-              rect.size.height.isFinite else {
-            return rect
-        }
-        let scale = max(1.0, view.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1.0)
-        func snap(_ value: CGFloat) -> CGFloat {
-            (value * scale).rounded(.toNearestOrAwayFromZero) / scale
-        }
-        return NSRect(
-            x: snap(rect.origin.x),
-            y: snap(rect.origin.y),
-            width: max(0, snap(rect.size.width)),
-            height: max(0, snap(rect.size.height))
-        )
-    }
-
-    private static func isView(_ view: NSView, above reference: NSView, in container: NSView) -> Bool {
-        guard let viewIndex = container.subviews.firstIndex(of: view),
-              let referenceIndex = container.subviews.firstIndex(of: reference) else {
-            return false
-        }
-        return viewIndex > referenceIndex
     }
 
     private func preferredBrowserHost(in container: NSView) -> WindowBrowserHostView? {
@@ -1070,7 +1026,7 @@ final class WindowTerminalPortal: NSObject {
         _ = synchronizeHostFrameToReference()
         let frameInWindow = effectiveAnchorFrameInWindow(for: anchorView)
         let frameInHostRaw = hostView.convert(frameInWindow, from: nil)
-        let frameInHost = Self.pixelSnappedRect(frameInHostRaw, in: hostView)
+        let frameInHost = frameInHostRaw.pixelSnapped(in: hostView)
         let hasFiniteFrame =
             frameInHost.origin.x.isFinite &&
             frameInHost.origin.y.isFinite &&
@@ -1444,7 +1400,7 @@ final class WindowTerminalPortal: NSObject {
         _ = synchronizeHostFrameToReference()
         let frameInWindow = effectiveAnchorFrameInWindow(for: anchorView)
         let frameInHostRaw = hostView.convert(frameInWindow, from: nil)
-        let frameInHost = Self.pixelSnappedRect(frameInHostRaw, in: hostView)
+        let frameInHost = frameInHostRaw.pixelSnapped(in: hostView)
 #if DEBUG
         logBonsplitContainerFrameIfNeeded(anchorView: anchorView, hostedView: hostedView)
 #endif
@@ -1509,7 +1465,7 @@ final class WindowTerminalPortal: NSObject {
             clampedFrame.width > 1 &&
             clampedFrame.height > 1
         let targetFrame = (hasFiniteFrame && hasVisibleIntersection) ? clampedFrame : frameInHost
-        let anchorHidden = Self.isHiddenOrAncestorHidden(anchorView)
+        let anchorHidden = anchorView.isHiddenOrAncestorHidden
         let tinyFrame =
             targetFrame.width <= Self.tinyHideThreshold ||
             targetFrame.height <= Self.tinyHideThreshold
@@ -1551,7 +1507,7 @@ final class WindowTerminalPortal: NSObject {
 
         let oldFrame = hostedView.frame
 #if DEBUG
-        let frameWasClamped = hasFiniteFrame && !Self.rectApproximatelyEqual(frameInHost, targetFrame)
+        let frameWasClamped = hasFiniteFrame && !frameInHost.isApproximatelyEqual(to: targetFrame, epsilon: 0.01)
         if frameWasClamped {
             cmuxDebugLog(
                 "portal.frame.clamp hosted=\(portalDebugToken(hostedView)) " +
@@ -1604,11 +1560,11 @@ final class WindowTerminalPortal: NSObject {
             var geometryChanged = false
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            if !Self.rectApproximatelyEqual(oldFrame, targetFrame) {
+            if !oldFrame.isApproximatelyEqual(to: targetFrame, epsilon: 0.01) {
                 hostedView.frame = targetFrame
                 geometryChanged = true
             }
-            if !Self.rectApproximatelyEqual(hostedView.bounds, expectedBounds) {
+            if !hostedView.bounds.isApproximatelyEqual(to: expectedBounds, epsilon: 0.01) {
                 hostedView.bounds = expectedBounds
                 geometryChanged = true
             }
@@ -1621,7 +1577,7 @@ final class WindowTerminalPortal: NSObject {
 
         if shouldDeferReveal {
 #if DEBUG
-            if !Self.rectApproximatelyEqual(oldFrame, frameInHost) {
+            if !oldFrame.isApproximatelyEqual(to: frameInHost, epsilon: 0.01) {
                 cmuxDebugLog(
                     "portal.hidden.deferReveal hosted=\(portalDebugToken(hostedView)) " +
                     "frame=\(portalDebugFrame(frameInHost)) min=\(Int(Self.minimumRevealWidth))x\(Int(Self.minimumRevealHeight))"

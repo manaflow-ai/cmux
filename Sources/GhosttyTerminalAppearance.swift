@@ -17,6 +17,45 @@ import Foundation
 /// payload built in the package is read here unchanged.
 typealias GhosttyDefaultBackgroundNotificationDispatcher = TerminalDefaultBackgroundNotificationDispatcher
 
+/// Read-only forwards for the default-appearance state drained off `GhosttyApp`
+/// into ``CmuxTerminal/TerminalDefaultAppearanceState`` (held as
+/// `GhosttyApp.appearanceState`). These keep every legacy
+/// `GhosttyApp.shared.defaultBackgroundColor` / `app.defaultBackgroundBlur` /
+/// `effectiveTerminalColorSchemePreference` read site (main window, browser
+/// panel, right-sidebar style, titlebar accessory, workspace content, sidebar,
+/// tab manager, debug controls) byte-identical. The setters live on the model;
+/// the only writer is its scope-arbitrated `applyDefaultBackground`.
+extension GhosttyApp {
+    /// The resolved terminal background color.
+    var defaultBackgroundColor: NSColor { appearanceState.defaultBackgroundColor }
+
+    /// The resolved terminal background opacity.
+    var defaultBackgroundOpacity: Double { appearanceState.defaultBackgroundOpacity }
+
+    /// The resolved terminal background blur.
+    var defaultBackgroundBlur: GhosttyBackgroundBlur { appearanceState.defaultBackgroundBlur }
+
+    /// The resolved terminal foreground color.
+    var defaultForegroundColor: NSColor { appearanceState.defaultForegroundColor }
+
+    /// The resolved terminal cursor color.
+    var defaultCursorColor: NSColor { appearanceState.defaultCursorColor }
+
+    /// The resolved terminal cursor text color.
+    var defaultCursorTextColor: NSColor { appearanceState.defaultCursorTextColor }
+
+    /// The resolved terminal selection background color.
+    var defaultSelectionBackground: NSColor { appearanceState.defaultSelectionBackground }
+
+    /// The resolved terminal selection foreground color.
+    var defaultSelectionForeground: NSColor { appearanceState.defaultSelectionForeground }
+
+    /// The terminal color-scheme preference derived from the resolved background.
+    var effectiveTerminalColorSchemePreference: GhosttyConfig.ColorSchemePreference {
+        appearanceState.effectiveTerminalColorSchemePreference
+    }
+}
+
 enum GhosttyNotificationKey {
     static let scrollbar = "ghostty.scrollbar"
     static let cellSize = "ghostty.cellSize"

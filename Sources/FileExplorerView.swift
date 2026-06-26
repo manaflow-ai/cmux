@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Combine
+import CmuxGit
 import CmuxWorkspaces
 import CmuxSettings
 import SwiftUI
