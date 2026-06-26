@@ -837,6 +837,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "leftMinWidth": "Largeur minimale en points jusqu’à laquelle la barre latérale gauche (espaces de travail) peut être réduite. Réduisez-la pour récupérer de l’espace pour le terminal sans masquer la barre latérale. Limitée à 100–260 ; valeur par défaut 216.",
           "rightMaxWidth": "Largeur maximale en points de la barre latérale droite. Si elle est omise, la limite dynamique intégrée s’applique."
         },
         "fileExplorer": {

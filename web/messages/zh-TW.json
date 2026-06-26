@@ -837,6 +837,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "leftMinWidth": "左側邊欄（工作區）可拖曳至的最小寬度（點）。調小可在不隱藏邊欄的情況下為終端機騰出空間。限制在 100–260；預設值為 216。",
           "rightMaxWidth": "右側邊欄的最大寬度（點）。省略時使用內建動態上限。"
         },
         "fileExplorer": {

@@ -2,6 +2,7 @@ import CmuxSettings
 import Foundation
 
 typealias RightSidebarWidthSettings = CmuxSettings.RightSidebarWidthSettings
+typealias LeftSidebarWidthSettings = CmuxSettings.LeftSidebarWidthSettings
 
 enum SidebarWorkspaceDetailDefaults {
     static let showBranchDirectoryKey = "sidebarShowBranchDirectory"
@@ -384,6 +385,7 @@ extension CmuxSettingsFileStore {
         "sidebar.showLog",
         "sidebar.showProgress",
         "sidebar.showCustomMetadata",
+        LeftSidebarWidthSettings.settingsPath,
         RightSidebarWidthSettings.settingsPath,
         "workspaceColors.indicatorStyle",
         "workspaceColors.selectionColor",

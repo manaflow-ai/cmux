@@ -254,6 +254,152 @@ final class SidebarWidthPolicyTests: XCTestCase {
         )
     }
 
+    func testLeftSidebarMinWidthPolicyMatchesSessionPolicy() {
+        XCTAssertEqual(LeftSidebarWidthSettings.defaultMinimumWidth, 216, accuracy: 0.001)
+        XCTAssertEqual(LeftSidebarWidthSettings.lowerBound, 100, accuracy: 0.001)
+        XCTAssertEqual(
+            SessionPersistencePolicy.sidebarMinimumWidthRange,
+            LeftSidebarWidthSettings.range
+        )
+        XCTAssertEqual(
+            SessionPersistencePolicy.sidebarMinimumWidthKey,
+            LeftSidebarWidthSettings.minimumWidthKey
+        )
+        // The configurable floor genuinely allows a narrower sidebar than the
+        // historical 216 minimum (the point of issue #6784).
+        let settings = LeftSidebarWidthSettings()
+        XCTAssertEqual(settings.clampedMinimumWidth(120), 120, accuracy: 0.001)
+        XCTAssertEqual(settings.clampedMinimumWidth(50), 100, accuracy: 0.001)
+        XCTAssertEqual(settings.clampedMinimumWidth(10_000), 260, accuracy: 0.001)
+        XCTAssertEqual(settings.clampedMinimumWidth(.nan), 216, accuracy: 0.001)
+    }
+
+    func testConfiguredLeftSidebarMinWidthLetsContentViewClampNarrower() {
+        let suiteName = "SidebarWidthPolicyTests.leftMinWidth.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(120.0, forKey: SessionPersistencePolicy.sidebarMinimumWidthKey)
+        let resolved = SessionPersistencePolicy.resolvedMinimumSidebarWidth(defaults: defaults)
+        XCTAssertEqual(resolved, 120, accuracy: 0.001)
+        // With a 120pt configured floor the sidebar can be dragged down to 120,
+        // below the historical 216 hard minimum.
+        XCTAssertEqual(
+            ContentView.clampedSidebarWidth(120, maximumWidth: 600, minimumWidth: CGFloat(resolved)),
+            120,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            ContentView.clampedSidebarWidth(90, maximumWidth: 600, minimumWidth: CGFloat(resolved)),
+            120,
+            accuracy: 0.001
+        )
+    }
+
+    func testSettingsFileStoreAppliesLeftSidebarMinWidthSetting() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = LeftSidebarWidthSettings.minimumWidthKey
+        let previousValues = [
+            managedKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ].reduce(into: [String: Any]()) { values, key in
+            values[key] = defaults.object(forKey: key)
+        }
+        defer {
+            for key in [managedKey, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey] {
+                if let value = previousValues[key] {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+        }
+
+        defaults.removeObject(forKey: managedKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+        defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+        let directoryURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "left-sidebar-min-width-settings-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try """
+        {
+          "sidebar": {
+            "leftMinWidth": 120
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+
+        XCTAssertEqual(defaults.double(forKey: managedKey), 120, accuracy: 0.001)
+    }
+
+    func testSettingsFileStoreClampsLeftSidebarMinWidthSetting() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = LeftSidebarWidthSettings.minimumWidthKey
+        let previousValues = [
+            managedKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ].reduce(into: [String: Any]()) { values, key in
+            values[key] = defaults.object(forKey: key)
+        }
+        defer {
+            for key in [managedKey, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey] {
+                if let value = previousValues[key] {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+        }
+
+        defaults.removeObject(forKey: managedKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+        defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+        let directoryURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "left-sidebar-min-width-settings-clamped-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try """
+        {
+          "sidebar": {
+            "leftMinWidth": 40
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            defaults.double(forKey: managedKey),
+            LeftSidebarWidthSettings.lowerBound,
+            accuracy: 0.001
+        )
+    }
+
     func testLeadingSidebarResizeRangeFavorsSidebarSide() {
         let range = SidebarResizeInteraction.Edge.leading.hitRange(dividerX: 200)
 
