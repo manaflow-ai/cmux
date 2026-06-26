@@ -218,6 +218,71 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(session["fork_startup_input_available"] as? Bool == false)
     }
 
+    @Test func testSessionsListForkStartupInputCountsSelectedEnvironment() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sessions-list-fork-env-\(UUID().uuidString)", isDirectory: true)
+        let stateDir = root.appendingPathComponent("state", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sessionId = "019ef8fe-3dd6-7111-a356-56d5389db910"
+        let workspaceId = "33B0D372-292E-42BF-97B6-E37CCA79AB84"
+        let surfaceId = "A2AECAA9-EE1C-4999-B7A9-EE4BB4CDA5D8"
+        let oversizedCodexHome = root.appendingPathComponent(String(repeating: "codex-home-", count: 100)).path
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": workspaceId,
+                    "surfaceId": surfaceId,
+                    "cwd": "/tmp/cmux/debug",
+                    "startedAt": 1_781_996_800.0,
+                    "updatedAt": 1_781_996_867.0,
+                    "launchCommand": [
+                        "launcher": "codex",
+                        "executablePath": "codex",
+                        "arguments": ["codex"],
+                        "workingDirectory": "/tmp/cmux/debug",
+                        "environment": [
+                            "CODEX_HOME": oversizedCodexHome,
+                        ],
+                        "source": "environment",
+                    ],
+                ]
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["sessions", "list", "--agent", "codex", "--session", sessionId, "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let outputData = try #require(result.stdout.data(using: .utf8))
+        let object = try #require(JSONSerialization.jsonObject(with: outputData) as? [String: Any])
+        #expect(object["total_matches"] as? Int == 1)
+        let sessions = try #require(object["sessions"] as? [[String: Any]])
+        let session = try #require(sessions.first)
+        #expect(session["session_id"] as? String == sessionId)
+        #expect(session["fork_supported"] as? Bool == true)
+        #expect(session["fork_unavailable_reason"] as? String == "available")
+        #expect(session["fork_startup_input_available"] as? Bool == false)
+    }
+
     @Test func testSessionsListDoesNotReportLocalOpenCodeForkSupportedWithoutVersionProbe() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
