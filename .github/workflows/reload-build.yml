@@ -333,7 +333,7 @@ jobs:
               echo "Virtual display ready: $(tr -d '\n' < "$VDISPLAY_ID_PATH")"
             fi
             if ! command -v ffmpeg >/dev/null 2>&1 || ! ffmpeg -version >/dev/null 2>&1; then
-              brew install --quiet ffmpeg
+              HOMEBREW_NO_REQUIRE_TAP_TRUST=1 brew install --quiet ffmpeg
             fi
             FFMPEG_BIN="$(command -v ffmpeg)"
             SYS_TCC="/Library/Application Support/com.apple.TCC/TCC.db"
