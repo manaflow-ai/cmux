@@ -1,59 +1,6 @@
 import Foundation
 import Observation
 
-// Shared Sleepy Mode preferences. Lives in the settings package so the
-// Preferences "Sleepy Mode" section can bind to it directly; the app's
-// renderer and controller read the same store.
-
-public enum SleepyTheme: String, CaseIterable, Identifiable, Sendable {
-    case cmux, blossom, mint, mono, custom
-    public var id: String { rawValue }
-}
-
-public enum SleepyMascot: String, CaseIterable, Identifiable, Sendable {
-    case cmux, cat, ghost, logoFace
-    public var id: String { rawValue }
-}
-
-public enum SleepyGlow: String, CaseIterable, Identifiable, Sendable {
-    case black, midnight, cmux, aurora, sunset, ocean, custom
-    public var id: String { rawValue }
-}
-
-/// Default custom colors (matched to the cmux theme so "Custom" starts familiar).
-public enum SleepyCustomDefaults {
-    public static let face = "E0EDFF"
-    public static let cap = "5CD6FF"
-    public static let blush = "FF99B5"
-    public static let ink = "333D6B"
-    public static let logo = "6BDEFF"
-    public static let background = "060812"
-}
-
-/// Immutable snapshot of the user's Sleepy Mode preferences, read fresh each
-/// frame by the renderer so settings changes preview live.
-public struct SleepyModeConfig: Equatable, Sendable {
-    public var theme: SleepyTheme = .cmux
-    public var mascot: SleepyMascot = .cmux
-    public var glow: SleepyGlow = .black
-    public var showMoon = true
-    public var showStars = true
-    public var showZs = true
-    public var showClock = true
-    public var showStatus = true
-    public var showPets = true
-
-    // Custom colors (used when theme == .custom / glow == .custom). Hex "RRGGBB".
-    public var customFace = SleepyCustomDefaults.face
-    public var customCap = SleepyCustomDefaults.cap
-    public var customBlush = SleepyCustomDefaults.blush
-    public var customInk = SleepyCustomDefaults.ink
-    public var customLogo = SleepyCustomDefaults.logo
-    public var customBackground = SleepyCustomDefaults.background
-
-    public init() {}
-}
-
 /// Persisted, observable Sleepy Mode preferences. The renderer reads
 /// `snapshot()` fresh each animation frame, so changing any value updates the
 /// full-screen overlay immediately; the settings section binds to the same
@@ -70,63 +17,63 @@ public struct SleepyModeConfig: Equatable, Sendable {
 /// layer inconsistently.
 @Observable
 public final class SleepyModeSettingsStore {
-    public var theme: SleepyTheme { didSet { persist(theme.rawValue, Keys.theme) } }
-    public var mascot: SleepyMascot { didSet { persist(mascot.rawValue, Keys.mascot) } }
-    public var glow: SleepyGlow { didSet { persist(glow.rawValue, Keys.glow) } }
-    public var showMoon: Bool { didSet { persist(showMoon, Keys.showMoon) } }
-    public var showStars: Bool { didSet { persist(showStars, Keys.showStars) } }
-    public var showZs: Bool { didSet { persist(showZs, Keys.showZs) } }
-    public var showClock: Bool { didSet { persist(showClock, Keys.showClock) } }
-    public var showStatus: Bool { didSet { persist(showStatus, Keys.showStatus) } }
-    public var showPets: Bool { didSet { persist(showPets, Keys.showPets) } }
+    /// Mascot/scene color theme.
+    public var theme: SleepyTheme { didSet { persist(theme.rawValue, SleepyModeDefaultsKeys.theme) } }
+    /// Which mascot/face to draw.
+    public var mascot: SleepyMascot { didSet { persist(mascot.rawValue, SleepyModeDefaultsKeys.mascot) } }
+    /// Background glow gradient.
+    public var glow: SleepyGlow { didSet { persist(glow.rawValue, SleepyModeDefaultsKeys.glow) } }
+    /// Whether the moon is drawn.
+    public var showMoon: Bool { didSet { persist(showMoon, SleepyModeDefaultsKeys.showMoon) } }
+    /// Whether twinkling stars are drawn.
+    public var showStars: Bool { didSet { persist(showStars, SleepyModeDefaultsKeys.showStars) } }
+    /// Whether floating "z z z" are drawn.
+    public var showZs: Bool { didSet { persist(showZs, SleepyModeDefaultsKeys.showZs) } }
+    /// Whether the pixel clock and date are drawn.
+    public var showClock: Bool { didSet { persist(showClock, SleepyModeDefaultsKeys.showClock) } }
+    /// Whether the battery and Wi-Fi status are drawn.
+    public var showStatus: Bool { didSet { persist(showStatus, SleepyModeDefaultsKeys.showStatus) } }
+    /// Whether one walking pet per running agent is drawn.
+    public var showPets: Bool { didSet { persist(showPets, SleepyModeDefaultsKeys.showPets) } }
 
-    public var customFace: String { didSet { persist(customFace, Keys.customFace) } }
-    public var customCap: String { didSet { persist(customCap, Keys.customCap) } }
-    public var customBlush: String { didSet { persist(customBlush, Keys.customBlush) } }
-    public var customInk: String { didSet { persist(customInk, Keys.customInk) } }
-    public var customLogo: String { didSet { persist(customLogo, Keys.customLogo) } }
-    public var customBackground: String { didSet { persist(customBackground, Keys.customBackground) } }
+    /// Custom face color ("RRGGBB"), used when `theme == .custom`.
+    public var customFace: String { didSet { persist(customFace, SleepyModeDefaultsKeys.customFace) } }
+    /// Custom nightcap color ("RRGGBB"), used when `theme == .custom`.
+    public var customCap: String { didSet { persist(customCap, SleepyModeDefaultsKeys.customCap) } }
+    /// Custom blush color ("RRGGBB"), used when `theme == .custom`.
+    public var customBlush: String { didSet { persist(customBlush, SleepyModeDefaultsKeys.customBlush) } }
+    /// Custom eye/ink color ("RRGGBB"), used when `theme == .custom`.
+    public var customInk: String { didSet { persist(customInk, SleepyModeDefaultsKeys.customInk) } }
+    /// Custom logo color ("RRGGBB"), used when `theme == .custom`.
+    public var customLogo: String { didSet { persist(customLogo, SleepyModeDefaultsKeys.customLogo) } }
+    /// Custom background color ("RRGGBB"), used when `glow == .custom`.
+    public var customBackground: String { didSet { persist(customBackground, SleepyModeDefaultsKeys.customBackground) } }
 
     private let defaults: UserDefaults
 
-    private enum Keys {
-        static let theme = "sleepyMode.theme"
-        static let mascot = "sleepyMode.mascot"
-        static let glow = "sleepyMode.glow"
-        static let showMoon = "sleepyMode.showMoon"
-        static let showStars = "sleepyMode.showStars"
-        static let showZs = "sleepyMode.showZs"
-        static let showClock = "sleepyMode.showClock"
-        static let showStatus = "sleepyMode.showStatus"
-        static let showPets = "sleepyMode.showPets"
-        static let customFace = "sleepyMode.customFace"
-        static let customCap = "sleepyMode.customCap"
-        static let customBlush = "sleepyMode.customBlush"
-        static let customInk = "sleepyMode.customInk"
-        static let customLogo = "sleepyMode.customLogo"
-        static let customBackground = "sleepyMode.customBackground"
-    }
-
+    /// Loads persisted preferences from `defaults` (inject an isolated
+    /// `UserDefaults` for tests/previews); missing keys fall back to defaults.
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         let fallback = SleepyModeConfig()
-        theme = (defaults.string(forKey: Keys.theme)).flatMap(SleepyTheme.init(rawValue:)) ?? fallback.theme
-        mascot = (defaults.string(forKey: Keys.mascot)).flatMap(SleepyMascot.init(rawValue:)) ?? fallback.mascot
-        glow = (defaults.string(forKey: Keys.glow)).flatMap(SleepyGlow.init(rawValue:)) ?? fallback.glow
-        showMoon = defaults.object(forKey: Keys.showMoon) as? Bool ?? fallback.showMoon
-        showStars = defaults.object(forKey: Keys.showStars) as? Bool ?? fallback.showStars
-        showZs = defaults.object(forKey: Keys.showZs) as? Bool ?? fallback.showZs
-        showClock = defaults.object(forKey: Keys.showClock) as? Bool ?? fallback.showClock
-        showStatus = defaults.object(forKey: Keys.showStatus) as? Bool ?? fallback.showStatus
-        showPets = defaults.object(forKey: Keys.showPets) as? Bool ?? fallback.showPets
-        customFace = defaults.string(forKey: Keys.customFace) ?? fallback.customFace
-        customCap = defaults.string(forKey: Keys.customCap) ?? fallback.customCap
-        customBlush = defaults.string(forKey: Keys.customBlush) ?? fallback.customBlush
-        customInk = defaults.string(forKey: Keys.customInk) ?? fallback.customInk
-        customLogo = defaults.string(forKey: Keys.customLogo) ?? fallback.customLogo
-        customBackground = defaults.string(forKey: Keys.customBackground) ?? fallback.customBackground
+        theme = (defaults.string(forKey: SleepyModeDefaultsKeys.theme)).flatMap(SleepyTheme.init(rawValue:)) ?? fallback.theme
+        mascot = (defaults.string(forKey: SleepyModeDefaultsKeys.mascot)).flatMap(SleepyMascot.init(rawValue:)) ?? fallback.mascot
+        glow = (defaults.string(forKey: SleepyModeDefaultsKeys.glow)).flatMap(SleepyGlow.init(rawValue:)) ?? fallback.glow
+        showMoon = defaults.object(forKey: SleepyModeDefaultsKeys.showMoon) as? Bool ?? fallback.showMoon
+        showStars = defaults.object(forKey: SleepyModeDefaultsKeys.showStars) as? Bool ?? fallback.showStars
+        showZs = defaults.object(forKey: SleepyModeDefaultsKeys.showZs) as? Bool ?? fallback.showZs
+        showClock = defaults.object(forKey: SleepyModeDefaultsKeys.showClock) as? Bool ?? fallback.showClock
+        showStatus = defaults.object(forKey: SleepyModeDefaultsKeys.showStatus) as? Bool ?? fallback.showStatus
+        showPets = defaults.object(forKey: SleepyModeDefaultsKeys.showPets) as? Bool ?? fallback.showPets
+        customFace = defaults.string(forKey: SleepyModeDefaultsKeys.customFace) ?? fallback.customFace
+        customCap = defaults.string(forKey: SleepyModeDefaultsKeys.customCap) ?? fallback.customCap
+        customBlush = defaults.string(forKey: SleepyModeDefaultsKeys.customBlush) ?? fallback.customBlush
+        customInk = defaults.string(forKey: SleepyModeDefaultsKeys.customInk) ?? fallback.customInk
+        customLogo = defaults.string(forKey: SleepyModeDefaultsKeys.customLogo) ?? fallback.customLogo
+        customBackground = defaults.string(forKey: SleepyModeDefaultsKeys.customBackground) ?? fallback.customBackground
     }
 
+    /// Returns an immutable snapshot of the current preferences for the renderer.
     public func snapshot() -> SleepyModeConfig {
         var config = SleepyModeConfig()
         config.theme = theme

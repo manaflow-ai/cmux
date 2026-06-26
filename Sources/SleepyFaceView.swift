@@ -23,16 +23,9 @@ struct SleepyFaceView: View {
     @State private var petReactAt: [Int: Double] = [:]
     @State private var moonReactAt: Double?
 
-    private struct Reactions {
-        var mascotAt: Double?
-        var mascotPokes: Int
-        var petAt: [Int: Double]
-        var moonAt: Double?
-    }
-
     var body: some View {
         let config = store.snapshot()
-        let reactions = Reactions(mascotAt: mascotReactAt, mascotPokes: mascotPokes, petAt: petReactAt, moonAt: moonReactAt)
+        let reactions = SleepyReactions(mascotAt: mascotReactAt, mascotPokes: mascotPokes, petAt: petReactAt, moonAt: moonReactAt)
         return GeometryReader { geo in
             ZStack {
                 RadialGradient(
@@ -137,7 +130,7 @@ struct SleepyFaceView: View {
                 } label: {
                     Label(String(localized: "sleepyMode.button.exit", defaultValue: "Exit"), systemImage: "xmark")
                 }
-                .buttonStyle(PixelButtonStyle(tint: Color(red: 0.52, green: 0.30, blue: 0.40)))
+                .buttonStyle(SleepyPixelButtonStyle(tint: Color(red: 0.52, green: 0.30, blue: 0.40)))
 
                 Button {
                     // The real macOS login lock — genuinely secure (Apple's), unlike
@@ -147,7 +140,7 @@ struct SleepyFaceView: View {
                 } label: {
                     Label(String(localized: "sleepyMode.button.lockMac", defaultValue: "Lock Mac"), systemImage: "lock.fill")
                 }
-                .buttonStyle(PixelButtonStyle(tint: Color(red: 0.34, green: 0.30, blue: 0.60)))
+                .buttonStyle(SleepyPixelButtonStyle(tint: Color(red: 0.34, green: 0.30, blue: 0.60)))
 
                 Button {
                     let power = power
@@ -155,7 +148,7 @@ struct SleepyFaceView: View {
                 } label: {
                     Label(String(localized: "sleepyMode.button.sleepDisplay", defaultValue: "Sleep Display"), systemImage: "moon.fill")
                 }
-                .buttonStyle(PixelButtonStyle(tint: Color(red: 0.28, green: 0.40, blue: 0.62)))
+                .buttonStyle(SleepyPixelButtonStyle(tint: Color(red: 0.28, green: 0.40, blue: 0.62)))
 
                 Button {
                     // The runner does the blocking pmset/admin-prompt work off-main;
@@ -171,7 +164,7 @@ struct SleepyFaceView: View {
                         systemImage: lowPowerOn ? "leaf.fill" : "leaf"
                     )
                 }
-                .buttonStyle(PixelButtonStyle(tint: lowPowerOn ? Color(red: 0.24, green: 0.56, blue: 0.32) : Color(red: 0.30, green: 0.42, blue: 0.46)))
+                .buttonStyle(SleepyPixelButtonStyle(tint: lowPowerOn ? Color(red: 0.24, green: 0.56, blue: 0.32) : Color(red: 0.30, green: 0.42, blue: 0.46)))
             }
             Spacer().frame(height: 50)
             Text(hintText)
@@ -183,7 +176,7 @@ struct SleepyFaceView: View {
 
     // MARK: - Scene
 
-    private func draw(in ctx: inout GraphicsContext, size: CGSize, time t: Double, config: SleepyModeConfig, agents: SleepyAgentCounts, status: SleepyStatusSample, reactions: Reactions) {
+    private func draw(in ctx: inout GraphicsContext, size: CGSize, time t: Double, config: SleepyModeConfig, agents: SleepyAgentCounts, status: SleepyStatusSample, reactions: SleepyReactions) {
         let palette = SleepyPalette.colors(for: config)
         let ink = SleepyPalette.ink(for: config)
         let s = min(size.width, size.height)
@@ -252,18 +245,9 @@ struct SleepyFaceView: View {
 
     // MARK: - Agent pets
 
-    private struct PetFrame {
-        let rect: CGRect
-        let color: Color
-        let index: Int
-        let facingRight: Bool
-        let step: Int
-        let cell: CGFloat
-    }
-
     /// Positions of every pet at a given time. Shared by the renderer and the
     /// tap hit-test so they always agree. Pets ping-pong within the screen.
-    private func petFrames(size: CGSize, pixel: CGFloat, time t: Double, counts: SleepyAgentCounts) -> [PetFrame] {
+    private func petFrames(size: CGSize, pixel: CGFloat, time t: Double, counts: SleepyAgentCounts) -> [SleepyPetFrame] {
         guard counts.total > 0 else { return [] }
         let cell = max(2, (pixel * 0.5).rounded())
         let baseline = (size.height * 0.85).rounded()
@@ -284,7 +268,7 @@ struct SleepyFaceView: View {
         let left = 2 * cell
         let right = max(left, size.width - petW - 2 * cell)
         let track = max(1, Double(right - left))
-        var frames: [PetFrame] = []
+        var frames: [SleepyPetFrame] = []
         for (i, color) in colors.enumerated() {
             let speed = Double(cell) * (4 + Double(i % 4) * 2)
             let offset = Double(i) * 0.31 * track
@@ -293,7 +277,7 @@ struct SleepyFaceView: View {
             let pos = goingRight ? phase : (2 * track - phase)
             let x = (left + CGFloat(pos)).rounded()
             let step = Int(t * 6 + Double(i)) % 2
-            frames.append(PetFrame(
+            frames.append(SleepyPetFrame(
                 rect: CGRect(x: x, y: baseline - 5 * cell, width: petW, height: 5 * cell),
                 color: color, index: i, facingRight: goingRight, step: step, cell: cell
             ))
@@ -303,7 +287,7 @@ struct SleepyFaceView: View {
 
     /// One walking pixel pet per open coding agent (Claude/Codex/OpenCode/pi).
     /// Poke one and it leaps with a sparkle.
-    private func drawPets(in ctx: inout GraphicsContext, size: CGSize, pixel: CGFloat, time t: Double, counts: SleepyAgentCounts, reactions: Reactions) {
+    private func drawPets(in ctx: inout GraphicsContext, size: CGSize, pixel: CGFloat, time t: Double, counts: SleepyAgentCounts, reactions: SleepyReactions) {
         for frame in petFrames(size: size, pixel: pixel, time: t, counts: counts) {
             let cell = frame.cell
             var y = frame.rect.minY + (sin(t * 7 + Double(frame.index)) > 0.6 ? -cell : 0)
@@ -608,35 +592,5 @@ struct SleepyFaceView: View {
 
     private func fillCell(in ctx: inout GraphicsContext, origin: CGPoint, pixel: CGFloat, col: Int, row: Int, color: Color) {
         ctx.fill(Path(CGRect(x: origin.x + CGFloat(col) * pixel, y: origin.y + CGFloat(row) * pixel, width: pixel, height: pixel)), with: .color(color))
-    }
-}
-
-/// Big chunky pixel-art button: square corners, a raised bevel (light top/left,
-/// dark bottom/right) that inverts and sinks on press, and a hard offset shadow.
-private struct PixelButtonStyle: ButtonStyle {
-    var tint: Color
-
-    func makeBody(configuration: Configuration) -> some View {
-        let pressed = configuration.isPressed
-        return configuration.label
-            .font(.system(size: 16, weight: .heavy, design: .monospaced))
-            .foregroundStyle(.white)
-            .padding(.vertical, 13)
-            .padding(.horizontal, 22)
-            .background(tint.opacity(pressed ? 1.0 : 0.85))
-            .overlay(alignment: .top) { bar(pressed ? .black.opacity(0.35) : .white.opacity(0.4), height: 3) }
-            .overlay(alignment: .leading) { bar(pressed ? .black.opacity(0.35) : .white.opacity(0.4), width: 3) }
-            .overlay(alignment: .bottom) { bar(pressed ? .white.opacity(0.3) : .black.opacity(0.5), height: 3) }
-            .overlay(alignment: .trailing) { bar(pressed ? .white.opacity(0.3) : .black.opacity(0.5), width: 3) }
-            .overlay(Rectangle().strokeBorder(.black.opacity(0.55), lineWidth: 2))
-            .compositingGroup()
-            .shadow(color: .black.opacity(0.5), radius: 0, x: 0, y: pressed ? 1 : 4)
-            .offset(y: pressed ? 2 : 0)
-            .contentShape(Rectangle())
-            .animation(.easeOut(duration: 0.08), value: pressed)
-    }
-
-    private func bar(_ color: Color, width: CGFloat? = nil, height: CGFloat? = nil) -> some View {
-        Rectangle().fill(color).frame(width: width, height: height)
     }
 }

@@ -193,15 +193,3 @@ final class SleepyModeController {
         }
     }
 }
-
-/// Borderless screensaver window. Any key or click wakes it (no lock).
-final class SleepyOverlayWindow: NSWindow {
-    var onExit: (() -> Void)?
-
-    override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { true }
-
-    override func keyDown(with event: NSEvent) { onExit?() }
-    override func mouseDown(with event: NSEvent) { onExit?() }
-    override func rightMouseDown(with event: NSEvent) { onExit?() }
-}

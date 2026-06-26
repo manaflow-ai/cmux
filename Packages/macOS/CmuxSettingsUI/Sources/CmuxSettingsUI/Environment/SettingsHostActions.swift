@@ -164,9 +164,11 @@ public protocol SettingsHostActions: AnyObject {
 public extension SettingsHostActions {
     func openMobilePairingWindow() {}
 
-    /// Default no-ops for package previews and tests with no Sleepy Mode host.
+    /// Default no-op preview action for hosts without a Sleepy Mode overlay.
     func sleepyModePreview() {}
+    /// Default no-op start action for hosts without a Sleepy Mode overlay.
     func sleepyModeStart() {}
+    /// Default isolated store for previews/tests with no Sleepy Mode host.
     func sleepyModeStore() -> SleepyModeSettingsStore { SleepyModeSettingsStore() }
 
     /// Default no-op for package previews and tests that have no activation-policy host.

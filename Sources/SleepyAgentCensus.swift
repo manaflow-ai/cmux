@@ -1,27 +1,5 @@
 import AppKit
 
-/// How many coding agents the user has open, by provider. Drives the Sleepy
-/// Mode pets: one cute pet per running agent, to make running lots of agents
-/// feel rewarding.
-struct SleepyAgentCounts: Equatable, Sendable {
-    var claude = 0
-    var codex = 0
-    var opencode = 0
-    var pi = 0
-    var other = 0
-
-    var total: Int { claude + codex + opencode + pi + other }
-}
-
-/// Agent census provider. Injected into the renderer (and owned by
-/// `SleepyModeController`) so tests/previews can supply deterministic counts
-/// instead of reaching a global.
-@MainActor
-protocol SleepyAgentCensusing: AnyObject {
-    func sample(at time: Double) -> SleepyAgentCounts
-    var debugOverride: SleepyAgentCounts? { get set }
-}
-
 /// Samples cmux's live agent registry (the self-reported agent PIDs on every
 /// open workspace) at most every couple of seconds. `@MainActor`-isolated: it is
 /// sampled from the renderer's TimelineView body, the tap gesture, and the debug

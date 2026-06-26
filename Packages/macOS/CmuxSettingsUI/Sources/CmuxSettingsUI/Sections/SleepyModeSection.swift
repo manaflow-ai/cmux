@@ -15,6 +15,7 @@ public struct SleepyModeSection: View {
         self._store = Bindable(store)
     }
 
+    /// The Sleepy Mode settings section view.
     public var body: some View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.sleepyMode", defaultValue: "Sleepy Mode"), section: .sleepyMode)
