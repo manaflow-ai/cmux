@@ -48,7 +48,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         debugLog: Self.hostXPCDebugLog
     )
     @State private var effectiveGrant: CMUXSidebarExtensionEffectiveGrant?
-    @State private var blockedManifestReason: String?
+    @State private var blockedManifestReason: CMUXSidebarExtensionBlockedReason?
     @State private var isShowingExtensionDetails = false
     @State private var isShowingAccessReview = false
     @State private var keptLimitedManifestKeys = CMUXSidebarExtensionLimitedChoiceStore().choices()
@@ -82,7 +82,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                             xpcHost.invalidate()
                             effectiveGrant = nil
                             if self.identity?.bundleIdentifier == identity.bundleIdentifier {
-                                blockedManifestReason = "connectionInterrupted"
+                                blockedManifestReason = .connectionInterrupted
                             }
                             errorText = error?.localizedDescription
                         },
@@ -395,7 +395,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         .frame(width: 340, alignment: .leading)
     }
 
-    private func blockedExtensionView(reason: String) -> some View {
+    private func blockedExtensionView(reason: CMUXSidebarExtensionBlockedReason) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 20, weight: .regular))
@@ -456,30 +456,30 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         .controlSize(.small)
     }
 
-    private func blockedStatusText(reason: String) -> String {
+    private func blockedStatusText(reason: CMUXSidebarExtensionBlockedReason) -> String {
         switch reason {
-        case "connectionInterrupted":
+        case .connectionInterrupted:
             return String(localized: "sidebar.extensions.blocked.status.connectionInterrupted", defaultValue: "Blocked, connection interrupted")
-        case "manifestTimedOut":
+        case .manifestTimedOut:
             return String(localized: "sidebar.extensions.blocked.status.manifestTimedOut", defaultValue: "Blocked, configuration timed out")
-        case "missingManifest":
+        case .missingManifest:
             return String(localized: "sidebar.extensions.blocked.status.missingManifest", defaultValue: "Blocked, missing configuration")
-        case "invalidManifest":
+        case .invalidManifest:
             return String(localized: "sidebar.extensions.blocked.status.invalidManifest", defaultValue: "Blocked, invalid configuration")
         default:
             return String(localized: "sidebar.extensions.blocked.status.failedManifest", defaultValue: "Blocked, configuration unavailable")
         }
     }
 
-    private func blockedDetailText(reason: String) -> String {
+    private func blockedDetailText(reason: CMUXSidebarExtensionBlockedReason) -> String {
         switch reason {
-        case "connectionInterrupted":
+        case .connectionInterrupted:
             return String(localized: "sidebar.extensions.blocked.detail.connectionInterrupted", defaultValue: "CMUX lost the extension connection. No workspace data or actions are being shared.")
-        case "manifestTimedOut":
+        case .manifestTimedOut:
             return String(localized: "sidebar.extensions.blocked.detail.manifestTimedOut", defaultValue: "CMUX did not receive this extension's configuration in time. No workspace data or actions are being shared.")
-        case "missingManifest":
+        case .missingManifest:
             return String(localized: "sidebar.extensions.blocked.detail.missingManifest", defaultValue: "CMUX did not receive a sidebar extension configuration, so no workspace data or actions were shared.")
-        case "invalidManifest":
+        case .invalidManifest:
             return String(localized: "sidebar.extensions.blocked.detail.invalidManifest", defaultValue: "CMUX rejected this extension's configuration. No workspace data or actions were shared.")
         default:
             return String(localized: "sidebar.extensions.blocked.detail.failedManifest", defaultValue: "CMUX could not load this extension's configuration. No workspace data or actions were shared.")
