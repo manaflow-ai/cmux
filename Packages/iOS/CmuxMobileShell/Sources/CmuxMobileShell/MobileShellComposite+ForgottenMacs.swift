@@ -128,6 +128,9 @@ extension MobileShellComposite {
         let isActiveMac = pairedMacsForIdentityMatching.contains {
             targetIDSet.contains($0.macDeviceID) && $0.isActive
         }
+        if pairedMacsForIdentityMatching.contains(where: { targetIDSet.contains($0.macDeviceID) }) {
+            invalidateStoredMacReconnectAttempt()
+        }
         if isActiveMac {
             disconnectLiveConnection(preservingOtherMacWorkspaceState: true)
         }

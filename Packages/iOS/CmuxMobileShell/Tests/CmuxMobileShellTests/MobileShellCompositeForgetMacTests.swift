@@ -205,6 +205,35 @@ import Testing
         #expect(store.workspaceListConnectedRefreshTargetMacDeviceID() == "mac-b")
     }
 
+    @Test func forgettingKnownMacInvalidatesStoredMacReconnectAttempt() async throws {
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "mac-a",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: true
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" }
+        )
+        await store.loadPairedMacs()
+        let generationBeforeForget = store.storedMacReconnectGenerationForTesting()
+
+        await store.forgetMac(macDeviceID: "mac-a")
+
+        #expect(store.storedMacReconnectGenerationForTesting() > generationBeforeForget)
+    }
+
     @Test func forgettingMacFiltersOnlyMatchingRowsFromMixedWorkspaceBucket() async throws {
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [

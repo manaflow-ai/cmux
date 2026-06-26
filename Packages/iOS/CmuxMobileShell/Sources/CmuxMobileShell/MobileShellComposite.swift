@@ -1549,10 +1549,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let refresher = pairedMacStore as? any PairedMacBackupRefreshing {
             await refresher.refreshFromBackup(stackUserID: scope.userID)
         }
-        guard await isScopeCurrent(scope) else {
-            finishStoredMacReconnectAttempt(generation: generation)
-            return false
-        }
+        guard await isScopeCurrent(scope) else { finishStoredMacReconnectAttempt(generation: generation); return false }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         func reachableRoute(_ mac: MobilePairedMac) -> (String, Int)? {
             Self.firstReconnectHostPortRoute(
@@ -1574,10 +1571,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             finishStoredMacReconnectAttempt(generation: generation)
             return false
         }
-        guard await isScopeCurrent(scope) else {
-            finishStoredMacReconnectAttempt(generation: generation)
-            return false
-        }
+        guard await isScopeCurrent(scope) else { finishStoredMacReconnectAttempt(generation: generation); return false }
         let forgottenIDs = await forgottenMacDeviceIDs(scope: scope)
         guard await isScopeCurrent(scope) else {
             finishStoredMacReconnectAttempt(generation: generation)
@@ -1640,6 +1634,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard generation == storedMacReconnectGeneration,
                   await isScopeCurrent(scope),
                   let (host, port) = reachableRoute(mac) else { break }
+            let latestForgottenIDs = await forgottenMacDeviceIDs(scope: scope)
+            guard generation == storedMacReconnectGeneration, await isScopeCurrent(scope), !latestForgottenIDs.contains(mac.macDeviceID) else { break }
             // Best-effort registry refresh for this Mac in the background.
             refreshRoutesFromRegistry(for: mac, scope: scope)
             await connectStoredMacHost(
@@ -1869,14 +1865,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // are still in the same signed-in account/team scope, so a slow load can
         // never repopulate another scope's devices after sign-out, account switch,
         // or same-account team switch.
-        guard await isScopeCurrent(scope) else {
-            return
-        }
+        guard await isScopeCurrent(scope) else { return }
         let connectedID = connectedMacDeviceID
         let forgottenIDs = await forgottenMacDeviceIDs(scope: scope)
-        guard await isScopeCurrent(scope) else {
-            return
-        }
+        guard await isScopeCurrent(scope) else { return }
         registryDevices = loaded.filter { !forgottenIDs.contains($0.deviceId) }.sorted { lhs, rhs in
             let lhsConnected = lhs.deviceId == connectedID
             let rhsConnected = rhs.deviceId == connectedID
@@ -3618,7 +3610,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func markSecondaryMacUnavailableForTesting(_ macID: String) {
         markSecondaryMacUnavailable(macID)
     }
+    func storedMacReconnectGenerationForTesting() -> Int { storedMacReconnectGeneration }
     #endif
+
+    func invalidateStoredMacReconnectAttempt() { storedMacReconnectGeneration &+= 1 }
 
     /// Drop the PREVIOUS foreground/anonymous workspace snapshot from the aggregate
     /// after the foreground Mac changes (switch A→B, promotion, or a real connect
