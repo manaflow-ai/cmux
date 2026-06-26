@@ -4772,40 +4772,6 @@ class TerminalController: MobileViewportSurfaceLimiting {
         return .opened(scopeRawValue: scope?.rawValue)
     }
 
-    // `internal` (not `private`): the browser state.save witness in
-    // `TerminalController+ControlBrowserConsoleErrorsStateContext.swift` encodes
-    // each saved cookie as its byte-identical wire dictionary through this helper,
-    // matching the cookies/storage cross-file witness pattern.
-    // Forwards to `BrowserCookieRepository` (CmuxBrowser), which owns the cookie
-    // wire mapping and `WKHTTPCookieStore` I/O. Kept as `internal` (not `private`)
-    // shims because the cookies/storage and state.save witnesses in the two
-    // `TerminalController+ControlBrowser*Context.swift` files call them.
-    func v2BrowserCookieDict(_ cookie: HTTPCookie) -> [String: Any] {
-        v2BrowserCookieRepository.cookieDictionary(from: cookie)
-    }
-
-    func v2BrowserCookieStoreAll(_ store: WKHTTPCookieStore, timeout: TimeInterval = 3.0) -> [HTTPCookie]? {
-        v2BrowserCookieRepository.allCookies(in: store, timeout: timeout)
-    }
-
-    func v2BrowserCookieStoreSet(_ store: WKHTTPCookieStore, cookie: HTTPCookie, timeout: TimeInterval = 3.0) -> Bool {
-        v2BrowserCookieRepository.setCookie(cookie, in: store, timeout: timeout)
-    }
-
-    func v2BrowserCookieStoreDelete(_ store: WKHTTPCookieStore, cookie: HTTPCookie, timeout: TimeInterval = 3.0) -> Bool {
-        v2BrowserCookieRepository.deleteCookie(cookie, in: store, timeout: timeout)
-    }
-
-    func v2BrowserCookieFromObject(_ raw: [String: Any], fallbackURL: URL?) -> HTTPCookie? {
-        v2BrowserCookieRepository.cookie(from: raw, fallbackURL: fallbackURL)
-    }
-
-
-    func v2BrowserStorageType(_ params: [String: Any]) -> String {
-        v2BrowserControl.storageType(params: params)
-    }
-
-
     /// `browser.addinitscript` witness (``ControlBrowserContext``): registers a
     /// document-start init script on the resolved browser and evaluates it once,
     /// byte-faithful to the former `v2BrowserAddInitScript(params:)` body. The

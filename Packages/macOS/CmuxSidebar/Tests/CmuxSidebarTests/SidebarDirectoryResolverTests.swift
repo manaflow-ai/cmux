@@ -13,6 +13,8 @@ private final class FakeSidebarHost: SidebarMetadataHosting {
     var sidebarIsRemoteWorkspace: Bool
     var panelDirectories: [UUID: String]
     var requestedDirectories: [UUID: String]
+    var sidebarSpatialPanelOrder: [UUID] = []
+    var sidebarVisibleStatusEntriesForDisplay: [SidebarStatusEntry] = []
 
     init(
         focusedPanelId: UUID? = nil,
@@ -34,6 +36,10 @@ private final class FakeSidebarHost: SidebarMetadataHosting {
 
     func sidebarPanelRequestedWorkingDirectory(for panelId: UUID) -> String? {
         requestedDirectories[panelId]
+    }
+
+    func sidebarIsRemoteDisplaySurface(_ panelId: UUID) -> Bool {
+        false
     }
 }
 

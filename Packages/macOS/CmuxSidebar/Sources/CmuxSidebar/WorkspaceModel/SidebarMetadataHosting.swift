@@ -42,4 +42,32 @@ public protocol SidebarMetadataHosting: AnyObject {
     /// - Parameter panelId: The panel whose requested directory is read.
     /// - Returns: The raw requested directory string, or `nil`.
     func sidebarPanelRequestedWorkingDirectory(for panelId: UUID) -> String?
+
+    /// The panel ids in on-screen spatial (bonsplit) order, which
+    /// ``SidebarDisplayOrderProjection`` projects the display-order rows over
+    /// (legacy `Workspace.sidebarOrderedPanelIds()`).
+    ///
+    /// The bonsplit split-tree walk that produces this order reads app-target
+    /// pane/tab state the package cannot import, so it is the irreducible
+    /// live-state read kept in the `Workspace` shim behind this seam.
+    var sidebarSpatialPanelOrder: [UUID] { get }
+
+    /// Whether a panel is a remote-display surface (Cloud VM detected, remote
+    /// terminal, or pending remote-terminal child exit), used by
+    /// ``SidebarDisplayOrderProjection/finderDirectory()`` to keep only local
+    /// panels when picking the Finder-reveal directory (legacy
+    /// `Workspace.sidebarFinderDirectory()` local-panel filter).
+    /// - Parameter panelId: The panel whose remote classification is read.
+    /// - Returns: `true` when the panel is a remote-display surface.
+    func sidebarIsRemoteDisplaySurface(_ panelId: UUID) -> Bool
+
+    /// The structured-hook status entries currently visible for display, already
+    /// filtered by the live agent-visibility rules (legacy
+    /// `Workspace.sidebarStatusEntriesVisibleForDisplay()`).
+    ///
+    /// The agent-PID / panel visibility filtering reads live `Workspace` state
+    /// the package cannot import, so it stays in the shim and hands the
+    /// already-filtered entries to ``SidebarDisplayOrderProjection`` for the
+    /// pure ordering step.
+    var sidebarVisibleStatusEntriesForDisplay: [SidebarStatusEntry] { get }
 }

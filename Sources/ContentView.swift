@@ -244,44 +244,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             targetView = nil
         }
         guard let targetView else { return nil }
-        return tmuxWorkspacePaneExactRect(for: targetView, in: contentView)
-    }
-
-    static func tmuxWorkspacePaneExactRect(
-        for targetView: NSView,
-        in contentView: NSView
-    ) -> CGRect? {
-        guard let contentWindow = contentView.window,
-              let targetWindow = targetView.window,
-              contentWindow === targetWindow,
-              targetView.superview != nil else {
-            return nil
-        }
-
-        let rectInWindow = targetView.convert(targetView.bounds, to: nil)
-        let rectInContent = contentView.convert(rectInWindow, from: nil)
-        guard rectInContent.width > 1, rectInContent.height > 1 else { return nil }
-        return rectInContent
-    }
-
-    static func preferredTmuxWorkspacePaneWindowOverlayRect(
-        exactRect: CGRect?,
-        paneRect: CGRect?
-    ) -> CGRect? {
-        guard let paneRect else { return exactRect }
-        guard let exactRect,
-              exactRect.width > 1,
-              exactRect.height > 1 else {
-            return paneRect
-        }
-
-        let tolerance: CGFloat = 0.5
-        let exactFitsWithinPane =
-            exactRect.minX >= paneRect.minX - tolerance &&
-            exactRect.maxX <= paneRect.maxX + tolerance &&
-            exactRect.minY >= paneRect.minY - tolerance &&
-            exactRect.maxY <= paneRect.maxY + tolerance
-        return exactFitsWithinPane ? exactRect : paneRect
+        return TmuxPaneOverlayGeometry.exactRect(for: targetView, in: contentView)
     }
 
     private func tmuxWorkspacePaneWindowOverlayState(for window: NSWindow) -> TmuxWorkspacePaneOverlayRenderState? {
@@ -322,7 +285,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
                     paneId: workspace.paneId(forPanelId: panelId)
                 )
                 let exactRect = Self.tmuxWorkspacePaneExactRect(for: panel, in: contentView)
-                return Self.preferredTmuxWorkspacePaneWindowOverlayRect(
+                return TmuxPaneOverlayGeometry.preferredWindowOverlayRect(
                     exactRect: exactRect,
                     paneRect: paneRect
                 )
@@ -344,7 +307,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
                 paneId: workspace.paneId(forPanelId: panelId)
             )
             let exactRect = Self.tmuxWorkspacePaneExactRect(for: panel, in: contentView)
-            flashRect = Self.preferredTmuxWorkspacePaneWindowOverlayRect(
+            flashRect = TmuxPaneOverlayGeometry.preferredWindowOverlayRect(
                 exactRect: exactRect,
                 paneRect: paneRect
             )
@@ -3203,51 +3166,20 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         _ snapshot: SessionRestorableAgentSnapshot,
         isRemoteTerminal: Bool = false
     ) -> CommandPaletteForkSnapshotAvailability {
-        guard snapshot.forkCommand != nil else { return .unsupported }
-        if isRemoteTerminal,
-           snapshot.forkStartupInput(allowLauncherScript: false) == nil {
-            return .unsupported
-        }
-        switch snapshot.kind {
-        case .claude, .codex:
-            return .supportedWithoutProbe
-        case .opencode:
-            return snapshot.launchCommand?.launcher == "omo" || isRemoteTerminal ? .supportedWithoutProbe : .requiresProbe
-        case .custom:
-            // Reaching here means `forkCommand != nil` (top guard), i.e. the
-            // agent's registration declares a `forkCommand` template, so it is
-            // fork-able. There is no per-agent fork-capability probe for custom
-            // agents (unlike opencode's version probe), so trust the template.
-            return .supportedWithoutProbe
-        default:
-            return .unsupported
-        }
+        snapshot.commandPaletteForkAvailability(isRemoteTerminal: isRemoteTerminal)
     }
 
     static func commandPaletteForkSnapshotFingerprint(
         _ snapshot: SessionRestorableAgentSnapshot
     ) -> String {
-        let launchCommand = snapshot.launchCommand
-        let launchArguments = launchCommand?.arguments.joined(separator: "\u{1f}") ?? ""
-        let parts: [String] = [
-            snapshot.kind.rawValue,
-            snapshot.sessionId,
-            snapshot.workingDirectory ?? "",
-            launchCommand?.launcher ?? "",
-            launchCommand?.executablePath ?? "",
-            launchArguments,
-            launchCommand?.workingDirectory ?? "",
-            launchCommand?.source ?? "",
-            snapshot.forkCommand ?? ""
-        ]
-        return parts.joined(separator: "\u{1e}")
+        snapshot.commandPaletteForkFingerprint
     }
 
     static func commandPaletteForkCacheFingerprint(
         snapshot: SessionRestorableAgentSnapshot,
         fallbackFingerprint: String?
     ) -> String {
-        fallbackFingerprint ?? commandPaletteForkSnapshotFingerprint(snapshot)
+        snapshot.commandPaletteForkCacheFingerprint(fallbackFingerprint: fallbackFingerprint)
     }
 
     static func commandPaletteForkableAgentProbeResultMatches(
@@ -3328,24 +3260,16 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         fallbackSnapshot: SessionRestorableAgentSnapshot?,
         isRemoteTerminal: Bool = false
     ) -> Bool {
-        let panelKey = commandPaletteForkableAgentPanelKey(
-            workspaceId: workspaceId,
-            panelId: panelId
+        SessionRestorableAgentSnapshot.commandPalettePanelHasForkableAgent(
+            panelKey: commandPaletteForkableAgentPanelKey(
+                workspaceId: workspaceId,
+                panelId: panelId
+            ),
+            supportedPanelKeys: supportedPanelKeys,
+            supportedRemoteContextsByPanelKey: supportedRemoteContextsByPanelKey,
+            fallbackSnapshot: fallbackSnapshot,
+            isRemoteTerminal: isRemoteTerminal
         )
-        if supportedPanelKeys.contains(panelKey) {
-            if let supportedRemoteContext = supportedRemoteContextsByPanelKey[panelKey],
-               supportedRemoteContext != isRemoteTerminal {
-                return false
-            }
-            if let fallbackSnapshot {
-                return commandPaletteSnapshotForkAvailability(
-                    fallbackSnapshot,
-                    isRemoteTerminal: isRemoteTerminal
-                ) != .unsupported
-            }
-            return true
-        }
-        return false
     }
 
     private func refreshCommandPaletteForkableAgentAvailabilityIfNeeded(scope: CommandPaletteListScope) {
