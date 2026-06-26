@@ -60,22 +60,6 @@ extension AppDelegate {
         shared?.defaultTerminalRegistrationCoordinator.setAsDefault(debugSource: debugSource)
     }
 
-    /// The user-facing message for a registration failure. `String(localized:)`
-    /// must resolve in the app bundle (the `CmuxWindowing` error is plain data
-    /// so the package never drops the Japanese translation), so the localized
-    /// copy is produced here from the typed case.
-    private func localizedDefaultTerminalErrorDescription(_ error: any Error) -> String? {
-        switch error as? DefaultTerminalRegistrationError {
-        case .launchServicesRegistrationFailed:
-            return String(
-                localized: "error.defaultTerminal.registrationFailed",
-                defaultValue: "cmux could not register as the default terminal app."
-            )
-        case nil:
-            return nil
-        }
-    }
-
     private func presentDefaultTerminalRegistrationError(_ error: any Error) {
         let alert = NSAlert()
         alert.alertStyle = .warning
@@ -83,7 +67,7 @@ extension AppDelegate {
             localized: "dialog.defaultTerminal.setFailed.title",
             defaultValue: "Could Not Set Default Terminal"
         )
-        alert.informativeText = localizedDefaultTerminalErrorDescription(error) ?? String(
+        alert.informativeText = (error as? DefaultTerminalRegistrationError)?.localizedFailureDescription ?? String(
             localized: "defaultTerminal.updateFailed.message",
             defaultValue: "macOS could not update every default terminal handler."
         )

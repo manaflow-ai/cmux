@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import Combine
 import WebKit
 import XCTest
@@ -1353,22 +1354,19 @@ final class MarkdownPanelTests: XCTestCase {
 
     func testMarkdownRemoteImageChunkedDecoderRejectsOversizedChunks() {
         XCTAssertEqual(
-            MarkdownHTTPChunkedBodyDecoder.decode(
-                Data("3\r\nabc\r\n0\r\n\r\n".utf8),
-                maximumBytes: 8
+            HTTPChunkedBodyDecoder(maximumBytes: 8).decode(
+                Data("3\r\nabc\r\n0\r\n\r\n".utf8)
             ),
             Data("abc".utf8)
         )
         XCTAssertNil(
-            MarkdownHTTPChunkedBodyDecoder.decode(
-                Data("9\r\nabcdefghi\r\n0\r\n\r\n".utf8),
-                maximumBytes: 8
+            HTTPChunkedBodyDecoder(maximumBytes: 8).decode(
+                Data("9\r\nabcdefghi\r\n0\r\n\r\n".utf8)
             )
         )
         XCTAssertNil(
-            MarkdownHTTPChunkedBodyDecoder.decode(
-                Data("7fffffffffffffff\r\n".utf8),
-                maximumBytes: 8
+            HTTPChunkedBodyDecoder(maximumBytes: 8).decode(
+                Data("7fffffffffffffff\r\n".utf8)
             )
         )
     }

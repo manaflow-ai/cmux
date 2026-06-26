@@ -719,13 +719,17 @@ extension TerminalController: ControlWorkspaceContext {
 
         var result: String = ""
         v2MainSync {
-            let tabs = tabManager.tabs.enumerated().map { (index, tab) in
-                let selected = tab.id == tabManager.selectedTabId ? "*" : " "
-                return "\(selected) \(index): \(tab.id.uuidString) \(tab.title)"
+            let rows = tabManager.tabs.enumerated().map { index, tab in
+                ControlWorkspaceV1Listing.Row(
+                    isSelected: tab.id == tabManager.selectedTabId,
+                    index: index,
+                    id: tab.id,
+                    title: tab.title
+                )
             }
-            result = tabs.joined(separator: "\n")
+            result = ControlWorkspaceV1Listing(rows: rows).output
         }
-        return result.isEmpty ? "No workspaces" : result
+        return result
     }
 
     func controlNewWorkspaceV1(args: String) -> String {

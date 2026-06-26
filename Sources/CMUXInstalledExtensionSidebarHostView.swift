@@ -323,20 +323,20 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                detailRow(
+                ExtensionDetailRow(
                     title: String(localized: "sidebar.extensions.details.status", defaultValue: "Status"),
                     value: blockedManifestReason?.blockedStatusText ?? (activeIdentity == nil
                         ? String(localized: "sidebar.extensions.details.statusWaiting", defaultValue: "Waiting for an enabled extension")
                         : String(localized: "sidebar.extensions.details.statusActive", defaultValue: "Connected"))
                 )
                 if let activeIdentity {
-                    detailRow(
+                    ExtensionDetailRow(
                         title: String(localized: "sidebar.extensions.details.bundle", defaultValue: "Bundle"),
                         value: activeIdentity.bundleIdentifier
                     )
                 }
                 if let manifest = effectiveGrant?.manifest {
-                    detailRow(
+                    ExtensionDetailRow(
                         title: String(localized: "sidebar.extensions.details.manifest", defaultValue: "Configuration"),
                         value: "\(manifest.id) · API \(manifest.minimumAPIVersion.major).\(manifest.minimumAPIVersion.minor)"
                     )
@@ -345,7 +345,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
 
             if let effectiveGrant {
                 Divider()
-                permissionSection(effectiveGrant: effectiveGrant)
+                ExtensionPermissionSection(grant: effectiveGrant)
             } else if let blockedManifestReason {
                 Divider()
                 Text(blockedManifestReason.blockedDetailText)
@@ -453,64 +453,6 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         .controlSize(.small)
     }
 
-    private func detailRow(title: String, value: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(title)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
-                .frame(width: 64, alignment: .leading)
-            Text(value)
-                .font(.system(size: 11))
-                .foregroundStyle(.primary)
-                .lineLimit(2)
-                .textSelection(.enabled)
-        }
-    }
-
-    private func permissionSection(effectiveGrant: CMUXSidebarExtensionEffectiveGrant) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(String(localized: "sidebar.extensions.details.permissions", defaultValue: "Permissions"))
-                .font(.system(size: 12, weight: .semibold))
-            ForEach(effectiveGrant.manifest.readScopes, id: \.self) { scope in
-                permissionRow(
-                    title: scope.displayName,
-                    detail: scope.permissionDescription,
-                    isGranted: effectiveGrant.readScopes.contains(scope)
-                )
-            }
-            ForEach(effectiveGrant.manifest.actionScopes, id: \.self) { scope in
-                permissionRow(
-                    title: scope.displayName,
-                    detail: scope.permissionDescription,
-                    isGranted: effectiveGrant.actionScopes.contains(scope)
-                )
-            }
-        }
-    }
-
-    private func permissionRow(title: String, detail: String, isGranted: Bool) -> some View {
-        HStack(alignment: .top, spacing: 6) {
-            Image(systemName: isGranted ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(isGranted ? .green : .secondary)
-                .padding(.top, 1)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title)
-                    .font(.system(size: 11, weight: .medium))
-                Text(detail)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
-            Text(isGranted
-                ? String(localized: "sidebar.extensions.details.granted", defaultValue: "Granted")
-                : String(localized: "sidebar.extensions.details.pending", defaultValue: "Pending"))
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.secondary)
-        }
-    }
-
     @ViewBuilder
     private func extensionIdentityControl(activeIdentity: AppExtensionIdentity?) -> some View {
         if selectionModel.enabledIdentities.count > 1 {
@@ -577,7 +519,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: 4) {
-                ForEach(pendingPermissionDescriptions(effectiveGrant: effectiveGrant), id: \.self) { description in
+                ForEach(effectiveGrant.pendingPermissionDescriptions, id: \.self) { description in
                     Label(description, systemImage: "circle")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
@@ -646,12 +588,12 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             VStack(alignment: .leading, spacing: 8) {
-                detailRow(
+                ExtensionDetailRow(
                     title: String(localized: "sidebar.extensions.details.manifest", defaultValue: "Configuration"),
                     value: "\(effectiveGrant.manifest.id) · API \(effectiveGrant.manifest.minimumAPIVersion.major).\(effectiveGrant.manifest.minimumAPIVersion.minor)"
                 )
                 Divider()
-                permissionSection(effectiveGrant: effectiveGrant)
+                ExtensionPermissionSection(grant: effectiveGrant)
             }
 
             HStack(spacing: 8) {
@@ -701,19 +643,6 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         xpcHost.revokeSensitiveAccess(bundleIdentifier: identity.bundleIdentifier)
         self.effectiveGrant = xpcHost.currentEffectiveGrant
         xpcHost.sendSnapshotDidChange()
-    }
-
-    private func pendingPermissionDescriptions(
-        effectiveGrant: CMUXSidebarExtensionEffectiveGrant
-    ) -> [String] {
-        let pendingReadScopes = effectiveGrant.manifest.readScopes.filter {
-            !effectiveGrant.readScopes.contains($0)
-        }
-        let pendingActionScopes = effectiveGrant.manifest.actionScopes.filter {
-            !effectiveGrant.actionScopes.contains($0)
-        }
-        return pendingReadScopes.map(\.permissionDescription) +
-            pendingActionScopes.map(\.permissionDescription)
     }
 
 }

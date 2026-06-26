@@ -484,9 +484,12 @@ private struct RightSidebarKeyboardFocusBridge: NSViewRepresentable {
     }
 }
 
-final class RightSidebarKeyboardFocusView: NSView {
+final class RightSidebarKeyboardFocusView: NSView, RightSidebarHostFocusing {
     override var acceptsFirstResponder: Bool { true }
     override var canBecomeKeyView: Bool { true }
+
+    /// `RightSidebarHostFocusing`: the host view is its own focus responder.
+    var focusResponder: NSResponder { self }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
