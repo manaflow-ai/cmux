@@ -417,7 +417,7 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         if let url = navigationAction.request.url,
-           browserShouldRouteExternalNavigation(url) {
+           BrowserExternalNavigationAction.shouldRoute(url) {
             browserHandleExternalNavigation(
                 url,
                 source: "popupUIDelegate",
@@ -572,7 +572,7 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         }
 
         // External URL schemes → hand off to macOS
-        if browserShouldRouteExternalNavigation(url) {
+        if BrowserExternalNavigationAction.shouldRoute(url) {
             browserHandleExternalNavigation(
                 url,
                 source: "popupNavDelegate",

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import CmuxSidebar
 import CmuxTerminal
 import Bonsplit
@@ -293,16 +294,10 @@ final class DockControlsStore {
             command: commandFingerprint,
             target: "rightSidebarDock",
             workspaceCommand: nil,
-            configPath: resolution.sourceURL.map { canonicalPath($0.path) },
-            projectRoot: canonicalPath(resolution.baseDirectory),
+            configPath: resolution.sourceURL.map { $0.path.canonicalizedFilePath },
+            projectRoot: resolution.baseDirectory.canonicalizedFilePath,
             iconFingerprint: nil
         )
-    }
-
-    private static func canonicalPath(_ path: String) -> String {
-        URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
-            .standardizedFileURL
-            .path
     }
 }
 
