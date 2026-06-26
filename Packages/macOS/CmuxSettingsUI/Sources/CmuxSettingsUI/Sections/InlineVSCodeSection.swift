@@ -21,14 +21,12 @@ public struct InlineVSCodeSection: View {
     @State private var serverDataDirLoaded: Bool = false
     @State private var extraArgsDraft: String = ""
     @State private var extraArgsLoaded: Bool = false
-    @FocusState private var focusedField: Field?
+    @FocusState private var portFocused: Bool
+    @FocusState private var serverDataDirFocused: Bool
+    @FocusState private var extraArgsFocused: Bool
 
-    private enum Field: Hashable {
-        case port
-        case serverDataDir
-        case extraArgs
-    }
-
+    /// Creates the section, binding each row to its cmux.json-backed
+    /// `inlineVSCode.*` setting in `jsonStore`.
     public init(
         jsonStore: JSONConfigStore,
         catalog: SettingCatalog,
@@ -56,6 +54,8 @@ public struct InlineVSCodeSection: View {
         ))
     }
 
+    /// The Inline VS Code settings rows: persistence, port, server data
+    /// directory, and extra serve-web arguments.
     public var body: some View {
         Group {
             SettingsSectionHeader(
@@ -79,9 +79,8 @@ public struct InlineVSCodeSection: View {
         }
         .task { startObservingSettings() }
         .onChange(of: port.current) { _, newValue in
-            let normalized = Self.portText(newValue)
-            if Self.parsePort(portDraft) != newValue {
-                portDraft = normalized
+            if parsePort(portDraft) != newValue {
+                portDraft = portText(newValue)
             }
         }
         .onChange(of: serverDataDir.current) { _, newValue in
@@ -90,28 +89,22 @@ public struct InlineVSCodeSection: View {
             }
         }
         .onChange(of: extraArgs.current) { _, newValue in
-            if Self.parseExtraArgs(extraArgsDraft) != newValue {
+            if parseExtraArgs(extraArgsDraft) != newValue {
                 extraArgsDraft = newValue.joined(separator: "\n")
             }
         }
-        .onChange(of: focusedField) { previous, _ in
-            // Commit the field that just lost focus so edits aren't lost when the
-            // user tabs away, clicks elsewhere, or closes the Settings window
-            // without pressing Return.
-            switch previous {
-            case .port: commitPort()
-            case .serverDataDir: commitServerDataDir()
-            case .extraArgs: commitExtraArgs()
-            case nil: break
-            }
-        }
+        // Commit each field on focus loss so edits aren't lost when the user tabs
+        // away, clicks elsewhere, or closes the Settings window without Return.
+        .onChange(of: portFocused) { _, focused in if !focused { commitPort() } }
+        .onChange(of: serverDataDirFocused) { _, focused in if !focused { commitServerDataDir() } }
+        .onChange(of: extraArgsFocused) { _, focused in if !focused { commitExtraArgs() } }
     }
 
     private func startObservingSettings() {
         let models: [any SettingObservationStarting] = [persist, port, serverDataDir, extraArgs]
         models.forEach { $0.startObserving() }
         if !portLoaded {
-            portDraft = Self.portText(port.current)
+            portDraft = portText(port.current)
             portLoaded = true
         }
         if !serverDataDirLoaded {
@@ -152,7 +145,7 @@ public struct InlineVSCodeSection: View {
                 String(localized: "settings.inlineVSCode.port.placeholder", defaultValue: "random"),
                 text: $portDraft
             )
-            .focused($focusedField, equals: .port)
+            .focused($portFocused)
             .onSubmit { commitPort() }
             .textFieldStyle(.roundedBorder)
             .multilineTextAlignment(.trailing)
@@ -172,7 +165,7 @@ public struct InlineVSCodeSection: View {
                 String(localized: "settings.inlineVSCode.serverDataDir.placeholder", defaultValue: "e.g. ~/Library/Application Support/cmux/vscode-serve-web"),
                 text: $serverDataDirDraft
             )
-            .focused($focusedField, equals: .serverDataDir)
+            .focused($serverDataDirFocused)
             .onSubmit { commitServerDataDir() }
             .textFieldStyle(.roundedBorder)
             .accessibilityIdentifier("SettingsInlineVSCodeServerDataDirField")
@@ -190,7 +183,7 @@ public struct InlineVSCodeSection: View {
                 EmptyView()
             }
             TextEditor(text: $extraArgsDraft)
-                .focused($focusedField, equals: .extraArgs)
+                .focused($extraArgsFocused)
                 .cmuxFont(.body, design: .monospaced)
                 .frame(minHeight: 56, maxHeight: 120)
                 .scrollContentBackground(.hidden)
@@ -208,11 +201,11 @@ public struct InlineVSCodeSection: View {
     }
 
     private func commitPort() {
-        let parsed = Self.parsePort(portDraft)
+        let parsed = parsePort(portDraft)
         if parsed != port.current {
             port.set(parsed)
         }
-        portDraft = Self.portText(parsed)
+        portDraft = portText(parsed)
     }
 
     private func commitServerDataDir() {
@@ -224,7 +217,7 @@ public struct InlineVSCodeSection: View {
     }
 
     private func commitExtraArgs() {
-        let parsed = Self.parseExtraArgs(extraArgsDraft)
+        let parsed = parseExtraArgs(extraArgsDraft)
         if parsed != extraArgs.current {
             extraArgs.set(parsed)
         }
@@ -232,19 +225,19 @@ public struct InlineVSCodeSection: View {
 
     /// Parses the port draft, clamping to the valid `serve-web` range. Empty or
     /// out-of-range input resolves to `0` (a random free port).
-    static func parsePort(_ text: String) -> Int {
+    private func parsePort(_ text: String) -> Int {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let value = Int(trimmed), (0...65535).contains(value) else { return 0 }
         return value
     }
 
     /// Renders a stored port for the text field: `0` shows as empty (random).
-    static func portText(_ port: Int) -> String {
+    private func portText(_ port: Int) -> String {
         port == 0 ? "" : String(port)
     }
 
     /// Splits the multi-line draft into one argument per non-empty trimmed line.
-    static func parseExtraArgs(_ text: String) -> [String] {
+    private func parseExtraArgs(_ text: String) -> [String] {
         text
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }

@@ -41,5 +41,6 @@ public struct InlineVSCodeCatalogSection: SettingCatalogSection {
         defaultValue: []
     )
 
+    /// Creates the section with its fixed set of `inlineVSCode.*` keys.
     public init() {}
 }
