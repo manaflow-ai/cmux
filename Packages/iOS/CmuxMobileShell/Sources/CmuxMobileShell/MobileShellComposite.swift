@@ -3471,6 +3471,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         var derived = workspaceAggregation.derivedWorkspaces(
             statesByMac: workspacesByMac, foregroundMacDeviceID: foregroundKey)
+        // Never surface a row the Mac has CONFIRMED closed, whichever Mac's ingest
+        // (foreground sync or a secondary refresh) re-added it from a stale
+        // `workspace.list` snapshot (issue #6349). Every per-Mac state funnels
+        // through this derivation, so one filter here covers all ingest paths;
+        // the tombstone set clears on disconnect.
+        if !confirmedClosedWorkspaceIDs.isEmpty {
+            derived.removeAll { confirmedClosedWorkspaceIDs.contains($0.rpcWorkspaceID.rawValue) }
+        }
         // Stamp per-Mac user color/icon overrides from pairedMacs so every
         // workspace avatar matches its computer's customization (same place the
         // aggregation already assigned the automatic color index).
@@ -3544,7 +3552,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         merge: Bool
     ) {
         let key = foregroundMacKey
-        var stamped = newWorkspaces.map { workspace -> MobileWorkspacePreview in
+        let stamped = newWorkspaces.map { workspace -> MobileWorkspacePreview in
             // These are the FOREGROUND Mac's workspaces, so stamp them ALL with the
             // resolved foreground id — overriding any synthetic `manual-<host>:<port>`
             // id the active ticket carried for a Mac without
@@ -3558,12 +3566,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             var copy = workspace
             copy.macDeviceID = id
             return copy
-        }
-        // Drop rows the Mac has CONFIRMED closed that a lagging or pre-close
-        // `workspace.list` snapshot still includes, so a just-deleted workspace
-        // can't reappear in the sidebar (see `confirmedClosedWorkspaceIDs`; #6349).
-        if !confirmedClosedWorkspaceIDs.isEmpty {
-            stamped.removeAll { confirmedClosedWorkspaceIDs.contains($0.rpcWorkspaceID.rawValue) }
         }
         var state = workspacesByMac[key] ?? MacWorkspaceState(macDeviceID: key)
         if merge {

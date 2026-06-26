@@ -230,4 +230,34 @@ struct MobileWorkspaceCloseReconcileTests {
         #expect(!store.workspaces.contains { $0.id == liveWorkspaceID })
         #expect(store.workspaces.count == 1)
     }
+
+    /// `closeWorkspace` can target a SECONDARY Mac, and its refresh writes that
+    /// Mac's `workspacesByMac` entry directly. The tombstone filter lives at the
+    /// single derivation chokepoint, so a stale secondary re-list of a confirmed
+    /// closed workspace is dropped from the derived list just like a foreground one
+    /// (issue #6349, secondary path). Seeds the per-Mac source of truth directly so
+    /// no live secondary connection is needed.
+    @Test func confirmedCloseIsFilteredFromSecondaryMacReingest() {
+        let store = MobileShellComposite.preview()
+        store.confirmedClosedWorkspaceIDs.insert("mac-b-ws-2")
+        store.setWorkspaceStatesForTesting([
+            "mac-a": MacWorkspaceState(
+                macDeviceID: "mac-a", displayName: "Mac A",
+                workspaces: [Self.preview(id: "mac-a-ws-1")], status: .connected),
+            // Secondary Mac still lists the just-closed workspace (the stale snapshot).
+            "mac-b": MacWorkspaceState(
+                macDeviceID: "mac-b", displayName: "Mac B",
+                workspaces: [Self.preview(id: "mac-b-ws-1"), Self.preview(id: "mac-b-ws-2")],
+                status: .connected),
+        ], foregroundMacDeviceID: "mac-a")
+
+        let rpcIDs = Set(store.workspaces.map { $0.rpcWorkspaceID.rawValue })
+        #expect(!rpcIDs.contains("mac-b-ws-2"))
+        #expect(rpcIDs.contains("mac-b-ws-1"))
+        #expect(rpcIDs.contains("mac-a-ws-1"))
+    }
+
+    private static func preview(id: String) -> MobileWorkspacePreview {
+        MobileWorkspacePreview(id: .init(rawValue: id), name: id, terminals: [])
+    }
 }
