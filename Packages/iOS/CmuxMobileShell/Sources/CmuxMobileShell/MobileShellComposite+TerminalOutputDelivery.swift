@@ -12,16 +12,10 @@ extension MobileShellComposite {
     }
 
     func deliverTerminalRenderGrid(_ frame: MobileTerminalRenderGridFrame, surfaceID: String) {
-        // The first full frame a surface receives is its cold attach (ESC c +
-        // scrollback seed). Every later full frame (resize, resync, divergence
-        // repair) repaints the viewport in place so it never resets the scroll
-        // position of a reader who is scrolled up into history.
-        let coldAttach = frame.full && terminalSurfaceIDsWithFullFrame.insert(surfaceID).inserted
         deliverTerminalOutput(
             TerminalOutputDelivery(
                 renderGrid: frame,
-                replaceable: frame.isReplaceableViewportPatchForMobileDelivery,
-                coldAttach: coldAttach
+                replaceable: frame.isReplaceableViewportPatchForMobileDelivery
             ),
             surfaceID: surfaceID
         )

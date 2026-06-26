@@ -10,23 +10,15 @@ struct TerminalOutputDelivery: Equatable, Sendable {
 
     private var payload: Payload
     var replaceable: Bool
-    /// Whether this is the surface's first full snapshot (a true cold attach).
-    /// A cold attach uses the `ESC c` reset + scrollback-seeding replay; every
-    /// later full frame (resize, resync, divergence repair) repaints the
-    /// viewport in place so it never resets the scroll position of a user who is
-    /// reading scrollback. Irrelevant for delta and raw-byte deliveries.
-    var coldAttach: Bool
 
     init(bytes: Data, replaceable: Bool) {
         self.payload = .bytes(bytes)
         self.replaceable = replaceable
-        self.coldAttach = true
     }
 
-    init(renderGrid frame: MobileTerminalRenderGridFrame, replaceable: Bool, coldAttach: Bool = true) {
+    init(renderGrid frame: MobileTerminalRenderGridFrame, replaceable: Bool) {
         self.payload = .renderGrid(frame)
         self.replaceable = replaceable
-        self.coldAttach = coldAttach
     }
 
     var bytes: Data {
@@ -34,9 +26,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         case .bytes(let bytes):
             bytes
         case .renderGrid(let frame):
-            (frame.full && !coldAttach)
-                ? MobileTerminalRenderGridReplay(frame).viewportRepaintBytes()
-                : frame.vtPatchBytes()
+            frame.vtPatchBytes()
         }
     }
 
