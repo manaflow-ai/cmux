@@ -2288,6 +2288,51 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
     }
 
+    /// Regression test for https://github.com/manaflow-ai/cmux/issues/6738.
+    /// `cmux ssh <host>` carried the ≈150 KB remote bootstrap as an uncompressed
+    /// base64 literal inside the SSH PTY attach command — and the `/bin/sh -c`
+    /// wrapper that embeds it, repeated across the surface's `login`/`sh` layers —
+    /// pushing `ps aux` output past 1 MiB and breaking tools that scan the process
+    /// table with a bounded buffer. The attach command must carry the payload
+    /// compressed so its inlined size stays a small fraction of the uncompressed
+    /// base64 form.
+    func testSSHPTYAttachCommandDoesNotInlineUncompressedBootstrap() throws {
+        let bootstrap = Self.makeLargeRemoteBootstrapStub()
+        let uncompressedBase64 = Data(bootstrap.utf8).base64EncodedString()
+        XCTAssertGreaterThan(
+            uncompressedBase64.count,
+            150_000,
+            "stub bootstrap should be large enough to exercise the argv-bloat path"
+        )
+
+        let command = SSHPTYAttachStartupCommandBuilder.command(remoteCommand: bootstrap)
+        XCTAssertTrue(command.contains("ssh-pty-attach"), command)
+
+        // The uncompressed base64 of the bootstrap must not appear verbatim in argv.
+        XCTAssertFalse(
+            command.contains(uncompressedBase64),
+            "attach command inlined the uncompressed base64 bootstrap (\(uncompressedBase64.count) bytes)"
+        )
+        // The whole attach command (payload + scaffold) must stay far below the
+        // uncompressed base64 size that bloated `ps aux` past 1 MiB.
+        XCTAssertLessThan(
+            command.count,
+            uncompressedBase64.count / 2,
+            "attach command is \(command.count) bytes; uncompressed base64 alone is \(uncompressedBase64.count) bytes"
+        )
+    }
+
+    private static func makeLargeRemoteBootstrapStub() -> String {
+        // Shell-shaped, structurally repetitive text — representative of the bundled
+        // shell-integration payload, which compresses several-fold.
+        var lines: [String] = []
+        for index in 0..<2200 {
+            lines.append("export CMUX_BOOTSTRAP_VAR_\(index)=\"value for bootstrap entry number \(index)\"")
+            lines.append("if [ \"${CMUX_BOOTSTRAP_VAR_\(index):-}\" != \"0\" ]; then printf '%s\\n' \"line \(index)\"; fi")
+        }
+        return lines.joined(separator: "\n")
+    }
+
     func testSessionSnapshotRestoresSplitPersistentSSHPTYWithoutDefaultAttachScaffold() throws {
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
