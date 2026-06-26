@@ -34,6 +34,12 @@ final class TerminationWatchdog: Sendable {
     /// ~30s hang watchdog by a wide margin.
     static let defaultDeadline: TimeInterval = 8
 
+    // A lock, not an actor: `arm()` is called synchronously from the terminate
+    // delegate methods and the deadline fires on a raw `Thread`, both outside any
+    // async context — and by design this must not depend on the Swift concurrency
+    // runtime, which may itself be wedged during the termination it guards
+    // against. Same sanctioned shape as `TerminalPasteboardService` uses for state
+    // shared with its synchronous clipboard callbacks.
     private let lock = NSLock()
     // SAFETY: guarded by `lock`; latched from the arming caller (main thread)
     // and read by the watchdog/test threads.
