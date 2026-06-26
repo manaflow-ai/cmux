@@ -2380,13 +2380,13 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
 final class BrowserPopupContentRectTests: XCTestCase {
     func testExplicitTopOriginCoordinatesConvertToAppKitBottomOrigin() {
-        let rect = browserPopupContentRect(
+        let rect = BrowserPopupGeometry(
             requestedWidth: 400,
             requestedHeight: 300,
             requestedX: 150,
             requestedTopY: 120,
             visibleFrame: NSRect(x: 100, y: 50, width: 1000, height: 800)
-        )
+        ).contentRect
 
         XCTAssertEqual(rect.origin.x, 150, accuracy: 0.01)
         XCTAssertEqual(rect.origin.y, 430, accuracy: 0.01)
@@ -2395,13 +2395,13 @@ final class BrowserPopupContentRectTests: XCTestCase {
     }
 
     func testExplicitCoordinatesClampToVisibleFrame() {
-        let rect = browserPopupContentRect(
+        let rect = BrowserPopupGeometry(
             requestedWidth: 1400,
             requestedHeight: 1200,
             requestedX: 900,
             requestedTopY: -25,
             visibleFrame: NSRect(x: 100, y: 50, width: 1000, height: 800)
-        )
+        ).contentRect
 
         XCTAssertEqual(rect.origin.x, 100, accuracy: 0.01)
         XCTAssertEqual(rect.origin.y, 50, accuracy: 0.01)
@@ -2410,13 +2410,13 @@ final class BrowserPopupContentRectTests: XCTestCase {
     }
 
     func testMissingCoordinatesCentersPopup() {
-        let rect = browserPopupContentRect(
+        let rect = BrowserPopupGeometry(
             requestedWidth: 300,
             requestedHeight: 200,
             requestedX: nil,
             requestedTopY: nil,
             visibleFrame: NSRect(x: 100, y: 50, width: 1000, height: 800)
-        )
+        ).contentRect
 
         XCTAssertEqual(rect.origin.x, 450, accuracy: 0.01)
         XCTAssertEqual(rect.origin.y, 350, accuracy: 0.01)

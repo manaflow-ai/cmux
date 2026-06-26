@@ -1621,26 +1621,6 @@ enum TerminalWindowPortalRegistry {
         return candidateWindows
     }
 
-    private static func bindBlockReason(
-        expectedSurfaceId: UUID?,
-        expectedGeneration: UInt64?,
-        actual: (surfaceId: UUID?, generation: UInt64?, state: String)
-    ) -> String {
-        if actual.surfaceId == nil {
-            return "missingSurface"
-        }
-        if actual.state != "live" {
-            return "state_\(actual.state)"
-        }
-        if let expectedSurfaceId, actual.surfaceId != expectedSurfaceId {
-            return "surfaceMismatch"
-        }
-        if let expectedGeneration, actual.generation != expectedGeneration {
-            return "generationMismatch"
-        }
-        return "guardRejected"
-    }
-
     private static func installWindowCloseObserverIfNeeded(for window: NSWindow) {
         guard objc_getAssociatedObject(window, &cmuxWindowTerminalPortalCloseObserverKey) == nil else { return }
         let windowId = ObjectIdentifier(window)
@@ -1734,11 +1714,11 @@ enum TerminalWindowPortalRegistry {
                 portalsByWindowId[oldWindowId]?.detachHostedView(withId: hostedId)
             }
 #if DEBUG
-            let reason = bindBlockReason(
+            let reason = PortalBindBlockReason(
                 expectedSurfaceId: expectedSurfaceId,
                 expectedGeneration: expectedGeneration,
                 actual: guardState
-            )
+            ).wireValue
             blockedBindCount += 1
             blockedBindReasons[reason, default: 0] += 1
             cmuxDebugLog(

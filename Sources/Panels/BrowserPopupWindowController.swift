@@ -4,37 +4,6 @@ import CmuxBrowser
 import ObjectiveC
 import WebKit
 
-func browserPopupContentRect(
-    requestedWidth: CGFloat?,
-    requestedHeight: CGFloat?,
-    requestedX: CGFloat?,
-    requestedTopY: CGFloat?,
-    visibleFrame: NSRect,
-    defaultWidth: CGFloat = 800,
-    defaultHeight: CGFloat = 600,
-    minWidth: CGFloat = 200,
-    minHeight: CGFloat = 150
-) -> NSRect {
-    let clampedWidth = min(max(requestedWidth ?? defaultWidth, minWidth), visibleFrame.width)
-    let clampedHeight = min(max(requestedHeight ?? defaultHeight, minHeight), visibleFrame.height)
-
-    let x: CGFloat
-    let y: CGFloat
-    if let requestedX, let requestedTopY {
-        x = max(visibleFrame.minX, min(requestedX, visibleFrame.maxX - clampedWidth))
-
-        // Web content expresses popup Y as distance from the screen's top edge,
-        // while AppKit window origins are bottom-up.
-        let appKitY = visibleFrame.maxY - requestedTopY - clampedHeight
-        y = max(visibleFrame.minY, min(appKitY, visibleFrame.maxY - clampedHeight))
-    } else {
-        x = visibleFrame.midX - clampedWidth / 2
-        y = visibleFrame.midY - clampedHeight / 2
-    }
-
-    return NSRect(x: x, y: y, width: clampedWidth, height: clampedHeight)
-}
-
 private func browserPopupPanelShouldSuppressStaleCloseTabShortcut(_ event: NSEvent) -> Bool {
     let closeTabShortcut = KeyboardShortcutSettings.shortcut(for: .closeTab)
     guard closeTabShortcut.isUnbound || closeTabShortcut != KeyboardShortcutSettings.Action.closeTab.defaultShortcut else {
@@ -135,7 +104,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         // Screen-clamping: use opener's screen or main screen
         let screen = openerPanel?.webView.window?.screen ?? NSScreen.main ?? NSScreen.screens.first
         let visibleFrame = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let contentRect = browserPopupContentRect(
+        let contentRect = BrowserPopupGeometry(
             requestedWidth: w,
             requestedHeight: h,
             requestedX: windowFeatures.x.map { CGFloat($0.doubleValue) },
@@ -145,7 +114,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
             defaultHeight: defaultHeight,
             minWidth: minWidth,
             minHeight: minHeight
-        )
+        ).contentRect
 
         // Style mask: titled + closable + resizable by default.
         // allowsResizing is a separate property from chrome-visibility flags

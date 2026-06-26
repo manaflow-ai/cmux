@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 
 // File explorer context menus, split out of FileExplorerView.swift.
 //
