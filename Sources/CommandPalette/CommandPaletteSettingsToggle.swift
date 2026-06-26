@@ -541,6 +541,20 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: SidebarWorkspaceTitleWrapSettings.key
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "hideWorkspaceCloseButtonInSidebar",
+                settingsKey: "sidebar.hideWorkspaceCloseButton",
+                title: {
+                    String(
+                        localized: "settings.sidebar.hideWorkspaceCloseButton",
+                        defaultValue: "Hide Workspace Close Button"
+                    )
+                },
+                sectionTitle: sidebar,
+                keywords: ["sidebar.hideWorkspaceCloseButton", "sidebar", "workspace", "close", "button", "x", "title", "width"],
+                defaultValue: SettingCatalog().sidebar.hideWorkspaceCloseButton.defaultValue,
+                defaultsKey: SettingCatalog().sidebar.hideWorkspaceCloseButton.userDefaultsKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "showWorkspaceDescriptionInSidebar",
                 settingsKey: "sidebar.showWorkspaceDescription",
                 title: {

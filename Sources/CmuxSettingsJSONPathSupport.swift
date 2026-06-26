@@ -190,6 +190,10 @@ enum SidebarSettingsFileMapping {
             defaultsKey: SidebarWorkspaceTitleWrapSettings.key
         ),
         .init(
+            jsonKey: "hideWorkspaceCloseButton",
+            defaultsKey: sidebar.hideWorkspaceCloseButton.userDefaultsKey
+        ),
+        .init(
             jsonKey: "showWorkspaceDescription",
             defaultsKey: sidebar.showWorkspaceDescription.userDefaultsKey
         ),
@@ -368,6 +372,7 @@ extension CmuxSettingsFileStore {
         "notifications.hooksMode",
         "sidebar.hideAllDetails",
         "sidebar.wrapWorkspaceTitles",
+        "sidebar.hideWorkspaceCloseButton",
         "sidebar.showWorkspaceDescription",
         "sidebar.branchLayout",
         "sidebar.stackBranchDirectory",

@@ -1029,6 +1029,7 @@
           "wordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally."
         },
         "sidebar": {
+          "hideWorkspaceCloseButton": "Hide the per-workspace close button in the sidebar so workspace titles can use the reclaimed width.",
           "rightMaxWidth": "Maximum width in points for the right sidebar. When omitted, the built-in dynamic cap applies."
         },
         "fileExplorer": {

@@ -15,6 +15,12 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarWrapWorkspaceTitles"
     )
 
+    public let hideWorkspaceCloseButton = DefaultsKey<Bool>(
+        id: "sidebar.hideWorkspaceCloseButton",
+        defaultValue: false,
+        userDefaultsKey: "sidebarHideWorkspaceCloseButton"
+    )
+
     public let showWorkspaceDescription = DefaultsKey<Bool>(
         id: "sidebar.showWorkspaceDescription",
         defaultValue: true,

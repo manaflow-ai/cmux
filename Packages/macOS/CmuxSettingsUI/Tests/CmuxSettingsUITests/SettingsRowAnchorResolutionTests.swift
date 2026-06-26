@@ -88,6 +88,7 @@ struct SettingsRowAnchorResolutionTests {
         "notifications.unreadPaneRing",
         "sidebar.branchLayout",
         "sidebar.hideAllDetails",
+        "sidebar.hideWorkspaceCloseButton",
         "sidebar.makePullRequestsClickable",
         "sidebar.openPortLinksInCmuxBrowser",
         "sidebar.openPullRequestLinksInCmuxBrowser",
