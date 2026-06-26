@@ -51,6 +51,24 @@ struct SystemIdentifyCallerResolutionTests {
         )
     }
 
+    @Test
+    func callerWorkspaceIDAloneResolvesWorkspaceWithoutSurface() throws {
+        let fixture = try makeFixture()
+        defer { fixture.tearDown() }
+
+        let caller = try identifyCaller(params: [
+            "caller": [
+                "workspace_id": fixture.targetWorkspace.id.uuidString,
+            ],
+        ])
+
+        assertWorkspaceOnlyCaller(
+            caller,
+            windowID: fixture.windowID,
+            workspaceID: fixture.targetWorkspace.id
+        )
+    }
+
     private struct Fixture {
         let previousAppDelegate: AppDelegate?
         let appDelegate: AppDelegate
@@ -130,5 +148,22 @@ struct SystemIdentifyCallerResolutionTests {
         #expect(caller["pane_id"] as? String == paneID?.uuidString)
         #expect(caller["surface_type"] as? String == "terminal")
         #expect(caller["is_browser_surface"] as? Bool == false)
+    }
+
+    private func assertWorkspaceOnlyCaller(
+        _ caller: [String: Any],
+        windowID: UUID,
+        workspaceID: UUID
+    ) {
+        #expect(caller["window_id"] as? String == windowID.uuidString)
+        #expect(caller["workspace_id"] as? String == workspaceID.uuidString)
+        #expect((caller["surface_id"] as? NSNull) != nil)
+        #expect((caller["surface_ref"] as? NSNull) != nil)
+        #expect((caller["tab_id"] as? NSNull) != nil)
+        #expect((caller["tab_ref"] as? NSNull) != nil)
+        #expect((caller["pane_id"] as? NSNull) != nil)
+        #expect((caller["pane_ref"] as? NSNull) != nil)
+        #expect((caller["surface_type"] as? NSNull) != nil)
+        #expect((caller["is_browser_surface"] as? NSNull) != nil)
     }
 }
