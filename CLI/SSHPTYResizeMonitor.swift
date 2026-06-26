@@ -3,8 +3,17 @@ import Foundation
 
 actor SSHPTYResizeMonitor {
     private typealias ResizeEvent = (size: (cols: Int, rows: Int), force: Bool)
-    // Keep input-edge ordering bounded; failed sends retry on the next event.
+    // Keep input-edge ordering bounded; failed sends resume waiters immediately
+    // and retry the latest size on a timer (see `scheduleResizeRetry`).
     private static let resizeResponseTimeout: TimeInterval = 0.05
+    // A resize send can fail transiently (the bounded RPC races a stale or
+    // blocked remote-session control path and times out). Recording the pending
+    // size is not enough: without a self-driven retry the remote PTY/TUI stays
+    // frozen until the next SIGWINCH or input edge — or a manual workspace
+    // reconnect. Retry the latest size with bounded backoff so it converges on
+    // its own. https://github.com/manaflow-ai/cmux/issues/6306
+    private static let initialRetryBackoff: TimeInterval = 0.1
+    private static let maxRetryBackoff: TimeInterval = 2.0
 
     private let socketPath: String
     private let explicitPassword: String?
@@ -22,6 +31,8 @@ actor SSHPTYResizeMonitor {
     private var inputWaiters: [CheckedContinuation<Void, Never>] = []
     private var isDraining = false
     private var isCancelled = false
+    private var retryBackoff: TimeInterval = SSHPTYResizeMonitor.initialRetryBackoff
+    private var retryTask: Task<Void, Never>?
 
     init(
         socketPath: String,
@@ -83,14 +94,14 @@ actor SSHPTYResizeMonitor {
             guard !isCancelled else { break }
             recordPendingResize(size: event.size, force: event.force, waiter: nil)
         }
-        isCancelled = true
-        pendingSize = nil
-        resumeInputWaiters()
+        markCancelled()
     }
 
     private func markCancelled() {
         isCancelled = true
         pendingSize = nil
+        retryTask?.cancel()
+        retryTask = nil
         resumeInputWaiters()
     }
 
@@ -153,6 +164,7 @@ actor SSHPTYResizeMonitor {
             }
             if sent {
                 lastSentSize = size
+                resetResizeRetry()
                 let currentSize = CMUXCLI.currentCLITerminalSize()
                 pendingSize = Self.sameSize(currentSize, lastSentSize) ? nil : currentSize
                 if pendingSize == nil {
@@ -162,12 +174,40 @@ actor SSHPTYResizeMonitor {
                 continue
             }
 
+            // Delivery failed. Keep the latest desired size pending, resume any
+            // input waiters immediately so typing is never blocked behind a
+            // wedged resize, and schedule a backoff retry so the size still
+            // converges without waiting for the next SIGWINCH/input edge.
             if pendingSize == nil {
                 pendingSize = size
             }
             resumeInputWaiters()
+            scheduleResizeRetry()
             return
         }
+    }
+
+    private func scheduleResizeRetry() {
+        guard !isCancelled, pendingSize != nil, retryTask == nil else { return }
+        let delay = retryBackoff
+        retryBackoff = min(retryBackoff * 2, Self.maxRetryBackoff)
+        retryTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            if Task.isCancelled { return }
+            await self?.retryPendingResize()
+        }
+    }
+
+    private func retryPendingResize() {
+        retryTask = nil
+        guard !isCancelled, pendingSize != nil else { return }
+        startDrainIfNeeded()
+    }
+
+    private func resetResizeRetry() {
+        retryBackoff = Self.initialRetryBackoff
+        retryTask?.cancel()
+        retryTask = nil
     }
 
     private func resumeInputWaiters() {
