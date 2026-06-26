@@ -225,6 +225,28 @@ struct TextBoxSubmitActionTests {
         )
     }
 
+    @Test
+    func testTextBoxLaunchContextRequiresAgentExecutable() {
+        XCTAssertEqual(
+            TextBoxAgentDetection.boundedLaunchCommandContext(
+                from: "agent-router --provider codex --prompt 'ship it'"
+            ),
+            nil
+        )
+        XCTAssertEqual(
+            TextBoxAgentDetection.boundedLaunchCommandContext(
+                from: "env FOO=bar codex --dangerously-bypass-approvals-and-sandbox"
+            ),
+            "codex"
+        )
+        XCTAssertEqual(
+            TextBoxAgentDetection.boundedLaunchCommandContext(
+                from: "zsh -lc 'claude --dangerously-skip-permissions'"
+            ),
+            "claude"
+        )
+    }
+
 
     @Test
     func testProviderLaunchEventsKeepPromptInTextBoxUntilAgentIsActive() {

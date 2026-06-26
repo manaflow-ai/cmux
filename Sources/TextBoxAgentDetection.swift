@@ -66,8 +66,7 @@ enum TextBoxAgentDetection: CaseIterable {
     static func boundedLaunchCommandContext(from rawCommand: String) -> String? {
         let command = rawCommand.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !command.isEmpty else { return nil }
-        let context = "textBoxLaunchCommand:\(command)"
-        return allCases.first { $0.matches(context: context) }?.boundedActiveContextCommand
+        return allCases.first { $0.matchesLaunchExecutable(command: command) }?.boundedActiveContextCommand
     }
 
     private var boundedActiveContextCommand: String {
@@ -100,7 +99,7 @@ enum TextBoxAgentDetection: CaseIterable {
             return matchesCommand(value)
         }
         if let value = Self.metadataValue(line, prefix: "textBoxLaunchCommand:") {
-            return matchesCommand(value)
+            return matchesLaunchExecutable(command: value)
         }
         return false
     }
@@ -109,9 +108,32 @@ enum TextBoxAgentDetection: CaseIterable {
         let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !line.isEmpty else { return false }
         if let value = Self.metadataValue(line, prefix: "textBoxLaunchCommand:") {
-            return matchesCommand(value)
+            return matchesLaunchExecutable(command: value)
         }
         return false
+    }
+
+    private func matchesLaunchExecutable(command: String) -> Bool {
+        let tokens = Self.shellLikeTokens(command)
+        guard !tokens.isEmpty else { return false }
+        return Self.commandSegments(from: tokens).contains { segment in
+            matchesLaunchExecutableSegment(segment, depth: 0)
+        }
+    }
+
+    private func matchesLaunchExecutableSegment(_ tokens: [String], depth: Int) -> Bool {
+        guard !tokens.isEmpty else { return false }
+        let resolved = Self.resolvedCommandSegment(tokens)
+        guard let executable = resolved.arguments.first else { return false }
+        let basename = (executable as NSString).lastPathComponent
+        if matchesIdentity(basename) {
+            return true
+        }
+
+        guard depth < 2 else { return false }
+        return Self.shellSubcommandSegments(from: resolved.arguments).contains { segment in
+            matchesLaunchExecutableSegment(segment, depth: depth + 1)
+        }
     }
 
     private func matchesIdentity(_ rawValue: String) -> Bool {

@@ -88,8 +88,8 @@
 1021	cmuxUITests/TerminalCmdClickUITests.swift
 1009	cmuxTests/CmuxTopSnapshotScopeTests.swift
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
+972	cmuxTests/TextBoxSubmitActionTests.swift
 951	Sources/App/TerminalDirectoryOpenSupport.swift
-950	cmuxTests/TextBoxSubmitActionTests.swift
 947	Sources/TerminalNotificationPolicy.swift
 945	Sources/SessionIndexRegisteredAgents.swift
 937	Sources/TextBoxMentionIndexStore.swift
