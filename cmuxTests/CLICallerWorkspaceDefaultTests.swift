@@ -83,7 +83,24 @@ struct CLICallerWorkspaceDefaultTests {
         #expect(params["tab_id"] as? String == Self.otherWorkspaceId)
     }
 
-    @Test func workspaceGetCwdSendsDefaultCwdRequest() throws {
+    @Test func workspaceGetCwdDefaultsToCallerWorkspace() throws {
+        let cwd = "/tmp/cmux-cli-get-cwd-\(UUID().uuidString)"
+        let (requests, result) = try runWorkspaceCWDCommand(
+            arguments: ["workspace", "get-cwd"],
+            cwd: cwd,
+            callerWorkspaceId: Self.callerWorkspaceId
+        )
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+        #expect(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == cwd)
+
+        let methods = requests.compactMap { $0["method"] as? String }
+        #expect(methods == ["workspace.get_cwd"], Comment(rawValue: methods.joined(separator: ",")))
+        let request = try #require(requests.first)
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == Self.callerWorkspaceId)
+    }
+
+    @Test func workspaceGetCwdSendsExplicitWorkspaceRequest() throws {
         let cwd = "/tmp/cmux-cli-get-cwd-\(UUID().uuidString)"
         let (requests, result) = try runWorkspaceCWDCommand(
             arguments: ["workspace", "get-cwd", Self.callerWorkspaceId],
@@ -98,7 +115,25 @@ struct CLICallerWorkspaceDefaultTests {
         #expect(params["workspace_id"] as? String == Self.callerWorkspaceId)
     }
 
-    @Test func workspaceSetCwdSendsResolvedPath() throws {
+    @Test func workspaceSetCwdDefaultsToCallerWorkspace() throws {
+        let cwd = "/tmp/cmux-cli-set-cwd-\(UUID().uuidString)"
+        let (requests, result) = try runWorkspaceCWDCommand(
+            arguments: ["workspace", "set-cwd", cwd],
+            cwd: cwd,
+            callerWorkspaceId: Self.callerWorkspaceId
+        )
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+        #expect(result.stdout.contains("cwd=\(cwd)"), Comment(rawValue: result.stdout))
+
+        let methods = requests.compactMap { $0["method"] as? String }
+        #expect(methods == ["workspace.set_cwd"], Comment(rawValue: methods.joined(separator: ",")))
+        let request = try #require(requests.first)
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == Self.callerWorkspaceId)
+        #expect(params["cwd"] as? String == cwd)
+    }
+
+    @Test func workspaceSetCwdSendsExplicitWorkspaceRequest() throws {
         let cwd = "/tmp/cmux-cli-set-cwd-\(UUID().uuidString)"
         let (requests, result) = try runWorkspaceCWDCommand(
             arguments: ["workspace", "set-cwd", Self.callerWorkspaceId, cwd],
@@ -167,7 +202,8 @@ struct CLICallerWorkspaceDefaultTests {
 
     private func runWorkspaceCWDCommand(
         arguments: [String],
-        cwd: String
+        cwd: String,
+        callerWorkspaceId: String? = nil
     ) throws -> ([[String: Any]], ProcessRunResult) {
         let socketPath = Self.makeSocketPath("cwd")
         let listenerFD = try Self.bindUnixSocket(at: socketPath)
@@ -186,7 +222,7 @@ struct CLICallerWorkspaceDefaultTests {
             switch method {
             case "workspace.get_cwd", "workspace.set_cwd":
                 return Self.v2Response(id: id, ok: true, result: [
-                    "workspace_id": Self.callerWorkspaceId,
+                    "workspace_id": callerWorkspaceId ?? Self.callerWorkspaceId,
                     "workspace_ref": "workspace:2",
                     "cwd": cwd,
                 ])
@@ -202,7 +238,7 @@ struct CLICallerWorkspaceDefaultTests {
         let result = Self.runProcess(
             executablePath: try Self.bundledCLIPath(),
             arguments: arguments,
-            environment: cliEnvironment(socketPath: socketPath, callerWorkspaceId: nil),
+            environment: cliEnvironment(socketPath: socketPath, callerWorkspaceId: callerWorkspaceId),
             timeout: 5
         )
 
