@@ -1,3 +1,5 @@
+public import UserNotifications
+
 /// The app's view of the system notification authorization status, mapped from
 /// `UNAuthorizationStatus` into the states the notification UI distinguishes.
 ///
@@ -41,6 +43,27 @@ public enum NotificationAuthorizationState: Equatable, Sendable {
             return true
         case .unknown, .notDetermined, .denied:
             return false
+        }
+    }
+}
+
+public extension NotificationAuthorizationState {
+    /// Maps a system `UNAuthorizationStatus` into the app's authorization state.
+    /// Unrecognized future statuses collapse to ``unknown``.
+    init(authorizationStatus status: UNAuthorizationStatus) {
+        switch status {
+        case .authorized:
+            self = .authorized
+        case .denied:
+            self = .denied
+        case .notDetermined:
+            self = .notDetermined
+        case .provisional:
+            self = .provisional
+        case .ephemeral:
+            self = .ephemeral
+        @unknown default:
+            self = .unknown
         }
     }
 }

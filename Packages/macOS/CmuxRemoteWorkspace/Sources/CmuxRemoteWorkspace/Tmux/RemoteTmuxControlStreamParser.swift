@@ -1,4 +1,3 @@
-import CmuxRemoteWorkspace
 import Foundation
 
 /// Incremental parser for a tmux control-mode (`tmux -CC`) byte stream.
@@ -15,7 +14,7 @@ import Foundation
 /// split across two notifications. `%output` is therefore parsed from raw bytes
 /// (see ``parseOutput(rawLine:)``) so those characters survive for ghostty to
 /// reassemble; a String round-trip would replace each split half with U+FFFD.
-struct RemoteTmuxControlStreamParser {
+public struct RemoteTmuxControlStreamParser {
     private let maxBufferedLineBytes: Int
     private let maxCommandBlockBytes: Int
     private var buffer: [UInt8] = []
@@ -24,7 +23,8 @@ struct RemoteTmuxControlStreamParser {
     private var blockLines: [String] = []
     private var blockBufferedBytes = 0
 
-    init(
+    /// Creates a parser with optional caps on buffered line and command-block sizes.
+    public init(
         maxBufferedLineBytes: Int = 1_048_576,
         maxCommandBlockBytes: Int = 16_777_216
     ) {
@@ -40,7 +40,7 @@ struct RemoteTmuxControlStreamParser {
     private static let outputPrefix: [UInt8] = Array("%output ".utf8)
 
     /// Feeds a chunk of stream bytes and returns any newly completed messages.
-    mutating func feed(_ data: Data) -> [RemoteTmuxControlMessage] {
+    public mutating func feed(_ data: Data) -> [RemoteTmuxControlMessage] {
         var messages: [RemoteTmuxControlMessage] = []
         for byte in data {
             if byte == 0x0a {
@@ -254,7 +254,7 @@ struct RemoteTmuxControlStreamParser {
     }
 
     /// Parses a sigil-prefixed tmux id token, e.g. `@4` → 4, `%8` → 8, `$2` → 2.
-    static func id(_ token: Substring, sigil: Character) -> Int? {
+    public static func id(_ token: Substring, sigil: Character) -> Int? {
         guard token.first == sigil else { return nil }
         return Int(token.dropFirst())
     }

@@ -323,7 +323,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         }
 
         func performDisclosureAction(
-            _ action: RightSidebarKeyboardNavigation.DisclosureAction,
+            _ action: RightSidebarDisclosureAction,
             in outlineView: NSOutlineView
         ) {
             switch action {
@@ -1551,7 +1551,7 @@ final class FileExplorerSearchResultsTableView: NSTableView {
             onCancel?()
             return
         }
-        if let delta = RightSidebarKeyboardNavigation.moveDelta(for: event) {
+        if let delta = event.rightSidebarMoveDelta {
             onMoveSelection?(delta)
             return
         }
@@ -1559,14 +1559,14 @@ final class FileExplorerSearchResultsTableView: NSTableView {
             onCommit?()
             return
         }
-        if RightSidebarKeyboardNavigation.isPlainPrintableText(event) {
+        if event.isPlainRightSidebarPrintableText {
             return
         }
         super.keyDown(with: event)
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if let delta = RightSidebarKeyboardNavigation.moveDelta(for: event) {
+        if let delta = event.rightSidebarMoveDelta {
             onMoveSelection?(delta)
             return true
         }
@@ -1894,24 +1894,24 @@ final class FileExplorerNSOutlineView: NSOutlineView {
             return
         }
 
-        if let delta = RightSidebarKeyboardNavigation.moveDelta(for: event) {
+        if let delta = event.rightSidebarMoveDelta {
             endQuickSearch()
             fileExplorerCoordinator?.moveSelection(in: self, by: delta)
             return
         }
 
-        if let action = RightSidebarKeyboardNavigation.disclosureAction(for: event) {
+        if let action = event.rightSidebarDisclosureAction {
             endQuickSearch()
             fileExplorerCoordinator?.performDisclosureAction(action, in: self)
             return
         }
 
-        if RightSidebarKeyboardNavigation.isPlainSlash(event) {
+        if event.isPlainRightSidebarSlash {
             beginQuickSearch()
             return
         }
 
-        if RightSidebarKeyboardNavigation.isPlainPrintableText(event) {
+        if event.isPlainRightSidebarPrintableText {
             return
         }
         super.keyDown(with: event)
@@ -1921,12 +1921,12 @@ final class FileExplorerNSOutlineView: NSOutlineView {
         if quickSearchActive, handleQuickSearchKey(event) {
             return true
         }
-        if let delta = RightSidebarKeyboardNavigation.moveDelta(for: event) {
+        if let delta = event.rightSidebarMoveDelta {
             endQuickSearch()
             fileExplorerCoordinator?.moveSelection(in: self, by: delta)
             return true
         }
-        if let action = RightSidebarKeyboardNavigation.disclosureAction(for: event) {
+        if let action = event.rightSidebarDisclosureAction {
             endQuickSearch()
             fileExplorerCoordinator?.performDisclosureAction(action, in: self)
             return true
@@ -2024,7 +2024,7 @@ final class FileExplorerNSOutlineView: NSOutlineView {
             }
             return true
         }
-        guard RightSidebarKeyboardNavigation.isPlainPrintableText(event) else {
+        guard event.isPlainRightSidebarPrintableText else {
             return false
         }
         guard let text = event.charactersIgnoringModifiers, !text.isEmpty else {
