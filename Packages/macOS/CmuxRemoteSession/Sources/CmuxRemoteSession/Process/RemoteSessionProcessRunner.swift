@@ -196,7 +196,7 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
             if writeDescriptor >= 0 {
                 _ = Darwin.fcntl(writeDescriptor, F_SETNOSIGPIPE, 1)
                 DispatchQueue.global(qos: .utility).async {
-                    Self.writeStdinAndClose(stdin, to: writeDescriptor)
+                    writeStdinAndClose(stdin, to: writeDescriptor)
                 }
             }
         }
@@ -248,32 +248,6 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
             .joined(separator: " ")
     }
 
-    /// Writes `data` to a blocking pipe write fd and closes it, looping over
-    /// partial writes and retrying `EINTR`. SIGPIPE must already be suppressed
-    /// on `fileDescriptor` (`F_SETNOSIGPIPE`); a broken pipe (the remote closed
-    /// the channel early) simply stops the write, and the process's nonzero
-    /// exit status then surfaces the failure to the caller. The fd is consumed
-    /// (closed) here. Kept as a plain function — not an inline closure body —
-    /// so the `errno` read stays out of the `@Sendable` dispatch closure.
-    private static func writeStdinAndClose(_ data: Data, to fileDescriptor: Int32) {
-        data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
-            guard var cursor = raw.baseAddress else { return }
-            var remaining = raw.count
-            while remaining > 0 {
-                let written = Darwin.write(fileDescriptor, cursor, remaining)
-                if written > 0 {
-                    cursor = cursor.advanced(by: written)
-                    remaining -= written
-                } else if written < 0 && errno == EINTR {
-                    continue
-                } else {
-                    break
-                }
-            }
-        }
-        _ = Darwin.close(fileDescriptor)
-    }
-
     private func duplicateReadDescriptor(_ fileDescriptor: Int32) throws -> Int32 {
         let duplicate = Darwin.dup(fileDescriptor)
         guard duplicate >= 0 else {
@@ -287,4 +261,30 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         CMUXDebugLog.logDebugEvent(message())
 #endif
     }
+}
+
+/// Writes `data` to a blocking pipe write fd and closes it, looping over
+/// partial writes and retrying `EINTR`. SIGPIPE must already be suppressed on
+/// `fileDescriptor` (`F_SETNOSIGPIPE`); a broken pipe (the remote closed the
+/// channel early) simply stops the write, and the process's nonzero exit status
+/// then surfaces the failure to the caller. The fd is consumed (closed) here.
+/// A file-scope helper (not a closure body) keeps the `errno` read out of the
+/// `@Sendable` dispatch closure that streams stdin.
+private func writeStdinAndClose(_ data: Data, to fileDescriptor: Int32) {
+    data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+        guard var cursor = raw.baseAddress else { return }
+        var remaining = raw.count
+        while remaining > 0 {
+            let written = Darwin.write(fileDescriptor, cursor, remaining)
+            if written > 0 {
+                cursor = cursor.advanced(by: written)
+                remaining -= written
+            } else if written < 0 && errno == EINTR {
+                continue
+            } else {
+                break
+            }
+        }
+    }
+    _ = Darwin.close(fileDescriptor)
 }
