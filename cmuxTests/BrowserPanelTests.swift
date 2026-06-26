@@ -361,7 +361,7 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
         let baseColor = NSColor(srgbRed: 0.13, green: 0.29, blue: 0.47, alpha: 1.0)
         let themeBackground = GhosttyBackgroundTheme.color(backgroundColor: baseColor, opacity: 0.42)
 
-        guard let actual = resolvedBrowserChromeBackgroundColor(
+        guard let actual = BrowserChromeStyle.resolvedBrowserChromeBackgroundColor(
             for: .dark,
             themeBackgroundColor: themeBackground,
             drawsBackground: false
@@ -384,7 +384,7 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
         let darkTranslucentBackground = NSColor(srgbRed: 0.02, green: 0.03, blue: 0.04, alpha: 0.05)
 
         XCTAssertEqual(
-            resolvedBrowserChromeColorScheme(
+            BrowserChromeStyle.resolvedBrowserChromeColorScheme(
                 for: .dark,
                 themeBackgroundColor: darkTranslucentBackground,
                 windowBackgroundColor: .white
@@ -489,7 +489,7 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
         let themeBackground = NSColor(srgbRed: 0.13, green: 0.29, blue: 0.47, alpha: 1.0)
 
         guard
-            let actual = resolvedBrowserChromeBackgroundColor(
+            let actual = BrowserChromeStyle.resolvedBrowserChromeBackgroundColor(
                 for: colorScheme,
                 themeBackgroundColor: themeBackground,
                 drawsBackground: true
@@ -891,7 +891,7 @@ final class BrowserPanelOmnibarPillBackgroundColorTests: XCTestCase {
         let baseColor = NSColor(srgbRed: 0.94, green: 0.93, blue: 0.91, alpha: 1.0)
         let themeBackground = GhosttyBackgroundTheme.color(backgroundColor: baseColor, opacity: 0.42)
 
-        guard let actual = resolvedBrowserOmnibarPillBackgroundColor(
+        guard let actual = BrowserChromeStyle.resolvedBrowserOmnibarPillBackgroundColor(
             for: .light,
             themeBackgroundColor: themeBackground
         ).usingColorSpace(.sRGB) else {
@@ -912,7 +912,7 @@ final class BrowserPanelOmnibarPillBackgroundColorTests: XCTestCase {
         let expected = themeBackground.blended(withFraction: darkenMix, of: .black) ?? themeBackground
 
         guard
-            let actual = resolvedBrowserOmnibarPillBackgroundColor(
+            let actual = BrowserChromeStyle.resolvedBrowserOmnibarPillBackgroundColor(
                 for: colorScheme,
                 themeBackgroundColor: themeBackground
             ).usingColorSpace(.sRGB),

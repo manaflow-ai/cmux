@@ -16,6 +16,9 @@ let package = Package(
     dependencies: [
         .package(path: "../CmuxSidebar"),
         .package(path: "../CmuxFoundation"),
+        // CmuxExtensionScope/CmuxExtensionActionScope back the permission-row
+        // display-name and description copy in Extension/.
+        .package(path: "../CmuxExtensionKit"),
         // ExtensionSidebarBrowserStackDropRow/Planner + CmuxSidebarProviderWorkspaceMove
         // back the extension browser-stack drop delegates.
         .package(path: "../CmuxSidebarProviderKit"),
@@ -30,6 +33,7 @@ let package = Package(
             dependencies: [
                 .product(name: "CmuxSidebar", package: "CmuxSidebar"),
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
+                .product(name: "CmuxExtensionKit", package: "CmuxExtensionKit"),
                 .product(name: "CmuxSidebarProviderKit", package: "CmuxSidebarProviderKit"),
                 .product(name: "CmuxAppKitSupportUI", package: "CmuxAppKitSupportUI"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),

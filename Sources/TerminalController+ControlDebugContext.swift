@@ -992,17 +992,9 @@ extension TerminalController: ControlDebugContext {
         let label = parts.count > 1 ? parts[1] : ""
 
         // Generate unique ID for this snapshot/screenshot
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-            .replacingOccurrences(of: ":", with: "-")
-            .replacingOccurrences(of: "+", with: "_")
-        let shortId = UUID().uuidString.prefix(8)
-        let snapshotId = "\(timestamp)_\(shortId)"
-
-        let outputDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-screenshots")
-        try? FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
-        let filename = label.isEmpty ? "\(snapshotId).png" : "\(label)_\(snapshotId).png"
-        let outputPath = outputDir.appendingPathComponent(filename)
+        let destination = ScreenshotDestination(label: label)
+        try? FileManager.default.createDirectory(at: destination.directory, withIntermediateDirectories: true)
+        let outputPath = destination.fileURL
 
         var result = "ERROR: No tab selected"
         v2MainSync {
@@ -1281,19 +1273,12 @@ extension TerminalController: ControlDebugContext {
         let label = args.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Generate unique ID for this screenshot
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-            .replacingOccurrences(of: ":", with: "-")
-            .replacingOccurrences(of: "+", with: "_")
-        let shortId = UUID().uuidString.prefix(8)
-        let screenshotId = "\(timestamp)_\(shortId)"
+        let destination = ScreenshotDestination(label: label)
+        let screenshotId = destination.id
 
         // Determine output path
-        let outputDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-screenshots")
-        try? FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
-
-        let filename = label.isEmpty ? "\(screenshotId).png" : "\(label)_\(screenshotId).png"
-        let outputPath = outputDir.appendingPathComponent(filename)
+        try? FileManager.default.createDirectory(at: destination.directory, withIntermediateDirectories: true)
+        let outputPath = destination.fileURL
 
         // Capture the main window on main thread
         var captureError: String?
