@@ -87,7 +87,8 @@ extension MobileShellComposite {
             method: "workspace.close",
             params: workspaceMutationParams(id: id),
             id: id,
-            actionName: "close"
+            actionName: "close",
+            isClose: true
         )
     }
 
@@ -99,7 +100,8 @@ extension MobileShellComposite {
         method: String,
         params: [String: Any],
         id: MobileWorkspacePreview.ID,
-        actionName: String
+        actionName: String,
+        isClose: Bool = false
     ) async {
         // Route the mutation to the Mac that actually OWNS this workspace. The
         // aggregated list can include rows from secondary Macs, whose connection is
@@ -108,6 +110,9 @@ extension MobileShellComposite {
         // mutate a foreground workspace). The foreground path is unchanged for
         // foreground-owned (or single-Mac / anonymous) rows.
         let target = workspaceMutationTarget(for: id)
+        // Resolve the Mac-local id NOW, while the row still exists, for the close
+        // tombstone (the prune below removes the row this lookup reads).
+        let closedLocalID: MobileWorkspacePreview.ID? = isClose ? remoteWorkspaceID(for: id) : nil
         guard let client = target.client else {
             // Owner is a known non-foreground Mac with no live connection: can't
             // deliver. Snap the row back to the authoritative state instead of
@@ -115,12 +120,14 @@ extension MobileShellComposite {
             await refreshWorkspaces()
             return
         }
+        var didSucceed = false
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: method,
                 params: params
             )
             _ = try await client.sendRequest(request)
+            didSucceed = true
         } catch {
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
             // Only the foreground connection's health drives the foreground
@@ -130,6 +137,15 @@ extension MobileShellComposite {
                 markMacConnectionUnavailableIfNeeded(after: error)
             }
             mobileShellLog.error("workspace mutation failed action=\(actionName, privacy: .public) id=\(id.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
+        }
+        // The Mac removes the workspace synchronously before acking a successful
+        // close, so success means the row is gone: prune it locally now (atomic
+        // with the user's tap) and tombstone it so the authoritative re-sync below
+        // — or any `workspace.updated` refresh already in flight against a pre-close
+        // snapshot — can't resurrect it (issue #6349). A REJECTED close throws, so
+        // this is skipped and the re-sync restores the row, leaving no ghost state.
+        if isClose, didSucceed, let closedLocalID {
+            recordConfirmedWorkspaceClose(localID: closedLocalID, target: target)
         }
         // Re-sync the authoritative list for the Mac we actually mutated.
         await refreshAfterWorkspaceMutation(target)

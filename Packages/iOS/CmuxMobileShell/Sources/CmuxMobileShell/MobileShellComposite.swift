@@ -205,6 +205,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var workspacesByMac: [String: MacWorkspaceState] = [:] {
         didSet { recomputeDerivedWorkspaceState() }
     }
+    /// Mac-local ids (``MobileWorkspacePreview/rpcWorkspaceID``) the Mac has
+    /// CONFIRMED closed (`workspace.close` returned success). The immediate re-sync —
+    /// or a `workspace.updated` refresh already in flight against a pre-close
+    /// snapshot — can still list the closed workspace, so any row whose id is here is
+    /// filtered out of foreground applies. Persists for the connection (a closed
+    /// workspace keeps its UUID forever); cleared on disconnect. See issue #6349.
+    private var confirmedClosedWorkspaceIDs: Set<String> = []
     private let workspaceAggregation = MobileWorkspaceAggregation()
     /// The flat aggregated workspace list the UI renders. A materialized
     /// derivation of ``workspacesByMac``: only ``recomputeDerivedWorkspaceState``
@@ -3511,7 +3518,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         merge: Bool
     ) {
         let key = foregroundMacKey
-        let stamped = newWorkspaces.map { workspace -> MobileWorkspacePreview in
+        var stamped = newWorkspaces.map { workspace -> MobileWorkspacePreview in
             // These are the FOREGROUND Mac's workspaces, so stamp them ALL with the
             // resolved foreground id — overriding any synthetic `manual-<host>:<port>`
             // id the active ticket carried for a Mac without
@@ -3525,6 +3532,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             var copy = workspace
             copy.macDeviceID = id
             return copy
+        }
+        // Drop rows the Mac has CONFIRMED closed (a successful `workspace.close`)
+        // that a lagging or pre-close `workspace.list` snapshot still includes, so a
+        // just-deleted workspace can't reappear in the sidebar (issue #6349). The id
+        // stays tombstoned for the life of the connection rather than clearing once a
+        // fresh list omits it: a still-in-flight pre-close snapshot could otherwise
+        // land afterward and resurrect the row. A closed workspace keeps its UUID
+        // forever (reopen mints a new id), so the Mac can never legitimately re-list
+        // it; the set is cleared on disconnect.
+        if !confirmedClosedWorkspaceIDs.isEmpty {
+            stamped.removeAll { confirmedClosedWorkspaceIDs.contains($0.rpcWorkspaceID.rawValue) }
         }
         var state = workspacesByMac[key] ?? MacWorkspaceState(macDeviceID: key)
         if merge {
@@ -3543,6 +3561,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let groups { state.groups = groups }
         state.status = .connected
         state.actionCapabilities = Self.workspaceActionCapabilities(from: supportedHostCapabilities)
+        workspacesByMac[key] = state
+    }
+
+    /// Record a Mac-confirmed `workspace.close`: tombstone the id (filtered in
+    /// ``setForegroundWorkspaceState``) and prune the row from the owning Mac's
+    /// source of truth so the sidebar drops it atomically with the close (#6349).
+    func recordConfirmedWorkspaceClose(
+        localID: MobileWorkspacePreview.ID,
+        target: WorkspaceMutationTarget
+    ) {
+        confirmedClosedWorkspaceIDs.insert(localID.rawValue)
+        let key = target.isForeground ? foregroundMacKey : (target.macDeviceID ?? foregroundMacKey)
+        guard var state = workspacesByMac[key] else { return }
+        let before = state.workspaces.count
+        state.workspaces.removeAll { $0.rpcWorkspaceID == localID || $0.id == localID }
+        guard state.workspaces.count != before else { return }
         workspacesByMac[key] = state
     }
 
@@ -4786,6 +4820,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connections[foreground] = nil
         }
         foregroundMacDeviceID = nil
+        // A new connection (reconnect / account or Mac switch) gets its own
+        // authoritative list, so close tombstones from the prior session must not
+        // suppress rows in it.
+        confirmedClosedWorkspaceIDs.removeAll()
         // Cancel the live secondary subscriptions (slice 3) and keep only the
         // now-offline foreground Mac's last-known workspaces for the offline view;
         // the derived list recomputes to just the offline Mac's rows.
