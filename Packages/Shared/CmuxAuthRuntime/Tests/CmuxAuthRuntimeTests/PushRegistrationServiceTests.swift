@@ -40,58 +40,74 @@ actor RequestRecorder {
     }
 }
 
-/// Lock-guarded record of the HTTP method that reached a redirect's TARGET, so
-/// the test can read it synchronously right after the awaited upload completes
-/// (the protocol records before it finishes loading the response).
+/// Lock-guarded record of the HTTP method AND body byte count that reached a
+/// redirect's TARGET, so the test can read them synchronously right after the
+/// awaited upload completes (the protocol records before it finishes loading the
+/// response).
 final class RedirectTargetRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var _targetMethod: String?
-    func record(targetMethod: String?) {
+    private var _targetBodyByteCount: Int?
+    func record(targetMethod: String?, bodyByteCount: Int?) {
         lock.lock(); defer { lock.unlock() }
         _targetMethod = targetMethod
+        _targetBodyByteCount = bodyByteCount
     }
     func targetMethod() -> String? {
         lock.lock(); defer { lock.unlock() }
         return _targetMethod
     }
+    func targetBodyByteCount() -> Int? {
+        lock.lock(); defer { lock.unlock() }
+        return _targetBodyByteCount
+    }
     func reset() {
         lock.lock(); defer { lock.unlock() }
         _targetMethod = nil
+        _targetBodyByteCount = nil
     }
 }
 
-/// Simulates a canonicalizing 301 (e.g. the historical `cmux.dev` -> `cmux.com`)
-/// that downgrades the request method to GET — Foundation's documented 301/302
-/// behavior — then records the method that actually arrives at the redirect
-/// target. The first hop (host `redirect-origin.test`) answers 301 by proposing
-/// a body-less GET to the canonical host; the second hop records what it saw.
+/// Simulates a canonicalizing 301 that downgrades the request method to GET and
+/// drops the body — Foundation's documented 301/302 behavior — then records what
+/// actually arrives at the redirect target. Two host families drive the two
+/// behaviors the delegate must have:
+///   - `same-origin-start.test` 301s to a distinct path on the SAME host, so the
+///     delegate restores method+body (the realistic recurrence).
+///   - `xorigin-start.test` 301s to a DIFFERENT host, so the delegate must fail
+///     closed and leave Foundation's proposed body-less GET (no payload leak).
+/// A distinct canonical path (not a trailing-slash variant, whose slash URL
+/// normalization can strip and re-match the origin path into a redirect loop) is
+/// used for both.
 final class RedirectingURLProtocol: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static let recorder = RedirectTargetRecorder()
-    static let canonicalURL = URL(string: "https://redirect-canonical.test/api/device-tokens")!
+    static let originPath = "/api/device-tokens"
+    static let canonicalPath = "/api/device-tokens-canonical"
+    static let sameOriginHost = "same-origin-start.test"
+    static let crossOriginStartHost = "xorigin-start.test"
+    static let crossOriginEndHost = "xorigin-end.test"
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
-        guard let url = request.url else {
+        guard let url = request.url, let host = url.host else {
             client?.urlProtocolDidFinishLoading(self)
             return
         }
-        if url.host == "redirect-origin.test" {
-            let response = HTTPURLResponse(
-                url: url,
-                statusCode: 301,
-                httpVersion: "HTTP/1.1",
-                headerFields: ["Location": Self.canonicalURL.absoluteString]
-            )!
-            // Foundation proposes a body-less GET on a 301/302; the redirect
-            // delegate (once installed) is what restores the original method.
-            var proposed = URLRequest(url: Self.canonicalURL)
-            proposed.httpMethod = "GET"
-            client?.urlProtocol(self, wasRedirectedTo: proposed, redirectResponse: response)
+        if host == Self.sameOriginHost, url.path == Self.originPath {
+            var canonical = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+            canonical.path = Self.canonicalPath
+            redirect(from: url, to: canonical.url!)
             return
         }
-        Self.recorder.record(targetMethod: request.httpMethod)
+        if host == Self.crossOriginStartHost {
+            redirect(from: url, to: URL(string: "https://\(Self.crossOriginEndHost)\(Self.canonicalPath)")!)
+            return
+        }
+        // The redirect target (same host canonical path, or the cross-origin
+        // end host): record what arrived and complete.
+        Self.recorder.record(targetMethod: request.httpMethod, bodyByteCount: Self.bodyByteCount(of: request))
         let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data())
@@ -99,6 +115,38 @@ final class RedirectingURLProtocol: URLProtocol, @unchecked Sendable {
     }
 
     override func stopLoading() {}
+
+    /// Emit a 301 whose proposed request is a body-less GET (Foundation's 301/302
+    /// behavior); the redirect delegate, when installed, is what restores it.
+    private func redirect(from url: URL, to target: URL) {
+        let response = HTTPURLResponse(
+            url: url,
+            statusCode: 301,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Location": target.absoluteString]
+        )!
+        var proposed = URLRequest(url: target)
+        proposed.httpMethod = "GET"
+        client?.urlProtocol(self, wasRedirectedTo: proposed, redirectResponse: response)
+    }
+
+    /// Body length from `httpBody`, or by draining `httpBodyStream` (URLSession
+    /// may have moved the body into a stream by the time it reaches the protocol).
+    private static func bodyByteCount(of request: URLRequest) -> Int {
+        if let body = request.httpBody { return body.count }
+        guard let stream = request.httpBodyStream else { return 0 }
+        stream.open()
+        defer { stream.close() }
+        var total = 0
+        let bufferSize = 4096
+        var buffer = [UInt8](repeating: 0, count: bufferSize)
+        while stream.hasBytesAvailable {
+            let read = stream.read(&buffer, maxLength: bufferSize)
+            if read <= 0 { break }
+            total += read
+        }
+        return total
+    }
 }
 
 struct FakeTokenProvider: TokenProviding {
@@ -228,12 +276,12 @@ struct FakeTokenProvider: TokenProviding {
     @Test func deviceTokenRegistrationSurvivesARedirectAsPOST() async {
         // Regression for https://github.com/manaflow-ai/cmux/issues/6270.
         // Foundation downgrades POST/DELETE to a body-less GET on a 301/302
-        // redirect. When the API base URL canonicalizes (the historical
-        // cmux.dev -> cmux.com 301 that "killed beta/prod push"), the upload
-        // arrived as a GET with no body, which `/api/device-tokens` has no
-        // handler for, so the device token silently never registered and iOS
-        // push went dead end-to-end. The registration request must survive the
-        // redirect as a POST.
+        // redirect. When the API base URL canonicalizes (e.g. a trailing-slash
+        // normalization), the upload arrived as a GET with no body, which
+        // `/api/device-tokens` has no handler for, so the device token silently
+        // never registered and iOS push went dead end-to-end. The registration
+        // request must survive a same-origin redirect as a POST *with its body*
+        // (a verb-only fix that dropped the body would still break the route).
         RedirectingURLProtocol.recorder.reset()
         let suite = "push-redirect-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
@@ -242,7 +290,7 @@ struct FakeTokenProvider: TokenProviding {
         configuration.protocolClasses = [RedirectingURLProtocol.self]
         let service = PushRegistrationService(
             tokenProvider: FakeTokenProvider(),
-            apiBaseURL: "https://redirect-origin.test",
+            apiBaseURL: "https://\(RedirectingURLProtocol.sameOriginHost)",
             bundleID: "dev.cmux.app.beta",
             apnsEnvironment: "production",
             suiteName: suite,
@@ -251,9 +299,42 @@ struct FakeTokenProvider: TokenProviding {
 
         await service.register(deviceToken: Data([0xAB, 0xCD]))
         // Enabling uploads the cached token via POST /api/device-tokens, which
-        // the stub 301-redirects to the canonical host.
+        // the stub 301-redirects (same origin) to the canonical path.
         await service.setEnabled(true)
 
         #expect(RedirectingURLProtocol.recorder.targetMethod() == "POST")
+        // The JSON body (deviceToken/bundleId/environment/platform) must survive
+        // too, not just the verb.
+        #expect((RedirectingURLProtocol.recorder.targetBodyByteCount() ?? 0) > 0)
+    }
+
+    @Test func deviceTokenRegistrationFailsClosedAcrossOrigins() async {
+        // Security: a cross-origin redirect must NOT replay the method+body to
+        // the new host. Foundation strips Authorization off-origin, so restoring
+        // the body there would resend the (potentially sensitive) payload
+        // unauthenticated to wherever the redirect points. The delegate leaves
+        // Foundation's proposed body-less GET, so it fails loudly instead.
+        RedirectingURLProtocol.recorder.reset()
+        let suite = "push-xorigin-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RedirectingURLProtocol.self]
+        let service = PushRegistrationService(
+            tokenProvider: FakeTokenProvider(),
+            apiBaseURL: "https://\(RedirectingURLProtocol.crossOriginStartHost)",
+            bundleID: "dev.cmux.app.beta",
+            apnsEnvironment: "production",
+            suiteName: suite,
+            session: URLSession(configuration: configuration)
+        )
+
+        await service.register(deviceToken: Data([0xAB, 0xCD]))
+        await service.setEnabled(true)
+
+        // The cross-origin target sees Foundation's downgraded GET with no body,
+        // never a restored POST carrying the payload.
+        #expect(RedirectingURLProtocol.recorder.targetMethod() == "GET")
+        #expect((RedirectingURLProtocol.recorder.targetBodyByteCount() ?? 0) == 0)
     }
 }
