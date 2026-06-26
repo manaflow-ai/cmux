@@ -737,7 +737,10 @@ struct EmptyPanelView: View {
         if let key = shortcut.keyEquivalent {
             Button(action: action) {
                 HStack(spacing: 10) {
-                    Label(title, systemImage: systemImage)
+                    HStack(spacing: 6) {
+                        CmuxSystemSymbolImage(systemName: systemImage, pointSize: 13)
+                        Text(title)
+                    }
                     ShortcutHint(text: shortcut.displayString)
                 }
             }
@@ -746,7 +749,10 @@ struct EmptyPanelView: View {
         } else {
             Button(action: action) {
                 HStack(spacing: 10) {
-                    Label(title, systemImage: systemImage)
+                    HStack(spacing: 6) {
+                        CmuxSystemSymbolImage(systemName: systemImage, pointSize: 13)
+                        Text(title)
+                    }
                     ShortcutHint(text: shortcut.displayString)
                 }
             }
@@ -756,8 +762,7 @@ struct EmptyPanelView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Image(systemName: "terminal.fill")
-                .cmuxFont(size: 48)
+            CmuxSystemSymbolImage(magnified: "terminal.fill", pointSize: 48)
                 .foregroundStyle(.tertiary)
 
             Text(String(localized: "emptyPanel.title", defaultValue: "Empty Panel"))

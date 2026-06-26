@@ -145,8 +145,7 @@ struct NotificationsPage: View {
 
     private var emptyState: some View {
         VStack(spacing: 8) {
-            Image(systemName: "bell.slash")
-                .cmuxFont(size: 32)
+            CmuxSystemSymbolImage(magnified: "bell.slash", pointSize: 32)
                 .foregroundColor(.secondary)
             Text(String(localized: "notifications.empty.title", defaultValue: "No notifications yet"))
                 .cmuxFont(.headline)
@@ -159,8 +158,7 @@ struct NotificationsPage: View {
 
     private var workspaceUnreadIndicatorState: some View {
         VStack(spacing: 8) {
-            Image(systemName: "bell.badge")
-                .cmuxFont(size: 32)
+            CmuxSystemSymbolImage(magnified: "bell.badge", pointSize: 32)
                 .foregroundColor(.secondary)
             Text(notificationStore.notificationMenuSnapshot.stateHintTitle)
                 .cmuxFont(.headline)
@@ -296,7 +294,7 @@ private struct NotificationRow: View {
             .modifier(DefaultActionModifier(isActive: focusedNotificationId.wrappedValue == notification.id))
 
             Button(action: onClear) {
-                Image(systemName: "xmark.circle.fill")
+                CmuxSystemSymbolImage(systemName: "xmark.circle.fill", pointSize: 14)
                     .foregroundColor(.secondary)
             }
             .buttonStyle(.plain)
