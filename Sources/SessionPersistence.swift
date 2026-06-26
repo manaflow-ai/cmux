@@ -2115,20 +2115,22 @@ enum SessionScrollbackReplayStore {
         return promptRowIndex(in: scrollback.components(separatedBy: "\n"), lastUserMessage: lastUserMessage) != nil
     }
 
-    /// Index of the row to mark: the BOTTOM-most row that *begins* with
-    /// `lastUserMessage` after an optional known prompt sigil, or nil.
+    /// Index of the row to mark: the row that *begins* with `lastUserMessage`
+    /// after a known prompt sigil, or nil.
     ///
-    /// Two filters, in order:
+    /// Filters, in order:
     ///  1. Anchoring to the row start, allowing only known prompt sigils (`>`,
     ///     `❯`, `│`, `$`, …) — not an unconstrained substring scan and not
     ///     arbitrary punctuation — excludes agent output that echoes the user's
     ///     words mid-sentence ("I'll refactor the login flow") and Markdown
     ///     list/heading echoes ("- refactor…", "# Refactor…"), which don't lead
     ///     with a prompt sigil.
-    ///  2. Among the anchored rows, keep the BOTTOM-most so jump-to-prompt lands on
-    ///     the user's MOST RECENT prompt (repeated prompt text resolves to the
-    ///     latest turn); bottom-most is safe because anchoring already removed the
-    ///     agent echoes.
+    ///  2. Prefer a sigil-prefixed candidate over a "bare" row that merely starts
+    ///     with the same words (likely agent prose, "refactor the login flow is
+    ///     done…"); fall back to a bare match only when no sigil row matched.
+    ///  3. Among candidates of the chosen kind, keep the BOTTOM-most so
+    ///     jump-to-prompt lands on the user's MOST RECENT prompt (repeated prompt
+    ///     text resolves to the latest turn).
     /// The match is whitespace-stripped (robust to soft and hard wraps) and may
     /// continue into following rows for wrapped prompts.
     private static func promptRowIndex(in lines: [String], lastUserMessage: String?) -> Int? {
@@ -2137,7 +2139,14 @@ enum SessionScrollbackReplayStore {
         guard needleChars.count >= 3 else { return nil }
 
         let compactRows: [[Character]] = lines.map { Array(visiblePlainText(of: $0).filter { !$0.isWhitespace }) }
-        var targetIndex: Int?
+        // Prefer a row that leads with the message AFTER a real prompt sigil over a
+        // "bare" row that merely starts with the same words: a real prompt almost
+        // always leads with a sigil, while a bare line is more likely agent prose
+        // that opens with the request ("refactor the login flow is done…"). Keep the
+        // bottom-most of each so the most recent prompt wins; fall back to a bare
+        // match only when no sigil-prefixed row matched.
+        var sigilCandidate: Int?
+        var bareCandidate: Int?
         for index in compactRows.indices where !compactRows[index].isEmpty {
             // Leading run of up to 4 known prompt-sigil characters.
             var sigil = 0
@@ -2145,17 +2154,22 @@ enum SessionScrollbackReplayStore {
             while sigil < row.count, sigil < 4, promptSigilCharacters.contains(row[sigil]) {
                 sigil += 1
             }
-            for offset in 0...sigil where compactPrefixMatches(
-                needleChars,
-                rows: compactRows,
-                startRow: index,
-                startOffset: offset
-            ) {
-                targetIndex = index
-                break
+            if sigil >= 1 {
+                for offset in 1...sigil where compactPrefixMatches(
+                    needleChars,
+                    rows: compactRows,
+                    startRow: index,
+                    startOffset: offset
+                ) {
+                    sigilCandidate = index
+                    break
+                }
+            }
+            if compactPrefixMatches(needleChars, rows: compactRows, startRow: index, startOffset: 0) {
+                bareCandidate = index
             }
         }
-        return targetIndex
+        return sigilCandidate ?? bareCandidate
     }
 
     /// Whether `needle` matches the compacted row text starting at

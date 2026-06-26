@@ -803,6 +803,34 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(marked.components(separatedBy: "\(esc)]133;A").count - 1, 1)
     }
 
+    // A bare agent-output line that opens with the same words ("refactor the
+    // login flow is done…") — no prompt sigil — must not steal the marker from the
+    // real sigil-prefixed prompt row above it.
+    func testScrollbackReplayPrefersSigilPromptOverBareAgentEcho() {
+        let esc = "\u{001B}"
+        let reset = "\(esc)[0m"
+        let message = "refactor the login flow"
+        let lines = [
+            "\(esc)[2m> \(reset)refactor the login flow",       // real prompt (sigil)
+            "\(esc)[33m⏺\(reset) working…",
+            "refactor the login flow is done; tests pass",       // bare agent line opening with the words
+        ]
+        let scrollback = lines.joined(separator: "\n")
+
+        let marked = SessionScrollbackReplayStore.reinjectingLastPromptMark(
+            into: scrollback,
+            lastUserMessage: message
+        )
+        let markedLines = marked.components(separatedBy: "\n")
+
+        XCTAssertTrue(
+            markedLines[0].hasPrefix(SessionScrollbackReplayStore.semanticPromptStartMark),
+            "the sigil-prefixed prompt must win over a bare echo, got: \(markedLines[0])"
+        )
+        XCTAssertFalse(markedLines[2].contains("\(esc)]133;A"), "a bare agent line must not steal the marker")
+        XCTAssertEqual(marked.components(separatedBy: "\(esc)]133;A").count - 1, 1)
+    }
+
     // Agent plan output often restates the request as a Markdown bullet or
     // heading ("- refactor the login flow"). These lead with a list/heading
     // marker, not a prompt sigil, so they must not be mistaken for the prompt row
