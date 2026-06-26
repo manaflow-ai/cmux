@@ -104,55 +104,52 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// for tests.
     private static let mergeReferenceDate = Date(timeIntervalSinceReferenceDate: 0)
 
-    /// Merge locally persisted routes with a fresh registry response into one
-    /// deduped, proximity-ranked candidate set to persist for the next reconnect.
+    /// Choose the routes to persist for the next reconnect, with the registry
+    /// authoritative when reachable.
     ///
-    /// The registry *augments* the local routes rather than replacing them: a
-    /// partial or stale registry response (a route lagged behind, or the
-    /// single-instance selection returned a narrower set) can only add reachable
-    /// endpoints, never drop a still-valid offline-cached route. This is the
-    /// server-death graceful fallback for #6351 — reconnect no longer depends on
-    /// the registry being complete, and connectivity stays self-validating (a
-    /// dead route fails fast; the live one is tried first). The reconnect path
-    /// still connects on the local routes immediately, so this adds no latency to
-    /// the common case.
+    /// The reconnect path connects on the locally persisted routes immediately
+    /// (no added latency) and only *replaces* them when the registry returns a
+    /// usable, different set, so a stale-route Mac (moved networks / changed port)
+    /// gets rescued on the next reconnect trigger. The registry routes are first
+    /// deduped by endpoint and ranked through the shared ``CmxRouteCandidateSet``
+    /// model so a duplicated or unordered registry response persists cleanly.
     ///
-    /// Returns the merged union when it differs from the local cache — a new
-    /// endpoint, or a changed `priority`/`id`/`kind` on an endpoint the registry
-    /// re-advertised (the registry route wins dedup, so its updated metadata is
-    /// persisted). Returns `nil` when nothing changed — registry unavailable or
-    /// empty, or it re-advertises exactly the cached routes — so callers skip a
-    /// redundant store write and keep the locally persisted routes untouched. A
-    /// proximity-only reordering of an otherwise-identical set is not a change:
-    /// the dial path re-ranks at connect time, so the stored order is immaterial.
+    /// Returns the ranked registry routes when they differ from the local cache
+    /// by full route equality — a new/changed endpoint, or a changed
+    /// `priority`/`id`/`kind` — and `nil` when nothing changed (registry
+    /// unavailable/empty, or it re-advertises exactly the cached routes), so
+    /// callers skip a redundant store write and fall back to the locally
+    /// persisted routes.
+    ///
+    /// This deliberately does NOT union the local cache in: the reconnect path
+    /// dials a *single* route, so persisting a stale cached route alongside the
+    /// fresh registry one could make it dial the dead address and fail. Unioning
+    /// every source into a freshness-ranked candidate set the phone *tries in
+    /// order* (#6351) is the follow-up that the ``CmxRouteCandidateSet`` model
+    /// here is the foundation for; it requires the dial path to iterate
+    /// candidates rather than pick one.
     public static func selectReconnectRoutes(
         local: [CmxAttachRoute],
         registry: [CmxAttachRoute]?
     ) -> [CmxAttachRoute]? {
         guard let registry, !registry.isEmpty else { return nil }
-        // Union both sources, dedup by endpoint, and rank freshness/authority
-        // first: both sources are stamped equally fresh, so the authoritative
-        // registry routes sort ahead of the cached ones, and the reconnect dialer
-        // (which honors this order and dials the first reachable route) reaches a
-        // fresh registry route before a stale cached one — even a closer cached
-        // LAN route. Proximity only orders routes within the same source here.
-        let registrySet = CmxRouteCandidateSet(routes: registry, source: .registry, lastSeenAt: mergeReferenceDate)
-        let localSet = CmxRouteCandidateSet(routes: local, source: .localCache, lastSeenAt: mergeReferenceDate)
-        let merged = registrySet.unioned(with: localSet).mergedRoutes()
-        // No-op only when the merge changed nothing vs the local cache: same
-        // endpoints AND same route metadata (priority/id/kind), order-independent.
-        // This both preserves local routes a narrower registry omitted (they stay
-        // in the union) and writes through a registry metadata update on a shared
-        // endpoint (the old endpoint-only check silently dropped priority/kind
-        // changes, freezing the dial order at the server's stale preference).
-        if Self.sameRouteSet(merged, local) { return nil }
-        return merged
+        // Dedup the registry response by endpoint and rank it via the shared
+        // model (a single fresh source: freshness/authority tie, so proximity
+        // then the Mac-assigned priority order it). `preferLoopback` is left at
+        // the default — the dial path applies the device/simulator loopback
+        // policy in `firstReconnectHostPortRoute`.
+        let ranked = CmxRouteCandidateSet(routes: registry, source: .registry, lastSeenAt: mergeReferenceDate)
+            .mergedRoutes()
+        // No change vs the local cache (same endpoints AND same metadata,
+        // order-independent): skip the write and keep the local routes.
+        if Self.sameRouteSet(ranked, local) { return nil }
+        return ranked
     }
 
-    /// Order-independent full-equality comparison of two route lists. Used to
-    /// decide whether a merged reconnect set is a genuine change over the local
-    /// cache (so a proximity-only reordering of an identical set is not a write,
-    /// but a priority/id/kind change on any route is).
+    /// Order-independent full-equality comparison of two route lists, used to
+    /// decide whether a refreshed registry set is a genuine change over the local
+    /// cache (a `priority`/`id`/`kind`/endpoint change writes; a pure reordering
+    /// does not).
     static func sameRouteSet(_ lhs: [CmxAttachRoute], _ rhs: [CmxAttachRoute]) -> Bool {
         guard lhs.count == rhs.count else { return false }
         let key: (CmxAttachRoute) -> String = {

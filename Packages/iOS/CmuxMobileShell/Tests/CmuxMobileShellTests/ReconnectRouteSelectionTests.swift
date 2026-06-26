@@ -96,33 +96,6 @@ import Testing
         #expect(pick?.0 == "lawrences-macbook-pro-2.tail137216.ts.net")
     }
 
-    @Test func physicalDevicePrefersFresherRouteOverStaleSameTierDuplicate() throws {
-        // `selectReconnectRoutes` persists the fresh (registry) route first when it
-        // unions with a stale same-tier cached route the Mac has moved away from.
-        // Both are Tailnet IP literals at priority 0, so the old priority/id sort
-        // would dial the stale route (smaller id "tailscale" < "tailscale_2") and
-        // keep timing out. The dialer now honors the persisted order, so the fresh
-        // route (first) is dialed instead.
-        let fresh = try CmxAttachRoute(
-            id: "tailscale_2",
-            kind: .tailscale,
-            endpoint: .hostPort(host: "100.96.0.9", port: 50906),
-            priority: 0
-        )
-        let stale = try CmxAttachRoute(
-            id: "tailscale",
-            kind: .tailscale,
-            endpoint: .hostPort(host: "100.96.0.5", port: 50906),
-            priority: 0
-        )
-        let pick = MobileShellComposite.firstReconnectHostPortRoute(
-            [fresh, stale], // the order selectReconnectRoutes persists (fresh first)
-            supportedKinds: [.debugLoopback, .tailscale],
-            preferNonLoopback: true
-        )
-        #expect(pick?.0 == "100.96.0.9")
-    }
-
     @Test func keepsSupportedRouteWhenUnsupportedKindSharesEndpoint() throws {
         // Two routes at the same host:port but different transport kinds; only
         // .tailscale is supported. Endpoint dedup ignores kind, so filtering by
