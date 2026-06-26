@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -8,7 +9,7 @@ import XCTest
 
 // MARK: - Variable parsing
 
-final class CmuxCommandTemplateTests: XCTestCase {
+@Suite struct CmuxCommandTemplateTests {
 
     private func variables(_ command: String) -> [CmuxCommandVariable] {
         CmuxCommandTemplate(rawValue: command).variables
@@ -18,146 +19,146 @@ final class CmuxCommandTemplateTests: XCTestCase {
         CmuxCommandTemplate(rawValue: command).substituting(values)
     }
 
-    func testNoPlaceholdersReturnsEmpty() {
-        XCTAssertEqual(variables("npm test"), [])
-        XCTAssertFalse(CmuxCommandTemplate(rawValue: "npm test").containsVariables)
+    @Test func noPlaceholdersReturnsEmpty() {
+        #expect(variables("npm test").isEmpty)
+        #expect(!CmuxCommandTemplate(rawValue: "npm test").containsVariables)
     }
 
-    func testSinglePlaceholder() {
-        XCTAssertEqual(variables("bin/deploy --env {{environment}}"),
-                       [CmuxCommandVariable(name: "environment", defaultValue: nil)])
-        XCTAssertTrue(CmuxCommandTemplate(rawValue: "bin/deploy --env {{environment}}").containsVariables)
+    @Test func singlePlaceholder() {
+        #expect(variables("bin/deploy --env {{environment}}")
+            == [CmuxCommandVariable(name: "environment", defaultValue: nil)])
+        #expect(CmuxCommandTemplate(rawValue: "bin/deploy --env {{environment}}").containsVariables)
     }
 
-    func testPlaceholderWithDefault() {
-        XCTAssertEqual(variables("bin/deploy --env {{environment=staging}}"),
-                       [CmuxCommandVariable(name: "environment", defaultValue: "staging")])
+    @Test func placeholderWithDefault() {
+        #expect(variables("bin/deploy --env {{environment=staging}}")
+            == [CmuxCommandVariable(name: "environment", defaultValue: "staging")])
     }
 
-    func testWhitespaceIsTrimmed() {
-        XCTAssertEqual(
-            variables("echo {{  name  }} {{ env = prod }}"),
-            [
-                CmuxCommandVariable(name: "name", defaultValue: nil),
-                CmuxCommandVariable(name: "env", defaultValue: "prod"),
-            ]
+    @Test func whitespaceIsTrimmed() {
+        #expect(
+            variables("echo {{  name  }} {{ env = prod }}")
+                == [
+                    CmuxCommandVariable(name: "name", defaultValue: nil),
+                    CmuxCommandVariable(name: "env", defaultValue: "prod"),
+                ]
         )
     }
 
-    func testMultipleDistinctPlaceholdersPreserveOrder() {
-        XCTAssertEqual(variables("bin/deploy --env {{environment}} --branch {{branch}}").map(\.name),
-                       ["environment", "branch"])
+    @Test func multipleDistinctPlaceholdersPreserveOrder() {
+        #expect(variables("bin/deploy --env {{environment}} --branch {{branch}}").map(\.name)
+            == ["environment", "branch"])
     }
 
-    func testDuplicatePlaceholdersAreDeduplicatedKeepingFirstDefault() {
-        XCTAssertEqual(variables("echo {{env=a}} && deploy {{env=b}}"),
-                       [CmuxCommandVariable(name: "env", defaultValue: "a")])
+    @Test func duplicatePlaceholdersAreDeduplicatedKeepingFirstDefault() {
+        #expect(variables("echo {{env=a}} && deploy {{env=b}}")
+            == [CmuxCommandVariable(name: "env", defaultValue: "a")])
     }
 
-    func testNameAllowsBareIdentifiers() {
-        XCTAssertEqual(variables("x {{branch_name}} {{RAILS_ENV}} {{my-var}}").map(\.name),
-                       ["branch_name", "RAILS_ENV", "my-var"])
+    @Test func nameAllowsBareIdentifiers() {
+        #expect(variables("x {{branch_name}} {{RAILS_ENV}} {{my-var}}").map(\.name)
+            == ["branch_name", "RAILS_ENV", "my-var"])
     }
 
-    func testEmptyPlaceholderIsIgnored() {
-        XCTAssertEqual(variables("echo {{}} {{   }}"), [])
+    @Test func emptyPlaceholderIsIgnored() {
+        #expect(variables("echo {{}} {{   }}").isEmpty)
     }
 
-    func testUnquotedNonIdentifierIsRejected() {
+    @Test func unquotedNonIdentifierIsRejected() {
         // At an unquoted position, only bare identifiers are variables; shell
         // snippets and template expressions keep the braces literal.
-        XCTAssertEqual(variables("echo {{ $(date) }}"), [])
-        XCTAssertEqual(variables("echo {{1+1}}"), [])
-        XCTAssertEqual(variables("echo {{a/b}}"), [])
-        XCTAssertEqual(variables("gomplate -i {{ .Env.FOO }}"), [])
-        XCTAssertEqual(variables("echo {{ name | upper }}"), [])
+        #expect(variables("echo {{ $(date) }}").isEmpty)
+        #expect(variables("echo {{1+1}}").isEmpty)
+        #expect(variables("echo {{a/b}}").isEmpty)
+        #expect(variables("gomplate -i {{ .Env.FOO }}").isEmpty)
+        #expect(variables("echo {{ name | upper }}").isEmpty)
     }
 
-    func testQuotedPlaceholdersAreLeftLiteral() {
+    @Test func quotedPlaceholdersAreLeftLiteral() {
         // A placeholder inside single or double quotes is template text, not a
         // cmux variable, so existing quoted template commands run unchanged.
-        XCTAssertEqual(variables("helm --set-template '{{tag}}'"), [])
-        XCTAssertEqual(variables("echo \"{{x}}\""), [])
-        XCTAssertEqual(variables("gomplate -i '{{ .Env.FOO }}'"), [])
+        #expect(variables("helm --set-template '{{tag}}'").isEmpty)
+        #expect(variables("echo \"{{x}}\"").isEmpty)
+        #expect(variables("gomplate -i '{{ .Env.FOO }}'").isEmpty)
         // Even when the author wraps a bare identifier in quotes it is not
         // intercepted (and therefore cannot be unsafely re-quoted).
-        XCTAssertEqual(variables("deploy '{{branch}}'"), [])
-        XCTAssertEqual(substitute("helm --set-template '{{tag}}'", ["tag": "v1"]),
-                       "helm --set-template '{{tag}}'")
-        XCTAssertEqual(substitute("deploy '{{branch}}'", ["branch": "main; rm -rf /"]),
-                       "deploy '{{branch}}'")
+        #expect(variables("deploy '{{branch}}'").isEmpty)
+        #expect(substitute("helm --set-template '{{tag}}'", ["tag": "v1"])
+            == "helm --set-template '{{tag}}'")
+        #expect(substitute("deploy '{{branch}}'", ["branch": "main; rm -rf /"])
+            == "deploy '{{branch}}'")
     }
 
-    func testMixedQuotedAndUnquotedOccurrences() {
+    @Test func mixedQuotedAndUnquotedOccurrences() {
         // Only the unquoted occurrence is a variable; the quoted one stays literal.
         let command = "deploy {{env}} --label '{{env}}'"
-        XCTAssertEqual(variables(command).map(\.name), ["env"])
-        XCTAssertEqual(substitute(command, ["env": "prod"]),
-                       "deploy 'prod' --label '{{env}}'")
+        #expect(variables(command).map(\.name) == ["env"])
+        #expect(substitute(command, ["env": "prod"]) == "deploy 'prod' --label '{{env}}'")
     }
 
-    func testEscapedQuoteKeepsPlaceholderQuoted() {
+    @Test func escapedQuoteKeepsPlaceholderQuoted() {
         // A backslash-escaped quote does not close the surrounding quote, so a
         // placeholder after it is still quoted and must not be substituted.
         let command = "echo \"prefix \\\" {{branch}} suffix\""
-        XCTAssertEqual(variables(command), [])
-        XCTAssertEqual(substitute(command, ["branch": "$(touch /tmp/pwn)"]), command)
+        #expect(variables(command).isEmpty)
+        #expect(substitute(command, ["branch": "$(touch /tmp/pwn)"]) == command)
         // After the double-quoted span closes, an unquoted placeholder is a variable.
-        XCTAssertEqual(variables("echo \"a \\\" b\" {{env}}").map(\.name), ["env"])
+        #expect(variables("echo \"a \\\" b\" {{env}}").map(\.name) == ["env"])
     }
 
-    func testNewlineInsidePlaceholderIsIgnored() {
-        XCTAssertEqual(variables("echo {{na\nme}}"), [])
+    @Test func newlineInsidePlaceholderIsIgnored() {
+        #expect(variables("echo {{na\nme}}").isEmpty)
     }
 
     // MARK: Substitution
 
-    func testSubstituteShellQuotesEveryOccurrence() {
-        XCTAssertEqual(substitute("echo {{x}} and {{x}}", ["x": "hi"]), "echo 'hi' and 'hi'")
+    @Test func substituteShellQuotesEveryOccurrence() {
+        #expect(substitute("echo {{x}} and {{x}}", ["x": "hi"]) == "echo 'hi' and 'hi'")
     }
 
-    func testSubstituteReplacesPlaceholderIncludingDefault() {
-        XCTAssertEqual(substitute("bin/deploy --env {{environment=staging}}", ["environment": "production"]),
-                       "bin/deploy --env 'production'")
+    @Test func substituteReplacesPlaceholderIncludingDefault() {
+        #expect(substitute("bin/deploy --env {{environment=staging}}", ["environment": "production"])
+            == "bin/deploy --env 'production'")
     }
 
-    func testSubstituteLeavesUnknownPlaceholdersIntact() {
-        XCTAssertEqual(substitute("{{a}}-{{b}}", ["a": "x"]), "'x'-{{b}}")
+    @Test func substituteLeavesUnknownPlaceholdersIntact() {
+        #expect(substitute("{{a}}-{{b}}", ["a": "x"]) == "'x'-{{b}}")
     }
 
-    func testSubstituteWithNoPlaceholdersReturnsInput() {
-        XCTAssertEqual(substitute("npm test", ["x": "y"]), "npm test")
+    @Test func substituteWithNoPlaceholdersReturnsInput() {
+        #expect(substitute("npm test", ["x": "y"]) == "npm test")
     }
 
-    func testSubstitutePreservesValuesWithSpecialCharacters() {
-        XCTAssertEqual(substitute("git checkout {{branch}}", ["branch": "feature/new-thing"]),
-                       "git checkout 'feature/new-thing'")
+    @Test func substitutePreservesValuesWithSpecialCharacters() {
+        #expect(substitute("git checkout {{branch}}", ["branch": "feature/new-thing"])
+            == "git checkout 'feature/new-thing'")
     }
 
-    func testSubstituteNeutralizesShellMetacharacters() {
+    @Test func substituteNeutralizesShellMetacharacters() {
         // A value with shell metacharacters is passed as one literal argument,
         // never as separate shell words.
-        XCTAssertEqual(substitute("git checkout {{branch}}", ["branch": "main; rm -rf /"]),
-                       "git checkout 'main; rm -rf /'")
+        #expect(substitute("git checkout {{branch}}", ["branch": "main; rm -rf /"])
+            == "git checkout 'main; rm -rf /'")
     }
 
-    func testShellQuoteEscapesEmbeddedSingleQuotes() {
-        XCTAssertEqual(CmuxCommandTemplate.shellQuote("it's"), "'it'\\''s'")
-        XCTAssertEqual(CmuxCommandTemplate.shellQuote(""), "''")
-        XCTAssertEqual(CmuxCommandTemplate.shellQuote("plain"), "'plain'")
+    @Test func shellQuoteEscapesEmbeddedSingleQuotes() {
+        #expect(CmuxCommandTemplate.shellQuote("it's") == "'it'\\''s'")
+        #expect(CmuxCommandTemplate.shellQuote("") == "''")
+        #expect(CmuxCommandTemplate.shellQuote("plain") == "'plain'")
     }
 }
 
 // MARK: - Folder organization
 
-final class CmuxCommandFolderTests: XCTestCase {
+@MainActor
+@Suite struct CmuxCommandFolderTests {
 
     private func decode(_ json: String) throws -> CmuxConfigFile {
         let data = json.data(using: .utf8)!
         return try JSONDecoder().decode(CmuxConfigFile.self, from: data)
     }
 
-    func testDecodeFolderField() throws {
+    @Test func decodeFolderField() throws {
         let config = try decode("""
         {
           "commands": [{
@@ -167,31 +168,30 @@ final class CmuxCommandFolderTests: XCTestCase {
           }]
         }
         """)
-        XCTAssertEqual(config.commands[0].folder, "Project/Linting")
-        XCTAssertEqual(config.commands[0].folderComponents, ["Project", "Linting"])
-        XCTAssertEqual(config.commands[0].folderBreadcrumb, "Project / Linting")
+        #expect(config.commands[0].folder == "Project/Linting")
+        #expect(config.commands[0].folderComponents == ["Project", "Linting"])
+        #expect(config.commands[0].folderBreadcrumb == "Project / Linting")
     }
 
-    func testFolderComponentsTrimAndDropEmptySegments() {
+    @Test func folderComponentsTrimAndDropEmptySegments() {
         let command = CmuxCommandDefinition(
             name: "x",
             command: "echo",
             folder: "  /Project// Linting /"
         )
-        XCTAssertEqual(command.folderComponents, ["Project", "Linting"])
-        XCTAssertEqual(command.folderBreadcrumb, "Project / Linting")
+        #expect(command.folderComponents == ["Project", "Linting"])
+        #expect(command.folderBreadcrumb == "Project / Linting")
     }
 
-    func testNilOrBlankFolderHasNoComponents() {
-        XCTAssertEqual(CmuxCommandDefinition(name: "x", command: "echo").folderComponents, [])
-        XCTAssertNil(CmuxCommandDefinition(name: "x", command: "echo").folderBreadcrumb)
+    @Test func nilOrBlankFolderHasNoComponents() {
+        #expect(CmuxCommandDefinition(name: "x", command: "echo").folderComponents.isEmpty)
+        #expect(CmuxCommandDefinition(name: "x", command: "echo").folderBreadcrumb == nil)
         let blank = CmuxCommandDefinition(name: "x", command: "echo", folder: "  //  ")
-        XCTAssertEqual(blank.folderComponents, [])
-        XCTAssertNil(blank.folderBreadcrumb)
+        #expect(blank.folderComponents.isEmpty)
+        #expect(blank.folderBreadcrumb == nil)
     }
 
-    @MainActor
-    func testFolderSurfacesInResolvedPaletteAction() throws {
+    @Test func folderSurfacesInResolvedPaletteAction() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-folder-\(UUID().uuidString)",
             isDirectory: true
@@ -213,12 +213,12 @@ final class CmuxCommandFolderTests: XCTestCase {
         let store = CmuxConfigStore(globalConfigPath: configURL.path, startFileWatchers: false)
         store.loadAll()
 
-        let action = try XCTUnwrap(
+        let action = try #require(
             store.paletteCustomActions().first { $0.title.contains("Lint modified files") }
         )
-        XCTAssertEqual(action.folder, "Project / Linting")
-        XCTAssertTrue(action.keywords.contains("Project"))
-        XCTAssertTrue(action.keywords.contains("Linting"))
-        XCTAssertEqual(action.subtitle, "Project / Linting")
+        #expect(action.folder == "Project / Linting")
+        #expect(action.keywords.contains("Project"))
+        #expect(action.keywords.contains("Linting"))
+        #expect(action.subtitle == "Project / Linting")
     }
 }
