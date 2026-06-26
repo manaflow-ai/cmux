@@ -2474,6 +2474,38 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return String(decoding: Data(bytes: ptr, count: Int(text.text_len)), as: UTF8.self)
     }
 
+    /// Hash of the surface's CURRENT applied viewport grid, computed the same way
+    /// the Mac producer hashes its authoritative grid
+    /// (``MobileTerminalRenderGridFrame/gridContentHash()``). The consumer
+    /// compares this against the ``MobileTerminalRenderGridFrame/gridHash``
+    /// stamped on the frame it just applied; a mismatch means a delta silently
+    /// failed to reproduce the authoritative grid, so it should request a
+    /// keyframe instead of staying stale.
+    ///
+    /// Pure libghostty C calls on the raw handle, so (like ``surfaceText(_:pointTag:)``)
+    /// it MUST run on the serial ``outputQueue`` — `ghostty_surface_render_grid_json`
+    /// takes the same surface lock as `process_output`; reading it on main during
+    /// a render storm contends that lock and blanks the terminal.
+    nonisolated static func appliedGridContentHash(
+        _ surface: ghostty_surface_t,
+        surfaceID: String
+    ) -> UInt64? {
+        let exported = surfaceID.withCString { ptr in
+            ghostty_surface_render_grid_json(
+                surface,
+                ptr,
+                UInt(surfaceID.utf8.count),
+                0,
+                0
+            )
+        }
+        defer { ghostty_string_free(exported) }
+        guard let ptr = exported.ptr, exported.len > 0 else { return nil }
+        let data = Data(bytes: ptr, count: Int(exported.len))
+        guard let frame = try? MobileTerminalRenderGridFrame.decode(data) else { return nil }
+        return frame.gridContentHash()
+    }
+
     func renderedHTMLForTesting(pointTag: ghostty_point_tag_e = GHOSTTY_POINT_VIEWPORT) -> String? {
         _ = pointTag
         // ghostty_surface_read_text_html not available in this build
