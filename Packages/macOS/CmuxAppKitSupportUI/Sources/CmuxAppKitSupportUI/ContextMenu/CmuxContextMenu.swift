@@ -19,6 +19,10 @@ final class CmuxContextMenu: NSMenu {
     ///
     /// Leading, trailing, and consecutive separators are suppressed so the menu
     /// matches SwiftUI's `.contextMenu` behavior (plain `NSMenu` keeps them).
+    ///
+    /// Main-actor isolated (it builds main-actor ``CmuxContextMenuActionTarget``s);
+    /// `NSMenu`'s own isolation is not inferred consistently across build configs.
+    @MainActor
     convenience init(from elements: [CmuxContextMenuElement]) {
         self.init(title: "")
         // Honor each item's `isEnabled` exactly instead of letting AppKit
