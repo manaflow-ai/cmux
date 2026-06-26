@@ -122,9 +122,11 @@ extension AuthCoordinator {
 
     private func gateTokenTouchingPhase(_ phase: AuthPhase, id: UUID) {
         guard activeTokenTouchingPhases[id] != nil else { return }
+        let now = DispatchTime.now().uptimeNanoseconds
         timedOutTokenTouchingPhaseStates[phase] = AuthPhaseTimedOutState(
             id: id,
-            expiresAt: DispatchTime.now().uptimeNanoseconds &+ tokenTouchingTimedOutResetNanoseconds
+            expiresAt: now &+ tokenTouchingTimedOutResetNanoseconds,
+            hardExpiresAt: now &+ tokenTouchingHardExpiryNanoseconds
         )
     }
 
