@@ -1,4 +1,5 @@
 import Darwin
+import Dispatch
 public import Foundation
 import OSLog
 
@@ -35,9 +36,12 @@ extension FileHandle {
     /// crashes the process. It is the write-side mirror of the
     /// ``readDataToEndOfFileOrEmpty()`` family.
     ///
-    /// Blocking descriptors (the default for `Pipe`) block until the write
-    /// completes; non-blocking descriptors are polled for writability between
-    /// partial writes.
+    /// Intended for blocking descriptors (the default for `Pipe`), which block
+    /// until the write completes. A non-blocking descriptor is polled for
+    /// writability between partial writes, but only up to a bounded timeout so a
+    /// stalled peer can never park the calling thread (e.g. an actor's
+    /// cooperative executor) indefinitely; on timeout the write returns
+    /// ``ProcessPipeWriteOutcome/failed(errnoCode:)``.
     @discardableResult
     public func writeIgnoringBrokenPipe(_ data: Data) -> ProcessPipeWriteOutcome {
         guard !data.isEmpty else { return .completed }
@@ -95,14 +99,25 @@ extension FileHandle {
         return .failed(errnoCode: errnoCode)
     }
 
-    /// Blocks until `fd` is writable, hung up, or errored. Returns `true` when
-    /// the caller should retry the write (a retry surfaces the concrete errno on
-    /// hangup), `false` when the descriptor is invalid or polling failed.
+    /// Upper bound on how long ``waitForWritable(_:)`` waits for a non-blocking
+    /// descriptor to drain. Blocking descriptors never reach that path, so this
+    /// only bounds the misuse/edge case; it must stay finite so the calling
+    /// thread can never park forever.
+    private static let writableWaitTimeoutMilliseconds: UInt64 = 5_000
+
+    /// Waits up to ``writableWaitTimeoutMilliseconds`` for `fd` to become
+    /// writable, hung up, or errored. Returns `true` when the caller should
+    /// retry the write (a retry surfaces the concrete errno on hangup), `false`
+    /// when the descriptor is invalid, polling failed, or the wait timed out.
     private static func waitForWritable(_ fd: Int32) -> Bool {
+        let deadline = DispatchTime.now() + .milliseconds(Int(writableWaitTimeoutMilliseconds))
         var descriptor = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
         while true {
+            let now = DispatchTime.now().uptimeNanoseconds
+            guard deadline.uptimeNanoseconds > now else { return false }
+            let remainingMilliseconds = (deadline.uptimeNanoseconds - now) / 1_000_000
             descriptor.revents = 0
-            let result = poll(&descriptor, 1, -1)
+            let result = poll(&descriptor, 1, Int32(clamping: max(remainingMilliseconds, 1)))
             if result > 0 {
                 let revents = descriptor.revents
                 if (revents & Int16(POLLNVAL)) != 0 {
