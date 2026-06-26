@@ -579,6 +579,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// reset/save/restore actions. Owned by the surface (constructed at init)
     /// rather than reached through a singleton, so it is injectable in tests.
     private let zoomPreference = MobileTerminalZoomPreference()
+    private let keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference
     private let bridge = GhosttySurfaceBridge()
     private let prefersSnapshotFallbackRendering = false
     var onFocusInputRequestedForTesting: (() -> Void)?
@@ -894,7 +895,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     #endif
 
     private lazy var inputProxy: TerminalInputTextView = {
-        let inputProxy = TerminalInputTextView()
+        let inputProxy = TerminalInputTextView(
+            keyboardCorrectionPreference: keyboardCorrectionPreference
+        )
         inputProxy.onText = { [weak self] text in
             guard let self else { return }
             self.resetCursorBlink()
@@ -994,11 +997,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return inputProxy
     }()
 
-    public init(runtime: GhosttyRuntime, delegate: GhosttySurfaceViewDelegate, fontSize: Float32 = 10) {
+    public init(
+        runtime: GhosttyRuntime,
+        delegate: GhosttySurfaceViewDelegate,
+        fontSize: Float32 = 10,
+        keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference =
+            MobileTerminalKeyboardCorrectionPreference()
+    ) {
         self.runtime = runtime
         self.delegate = delegate
         self.fontSize = fontSize
         self.liveFontSize = fontSize
+        self.keyboardCorrectionPreference = keyboardCorrectionPreference
         super.init(frame: CGRect(x: 0, y: 0, width: 402, height: 700))
         bridge.attach(to: self)
         backgroundColor = .black

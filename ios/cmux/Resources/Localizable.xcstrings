@@ -3741,6 +3741,23 @@
         }
       }
     },
+    "mobile.settings.account": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Account"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウント"
+          }
+        }
+      }
+    },
     "mobile.settings.about": {
       "extractionState": "manual",
       "localizations": {
@@ -3771,6 +3788,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "エージェントチャットデモ"
+          }
+        }
+      }
+    },
+    "mobile.settings.connection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続"
           }
         }
       }
@@ -3856,6 +3890,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "ペアリングの仕組み"
+          }
+        }
+      }
+    },
+    "mobile.settings.keyboardCorrections": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autocomplete and Autocorrect"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力候補と自動修正"
+          }
+        }
+      }
+    },
+    "mobile.settings.keyboardCorrectionsFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off by default so terminal commands are not changed while you type."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルコマンドが入力中に変更されないよう、デフォルトではオフです。"
+          }
+        }
+      }
+    },
+    "mobile.settings.mac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac"
+          }
+        }
+      }
+    },
+    "mobile.settings.notSignedIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not signed in"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインしていません"
+          }
+        }
+      }
+    },
+    "mobile.settings.notifications": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知"
           }
         }
       }
@@ -4026,6 +4145,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "このアプリに表示する Stack チームの Mac とデバイスを切り替えます。"
+          }
+        }
+      }
+    },
+    "mobile.settings.terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル"
           }
         }
       }
@@ -6903,6 +7039,23 @@
         }
       }
     },
+    "mobile.workspaces.rescan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rescan QR"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QRコードを再スキャン"
+          }
+        }
+      }
+    },
     "mobile.workspaces.settings": {
       "extractionState": "manual",
       "localizations": {
@@ -6916,6 +7069,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "設定"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.terminalShortcuts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Shortcuts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルショートカット"
           }
         }
       }

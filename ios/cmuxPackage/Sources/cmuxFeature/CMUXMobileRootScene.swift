@@ -11,7 +11,7 @@ import Foundation
 import OSLog
 import SwiftUI
 
-#if canImport(UIKit) && DEBUG
+#if os(iOS)
 import CmuxMobileTerminal
 #endif
 
@@ -36,6 +36,7 @@ public struct CMUXMobileRootScene: View {
     #if os(iOS)
     private let pushCoordinator: MobilePushCoordinator
     private let displaySettings: MobileDisplaySettings
+    private let terminalKeyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference
     /// The first-run onboarding "seen" flag store, injected into the root view so
     /// it gates the one-time onboarding screen ahead of the never-paired
     /// add-device state.
@@ -72,6 +73,8 @@ public struct CMUXMobileRootScene: View {
     ///     delegate) injected into the environment.
     ///   - displaySettings: The app-root mobile display settings injected into
     ///     the environment (drives workspace-title wrapping).
+    ///   - terminalKeyboardCorrectionPreference: The app-root terminal keyboard
+    ///     correction preference injected into Settings and terminal surfaces.
     ///   - onboardingStore: The app-root first-run onboarding "seen" flag store,
     ///     injected into the root view to gate the one-time onboarding screen.
     ///   - tailscaleStatusMonitor: The app-root tailnet detector, injected into
@@ -85,6 +88,7 @@ public struct CMUXMobileRootScene: View {
         analytics: any AnalyticsEmitting,
         pushCoordinator: MobilePushCoordinator,
         displaySettings: MobileDisplaySettings,
+        terminalKeyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference,
         onboardingStore: MobileOnboardingStore,
         tailscaleStatusMonitor: any TailscaleStatusObserving,
         diagnosticLog: DiagnosticLog? = nil
@@ -95,6 +99,7 @@ public struct CMUXMobileRootScene: View {
         self.analytics = analytics
         self.pushCoordinator = pushCoordinator
         self.displaySettings = displaySettings
+        self.terminalKeyboardCorrectionPreference = terminalKeyboardCorrectionPreference
         self.onboardingStore = onboardingStore
         self.tailscaleStatusMonitor = tailscaleStatusMonitor
         self.pairedMacStore = Self.openPairedMacStore()
@@ -226,6 +231,7 @@ public struct CMUXMobileRootScene: View {
             #if os(iOS)
             .environment(pushCoordinator)
             .environment(displaySettings)
+            .environment(terminalKeyboardCorrectionPreference)
             #endif
     }
 

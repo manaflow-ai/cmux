@@ -31,9 +31,9 @@ import UIKit
 /// dictation-placeholder methods on a real (non-cleared) `UITextInput` conformer
 /// let recognized text arrive through ``insertText(_:)`` as one block.
 ///
-/// Autocorrect/predictive text stay **disabled** here and fundamentally cannot
-/// be enabled: they require the field to retain the in-progress word, which is
-/// incompatible with forwarding every keystroke to a remote terminal.
+/// Autocorrect/predictive text default **off** here because terminals usually
+/// need literal input, but the keyboard correction traits are configurable for
+/// users who prefer the system suggestion bar.
 final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     var onText: ((String) -> Void)?
     var onBackspace: (() -> Void)?
@@ -62,6 +62,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// The composer toggle, pinned in the container (not the scrollable stack) so
     /// it is always reachable regardless of the button row's scroll position.
     private weak var composerButton: UIButton?
+    private let keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference
     /// The armed/sticky modifier state machine, extracted into the testable
     /// ``TerminalInputModifierState`` reducer. This view is now a dumb
     /// first-responder that forwards taps into the reducer and reads its state
@@ -632,7 +633,11 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         }
     }
 
-    init() {
+    init(
+        keyboardCorrectionPreference: MobileTerminalKeyboardCorrectionPreference =
+            MobileTerminalKeyboardCorrectionPreference()
+    ) {
+        self.keyboardCorrectionPreference = keyboardCorrectionPreference
         super.init(frame: .zero)
         backgroundColor = .clear
         tintColor = .clear
@@ -649,6 +654,12 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             name: TerminalAccessoryConfiguration.didChangeNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleKeyboardCorrectionPreferenceChanged),
+            name: MobileTerminalKeyboardCorrectionPreference.didChangeNotification,
+            object: keyboardCorrectionPreference
+        )
     }
 
     required init?(coder: NSCoder) {
@@ -657,6 +668,10 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func handleKeyboardCorrectionPreferenceChanged() {
+        reloadInputViews()
     }
 
     /// Receive a committed character (or block) from the keyboard.
@@ -1402,17 +1417,25 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 // MARK: - UITextInputTraits
 
 extension TerminalInputTextView {
-    // Autocorrect/predictive/smart substitutions are all off: the view forwards
-    // each keystroke to the remote terminal and keeps no in-progress word for the
-    // keyboard to correct against. Returning these as computed properties (rather
-    // than the `UITextView` stored traits the old design used) keeps the keyboard
-    // from offering corrections it could never apply.
-    var autocorrectionType: UITextAutocorrectionType { get { .no } set {} }
+    // These traits are computed from the injected preference so a Settings
+    // toggle can reload the active keyboard without rebuilding the terminal
+    // surface. Capitalization and smart quotes/dashes stay off because command
+    // entry must remain literal even when suggestions are enabled.
+    var autocorrectionType: UITextAutocorrectionType {
+        get { keyboardCorrectionPreference.autocorrectionType }
+        set {}
+    }
     var autocapitalizationType: UITextAutocapitalizationType { get { .none } set {} }
-    var spellCheckingType: UITextSpellCheckingType { get { .no } set {} }
+    var spellCheckingType: UITextSpellCheckingType {
+        get { keyboardCorrectionPreference.spellCheckingType }
+        set {}
+    }
     var smartQuotesType: UITextSmartQuotesType { get { .no } set {} }
     var smartDashesType: UITextSmartDashesType { get { .no } set {} }
-    var smartInsertDeleteType: UITextSmartInsertDeleteType { get { .no } set {} }
+    var smartInsertDeleteType: UITextSmartInsertDeleteType {
+        get { keyboardCorrectionPreference.smartInsertDeleteType }
+        set {}
+    }
     var keyboardType: UIKeyboardType { get { .default } set {} }
     var returnKeyType: UIReturnKeyType { get { .default } set {} }
 }
