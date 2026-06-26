@@ -423,7 +423,8 @@ extension ControlSurfaceContext {
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
         hasSurfaceIDParam: Bool,
-        text: String
+        text: String,
+        launchCommandMetadata: String?
     ) -> ControlSurfaceSendResolution { .tabManagerUnavailable }
 
     func controlSurfaceSendKey(

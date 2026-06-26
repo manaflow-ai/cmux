@@ -70,7 +70,7 @@ enum TextBoxAgentDetection: CaseIterable {
         if let value = Self.metadataValue(line, prefix: "tmuxStartCommand:") {
             return matchesCommand(value)
         }
-        if let value = Self.metadataValue(line, prefix: "activeAgentCommand:") {
+        if let value = Self.metadataValue(line, prefix: "textBoxLaunchCommand:") {
             return matchesCommand(value)
         }
         return false
@@ -79,7 +79,7 @@ enum TextBoxAgentDetection: CaseIterable {
     private func matchesActive(metadataLine rawLine: String) -> Bool {
         let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !line.isEmpty else { return false }
-        if let value = Self.metadataValue(line, prefix: "activeAgentCommand:") {
+        if let value = Self.metadataValue(line, prefix: "textBoxLaunchCommand:") {
             return matchesCommand(value)
         }
         return false

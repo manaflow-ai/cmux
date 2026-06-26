@@ -208,7 +208,8 @@ extension TerminalController {
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
         hasSurfaceIDParam: Bool,
-        text: String
+        text: String,
+        launchCommandMetadata: String?
     ) -> ControlSurfaceSendResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -223,6 +224,10 @@ extension TerminalController {
         }
         guard let terminalPanel = ws.terminalPanel(for: surfaceId) else {
             return .surfaceNotTerminal(surfaceId)
+        }
+        if let launchCommandMetadata = launchCommandMetadata?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !launchCommandMetadata.isEmpty {
+            ws.textBoxLaunchCommandsByPanelId[surfaceId] = launchCommandMetadata
         }
         let queued: Bool
         switch terminalPanel.sendInputResult(text) {

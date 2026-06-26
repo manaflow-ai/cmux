@@ -289,7 +289,7 @@ struct TextBoxSubmitActionTests {
         XCTAssertTrue(
             TextBoxInputContainer.shouldForceTextEntrySubmit(
                 allowsCommandTemplateSubmit: true,
-                terminalAgentContext: "activeAgentCommand:codex --dangerously-bypass-approvals-and-sandbox"
+                terminalAgentContext: "textBoxLaunchCommand:codex --dangerously-bypass-approvals-and-sandbox"
             )
         )
     }
@@ -317,10 +317,11 @@ struct TextBoxSubmitActionTests {
     }
 
     @Test
-    func testTerminalAgentContextFallsBackToRunningAgentPanelTitle() throws {
+    func testTerminalAgentContextUsesStructuredTextBoxLaunchCommand() throws {
         let workspace = Workspace()
         let panel = try #require(workspace.focusedTerminalPanel)
-        workspace.panelTitles[panel.id] = "codex --dangerously-bypass-approvals-and-sandbox"
+        workspace.panelTitles[panel.id] = "user-controlled title"
+        workspace.textBoxLaunchCommandsByPanelId[panel.id] = "codex --dangerously-bypass-approvals-and-sandbox"
 
         panel.updateShellActivityState(.promptIdle)
         let runningContext = WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)

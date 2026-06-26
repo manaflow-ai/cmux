@@ -192,7 +192,8 @@ extension ControlCommandCoordinator {
             routing: routing,
             surfaceID: uuid(params, "surface_id"),
             hasSurfaceIDParam: params["surface_id"] != nil,
-            text: text
+            text: text,
+            launchCommandMetadata: string(params, "launch_command_metadata")
         ) ?? .tabManagerUnavailable
         return surfaceSendResult(resolution)
     }
