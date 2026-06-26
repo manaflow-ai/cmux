@@ -120,6 +120,30 @@ struct WorkstreamStoreTests {
         #expect(store.items[0].kind == .toolUse)
     }
 
+    @Test("Codex PermissionRequest ingests as telemetry")
+    func codexPermissionRequestIngestsAsTelemetry() {
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(WorkstreamEvent(
+            sessionId: "codex-session",
+            hookEventName: .permissionRequest,
+            source: "codex",
+            toolName: "Bash",
+            toolInputJSON: #"{"command":"printf hi"}"#,
+            requestId: "codex-permission-request"
+        ))
+
+        #expect(store.items.count == 1)
+        #expect(store.pending.isEmpty)
+        #expect(store.items[0].kind == .toolUse)
+        #expect(store.items[0].status == .telemetry)
+        if case .toolUse(let toolName, let toolInputJSON) = store.items[0].payload {
+            #expect(toolName == "Bash")
+            #expect(toolInputJSON == #"{"command":"printf hi"}"#)
+        } else {
+            Issue.record("expected Codex PermissionRequest to ingest as tool-use telemetry")
+        }
+    }
+
     @Test("Codex CLI lifecycle feed events stay telemetry")
     func codexLifecycleFeedEventsStayTelemetry() {
         let store = WorkstreamStore(

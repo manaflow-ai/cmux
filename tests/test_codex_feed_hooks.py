@@ -2027,7 +2027,7 @@ def test_codex_permission_request_is_nonblocking_telemetry(cli_path: str, root: 
     if params.get("wait_timeout_seconds") != 0:
         raise AssertionError(f"Codex PermissionRequest should not wait for Feed reply: {frame!r}")
     event = params["event"]
-    if event.get("hook_event_name") != "PreToolUse" or event.get("_source") != "codex":
+    if event.get("hook_event_name") != "PermissionRequest" or event.get("_source") != "codex":
         raise AssertionError(f"wrong feed event: {event!r}")
 
 
