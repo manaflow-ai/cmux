@@ -527,10 +527,15 @@ extension Workspace {
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
                 wasAgentRunning: agentWasRunning,
-                // Persist the workspace's last submitted prompt for agent panels so
-                // restore can re-inject the OSC 133 prompt mark Ghostty's scrollback
-                // export drops (#6691). Non-agent terminals carry no prompt to mark.
-                lastUserMessage: effectiveRestorableAgent != nil ? latestSubmittedMessage : nil
+                // Persist the workspace's last submitted prompt only when we are
+                // actually saving scrollback to replay it against — it exists solely
+                // to re-inject the OSC 133 prompt mark Ghostty's scrollback export
+                // drops (#6691). Gating on `resolvedScrollback` avoids writing
+                // sensitive input to disk for snapshots that intentionally omit
+                // terminal contents; non-agent terminals carry no prompt to mark.
+                lastUserMessage: (resolvedScrollback != nil && effectiveRestorableAgent != nil)
+                    ? latestSubmittedMessage
+                    : nil
             )
             browserSnapshot = nil
             markdownSnapshot = nil

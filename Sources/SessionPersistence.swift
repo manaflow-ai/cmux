@@ -2091,31 +2091,61 @@ enum SessionScrollbackReplayStore {
         guard let needle = promptMatchNeedle(lastUserMessage) else { return scrollback }
 
         var lines = scrollback.components(separatedBy: "\n")
-        // Scan from the bottom so the most recent occurrence — the user's last
-        // submitted message — is the row we mark.
-        var targetIndex: Int?
-        for index in stride(from: lines.count - 1, through: 0, by: -1) {
-            let visible = visiblePlainText(of: lines[index])
+        // Build a whitespace-collapsed visible stream across rows, recording the
+        // source row of every character. A prompt that soft-wrapped (narrow grid)
+        // or had newlines collapsed across several captured rows still matches,
+        // and the match start maps back to the row where the prompt begins — that
+        // is the row we mark. Matching a single row in isolation would miss any
+        // prompt wider than one terminal row.
+        var streamChars: [Character] = []
+        var rowOfChar: [Int] = []
+        for (index, line) in lines.enumerated() {
+            let visible = visiblePlainText(of: line)
             guard !visible.isEmpty else { continue }
-            if visible.contains(needle) {
-                targetIndex = index
-                break
+            if !streamChars.isEmpty {
+                streamChars.append(" ")
+                rowOfChar.append(index)
+            }
+            for character in visible {
+                streamChars.append(character)
+                rowOfChar.append(index)
             }
         }
-        guard let targetIndex else { return scrollback }
+
+        // The last occurrence is the user's most recent prompt.
+        guard let startOffset = lastOccurrence(of: Array(needle), in: streamChars) else { return scrollback }
+        let targetIndex = rowOfChar[startOffset]
 
         // Don't double-mark a row that already carries a prompt-start marker
         // (e.g. a shell whose live OSC 133 survived for some other reason).
-        guard !lines[targetIndex].contains("\u{001B}]133;A") else { return scrollback }
+        guard targetIndex < lines.count, !lines[targetIndex].contains("\u{001B}]133;A") else { return scrollback }
 
         lines[targetIndex] = semanticPromptStartMark + lines[targetIndex]
         return lines.joined(separator: "\n")
     }
 
+    /// Index in `haystack` where the last occurrence of `needle` begins, or nil.
+    /// Bounded one-shot work on a restore path, so a plain backwards scan is fine.
+    private static func lastOccurrence(of needle: [Character], in haystack: [Character]) -> Int? {
+        guard !needle.isEmpty, haystack.count >= needle.count else { return nil }
+        var start = haystack.count - needle.count
+        while start >= 0 {
+            var matched = true
+            for offset in 0..<needle.count where haystack[start + offset] != needle[offset] {
+                matched = false
+                break
+            }
+            if matched { return start }
+            start -= 1
+        }
+        return nil
+    }
+
     /// Distinctive leading slice of the last user message used to locate its
-    /// row in captured scrollback. A long message that soft-wrapped across
-    /// several captured rows still matches its first row via this prefix.
-    /// Returns nil for empty/too-short messages so re-injection no-ops safely.
+    /// row in captured scrollback. Whitespace (including newlines) is collapsed
+    /// to match the cross-row stream built in `reinjectingLastPromptMark`, so a
+    /// long or multiline prompt that wrapped across several captured rows still
+    /// matches. Returns nil for empty/too-short messages so re-injection no-ops.
     private static func promptMatchNeedle(_ message: String?) -> String? {
         guard let message else { return nil }
         let collapsed = message

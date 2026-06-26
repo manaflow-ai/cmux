@@ -737,6 +737,62 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    // A long prompt soft-wraps across several captured rows. The marker must
+    // still land on the FIRST row of the wrapped prompt (so jump-to-prompt jumps
+    // to the start), which single-row matching would miss.
+    func testScrollbackReplayMarksFirstRowOfWrappedPrompt() {
+        let esc = "\u{001B}"
+        let reset = "\(esc)[0m"
+        let message = "please refactor the authentication flow and add regression tests"
+        // The prompt as rendered across two captured rows on a narrow grid.
+        let firstRow = "> please refactor the authentication flow and"
+        let secondRow = "add regression tests"
+        let lines = [
+            "\(esc)[1magent ready\(reset)",
+            firstRow,
+            secondRow,
+            "\(esc)[32m● working\(reset)",
+        ]
+        let scrollback = lines.joined(separator: "\n")
+
+        let marked = SessionScrollbackReplayStore.reinjectingLastPromptMark(
+            into: scrollback,
+            lastUserMessage: message
+        )
+        let markedLines = marked.components(separatedBy: "\n")
+
+        XCTAssertEqual(markedLines.count, 4)
+        XCTAssertTrue(
+            markedLines[1].hasPrefix(SessionScrollbackReplayStore.semanticPromptStartMark),
+            "the first wrapped row must be marked, got: \(markedLines[1])"
+        )
+        XCTAssertFalse(markedLines[2].contains("\(esc)]133;A"), "wrapped continuation row must stay unmarked")
+        // Exactly one marker is injected.
+        XCTAssertEqual(marked.components(separatedBy: "\(esc)]133;A").count - 1, 1)
+    }
+
+    // A multiline prompt (newlines collapsed) whose words land on different
+    // captured rows still matches via the cross-row stream.
+    func testScrollbackReplayMarksMultilinePromptAcrossRows() {
+        let esc = "\u{001B}"
+        let message = "first line\nsecond line of the prompt"
+        let scrollback = [
+            "> first line",
+            "second line of the prompt",
+            "\(esc)[32m● ok\(esc)[0m",
+        ].joined(separator: "\n")
+
+        let marked = SessionScrollbackReplayStore.reinjectingLastPromptMark(
+            into: scrollback,
+            lastUserMessage: message
+        )
+        let markedLines = marked.components(separatedBy: "\n")
+        XCTAssertTrue(
+            markedLines[0].hasPrefix(SessionScrollbackReplayStore.semanticPromptStartMark),
+            "first row of the multiline prompt must be marked, got: \(markedLines[0])"
+        )
+    }
+
     // End-to-end: the replay environment file written for restore carries the
     // re-injected OSC 133 mark in front of the restored last user message.
     func testScrollbackReplayEnvironmentReinjectsPromptMarkIntoReplayFile() {
