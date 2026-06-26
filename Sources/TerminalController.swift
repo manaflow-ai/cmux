@@ -473,10 +473,6 @@ class TerminalController {
     static func debugNotifyTargetQueuedResponseForTesting(_ args: String) -> String {
         Self.shared.notifyTargetQueued(args)
     }
-
-    static func debugNotifyTargetResponseForTesting(_ args: String) -> String {
-        Self.shared.notifyTarget(args)
-    }
 #endif
 
     nonisolated static func shouldReplaceStatusEntry(
@@ -11268,7 +11264,7 @@ class TerminalController {
         return result
     }
 
-    private func notifyTarget(_ args: String) -> String {
+    func notifyTarget(_ args: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "ERROR: Usage: notify_target <workspace_id> <surface_id> <title>|<subtitle>|<body>" }
@@ -11329,19 +11325,19 @@ class TerminalController {
                 result = "ERROR: Tab not found"
                 return
             }
-            guard let panelId = UUID(uuidString: panelArg),
-                  tab.panels[panelId] != nil ||
-                  AppDelegate.shared?.workspaceContainingPanel(
-                    panelId: panelId,
-                    preferredWorkspaceId: tab.id
-                  ) != nil else {
+            guard let panelId = UUID(uuidString: panelArg) else {
                 result = "ERROR: Panel not found"
                 return
             }
-            let resolvedTabId = AppDelegate.shared?.workspaceContainingPanel(
+            let containingWorkspace = AppDelegate.shared?.workspaceContainingPanel(
                 panelId: panelId,
                 preferredWorkspaceId: tab.id
-            )?.workspace.id ?? tab.id
+            )
+            guard tab.panels[panelId] != nil || containingWorkspace != nil else {
+                result = "ERROR: Panel not found"
+                return
+            }
+            let resolvedTabId = containingWorkspace?.workspace.id ?? tab.id
             deliverNotificationSynchronously(
                 tabId: resolvedTabId,
                 surfaceId: panelId,

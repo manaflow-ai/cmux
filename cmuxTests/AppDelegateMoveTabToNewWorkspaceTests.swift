@@ -370,7 +370,7 @@ struct AppDelegateMoveTabToNewWorkspaceTests {
         #expect(!manager.tabs.contains { $0.id == staleWorkspaceId })
         #expect(destinationWorkspace.panels[movedPanelId] != nil)
 
-        let response = TerminalController.debugNotifyTargetResponseForTesting(
+        let response = TerminalController.shared.notifyTarget(
             "\(staleWorkspaceId.uuidString) \(movedPanelId.uuidString) Sync|Moved|Body"
         )
         #expect(response == "OK")
