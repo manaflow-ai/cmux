@@ -16,10 +16,16 @@ public import Foundation
 public struct MobileTerminalOutputChunk: Sendable {
     public let data: Data
     public let streamToken: UUID
+    /// Authoritative grid hash stamped by the producer on the render-grid frame
+    /// these bytes were synthesized from, or `nil` for raw-byte chunks and
+    /// legacy frames. After applying `data`, the surface may verify its grid
+    /// against this and request a keyframe on a mismatch.
+    public let expectedGridHash: UInt64?
 
-    public init(data: Data, streamToken: UUID) {
+    public init(data: Data, streamToken: UUID, expectedGridHash: UInt64? = nil) {
         self.data = data
         self.streamToken = streamToken
+        self.expectedGridHash = expectedGridHash
     }
 }
 

@@ -633,6 +633,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var lastAppliedContentScale: CGFloat = 0
     private var surfaceHasReceivedOutput: Bool = false
     private var shouldScrollInitialOutputToBottom = true
+    /// Throttled decision policy for verifying the applied grid against the
+    /// producer's stamped hash. Throttled because the read-back walks the whole
+    /// grid under the surface lock; running it per frame would load the
+    /// typing-latency render path.
+    private var gridDivergenceChecker = MobileTerminalRenderGridDivergenceChecker()
+    /// Dark-launch gate for the divergence-triggered resync. OFF by default: the
+    /// repair currently goes through the full-snapshot replay, which resets the
+    /// scroll position, so enabling it before the keyframe is made viewport-only
+    /// and scroll-aware would yank a scrolled-up reader. Flip on for dogfood.
+    static var gridDivergenceResyncEnabled = false
     /// Serial background queue for `ghostty_surface_process_output`, which
     /// blocks on libghostty's internal renderer/IO futex. Running it on the
     /// main thread hangs the app until the scene-update watchdog kills it.
@@ -2504,6 +2514,32 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let data = Data(bytes: ptr, count: Int(exported.len))
         guard let frame = try? MobileTerminalRenderGridFrame.decode(data) else { return nil }
         return frame.gridContentHash()
+    }
+
+    /// After applying a render-grid frame, verify (throttled) that the resulting
+    /// grid matches the producer's stamped `expectedHash`, returning `true` when
+    /// it diverges and the caller should request a keyframe.
+    ///
+    /// The read-back runs on the serial ``outputQueue`` (the only place that may
+    /// take the surface lock without contending `process_output`), and only when
+    /// the throttle and the dark-launch gate allow it, so this never adds a
+    /// per-frame cost on the render path.
+    @MainActor
+    func appliedGridDivergesFromExpected(_ expectedHash: UInt64?, surfaceID: String) async -> Bool {
+        guard Self.gridDivergenceResyncEnabled else { return false }
+        guard gridDivergenceChecker.shouldVerify(
+            expectedHash: expectedHash,
+            now: CACurrentMediaTime()
+        ) else { return false }
+        guard let surface else { return false }
+        let appliedHash: UInt64? = await withCheckedContinuation { continuation in
+            Self.outputQueue.async {
+                continuation.resume(
+                    returning: Self.appliedGridContentHash(surface, surfaceID: surfaceID)
+                )
+            }
+        }
+        return gridDivergenceChecker.diverges(expectedHash: expectedHash, appliedHash: appliedHash)
     }
 
     func renderedHTMLForTesting(pointTag: ghostty_point_tag_e = GHOSTTY_POINT_VIEWPORT) -> String? {

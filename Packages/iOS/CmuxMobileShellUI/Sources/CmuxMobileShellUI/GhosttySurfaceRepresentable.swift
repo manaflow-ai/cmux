@@ -143,6 +143,17 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         surfaceID: surfaceID,
                         streamToken: chunk.streamToken
                     )
+                    // Verify the applied grid against the producer's stamped hash
+                    // and resync on divergence so a delta that silently missed a
+                    // row self-corrects instead of staying blank. Throttled and
+                    // dark-launch-gated inside the surface, so this is a no-op on
+                    // the common path.
+                    if await surfaceView.appliedGridDivergesFromExpected(
+                        chunk.expectedGridHash,
+                        surfaceID: surfaceID
+                    ) {
+                        store.requestTerminalRenderGridResync(surfaceID: surfaceID)
+                    }
                 }
             }
             // Drive Mac-pushed live font-size changes (`terminal.set_font`) into

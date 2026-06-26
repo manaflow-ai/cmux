@@ -29,6 +29,19 @@ struct TerminalOutputDelivery: Equatable, Sendable {
             frame.vtPatchBytes()
         }
     }
+
+    /// The authoritative grid hash the producer stamped on this render-grid
+    /// frame, if any. `nil` for raw-byte deliveries and for frames from a
+    /// producer that predates the hash. The consumer uses it to verify its
+    /// applied grid and request a keyframe on divergence.
+    var expectedGridHash: UInt64? {
+        switch payload {
+        case .bytes:
+            nil
+        case .renderGrid(let frame):
+            frame.gridHash
+        }
+    }
 }
 
 /// Backpressure queue for one mounted mobile terminal output stream.
