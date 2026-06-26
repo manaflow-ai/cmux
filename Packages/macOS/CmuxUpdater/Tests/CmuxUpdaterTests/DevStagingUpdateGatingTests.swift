@@ -42,6 +42,21 @@ import Testing
         #expect(model.detectedUpdateVersion == "0.64.99")
         #expect(model.showsPill)
     }
+
+    @Test func classifiesDebugAndStagingBundlesAsDevLike() {
+        #expect(UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.debug"))
+        #expect(UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.debug.my-tag"))
+        #expect(UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.staging"))
+        #expect(UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.staging.my-tag"))
+    }
+
+    @Test func doesNotClassifyPublicOrNightlyOrNilAsDevLike() {
+        #expect(!UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app"))
+        #expect(!UpdateController.isDevLikeBundleIdentifier(nil))
+        // A look-alike that is neither the exact base id nor a dotted suffix must not match.
+        #expect(!UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.debugger"))
+        #expect(!UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.stagingx"))
+    }
 }
 
 private struct NoopUpdateLog: UpdateLogging {
