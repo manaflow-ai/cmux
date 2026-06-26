@@ -157,15 +157,10 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private var lastMaxContentWidth: Double = MarkdownMaxWidthSettings.defaultCSSPixels
         private var isLoaded = false
         private var isShellLoading = false
-        private var webContentProcessRecoveryAttempts = 0
-        private let maxWebContentProcessRecoveryAttempts = 2
-        /// Whether the shell was confirmed loaded at the moment the host view
-        /// last left its window. Used to distinguish a blank state caused by
-        /// detaching the pane (WebKit suspending/reclaiming the detached view —
-        /// recoverable) from one caused by a payload that keeps crashing
-        /// WebContent while attached (a crash loop whose recovery budget must
-        /// not be reset by pane reparenting).
-        private var shellWasHealthyWhenDetached = false
+        /// WebContent crash-recovery + detach/reattach health budget. The
+        /// `loadShell` effect and `WKWebView` identity guard stay here; the
+        /// pure budget decisions live on the policy.
+        private var recoveryPolicy = MarkdownWebRecoveryPolicy()
 
 #if DEBUG
         var isShellLoadingForTesting: Bool {
@@ -173,7 +168,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         }
 
         var webContentProcessRecoveryAttemptsForTesting: Int {
-            webContentProcessRecoveryAttempts
+            recoveryPolicy.attempts
         }
 #endif
 
@@ -240,8 +235,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             self.webView = nil
             isLoaded = false
             isShellLoading = false
-            webContentProcessRecoveryAttempts = 0
-            shellWasHealthyWhenDetached = false
+            recoveryPolicy.reset()
             cancelImageLoads()
             requestedLibs.removeAll()
         }
@@ -286,7 +280,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
 
             if contentChanged {
-                webContentProcessRecoveryAttempts = 0
+                recoveryPolicy.resetBudget()
                 lastMarkdown = markdown
                 if isLoaded {
                     pushMarkdown(markdown)
@@ -294,7 +288,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                     loadShell(theme: theme, initialMarkdown: markdown)
                 }
             } else if shellNeedsReload {
-                if webContentProcessRecoveryAttempts < maxWebContentProcessRecoveryAttempts {
+                if recoveryPolicy.hasBudgetRemaining {
                     loadShell(theme: theme, initialMarkdown: markdown)
                 }
             }
@@ -541,12 +535,11 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             NSLog("MarkdownPanel.webView.webContentProcessDidTerminate")
 #endif
             isShellLoading = false
-            guard webContentProcessRecoveryAttempts < maxWebContentProcessRecoveryAttempts else {
+            guard recoveryPolicy.consumeBudget() else {
                 isLoaded = false
                 requestedLibs.removeAll()
                 return
             }
-            webContentProcessRecoveryAttempts += 1
             loadShell(
                 theme: lastTheme ?? pendingTheme,
                 initialMarkdown: lastMarkdown ?? pendingMarkdown
@@ -563,7 +556,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         /// treated as a detach artifact (and recovered with a fresh budget) if
         /// the shell was loaded when it was detached.
         func handleViewLeftWindow() {
-            shellWasHealthyWhenDetached = isLoaded
+            recoveryPolicy.recordDetachHealth(shellIsLoaded: isLoaded)
         }
 
         func handleViewReenteredWindow() {
@@ -573,14 +566,12 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             // Recover only when the document was healthy before the detach, so
             // a payload that exhausted its crash-recovery budget while attached
             // (a crash loop) is not granted a fresh budget by pane reparenting.
-            guard shellWasHealthyWhenDetached else { return }
-            shellWasHealthyWhenDetached = false
             // A reload kicked off while detached can stall (no didFinish until
-            // the view is back in a window), so reload unconditionally — even
-            // mid-load. A deliberate reattach is not a crash loop, so restore
-            // the recovery budget so the document repaints instead of staying
-            // permanently blank.
-            webContentProcessRecoveryAttempts = 0
+            // the view is back in a window), so the policy restores the
+            // recovery budget on a deliberate reattach and we reload
+            // unconditionally — even mid-load — so the document repaints
+            // instead of staying permanently blank.
+            guard recoveryPolicy.consumeDetachRecovery() else { return }
             loadShell(
                 theme: lastTheme ?? pendingTheme,
                 initialMarkdown: lastMarkdown ?? pendingMarkdown

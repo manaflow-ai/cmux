@@ -17,7 +17,7 @@ nonisolated private let settingsFileParserLogger = Logger(subsystem: "com.cmuxte
 struct SettingsFileParser {
     func parseSettingsFile(root: [String: Any], sourcePath: String) -> ResolvedSettingsSnapshot {
         let schemaVersion = jsonInt(root["schemaVersion"]) ?? 1
-        if schemaVersion > CmuxSettingsFileStore.currentSchemaVersion {
+        if schemaVersion > CmuxSettingsFileSchema.current.version {
             settingsFileParserLogger.warning("\(sourcePath, privacy: .private(mask: .hash)) uses future schemaVersion \(schemaVersion, privacy: .private(mask: .hash)); parsing known fields only")
         }
 

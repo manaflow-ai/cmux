@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 #if canImport(Security)
 import Security
@@ -432,8 +433,8 @@ struct SurfaceResumeApprovalStore {
             switch rootLoadResult {
             case .missing:
                 let root: [String: Any] = [
-                    "$schema": CmuxSettingsFileStore.schemaURLString,
-                    "schemaVersion": CmuxSettingsFileStore.currentSchemaVersion,
+                    "$schema": CmuxSettingsFileSchema.current.schemaURLString,
+                    "schemaVersion": CmuxSettingsFileSchema.current.version,
                     Self.settingsTerminalSectionKey: [
                         Self.settingsRecordsKey: recordsValue,
                     ],
