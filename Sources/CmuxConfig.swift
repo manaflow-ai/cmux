@@ -2779,7 +2779,10 @@ final class CmuxConfigStore: ObservableObject {
                 shortcut: nil,
                 icon: .symbol("rectangle.stack.badge.plus"),
                 tooltip: command.command.description,
-                action: .workspaceCommand(command.command.name),
+                // Carry the folder-aware id (not the display name) so execution
+                // resolves the exact command even when same-named commands exist
+                // in other folders.
+                action: .workspaceCommand(command.command.id),
                 confirm: command.command.confirm,
                 terminalCommandTarget: nil,
                 actionSourcePath: command.sourcePath,
