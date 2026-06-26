@@ -52,10 +52,10 @@ struct CmuxCommandTemplate {
 
     /// Resolves the command for execution: replaces every recognized
     /// placeholder whose name is present in `values` with its value as a single
-    /// POSIX-quoted shell argument, leaves placeholders whose name is missing
-    /// from `values` untouched, leaves non-identifier `{{…}}` template
-    /// expressions untouched, and strips the escaping backslash from any
-    /// `\{{…}}` so it becomes a literal `{{…}}`.
+    /// POSIX-quoted shell argument, and leaves everything else untouched —
+    /// placeholders whose name is missing from `values`, non-identifier `{{…}}`
+    /// template expressions, and any `{{…}}` inside quotes, here-doc bodies, or
+    /// comments.
     ///
     /// Values are shell-quoted so that whatever the user types is passed as one
     /// literal argument — a value like `main; rm -rf /` cannot break out of the
