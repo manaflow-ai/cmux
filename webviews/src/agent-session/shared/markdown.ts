@@ -74,7 +74,7 @@ const highlightLanguageAliases = new Map([
   ["zsh", "bash"],
 ]);
 
-for (const [languageName, language] of [
+const highlightLanguages = [
   ["bash", bash],
   ["c", c],
   ["cpp", cpp],
@@ -95,9 +95,9 @@ for (const [languageName, language] of [
   ["typescript", typescript],
   ["xml", xml],
   ["yaml", yaml],
-] as const) {
-  hljs.registerLanguage(languageName, language);
-}
+] as const;
+
+let highlightLanguagesRegistered = false;
 
 export function renderMarkdownHTML(source: string): string {
   const parser = typeof window === "undefined" ? undefined : window.marked;
@@ -262,7 +262,7 @@ function highlightRenderedCodeBlocks(root: ParentNode): void {
   for (const codeElement of Array.from(root.querySelectorAll("pre > code"))) {
     const language = highlightLanguageFromCodeClassName(codeElement.className);
     const highlighted = highlightCodeHTML(codeElement.textContent ?? "", language);
-    if (!highlighted) {
+    if (!highlighted || !isSafeHighlightHTML(highlighted, codeElement.ownerDocument)) {
       continue;
     }
     codeElement.innerHTML = highlighted;
@@ -293,18 +293,68 @@ export function normalizeHighlightLanguage(language: string | null | undefined):
 }
 
 export function highlightCodeHTML(code: string, language: string | null | undefined): string | null {
-  const normalizedLanguage = normalizeHighlightLanguage(language);
-  if (!normalizedLanguage || !hljs.getLanguage(normalizedLanguage)) {
+  ensureHighlightLanguagesRegistered();
+  const highlightLanguage = highlightLanguageFor(language);
+  if (!highlightLanguage) {
     return null;
   }
   try {
     return hljs.highlight(code, {
-      language: normalizedLanguage,
+      language: highlightLanguage,
       ignoreIllegals: true,
     }).value;
   } catch {
     return null;
   }
+}
+
+export function isSafeHighlightHTML(html: string, ownerDocument?: Document): boolean {
+  const parserDocument = ownerDocument ?? (typeof document === "undefined" ? undefined : document);
+  if (!parserDocument) {
+    return false;
+  }
+  const template = parserDocument.createElement("template");
+  template.innerHTML = html;
+
+  for (const element of Array.from(template.content.querySelectorAll("*"))) {
+    if (element.localName !== "span") {
+      return false;
+    }
+    for (const attribute of Array.from(element.attributes)) {
+      if (attribute.name.toLowerCase() !== "class") {
+        return false;
+      }
+      const classNames = attribute.value.trim().split(/\s+/).filter(Boolean);
+      if (classNames.some((className) => !/^[A-Za-z0-9_-]+$/.test(className))) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+function ensureHighlightLanguagesRegistered(): void {
+  if (highlightLanguagesRegistered && hljs.getLanguage("typescript")) {
+    return;
+  }
+  for (const [languageName, language] of highlightLanguages) {
+    if (!hljs.getLanguage(languageName)) {
+      hljs.registerLanguage(languageName, language);
+    }
+  }
+  highlightLanguagesRegistered = true;
+}
+
+function highlightLanguageFor(language: string | null | undefined): string | null {
+  if (typeof language === "string" && hljs.getLanguage(language)) {
+    return language;
+  }
+  const normalizedLanguage = normalizeHighlightLanguage(language);
+  if (!normalizedLanguage || !hljs.getLanguage(normalizedLanguage)) {
+    return null;
+  }
+  return normalizedLanguage;
 }
 
 export function sanitizedMarkdownURLAttribute(

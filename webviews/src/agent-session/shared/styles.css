@@ -465,7 +465,7 @@ select {
   color: var(--color-token-terminal-ansi-bright-yellow);
 }
 
-.codex-assistant-message :where(pre code.hljs .hljs-attr, pre code.hljs .hljs-attribute, pre code.hljs .hljs-variable, pre code.hljs .hljs-template-variable, pre code.hljs .language_) {
+.codex-assistant-message :where(pre code.hljs .hljs-attr, pre code.hljs .hljs-attribute, pre code.hljs .hljs-variable, pre code.hljs .hljs-template-variable, pre code.hljs .hljs-subst) {
   color: var(--color-token-terminal-ansi-cyan);
 }
 
