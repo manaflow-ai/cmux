@@ -671,10 +671,10 @@ final class SessionIndexStore: ObservableObject {
         entries: [SessionEntry]
     ) -> IndexSection {
         let ordered = orderedSessionEntries(entries)
-        let pinned = pinnedSessionIds.isEmpty
+        let pinned: Set<String> = pinnedSessionIds.isEmpty
             ? []
             : Set(ordered.lazy.map(\.id).filter { pinnedSessionIds.contains($0) })
-        let archived = archivedSessionIds.isEmpty
+        let archived: Set<String> = archivedSessionIds.isEmpty
             ? []
             : Set(ordered.lazy.map(\.id).filter { archivedSessionIds.contains($0) })
         return IndexSection(
