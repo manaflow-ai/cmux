@@ -8,7 +8,7 @@ final class WindowDecorationsController {
     private var minimalModeSidebarChromeHoverMonitor: Any?
     private var lastMinimalModeTitlebarClick: MinimalModeTitlebarClickRecord?
     private var lastKnownPresentationMode = WorkspacePresentationModeSettings.mode()
-    private var lastKnownTitlebarDebugSnapshot = MinimalModeTitlebarDebugSettings.snapshot()
+    private var lastKnownTitlebarDebugSnapshot = MinimalModeTitlebarDebugSnapshot.snapshot()
     private let minimalModeSidebarTitlebarClickTargets = NSMapTable<NSWindow, MinimalModeSidebarControlActionView>(
         keyOptions: .weakMemory,
         valueOptions: .strongMemory
@@ -67,7 +67,7 @@ final class WindowDecorationsController {
 
     private func applyDefaultsDrivenDecorationChangeIfNeeded() {
         let currentMode = WorkspacePresentationModeSettings.mode()
-        let currentTitlebarSnapshot = MinimalModeTitlebarDebugSettings.snapshot()
+        let currentTitlebarSnapshot = MinimalModeTitlebarDebugSnapshot.snapshot()
         guard currentMode != lastKnownPresentationMode || currentTitlebarSnapshot != lastKnownTitlebarDebugSnapshot else { return }
         lastKnownPresentationMode = currentMode
         lastKnownTitlebarDebugSnapshot = currentTitlebarSnapshot
