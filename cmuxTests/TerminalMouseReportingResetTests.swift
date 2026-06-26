@@ -20,8 +20,8 @@ final class TerminalMouseReportingResetTests: XCTestCase {
         // A command finished but mouse reporting is still on -> the just-finished
         // program left it stuck, so cmux must emit the disable sequences.
         XCTAssertEqual(
-            TerminalMouseReportingReset.sequenceToClearStuckMouseModes(mouseReportingActive: true),
-            TerminalMouseReportingReset.disableSequence
+            TerminalMouseReportingReset(mouseReportingActive: true).disableSequence,
+            TerminalMouseReportingReset.allMouseModesDisableSequence
         )
     }
 
@@ -29,12 +29,12 @@ final class TerminalMouseReportingResetTests: XCTestCase {
         // Nothing to clear when mouse reporting is already off; cmux must not
         // touch the terminal.
         XCTAssertNil(
-            TerminalMouseReportingReset.sequenceToClearStuckMouseModes(mouseReportingActive: false)
+            TerminalMouseReportingReset(mouseReportingActive: false).disableSequence
         )
     }
 
     func testDisableSequenceClearsEveryMouseTrackingAndEncodingMode() {
-        let sequence = TerminalMouseReportingReset.disableSequence
+        let sequence = TerminalMouseReportingReset.allMouseModesDisableSequence
         // Every disable must be a DECRST ("\u{1b}[?<n>l").
         for mode in [9, 1000, 1001, 1002, 1003, 1005, 1006, 1015, 1016] {
             XCTAssertTrue(

@@ -2790,9 +2790,9 @@ class GhosttyApp {
             // parser, not the pty, so the shell prompt is undisturbed. Safe: this
             // runs from the mailbox drain (renderer mutex not held).
             if let runtimeSurface = callbackContext?.runtimeSurface,
-               let reset = TerminalMouseReportingReset.sequenceToClearStuckMouseModes(
+               let reset = TerminalMouseReportingReset(
                    mouseReportingActive: ghostty_surface_mouse_captured(runtimeSurface)
-               ) {
+               ).disableSequence {
                 reset.withCString { cString in
                     ghostty_surface_process_output(runtimeSurface, cString, UInt(strlen(cString)))
                 }
