@@ -97,7 +97,7 @@ extension TextBoxInputContainer {
     func reconcilePendingProviderLaunch() {
         guard pendingProviderLaunchAction != nil else { return }
         if Self.shouldClearPendingProviderLaunch(
-            allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
+            shellActivityState: shellActivityState,
             terminalAgentContext: terminalAgentContext
         ) {
             if Self.shouldClearLaunchCommandWhenClearingPending(terminalAgentContext: terminalAgentContext) {
@@ -108,10 +108,11 @@ extension TextBoxInputContainer {
     }
 
     static func shouldClearPendingProviderLaunch(
-        allowsCommandTemplateSubmit: Bool,
+        shellActivityState: PanelShellActivityState,
         terminalAgentContext: String
     ) -> Bool {
-        allowsCommandTemplateSubmit || TextBoxAgentDetection.supportsAgentPrefixes(context: terminalAgentContext)
+        shellActivityState == .promptIdle ||
+            TextBoxAgentDetection.supportsAgentPrefixes(context: terminalAgentContext)
     }
 
     static func shouldClearLaunchCommandWhenClearingPending(terminalAgentContext: String) -> Bool {

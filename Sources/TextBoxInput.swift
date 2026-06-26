@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxWorkspaces
 import AppKit
 import CmuxTerminal
 import Carbon.HIToolbox
@@ -2436,6 +2437,7 @@ struct TextBoxInputContainer: View {
     let terminalFont: NSFont
     let maxLines: Int
     let terminalAgentContext: String
+    let shellActivityState: PanelShellActivityState
     let allowsCommandTemplateSubmit: Bool
     let onFocusTextBox: () -> Void
     let onToggleFocus: () -> Void
@@ -2581,6 +2583,9 @@ struct TextBoxInputContainer: View {
             refreshSubmitActionsCacheIfNeeded()
         }
         .onChange(of: terminalAgentContext) { _, _ in
+            reconcilePendingProviderLaunch()
+        }
+        .onChange(of: shellActivityState) { _, _ in
             reconcilePendingProviderLaunch()
         }
         .onChange(of: allowsCommandTemplateSubmit) { _, _ in

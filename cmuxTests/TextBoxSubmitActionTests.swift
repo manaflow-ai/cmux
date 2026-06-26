@@ -595,19 +595,25 @@ struct TextBoxSubmitActionTests {
     func testTextBoxPendingLaunchClearsOnAgentDetectionOrPromptIdleFallback() {
         XCTAssertTrue(
             TextBoxInputContainer.shouldClearPendingProviderLaunch(
-                allowsCommandTemplateSubmit: false,
+                shellActivityState: .commandRunning,
                 terminalAgentContext: "initialCommand:codex --dangerously-bypass-approvals-and-sandbox"
             )
         )
         XCTAssertTrue(
             TextBoxInputContainer.shouldClearPendingProviderLaunch(
-                allowsCommandTemplateSubmit: true,
+                shellActivityState: .promptIdle,
                 terminalAgentContext: ""
             )
         )
         XCTAssertFalse(
             TextBoxInputContainer.shouldClearPendingProviderLaunch(
-                allowsCommandTemplateSubmit: false,
+                shellActivityState: .unknown,
+                terminalAgentContext: ""
+            )
+        )
+        XCTAssertFalse(
+            TextBoxInputContainer.shouldClearPendingProviderLaunch(
+                shellActivityState: .commandRunning,
                 terminalAgentContext: ""
             )
         )

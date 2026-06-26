@@ -18,7 +18,7 @@
 6217	cmuxTests/GhosttyConfigTests.swift
 6187	Sources/TabManager.swift
 5915	cmuxTests/TerminalAndGhosttyTests.swift
-5904	Sources/TextBoxInput.swift
+5909	Sources/TextBoxInput.swift
 5573	cmuxTests/BrowserConfigTests.swift
 5507	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 4487	Sources/Panels/FilePreviewPanel.swift
@@ -86,7 +86,7 @@
 1093	cmuxUITests/BonsplitTabDragUITests.swift
 1087	Packages/macOS/CmuxCommandPalette/Sources/CmuxCommandPalette/Search/CommandPaletteFuzzyMatcher.swift
 1021	cmuxUITests/TerminalCmdClickUITests.swift
-1013	cmuxTests/TextBoxSubmitActionTests.swift
+1019	cmuxTests/TextBoxSubmitActionTests.swift
 1009	cmuxTests/CmuxTopSnapshotScopeTests.swift
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
 951	Sources/App/TerminalDirectoryOpenSupport.swift

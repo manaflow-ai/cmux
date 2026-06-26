@@ -108,6 +108,7 @@ struct TerminalPanelView: View {
                     ),
                     maxLines: TerminalTextBoxInputSettings.resolvedMaxLines(textBoxMaxLines),
                     terminalAgentContext: effectiveTerminalAgentContext,
+                    shellActivityState: panel.shellActivity.state,
                     allowsCommandTemplateSubmit: TextBoxInputContainer.allowsCommandTemplateSubmit(
                         shellActivityState: panel.shellActivity.state
                     ),
