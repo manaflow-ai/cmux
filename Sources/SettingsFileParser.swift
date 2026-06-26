@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import struct CmuxBrowser.BrowserThemeSettings
 import CmuxFoundation
 import CmuxSettings
 import Foundation

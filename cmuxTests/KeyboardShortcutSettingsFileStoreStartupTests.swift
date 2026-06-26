@@ -9,6 +9,7 @@ import struct CmuxSettings.QuitConfirmationStore
 import enum CmuxSettings.ConfirmQuitMode
 import enum CmuxSettings.BrowserSearchEngine
 import struct CmuxSettings.BrowserSearchSettingsStore
+import struct CmuxBrowser.BrowserThemeSettings
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

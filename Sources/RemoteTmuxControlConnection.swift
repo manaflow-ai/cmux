@@ -78,7 +78,7 @@ final class RemoteTmuxControlConnection {
     /// control stream becomes unusable, so a pending close decision falls back to
     /// the cached classification instead of hanging until a reconnect that may
     /// never come.
-    private var activityQueryCompletions: [UUID: ([Int: PaneForegroundState]?) -> Void] = [:]
+    private let activityQueries = RemoteTmuxActivityQueryRegistry()
 
     private var process: Process?
     private var stdinWriter: RemoteTmuxControlPipeWriter?
@@ -628,11 +628,11 @@ final class RemoteTmuxControlConnection {
             return
         }
         let token = UUID()
-        activityQueryCompletions[token] = completion
+        activityQueries.register(token, completion)
         guard sendInternal(command, kind: .activityQuery(token)) else {
             // The stream could not accept the query, so no result can correlate.
             // Fail now and let the close decision proceed on the cached state.
-            activityQueryCompletions.removeValue(forKey: token)?(nil)
+            activityQueries.removeCompletion(for: token)?(nil)
             return
         }
     }
@@ -641,10 +641,7 @@ final class RemoteTmuxControlConnection {
     /// becomes unusable (reconnect begins, deliberate stop, genuine `%exit`), so
     /// a pending close decision falls back to the cached classification.
     private func failPendingActivityQueries() {
-        guard !activityQueryCompletions.isEmpty else { return }
-        let completions = Array(activityQueryCompletions.values)
-        activityQueryCompletions.removeAll()
-        for completion in completions { completion(nil) }
+        activityQueries.failAll()
     }
 
     /// Sends literal key bytes to a pane via tmux `send-keys -H` (hex-encoded),
@@ -1001,7 +998,7 @@ final class RemoteTmuxControlConnection {
             // An errored activity query must still complete (with nil) — a close
             // decision is waiting on it and falls back to the cached state.
             if case let .activityQuery(token) = kind,
-               let completion = activityQueryCompletions.removeValue(forKey: token) {
+               let completion = activityQueries.removeCompletion(for: token) {
                 completion(nil)
             }
             // Errors are dropped by design (results correlate positionally), but
@@ -1107,7 +1104,7 @@ final class RemoteTmuxControlConnection {
             // lines → classifyAndEmitReflow defaults to no-reflow (safe).
             classifyAndEmitReflow(paneId: paneId, rawValue: lines.first ?? "", source: "oneshot")
         case let .activityQuery(token):
-            guard let completion = activityQueryCompletions.removeValue(forKey: token) else { break }
+            guard let completion = activityQueries.removeCompletion(for: token) else { break }
             var states: [Int: PaneForegroundState] = [:]
             for line in lines {
                 guard let parsed = commandBuilder.parseActivityQueryLine(line) else { continue }
