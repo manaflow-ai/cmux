@@ -11,10 +11,6 @@ import os
 let mobileHostLog = Logger(subsystem: "dev.cmux", category: "mobile-host")
 
 extension Notification.Name {
-    static let mobileHostEventSubscriptionsDidChange = Notification.Name(
-        "cmux.mobileHostEventSubscriptionsDidChange"
-    )
-
     /// Posted whenever the mobile pairing host's observable status changes:
     /// the listener binds or stops, the bound port changes, or the active
     /// connection count changes. The Settings host adapter bridges this to an
@@ -23,74 +19,6 @@ extension Notification.Name {
     static let mobileHostStatusDidChange = Notification.Name(
         "cmux.mobileHostStatusDidChange"
     )
-}
-
-enum MobileHostEventSubscriptionTracker {
-    private static let lock = NSLock()
-    private nonisolated(unsafe) static var topicCounts: [String: Int] = [:]
-
-    static func hasSubscribers(topic: String) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return (topicCounts[topic] ?? 0) > 0
-    }
-
-    static func replace(previousTopics: Set<String>?, nextTopics: Set<String>?) {
-        let changedTopics = updateCounts(previousTopics: previousTopics, nextTopics: nextTopics)
-        guard !changedTopics.isEmpty else { return }
-        NotificationCenter.default.post(
-            name: .mobileHostEventSubscriptionsDidChange,
-            object: nil,
-            userInfo: ["topics": Array(changedTopics).sorted()]
-        )
-    }
-
-    private static func updateCounts(previousTopics: Set<String>?, nextTopics: Set<String>?) -> Set<String> {
-        lock.lock()
-        defer { lock.unlock() }
-
-        var changedTopics = Set<String>()
-        let allTopics = Set(previousTopics ?? []).union(nextTopics ?? [])
-        let before = Dictionary(uniqueKeysWithValues: allTopics.map { ($0, topicCounts[$0] ?? 0) })
-
-        for topic in previousTopics ?? [] {
-            let nextCount = max(0, (topicCounts[topic] ?? 0) - 1)
-            if nextCount == 0 {
-                topicCounts.removeValue(forKey: topic)
-            } else {
-                topicCounts[topic] = nextCount
-            }
-        }
-        for topic in nextTopics ?? [] {
-            topicCounts[topic] = (topicCounts[topic] ?? 0) + 1
-        }
-
-        for topic in allTopics {
-            let wasActive = (before[topic] ?? 0) > 0
-            let isActive = (topicCounts[topic] ?? 0) > 0
-            if wasActive != isActive {
-                changedTopics.insert(topic)
-            }
-        }
-        return changedTopics
-    }
-
-    static func reset() {
-        lock.lock()
-        topicCounts.removeAll()
-        lock.unlock()
-        NotificationCenter.default.post(
-            name: .mobileHostEventSubscriptionsDidChange,
-            object: nil,
-            userInfo: ["topics": []]
-        )
-    }
-
-    #if DEBUG
-    static func resetForTesting() {
-        reset()
-    }
-    #endif
 }
 
 private final class MobileHostConnectionRegistry: @unchecked Sendable {
@@ -202,6 +130,15 @@ final class MobileHostService {
     /// real instance type with no static state); `nonisolated` because the
     /// connection and request paths bump it off the main actor.
     nonisolated static let sharedRequestActivity = MobileHostRequestActivity()
+
+    /// The process-wide mobile-host per-topic subscriber counter, shared by the
+    /// decoupled subsystems that touch it: this service's emit path and each
+    /// `MobileHostConnection`'s subscribe/unsubscribe path, with the desktop
+    /// render observer listening to its change notification. A documented
+    /// composition-point default (the relocated ``MobileHostEventSubscriptionTracker``
+    /// is a real instance type with no static state); `nonisolated` because the
+    /// connection subscription paths mutate it off the main actor.
+    nonisolated static let sharedEventSubscriptionTracker = MobileHostEventSubscriptionTracker()
 
     /// The single shape every public `mobile.host.status` reply uses (the
     /// public-status cache, the network status gate, and
@@ -355,7 +292,7 @@ final class MobileHostService {
     /// notification closures. This path only touches the connection registry,
     /// not actor-isolated listener state.
     nonisolated static func emitEvent(topic: String, payload: [String: Any]) {
-        guard MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic) else {
+        guard MobileHostService.sharedEventSubscriptionTracker.hasSubscribers(topic: topic) else {
             return
         }
         let connections = MobileHostConnectionRegistry.shared.snapshot()
@@ -374,7 +311,7 @@ final class MobileHostService {
     }
 
     nonisolated static func hasEventSubscribers(topic: String) -> Bool {
-        MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic)
+        MobileHostService.sharedEventSubscriptionTracker.hasSubscribers(topic: topic)
     }
 
     /// User-default key for the opt-in Mac-side iOS pairing listener.
@@ -701,7 +638,7 @@ final class MobileHostService {
         }
         activeConnections.removeAll()
         clientIDsByConnectionID.removeAll()
-        MobileHostEventSubscriptionTracker.reset()
+        MobileHostService.sharedEventSubscriptionTracker.reset()
         MobileHostPublicStatusCache.update(routes: [])
         TerminalController.shared.clearAllMobileViewportReports(reason: "mobile.host.stopped")
         drainReadinessWaiters()
@@ -1395,7 +1332,7 @@ extension MobileHostService {
         activeConnections.removeAll()
         clientIDsByConnectionID.removeAll()
         MobileHostService.sharedRequestActivity.resetForTesting()
-        MobileHostEventSubscriptionTracker.resetForTesting()
+        MobileHostService.sharedEventSubscriptionTracker.resetForTesting()
     }
 
     func debugRecordClientIDForTesting(_ clientID: String, connectionID: UUID) {
@@ -1445,11 +1382,11 @@ extension MobileHostService {
     }
 
     nonisolated static func debugHasEventSubscribersForTesting(topic: String) -> Bool {
-        MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic)
+        MobileHostService.sharedEventSubscriptionTracker.hasSubscribers(topic: topic)
     }
 
     nonisolated static func debugResetEventSubscriptionsForTesting() {
-        MobileHostEventSubscriptionTracker.resetForTesting()
+        MobileHostService.sharedEventSubscriptionTracker.resetForTesting()
     }
 }
 #endif

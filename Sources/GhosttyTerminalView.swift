@@ -1,5 +1,6 @@
 import Foundation
 import CmuxAppKitSupportUI
+import CmuxBrowser
 import CmuxTerminal
 import CmuxFoundation
 import CmuxPanes
@@ -123,7 +124,7 @@ struct TerminalBrowserHostNormalizer: BrowserHostNormalizing {
     }
 
     func navigableWebURL(_ input: String) -> URL? {
-        resolveBrowserNavigableURL(input)
+        input.omnibarNavigableURL
     }
 }
 

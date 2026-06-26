@@ -145,7 +145,7 @@
 683	Packages/macOS/CmuxSwiftRender/Sources/CmuxSwiftRender/SwiftViewInterpreter.swift
 683	Sources/Panels/CodexAppServerSession.swift
 681	Sources/Panels/AgentSessionProcessStore.swift
-680	Sources/FileExplorerSearchController.swift
+580	Sources/FileExplorerSearchController.swift
 679	Packages/macOS/CmuxCommandPalette/Sources/CmuxCommandPalette/Handling/CommandPaletteContributionStrings.swift
 677	Packages/macOS/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator+Bootstrap.swift
 668	cmuxTests/FeedCoordinatorTests.swift

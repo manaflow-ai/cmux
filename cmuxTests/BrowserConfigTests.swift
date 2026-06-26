@@ -5015,7 +5015,7 @@ final class BrowserSearchEngineTests: XCTestCase {
     }
 
     func testStaleRemoteSuggestionsSuppressedWhenProviderDoesNotSupportRemoteSuggestions() {
-        let suggestions = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { resolveBrowserNavigableURL($0) }).staleRemoteSuggestionsForDisplay(
+        let suggestions = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { ($0).omnibarNavigableURL }).staleRemoteSuggestionsForDisplay(
             query: "swift",
             previousRemoteQuery: "swi",
             previousRemoteSuggestions: ["swift actors"],
@@ -5255,26 +5255,26 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
 
 @Suite struct BrowserNavigableURLResolutionTests {
     @Test func resolvesFileSchemeAsNavigableURL() throws {
-        let resolved = try #require(resolveBrowserNavigableURL("file:///tmp/cmux-local-test.html"))
+        let resolved = try #require(("file:///tmp/cmux-local-test.html").omnibarNavigableURL)
         #expect(resolved.isFileURL)
         #expect(resolved.path == "/tmp/cmux-local-test.html")
     }
 
     @Test func resolvesBareLocalhostSubdomainAsHTTPURL() throws {
-        let resolved = try #require(resolveBrowserNavigableURL("api.localhost:3000"))
+        let resolved = try #require(("api.localhost:3000").omnibarNavigableURL)
         #expect(resolved.scheme == "http")
         #expect(resolved.host == "api.localhost")
         #expect(resolved.port == 3000)
 
-        let nested = try #require(resolveBrowserNavigableURL("deep.api.localhost/path"))
+        let nested = try #require(("deep.api.localhost/path").omnibarNavigableURL)
         #expect(nested.scheme == "http")
         #expect(nested.host == "deep.api.localhost")
         #expect(nested.path == "/path")
     }
 
     @Test func rejectsNonWebNonFileScheme() {
-        #expect(resolveBrowserNavigableURL("mailto:test@example.com") == nil)
-        #expect(resolveBrowserNavigableURL("ftp://example.com/file.html") == nil)
+        #expect(("mailto:test@example.com").omnibarNavigableURL == nil)
+        #expect(("ftp://example.com/file.html").omnibarNavigableURL == nil)
     }
 
     @Test func resolvesDottedHostWithPortAsHTTPSURL() throws {
@@ -5282,24 +5282,24 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         // the resolver must recover the bare host:port shape instead of
         // sending it to search (https://github.com/manaflow-ai/cmux/issues/5913:
         // the omnibar inline completion displays history hosts this way).
-        let resolved = try #require(resolveBrowserNavigableURL("example.com:8443"))
+        let resolved = try #require(("example.com:8443").omnibarNavigableURL)
         #expect(resolved.scheme == "https")
         #expect(resolved.host == "example.com")
         #expect(resolved.port == 8443)
 
-        let withPath = try #require(resolveBrowserNavigableURL("example.com:8443/admin?tab=1"))
+        let withPath = try #require(("example.com:8443/admin?tab=1").omnibarNavigableURL)
         #expect(withPath.scheme == "https")
         #expect(withPath.port == 8443)
         #expect(withPath.path == "/admin")
     }
 
     @Test func keepsRejectingDottedSchemeInputsWithoutNumericPort() {
-        #expect(resolveBrowserNavigableURL("example.com:notaport") == nil)
-        #expect(resolveBrowserNavigableURL("example.com:99999") == nil)
+        #expect(("example.com:notaport").omnibarNavigableURL == nil)
+        #expect(("example.com:99999").omnibarNavigableURL == nil)
     }
 
     @Test func rejectsHostOnlyFileURL() {
-        #expect(resolveBrowserNavigableURL("file://example.html") == nil)
+        #expect(("file://example.html").omnibarNavigableURL == nil)
     }
 }
 
@@ -5500,28 +5500,28 @@ final class BrowserHostWhitelistTests: XCTestCase {
 final class BrowserOmnibarFocusPolicyTests: XCTestCase {
     func testReacquiresFocusWhenOmnibarStillWantsFocusAndNextResponderIsNotAnotherTextField() {
         XCTAssertTrue(
-            browserOmnibarShouldReacquireFocusAfterEndEditing(
+            BrowserOmnibarEndEditingFocusReacquisition(
                 desiredOmnibarFocus: true,
                 nextResponderIsOtherTextField: false
-            )
+            ).shouldReacquireFocus
         )
     }
 
     func testDoesNotReacquireFocusWhenAnotherTextFieldAlreadyTookFocus() {
         XCTAssertFalse(
-            browserOmnibarShouldReacquireFocusAfterEndEditing(
+            BrowserOmnibarEndEditingFocusReacquisition(
                 desiredOmnibarFocus: true,
                 nextResponderIsOtherTextField: true
-            )
+            ).shouldReacquireFocus
         )
     }
 
     func testDoesNotReacquireFocusWhenOmnibarNoLongerWantsFocus() {
         XCTAssertFalse(
-            browserOmnibarShouldReacquireFocusAfterEndEditing(
+            BrowserOmnibarEndEditingFocusReacquisition(
                 desiredOmnibarFocus: false,
                 nextResponderIsOtherTextField: false
-            )
+            ).shouldReacquireFocus
         )
     }
 }

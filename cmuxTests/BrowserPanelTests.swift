@@ -4347,9 +4347,7 @@ final class OmnibarNativeTextFieldCaretTests: XCTestCase {
         var state = OmnibarState()
         _ = state.reduce(.focusGained(currentURLString: field.stringValue))
         let effects = state.reduce(.focusReasserted(
-                shouldSelectAll: browserOmnibarShouldSelectAllOnFocusReassertion(
-                    selectionIntent: .preserveFieldEditorSelection
-                )
+                shouldSelectAll: BrowserAddressBarFocusSelectionIntent.preserveFieldEditorSelection.shouldSelectAll
             )
         )
 

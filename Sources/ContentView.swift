@@ -1757,34 +1757,34 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteToggleRequested)) { notification in
             let requestedWindow = notification.object as? NSWindow
-            guard Self.shouldHandleCommandPaletteRequest(
+            guard CommandPaletteRequestWindowRoutingPolicy(
                 observedWindow: observedWindow,
                 requestedWindow: requestedWindow,
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
-            ) else { return }
+            ).shouldHandle else { return }
             toggleCommandPalette()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteRequested)) { notification in
             let requestedWindow = notification.object as? NSWindow
-            guard Self.shouldHandleCommandPaletteRequest(
+            guard CommandPaletteRequestWindowRoutingPolicy(
                 observedWindow: observedWindow,
                 requestedWindow: requestedWindow,
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
-            ) else { return }
+            ).shouldHandle else { return }
             openCommandPaletteCommands()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteSwitcherRequested)) { notification in
             let requestedWindow = notification.object as? NSWindow
-            guard Self.shouldHandleCommandPaletteRequest(
+            guard CommandPaletteRequestWindowRoutingPolicy(
                 observedWindow: observedWindow,
                 requestedWindow: requestedWindow,
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
-            ) else { return }
+            ).shouldHandle else { return }
             openCommandPaletteSwitcher()
         })
 
@@ -1795,57 +1795,57 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteSubmitRequested)) { notification in
             guard isCommandPalettePresented else { return }
             let requestedWindow = notification.object as? NSWindow
-            guard Self.shouldHandleCommandPaletteRequest(
+            guard CommandPaletteRequestWindowRoutingPolicy(
                 observedWindow: observedWindow,
                 requestedWindow: requestedWindow,
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
-            ) else { return }
+            ).shouldHandle else { return }
             handleCommandPaletteSubmitRequest()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteDismissRequested)) { notification in
             guard isCommandPalettePresented else { return }
             let requestedWindow = notification.object as? NSWindow
-            guard Self.shouldHandleCommandPaletteRequest(
+            guard CommandPaletteRequestWindowRoutingPolicy(
                 observedWindow: observedWindow,
                 requestedWindow: requestedWindow,
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
-            ) else { return }
+            ).shouldHandle else { return }
             dismissCommandPalette()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteRenameTabRequested)) { notification in
             let requestedWindow = notification.object as? NSWindow
-            guard Self.shouldHandleCommandPaletteRequest(
+            guard CommandPaletteRequestWindowRoutingPolicy(
                 observedWindow: observedWindow,
                 requestedWindow: requestedWindow,
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
-            ) else { return }
+            ).shouldHandle else { return }
             openCommandPaletteRenameTabInput()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteRenameWorkspaceRequested)) { notification in
             let requestedWindow = notification.object as? NSWindow
-            guard Self.shouldHandleCommandPaletteRequest(
+            guard CommandPaletteRequestWindowRoutingPolicy(
                 observedWindow: observedWindow,
                 requestedWindow: requestedWindow,
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
-            ) else { return }
+            ).shouldHandle else { return }
             openCommandPaletteRenameWorkspaceInput()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteEditWorkspaceDescriptionRequested)) { notification in
             let requestedWindow = notification.object as? NSWindow
-            let shouldHandle = Self.shouldHandleCommandPaletteRequest(
+            let shouldHandle = CommandPaletteRequestWindowRoutingPolicy(
                 observedWindow: observedWindow,
                 requestedWindow: requestedWindow,
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
-            )
+            ).shouldHandle
 #if DEBUG
             cmuxDebugLog(
                 "palette.wsDescription.request observed={\((observedWindow).commandPaletteWindowDebugSummary)} " +
@@ -1862,12 +1862,12 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             guard isCommandPalettePresented else { return }
             guard case .commands = commandPalettePresentation.mode else { return }
             let requestedWindow = notification.object as? NSWindow
-            guard Self.shouldHandleCommandPaletteRequest(
+            guard CommandPaletteRequestWindowRoutingPolicy(
                 observedWindow: observedWindow,
                 requestedWindow: requestedWindow,
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
-            ) else { return }
+            ).shouldHandle else { return }
             guard let delta = notification.userInfo?["delta"] as? Int, delta != 0 else { return }
             moveCommandPaletteSelection(by: delta)
         })
@@ -1876,12 +1876,12 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             guard isCommandPalettePresented else { return }
             guard case .renameInput = commandPalettePresentation.mode else { return }
             let requestedWindow = notification.object as? NSWindow
-            guard Self.shouldHandleCommandPaletteRequest(
+            guard CommandPaletteRequestWindowRoutingPolicy(
                 observedWindow: observedWindow,
                 requestedWindow: requestedWindow,
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
-            ) else { return }
+            ).shouldHandle else { return }
             handleCommandPaletteRenameInputInteraction()
         })
 
@@ -1889,23 +1889,23 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             guard isCommandPalettePresented else { return }
             guard case .renameInput = commandPalettePresentation.mode else { return }
             let requestedWindow = notification.object as? NSWindow
-            guard Self.shouldHandleCommandPaletteRequest(
+            guard CommandPaletteRequestWindowRoutingPolicy(
                 observedWindow: observedWindow,
                 requestedWindow: requestedWindow,
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
-            ) else { return }
+            ).shouldHandle else { return }
             _ = handleCommandPaletteRenameDeleteBackward(modifiers: [])
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .feedbackComposerRequested)) { notification in
             let requestedWindow = notification.object as? NSWindow
-            guard Self.shouldHandleCommandPaletteRequest(
+            guard CommandPaletteRequestWindowRoutingPolicy(
                 observedWindow: observedWindow,
                 requestedWindow: requestedWindow,
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
-            ) else { return }
+            ).shouldHandle else { return }
             feedbackComposerCoordinator.present()
         })
 
@@ -4733,15 +4733,6 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         terminalPanel.hostedView.forwardKeyDownToSurface(event); return true
     }
 
-    static func commandPaletteShouldPopRenameInputOnDelete(
-        renameDraft: String,
-        modifiers: EventModifiers
-    ) -> Bool {
-        let blockedModifiers: EventModifiers = [.command, .control, .option, .shift]
-        guard modifiers.intersection(blockedModifiers).isEmpty else { return false }
-        return renameDraft.isEmpty
-    }
-
     private func handleCommandPaletteRenameDeleteBackward(
         modifiers: EventModifiers
     ) -> BackportKeyPressResult {
@@ -4749,10 +4740,10 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         let blockedModifiers: EventModifiers = [.command, .control, .option, .shift]
         guard modifiers.intersection(blockedModifiers).isEmpty else { return .ignored }
 
-        if Self.commandPaletteShouldPopRenameInputOnDelete(
+        if CommandPaletteRenameInputDeletePolicy(
             renameDraft: commandPalettePresentation.renameDraft,
             modifiers: modifiers
-        ) {
+        ).shouldPopToCommands {
             commandPalettePresentation.mode = .commands
             resetCommandPaletteSearchFocus()
             syncCommandPaletteDebugStateForObservedWindow()
@@ -4876,7 +4867,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         recordCommandPaletteUsage(command.id)
         let runPlan = CommandPaletteCommandRunPlan(
             dismissOnRun: command.dismissOnRun,
-            dismissBeforeRun: Self.commandPaletteShouldDismissBeforeRun(forCommandId: command.id),
+            dismissBeforeRun: CommandPaletteDismissBeforeRunPolicy(commandId: command.id).shouldDismissBeforeRun,
             hasFocusTarget: postRunFocusTarget != nil
         )
         for step in runPlan.steps {
@@ -4970,51 +4961,6 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             "focusFlag=\(commandPaletteShouldFocusWorkspaceDescriptionEditor ? 1 : 0)"
         )
 #endif
-    }
-
-    static func shouldHandleCommandPaletteRequest(
-        observedWindow: NSWindow?,
-        requestedWindow: NSWindow?,
-        keyWindow: NSWindow?,
-        mainWindow: NSWindow?
-    ) -> Bool {
-        guard let observedWindow else { return false }
-        if let requestedWindow {
-            return requestedWindow === observedWindow
-        }
-        if let keyWindow {
-            return keyWindow === observedWindow
-        }
-        if let mainWindow {
-            return mainWindow === observedWindow
-        }
-        return false
-    }
-
-    static func shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
-        focusedPanelIsBrowser: Bool,
-        focusedBrowserAddressBarPanelId: UUID?,
-        focusedPanelId: UUID?
-    ) -> Bool {
-        focusedPanelIsBrowser && focusedBrowserAddressBarPanelId == focusedPanelId
-    }
-
-    static func commandPaletteShouldDismissBeforeRun(forCommandId commandId: String) -> Bool {
-        switch commandId {
-        case "palette.forkAgentConversationRight",
-             "palette.forkAgentConversationLeft",
-             "palette.forkAgentConversationTop",
-             "palette.forkAgentConversationBottom",
-             "palette.forkAgentConversationNewTab",
-             "palette.forkAgentConversationNewWorkspace",
-             // Entering browser focus mode focuses the web view synchronously;
-             // dismiss the palette first so its makeFirstResponder(nil) doesn't
-             // clear that focus and leave focus mode active without key routing.
-             "palette.browserFocusMode":
-            return true
-        default:
-            return false
-        }
     }
 
     static func commandPalettePostRunRestoreFocusIntent(forCommandId commandId: String) -> PanelFocusIntent? {

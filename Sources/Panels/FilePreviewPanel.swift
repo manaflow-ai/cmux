@@ -3,6 +3,7 @@ import AVKit
 import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxNotifications
 import CmuxWorkspaces
 import Combine
 import Foundation
@@ -465,7 +466,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
         _ = reason
-        guard NotificationPaneFlashSettings.isEnabled() else { return }
+        guard NotificationDefaultsToggle.paneFlash.isEnabled() else { return }
         focusFlashToken += 1
     }
 

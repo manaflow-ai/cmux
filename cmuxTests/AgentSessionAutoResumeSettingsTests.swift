@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 import CmuxCore
 import XCTest
@@ -665,7 +666,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     // the outer login shell needs an explicit `cd` to the working directory before `exec -l`.
     func testResumeLauncherReturnsToLaunchCwdAfterAgentExits() {
         let dir = "/tmp/repo-resume"
-        let lines = TerminalStartupReturnShellScript.commandThenReturnLines(
+        let lines = TerminalStartupReturnShellScript().commandThenReturnLines(
             command: "{ cd -- '\(dir)' 2>/dev/null || [ ! -d '\(dir)' ]; } && 'claude' '--resume' 'abc'",
             workingDirectory: dir
         )
@@ -685,7 +686,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         }
 
         // Back-compat: with no working directory, no extra outer cd is emitted.
-        let bare = TerminalStartupReturnShellScript
+        let bare = TerminalStartupReturnShellScript()
             .commandThenReturnLines(command: "echo hi")
             .joined(separator: "\n")
         XCTAssertFalse(bare.contains("|| true; }"), bare)

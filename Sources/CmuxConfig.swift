@@ -154,31 +154,6 @@ struct CmuxConfigFile: Codable, Sendable {
     }
 }
 
-/// Per-cwd customization for sidebar workspace groups. Keyed by the anchor
-/// workspace's cwd. Keys containing `*` or `?` are matched as fnmatch globs;
-/// otherwise they are path prefixes. Longest match wins. `~` is expanded.
-struct CmuxConfigWorkspaceGroupsDefinition: Codable, Sendable, Equatable {
-    var byCwd: [String: CmuxConfigWorkspaceGroupEntry]?
-
-    enum CodingKeys: String, CodingKey {
-        case byCwd
-    }
-}
-
-struct CmuxConfigWorkspaceGroupEntry: Codable, Sendable, Equatable {
-    var color: String?
-    var icon: String?
-    var contextMenu: [CmuxConfigContextMenuItem]?
-    /// Where a newly-created workspace lands inside the group when the user
-    /// clicks the header's `+` button or invokes Cmd-N from a group member.
-    /// Valid values: `"afterCurrent"` (after the current in-group workspace,
-    /// falling back to top), `"top"` (immediately after the anchor), or
-    /// `"end"` (after the last member). When omitted,
-    /// falls back to the global default
-    /// (the stored `workspaceGroups.newWorkspacePlacement` setting).
-    var newWorkspacePlacement: String?
-}
-
 /// Resolved snapshot of a per-cwd workspace group entry, with the JSON key
 /// normalized for matching and any `contextMenu` actions resolved against the
 /// loaded action/command tables.
