@@ -371,13 +371,13 @@ jobs:
           mac_record_log="$RUNNER_TEMP/mac-record.log"
           mac_record_pid=""
           mac_record_control=""
-          mac_record_fd=""
+          mac_record_fd_open="0"
           stop_mac_recording() {
             if [ -n "${mac_record_pid:-}" ] && kill -0 "$mac_record_pid" >/dev/null 2>&1; then
-              if [ -n "${mac_record_fd:-}" ]; then
-                printf 'q' >&$mac_record_fd || true
-                exec {mac_record_fd}>&- || true
-                mac_record_fd=""
+              if [ "${mac_record_fd_open:-0}" = "1" ]; then
+                printf 'q' >&9 || true
+                exec 9>&- || true
+                mac_record_fd_open="0"
               else
                 kill -INT "$mac_record_pid" >/dev/null 2>&1 || true
               fi
@@ -404,7 +404,8 @@ jobs:
               -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
               "$mac_video_path" <"$mac_record_control" >"$mac_record_log" 2>&1 &
             mac_record_pid=$!
-            exec {mac_record_fd}>"$mac_record_control"
+            exec 9>"$mac_record_control"
+            mac_record_fd_open="1"
             sleep 2
             if ! kill -0 "$mac_record_pid" >/dev/null 2>&1; then
               echo "mac screen recording failed to start" >&2
