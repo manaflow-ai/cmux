@@ -22,18 +22,21 @@ public struct SleepyModeConfig: Equatable, Sendable {
     /// Whether one walking pet per running agent is drawn.
     public var showPets = true
 
+    // Default custom colors below are matched to the cmux theme so "Custom"
+    // starts familiar; "RRGGBB" hex.
+
     /// Custom face color ("RRGGBB"), used when `theme == .custom`.
-    public var customFace = SleepyCustomDefaults.face
+    public var customFace = "E0EDFF"
     /// Custom nightcap color ("RRGGBB"), used when `theme == .custom`.
-    public var customCap = SleepyCustomDefaults.cap
+    public var customCap = "5CD6FF"
     /// Custom blush color ("RRGGBB"), used when `theme == .custom`.
-    public var customBlush = SleepyCustomDefaults.blush
+    public var customBlush = "FF99B5"
     /// Custom eye/ink color ("RRGGBB"), used when `theme == .custom`.
-    public var customInk = SleepyCustomDefaults.ink
+    public var customInk = "333D6B"
     /// Custom logo color ("RRGGBB"), used when `theme == .custom`.
-    public var customLogo = SleepyCustomDefaults.logo
+    public var customLogo = "6BDEFF"
     /// Custom background color ("RRGGBB"), used when `glow == .custom`.
-    public var customBackground = SleepyCustomDefaults.background
+    public var customBackground = "060812"
 
     /// Creates a config with the default Sleepy Mode appearance.
     public init() {}
