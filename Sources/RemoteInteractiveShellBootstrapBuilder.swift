@@ -200,7 +200,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
         return lines
     }
 
-    private static func terminalSetupLines(terminfoSource: String?) -> [String] {
+    static func terminalSetupLines(terminfoSource: String?) -> [String] {
         var lines: [String] = [
             "cmux_term='xterm-256color'",
             "if command -v infocmp >/dev/null 2>&1 && infocmp xterm-ghostty >/dev/null 2>&1; then",
