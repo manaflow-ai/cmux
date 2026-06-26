@@ -128,7 +128,8 @@ public struct WindowAppearanceSnapshot {
     /// Returns the AppKit window mutation plan for this snapshot.
     public func backdropPlan(
         glassEffectAvailable: Bool,
-        windowBackgroundPolicy: WindowBackgroundPolicy
+        windowBackgroundPolicy: WindowBackgroundPolicy,
+        suppressNativeTerminalGlassTint: Bool = false
     ) -> WindowBackdropPlan {
         let rootPolicy = terminalBackdropPolicy()
         if windowGlassSettings.shouldApply(

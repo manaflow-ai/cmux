@@ -75,6 +75,56 @@ import Testing
         #expect(plan.glass?.tintColor.hexString(includeAlpha: true) == "#272822FF")
     }
 
+    @Test func ghosttyMacOSGlassStyleSuppressesNativeTerminalTintOnMacOS27() {
+        let resolver = WindowAppearanceResolver(
+            terminalAppearance: WindowTerminalAppearanceSnapshot(
+                backgroundColor: NSColor(hex: "#272822") ?? .black,
+                backgroundOpacity: 1,
+                backgroundBlur: .macosGlassRegular,
+                usesHostLayerBackground: true
+            )
+        )
+
+        let snapshot = resolver.current(settings: makeSettings(
+            unifySurfaceBackdrops: true,
+            sidebarBlendMode: "withinWindow",
+            bgGlassEnabled: false
+        ))
+
+        let plan = snapshot.backdropPlan(
+            glassEffectAvailable: true,
+            windowBackgroundPolicy: makeWindowBackgroundPolicy(),
+            suppressNativeTerminalGlassTint: true
+        )
+        #expect(plan.hostingPhase == .windowGlass)
+        #expect(plan.glass?.tintColor == nil)
+    }
+
+    @Test func ghosttyMacOSGlassStyleKeepsFallbackTintWhenNativeGlassIsUnavailableOnMacOS27() {
+        let resolver = WindowAppearanceResolver(
+            terminalAppearance: WindowTerminalAppearanceSnapshot(
+                backgroundColor: NSColor(hex: "#272822") ?? .black,
+                backgroundOpacity: 1,
+                backgroundBlur: .macosGlassRegular,
+                usesHostLayerBackground: true
+            )
+        )
+
+        let snapshot = resolver.current(settings: makeSettings(
+            unifySurfaceBackdrops: true,
+            sidebarBlendMode: "withinWindow",
+            bgGlassEnabled: false
+        ))
+
+        let plan = snapshot.backdropPlan(
+            glassEffectAvailable: false,
+            windowBackgroundPolicy: makeWindowBackgroundPolicy(),
+            suppressNativeTerminalGlassTint: true
+        )
+        #expect(plan.hostingPhase == .windowGlass)
+        #expect(plan.glass?.tintColor.hexString(includeAlpha: true) == "#272822FF")
+    }
+
     private func makeSettings(
         unifySurfaceBackdrops: Bool,
         sidebarBlendMode: String,
