@@ -17,8 +17,29 @@ extension TerminalSurface {
         }
 #endif
         guard let surface = surface else { return false }
+        return Self.performNeedsConfirmQuitProbe(surface)
+    }
+
+    /// Runs the ghostty close-confirmation query for `surface`.
+    ///
+    /// Routed through a test seam (DEBUG only) so suites can simulate a
+    /// slow/wedged surface lock — and observe which thread the query runs on —
+    /// without a live runtime surface.
+    nonisolated static func performNeedsConfirmQuitProbe(_ surface: ghostty_surface_t) -> Bool {
+#if DEBUG
+        if let probe = needsConfirmQuitProbeForTesting {
+            return probe(surface)
+        }
+#endif
         return ghostty_surface_needs_confirm_quit(surface)
     }
+
+#if DEBUG
+    /// Test seam replacing `ghostty_surface_needs_confirm_quit`. Suites install a
+    /// probe to simulate a slow/wedged surface lock and to record the thread the
+    /// query executes on.
+    nonisolated(unsafe) static var needsConfirmQuitProbeForTesting: (@Sendable (ghostty_surface_t) -> Bool)?
+#endif
 
     /// Records a completed runtime clipboard read and notifies observers.
     public func noteClipboardReadCompleted() {
