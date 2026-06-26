@@ -57,6 +57,16 @@ final class DockSplitStore: BonsplitDelegate {
     @ObservationIgnored var pendingCloseConfirmDockTabIds: Set<TabID> = []
     @ObservationIgnored var tabCloseButtonCloseDockTabIds: Set<TabID> = []
 
+    /// Weak registry of every live Dock store. Lets control-surface routing
+    /// resolve a Dock surface/pane by querying only the workspaces that actually
+    /// have a Dock (their authoritative `containsPanel`/`containsPane`), instead
+    /// of walking every window × workspace tab on each resolution. Entries drop
+    /// automatically when a store deallocates; accessed on the main actor only.
+    @MainActor private static let liveStoresTable = NSHashTable<DockSplitStore>.weakObjects()
+
+    /// Snapshot of the currently live Dock stores.
+    @MainActor static var liveStores: [DockSplitStore] { liveStoresTable.allObjects }
+
     init(
         workspaceId: UUID,
         scope: DockScope = .workspace,
@@ -101,6 +111,8 @@ final class DockSplitStore: BonsplitDelegate {
         for tabId in bonsplitController.allTabIds {
             _ = bonsplitController.closeTab(tabId)
         }
+        // Register only after every stored property is initialized.
+        Self.liveStoresTable.add(self)
     }
 
     // MARK: - Lookups
@@ -568,13 +580,27 @@ final class DockSplitStore: BonsplitDelegate {
             )
             .receive(on: DispatchQueue.main)
             .sink { [weak self, weak browser] _ in
-                guard let self, let browser, let tabId = self.surfaceId(forPanelId: browser.id) else { return }
+                guard let self, let browser, let tabId = self.surfaceId(forPanelId: browser.id),
+                      let existing = self.bonsplitController.tab(tabId) else { return }
+                // Only push fields that actually changed. CombineLatest4 fires on
+                // ANY of the four publishers, so an `isLoading` flicker during a
+                // page load would otherwise re-publish the (unchanged) title and
+                // favicon, mutating the @Observable BonsplitController and
+                // re-rendering the Dock tree for nothing. Mirrors the main area's
+                // guarded path in Workspace.installBrowserPanelSubscription.
+                let resolvedTitle = browser.displayTitle
+                let favicon = browser.faviconPNGData
+                let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
+                let faviconUpdate: Data?? = existing.iconImageData == favicon ? nil : .some(favicon)
+                let loadingUpdate: Bool? = existing.isLoading == browser.isLoading ? nil : browser.isLoading
+                let mutedUpdate: Bool? = existing.isAudioMuted == browser.isMuted ? nil : browser.isMuted
+                guard titleUpdate != nil || faviconUpdate != nil || loadingUpdate != nil || mutedUpdate != nil else { return }
                 self.bonsplitController.updateTab(
                     tabId,
-                    title: browser.displayTitle,
-                    iconImageData: .some(browser.faviconPNGData),
-                    isLoading: browser.isLoading,
-                    isAudioMuted: browser.isMuted
+                    title: titleUpdate,
+                    iconImageData: faviconUpdate,
+                    isLoading: loadingUpdate,
+                    isAudioMuted: mutedUpdate
                 )
             }
             panelCancellables[panel.id] = cancellable
@@ -583,8 +609,14 @@ final class DockSplitStore: BonsplitDelegate {
                 .removeDuplicates()
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self, weak terminal] _ in
-                    guard let self, let terminal, let tabId = self.surfaceId(forPanelId: terminal.id) else { return }
-                    self.bonsplitController.updateTab(tabId, title: terminal.displayTitle)
+                    guard let self, let terminal, let tabId = self.surfaceId(forPanelId: terminal.id),
+                          let existing = self.bonsplitController.tab(tabId) else { return }
+                    // Skip the @Observable mutation when the resolved title is
+                    // unchanged, so a terminal re-emitting the same title does not
+                    // re-render the Dock tree.
+                    let resolvedTitle = terminal.displayTitle
+                    guard existing.title != resolvedTitle else { return }
+                    self.bonsplitController.updateTab(tabId, title: resolvedTitle)
                 }
             panelCancellables[panel.id] = cancellable
         }

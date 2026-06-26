@@ -199,6 +199,16 @@ extension TerminalController {
                 tabManager
             )
         }
+        // Indexed path: only workspaces that actually have a Dock register a live
+        // store, so this asks each store's authoritative `containsPanel` instead
+        // of walking every window × workspace tab. The global store is already
+        // handled above. Falls through to the scan if a store can't be located.
+        for store in DockSplitStore.liveStores
+        where !AppDelegate.isGlobalDockOwnerId(store.workspaceId) && store.containsPanel(surfaceId) {
+            if let location = dockStoreLocation(store, app: app) {
+                return (location.windowId, location.workspaceId, location.tabManager)
+            }
+        }
         for summary in app.listMainWindowSummaries() {
             guard let manager = app.tabManagerFor(windowId: summary.windowId),
                   let workspace = manager.tabs.first(where: { $0.containsDockPanel(surfaceId) }) else { continue }
@@ -221,11 +231,35 @@ extension TerminalController {
                 workspace
             )
         }
+        for store in DockSplitStore.liveStores
+        where !AppDelegate.isGlobalDockOwnerId(store.workspaceId) && store.containsPane(paneId) {
+            if let location = dockStoreLocation(store, app: app), let workspace = location.workspace {
+                return (location.windowId, location.workspaceId, location.tabManager, workspace)
+            }
+        }
         for summary in app.listMainWindowSummaries() {
             guard let manager = app.tabManagerFor(windowId: summary.windowId),
                   let workspace = manager.tabs.first(where: { $0.containsDockPane(paneId) }) else { continue }
             return (summary.windowId, workspace.id, manager, workspace)
         }
         return nil
+    }
+
+    /// Resolves the owning window, workspace id, tab manager, and (for
+    /// per-workspace Docks) the `Workspace` for a live Dock `store`. Used by the
+    /// indexed `locateDockSurface` / `locateDockPane` paths.
+    private func dockStoreLocation(
+        _ store: DockSplitStore,
+        app: AppDelegate
+    ) -> (windowId: UUID, workspaceId: UUID, tabManager: TabManager, workspace: Workspace?)? {
+        if AppDelegate.isGlobalDockOwnerId(store.workspaceId) {
+            guard let tabManager = app.dockReferenceTabManager(for: store),
+                  let windowId = dockReferenceWindowId(app: app, tabManager: tabManager) else { return nil }
+            return (windowId, store.workspaceId, tabManager, tabManager.selectedWorkspace ?? tabManager.tabs.first)
+        }
+        guard let tabManager = app.tabManagerFor(tabId: store.workspaceId),
+              let workspace = tabManager.tabs.first(where: { $0.id == store.workspaceId }),
+              let windowId = dockReferenceWindowId(app: app, tabManager: tabManager) else { return nil }
+        return (windowId, store.workspaceId, tabManager, workspace)
     }
 }
