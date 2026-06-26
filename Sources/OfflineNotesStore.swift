@@ -204,6 +204,19 @@ final class OfflineNotesStore {
                     delivered.updatedAt = Date()
                     applyInMemory(delivered)
                 }
+            } catch OfflineNoteDispatchError.noActiveWorkspace {
+                // No cmux window is available yet (e.g. at launch, before windows
+                // are restored, or with every window closed). This is transient
+                // and applies to the whole queue, so revert this note to pending
+                // and stop — a later flush (reconnect, or opening Notes once a
+                // window exists) retries it. Notes are never stranded as failed.
+                if var deferredNote = self.note(id: note.id) {
+                    deferredNote.status = .pending
+                    deferredNote.attemptCount = max(0, deferredNote.attemptCount - 1)
+                    deferredNote.updatedAt = Date()
+                    applyInMemory(deferredNote)
+                }
+                break
             } catch {
 #if DEBUG
                 cmuxDebugLog("offlineNotes.dispatch.failed error=\(error.localizedDescription)")

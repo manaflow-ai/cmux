@@ -32,7 +32,7 @@ private final class FakeReachability: OfflineNotesReachabilityMonitoring {
 @MainActor
 private final class FakeDispatcher: OfflineNoteDispatching {
     var shouldFail = false
-    var error: Error = OfflineNoteDispatchError.noActiveWorkspace
+    var error: Error = OfflineNoteDispatchError.noComposerTarget
     private(set) var dispatched: [OfflineNote] = []
 
     func dispatch(_ note: OfflineNote) async throws {
@@ -189,6 +189,24 @@ struct OfflineNotesStoreTests {
         #expect(store.notes.first?.status == .sent)
         #expect(store.notes.first?.attemptCount == 2)
         #expect(dispatcher.dispatched.count == 2)
+    }
+
+    @Test
+    func noWindowKeepsNotesPendingNotFailed() async throws {
+        let dispatcher = FakeDispatcher()
+        dispatcher.shouldFail = true
+        dispatcher.error = OfflineNoteDispatchError.noActiveWorkspace // simulates "no window yet"
+        let reachability = FakeReachability(isOnline: false)
+        let store = makeStore(fileURL: nil, dispatcher: dispatcher, reachability: reachability)
+        store.addNote("captured before any window")
+
+        reachability.setOnline(true)
+        await waitUntil { dispatcher.dispatched.count >= 1 }
+
+        // Transient (no window) must not strand the note as failed.
+        #expect(store.notes.first?.status == .pending)
+        #expect(store.failedCount == 0)
+        #expect(store.notes.first?.attemptCount == 0)
     }
 
     // MARK: - Reentrancy

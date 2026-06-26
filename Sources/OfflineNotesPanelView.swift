@@ -24,6 +24,12 @@ struct OfflineNotesPanelView: View {
             content
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .task {
+            // Opening Notes means a window is up, so retry any notes left pending
+            // by an earlier flush that ran before windows were ready. No-ops when
+            // offline or when the queue has nothing pending.
+            await store.flush()
+        }
     }
 
     // MARK: - Control bar

@@ -24,18 +24,30 @@ import Foundation
 /// the queue.
 @MainActor
 final class OfflineNoteAgentDispatcher: OfflineNoteDispatching {
+    /// Whether any cmux window currently exists. Injectable for tests.
+    private let hasAnyWindow: @MainActor () -> Bool
     /// Resolves the workspace a note should be delivered to. Injectable for tests.
     private let resolveWorkspace: @MainActor (UUID?) -> Workspace?
 
-    init(resolveWorkspace: @escaping @MainActor (UUID?) -> Workspace? = OfflineNoteAgentDispatcher.defaultResolveWorkspace) {
+    init(
+        hasAnyWindow: @escaping @MainActor () -> Bool = OfflineNoteAgentDispatcher.defaultHasAnyWindow,
+        resolveWorkspace: @escaping @MainActor (UUID?) -> Workspace? = OfflineNoteAgentDispatcher.defaultResolveWorkspace
+    ) {
+        self.hasAnyWindow = hasAnyWindow
         self.resolveWorkspace = resolveWorkspace
     }
 
     func dispatch(_ note: OfflineNote) async throws {
-        guard let workspace = resolveWorkspace(note.workspaceID) else {
+        // No window yet (e.g. at launch before windows are restored). Signal a
+        // transient condition so the store keeps the note pending and retries,
+        // rather than marking it failed.
+        guard hasAnyWindow() else {
             throw OfflineNoteDispatchError.noActiveWorkspace
         }
-        guard let terminal = workspace.focusedTerminalPanel else {
+        // A window exists but the captured workspace is gone or has no focused
+        // terminal: undeliverable now, surfaced as a (retryable) failure.
+        guard let workspace = resolveWorkspace(note.workspaceID),
+              let terminal = workspace.focusedTerminalPanel else {
             throw OfflineNoteDispatchError.noComposerTarget
         }
 
@@ -51,6 +63,10 @@ final class OfflineNoteAgentDispatcher: OfflineNoteDispatching {
         terminal.restoreSessionTextBoxDraft(
             SessionTextBoxInputDraftSnapshot(isActive: true, parts: parts)
         )
+    }
+
+    private static func defaultHasAnyWindow() -> Bool {
+        !(AppDelegate.shared?.mainWindowContexts.isEmpty ?? true)
     }
 
     /// Default resolver: deliver only to the workspace the note was captured in.
