@@ -116,7 +116,7 @@ struct SleepyFaceView: View {
 
     private func bottomBar(config: SleepyModeConfig) -> some View {
         let accent = SleepyPalette.colors(for: config)["O"] ?? .white
-        let hintText = String(localized: "sleepyMode.dismissHintCasual", defaultValue: "Press any key or click to wake")
+        let hintText = String(localized: "sleepyMode.dismissHintCasual", defaultValue: "Press any key to wake (click the characters to play)")
         return VStack(spacing: 0) {
             Spacer()
             HStack(spacing: 16) {

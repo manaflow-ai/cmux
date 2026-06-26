@@ -79,26 +79,39 @@ enum SleepyPowerControls {
         currentEnergyMode() == .low
     }
 
-    /// Enables/disables Low Power Mode. Enabling remembers the mode you were on;
-    /// disabling restores it. Returns the resulting low-power state (so the UI
-    /// reflects reality if the admin prompt was cancelled). Prompts for admin the
-    /// first time, then uses the cached credential.
+    /// True on Macs that expose the 3-way `powermode` (Automatic/Low/High);
+    /// older hardware exposes only the binary `lowpowermode`.
+    private static func supportsPowerMode() -> Bool {
+        (capture("/usr/bin/pmset", ["-g"]) ?? "").contains("powermode")
+    }
+
+    /// Enables/disables Low Power Mode. On 3-mode Macs, enabling remembers the
+    /// mode you were on and disabling restores it; on binary Macs it toggles
+    /// `lowpowermode`. Returns the *re-read* state after the change applies, so
+    /// the UI reflects reality even if the admin prompt was cancelled or the
+    /// command failed.
     @discardableResult
     static func setLowPowerMode(_ enabled: Bool) -> Bool {
-        let current = currentEnergyMode()
+        let usesPowerMode = supportsPowerMode()
         if enabled {
-            if current != .low {
-                UserDefaults.standard.set(current.rawValue, forKey: previousModeKey)
+            if usesPowerMode {
+                let current = currentEnergyMode()
+                if current != .low {
+                    UserDefaults.standard.set(current.rawValue, forKey: previousModeKey)
+                }
+                runPrivileged("/usr/bin/pmset", ["-a", "powermode", String(SleepyEnergyMode.low.rawValue)])
+            } else {
+                runPrivileged("/usr/bin/pmset", ["-a", "lowpowermode", "1"])
             }
-            let ok = runPrivileged("/usr/bin/pmset", ["-a", "powermode", String(SleepyEnergyMode.low.rawValue)])
-            return ok ? true : (current == .low)
-        } else {
+        } else if usesPowerMode {
             let storedRaw = UserDefaults.standard.object(forKey: previousModeKey) as? Int ?? SleepyEnergyMode.automatic.rawValue
             var restore = SleepyEnergyMode(rawValue: storedRaw) ?? .automatic
             if restore == .low { restore = .automatic }
-            let ok = runPrivileged("/usr/bin/pmset", ["-a", "powermode", String(restore.rawValue)])
-            return ok ? false : (current == .low)
+            runPrivileged("/usr/bin/pmset", ["-a", "powermode", String(restore.rawValue)])
+        } else {
+            runPrivileged("/usr/bin/pmset", ["-a", "lowpowermode", "0"])
         }
+        return isLowPowerOn()
     }
 
     // MARK: - Process helpers
@@ -134,7 +147,7 @@ enum SleepyPowerControls {
         UnsafePointer<CChar>?,
         UInt32,
         UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?,
-        UnsafeMutableRawPointer?
+        UnsafeMutablePointer<UnsafeMutablePointer<FILE>?>?
     ) -> OSStatus
 
     nonisolated(unsafe) private static let authExec: AuthExecFn? = {
@@ -164,10 +177,18 @@ enum SleepyPowerControls {
         cArgs.append(nil)
         defer { for pointer in cArgs where pointer != nil { free(pointer) } }
 
+        var pipe: UnsafeMutablePointer<FILE>?
         let status = tool.withCString { toolPtr -> OSStatus in
             cArgs.withUnsafeMutableBufferPointer { buffer in
-                authExec(authorization, toolPtr, 0, buffer.baseAddress, nil)
+                authExec(authorization, toolPtr, 0, buffer.baseAddress, &pipe)
             }
+        }
+        // Drain the tool's output to EOF so we block until it actually exits;
+        // callers can then re-read accurate state instead of guessing success.
+        if let pipe {
+            var line = [CChar](repeating: 0, count: 256)
+            while fgets(&line, 256, pipe) != nil {}
+            fclose(pipe)
         }
         return status == errAuthorizationSuccess
     }

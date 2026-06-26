@@ -4,11 +4,15 @@ import SwiftUI
 /// scene toggles, the Touch ID lock toggle, and preview/start actions.
 @MainActor
 public struct SleepyModeSection: View {
-    @Bindable private var store = SleepyModeSettingsStore.shared
+    @Bindable private var store: SleepyModeSettingsStore
     private let hostActions: SettingsHostActions
 
-    public init(hostActions: SettingsHostActions) {
+    /// `store` defaults to the app-wide shared instance because the Sleepy Mode
+    /// scene (in the app target) and this section read one source of truth; pass
+    /// an isolated store for previews/tests.
+    public init(hostActions: SettingsHostActions, store: SleepyModeSettingsStore = .shared) {
         self.hostActions = hostActions
+        self._store = Bindable(store)
     }
 
     public var body: some View {
