@@ -1733,6 +1733,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return
             }
             guard await self.isScopeCurrent(scope) else { return }
+            guard await !self.isForgottenMacDeviceID(macDeviceID, scope: scope) else { return }
             guard DeviceRegistryService.shouldApplyRegistryRefresh(
                 isSignedIn: self.isSignedIn,
                 capturedUserID: scope.userID,
@@ -1752,6 +1753,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
             } catch {
                 mobileShellLog.debug("registry route refresh upsert failed: \(String(describing: error), privacy: .public)")
+                return
+            }
+            if await self.isForgottenMacDeviceID(macDeviceID, scope: scope) {
+                do {
+                    try await pairedMacStore.remove(
+                        macDeviceID: macDeviceID,
+                        stackUserID: scope.userID,
+                        teamID: scope.teamID
+                    )
+                } catch {
+                    mobileShellLog.debug("registry route refresh stale-row cleanup failed: \(String(describing: error), privacy: .public)")
+                }
                 return
             }
             if await self.isScopeCurrent(scope) {
@@ -3370,6 +3383,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return await !isForgottenMacDeviceID(macDeviceID, scope: scope)
     }
 
+    private func isSecondaryMacStillVisible(
+        _ macDeviceID: String,
+        scope: MobileShellScopeSnapshot
+    ) async -> Bool {
+        guard await isAggregationScopeValid(scope) else { return false }
+        return await !isForgottenMacDeviceID(macDeviceID, scope: scope)
+    }
+
     #if DEBUG
     func secondaryAggregationCandidateMacIDsForTesting() async -> [String] {
         guard let pairedMacStore,
@@ -3406,7 +3427,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let macID = mac.macDeviceID
         guard secondaryMacSubscriptions[macID] == nil else { return }
         guard let handle = await makeSecondaryClient(for: mac) else {
-            guard await isAggregationScopeValid(scope) else { return }
+            guard await isSecondaryMacStillVisible(macID, scope: scope) else { return }
             markSecondaryMacUnavailable(macID)
             return
         }
@@ -3416,7 +3437,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // during the connect does not leave an old-scope connection live or write
         // its state; the loser disconnects its client.
         guard secondaryMacSubscriptions[macID] == nil,
-              await isAggregationScopeValid(scope) else {
+              await isSecondaryMacStillVisible(macID, scope: scope) else {
             await client.disconnect()
             return
         }

@@ -85,6 +85,9 @@ final class cmuxUITests: XCTestCase {
 
         let status = app.staticTexts["DeleteComputersVerifierStatus"]
         XCTAssertTrue(status.waitForExistence(timeout: 10))
+        let pass = NSPredicate(format: "label == %@", "PASS")
+        expectation(for: pass, evaluatedWith: status)
+        waitForExpectations(timeout: 10)
         XCTAssertEqual(status.label, "PASS")
         XCTAssertTrue(app.staticTexts["halfRemovedAbsent=true"].exists)
         XCTAssertTrue(app.staticTexts["halfRemainingPresent=true"].exists)
