@@ -3617,7 +3617,7 @@ struct ContentView: View {
 
             Divider()
 
-            Text(renameInputHintText(target: target))
+            Text(target.inputHint)
                 .cmuxFont(size: 11)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -3658,7 +3658,7 @@ struct ContentView: View {
 
             Divider()
 
-            Text(renameConfirmHintText(target: target))
+            Text(target.confirmHint)
                 .cmuxFont(size: 11)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -4552,24 +4552,6 @@ struct ContentView: View {
             nsView.textView.onHandleKeyEvent = nil
             nsView.textView.onDidBecomeFirstResponder = nil
             nsView.onMeasuredHeightChange = nil
-        }
-    }
-
-    private func renameInputHintText(target: CommandPaletteRenameTarget) -> String {
-        switch target.kind {
-        case .workspace:
-            return String(localized: "commandPalette.rename.workspaceInputHint", defaultValue: "Enter a workspace name. Press Enter to rename, Escape to cancel.")
-        case .tab:
-            return String(localized: "commandPalette.rename.tabInputHint", defaultValue: "Enter a tab name. Press Enter to rename, Escape to cancel.")
-        }
-    }
-
-    private func renameConfirmHintText(target: CommandPaletteRenameTarget) -> String {
-        switch target.kind {
-        case .workspace:
-            return String(localized: "commandPalette.rename.workspaceConfirmHint", defaultValue: "Press Enter to apply this workspace name, or Escape to cancel.")
-        case .tab:
-            return String(localized: "commandPalette.rename.tabConfirmHint", defaultValue: "Press Enter to apply this tab name, or Escape to cancel.")
         }
     }
 
@@ -6164,6 +6146,7 @@ struct ContentView: View {
             let pinState = WorkspaceActionDispatcher.pinState(in: tabManager, target: pinTarget)
             snapshot.setBool(CommandPaletteContextKeys.hasWorkspace, true)
             snapshot.setString(CommandPaletteContextKeys.workspaceName, workspaceDisplayName(workspace))
+            snapshot.setBool(CommandPaletteContextKeys.workspaceIsGroupAnchor, tabManager.workspaceGroups.contains { $0.anchorWorkspaceId == workspace.id })
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomName, workspace.customTitle != nil)
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomDescription, workspace.hasCustomDescription)
             snapshot.setBool(CommandPaletteContextKeys.workspaceShouldPin, pinState?.pinned ?? !workspace.isPinned)
@@ -6682,9 +6665,13 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.renameWorkspace",
-                title: constant(String(localized: "command.renameWorkspace.title", defaultValue: "Rename Workspace…")),
+                title: { context in
+                    context.bool(CommandPaletteContextKeys.workspaceIsGroupAnchor)
+                        ? String(localized: "workspaceGroup.contextMenu.rename", defaultValue: "Rename Group…")
+                        : String(localized: "command.renameWorkspace.title", defaultValue: "Rename Workspace…")
+                },
                 subtitle: workspaceSubtitle,
-                keywords: ["rename", "workspace", "title"],
+                keywords: ["rename", "workspace", "group", "title"],
                 dismissOnRun: false,
                 when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
             )
@@ -9285,6 +9272,14 @@ struct ContentView: View {
             NSSound.beep()
             return
         }
+        if let group = tabManager.workspaceGroups.first(where: { $0.anchorWorkspaceId == workspace.id }) {
+            let target = CommandPaletteRenameTarget(
+                kind: .workspaceGroup(groupId: group.id),
+                currentName: group.name
+            )
+            startRenameFlow(target)
+            return
+        }
         let target = CommandPaletteRenameTarget(
             kind: .workspace(workspaceId: workspace.id),
             currentName: workspaceDisplayName(workspace)
@@ -9366,6 +9361,12 @@ struct ContentView: View {
         switch target.kind {
         case .workspace(let workspaceId):
             tabManager.setCustomTitle(tabId: workspaceId, title: normalizedName)
+        case .workspaceGroup(let groupId):
+            guard tabManager.workspaceGroups.contains(where: { $0.id == groupId }) else {
+                NSSound.beep()
+                return
+            }
+            tabManager.renameWorkspaceGroup(groupId: groupId, name: normalizedName ?? "")
         case .tab(let workspaceId, let panelId):
             guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
                 NSSound.beep()

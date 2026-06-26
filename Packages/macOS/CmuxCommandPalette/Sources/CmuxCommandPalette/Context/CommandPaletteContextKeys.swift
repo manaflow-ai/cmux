@@ -17,6 +17,8 @@ public struct CommandPaletteContextKeys: Hashable, Sendable {
     public static let hasWorkspace = CommandPaletteContextKeys(rawValue: "workspace.hasSelection")
     /// Selected workspace display name.
     public static let workspaceName = CommandPaletteContextKeys(rawValue: "workspace.name")
+    /// Whether the selected workspace is the anchor for a workspace group.
+    public static let workspaceIsGroupAnchor = CommandPaletteContextKeys(rawValue: "workspace.isGroupAnchor")
     /// Whether the workspace has a custom name.
     public static let workspaceHasCustomName = CommandPaletteContextKeys(rawValue: "workspace.hasCustomName")
     /// Whether the workspace has a custom description.
