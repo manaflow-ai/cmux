@@ -3,39 +3,11 @@ import Foundation
 /// Bounded cache of tracked-change scans keyed by repository, index stat, and
 /// caller-owned filesystem-event generation.
 actor GitTrackedChangesSnapshotCache {
-    private struct CacheKey: Equatable, Hashable, Sendable {
-        let repository: RepositoryKey
-        let indexStatSignature: GitIndexStatSignature
-        let trackedPathEventGeneration: UInt64
-
-        init(
-            repository: ResolvedGitRepository,
-            indexStatSignature: GitIndexStatSignature,
-            trackedPathEventGeneration: UInt64
-        ) {
-            self.repository = RepositoryKey(repository: repository)
-            self.indexStatSignature = indexStatSignature
-            self.trackedPathEventGeneration = trackedPathEventGeneration
-        }
-    }
-
-    private struct RepositoryKey: Equatable, Hashable, Sendable {
-        let workTreeRoot: String
-        let gitDirectory: String
-
-        init(repository: ResolvedGitRepository) {
-            self.workTreeRoot = repository.workTreeRoot
-            self.gitDirectory = repository.gitDirectory
-        }
-    }
-
-    private struct Entry: Sendable {
-        let snapshot: GitTrackedChangesSnapshot
-    }
-
     private let maximumEntryCount: Int
-    private var entriesByKey: [CacheKey: Entry] = [:]
-    private var insertionOrder: [CacheKey] = []
+    private var entriesByKey: [
+        GitTrackedChangesSnapshotCacheKey: GitTrackedChangesSnapshotCacheEntry
+    ] = [:]
+    private var insertionOrder: [GitTrackedChangesSnapshotCacheKey] = []
 
     init(maximumEntryCount: Int = 256) {
         self.maximumEntryCount = max(1, maximumEntryCount)
@@ -46,7 +18,7 @@ actor GitTrackedChangesSnapshotCache {
         indexStatSignature: GitIndexStatSignature,
         trackedPathEventGeneration: UInt64
     ) -> GitTrackedChangesSnapshot? {
-        let key = CacheKey(
+        let key = GitTrackedChangesSnapshotCacheKey(
             repository: repository,
             indexStatSignature: indexStatSignature,
             trackedPathEventGeneration: trackedPathEventGeneration
@@ -60,14 +32,14 @@ actor GitTrackedChangesSnapshotCache {
         indexStatSignature: GitIndexStatSignature,
         trackedPathEventGeneration: UInt64
     ) {
-        let key = CacheKey(
+        let key = GitTrackedChangesSnapshotCacheKey(
             repository: repository,
             indexStatSignature: indexStatSignature,
             trackedPathEventGeneration: trackedPathEventGeneration
         )
         insertionOrder.removeAll { $0 == key }
         insertionOrder.append(key)
-        entriesByKey[key] = Entry(snapshot: snapshot)
+        entriesByKey[key] = GitTrackedChangesSnapshotCacheEntry(snapshot: snapshot)
         evictOldestEntriesIfNeeded()
     }
 
