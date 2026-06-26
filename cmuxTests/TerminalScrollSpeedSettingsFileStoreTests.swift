@@ -46,7 +46,7 @@ struct TerminalScrollSpeedSettingsFileStoreTests {
     func settingsFileStoreAppliesAutoTintSplitPanesSetting() throws {
         try loadAutoTintSplitPanesSetting(false) { defaults in
             #expect(defaults.object(forKey: TerminalSplitPaneTintSettings.autoTintSplitPanesKey) as? Bool == false)
-            #expect(!TerminalSplitPaneTintSettings.isEnabled(defaults: defaults))
+            #expect(!TerminalSplitPaneTintSettings().isEnabled(defaults: defaults))
         }
     }
 

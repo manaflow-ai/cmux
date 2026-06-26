@@ -199,15 +199,15 @@ enum TerminalCopyOnSelectSettings {
     }
 }
 
-enum TerminalSplitPaneTintSettings {
+struct TerminalSplitPaneTintSettings {
     static let autoTintSplitPanesKey = "terminal.autoTintSplitPanes"
     static let defaultAutoTintSplitPanes = true
 
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        guard defaults.object(forKey: autoTintSplitPanesKey) != nil else {
-            return defaultAutoTintSplitPanes
+    func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: Self.autoTintSplitPanesKey) != nil else {
+            return Self.defaultAutoTintSplitPanes
         }
-        return defaults.bool(forKey: autoTintSplitPanesKey)
+        return defaults.bool(forKey: Self.autoTintSplitPanesKey)
     }
 }
 

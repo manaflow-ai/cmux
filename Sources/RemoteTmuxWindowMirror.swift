@@ -103,7 +103,7 @@ final class RemoteTmuxWindowMirror {
     }
 
     private func applyAutomaticPaneTints() {
-        guard TerminalSplitPaneTintSettings.isEnabled(defaults: paneTintDefaults) else { return }
+        guard TerminalSplitPaneTintSettings().isEnabled(defaults: paneTintDefaults) else { return }
         let baseColor = GhosttyApp.shared.defaultBackgroundColor
         var usedHexes = Set(
             panelsByPaneId.values.compactMap { panel in
