@@ -35,7 +35,7 @@ extension FileExplorerPanelView.Coordinator {
 
         if isLocal {
             let revealItem = NSMenuItem(
-                title: FileExternalOpenText.revealInFinder,
+                title: FileExternalOpenText().revealInFinder,
                 action: #selector(contextMenuRevealInFinder(_:)),
                 keyEquivalent: ""
             )
@@ -129,7 +129,7 @@ extension FileExplorerContainerView {
         )
 
         let revealItem = NSMenuItem(
-            title: FileExternalOpenText.revealInFinder,
+            title: FileExternalOpenText().revealInFinder,
             action: #selector(contextMenuRevealSearchResultInFinder(_:)),
             keyEquivalent: ""
         )

@@ -95,6 +95,21 @@ struct MarkdownWebTheme: Equatable {
     let border: String
     let mutedBorder: String
 
+    /// GitHub CSS custom properties (`--bgColor-*`/`--borderColor-*`) derived
+    /// from this theme, applied to the rendered document via the JS theme-var
+    /// bridge. The mapping is pure (theme fields in, CSS variables out); the
+    /// JS eval seam stays in the renderer Coordinator.
+    var cssVariables: [String: String] {
+        [
+            "--bgColor-default": background,
+            "--bgColor-muted": mutedBackground,
+            "--bgColor-neutral-muted": neutralMutedBackground,
+            "--borderColor-default": border,
+            "--borderColor-muted": mutedBorder,
+            "--borderColor-neutral-muted": mutedBorder
+        ]
+    }
+
     static func resolve(backgroundColor: NSColor) -> MarkdownWebTheme {
         let base = backgroundColor.markdownOpaqueSRGB
         let isDark = !base.isLightColor
