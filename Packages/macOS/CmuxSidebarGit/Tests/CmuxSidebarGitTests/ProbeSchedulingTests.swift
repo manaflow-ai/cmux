@@ -152,6 +152,37 @@ import CmuxGit
         #expect(pullRequestProbing.scheduledRefreshes.isEmpty)
     }
 
+    @Test func filesystemEventGenerationIsPassedToMetadataReader() async throws {
+        let directory = "/tmp/repo"
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: directory)
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        let clock = ManualGitPollClock()
+        let reader = GatedMetadataReader(metadata: .repository(branch: "feature/x"))
+        let service = makeService(host: host, reader: reader, clock: clock)
+
+        service.workspaceGitTrackedDirectoryByKey[key] = directory
+        service.markWorkspaceGitSnapshotCacheEligible(directory: directory)
+        let initialGeneration = try #require(service.workspaceGitSnapshotCacheGeneration(directory: directory))
+        service.recordWorkspaceGitMetadataFilesystemEvent(for: key)
+        let eventGeneration = try #require(service.workspaceGitSnapshotCacheGeneration(directory: directory))
+        #expect(eventGeneration != initialGeneration)
+
+        service.scheduleWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: "filesystemEvent"
+        )
+        await clock.waitForSleeper()
+        await clock.resumeNext()
+        while await reader.probedTrackedPathEventGenerations.isEmpty {
+            await Task.yield()
+        }
+
+        let generations = await reader.probedTrackedPathEventGenerations
+        #expect(generations == [eventGeneration])
+    }
+
     /// Restored sessions can already have a branch projected before the first
     /// local git probe runs. If the PR poller has no tracking state yet, that
     /// same-branch snapshot must still seed one refresh.

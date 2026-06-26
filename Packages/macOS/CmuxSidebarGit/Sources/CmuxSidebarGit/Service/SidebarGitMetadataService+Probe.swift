@@ -158,6 +158,7 @@ extension SidebarGitMetadataService {
 
         let reader = workspaceGitMetadataReader
         let probeLimiter = probeLimiter
+        let trackedPathEventGeneration = workspaceGitSnapshotCacheGeneration(directory: expectedDirectory)
         workspaceGitSnapshotTasksByDirectory[expectedDirectory] = Task.detached(priority: .utility) { [weak self] in
             let didAcquirePermit = await probeLimiter.acquire()
             guard didAcquirePermit else { return }
@@ -170,7 +171,8 @@ extension SidebarGitMetadataService {
             guard !Task.isCancelled else { return }
             let snapshot = await InitialWorkspaceGitMetadataSnapshot(
                 probing: expectedDirectory,
-                reader: reader
+                reader: reader,
+                trackedPathEventGeneration: trackedPathEventGeneration
             )
             guard !Task.isCancelled else { return }
             await MainActor.run { [weak self] in

@@ -7,6 +7,22 @@ public import CmuxGit
 public protocol WorkspaceGitMetadataReading: Sendable {
     /// Returns the git metadata for `directory`.
     func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata
+
+    /// Returns the git metadata for `directory`, reusing tracked-change work
+    /// only when the supplied watcher generation has not changed.
+    func workspaceMetadata(
+        for directory: String,
+        trackedPathEventGeneration: UInt64?
+    ) async -> GitWorkspaceMetadata
+}
+
+public extension WorkspaceGitMetadataReading {
+    func workspaceMetadata(
+        for directory: String,
+        trackedPathEventGeneration: UInt64?
+    ) async -> GitWorkspaceMetadata {
+        await workspaceMetadata(for: directory)
+    }
 }
 
 extension GitMetadataService: WorkspaceGitMetadataReading {}

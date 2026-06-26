@@ -9,19 +9,16 @@ import Foundation
 /// of paths a filesystem watcher should observe to know when that metadata
 /// becomes stale.
 ///
-/// It is a stateless `Sendable` value, not an `actor`, because it has no mutable
-/// shared state for an actor to protect — every read is a pure function of the
-/// `directory` argument. The reads do blocking filesystem work (walking to the
-/// repository, parsing the git `index`/`config`), and are plain `nonisolated async`
-/// methods (a struct's `async` methods are nonisolated): a `nonisolated async`
-/// function runs on the global concurrent executor, not the caller's actor
-/// (SE-0338), so `await git.workspaceMetadata(...)` from the main actor offloads
-/// the work off the main thread *and* lets reads for independent repositories run
-/// in parallel. An `actor` would instead funnel every read through one serial
-/// executor and, since these methods never suspend internally, run them strictly
-/// sequentially — a bottleneck for concurrent per-workspace reads, protecting
-/// nothing. (If this ever gains an in-memory cache, promote it to an `actor`
-/// then — the mutable state would justify the serialization.)
+/// It is a `Sendable` value facade over blocking filesystem reads plus a small
+/// actor-isolated tracked-change cache. The reads do blocking filesystem work
+/// (walking to the repository, parsing the git `index`/`config`), and are plain
+/// `nonisolated async` methods (a struct's `async` methods are nonisolated): a
+/// `nonisolated async` function runs on the global concurrent executor, not the
+/// caller's actor (SE-0338), so `await git.workspaceMetadata(...)` from the main
+/// actor offloads the work off the main thread *and* lets reads for independent
+/// repositories run in parallel. The cache is an actor because it is mutable
+/// shared state, but it is only consulted through the watcher-generation API;
+/// direct reads without a watcher generation always do a conservative scan.
 ///
 /// - Important: If the package ever adopts the `NonisolatedNonsendingByDefault`
 ///   upcoming feature, a bare `nonisolated async` method flips to running on the
@@ -35,14 +32,20 @@ import Foundation
 /// ```
 public struct GitMetadataService: Sendable {
     private let fileStatusReader: any GitFileStatusReading
+    private let trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache
 
     /// Creates a git-metadata service.
     public init() {
         self.fileStatusReader = SystemGitFileStatusReader()
+        self.trackedChangesSnapshotCache = GitTrackedChangesSnapshotCache()
     }
 
-    init(fileStatusReader: any GitFileStatusReading) {
+    init(
+        fileStatusReader: any GitFileStatusReading,
+        trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache = GitTrackedChangesSnapshotCache()
+    ) {
         self.fileStatusReader = fileStatusReader
+        self.trackedChangesSnapshotCache = trackedChangesSnapshotCache
     }
 
     /// Reads a point-in-time git snapshot for `directory`.
@@ -94,10 +97,35 @@ public struct GitMetadataService: Sendable {
         repository: ResolvedGitRepository,
         trackedPathEventGeneration: UInt64?
     ) async -> GitTrackedChangesSnapshot {
-        Self.gitTrackedChangesSnapshot(
+        let indexURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("index")
+        guard let trackedPathEventGeneration,
+              let indexStatus = fileStatusReader.status(atPath: indexURL.path) else {
+            return Self.gitTrackedChangesSnapshot(
+                repository: repository,
+                fileStatusReader: fileStatusReader
+            )
+        }
+
+        let indexStatSignature = indexStatus.indexStatSignature
+        if let snapshot = await trackedChangesSnapshotCache.snapshot(
+            repository: repository,
+            indexStatSignature: indexStatSignature,
+            trackedPathEventGeneration: trackedPathEventGeneration
+        ) {
+            return snapshot
+        }
+
+        let snapshot = Self.gitTrackedChangesSnapshot(
             repository: repository,
             fileStatusReader: fileStatusReader
         )
+        await trackedChangesSnapshotCache.store(
+            snapshot,
+            repository: repository,
+            indexStatSignature: indexStatSignature,
+            trackedPathEventGeneration: trackedPathEventGeneration
+        )
+        return snapshot
     }
 
     /// The set of existing filesystem paths whose changes can alter the metadata

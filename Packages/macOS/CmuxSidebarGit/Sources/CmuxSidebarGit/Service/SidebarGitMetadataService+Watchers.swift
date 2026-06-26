@@ -70,10 +70,12 @@ extension SidebarGitMetadataService {
         stopWorkspaceGitMetadataWatcher(for: key)
         if let watcher = RecursivePathWatcher(paths: watchedPaths) {
             workspaceGitMetadataWatchersByKey[key] = watcher
+            markWorkspaceGitSnapshotCacheEligible(directory: request.directory)
             let events = watcher.events
             workspaceGitMetadataWatcherRefreshTasksByKey[key] = Task { @MainActor [weak self] in
                 for await _ in events {
                     guard let self else { break }
+                    self.recordWorkspaceGitMetadataFilesystemEvent(for: key)
                     self.scheduleWorkspaceGitMetadataRefreshIfPossible(
                         workspaceId: key.workspaceId,
                         panelId: key.panelId,
@@ -85,7 +87,36 @@ extension SidebarGitMetadataService {
         workspaceGitMetadataWatcherSourceDirectoryByKey[key] = request.directory
     }
 
+    func workspaceGitSnapshotCacheGeneration(directory: String) -> UInt64? {
+        workspaceGitSnapshotCacheGenerationByDirectory[directory]
+    }
+
+    func markWorkspaceGitSnapshotCacheEligible(directory: String) {
+        workspaceGitMetadataFilesystemEventGeneration &+= 1
+        workspaceGitSnapshotCacheGenerationByDirectory[directory] = workspaceGitMetadataFilesystemEventGeneration
+    }
+
+    func recordWorkspaceGitMetadataFilesystemEvent(for key: WorkspaceGitProbeKey) {
+        guard let directory = workspaceGitMetadataWatcherSourceDirectoryByKey[key] ??
+            workspaceGitTrackedDirectoryByKey[key] else {
+            return
+        }
+        workspaceGitMetadataFilesystemEventGeneration &+= 1
+        if workspaceGitSnapshotCacheGenerationByDirectory[directory] != nil {
+            workspaceGitSnapshotCacheGenerationByDirectory[directory] = workspaceGitMetadataFilesystemEventGeneration
+        }
+    }
+
+    private func removeWorkspaceGitSnapshotCacheEligibilityIfUnused(directory: String?) {
+        guard let directory else { return }
+        let hasAnotherWatcher = workspaceGitMetadataWatcherSourceDirectoryByKey.values.contains(directory)
+        if !hasAnotherWatcher {
+            workspaceGitSnapshotCacheGenerationByDirectory.removeValue(forKey: directory)
+        }
+    }
+
     func stopWorkspaceGitMetadataWatcher(for key: WorkspaceGitProbeKey) {
+        let stoppedDirectory = workspaceGitMetadataWatcherSourceDirectoryByKey[key]
         workspaceGitMetadataWatcherDescriptorRequestsByKey.removeValue(forKey: key)
         workspaceGitMetadataWatcherSourceDirectoryByKey.removeValue(forKey: key)
         workspaceGitMetadataWatcherRefreshTasksByKey.removeValue(forKey: key)?.cancel()
@@ -94,6 +125,7 @@ extension SidebarGitMetadataService {
         // returns. The consumer task captures the events stream (not the watcher),
         // so removal here is the last reference.
         workspaceGitMetadataWatchersByKey.removeValue(forKey: key)
+        removeWorkspaceGitSnapshotCacheEligibilityIfUnused(directory: stoppedDirectory)
     }
 
     func stopWorkspaceGitMetadataWatchers(workspaceId: UUID) {
@@ -113,5 +145,6 @@ extension SidebarGitMetadataService {
         workspaceGitMetadataWatchersByKey.removeAll()
         workspaceGitMetadataWatcherSourceDirectoryByKey.removeAll()
         workspaceGitMetadataWatcherDescriptorRequestsByKey.removeAll()
+        workspaceGitSnapshotCacheGenerationByDirectory.removeAll()
     }
 }
