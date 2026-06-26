@@ -12,32 +12,6 @@ nonisolated private let terminalNotificationLogger = Logger(
     category: "notification"
 )
 
-// UNUserNotificationCenter.removeDeliveredNotifications(withIdentifiers:) and
-// removePendingNotificationRequests(withIdentifiers:) perform synchronous XPC to
-// usernoted under the hood. When usernoted is slow, this blocks the calling thread
-// indefinitely. These helpers dispatch the calls off the main thread so they never
-// freeze the UI.
-extension UNUserNotificationCenter {
-    private static let removalQueue = DispatchQueue(
-        label: "com.cmuxterm.notification-removal",
-        qos: .utility
-    )
-
-    func removeDeliveredNotificationsOffMain(withIdentifiers ids: [String]) {
-        guard !ids.isEmpty else { return }
-        Self.removalQueue.async {
-            self.removeDeliveredNotifications(withIdentifiers: ids)
-        }
-    }
-
-    func removePendingNotificationRequestsOffMain(withIdentifiers ids: [String]) {
-        guard !ids.isEmpty else { return }
-        Self.removalQueue.async {
-            self.removePendingNotificationRequests(withIdentifiers: ids)
-        }
-    }
-}
-
 enum NotificationBadgeSettings {
     static let dockBadgeEnabledKey = "notificationDockBadgeEnabled"
     static let defaultDockBadgeEnabled = true

@@ -270,6 +270,10 @@ struct BrowserPanelView: View {
     /// through this rather than the former `BrowserInstalledBrowserDetector` static
     /// namespace.
     private let installedBrowserDetector = BrowserInstalledBrowserDetector()
+    /// Held remote-suggestion service; the view fetches address-bar predictions
+    /// through this instance rather than the former
+    /// `BrowserSearchSuggestionService.shared` singleton.
+    private let searchSuggestionService = BrowserSearchSuggestionService()
     @State private var omnibarState = OmnibarState()
     @State private var addressBarFocused: Bool = false
     @AppStorage(BrowserSearchSettingsStore.searchEngineKey) private var searchEngineRaw = BrowserSearchSettingsStore.defaultSearchEngine.rawValue
@@ -2704,7 +2708,7 @@ struct BrowserPanelView: View {
         guard let engine = remoteSuggestionsEngine else { return }
         isLoadingRemoteSuggestions = true
         suggestionTask = Task {
-            let remote = await BrowserSearchSuggestionService.shared.suggestions(engine: engine, query: query)
+            let remote = await searchSuggestionService.suggestions(engine: engine, query: query)
             if Task.isCancelled { return }
 
             await MainActor.run {

@@ -2443,29 +2443,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private static let tabTransferPasteboardType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
     private static let sidebarTabReorderPasteboardType = NSPasteboard.PasteboardType("com.cmux.sidebar-tab-reorder")
 
-    private enum WordPathResolutionSource: String {
-        case quicklook
-        case snapshot
-    }
-
-    private struct WordPathResolution {
-        let path: String
-        let source: WordPathResolutionSource
-        let rawToken: String
-    }
-
-    private func makeWordPathResolution(
-        path: String,
-        source: WordPathResolutionSource,
-        rawToken: String
-    ) -> WordPathResolution {
-        WordPathResolution(
-            path: path,
-            source: source,
-            rawToken: rawToken
-        )
-    }
-
     fileprivate static func focusLog(_ message: String) {
         guard focusDebugEnabled else { return }
         AppDelegate.shared?.focusLog.append(message)
@@ -4794,7 +4771,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     let resolvedQuicklookWord = decodedWord
 #endif
                     if let resolvedPath = TerminalPathResolver().resolveQuicklookPath(resolvedQuicklookWord, cwd: cwd) {
-                        quicklookResolution = makeWordPathResolution(
+                        quicklookResolution = WordPathResolution(
                             path: resolvedPath,
                             source: .quicklook,
                             rawToken: resolvedQuicklookWord
@@ -4986,24 +4963,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             lineLimit: max(200, rows * 4)
         ) ?? ""
         let visibleLines = visibleText.visibleLines(rows: rows)
-        let rowOffset = max(0, rows - visibleLines.count)
-        let rowFromTop = max(0, min(rows - 1, viewportOffsetStart / cols))
-        let visibleRow = rowFromTop - rowOffset
-        guard visibleRow >= 0, visibleRow < visibleLines.count else { return nil }
 
-        let column = max(0, min(cols - 1, viewportOffsetStart % cols))
-        guard let resolution = TerminalPathResolver().resolveVisibleLinePath(
-            visibleLines[visibleRow],
-            column: column,
+        return TerminalPathResolver().resolveVisibleWordPath(
+            viewportOffsetStart: viewportOffsetStart,
+            columns: cols,
+            rows: rows,
+            visibleLines: visibleLines,
             cwd: cwd
-        ) else {
-            return nil
-        }
-
-        return makeWordPathResolution(
-            path: resolution.path,
-            source: .snapshot,
-            rawToken: resolution.rawToken
         )
     }
 
@@ -5030,28 +4996,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             lineLimit: max(200, rows * 4)
         ) ?? ""
         let visibleLines = visibleText.visibleLines(rows: rows)
-        let rowOffset = max(0, rows - visibleLines.count)
-        let xInset = max(0, (bounds.width - (CGFloat(cols) * resolvedCellWidth)) / 2)
-        let yInset = max(0, (bounds.height - (CGFloat(rows) * resolvedCellHeight)) / 2)
 
-        let yFromTop = bounds.height - point.y
-        let rowFromTop = max(0, min(rows - 1, Int((yFromTop - yInset) / resolvedCellHeight)))
-        let visibleRow = rowFromTop - rowOffset
-        guard visibleRow >= 0, visibleRow < visibleLines.count else { return nil }
-
-        let column = max(0, min(cols - 1, Int((point.x - xInset) / resolvedCellWidth)))
-        guard let resolution = TerminalPathResolver().resolveVisibleLinePath(
-            visibleLines[visibleRow],
-            column: column,
+        return TerminalPathResolver().resolveVisibleWordPath(
+            atPoint: point,
+            bounds: bounds.size,
+            cellWidth: resolvedCellWidth,
+            cellHeight: resolvedCellHeight,
+            columns: cols,
+            rows: rows,
+            visibleLines: visibleLines,
             cwd: cwd
-        ) else {
-            return nil
-        }
-
-        return makeWordPathResolution(
-            path: resolution.path,
-            source: .snapshot,
-            rawToken: resolution.rawToken
         )
     }
 

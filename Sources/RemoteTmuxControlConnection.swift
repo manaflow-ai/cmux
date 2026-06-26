@@ -160,13 +160,6 @@ final class RemoteTmuxControlConnection {
     private static let altScreenEnterSequence = Data("\u{1b}[?1049h".utf8)
     private static let altScreenExitSequence = Data("\u{1b}[?1049l".utf8)
 
-    /// How many lines of pane history `capture-pane` seeds onto a freshly mounted
-    /// (or reconnected) mirror surface. Capturing scrollback — not just the visible
-    /// screen — is what makes the mirrored tab scrollable from the start; without it
-    /// a fresh attach has only the current screen and nothing to scroll up into.
-    /// Clamped by the remote pane's `history-limit`, so short panes seed less.
-    private static let scrollbackCaptureLines = 5_000
-
     init(host: RemoteTmuxHost, sessionName: String, createIfMissing: Bool = false) {
         self.host = host
         self.sessionName = sessionName
@@ -445,7 +438,7 @@ final class RemoteTmuxControlConnection {
     /// `@id <layout> <name with spaces…>`.
     func requestWindows() {
         sendInternal(
-            "list-windows -F \"#{window_id} #{window_layout} #{window_name}\"",
+            commandBuilder.listWindowsCommand(),
             kind: .listWindows
         )
     }
@@ -487,7 +480,7 @@ final class RemoteTmuxControlConnection {
         // not in the live %output — query `#{alternate_on}` and enter alt ourselves.
         // Ordered first so the enter lands before the capture paint in the FIFO.
         sendInternal(
-            "display-message -p -t %\(paneId) -F \"#{alternate_on}\"",
+            commandBuilder.paneAlternateScreenQueryCommand(paneId: paneId),
             kind: .paneAltScreen(paneId)
         )
         // `-S -<N>` seeds scrollback history (not just the visible screen) so the
@@ -503,21 +496,13 @@ final class RemoteTmuxControlConnection {
         // comes from LIVE %output (which already carries real soft-wraps), not from
         // the seed — so `-J`'s only upside (pre-attach rejoin-on-grow) isn't worth
         // corrupting every TUI seed. Capture faithful visual rows instead.
-        sendInternal("capture-pane -p -e -S -\(Self.scrollbackCaptureLines) -t %\(paneId)", kind: .capturePane(paneId))
+        sendInternal(commandBuilder.capturePaneCommand(paneId: paneId), kind: .capturePane(paneId))
         // Query the pane's terminal STATE; tmux exposes it all as formats. Sent
         // after capture-pane so it applies on top of the painted rows (the seed
         // escapes are built in `paneStateSeedSequence`). See the doc comment for why
         // restoring this matters.
         sendInternal(
-            "display-message -p -t %\(paneId) -F \""
-                + "cursor_x=#{cursor_x},cursor_y=#{cursor_y},"
-                + "scroll_region_upper=#{scroll_region_upper},scroll_region_lower=#{scroll_region_lower},"
-                + "cursor_flag=#{cursor_flag},insert_flag=#{insert_flag},"
-                + "keypad_cursor_flag=#{keypad_cursor_flag},keypad_flag=#{keypad_flag},"
-                + "wrap_flag=#{wrap_flag},origin_flag=#{origin_flag},pane_height=#{pane_height},"
-                + "mouse_all_flag=#{mouse_all_flag},mouse_button_flag=#{mouse_button_flag},"
-                + "mouse_standard_flag=#{mouse_standard_flag},"
-                + "mouse_sgr_flag=#{mouse_sgr_flag},mouse_utf8_flag=#{mouse_utf8_flag}\"",
+            commandBuilder.paneStateQueryCommand(paneId: paneId),
             kind: .paneState(paneId)
         )
     }
@@ -542,7 +527,7 @@ final class RemoteTmuxControlConnection {
     /// mirrored tab even on tmux builds without control-mode subscriptions.
     func requestPanePath(paneId: Int) {
         sendInternal(
-            "display-message -p -t %\(paneId) -F \"#{pane_current_path}\"",
+            commandBuilder.panePathQueryCommand(paneId: paneId),
             kind: .panePath(paneId)
         )
     }
@@ -561,7 +546,7 @@ final class RemoteTmuxControlConnection {
     /// the pane is gone). tmux also drops a dead pane's subscriptions on its own;
     /// this keeps the client's subscription set tidy across split/close churn.
     func unsubscribePanePath(paneId: Int) {
-        send("refresh-client -B \(commandBuilder.cwdSubscriptionPrefix)\(paneId)")
+        send(commandBuilder.panePathUnsubscribeCommand(paneId: paneId))
     }
 
     /// One-shot query of a pane's reflow classification (`#{alternate_on}` +
@@ -573,8 +558,7 @@ final class RemoteTmuxControlConnection {
     /// (a `display-message` always works where a subscription might not).
     func requestPaneReflow(paneId: Int) {
         sendInternal(
-            "display-message -p -t %\(paneId) -F \""
-                + "#{alternate_on}\(PaneForegroundState.fieldSeparator)#{pane_current_command}\"",
+            commandBuilder.paneReflowQueryCommand(paneId: paneId),
             kind: .paneReflow(paneId)
         )
     }
@@ -615,7 +599,7 @@ final class RemoteTmuxControlConnection {
     /// Removes the live reflow-classification subscription for `paneId` (issued once
     /// the pane is gone), mirroring ``unsubscribePanePath(paneId:)``.
     func unsubscribePaneReflow(paneId: Int) {
-        send("refresh-client -B \(commandBuilder.reflowSubscriptionPrefix)\(paneId)")
+        send(commandBuilder.paneReflowUnsubscribeCommand(paneId: paneId))
     }
 
     /// Live, close-time query of every pane's foreground state in `windowId`.
@@ -681,8 +665,7 @@ final class RemoteTmuxControlConnection {
     @discardableResult
     func sendKeys(paneId: Int, data: Data) -> Bool {
         guard !data.isEmpty else { return true }
-        let hex = commandBuilder.hexByteArguments(data)
-        return sendInternal("send-keys -t %\(paneId) -H \(hex)", kind: .other)
+        return sendInternal(commandBuilder.sendKeysCommand(paneId: paneId, data: data), kind: .other)
     }
 
     /// Pastes `text` into `paneId` as a tmux paste (`paste-buffer -p`), which wraps
@@ -889,7 +872,7 @@ final class RemoteTmuxControlConnection {
     /// and the command-result FIFO is aligned (the attach block is already drained).
     private func reseedAfterReconnect() {
         if let size = clientSize.lastClientSize {
-            send("refresh-client -C \(size.columns)x\(size.rows)")
+            send(commandBuilder.clientResizeCommand(columns: size.columns, rows: size.rows))
         }
         // The re-applied size is usually a no-op (the server kept the window at our
         // size across the transport drop), so TUIs get no SIGWINCH — kick them so
@@ -1088,7 +1071,7 @@ final class RemoteTmuxControlConnection {
                     // A surface that hasn't computed a grid yet is covered by the
                     // debounced `setClientSize` instead.
                     if let size = clientSize.lastClientSize {
-                        send("refresh-client -C \(size.columns)x\(size.rows)")
+                        send(commandBuilder.clientResizeCommand(columns: size.columns, rows: size.rows))
                     }
                 case nil:
                     break

@@ -387,20 +387,6 @@ private struct FeedListView: View {
         )
     }
 
-    /// Walks the full items list (not just the filtered visible set),
-    /// ordered by createdAt, and records the most recent user-prompt
-    /// text per workstreamId. Rows consult this dict to show a
-    /// "You: …" echo line at the top of their card.
-    private static func lastPromptByWorkstream(_ items: [WorkstreamItem]) -> [String: String] {
-        var out: [String: String] = [:]
-        for item in items {
-            if case .userPrompt(let text) = item.payload, !text.isEmpty {
-                out[item.workstreamId] = text
-            }
-        }
-        return out
-    }
-
     private func filtered(_ items: [WorkstreamItem]) -> [WorkstreamItem] {
         let base: [WorkstreamItem]
         switch filter {
@@ -428,7 +414,7 @@ private struct FeedListView: View {
     }
 
     private func visibleSnapshots(_ items: [WorkstreamItem]) -> [FeedItemSnapshot] {
-        let lastPromptByWorkstream = Self.lastPromptByWorkstream(items)
+        let lastPromptByWorkstream = FeedItemSnapshot.lastPromptByWorkstream(items)
         return filtered(items).map { item in
             FeedItemSnapshot(
                 item: item,
@@ -892,39 +878,6 @@ final class FeedKeyboardFocusView: NSView {
 }
 
 // MARK: - Row snapshot + actions (respects snapshot-boundary rule)
-
-/// Immutable snapshot of a `WorkstreamItem` handed to row views so rows
-/// never hold a reference to the store.
-struct FeedItemSnapshot: Equatable {
-    let id: UUID
-    let workstreamId: String
-    let source: WorkstreamSource
-    let kind: WorkstreamKind
-    let title: String?
-    let cwd: String?
-    let createdAt: Date
-    let status: WorkstreamStatus
-    let payload: WorkstreamPayload
-    let context: WorkstreamContext?
-    /// Most recent user-prompt text in the same workstream, attached
-    /// by the list view so every card can show a "You: …" echo for
-    /// context, even when the agent payload doesn't carry it directly.
-    let userPromptEcho: String?
-
-    init(item: WorkstreamItem, userPromptEcho: String? = nil) {
-        self.id = item.id
-        self.workstreamId = item.workstreamId
-        self.source = item.source
-        self.kind = item.kind
-        self.title = item.title
-        self.cwd = item.cwd
-        self.createdAt = item.createdAt
-        self.status = item.status
-        self.payload = item.payload
-        self.context = item.context
-        self.userPromptEcho = userPromptEcho
-    }
-}
 
 /// Closure bundle; binds to `FeedCoordinator` by default.
 struct FeedRowActions {

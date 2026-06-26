@@ -1,30 +1,21 @@
 import AppKit
 import Bonsplit
 import Combine
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxGit
+import CmuxSidebar
 import CmuxWorkspaces
 import CmuxSettings
 import SwiftUI
 
 // MARK: - File Explorer Panel (single NSViewRepresentable)
 
-enum FileExplorerPanelPresentation: Equatable {
-    case files
-    case find
-
-    var rightSidebarMode: RightSidebarMode {
-        switch self {
-        case .files: return .files
-        case .find: return .find
-        }
-    }
-}
-
-enum FileExplorerPanelPlacement: Equatable {
-    case rightSidebar
-    case pane
-}
+/// The file-explorer panel presentation/placement value cores live in
+/// `CmuxSidebar` beside `RightSidebarMode`; these app-target aliases keep the
+/// in-module spellings stable.
+typealias FileExplorerPanelPresentation = CmuxSidebar.FileExplorerPanelPresentation
+typealias FileExplorerPanelPlacement = CmuxSidebar.FileExplorerPanelPlacement
 
 /// The entire file explorer panel as one AppKit view hierarchy.
 /// Contains the header bar (path + controls) and NSOutlineView, with no SwiftUI intermediaries.

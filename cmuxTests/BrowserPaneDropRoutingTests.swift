@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import Bonsplit
+import CmuxWorkspaces
 import WebKit
 
 #if canImport(cmux_DEV)

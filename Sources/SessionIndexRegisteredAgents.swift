@@ -2,229 +2,6 @@ import CMUXAgentLaunch
 import CmuxFoundation
 import Foundation
 
-struct GrokSessionRoot: Sendable, Hashable {
-    let sessionsRoot: String
-    let grokHomeForResume: String?
-}
-
-private struct GrokHookObservedSessionStoreFile: Decodable {
-    var sessions: [String: GrokHookObservedSessionRecord]
-
-    private enum CodingKeys: String, CodingKey {
-        case sessions
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        sessions = try container.decodeIfPresent(
-            [String: GrokHookObservedSessionRecord].self,
-            forKey: .sessions
-        ) ?? [:]
-    }
-}
-
-private struct GrokHookObservedSessionRecord: Decodable {
-    var launchCommand: GrokHookObservedLaunchCommand?
-}
-
-private struct GrokHookObservedLaunchCommand: Decodable {
-    var environment: [String: String]?
-}
-
-enum GrokSessionLocator {
-    static func defaultSessionsRoot(homeDirectory: String = NSHomeDirectory()) -> String {
-        let standardizedHome = expandTilde(homeDirectory, homeDirectory: homeDirectory)
-        return ((standardizedHome as NSString).appendingPathComponent(".grok") as NSString)
-            .appendingPathComponent("sessions")
-    }
-
-    static func encodedSessionCWD(_ cwd: String) -> String {
-        var encoded = ""
-        for byte in cwd.utf8 {
-            let isUnreserved = (byte >= 0x41 && byte <= 0x5A)
-                || (byte >= 0x61 && byte <= 0x7A)
-                || (byte >= 0x30 && byte <= 0x39)
-                || byte == 0x2D
-                || byte == 0x2E
-                || byte == 0x5F
-                || byte == 0x7E
-            if isUnreserved {
-                encoded.append(Character(UnicodeScalar(byte)))
-            } else {
-                encoded.append(String(format: "%%%02X", byte))
-            }
-        }
-        return encoded
-    }
-
-    static func workingDirectory(fromProjectDirectoryName name: String) -> String? {
-        let decoded = name.removingPercentEncoding ?? name
-        return normalizedWorkingDirectory(decoded)
-    }
-
-    static func normalizedWorkingDirectory(_ value: String?) -> String? {
-        let trimmed = normalized(value)
-        return trimmed.map { ($0 as NSString).standardizingPath }
-    }
-
-    static func encodedSessionCWDs(for cwd: String) -> [String] {
-        guard let rawCwd = normalized(cwd) else {
-            return []
-        }
-        var seen = Set<String>()
-        return [rawCwd, (rawCwd as NSString).standardizingPath]
-            .map(encodedSessionCWD)
-            .filter { seen.insert($0).inserted }
-    }
-
-    static func sessionRoot(
-        registration: CmuxVaultAgentRegistration,
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        homeDirectory: String = NSHomeDirectory()
-    ) -> GrokSessionRoot {
-        let rawRoot: String
-        let configuredRoot = normalized(registration.sessionDirectory)
-        let configuredIsDefault = configuredRoot.map {
-            expandTilde($0, homeDirectory: homeDirectory)
-                == (defaultSessionsRoot(homeDirectory: homeDirectory) as NSString).standardizingPath
-        } ?? false
-        if let grokHome = normalized(environment["GROK_HOME"]),
-           configuredRoot == nil || configuredIsDefault {
-            rawRoot = (grokHome as NSString).appendingPathComponent("sessions")
-        } else if let configured = configuredRoot {
-            rawRoot = configured
-        } else {
-            rawRoot = defaultSessionsRoot(homeDirectory: homeDirectory)
-        }
-        let sessionsRoot = expandTilde(rawRoot, homeDirectory: homeDirectory)
-        let grokHome = grokHomeForResume(
-            sessionsRoot: sessionsRoot,
-            defaultSessionsRoot: defaultSessionsRoot(homeDirectory: homeDirectory)
-        )
-        return GrokSessionRoot(sessionsRoot: sessionsRoot, grokHomeForResume: grokHome)
-    }
-
-    static func sessionRoots(
-        registration: CmuxVaultAgentRegistration,
-        cwdFilter: String?,
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        homeDirectory: String = NSHomeDirectory(),
-        observedGrokHomes: [String] = []
-    ) -> [GrokSessionRoot] {
-        let root = sessionRoot(
-            registration: registration,
-            environment: environment,
-            homeDirectory: homeDirectory
-        )
-        var roots = [root]
-        if registrationUsesDefaultGrokRoot(registration: registration, homeDirectory: homeDirectory) {
-            for grokHome in observedGrokHomes {
-                guard let candidate = sessionRoot(
-                    grokHome: grokHome,
-                    homeDirectory: homeDirectory
-                ) else {
-                    continue
-                }
-                roots.append(candidate)
-            }
-            roots = deduplicatedSessionRoots(roots)
-        }
-        guard let cwdFilter = normalized(cwdFilter) else {
-            return roots
-        }
-        let scopedRoots = roots.flatMap { root in
-            encodedSessionCWDs(for: cwdFilter).map { encodedCwd in
-                let scopedRoot = (root.sessionsRoot as NSString).appendingPathComponent(encodedCwd)
-                return GrokSessionRoot(sessionsRoot: scopedRoot, grokHomeForResume: root.grokHomeForResume)
-            }
-        }
-        return deduplicatedSessionRoots(scopedRoots)
-    }
-
-    static func observedGrokHomes(
-        homeDirectory: String = NSHomeDirectory(),
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        fileManager: FileManager = .default
-    ) -> [String] {
-        let storeURL = RestorableAgentKind.grok.hookStoreFileURL(
-            homeDirectory: homeDirectory,
-            environment: environment
-        )
-        guard fileManager.fileExists(atPath: storeURL.path),
-              let data = try? Data(contentsOf: storeURL),
-              let state = try? JSONDecoder().decode(GrokHookObservedSessionStoreFile.self, from: data) else {
-            return []
-        }
-
-        var seen = Set<String>()
-        var homes: [String] = []
-        for record in state.sessions.values {
-            guard let rawHome = normalized(record.launchCommand?.environment?["GROK_HOME"]) else {
-                continue
-            }
-            let home = expandTilde(rawHome, homeDirectory: homeDirectory)
-            guard seen.insert(home).inserted else { continue }
-            homes.append(home)
-        }
-        return homes
-    }
-
-    private static func grokHomeForResume(sessionsRoot: String, defaultSessionsRoot: String) -> String? {
-        let standardizedRoot = (sessionsRoot as NSString).standardizingPath
-        let standardizedDefault = (defaultSessionsRoot as NSString).standardizingPath
-        guard standardizedRoot != standardizedDefault else { return nil }
-        guard (standardizedRoot as NSString).lastPathComponent == "sessions" else { return nil }
-        return (standardizedRoot as NSString).deletingLastPathComponent
-    }
-
-    private static func sessionRoot(grokHome: String, homeDirectory: String) -> GrokSessionRoot? {
-        guard let normalizedHome = normalized(grokHome) else { return nil }
-        let expandedHome = expandTilde(normalizedHome, homeDirectory: homeDirectory)
-        let sessionsRoot = (expandedHome as NSString).appendingPathComponent("sessions")
-        let grokHome = grokHomeForResume(
-            sessionsRoot: sessionsRoot,
-            defaultSessionsRoot: defaultSessionsRoot(homeDirectory: homeDirectory)
-        )
-        return GrokSessionRoot(sessionsRoot: sessionsRoot, grokHomeForResume: grokHome)
-    }
-
-    private static func registrationUsesDefaultGrokRoot(
-        registration: CmuxVaultAgentRegistration,
-        homeDirectory: String
-    ) -> Bool {
-        guard let configuredRoot = normalized(registration.sessionDirectory) else {
-            return true
-        }
-        let expandedConfigured = expandTilde(configuredRoot, homeDirectory: homeDirectory)
-        let expandedDefault = (defaultSessionsRoot(homeDirectory: homeDirectory) as NSString).standardizingPath
-        return expandedConfigured == expandedDefault
-    }
-
-    private static func deduplicatedSessionRoots(_ roots: [GrokSessionRoot]) -> [GrokSessionRoot] {
-        var seen = Set<String>()
-        return roots.filter { root in
-            seen.insert((root.sessionsRoot as NSString).standardizingPath).inserted
-        }
-    }
-
-    private static func expandTilde(_ path: String, homeDirectory: String) -> String {
-        let home = ((homeDirectory as NSString).expandingTildeInPath as NSString).standardizingPath
-        if path == "~" {
-            return home
-        }
-        if path.hasPrefix("~/") {
-            let suffix = String(path.dropFirst(2))
-            return ((home as NSString).appendingPathComponent(suffix) as NSString).standardizingPath
-        }
-        return ((path as NSString).expandingTildeInPath as NSString).standardizingPath
-    }
-
-    private static func normalized(_ value: String?) -> String? {
-        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed?.isEmpty == false ? trimmed : nil
-    }
-}
-
 extension SessionIndexStore {
     private struct RegisteredAgentJSONLMetadata {
         var title: String = ""
@@ -260,16 +37,17 @@ extension SessionIndexStore {
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
     ) async -> [SessionEntry] {
-        let observedGrokHomes = GrokSessionLocator.observedGrokHomes(
-            homeDirectory: homeDirectory,
-            environment: environment,
+        let locator = GrokSessionLocator(homeDirectory: homeDirectory, environment: environment)
+        let observedGrokHomes = locator.observedGrokHomes(
+            hookStoreFileURL: RestorableAgentKind.grok.hookStoreFileURL(
+                homeDirectory: homeDirectory,
+                environment: environment
+            ),
             fileManager: fileManager
         )
-        let roots = GrokSessionLocator.sessionRoots(
-            registration: registration,
+        let roots = locator.sessionRoots(
+            sessionDirectory: registration.sessionDirectory,
             cwdFilter: cwdFilter,
-            environment: environment,
-            homeDirectory: homeDirectory,
             observedGrokHomes: observedGrokHomes
         )
         guard !roots.isEmpty else { return [] }
@@ -556,7 +334,8 @@ extension SessionIndexStore {
         cwdFilter: String?
     ) -> [String] {
         if case .grokSessionDirectory = registration.sessionIdSource {
-            return GrokSessionLocator.sessionRoots(registration: registration, cwdFilter: cwdFilter)
+            return GrokSessionLocator()
+                .sessionRoots(sessionDirectory: registration.sessionDirectory, cwdFilter: cwdFilter)
                 .map(\.sessionsRoot)
         }
         guard let root = registration.sessionDirectory.map({ ($0 as NSString).expandingTildeInPath }) else {
