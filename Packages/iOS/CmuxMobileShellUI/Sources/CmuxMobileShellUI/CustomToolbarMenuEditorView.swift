@@ -23,9 +23,14 @@ struct CustomToolbarMenuEditorView: View {
     init(action: CustomToolbarAction?, onSave: @escaping (CustomToolbarAction) -> Void) {
         self.existing = action
         self.onSave = onSave
-        let seed = Self.seed(from: action)
-        _title = State(initialValue: seed.title)
-        _items = State(initialValue: seed.items)
+        if let action, case let .menu(storedItems) = action.payload {
+            let drafts = storedItems.map(CustomToolbarMenuDraftItem.init(menuItem:))
+            _title = State(initialValue: action.title)
+            _items = State(initialValue: drafts.isEmpty ? [CustomToolbarMenuDraftItem()] : drafts)
+        } else {
+            _title = State(initialValue: "")
+            _items = State(initialValue: [CustomToolbarMenuDraftItem()])
+        }
     }
 
     var body: some View {
@@ -173,14 +178,5 @@ struct CustomToolbarMenuEditorView: View {
         dismiss()
     }
 
-    private static func seed(
-        from action: CustomToolbarAction?
-    ) -> (title: String, items: [CustomToolbarMenuDraftItem]) {
-        guard let action, case let .menu(storedItems) = action.payload else {
-            return ("", [CustomToolbarMenuDraftItem()])
-        }
-        let drafts = storedItems.map(CustomToolbarMenuDraftItem.init(menuItem:))
-        return (action.title, drafts.isEmpty ? [CustomToolbarMenuDraftItem()] : drafts)
-    }
 }
 #endif
