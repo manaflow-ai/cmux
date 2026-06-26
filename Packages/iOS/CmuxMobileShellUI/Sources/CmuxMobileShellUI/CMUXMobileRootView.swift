@@ -238,8 +238,6 @@ struct CMUXMobileRootView: View {
     private var pairingSheet: some View {
         PairingView(
             pairingCode: $store.pairingCode,
-            connectionError: store.connectionError,
-            connectionErrorGuidance: store.connectionErrorGuidance,
             pairingChecklist: store.pairingChecklist,
             versionWarning: store.pairingVersionWarning,
             connectPairingCode: {

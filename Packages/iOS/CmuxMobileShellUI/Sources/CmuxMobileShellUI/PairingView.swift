@@ -13,11 +13,6 @@ import AppKit
 
 struct PairingView: View {
     @Binding var pairingCode: String
-    let connectionError: String?
-    /// A shorter, actionable next-step line shown beneath ``connectionError``
-    /// (for example "Check that both devices are on the same Tailscale"). `nil`
-    /// when the headline is already the full instruction.
-    let connectionErrorGuidance: String?
     let pairingChecklist: MobilePairingChecklist
     let versionWarning: String?
     let connectPairingCode: () async -> Void
@@ -258,13 +253,6 @@ struct PairingView: View {
     private var displayedPairingChecklist: MobilePairingChecklist {
         if let validationError {
             return MobilePairingChecklist.idle.applyingFailure(.network, message: validationError)
-        }
-        if let connectionError, !pairingChecklist.hasFailure {
-            return pairingChecklist.applyingFailure(
-                .network,
-                message: connectionError,
-                guidance: connectionErrorGuidance
-            )
         }
         if !isPairing, !pairingChecklist.hasFailure {
             return .idle
