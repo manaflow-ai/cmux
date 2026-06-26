@@ -320,8 +320,13 @@ extension TerminalController {
                 "session_id": sessionID
             ])
         }
+        // Claude's picker submits on the digit alone; Codex's `request_user_input`
+        // picker highlights on the digit and needs Enter to submit ("enter to
+        // submit answer"), so append a carriage return for codex.
         let digit = String(optionIndex + 1)
-        let sendResult = terminalPanel.surface.sendInputResult(digit)
+        let isCodex = agentChatTranscriptService?.sessionRecord(sessionID: sessionID)?.agentKind == .codex
+        let answerKeys = isCodex ? "\(digit)\r" : digit
+        let sendResult = terminalPanel.surface.sendInputResult(answerKeys)
         switch sendResult {
         case .sent, .queued:
             terminalPanel.surface.forceRefresh(reason: "mobileHost.chatAnswer")
