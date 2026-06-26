@@ -1,6 +1,6 @@
 import Foundation
 import SwiftUI
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -27,11 +27,12 @@ import XCTest
 /// If `==` returned false for two rows carrying the same payload, `.equatable()`
 /// could not suppress body re-evaluation and the thrash returns.
 @MainActor
-final class NotificationRowSnapshotBoundaryTests: XCTestCase {
+@Suite("Notification row snapshot boundary")
+struct NotificationRowSnapshotBoundaryTests {
 
     // MARK: - Titlebar popover row
 
-    func testPopoverRowEqualityIgnoresClosureIdentity() {
+    @Test func popoverRowEqualityIgnoresClosureIdentity() {
         let notification = Self.makeNotification()
         let left = NotificationPopoverRow(
             notification: notification,
@@ -50,14 +51,13 @@ final class NotificationRowSnapshotBoundaryTests: XCTestCase {
             onToggleRead: { _ = 3 }
         )
 
-        XCTAssertEqual(
-            left,
-            right,
+        #expect(
+            left == right,
             "Popover rows with identical snapshots must compare equal even when the parent rebuilds closures; otherwise .equatable() cannot suppress body re-eval and the LazyVStack thrashes (issue #5794)."
         )
     }
 
-    func testPopoverRowEqualityDetectsReadStateChange() {
+    @Test func popoverRowEqualityDetectsReadStateChange() {
         let unread = Self.makeNotification(isRead: false)
         let read = Self.makeNotification(id: unread.id, isRead: true)
 
@@ -66,30 +66,28 @@ final class NotificationRowSnapshotBoundaryTests: XCTestCase {
         let right = NotificationPopoverRow(
             notification: read, tabTitle: "main", onOpen: {}, onClear: {}, onToggleRead: {})
 
-        XCTAssertNotEqual(
-            left,
-            right,
+        #expect(
+            left != right,
             "Toggling read state must change equality so the row repaints its unread indicator."
         )
     }
 
-    func testPopoverRowEqualityDetectsTabTitleChange() {
+    @Test func popoverRowEqualityDetectsTabTitleChange() {
         let notification = Self.makeNotification()
         let left = NotificationPopoverRow(
             notification: notification, tabTitle: "main", onOpen: {}, onClear: {}, onToggleRead: {})
         let right = NotificationPopoverRow(
             notification: notification, tabTitle: "feature", onOpen: {}, onClear: {}, onToggleRead: {})
 
-        XCTAssertNotEqual(
-            left,
-            right,
+        #expect(
+            left != right,
             "A changed tab title must change equality so the row repaints its subtitle."
         )
     }
 
     // MARK: - Notifications page row
 
-    func testPageRowEqualityIgnoresClosureAndBindingIdentity() {
+    @Test func pageRowEqualityIgnoresClosureAndBindingIdentity() {
         let notification = Self.makeNotification()
         let focus = FocusState<UUID?>()
         let left = NotificationRow(
@@ -109,14 +107,13 @@ final class NotificationRowSnapshotBoundaryTests: XCTestCase {
             focusedNotificationId: focus.projectedValue
         )
 
-        XCTAssertEqual(
-            left,
-            right,
+        #expect(
+            left == right,
             "Page rows with identical snapshots must compare equal even when the parent rebuilds closures (issue #5794)."
         )
     }
 
-    func testPageRowEqualityDetectsFocusChange() {
+    @Test func pageRowEqualityDetectsFocusChange() {
         let notification = Self.makeNotification()
         let focus = FocusState<UUID?>()
         let unfocused = NotificationRow(
@@ -126,14 +123,13 @@ final class NotificationRowSnapshotBoundaryTests: XCTestCase {
             notification: notification, tabTitle: "main", isFocused: true,
             onOpen: {}, onClear: {}, focusedNotificationId: focus.projectedValue)
 
-        XCTAssertNotEqual(
-            unfocused,
-            focused,
+        #expect(
+            unfocused != focused,
             "Focus must participate in equality; otherwise .equatable() would leave the default-action keyboard shortcut on a stale row."
         )
     }
 
-    func testPageRowEqualityDetectsNotificationChange() {
+    @Test func pageRowEqualityDetectsNotificationChange() {
         let base = Self.makeNotification(isRead: false)
         let bumped = Self.makeNotification(id: base.id, isRead: true)
         let focus = FocusState<UUID?>()
@@ -144,7 +140,7 @@ final class NotificationRowSnapshotBoundaryTests: XCTestCase {
             notification: bumped, tabTitle: "main", isFocused: false,
             onOpen: {}, onClear: {}, focusedNotificationId: focus.projectedValue)
 
-        XCTAssertNotEqual(left, right, "A changed notification payload must change equality so the row repaints.")
+        #expect(left != right, "A changed notification payload must change equality so the row repaints.")
     }
 
     // MARK: - Fixtures
