@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // Regression guard for https://github.com/manaflow-ai/cmux/issues/5469.
 //
@@ -10,7 +11,7 @@ import { join } from "node:path";
 // a CLI example must resolve to a real command handled by CLI/cmux.swift,
 // otherwise users hit an error when copy-pasting from the docs.
 
-const repoRoot = join(import.meta.dir, "..", "..");
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const apiPagePath = join(
   repoRoot,
   "web",
