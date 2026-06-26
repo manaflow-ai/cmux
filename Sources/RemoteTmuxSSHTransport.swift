@@ -25,6 +25,11 @@ actor RemoteTmuxSSHTransport {
     private let sshExecutablePath: String
     private let controlPersistSeconds: Int
 
+    /// In-flight shared-master warmup, if any. ``ensureMasterReady()`` funnels every
+    /// concurrent caller through this single task so the master is opened at most
+    /// once even though the actor is reentrant across awaits (see that method).
+    private var readinessTask: Task<Bool, Error>?
+
     /// - Parameters:
     ///   - host: the remote destination.
     ///   - sshExecutablePath: the local `ssh` binary (overridable for tests).
@@ -190,33 +195,46 @@ actor RemoteTmuxSSHTransport {
     /// the authoritative "ready now" signal that closes it.
     ///
     /// Idempotent and best-effort: returns `true` at once when a master is already
-    /// live (warm path). Otherwise it opens the master exactly once with
-    /// `run(["true"])` — a single connection can't lose the creation race — and a
-    /// successful open IS the readiness signal: the mux connection was accepted and
-    /// `ControlPersist` keeps the master alive, so no extra wait is needed. Only a
-    /// *failed* open falls back to one `ssh -O check` probe (a concurrent discovery
-    /// connection may have just finished its background hand-off). No timers or
-    /// polling: readiness comes from the SSH connection lifecycle, not a wall clock.
-    /// Callers may proceed on `false` (no worse than today's ungated burst).
+    /// live (warm path); otherwise opens it exactly once with `run(["true"])` — a
+    /// single connection can't lose the creation race — and a successful open IS the
+    /// readiness signal (the mux connection was accepted and `ControlPersist` keeps
+    /// the master alive). Only a *failed* open falls back to one `ssh -O check` probe
+    /// for a concurrent discovery connection still finishing its hand-off. No timers
+    /// or polling — readiness comes from the connection lifecycle. Callers may
+    /// proceed on `false` (no worse than today's ungated burst).
     ///
-    /// - Throws: `CancellationError` if the caller is cancelled (e.g. a v2VmCall
-    ///   timeout) so it aborts here; other failures collapse to `false`.
+    /// Single-flight: the actor is reentrant across `await`, so two concurrent
+    /// bulk-mirror callers for the same host (e.g. a dedicated-window attach and a
+    /// `remote.tmux.mirror` socket call) could otherwise both observe no master and
+    /// both open it, recreating the race. Every caller shares one in-flight
+    /// ``readinessTask``; the check-create-store below is a single synchronous actor
+    /// step (no `await` between them), so only one caller becomes the creator.
+    ///
+    /// Not cancellation-aware by itself: the shared warmup is unstructured and
+    /// bounded by `ConnectTimeout`, so a cancelled caller awaits its completion
+    /// rather than tearing it down for the others. Callers that must bail re-check
+    /// `Task.checkCancellation()` after this — as the controller does before
+    /// creating the dedicated window.
     @discardableResult
     func ensureMasterReady() async throws -> Bool {
+        if let existing = readinessTask {
+            return try await existing.value
+        }
+        let task = Task { try await self.performMasterReady() }
+        readinessTask = task
+        defer { readinessTask = nil }
+        return try await task.value
+    }
+
+    /// The actual warmup, run exactly once per ``readinessTask`` (see
+    /// ``ensureMasterReady()`` for the single-flight + readiness rationale).
+    private func performMasterReady() async throws -> Bool {
         try? host.ensureControlSocketDirectory()
         if try await masterIsRunning() { return true }
-        // Open the shared master exactly once. A successful `run` means ssh
-        // established (or reused) the master and ran the remote command over it, so
-        // the master is live and accepting mux sessions — return immediately.
-        do {
-            if try await run(["true"]).succeeded { return true }
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            // Launch failure — fall through to one control-socket probe below.
-        }
-        // The open didn't confirm a live master; probe once in case discovery's
-        // connection just finished bringing the shared master up.
+        // A successful open means ssh established (or reused) the master and ran the
+        // command over it, so it is live and accepting mux sessions — return now.
+        if let opened = try? await run(["true"]), opened.succeeded { return true }
+        // Open didn't confirm a master; probe once for a discovery hand-off in flight.
         return try await masterIsRunning()
     }
 

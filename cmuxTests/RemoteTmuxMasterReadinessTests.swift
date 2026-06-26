@@ -24,9 +24,10 @@ import Testing
 /// The OpenSSH creation race itself isn't hermetically reproducible (it needs a
 /// real multi-session host), so these tests lock in the *mechanism* that prevents
 /// it: a fake `ssh` that records its invocations and tracks a master-up sentinel,
-/// asserting the gate opens the master once when cold, is idempotent when warm,
-/// reports not-ready (so callers degrade) when the open fails, and aborts on caller
-/// cancellation instead of hanging.
+/// asserting the gate opens the master once when cold, is idempotent when warm, and
+/// reports not-ready (so callers degrade) when the open fails. The single-flight
+/// coalescing of concurrent callers is an actor-reentrancy property verified by
+/// review rather than a (necessarily timing-dependent) unit test.
 @Suite struct RemoteTmuxMasterReadinessTests {
 
     @Test func coldOpenSignalsReadinessAndOpensExactlyOnce() async throws {
@@ -83,25 +84,6 @@ import Testing
         #expect(!ready)
     }
 
-    @Test func cancellationDuringOpenAborts() async throws {
-        let env = try FakeSSHEnvironment(behavior: .opensSlowly)
-        defer { env.cleanUp() }
-
-        let transport = RemoteTmuxSSHTransport(
-            host: RemoteTmuxHost(destination: "user@host"),
-            sshExecutablePath: env.executablePath
-        )
-
-        // A v2VmCall timeout cancels the task mid-open; the gate must abort with
-        // CancellationError instead of hanging or silently returning a result.
-        let task = Task { try await transport.ensureMasterReady() }
-        try await Task.sleep(for: .milliseconds(200))
-        task.cancel()
-        await #expect(throws: CancellationError.self) {
-            _ = try await task.value
-        }
-    }
-
     // MARK: - Fake ssh harness
 
     /// A throwaway `ssh` replacement plus the on-disk state it reads/writes.
@@ -119,8 +101,6 @@ import Testing
             case alreadyRunning
             /// Broken: the open exits non-zero and the master never comes up.
             case openFails
-            /// Slow: the open blocks (so a test can cancel mid-open) before opening.
-            case opensSlowly
         }
 
         let root: URL
@@ -143,17 +123,12 @@ import Testing
             // Anything else is the `true` open; its body depends on the behavior.
             let openBody: String
             switch behavior {
-            case .opensOnFirstRun:
-                openBody = ": > \"$STATE\"\nexit 0"
-            case .alreadyRunning:
-                // Never reached (warm check short-circuits), but keep it well-formed.
+            case .opensOnFirstRun, .alreadyRunning:
+                // `.alreadyRunning` never reaches the open (warm check short-circuits),
+                // but keep a well-formed success body.
                 openBody = ": > \"$STATE\"\nexit 0"
             case .openFails:
                 openBody = "exit 1"
-            case .opensSlowly:
-                // Background the sleep and `wait`, so a SIGTERM (terminate on cancel)
-                // interrupts `wait` and exits promptly instead of blocking ~5s.
-                openBody = "trap 'exit 143' TERM\nsleep 5 &\nwait\n: > \"$STATE\"\nexit 0"
             }
 
             let script = """

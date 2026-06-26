@@ -73,6 +73,11 @@ final class RemoteTmuxController {
                 "remote-tmux: ControlMaster not confirmed ready before attach burst for \(host.destination, privacy: .public); mirroring best-effort"
             )
         }
+        // The warmup's SSH work runs in a shared unstructured task and isn't
+        // cancellation-aware, so a caller cancelled meanwhile (e.g. a v2VmCall
+        // timeout) only learns of it here — bail before the next irreversible step
+        // (the dedicated-window creation in mirrorHostInNewWindow).
+        try Task.checkCancellation()
     }
 
     // MARK: - Control connections (tmux -CC mirroring)
