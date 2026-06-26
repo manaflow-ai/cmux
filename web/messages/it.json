@@ -815,6 +815,7 @@
           "globalFontMagnification": "Ridimensiona di questa percentuale terminali, titoli delle schede, barre laterali, impostazioni, overlay e chrome dell'app gestiti da cmux. Il contenuto renderizzato delle pagine del browser è escluso."
         },
         "terminal": {
+          "titleUpdates": "Controlla come cmux propaga le modifiche al titolo del terminale, incluso il raggruppamento (coalescing) opzionale degli aggiornamenti del titolo ad alta frequenza per ridurre l'uso della CPU durante picchi di cambi di titolo.",
           "copyOnSelect": "Quando è true, il testo selezionato nel terminale viene copiato negli appunti di sistema quando la selezione viene confermata. Quando è false, cmux non emette un override Ghostty copy-on-select; configurazione e valori predefiniti di Ghostty controllano il comportamento degli appunti di selezione.",
           "scrollSpeed": "Moltiplicatore applicato agli spostamenti della rotellina di scorrimento e del trackpad nel terminale. Valori più alti scorrono più velocemente, valori più bassi più lentamente.",
           "showTextBoxOnNewTerminals": "Mostra l'input TextBox beta per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati.",

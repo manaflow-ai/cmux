@@ -815,6 +815,7 @@
           "globalFontMagnification": "依此百分比縮放 cmux 擁有的終端機、分頁標題、側邊欄、設定、覆蓋層和應用程式 chrome。不包含已算繪的瀏覽器頁面內容。"
         },
         "terminal": {
+          "titleUpdates": "控制 cmux 傳播終端機標題變更的方式，包括可選啟用的高頻標題更新合併（coalescing），以在標題頻繁變化時降低 CPU 使用率。",
           "copyOnSelect": "為 true 時，選取確認後會將所選終端機文字複製到系統剪貼簿。為 false 時，cmux 不會輸出 Ghostty copy-on-select 覆寫；選取剪貼簿行為由 Ghostty 設定與預設值控制。",
           "scrollSpeed": "套用於終端機滾輪與觸控板捲動量的倍率。數值越大捲動越快，數值越小捲動越慢。",
           "showTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中顯示測試版 TextBox 輸入。",

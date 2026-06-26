@@ -815,6 +815,7 @@
           "globalFontMagnification": "cmux가 소유한 터미널, 탭 제목, 사이드바, 설정, 오버레이, 앱 chrome을 이 비율로 확대/축소합니다. 렌더링된 브라우저 페이지 콘텐츠는 제외됩니다."
         },
         "terminal": {
+          "titleUpdates": "cmux가 터미널 제목 변경을 전파하는 방식을 제어합니다. 제목이 빠르게 바뀔 때 CPU 사용량을 줄이기 위해 고빈도 제목 업데이트를 합치는(coalescing) 옵트인 설정이 포함됩니다.",
           "copyOnSelect": "true이면 선택이 확정될 때 선택한 터미널 텍스트를 시스템 클립보드에 복사합니다. false이면 cmux는 Ghostty copy-on-select 재정의를 내보내지 않으며, 선택 클립보드 동작은 Ghostty 설정과 기본값이 제어합니다.",
           "scrollSpeed": "터미널 스크롤 휠과 트랙패드 이동량에 적용되는 배율입니다. 값이 클수록 빠르게 스크롤되고, 작을수록 느리게 스크롤됩니다.",
           "showTextBoxOnNewTerminals": "새로 생성된 작업공간, 터미널 탭, 터미널 분할에서 베타 TextBox 입력을 기본으로 표시합니다.",

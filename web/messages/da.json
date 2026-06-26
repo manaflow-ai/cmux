@@ -815,6 +815,7 @@
           "globalFontMagnification": "Skalerer cmux-ejede terminaler, fanetitler, sidepaneler, indstillinger, overlejringer og app-chrome med denne procent. Renderet browserindhold er ikke inkluderet."
         },
         "terminal": {
+          "titleUpdates": "Styrer, hvordan cmux udbreder ændringer af terminaltitlen, herunder valgfri sammenlægning (coalescing) af hyppige titelopdateringer for at reducere CPU-forbruget ved hyppige titelændringer.",
           "copyOnSelect": "Når værdien er true, kopieres markeret terminaltekst til systemets udklipsholder, når markeringen bekræftes. Når værdien er false, udsender cmux ikke en Ghostty copy-on-select-tilsidesættelse; Ghostty-konfiguration og standarder styrer markeringsudklipsholderens adfærd.",
           "scrollSpeed": "Multiplikator anvendt på rulleværdier fra musehjul og pegefelt i terminalen. Højere værdier ruller hurtigere, lavere værdier langsommere.",
           "showTextBoxOnNewTerminals": "Viser beta-TextBox-input som standard for nyoprettede arbejdsområder, terminalfaner og terminalsplits.",

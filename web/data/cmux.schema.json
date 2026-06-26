@@ -496,7 +496,8 @@
         "titleUpdates": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Terminal title update handling.",
+          "descriptionKey": "schemaDescriptions.terminal.titleUpdates",
+          "description": "Controls how cmux propagates terminal title changes, including opt-in coalescing of high-frequency title updates to reduce CPU usage during title spam.",
           "properties": {
             "coalescing": {
               "type": "object",

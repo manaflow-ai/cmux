@@ -815,6 +815,7 @@
           "globalFontMagnification": "Escala en este porcentaje las terminales, títulos de pestañas, barras laterales, ajustes, superposiciones y chrome de la app que pertenecen a cmux. Se excluye el contenido renderizado de las páginas del navegador."
         },
         "terminal": {
+          "titleUpdates": "Controla cómo cmux propaga los cambios de título del terminal, incluida la fusión (coalescing) opcional de actualizaciones de título de alta frecuencia para reducir el uso de CPU durante ráfagas de cambios de título.",
           "copyOnSelect": "Cuando es true, copia el texto seleccionado del terminal al portapapeles del sistema cuando se confirma la selección. Cuando es false, cmux no emite una anulación de copy-on-select de Ghostty; la configuración y los valores predeterminados de Ghostty controlan el comportamiento del portapapeles de selección.",
           "scrollSpeed": "Multiplicador aplicado a los desplazamientos de la rueda de desplazamiento y del panel táctil en el terminal. Los valores más altos desplazan más rápido y los más bajos, más lento.",
           "showTextBoxOnNewTerminals": "Muestra la entrada TextBox beta de forma predeterminada en espacios de trabajo, pestañas y divisiones de terminal recién creados.",
