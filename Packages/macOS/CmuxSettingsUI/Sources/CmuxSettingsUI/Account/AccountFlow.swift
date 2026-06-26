@@ -35,6 +35,14 @@ public protocol AccountFlow: AnyObject {
     /// indefinite spinner when this is `true`.
     var signInIsSlow: Bool { get }
 
+    /// A localized, display-safe description of the most recent failed sign-in
+    /// attempt while the user is signed out, or `nil` when the last attempt did
+    /// not fail. The UI renders this so a browser sign-in that opens its window
+    /// and never completes surfaces an actionable error — paired with the
+    /// default-browser fallback — instead of silently returning to the
+    /// signed-out state (issue #6015).
+    var signInErrorMessage: String? { get }
+
     /// Launches the host's sign-in flow. The package shows the user a
     /// progress indicator while ``isWorkingOnAuth`` is `true` and
     /// re-reads ``currentIdentity`` when the flow resolves.

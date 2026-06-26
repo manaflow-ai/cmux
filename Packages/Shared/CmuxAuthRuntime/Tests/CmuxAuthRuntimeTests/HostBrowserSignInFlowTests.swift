@@ -213,6 +213,34 @@ import Testing
         #expect(fallbackState == harness.callbackState(harness.factory.sessions[0]))
     }
 
+    @Test func defaultBrowserSignInURLCallbackCompletesWithoutActiveAttempt() async throws {
+        // Issue #6015 recovery path: after the Safari-backed popup failed or
+        // was dismissed there is no active attempt, but the account UI still
+        // offers "Open in Browser". The URL it opens must record a callback
+        // state so the cmux://auth-callback deep link from the default browser
+        // routes home through handleCallbackURL and finishes the sign-in.
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let harness = HostBrowserSignInFlowHarness(user: user)
+        #expect(harness.flow.isSigningIn == false)
+
+        let url = harness.flow.defaultBrowserSignInURL
+        let state = try #require(
+            URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?
+                .first(where: { $0.name == "cmux_auth_state" })?
+                .value
+        )
+
+        let result = await harness.flow.handleCallbackURL(harness.callbackURL(state: state))
+
+        #expect(result)
+        #expect(harness.coordinator.isAuthenticated)
+        #expect(harness.coordinator.currentUser == user)
+        #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
+        #expect(await harness.tokenStore.getStoredAccessToken() == "access-1")
+        #expect(harness.flow.lastFailure == nil)
+    }
+
     @Test func issuedFallbackCallbackSurvivesPopupCancellation() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let harness = HostBrowserSignInFlowHarness(user: user)
