@@ -1,18 +1,5 @@
 import Foundation
 
-/// Corner of the terminal surface where the scroll-fixed badge overlay is
-/// anchored. Stored under ``TerminalCatalogSection/badgePosition``.
-///
-/// Cases use leading/trailing semantics so the anchor automatically mirrors
-/// for right-to-left layouts; the settings UI presents them with left/right
-/// labels for the languages cmux currently ships.
-public enum TerminalBadgePosition: String, CaseIterable, Sendable, SettingCodable {
-    case topLeading
-    case topTrailing
-    case bottomLeading
-    case bottomTrailing
-}
-
 /// A validated configuration for the per-workspace/per-tab terminal badge
 /// overlay (an iTerm2-style watermark).
 ///
@@ -32,23 +19,30 @@ public struct TerminalBadgeConfiguration: Equatable, Sendable {
 
     /// Supported opacity range for the badge text.
     public static let opacityRange: ClosedRange<Double> = 0.05...1.0
+    /// Default badge text opacity.
     public static let defaultOpacity = 0.45
 
     /// Supported font-size range (points) for the badge text.
     public static let fontSizeRange: ClosedRange<Double> = 10.0...64.0
+    /// Default badge font size in points.
     public static let defaultFontSize = 24.0
 
     /// Default badge text color, a `#RRGGBB` hex string.
     public static let defaultColorHex = "#FFFFFF"
 
+    /// The badge template, e.g. `"{workspace} · {tab}"`.
     public let template: String
+    /// The corner the badge is anchored to.
     public let position: TerminalBadgePosition
-    /// Clamped to ``opacityRange``.
+    /// Badge text opacity, clamped to ``opacityRange``.
     public let opacity: Double
-    /// Clamped to ``fontSizeRange``.
+    /// Badge text size in points, clamped to ``fontSizeRange``.
     public let fontSize: Double
+    /// Badge text color as a `#RRGGBB` hex string.
     public let colorHex: String
 
+    /// Creates a configuration, clamping `opacity` and `fontSize` into their
+    /// supported ranges (non-finite values fall back to the defaults).
     public init(
         template: String = TerminalBadgeConfiguration.defaultTemplate,
         position: TerminalBadgePosition = .topTrailing,
@@ -58,8 +52,12 @@ public struct TerminalBadgeConfiguration: Equatable, Sendable {
     ) {
         self.template = template
         self.position = position
-        self.opacity = Self.clamped(opacity, in: Self.opacityRange, fallback: Self.defaultOpacity)
-        self.fontSize = Self.clamped(fontSize, in: Self.fontSizeRange, fallback: Self.defaultFontSize)
+        self.opacity = clampedTerminalBadgeValue(
+            opacity, in: Self.opacityRange, fallback: Self.defaultOpacity
+        )
+        self.fontSize = clampedTerminalBadgeValue(
+            fontSize, in: Self.fontSizeRange, fallback: Self.defaultFontSize
+        )
         self.colorHex = colorHex
     }
 
@@ -75,13 +73,14 @@ public struct TerminalBadgeConfiguration: Equatable, Sendable {
             .replacingOccurrences(of: Self.tabToken, with: tab)
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
+}
 
-    private static func clamped(
-        _ value: Double,
-        in range: ClosedRange<Double>,
-        fallback: Double
-    ) -> Double {
-        guard value.isFinite else { return fallback }
-        return min(max(value, range.lowerBound), range.upperBound)
-    }
+/// Clamps `value` into `range`, falling back to `fallback` for non-finite input.
+private func clampedTerminalBadgeValue(
+    _ value: Double,
+    in range: ClosedRange<Double>,
+    fallback: Double
+) -> Double {
+    guard value.isFinite else { return fallback }
+    return min(max(value, range.lowerBound), range.upperBound)
 }

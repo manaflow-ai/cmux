@@ -9376,14 +9376,10 @@ final class GhosttySurfaceScrollView: NSView {
     /// find UI) so it stays fixed in the visible terminal rect regardless of
     /// scrollback. It is inserted just above the terminal content but below the
     /// find UI and HUD badges, and never intercepts pointer events.
+    ///
+    /// Only called from `GhosttyTerminalView.updateNSView` (the main actor), so
+    /// it mutates the view hierarchy directly without a thread hop.
     func setBadge(_ content: TerminalBadgeContent?) {
-        if !Thread.isMainThread {
-            DispatchQueue.main.async { [weak self] in
-                self?.setBadge(content)
-            }
-            return
-        }
-
         guard let content else {
             lastBadgeContent = nil
             badgeOverlayHostingView?.removeFromSuperview()

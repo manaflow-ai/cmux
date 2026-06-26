@@ -5,8 +5,14 @@ import Testing
 /// Behavior tests for ``TerminalBadgeConfiguration`` backing the
 /// per-workspace/per-tab overlay: template-token substitution, numeric
 /// clamping on init, and the catalog defaults / position stored representation.
-@Suite("TerminalBadgeConfiguration template resolution")
-struct TerminalBadgeTemplateTests {
+@Suite("TerminalBadgeConfiguration")
+struct TerminalBadgeTests {
+    private func makeScratchDefaults() -> UserDefaults {
+        UserDefaults(suiteName: "cmux.tests.badge.\(UUID().uuidString)")!
+    }
+
+    // MARK: Template resolution
+
     @Test func substitutesWorkspaceAndTabTokens() {
         let config = TerminalBadgeConfiguration(template: "{workspace} · {tab}")
         #expect(config.resolvedText(workspace: "cmux", tab: "shell") == "cmux · shell")
@@ -37,10 +43,9 @@ struct TerminalBadgeTemplateTests {
         #expect(resolved.contains("Repo"))
         #expect(resolved.contains("agent"))
     }
-}
 
-@Suite("TerminalBadgeConfiguration clamping")
-struct TerminalBadgeClampTests {
+    // MARK: Clamping
+
     @Test func clampsOpacityIntoRange() {
         #expect(TerminalBadgeConfiguration(opacity: -1).opacity == TerminalBadgeConfiguration.opacityRange.lowerBound)
         #expect(TerminalBadgeConfiguration(opacity: 2).opacity == TerminalBadgeConfiguration.opacityRange.upperBound)
@@ -61,13 +66,8 @@ struct TerminalBadgeClampTests {
     @Test func clampsNonFiniteFontSizeToDefault() {
         #expect(TerminalBadgeConfiguration(fontSize: .nan).fontSize == TerminalBadgeConfiguration.defaultFontSize)
     }
-}
 
-@Suite("TerminalBadge catalog keys")
-struct TerminalBadgeCatalogTests {
-    private func makeScratchDefaults() -> UserDefaults {
-        UserDefaults(suiteName: "cmux.tests.badge.\(UUID().uuidString)")!
-    }
+    // MARK: Catalog keys
 
     @Test func positionDefaultsToTopTrailingAndRoundTrips() {
         let key = TerminalCatalogSection().badgePosition
