@@ -21,4 +21,20 @@ final class UserDefaultsSettingsStorage: @unchecked Sendable {
     func removeObject(forKey key: String) {
         defaults.removeObject(forKey: key)
     }
+
+    func addDidChangeObserver(
+        _ handler: @escaping @Sendable (_ isBackingDefaultsNotification: Bool) -> Void
+    ) -> NotificationObserverToken {
+        let defaultsID = ObjectIdentifier(defaults)
+        return NotificationObserverToken(
+            NotificationCenter.default.addObserver(
+                forName: UserDefaults.didChangeNotification,
+                object: nil,
+                queue: nil
+            ) { notification in
+                let objectID = notification.object.map { ObjectIdentifier($0 as AnyObject) }
+                handler(objectID == defaultsID)
+            }
+        )
+    }
 }

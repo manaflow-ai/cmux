@@ -8,11 +8,12 @@ import Foundation
 /// The store only accepts ``DefaultsKey``; a ``JSONKey`` would be rejected at
 /// compile time. There are no runtime store/key-mismatch traps.
 ///
-/// Observation uses `NotificationCenter.addObserver(forName:object:queue:using:)`
-/// to feed a bounded signal into one cancellable drain task per
-/// ``values(for:)`` consumer. The observer token is removed and the drain task
-/// is cancelled when the stream terminates, without a permanently parked
-/// NotificationCenter async-sequence task or per-notification task fan-out.
+/// Observation ignores unrelated `UserDefaults` notifications unless the
+/// observed key's value changed, and feeds a bounded signal into one cancellable
+/// drain task per ``values(for:)`` consumer. The observer token is removed and
+/// the drain task is cancelled when the stream terminates, without a permanently
+/// parked NotificationCenter async-sequence task or per-notification task
+/// fan-out.
 ///
 /// ```swift
 /// let catalog = SettingCatalog()
@@ -292,21 +293,16 @@ public actor UserDefaultsSettingsStore {
     ///   through the consumer after the consumer catches up. Only the
     ///   latest value matters; the stale ones are dropped.
     public nonisolated func values<Value>(for key: DefaultsKey<Value>) -> AsyncStream<Value> {
-        AsyncStream<Value>(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
+        let storage = self.storage
+        return AsyncStream<Value>(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let (signals, signalContinuation) = AsyncStream<Bool>.makeStream(
                 bufferingPolicy: .bufferingNewest(1)
             )
 
-            let observer = NotificationObserverToken(
-                NotificationCenter.default.addObserver(
-                    forName: UserDefaults.didChangeNotification,
-                    object: nil,
-                    queue: nil
-                ) { [weak self] _ in
-                    guard self != nil else { return }
-                    signalContinuation.yield(())
-                }
-            )
+            let observer = storage.addDidChangeObserver { [weak self] isBackingDefaultsNotification in
+                guard self != nil else { return }
+                signalContinuation.yield(isBackingDefaultsNotification)
+            }
 
             let drainTask = Task { [weak self] in
                 guard let self else {
@@ -351,21 +347,16 @@ public actor UserDefaultsSettingsStore {
         includingSources includedMutationSources: Set<UserDefaultsSettingsMutationSource> = []
     ) -> AsyncStream<UserDefaultsSettingsValueEvent<Value>> {
         let initialConsumedSourceSequence = mutationSourceSequences[key.userDefaultsKey] ?? 0
+        let storage = self.storage
         return AsyncStream<UserDefaultsSettingsValueEvent<Value>>(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
+            let (signals, signalContinuation) = AsyncStream<Bool>.makeStream(
                 bufferingPolicy: .bufferingNewest(1)
             )
 
-            let observer = NotificationObserverToken(
-                NotificationCenter.default.addObserver(
-                    forName: UserDefaults.didChangeNotification,
-                    object: nil,
-                    queue: nil
-                ) { [weak self] _ in
-                    guard self != nil else { return }
-                    signalContinuation.yield(())
-                }
-            )
+            let observer = storage.addDidChangeObserver { [weak self] isBackingDefaultsNotification in
+                guard self != nil else { return }
+                signalContinuation.yield(isBackingDefaultsNotification)
+            }
 
             let drainTask = Task { [weak self] in
                 guard let self else {
@@ -383,8 +374,12 @@ public actor UserDefaultsSettingsStore {
                 var lastYieldedEvent = initialSnapshot.event
                 continuation.yield(initialSnapshot.event)
 
-                for await _ in signals {
+                for await isBackingDefaultsNotification in signals {
                     if Task.isCancelled { break }
+                    if !isBackingDefaultsNotification {
+                        let current = await self.value(for: key)
+                        guard current != lastYieldedEvent.value else { continue }
+                    }
                     let snapshot = await self.valueEvent(
                         for: key,
                         consumedSourceSequence: consumedSourceSequence

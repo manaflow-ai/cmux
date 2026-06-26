@@ -21,6 +21,35 @@ struct UserDefaultsSettingsStoreTests {
         }
     }
 
+    @Test func storageChangeObserverClassifiesBackingDefaultsInstance() async {
+        let observedDefaults = UserDefaults(suiteName: "cmux.tests.\(UUID().uuidString)")!
+        let otherDefaults = UserDefaults(suiteName: "cmux.tests.\(UUID().uuidString)")!
+        let storage = UserDefaultsSettingsStorage(defaults: observedDefaults)
+        let (stream, continuation) = AsyncStream<Bool>.makeStream(bufferingPolicy: .unbounded)
+        let token = storage.addDidChangeObserver { isBackingDefaultsNotification in
+            continuation.yield(isBackingDefaultsNotification)
+        }
+        defer {
+            token.remove()
+            continuation.finish()
+        }
+
+        NotificationCenter.default.post(
+            name: UserDefaults.didChangeNotification,
+            object: otherDefaults
+        )
+        NotificationCenter.default.post(
+            name: UserDefaults.didChangeNotification,
+            object: observedDefaults
+        )
+
+        var iterator = stream.makeAsyncIterator()
+        let firstEvent = await iterator.next()
+        let secondEvent = await iterator.next()
+        #expect(firstEvent == false)
+        #expect(secondEvent == true)
+    }
+
     @Test func readsDefaultWhenUnset() async {
         let (store, catalog) = makeStore()
         let value = await store.value(for: catalog.app.appearance)
@@ -137,6 +166,38 @@ struct UserDefaultsSettingsStoreTests {
         let external = await iterator.next()
         #expect(external?.value == .light)
         #expect(external?.mutationSource == nil)
+    }
+
+    @Test func valueEventsIgnoreUnrelatedDefaultsNotificationsWithoutValueChange() async {
+        let (store, catalog) = makeStore()
+        let key = catalog.app.appearance
+        let recorder = UserDefaultsSettingsEventRecorder<AppearanceMode>()
+        let task = Task {
+            let stream = await store.valueEvents(for: key)
+            for await event in stream {
+                await recorder.append(event)
+                if await recorder.count() >= 2 {
+                    break
+                }
+            }
+        }
+        defer {
+            task.cancel()
+        }
+
+        await waitForEventCount(1, in: recorder)
+        let otherDefaults = UserDefaults(suiteName: "cmux.tests.\(UUID().uuidString)")!
+        NotificationCenter.default.post(
+            name: UserDefaults.didChangeNotification,
+            object: otherDefaults
+        )
+        for _ in 0..<1_000 {
+            await Task.yield()
+        }
+
+        let events = await recorder.snapshot()
+        #expect(events.count == 1)
+        #expect(events.first?.value == .system)
     }
 
     @Test func valueEventsDoNotTagWritesBeforeStreamCreation() async {
