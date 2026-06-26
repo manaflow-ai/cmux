@@ -5,13 +5,28 @@ import Foundation
 /// This mirrors ``AgentResumeArgv`` as pure value logic so app restore/fork UI and CLI diagnostics
 /// can answer forkability from the same sanitizer-backed rules.
 public struct AgentForkArgv: Sendable, Equatable {
+    /// Creates a fork-argv builder. The type holds no state.
     public init() {}
 
+    /// The result of resolving a cmux wrapper launcher to its fork command.
     public enum LauncherResolution: Sendable, Equatable {
+        /// The launcher is a cmux wrapper; the associated value is its fork argv, or `nil` when
+        /// the wrapper has no forkable form.
         case resolved([String]?)
+        /// The launcher is a plain agent executable; fall through to
+        /// ``builtInKind(kind:sessionId:executablePath:arguments:)``.
         case passthrough
     }
 
+    /// Resolves a fork argv from a cmux wrapper launcher.
+    ///
+    /// - Parameters:
+    ///   - launcher: The captured launcher token, for example `"codexTeams"` or `"omo"`.
+    ///   - sessionId: The session/thread id to fork.
+    ///   - executablePath: The captured executable path, if any.
+    ///   - arguments: The captured launch argv, including the executable as element zero.
+    /// - Returns: `.resolved(argv)` for known wrapper launchers, `.resolved(nil)` for wrappers
+    ///   with no fork form, and `.passthrough` for plain agent launchers.
     public func launcherResolution(
         launcher: String?,
         sessionId: String,
@@ -50,6 +65,14 @@ public struct AgentForkArgv: Sendable, Equatable {
         }
     }
 
+    /// Builds the fork argv for a built-in agent kind.
+    ///
+    /// - Parameters:
+    ///   - kind: The agent kind identifier, for example `"codex"` or `"opencode"`.
+    ///   - sessionId: The session/thread id to fork.
+    ///   - executablePath: The captured executable path, if any.
+    ///   - arguments: The captured launch argv, including the executable as element zero.
+    /// - Returns: The fork argv when the kind has a sanitizer-approved fork form, or `nil`.
     public func builtInKind(
         kind: String,
         sessionId: String,

@@ -487,8 +487,9 @@ extension CMUXCLI {
 
     private func sessionsListStoredPIDAlive(_ pid: Int?) -> Bool? {
         guard let pid, pid > 0 else { return nil }
+        guard let processID = pid_t(exactly: pid) else { return nil }
         errno = 0
-        if Darwin.kill(pid_t(pid), 0) == 0 {
+        if Darwin.kill(processID, 0) == 0 {
             return true
         }
         return errno == EPERM
