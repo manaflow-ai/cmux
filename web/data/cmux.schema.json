@@ -507,7 +507,7 @@
           "description": "Outline the focused pane with an accent border while a workspace is split into multiple panes, so the active split is unmistakable. Complements the unfocused-split dimming. Set false to disable."
         },
         "focusedSplitBorderColor": {
-          "type": ["string", "null"],
+          "$ref": "#/$defs/colorHexOrNull",
           "default": null,
           "descriptionKey": "schemaDescriptions.terminal.focusedSplitBorderColor",
           "description": "Optional #RRGGBB hex override for the focused-split border color. null (the default) follows the system accent color."
