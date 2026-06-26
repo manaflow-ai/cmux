@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import WebKit
 
 private struct BrowserScreenshotWebContentMetrics {
@@ -590,66 +591,6 @@ enum BrowserScreenshotWebViewSnapshotter {
         }
     }
 
-    fileprivate static func urlMatches(_ currentURL: URL, expectedAbsoluteString: String) -> Bool {
-        let currentAbsoluteString = currentURL.absoluteString
-        if currentAbsoluteString == expectedAbsoluteString {
-            return true
-        }
-
-        guard
-            var expected = URLComponents(string: expectedAbsoluteString),
-            var current = URLComponents(url: currentURL, resolvingAgainstBaseURL: false)
-        else {
-            return false
-        }
-
-        expected.scheme = expected.scheme?.lowercased()
-        current.scheme = current.scheme?.lowercased()
-        expected.host = expected.host?.lowercased()
-        current.host = current.host?.lowercased()
-
-        let expectedPath = normalizedPathComponent(expected.path)
-        let currentPath = normalizedPathComponent(current.path)
-        let expectedPort = normalizedPortComponent(expected.port, scheme: expected.scheme)
-        let currentPort = normalizedPortComponent(current.port, scheme: current.scheme)
-        guard expected.scheme == current.scheme,
-              expected.host == current.host,
-              expectedPort == currentPort,
-              expectedPath == currentPath else {
-            return false
-        }
-
-        if expected.query != nil, expected.query != current.query {
-            return false
-        }
-        if expected.fragment != nil, expected.fragment != current.fragment {
-            return false
-        }
-        return true
-    }
-
-    private static func normalizedPathComponent(_ path: String) -> String {
-        if path == "/" {
-            return ""
-        }
-        guard path.count > 1 else { return path }
-        return path.hasSuffix("/") ? String(path.dropLast()) : path
-    }
-
-    private static func normalizedPortComponent(_ port: Int?, scheme: String?) -> Int? {
-        if let port {
-            return port
-        }
-        switch scheme?.lowercased() {
-        case "http":
-            return 80
-        case "https":
-            return 443
-        default:
-            return nil
-        }
-    }
-
     private static func normalizedViewportSize(_ viewportSize: NSSize) -> NSSize {
         let fallback = NSSize(width: 1280, height: 720)
         let width = viewportSize.width.isFinite && viewportSize.width > 1 ? viewportSize.width : fallback.width
@@ -796,10 +737,8 @@ private final class BrowserScreenshotExpectedURLWaiter: @unchecked Sendable {
     private var isReady: Bool {
         guard let webView,
               let currentURL = webView.url,
-              BrowserScreenshotWebViewSnapshotter.urlMatches(
-                currentURL,
-                expectedAbsoluteString: expectedAbsoluteString
-              ),
+              ExpectedURLMatcher(expectedAbsoluteString: expectedAbsoluteString)
+                .matches(currentURL),
               !webView.isLoading else {
             return false
         }

@@ -117,20 +117,82 @@ struct TitlebarControlsStyleConfig {
     let hoverBackground: Bool
 }
 
-enum TitlebarControlsVisualMetrics {
-    static let verticalLift: CGFloat = 0
+/// Vertical-lift positioning constant for the titlebar controls accessory.
+struct TitlebarControlsVisualMetrics {
+    /// Points the controls content is lifted within its container.
+    let verticalLift: CGFloat
 
-    static func liftedYOffset(_ yOffset: CGFloat) -> CGFloat {
+    /// The lift applied to the titlebar controls accessory.
+    static let standard = TitlebarControlsVisualMetrics(verticalLift: 0)
+
+    /// Applies the vertical lift to a computed y-offset.
+    func liftedYOffset(_ yOffset: CGFloat) -> CGFloat {
         yOffset + verticalLift
     }
 }
 
-func titlebarNotificationBadgeFontSize(for config: TitlebarControlsStyleConfig) -> CGFloat {
-    max(7, config.badgeSize - 6)
-}
+extension TitlebarControlsStyleConfig {
+    /// Point size for the notification badge label, derived from the badge diameter.
+    var notificationBadgeFontSize: CGFloat {
+        max(7, badgeSize - 6)
+    }
 
-func titlebarControlPressedScale(isPressed _: Bool) -> CGFloat {
-    1
+    /// Height reserved for a shortcut-hint pill, large enough for the control glyph.
+    var shortcutHintHeight: CGFloat {
+        max(14, iconSize + 1)
+    }
+
+    /// Vertical offset placing the shortcut hints just beneath the control row.
+    var shortcutHintVerticalOffset: CGFloat {
+        buttonSize + TitlebarShortcutHintMetrics.verticalGap
+    }
+
+    /// Whether the controls react to pointer hover for this style.
+    var shouldTrackButtonHover: Bool {
+        true
+    }
+
+    /// Scale applied to a control while it is pressed (no visual press scaling).
+    static func controlPressedScale(isPressed _: Bool) -> CGFloat {
+        1
+    }
+
+    /// Foreground opacity for a control glyph in the given interaction state.
+    static func controlForegroundOpacity(
+        isHovering: Bool,
+        isPressed: Bool,
+        isEnabled: Bool = true
+    ) -> Double {
+        HeaderChromeIconStyle.foregroundOpacity(isHovering: isHovering, isPressed: isPressed, isEnabled: isEnabled)
+    }
+
+    /// Background fill opacity for a control in the given interaction state.
+    func controlBackgroundOpacity(
+        isHovering: Bool,
+        isPressed: Bool,
+        isEnabled: Bool = true
+    ) -> Double {
+        HeaderChromeIconStyle.backgroundOpacity(
+            hoverBackground: hoverBackground,
+            isHovering: isHovering,
+            isPressed: isPressed,
+            isEnabled: isEnabled
+        )
+    }
+
+    /// Border stroke opacity for a control in the given interaction state.
+    func controlBorderOpacity(
+        isHovering: Bool,
+        isPressed: Bool,
+        isEnabled: Bool = true
+    ) -> Double {
+        HeaderChromeIconStyle.borderOpacity(
+            buttonBackground: buttonBackground,
+            isHovering: isHovering,
+            isPressed: isPressed,
+            isEnabled: isEnabled
+        )
+    }
 }
 
 final class TitlebarControlsViewModel: ObservableObject {
@@ -399,10 +461,6 @@ struct ShortcutHintHorizontalPlanner {
     }
 }
 
-func titlebarShortcutHintHeight(for config: TitlebarControlsStyleConfig) -> CGFloat {
-    max(14, config.iconSize + 1)
-}
-
 /// Width of a titlebar shortcut-hint pill, measured with the same font `ShortcutHintPill`
 /// renders with (SF Rounded at the pill's font size). Measuring with the default
 /// (non-rounded) system font underestimated command-symbol glyphs and let the pill
@@ -450,10 +508,6 @@ func titlebarHintLayoutRightmostExtent(
 
 enum TitlebarShortcutHintMetrics {
     static let verticalGap: CGFloat = -3
-}
-
-func titlebarShortcutHintVerticalOffset(for config: TitlebarControlsStyleConfig) -> CGFloat {
-    config.buttonSize + TitlebarShortcutHintMetrics.verticalGap
 }
 
 enum TitlebarShortcutHintActionSlot: Int, CaseIterable {
@@ -579,7 +633,7 @@ enum TitlebarControlsLayoutMetrics {
             MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
                 - debugSnapshot.leftControlsTopInset
         )
-        return TitlebarControlsVisualMetrics.liftedYOffset(baseYOffset + debugYOffset)
+        return TitlebarControlsVisualMetrics.standard.liftedYOffset(baseYOffset + debugYOffset)
     }
 }
 
@@ -594,58 +648,6 @@ private enum TitlebarControlIconStyle {
     static func iconFrameSize(for config: TitlebarControlsStyleConfig) -> CGFloat {
         HeaderChromeIconStyle.iconFrameSize(forIconSize: config.iconSize)
     }
-}
-
-func titlebarControlForegroundOpacity(isHovering: Bool, isPressed: Bool) -> Double {
-    titlebarControlForegroundOpacity(isHovering: isHovering, isPressed: isPressed, isEnabled: true)
-}
-
-func titlebarControlForegroundOpacity(isHovering: Bool, isPressed: Bool, isEnabled: Bool) -> Double {
-    HeaderChromeIconStyle.foregroundOpacity(isHovering: isHovering, isPressed: isPressed, isEnabled: isEnabled)
-}
-
-func titlebarControlBackgroundOpacity(
-    config: TitlebarControlsStyleConfig,
-    isHovering: Bool,
-    isPressed: Bool
-) -> Double {
-    titlebarControlBackgroundOpacity(config: config, isHovering: isHovering, isPressed: isPressed, isEnabled: true)
-}
-
-func titlebarControlBackgroundOpacity(
-    config: TitlebarControlsStyleConfig,
-    isHovering: Bool,
-    isPressed: Bool,
-    isEnabled: Bool
-) -> Double {
-    HeaderChromeIconStyle.backgroundOpacity(
-        hoverBackground: config.hoverBackground,
-        isHovering: isHovering,
-        isPressed: isPressed,
-        isEnabled: isEnabled
-    )
-}
-
-func titlebarControlBorderOpacity(
-    config: TitlebarControlsStyleConfig,
-    isHovering: Bool,
-    isPressed: Bool
-) -> Double {
-    titlebarControlBorderOpacity(config: config, isHovering: isHovering, isPressed: isPressed, isEnabled: true)
-}
-
-func titlebarControlBorderOpacity(
-    config: TitlebarControlsStyleConfig,
-    isHovering: Bool,
-    isPressed: Bool,
-    isEnabled: Bool
-) -> Double {
-    HeaderChromeIconStyle.borderOpacity(
-        buttonBackground: config.buttonBackground,
-        isHovering: isHovering,
-        isPressed: isPressed,
-        isEnabled: isEnabled
-    )
 }
 
 struct TitlebarControlButton<Content: View>: View {
@@ -739,19 +741,19 @@ private struct TitlebarControlButtonStyleBody: View {
                         .stroke(foregroundColor.opacity(borderOpacity), lineWidth: 0.5)
                 }
             }
-            .scaleEffect(titlebarControlPressedScale(isPressed: configuration.isPressed))
+            .scaleEffect(TitlebarControlsStyleConfig.controlPressedScale(isPressed: configuration.isPressed))
             .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
             .animation(.easeInOut(duration: 0.12), value: isHovering)
             .contentShape(Rectangle())
             .onHover { hovering in
-                if titlebarControlsShouldTrackButtonHover(config: config) {
+                if config.shouldTrackButtonHover {
                     isHovering = hovering
                 }
             }
     }
 
     private var foregroundOpacity: Double {
-        titlebarControlForegroundOpacity(
+        TitlebarControlsStyleConfig.controlForegroundOpacity(
             isHovering: isHovering,
             isPressed: configuration.isPressed,
             isEnabled: isEnabled
@@ -759,8 +761,7 @@ private struct TitlebarControlButtonStyleBody: View {
     }
 
     private var backgroundOpacity: Double {
-        titlebarControlBackgroundOpacity(
-            config: config,
+        config.controlBackgroundOpacity(
             isHovering: isHovering,
             isPressed: configuration.isPressed,
             isEnabled: isEnabled
@@ -768,8 +769,7 @@ private struct TitlebarControlButtonStyleBody: View {
     }
 
     private var borderOpacity: Double {
-        titlebarControlBorderOpacity(
-            config: config,
+        config.controlBorderOpacity(
             isHovering: isHovering,
             isPressed: configuration.isPressed,
             isEnabled: isEnabled
@@ -937,7 +937,7 @@ struct TitlebarControlsView: View {
     }
 
     private func titlebarHintVerticalBaseOffset(for config: TitlebarControlsStyleConfig) -> CGFloat {
-        titlebarShortcutHintVerticalOffset(for: config)
+        config.shortcutHintVerticalOffset
     }
 
     @MainActor
@@ -984,7 +984,7 @@ struct TitlebarControlsView: View {
 
                     if notificationStore.unreadCount > 0 {
                         Text("\(min(notificationStore.unreadCount, 99))")
-                            .font(.system(size: titlebarNotificationBadgeFontSize(for: config), weight: .semibold))
+                            .font(.system(size: config.notificationBadgeFontSize, weight: .semibold))
                             .foregroundColor(.white)
                             .frame(width: config.badgeSize, height: config.badgeSize)
                             .background(
@@ -1154,7 +1154,7 @@ struct TitlebarControlsView: View {
                     .background(TitlebarChromeGeometryReporter(keyPrefix: "titlebarShortcutHint_\(item.action.rawValue)"))
                     .position(
                         x: item.centerX,
-                        y: yOffset + titlebarShortcutHintHeight(for: config) / 2.0
+                        y: yOffset + config.shortcutHintHeight / 2.0
                     )
                     .shortcutHintTransition()
             }
@@ -1168,7 +1168,7 @@ struct TitlebarControlsView: View {
         config: TitlebarControlsStyleConfig
     ) -> some View {
         ShortcutHintPill(shortcut: shortcut, fontSize: max(8, config.iconSize - 5))
-            .frame(minHeight: titlebarShortcutHintHeight(for: config))
+            .frame(minHeight: config.shortcutHintHeight)
     }
 
     @ViewBuilder
@@ -1685,10 +1685,6 @@ struct TitlebarControlsLayoutSnapshot: Equatable {
     let containerHeight: CGFloat
     let xOffset: CGFloat
     let yOffset: CGFloat
-}
-
-func titlebarControlsShouldTrackButtonHover(config: TitlebarControlsStyleConfig) -> Bool {
-    true
 }
 
 func titlebarControlsShouldScheduleForViewSizeChange(

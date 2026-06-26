@@ -1165,7 +1165,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let externalOpenURLClassifier: any ExternalOpenURLClassifying = ExternalOpenURLClassifier(
         bundleURL: Bundle.main.bundleURL,
         orderedUniqueDirectories: { pathURLs, excludedRootURLs in
-            FinderServicePathResolver.orderedUniqueDirectories(
+            FinderServicePathResolver().orderedUniqueDirectories(
                 from: pathURLs,
                 excludingDescendantsOf: excludedRootURLs
             )

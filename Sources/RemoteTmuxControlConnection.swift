@@ -165,18 +165,13 @@ final class RemoteTmuxControlConnection {
     /// dropping arbitrary control-mode bytes or growing memory without bound.
     private static let maxPendingStdoutChunks = 16
 
-    /// Subscription-name prefix for per-pane `pane_current_path` (`refresh-client -B`).
-    /// The tmux pane id is appended so an inbound `%subscription-changed` can be
-    /// routed back to its pane; defined once so the writer and reader can't drift.
-    private static let cwdSubscriptionPrefix = "cmux_cwd_"
-
-    /// Subscription-name prefix for per-pane reflow classification
-    /// (`refresh-client -B`). The subscribed format is
-    /// `#{alternate_on}<sep>#{pane_current_command}`; tmux emits it on subscribe
-    /// and on every change, so launching/exiting an app (bash → node when claude
-    /// starts) re-classifies the pane live. The tmux pane id is appended for
-    /// routing, mirroring ``cwdSubscriptionPrefix``.
-    private static let reflowSubscriptionPrefix = "cmux_reflow_"
+    /// Pure builders for the tmux control-mode command strings this connection
+    /// writes, plus the parser for the activity-query lines it reads back. Holds
+    /// the subscription-name prefixes (`cmux_cwd_`/`cmux_reflow_`) and the
+    /// activity-query format, defined once so the writer side (subscribe) and the
+    /// reader side (unsubscribe / `%subscription-changed` routing / activity
+    /// parse) can't drift.
+    let commandBuilder = RemoteTmuxControlCommandBuilder()
 
     /// `ESC[?1049h` — enter the alternate screen, emitted to a mirror surface when
     /// the remote pane is on the alternate screen (see ``capturePane(paneId:)``).
@@ -668,16 +663,6 @@ final class RemoteTmuxControlConnection {
         )
     }
 
-    /// The exact `refresh-client -B` line that subscribes `paneId`'s working
-    /// directory. The `name:target:format` argument MUST stay double-quoted:
-    /// tmux's command parser rejects an unquoted `#{…}` mid-argument with
-    /// `parse error: syntax error` (verified on tmux 3.6a), and because the
-    /// result FIFO drops `%error` blocks the subscription would silently never
-    /// exist — the mirrored tab's folder would just never update.
-    static func panePathSubscriptionCommand(paneId: Int) -> String {
-        "refresh-client -B \"\(cwdSubscriptionPrefix)\(paneId):%\(paneId):#{pane_current_path}\""
-    }
-
     /// Subscribes to live `pane_current_path` changes for `paneId` via tmux
     /// control-mode `refresh-client -B`, so a remote `cd` updates the mirrored
     /// tab's folder without polling. tmux emits the value once on subscribe and
@@ -685,14 +670,14 @@ final class RemoteTmuxControlConnection {
     /// Best-effort: on tmux builds that don't support subscriptions the command is
     /// a no-op and ``requestPanePath(paneId:)`` still supplies the initial folder.
     func subscribePanePath(paneId: Int) {
-        send(Self.panePathSubscriptionCommand(paneId: paneId))
+        send(commandBuilder.panePathSubscriptionCommand(paneId: paneId))
     }
 
     /// Removes the live `pane_current_path` subscription for `paneId` (issued once
     /// the pane is gone). tmux also drops a dead pane's subscriptions on its own;
     /// this keeps the client's subscription set tidy across split/close churn.
     func unsubscribePanePath(paneId: Int) {
-        send("refresh-client -B \(Self.cwdSubscriptionPrefix)\(paneId)")
+        send("refresh-client -B \(commandBuilder.cwdSubscriptionPrefix)\(paneId)")
     }
 
     /// One-shot query of a pane's reflow classification (`#{alternate_on}` +
@@ -728,17 +713,6 @@ final class RemoteTmuxControlConnection {
         observers.emitPaneReflow(paneId, noReflow)
     }
 
-    /// The exact `refresh-client -B` line that subscribes `paneId`'s foreground
-    /// classification. Same quoting requirement as
-    /// ``panePathSubscriptionCommand(paneId:)`` — unquoted, tmux rejects the
-    /// `#{…}` with a (silently dropped) parse error and the live classification
-    /// never arrives, so a pane that starts a command after its seed keeps its
-    /// stale idle-shell state and the close confirmation never fires.
-    static func paneReflowSubscriptionCommand(paneId: Int) -> String {
-        "refresh-client -B \"\(reflowSubscriptionPrefix)\(paneId):%\(paneId):"
-            + "#{alternate_on}\(PaneForegroundState.fieldSeparator)#{pane_current_command}\""
-    }
-
     /// Subscribes to live reflow-classification changes for `paneId` via tmux
     /// control-mode `refresh-client -B`. The subscribed value is
     /// `#{alternate_on}|#{pane_current_command}`; tmux emits it once on subscribe
@@ -751,30 +725,13 @@ final class RemoteTmuxControlConnection {
     /// the surface keeps its safe no-reflow default. See ``subscriptionChanged``
     /// handling for the parse, and ``PaneForegroundState/plainShellCommands`` for the policy.
     func subscribePaneReflow(paneId: Int) {
-        send(Self.paneReflowSubscriptionCommand(paneId: paneId))
+        send(commandBuilder.paneReflowSubscriptionCommand(paneId: paneId))
     }
 
     /// Removes the live reflow-classification subscription for `paneId` (issued once
     /// the pane is gone), mirroring ``unsubscribePanePath(paneId:)``.
     func unsubscribePaneReflow(paneId: Int) {
-        send("refresh-client -B \(Self.reflowSubscriptionPrefix)\(paneId)")
-    }
-
-    /// Format for close-time activity queries: the pane id (for cache refresh and
-    /// multi-pane correlation) plus the same `alternate_on`/`pane_current_command`
-    /// pair the reflow subscription streams. Quoted by the command builders — see
-    /// ``panePathSubscriptionCommand(paneId:)`` for why the quoting is load-bearing.
-    private static let activityQueryFormat = "#{pane_id}\(PaneForegroundState.fieldSeparator)"
-        + "#{alternate_on}\(PaneForegroundState.fieldSeparator)#{pane_current_command}"
-
-    /// The `list-panes` line behind ``queryWindowActivity(windowId:completion:)``.
-    static func windowActivityQueryCommand(windowId: Int) -> String {
-        "list-panes -t @\(windowId) -F \"\(activityQueryFormat)\""
-    }
-
-    /// The `display-message` line behind ``queryPaneActivity(paneId:completion:)``.
-    static func paneActivityQueryCommand(paneId: Int) -> String {
-        "display-message -p -t %\(paneId) -F \"\(activityQueryFormat)\""
+        send("refresh-client -B \(commandBuilder.reflowSubscriptionPrefix)\(paneId)")
     }
 
     /// Live, close-time query of every pane's foreground state in `windowId`.
@@ -786,13 +743,13 @@ final class RemoteTmuxControlConnection {
     /// called exactly once, on the main actor; `nil` means the query could not be
     /// issued or the stream reset first (caller falls back to the cache).
     func queryWindowActivity(windowId: Int, completion: @escaping ([Int: PaneForegroundState]?) -> Void) {
-        sendActivityQuery(Self.windowActivityQueryCommand(windowId: windowId), completion: completion)
+        sendActivityQuery(commandBuilder.windowActivityQueryCommand(windowId: windowId), completion: completion)
     }
 
     /// Single-pane variant of ``queryWindowActivity(windowId:completion:)``, for
     /// the multi-pane mirror's pane-header ✕ close.
     func queryPaneActivity(paneId: Int, completion: @escaping ([Int: PaneForegroundState]?) -> Void) {
-        sendActivityQuery(Self.paneActivityQueryCommand(paneId: paneId), completion: completion)
+        sendActivityQuery(commandBuilder.paneActivityQueryCommand(paneId: paneId), completion: completion)
     }
 
     private func sendActivityQuery(
@@ -810,23 +767,6 @@ final class RemoteTmuxControlConnection {
             activityQueryCompletions.removeValue(forKey: token)?(nil)
             return
         }
-    }
-
-    /// Parses one activity-query line (``activityQueryFormat``):
-    /// `%<paneId>|<alternate_on>|<pane_current_command>`. `nil` for an
-    /// unparseable line — the caller treats that pane as unclassified.
-    /// `maxSplits: 1` is deliberate (NOT 2): this strips only the `%paneId`
-    /// prefix, and ``PaneForegroundState/init(rawValue:)`` applies its own
-    /// `maxSplits: 1` for the second field — so a `|` inside a command name
-    /// stays in the command instead of truncating it.
-    static func parseActivityQueryLine(_ line: String) -> (paneId: Int, state: PaneForegroundState)? {
-        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        let parts = trimmed.split(
-            separator: PaneForegroundState.fieldSeparator, maxSplits: 1, omittingEmptySubsequences: false
-        )
-        guard parts.count == 2,
-              let paneId = RemoteTmuxControlStreamParser.id(parts[0], sigil: "%") else { return nil }
-        return (paneId, PaneForegroundState(rawValue: String(parts[1])))
     }
 
     /// Fails every in-flight activity query — called whenever the control stream
@@ -857,21 +797,8 @@ final class RemoteTmuxControlConnection {
     @discardableResult
     func sendKeys(paneId: Int, data: Data) -> Bool {
         guard !data.isEmpty else { return true }
-        let hex = Self.hexByteArguments(data)
+        let hex = commandBuilder.hexByteArguments(data)
         return sendInternal("send-keys -t %\(paneId) -H \(hex)", kind: .other)
-    }
-
-    nonisolated static func hexByteArguments(_ data: Data) -> String {
-        guard !data.isEmpty else { return "" }
-        let digits = Array("0123456789abcdef".utf8)
-        var bytes: [UInt8] = []
-        bytes.reserveCapacity(data.count * 3 - 1)
-        for byte in data {
-            if !bytes.isEmpty { bytes.append(UInt8(ascii: " ")) }
-            bytes.append(digits[Int(byte >> 4)])
-            bytes.append(digits[Int(byte & 0x0f)])
-        }
-        return String(decoding: bytes, as: UTF8.self)
     }
 
     /// Pastes `text` into `paneId` as a tmux paste (`paste-buffer -p`), which wraps
@@ -884,19 +811,8 @@ final class RemoteTmuxControlConnection {
     /// there's no buffer-name collision. `text` must be a single line (callers route
     /// only single-line content — e.g. file/image paths — here).
     func pastePane(paneId: Int, text: String) -> Bool {
-        guard let commands = Self.pastePaneCommands(paneId: paneId, text: text) else { return false }
+        guard let commands = commandBuilder.pastePaneCommands(paneId: paneId, text: text) else { return false }
         return send(commands.setBuffer) && send(commands.pasteBuffer)
-    }
-
-    nonisolated static func pastePaneCommands(paneId: Int, text: String)
-        -> (setBuffer: String, pasteBuffer: String)?
-    {
-        guard !text.isEmpty else { return nil }
-        let buffer = "cmux-paste-\(paneId)"
-        return (
-            setBuffer: "set-buffer -b \(buffer) -- \(RemoteTmuxHost.shellSingleQuoted(text))",
-            pasteBuffer: "paste-buffer -p -d -b \(buffer) -t %\(paneId)"
-        )
     }
 
     /// Detaches: terminating ssh kills the control client but leaves the remote
@@ -1198,12 +1114,12 @@ final class RemoteTmuxControlConnection {
             record("session-window-changed @\(windowId)")
         case let .subscriptionChanged(name, value):
             // cmux subscribes each pane's working directory as "cmux_cwd_<paneId>".
-            if name.hasPrefix(Self.cwdSubscriptionPrefix),
-               let paneId = Int(name.dropFirst(Self.cwdSubscriptionPrefix.count)) {
+            if name.hasPrefix(commandBuilder.cwdSubscriptionPrefix),
+               let paneId = Int(name.dropFirst(commandBuilder.cwdSubscriptionPrefix.count)) {
                 let path = value.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !path.isEmpty { observers.emitPaneCwd(paneId, path) }
-            } else if name.hasPrefix(Self.reflowSubscriptionPrefix),
-                      let paneId = Int(name.dropFirst(Self.reflowSubscriptionPrefix.count)) {
+            } else if name.hasPrefix(commandBuilder.reflowSubscriptionPrefix),
+                      let paneId = Int(name.dropFirst(commandBuilder.reflowSubscriptionPrefix.count)) {
                 // Reflow classification: "<alternate_on>|<pane_current_command>".
                 classifyAndEmitReflow(paneId: paneId, rawValue: value, source: "sub")
             }
@@ -1344,7 +1260,7 @@ final class RemoteTmuxControlConnection {
             guard let completion = activityQueryCompletions.removeValue(forKey: token) else { break }
             var states: [Int: PaneForegroundState] = [:]
             for line in lines {
-                guard let parsed = Self.parseActivityQueryLine(line) else { continue }
+                guard let parsed = commandBuilder.parseActivityQueryLine(line) else { continue }
                 states[parsed.paneId] = parsed.state
             }
             // The fresh answer flows back into the cache, so the synchronous

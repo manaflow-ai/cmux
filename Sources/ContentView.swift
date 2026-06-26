@@ -996,7 +996,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             },
             visibilityMode: .alwaysVisible
         )
-        .offset(y: -TitlebarControlsVisualMetrics.verticalLift)
+        .offset(y: -TitlebarControlsVisualMetrics.standard.verticalLift)
     }
 
     /// Intrinsic width of ``fullscreenControls`` for the current controls style.

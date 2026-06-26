@@ -145,8 +145,8 @@ import Testing
     }
 
     @Test func sendKeysHexArgumentsAreLowercaseSpaceSeparatedBytes() {
-        #expect(RemoteTmuxControlConnection.hexByteArguments(Data([0x00, 0x0f, 0x10, 0xff])) == "00 0f 10 ff")
-        #expect(RemoteTmuxControlConnection.hexByteArguments(Data()) == "")
+        #expect(RemoteTmuxControlCommandBuilder().hexByteArguments(Data([0x00, 0x0f, 0x10, 0xff])) == "00 0f 10 ff")
+        #expect(RemoteTmuxControlCommandBuilder().hexByteArguments(Data()) == "")
     }
 
     @Test @MainActor func pastePaneRejectsDisconnectedControlStream() {
@@ -198,13 +198,13 @@ import Testing
     }
 
     @Test func pastePaneCommandsProtectOptionLookingText() throws {
-        let commands = try #require(RemoteTmuxControlConnection.pastePaneCommands(paneId: 7, text: "-n not-an-option"))
+        let commands = try #require(RemoteTmuxControlCommandBuilder().pastePaneCommands(paneId: 7, text: "-n not-an-option"))
         #expect(commands.setBuffer == "set-buffer -b cmux-paste-7 -- '-n not-an-option'")
         #expect(commands.pasteBuffer == "paste-buffer -p -d -b cmux-paste-7 -t %7")
     }
 
     @Test func pastePaneCommandsRejectEmptyText() {
-        #expect(RemoteTmuxControlConnection.pastePaneCommands(paneId: 7, text: "") == nil)
+        #expect(RemoteTmuxControlCommandBuilder().pastePaneCommands(paneId: 7, text: "") == nil)
     }
 
     // MARK: - Interactive auth invocation (what `cmux ssh-tmux` runs in the tty)

@@ -1,3 +1,4 @@
+import CmuxBrowser
 import Foundation
 
 /// Field-editor state captured synchronously at Return time. The published

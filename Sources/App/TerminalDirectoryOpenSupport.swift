@@ -5,65 +5,6 @@ import CmuxCommandPalette
 import Darwin
 import Foundation
 
-enum FinderServicePathResolver {
-    private static func canonicalDirectoryPath(_ path: String) -> String {
-        guard path.count > 1 else { return path }
-        var canonical = path
-        while canonical.count > 1 && canonical.hasSuffix("/") {
-            canonical.removeLast()
-        }
-        return canonical
-    }
-
-    private static func normalizedComparisonURL(_ url: URL) -> URL {
-        url.standardizedFileURL.resolvingSymlinksInPath()
-    }
-
-    private static func isSameOrDescendant(_ url: URL, of rootURL: URL) -> Bool {
-        let urlPathComponents = normalizedComparisonURL(url).pathComponents
-        let rootPathComponents = normalizedComparisonURL(rootURL).pathComponents
-        guard urlPathComponents.count >= rootPathComponents.count else { return false }
-        return Array(urlPathComponents.prefix(rootPathComponents.count)) == rootPathComponents
-    }
-
-    private static func resolvedDirectoryURL(from url: URL) -> URL {
-        let standardized = url.standardizedFileURL
-        if standardized.hasDirectoryPath {
-            return standardized
-        }
-        if let resourceValues = try? standardized.resourceValues(forKeys: [.isDirectoryKey]),
-           resourceValues.isDirectory == true {
-            return standardized
-        }
-        return standardized.deletingLastPathComponent()
-    }
-
-    static func orderedUniqueDirectories(
-        from pathURLs: [URL],
-        excludingDescendantsOf excludedRootURLs: [URL] = []
-    ) -> [String] {
-        var seen: Set<String> = []
-        var directories: [String] = []
-
-        for url in pathURLs {
-            let directoryURL = resolvedDirectoryURL(from: url)
-            guard !excludedRootURLs.contains(where: { isSameOrDescendant(directoryURL, of: $0) }) else {
-                continue
-            }
-            let path = canonicalDirectoryPath(directoryURL.path(percentEncoded: false))
-            let dedupePath = canonicalDirectoryPath(
-                normalizedComparisonURL(directoryURL).path(percentEncoded: false)
-            )
-            guard !path.isEmpty, !dedupePath.isEmpty else { continue }
-            if seen.insert(dedupePath).inserted {
-                directories.append(path)
-            }
-        }
-
-        return directories
-    }
-}
-
 enum TerminalDirectoryOpenTarget: String, CaseIterable {
     case androidStudio
     case antigravity

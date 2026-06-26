@@ -496,14 +496,14 @@ import Testing
 @Suite struct RemoteTmuxSubscriptionCommandTests {
     @Test @MainActor func reflowSubscribeCommandKeepsFormatQuoted() {
         #expect(
-            RemoteTmuxControlConnection.paneReflowSubscriptionCommand(paneId: 15)
+            RemoteTmuxControlCommandBuilder().paneReflowSubscriptionCommand(paneId: 15)
                 == "refresh-client -B \"cmux_reflow_15:%15:#{alternate_on}|#{pane_current_command}\""
         )
     }
 
     @Test @MainActor func cwdSubscribeCommandKeepsFormatQuoted() {
         #expect(
-            RemoteTmuxControlConnection.panePathSubscriptionCommand(paneId: 7)
+            RemoteTmuxControlCommandBuilder().panePathSubscriptionCommand(paneId: 7)
                 == "refresh-client -B \"cmux_cwd_7:%7:#{pane_current_path}\""
         )
     }
@@ -515,33 +515,33 @@ import Testing
 @Suite struct RemoteTmuxActivityQueryTests {
     @Test @MainActor func windowQueryCommandKeepsFormatQuoted() {
         #expect(
-            RemoteTmuxControlConnection.windowActivityQueryCommand(windowId: 3)
+            RemoteTmuxControlCommandBuilder().windowActivityQueryCommand(windowId: 3)
                 == "list-panes -t @3 -F \"#{pane_id}|#{alternate_on}|#{pane_current_command}\""
         )
     }
 
     @Test @MainActor func paneQueryCommandKeepsFormatQuoted() {
         #expect(
-            RemoteTmuxControlConnection.paneActivityQueryCommand(paneId: 9)
+            RemoteTmuxControlCommandBuilder().paneActivityQueryCommand(paneId: 9)
                 == "display-message -p -t %9 -F \"#{pane_id}|#{alternate_on}|#{pane_current_command}\""
         )
     }
 
     @Test @MainActor func parsesActiveCommandLine() {
-        let parsed = RemoteTmuxControlConnection.parseActivityQueryLine("%5|0|sleep")
+        let parsed = RemoteTmuxControlCommandBuilder().parseActivityQueryLine("%5|0|sleep")
         #expect(parsed?.paneId == 5)
         #expect(parsed?.state.hasActiveCommand == true)
         #expect(parsed?.state.command == "sleep")
     }
 
     @Test @MainActor func parsesIdleShellLine() {
-        let parsed = RemoteTmuxControlConnection.parseActivityQueryLine("%12|0|bash")
+        let parsed = RemoteTmuxControlCommandBuilder().parseActivityQueryLine("%12|0|bash")
         #expect(parsed?.paneId == 12)
         #expect(parsed?.state.hasActiveCommand == false)
     }
 
     @Test @MainActor func parsesAltScreenLine() {
-        let parsed = RemoteTmuxControlConnection.parseActivityQueryLine("%7|1|vim")
+        let parsed = RemoteTmuxControlCommandBuilder().parseActivityQueryLine("%7|1|vim")
         #expect(parsed?.paneId == 7)
         #expect(parsed?.state.alternateOn == true)
         #expect(parsed?.state.hasActiveCommand == true)
@@ -550,15 +550,15 @@ import Testing
     @Test @MainActor func commandContainingSeparatorSurvives() {
         // maxSplits strips only the pane id; the state parser strips only the
         // alternate_on flag — a pipe in the command name stays in the command.
-        let parsed = RemoteTmuxControlConnection.parseActivityQueryLine("%5|0|my|weird")
+        let parsed = RemoteTmuxControlCommandBuilder().parseActivityQueryLine("%5|0|my|weird")
         #expect(parsed?.state.command == "my|weird")
         #expect(parsed?.state.hasActiveCommand == true)
     }
 
     @Test @MainActor func rejectsLinesWithoutPaneId() {
-        #expect(RemoteTmuxControlConnection.parseActivityQueryLine("0|bash") == nil)
-        #expect(RemoteTmuxControlConnection.parseActivityQueryLine("garbage") == nil)
-        #expect(RemoteTmuxControlConnection.parseActivityQueryLine("") == nil)
+        #expect(RemoteTmuxControlCommandBuilder().parseActivityQueryLine("0|bash") == nil)
+        #expect(RemoteTmuxControlCommandBuilder().parseActivityQueryLine("garbage") == nil)
+        #expect(RemoteTmuxControlCommandBuilder().parseActivityQueryLine("") == nil)
     }
 }
 

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import Testing
 
 #if canImport(cmux_DEV)
@@ -15,8 +16,8 @@ import Testing
 @Suite struct OmnibarSubmitDecisionTests {
     private func focusedState(buffer: String, currentURLString: String = "https://example.com/") -> OmnibarState {
         var state = OmnibarState()
-        _ = omnibarReduce(state: &state, event: .focusGained(currentURLString: currentURLString, shouldSelectAll: false))
-        _ = omnibarReduce(state: &state, event: .bufferChanged(buffer))
+        _ = state.reduce(.focusGained(currentURLString: currentURLString, shouldSelectAll: false))
+        _ = state.reduce(.bufferChanged(buffer))
         return state
     }
 
@@ -33,12 +34,12 @@ import Testing
         // "claude.c" while the field already shows "claude.com". The row that
         // was auto-selected for the stale query must not win over the field.
         var state = focusedState(buffer: "claude.c")
-        _ = omnibarReduce(state: &state, event: .suggestionsUpdated([
+        _ = state.reduce(.suggestionsUpdated([
             .search(engineName: "Google", query: "claude.c"),
             .history(url: "https://claude.ai/", title: "Claude"),
         ]))
-        _ = omnibarReduce(state: &state, event: .bufferChanged("claude.co"))
-        _ = omnibarReduce(state: &state, event: .bufferChanged("claude.com"))
+        _ = state.reduce(.bufferChanged("claude.co"))
+        _ = state.reduce(.bufferChanged("claude.com"))
 
         let decision = omnibarSubmitDecision(
             liveField: caretSnapshot("claude.com"),
@@ -73,7 +74,7 @@ import Testing
         // explicit arrow selection, Return navigates exactly what the field
         // shows instead of committing the auto-selected row.
         var state = focusedState(buffer: "claude.c")
-        _ = omnibarReduce(state: &state, event: .suggestionsUpdated([
+        _ = state.reduce(.suggestionsUpdated([
             .history(url: "https://claude.com/", title: "Claude"),
             .search(engineName: "Google", query: "claude.c"),
         ]))
@@ -105,12 +106,12 @@ import Testing
 
     @Test func returnCommitsArrowSelectedSuggestion() {
         var state = focusedState(buffer: "claude")
-        _ = omnibarReduce(state: &state, event: .suggestionsUpdated([
+        _ = state.reduce(.suggestionsUpdated([
             .search(engineName: "Google", query: "claude"),
             .history(url: "https://claude.ai/", title: "Claude AI"),
             .history(url: "https://claude.com/", title: "Claude"),
         ]))
-        _ = omnibarReduce(state: &state, event: .moveSelection(delta: 1))
+        _ = state.reduce(.moveSelection(delta: 1))
 
         let decision = omnibarSubmitDecision(
             liveField: caretSnapshot("claude"),
@@ -124,13 +125,13 @@ import Testing
 
     @Test func returnCommitsArrowReselectedSuggestionWithInlineCompletionDisplayed() throws {
         var state = focusedState(buffer: "claude.c")
-        _ = omnibarReduce(state: &state, event: .suggestionsUpdated([
+        _ = state.reduce(.suggestionsUpdated([
             .history(url: "https://claude.com/", title: "Claude"),
             .search(engineName: "Google", query: "claude.c"),
         ]))
         // Arrow down then up: lands back on row 0 as an explicit user selection.
-        _ = omnibarReduce(state: &state, event: .moveSelection(delta: 1))
-        _ = omnibarReduce(state: &state, event: .moveSelection(delta: -1))
+        _ = state.reduce(.moveSelection(delta: 1))
+        _ = state.reduce(.moveSelection(delta: -1))
         #expect(state.selectedSuggestionIndex == 0)
 
         let completion = try #require(
@@ -159,12 +160,12 @@ import Testing
 
     @Test func typingAfterArrowSelectionInvalidatesSuggestionCommitOnReturn() {
         var state = focusedState(buffer: "claude.c")
-        _ = omnibarReduce(state: &state, event: .suggestionsUpdated([
+        _ = state.reduce(.suggestionsUpdated([
             .search(engineName: "Google", query: "claude.c"),
             .history(url: "https://claude.ai/", title: "Claude"),
         ]))
-        _ = omnibarReduce(state: &state, event: .moveSelection(delta: 1))
-        _ = omnibarReduce(state: &state, event: .bufferChanged("claude.co"))
+        _ = state.reduce(.moveSelection(delta: 1))
+        _ = state.reduce(.bufferChanged("claude.co"))
 
         let decision = omnibarSubmitDecision(
             liveField: caretSnapshot("claude.com"),
@@ -178,11 +179,11 @@ import Testing
 
     @Test func returnIgnoresHoverHighlightedSuggestion() {
         var state = focusedState(buffer: "claude")
-        _ = omnibarReduce(state: &state, event: .suggestionsUpdated([
+        _ = state.reduce(.suggestionsUpdated([
             .search(engineName: "Google", query: "claude"),
             .remoteSearchSuggestion("claude pricing"),
         ]))
-        _ = omnibarReduce(state: &state, event: .highlightIndex(1))
+        _ = state.reduce(.highlightIndex(1))
 
         let decision = omnibarSubmitDecision(
             liveField: caretSnapshot("claude"),
@@ -201,13 +202,13 @@ import Testing
         // Hover moves the highlight away from the arrow-selected row, so the
         // selection no longer reflects an explicit keyboard choice.
         var state = focusedState(buffer: "claude")
-        _ = omnibarReduce(state: &state, event: .suggestionsUpdated([
+        _ = state.reduce(.suggestionsUpdated([
             .search(engineName: "Google", query: "claude"),
             .remoteSearchSuggestion("claude pricing"),
             .remoteSearchSuggestion("claude docs"),
         ]))
-        _ = omnibarReduce(state: &state, event: .moveSelection(delta: 1))
-        _ = omnibarReduce(state: &state, event: .highlightIndex(2))
+        _ = state.reduce(.moveSelection(delta: 1))
+        _ = state.reduce(.highlightIndex(2))
 
         let decision = omnibarSubmitDecision(
             liveField: caretSnapshot("claude"),
@@ -223,12 +224,12 @@ import Testing
         // Cmd+L while already editing reasserts focus with select-all; the
         // earlier arrow selection must not commit on the next Return.
         var state = focusedState(buffer: "claude")
-        _ = omnibarReduce(state: &state, event: .suggestionsUpdated([
+        _ = state.reduce(.suggestionsUpdated([
             .search(engineName: "Google", query: "claude"),
             .remoteSearchSuggestion("claude pricing"),
         ]))
-        _ = omnibarReduce(state: &state, event: .moveSelection(delta: 1))
-        _ = omnibarReduce(state: &state, event: .focusReasserted(shouldSelectAll: true))
+        _ = state.reduce(.moveSelection(delta: 1))
+        _ = state.reduce(.focusReasserted(shouldSelectAll: true))
 
         let decision = omnibarSubmitDecision(
             liveField: caretSnapshot("claude"),
@@ -244,12 +245,12 @@ import Testing
         // Programmatic focus restoration (window churn, palette close) does
         // not reset editing intent and must keep the arrow selection armed.
         var state = focusedState(buffer: "claude")
-        _ = omnibarReduce(state: &state, event: .suggestionsUpdated([
+        _ = state.reduce(.suggestionsUpdated([
             .search(engineName: "Google", query: "claude"),
             .remoteSearchSuggestion("claude pricing"),
         ]))
-        _ = omnibarReduce(state: &state, event: .moveSelection(delta: 1))
-        _ = omnibarReduce(state: &state, event: .focusReasserted(shouldSelectAll: false))
+        _ = state.reduce(.moveSelection(delta: 1))
+        _ = state.reduce(.focusReasserted(shouldSelectAll: false))
 
         let decision = omnibarSubmitDecision(
             liveField: caretSnapshot("claude"),
@@ -268,9 +269,9 @@ import Testing
             .remoteSearchSuggestion("go tutorial"),
             .remoteSearchSuggestion("go json"),
         ]
-        _ = omnibarReduce(state: &state, event: .suggestionsUpdated(base))
-        _ = omnibarReduce(state: &state, event: .moveSelection(delta: 2))
-        _ = omnibarReduce(state: &state, event: .suggestionsUpdated(base + [.remoteSearchSuggestion("go fmt")]))
+        _ = state.reduce(.suggestionsUpdated(base))
+        _ = state.reduce(.moveSelection(delta: 2))
+        _ = state.reduce(.suggestionsUpdated(base + [.remoteSearchSuggestion("go fmt")]))
         #expect(state.selectedSuggestionIndex == 2)
 
         let decision = omnibarSubmitDecision(
