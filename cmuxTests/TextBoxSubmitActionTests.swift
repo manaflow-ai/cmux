@@ -137,7 +137,7 @@ struct TextBoxSubmitActionTests {
         )
         XCTAssertEqual(
             try #require(actionsByID["codex"]).command(forPrompt: prompt),
-            "codex --dangerously-bypass-approvals-and-sandbox \(quotedPrompt)"
+            "codex --yolo \(quotedPrompt)"
         )
         XCTAssertEqual(
             try #require(actionsByID["opencode"]).command(forPrompt: prompt),
@@ -162,9 +162,9 @@ struct TextBoxSubmitActionTests {
             pendingProviderLaunchAction: nil
         )
 
-        let expectedCommand = "codex --dangerously-bypass-approvals-and-sandbox 'ship user'\\''s fix\nwith\ttabs'"
+        let expectedCommand = "codex --yolo 'ship user'\\''s fix\nwith\ttabs'"
         XCTAssertEqual(plan.launchCommand, expectedCommand)
-        XCTAssertEqual(plan.launchContextCommand, "codex --dangerously-bypass-approvals-and-sandbox")
+        XCTAssertEqual(plan.launchContextCommand, "codex --yolo")
         XCTAssertEqual(plan.events, TextBoxSubmit.dispatchEvents(for: [.text(expectedCommand)], terminalAgentContext: ""))
     }
 
@@ -173,7 +173,7 @@ struct TextBoxSubmitActionTests {
         let workspace = Workspace()
         let panel = try #require(workspace.focusedTerminalPanel)
         let prompt = String(repeating: "large prompt ", count: 200)
-        panel.recordTextBoxLaunchCommand("codex --dangerously-bypass-approvals-and-sandbox '\(prompt)'")
+        panel.recordTextBoxLaunchCommand("codex --yolo '\(prompt)'")
 
         XCTAssertEqual(panel.textBoxState.launchCommand, "codex")
         XCTAssertFalse(panel.textBoxState.launchCommand?.contains(prompt) ?? true)
@@ -200,7 +200,7 @@ struct TextBoxSubmitActionTests {
         )
         XCTAssertEqual(
             TextBoxAgentDetection.boundedLaunchCommandContext(
-                from: "env FOO=bar codex --dangerously-bypass-approvals-and-sandbox"
+                from: "env FOO=bar codex --yolo"
             ),
             "codex"
         )
@@ -216,9 +216,9 @@ struct TextBoxSubmitActionTests {
     @Test
     func testProviderLaunchEventsKeepPromptInTextBoxUntilAgentIsActive() {
         XCTAssertEqual(
-            TextBoxSubmit.launchDispatchEvents(launchCommand: "codex --dangerously-bypass-approvals-and-sandbox"),
+            TextBoxSubmit.launchDispatchEvents(launchCommand: "codex --yolo"),
             [
-                .pasteText("codex --dangerously-bypass-approvals-and-sandbox"),
+                .pasteText("codex --yolo"),
                 .namedKey("return"),
             ]
         )
@@ -335,7 +335,7 @@ struct TextBoxSubmitActionTests {
     func testDefaultConfigTemplateIncludesTextBoxLaunchPromptFlag() {
         let template = CmuxSettingsFileStore.defaultTemplate()
 
-        XCTAssertTrue(template.contains(#""commandTemplate" : "codex --dangerously-bypass-approvals-and-sandbox {{prompt}}""#))
+        XCTAssertTrue(template.contains(#""commandTemplate" : "codex --yolo {{prompt}}""#))
         XCTAssertTrue(template.contains(#""commandTemplate" : "opencode --prompt {{prompt}}""#))
         XCTAssertTrue(template.contains(#""commandTemplate" : "pi {{prompt}}""#))
         XCTAssertFalse(template.contains(#""preservePromptAfterLaunch" : true"#))
@@ -365,7 +365,7 @@ struct TextBoxSubmitActionTests {
         XCTAssertTrue(
             TextBoxInputContainer.shouldForceTextEntrySubmit(
                 allowsCommandTemplateSubmit: true,
-                terminalAgentContext: "textBoxLaunchCommand:codex --dangerously-bypass-approvals-and-sandbox"
+                terminalAgentContext: "textBoxLaunchCommand:codex --yolo"
             )
         )
     }
@@ -375,7 +375,7 @@ struct TextBoxSubmitActionTests {
         let contexts = [
             "restoredAgent:opencode",
             "agentPIDKey:omx.12345",
-            "initialCommand:/bin/zsh -lc 'codex --dangerously-bypass-approvals-and-sandbox \"hi\"'",
+            "initialCommand:/bin/zsh -lc 'codex --yolo \"hi\"'",
             "tmuxStartCommand:env FOO=bar opencode --prompt 'line one\nline two'",
             "initialCommand:pi 'question with\ttab'",
             "initialCommand:claude --dangerously-skip-permissions 'question'"
@@ -397,7 +397,7 @@ struct TextBoxSubmitActionTests {
         let workspace = Workspace()
         let panel = try #require(workspace.focusedTerminalPanel)
         workspace.panelTitles[panel.id] = "user-controlled title"
-        panel.recordTextBoxLaunchCommand("codex --dangerously-bypass-approvals-and-sandbox")
+        panel.recordTextBoxLaunchCommand("codex --yolo")
 
         let pendingContext = WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
         XCTAssertTrue(TextBoxAgentDetection.hasPendingTextBoxLaunchContext(pendingContext))
@@ -441,7 +441,7 @@ struct TextBoxSubmitActionTests {
         let workspace = Workspace()
         let panel = try #require(workspace.focusedTerminalPanel)
 
-        panel.recordTextBoxLaunchCommand("codex --dangerously-bypass-approvals-and-sandbox")
+        panel.recordTextBoxLaunchCommand("codex --yolo")
         XCTAssertEqual(panel.textBoxState.pendingLaunchCommand, "codex")
         panel.updateShellActivityState(.commandRunning)
         #expect(panel.textBoxState.launchCommand != nil)
@@ -461,7 +461,7 @@ struct TextBoxSubmitActionTests {
         let panel = TerminalPanel(workspaceId: UUID())
 
         panel.updateShellActivityState(.promptIdle)
-        panel.recordTextBoxLaunchCommand("codex --dangerously-bypass-approvals-and-sandbox")
+        panel.recordTextBoxLaunchCommand("codex --yolo")
         #expect(panel.textBoxState.launchCommand != nil)
         XCTAssertEqual(panel.textBoxState.pendingLaunchCommand, "codex")
 
@@ -651,7 +651,7 @@ struct TextBoxSubmitActionTests {
             id: "custom-codex-launch",
             title: "Custom Codex Launch",
             kind: .commandTemplate,
-            commandTemplate: "codex --dangerously-bypass-approvals-and-sandbox",
+            commandTemplate: "codex --yolo",
             preservePromptAfterLaunch: true,
             systemImage: "sparkles",
             backgroundColorHex: "#8FDBFF"
@@ -662,7 +662,7 @@ struct TextBoxSubmitActionTests {
             pendingProviderLaunchAction: launchOnlyCodex
         )
 
-        XCTAssertEqual(context, "initialCommand:codex --dangerously-bypass-approvals-and-sandbox")
+        XCTAssertEqual(context, "initialCommand:codex --yolo")
         XCTAssertTrue(TextBoxAgentDetection.supportsAgentPrefixes(context: context))
     }
 
@@ -671,7 +671,7 @@ struct TextBoxSubmitActionTests {
         XCTAssertTrue(
             TextBoxInputContainer.shouldClearPendingProviderLaunch(
                 shellActivityState: .commandRunning,
-                terminalAgentContext: "initialCommand:codex --dangerously-bypass-approvals-and-sandbox"
+                terminalAgentContext: "initialCommand:codex --yolo"
             )
         )
         XCTAssertTrue(
@@ -907,7 +907,7 @@ struct TextBoxSubmitActionTests {
                 pendingProviderLaunchAction: nil
             ).events,
             TextBoxSubmit.dispatchEvents(
-                for: [.text("codex --dangerously-bypass-approvals-and-sandbox 'hi how are you'")],
+                for: [.text("codex --yolo 'hi how are you'")],
                 terminalAgentContext: ""
             )
         )

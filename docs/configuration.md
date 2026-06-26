@@ -86,9 +86,9 @@ Press Shift-Tab in the TextBox to cycle the default action. This shortcut is `sh
     "textBoxSubmitActions": [
       {
         "id": "codex",
-        "title": "Codex Yolo",
+        "title": "Codex --yolo",
         "kind": "commandTemplate",
-        "commandTemplate": "codex --dangerously-bypass-approvals-and-sandbox {{prompt}}",
+        "commandTemplate": "codex --yolo {{prompt}}",
         "systemImage": "sparkles",
         "assetName": "AgentIcons/Codex",
         "backgroundColorHex": "#8FDBFF"
@@ -110,7 +110,7 @@ Press Shift-Tab in the TextBox to cycle the default action. This shortcut is `sh
 Built-in action IDs: `claude`, `codex`, `opencode`, `pi`.
 
 Set `textBoxDefaultSubmitAction` to `text-entry` to force plain Text Entry for new terminals.
-Built-in provider actions shell-quote `{{prompt}}` before pasting the command. Claude may still show its workspace trust prompt before processing the prompt. Built-ins run `claude --dangerously-skip-permissions {{prompt}}`, `codex --dangerously-bypass-approvals-and-sandbox {{prompt}}`, `opencode --prompt {{prompt}}`, and `pi {{prompt}}`.
+Built-in provider actions shell-quote `{{prompt}}` before pasting the command. Claude may still show its workspace trust prompt before processing the prompt. Built-ins run `claude --dangerously-skip-permissions {{prompt}}`, `codex --yolo {{prompt}}`, `opencode --prompt {{prompt}}`, and `pi {{prompt}}`.
 
 Action fields:
 

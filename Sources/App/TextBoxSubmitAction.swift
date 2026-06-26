@@ -52,8 +52,8 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
         ),
         builtInAgentAction(
             id: "codex",
-            title: "Codex Yolo",
-            commandPrefix: "codex --dangerously-bypass-approvals-and-sandbox",
+            title: "Codex --yolo",
+            commandPrefix: "codex --yolo",
             systemImage: "sparkles",
             assetName: "AgentIcons/Codex",
             backgroundColorHex: "#8FDBFF"
