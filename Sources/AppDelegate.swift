@@ -11563,23 +11563,18 @@ private extension AppDelegate {
         target: Any?,
         sender: Any?
     ) -> Bool {
-        switch NSStringFromSelector(action) {
-        case "__close", "performClose:":
+        switch WindowCloseActionIntent(selectorName: NSStringFromSelector(action)) {
+        case .interceptUnconditionally:
             return true
-        case "close", "close:":
+        case .interceptIfWindowResolvable:
             return actionWindow(target: target, sender: sender, allowFallback: false) != nil
-        default:
+        case .ignore:
             return false
         }
     }
 
     private static func allowsWindowFallback(for action: Selector) -> Bool {
-        switch NSStringFromSelector(action) {
-        case "__close", "performClose:":
-            return true
-        default:
-            return false
-        }
+        WindowCloseActionIntent(selectorName: NSStringFromSelector(action)).allowsWindowFallback
     }
 
     private static func actionWindow(

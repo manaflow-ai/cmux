@@ -78,6 +78,42 @@ extension PanelType {
     }
 }
 
+extension PanelType {
+    /// Resolves a control-socket `type` token (from `pane.*`/`surface.*`
+    /// commands) to a ``PanelType``, or `nil` when the token is unrecognized.
+    ///
+    /// Byte-faithful lift of the private `panelType(forRawToken:)` twin of
+    /// `v2PanelType`: the raw token is normalized (strip `-`, `_`, and spaces,
+    /// then lowercase) before matching, so `"file-preview"`, `"file_preview"`,
+    /// and `"FilePreview"` all resolve to ``filePreview``. The normalization is
+    /// inlined here (rather than calling the `TerminalController` helper) so the
+    /// owning value type stays self-contained. Callers that want a default fall
+    /// back to ``terminal`` via `?? .terminal`.
+    public init?(controlToken raw: String) {
+        let normalized = raw
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: " ", with: "")
+            .lowercased()
+        switch normalized {
+        case "terminal":
+            self = .terminal
+        case "browser":
+            self = .browser
+        case "markdown":
+            self = .markdown
+        case "filepreview":
+            self = .filePreview
+        case "rightsidebartool":
+            self = .rightSidebarTool
+        case "agentsession":
+            self = .agentSession
+        default:
+            return nil
+        }
+    }
+}
+
 public enum TerminalPanelFocusIntent: Equatable {
     case surface
     case findField
