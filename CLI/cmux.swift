@@ -20273,6 +20273,25 @@ struct CMUXCLI {
         )
     }
 
+    /// The spawning (parent) thread id and the newly spawned child thread ids
+    /// carried by a Codex app-server `spawnAgent` collab-agent tool call.
+    struct CodexTeamsSpawnedSubagents: Equatable {
+        let parentThreadId: String
+        let childThreadIds: [String]
+    }
+
+    /// Parses a Codex app-server `item/completed` notification for a successful
+    /// `spawnAgent` collab-agent tool call. Codex carries the spawned child
+    /// thread id(s) in `receiverThreadIds` (populated only when the spawn
+    /// succeeds) and the spawning parent in `senderThreadId`; the codex-teams
+    /// watcher relies on this to open a split for the new subagent.
+    static func codexTeamsSpawnedSubagents(
+        fromItemNotification message: [String: Any]
+    ) -> CodexTeamsSpawnedSubagents? {
+        // Implemented in the following commit; the regression test fails first.
+        return nil
+    }
+
     private static func codexTeamsResumeCommandText(
         codexExecutable: String,
         appServerURL: String,
