@@ -411,7 +411,7 @@ struct AgentSessionAutoResumeSwiftTests {
     }
 
     @MainActor
-    @Test func crossKindAgentHookResumeBindingDoesNotRetainStaleClaudeSnapshot() throws {
+    @Test func crossKindAgentHookResumeBindingDoesNotRetainNewerClaudeSnapshot() throws {
         try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
             let defaults = UserDefaults.standard
             defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
@@ -431,7 +431,7 @@ struct AgentSessionAutoResumeSwiftTests {
                     arguments: ["/usr/local/bin/claude", "--model", "claude-opus-4-8"],
                     workingDirectory: cwd,
                     environment: ["CLAUDE_CONFIG_DIR": "/tmp/cmux-claude-config"],
-                    capturedAt: 1_777_777_777,
+                    capturedAt: 1_777_777_779,
                     source: "process"
                 )
             )
@@ -474,7 +474,7 @@ struct AgentSessionAutoResumeSwiftTests {
     }
 
     @MainActor
-    @Test func crossKindAgentHookResumeBindingIgnoresStaleClaudeHibernation() throws {
+    @Test func crossKindAgentHookResumeBindingIgnoresNewerClaudeHibernation() throws {
         try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
             let defaults = UserDefaults.standard
             defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
@@ -494,7 +494,7 @@ struct AgentSessionAutoResumeSwiftTests {
                     arguments: ["/usr/local/bin/claude", "--model", "claude-opus-4-8"],
                     workingDirectory: cwd,
                     environment: ["CLAUDE_CONFIG_DIR": "/tmp/cmux-claude-config"],
-                    capturedAt: 1_777_777_777,
+                    capturedAt: 1_777_777_779,
                     source: "process"
                 )
             )
