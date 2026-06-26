@@ -21,6 +21,9 @@ import struct CmuxSettings.FileRouteSettingsStore
 // CmuxWindowing also exports generic names (Snapshot/StateToken/WindowID/...), so a
 // blanket import would shadow app-target types here. Import only the moved symbol used.
 import struct CmuxWindowing.TerminalDefaultFileOpenRequest
+// CmuxWorkspaces owns the lifted tmux pane-overlay exact-rect geometry; import only
+// the moved type to avoid shadowing app-target names with a blanket import.
+import struct CmuxWorkspaces.TmuxPaneOverlayGeometry
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -3858,7 +3861,7 @@ final class TmuxWorkspacePaneOverlayTests: XCTestCase {
         contentView.addSubview(targetView)
 
         XCTAssertEqual(
-            ContentView.tmuxWorkspacePaneExactRect(for: targetView, in: contentView),
+            TmuxPaneOverlayGeometry.exactRect(for: targetView, in: contentView),
             CGRect(x: 120, y: 48, width: 300, height: 200)
         )
     }

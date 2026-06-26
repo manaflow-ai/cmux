@@ -4902,7 +4902,7 @@ extension Notification.Name {
     static let ghosttyDidFocusTab = Notification.Name("ghosttyDidFocusTab")
     static let ghosttyDidFocusSurface = Notification.Name("ghosttyDidFocusSurface")
     static let ghosttyDidBecomeFirstResponderSurface = Notification.Name("ghosttyDidBecomeFirstResponderSurface")
-    static let browserDidBecomeFirstResponderWebView = Notification.Name("browserDidBecomeFirstResponderWebView")
+    static let browserDidBecomeFirstResponderWebView = BrowserFirstResponderEvent.notificationName
     static let browserFocusAddressBar = Notification.Name("browserFocusAddressBar")
     static let browserMoveOmnibarSelection = Notification.Name("browserMoveOmnibarSelection")
     static let browserDidExitAddressBar = Notification.Name("browserDidExitAddressBar")
@@ -4920,8 +4920,4 @@ extension Notification.Name {
     static let workspaceGroupNameDidChange = Notification.Name("cmux.workspaceGroupNameDidChange")
     static let workspaceCurrentDirectoryDidChange = Notification.Name("cmux.workspaceCurrentDirectoryDidChange")
     static let tabManagerFocusHistoryRevisionDidChange = Notification.Name("cmux.tabManagerFocusHistoryRevisionDidChange")
-}
-
-enum BrowserFirstResponderNotificationUserInfoKey {
-    static let pointerInitiated = "pointerInitiated"
 }
