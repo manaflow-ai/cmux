@@ -316,6 +316,12 @@ public struct KeyboardShortcutsSection: View {
     /// `shortcuts.when` override when one is configured, otherwise a localized
     /// description of the action's built-in focus scope. `nil` for ordinary
     /// always-on shortcuts so unscoped rows stay uncluttered.
+    ///
+    /// The built-in scope mapping lives in ``builtInScopeCaption(for:)`` so it can
+    /// be unit-tested directly; it labels context-scoped duplicate defaults
+    /// (e.g. the ⌘=/⌘-/⌘0 zoom family shared across browser, markdown, and canvas)
+    /// so they read as deliberately context-separated rather than as a conflict
+    /// (issue #5810).
     private func scopeCaption(for action: ShortcutAction) -> String? {
         if let overrideClause = whenOverrideClauses[action.rawValue] {
             // An explicit empty/`true` override means "no restriction" — show
@@ -327,30 +333,7 @@ public struct KeyboardShortcutsSection: View {
             let format = String(localized: "shortcut.when.caption.override", defaultValue: "When: %@")
             return String.localizedStringWithFormat(format, raw)
         }
-        switch action.defaultFocusWhenClause {
-        case .always:
-            return nil
-        case .atom(.sidebarFocus):
-            return String(
-                localized: "shortcut.when.caption.sidebarFocus",
-                defaultValue: "Only while the right sidebar is focused"
-            )
-        case .atom(.browserFocus):
-            return String(
-                localized: "shortcut.when.caption.browserFocus",
-                defaultValue: "Only while a browser pane is focused"
-            )
-        case .atom(.markdownFocus):
-            return String(
-                localized: "shortcut.when.caption.markdownFocus",
-                defaultValue: "Only while a markdown preview is focused"
-            )
-        default:
-            return String(
-                localized: "shortcut.when.caption.terminalFocus",
-                defaultValue: "Only while a terminal pane is focused"
-            )
-        }
+        return builtInScopeCaption(for: action.defaultFocusWhenClause)
     }
 
     private func detectConflict(for action: ShortcutAction, stroke: StoredShortcut) -> ShortcutAction? {
