@@ -58,6 +58,15 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
     }
 
     func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
+        handleDidFindValidUpdate(item)
+    }
+
+    /// Records a background-detected available update.
+    ///
+    /// Extracted from the ``SPUUpdaterDelegate`` callback (which carries an `SPUUpdater` that is
+    /// awkward to construct) so the dev/staging gate is unit-testable directly from an
+    /// ``UpdateStateModel`` and an `SUAppcastItem`.
+    func handleDidFindValidUpdate(_ item: SUAppcastItem) {
         model.recordDetectedUpdate(item)
         let version = item.displayVersionString
         let fileURL = item.fileURL?.absoluteString ?? ""
