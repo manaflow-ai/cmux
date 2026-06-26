@@ -10392,22 +10392,13 @@ struct VerticalTabsSidebar: View {
     }
 
     var body: some View {
-        let tabs = tabManager.tabs
-        let workspaceCount = tabs.count
+        let sidebarSnapshot = tabManager.sidebarWorkspaceListSnapshot
+        let tabs = sidebarSnapshot.tabs
+        let workspaceCount = sidebarSnapshot.workspaceCount
         let canCloseWorkspace = workspaceCount > 1
         let workspaceNumberShortcut = self.workspaceNumberShortcut
         let tabItemSettings = tabItemSettingsStore.snapshot
-        let tabIds = tabs.map(\.id)
-        let tabIndexById = Dictionary(uniqueKeysWithValues: tabs.enumerated().map {
-            ($0.element.id, $0.offset)
-        })
-        let workspaceById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
-        let pinResolutionContext = WorkspaceActionDispatcher.PinResolutionContext(
-            workspacesById: workspaceById,
-            liveWorkspaceIds: Set(tabIds)
-        )
-        let workspaceGroupIdByWorkspaceId = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0.groupId) })
-        let orderedSelectedTabs = tabs.filter { selectedTabIds.contains($0.id) }
+        let orderedSelectedTabs = sidebarSnapshot.orderedWorkspaces(for: selectedTabIds)
         let selectedContextTargetIds = orderedSelectedTabs.map(\.id)
         let selectedRemoteContextMenuTargets = orderedSelectedTabs.filter { $0.isRemoteWorkspace }
         let selectedRemoteContextMenuWorkspaceIds = selectedRemoteContextMenuTargets.map(\.id)
@@ -10417,44 +10408,34 @@ struct VerticalTabsSidebar: View {
             }
         let allSelectedRemoteContextMenuTargetsDisconnected = !selectedRemoteContextMenuTargets.isEmpty &&
             selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
-        let workspaceGroups = tabManager.workspaceGroups
-        let workspaceGroupById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
-        let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
-            items: workspaceGroups.map { WorkspaceGroupMenuSnapshot.Item(id: $0.id, name: $0.name) }
-        )
-        let workspaceRenderItems = SidebarWorkspaceRenderItem.renderItems(
-            tabs: tabs,
-            groupsById: workspaceGroupById
-        )
-        let visibleWorkspaceRowIds = workspaceRenderItems.map(\.rowWorkspaceId)
         let draggedSidebarTabId = dragState.draggedTabId
         let sidebarReorderIds = draggedSidebarTabId.map {
-            tabManager.sidebarReorderWorkspaceIds(
+            sidebarSnapshot.sidebarReorderWorkspaceIds(
                 forDraggedWorkspaceId: $0,
                 usesTopLevelRows: dragState.dropIndicatorUsesTopLevelRows
             )
         } ?? []
         let renderContext = WorkspaceListRenderContext(
             tabs: tabs,
-            tabIds: tabIds,
+            tabIds: sidebarSnapshot.tabIds,
             sidebarReorderIds: sidebarReorderIds,
             workspaceCount: workspaceCount,
             canCloseWorkspace: canCloseWorkspace,
             workspaceNumberShortcut: workspaceNumberShortcut,
             tabItemSettings: tabItemSettings,
-            pinResolutionContext: pinResolutionContext,
-            tabIndexById: tabIndexById,
-            workspaceById: workspaceById,
-            workspaceGroupIdByWorkspaceId: workspaceGroupIdByWorkspaceId,
+            pinResolutionContext: sidebarSnapshot.pinResolutionContext,
+            tabIndexById: sidebarSnapshot.tabIndexById,
+            workspaceById: sidebarSnapshot.workspaceById,
+            workspaceGroupIdByWorkspaceId: sidebarSnapshot.workspaceGroupIdByWorkspaceId,
             selectedContextTargetIds: selectedContextTargetIds,
             selectedRemoteContextMenuWorkspaceIds: selectedRemoteContextMenuWorkspaceIds,
             allSelectedRemoteContextMenuTargetsConnecting: allSelectedRemoteContextMenuTargetsConnecting,
             allSelectedRemoteContextMenuTargetsDisconnected: allSelectedRemoteContextMenuTargetsDisconnected,
-            workspaceGroups: workspaceGroups,
-            workspaceGroupById: workspaceGroupById,
-            workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
-            workspaceRenderItems: workspaceRenderItems,
-            visibleWorkspaceRowIds: visibleWorkspaceRowIds
+            workspaceGroups: sidebarSnapshot.workspaceGroups,
+            workspaceGroupById: sidebarSnapshot.workspaceGroupById,
+            workspaceGroupMenuSnapshot: sidebarSnapshot.workspaceGroupMenuSnapshot,
+            workspaceRenderItems: sidebarSnapshot.workspaceRenderItems,
+            visibleWorkspaceRowIds: sidebarSnapshot.visibleWorkspaceRowIds
         )
 
         ZStack(alignment: .bottomLeading) {

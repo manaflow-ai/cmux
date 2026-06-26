@@ -193,6 +193,7 @@ class TabManager: ObservableObject {
     // side effects in didSet).
     let workspaces = WorkspacesModel<Workspace>()
     private var workspacesById: [UUID: Workspace] = [:]
+    private var sidebarWorkspaceListSnapshotCache = SidebarWorkspaceListSnapshot(tabs: [], workspaceGroups: [])
 
     var tabs: [Workspace] {
         get { workspaces.tabs }
@@ -207,7 +208,7 @@ class TabManager: ObservableObject {
     }
 
     var sidebarWorkspaceListSnapshot: SidebarWorkspaceListSnapshot {
-        SidebarWorkspaceListSnapshot(tabs: tabs, workspaceGroups: workspaceGroups)
+        sidebarWorkspaceListSnapshotCache
     }
 
     /// Legacy Combine bridge for the remaining `tabManager.$tabs`
@@ -248,14 +249,26 @@ class TabManager: ObservableObject {
     /// bridge fire before storage changes, matching @Published timing.
     func workspaceTabsWillChange(to newValue: [Workspace]) {
         workspacesById = Dictionary(newValue.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        rebuildSidebarWorkspaceListSnapshot(tabs: newValue, workspaceGroups: workspaceGroups)
         objectWillChange.send()
         tabsPublisher.send(newValue)
     }
 
     /// Legacy `@Published workspaceGroups` willSet.
     func workspaceGroupsWillChange(to newValue: [WorkspaceGroup]) {
+        rebuildSidebarWorkspaceListSnapshot(tabs: tabs, workspaceGroups: newValue)
         objectWillChange.send()
         workspaceGroupsPublisher.send(newValue)
+    }
+
+    private func rebuildSidebarWorkspaceListSnapshot(
+        tabs: [Workspace],
+        workspaceGroups: [WorkspaceGroup]
+    ) {
+        sidebarWorkspaceListSnapshotCache = SidebarWorkspaceListSnapshot(
+            tabs: tabs,
+            workspaceGroups: workspaceGroups
+        )
     }
 
     /// Legacy `@Published selectedTabId` willSet; `selectedTabId` still
@@ -1561,7 +1574,7 @@ class TabManager: ObservableObject {
         targetWorkspaceId: UUID? = nil,
         usesTopLevelRows: Bool = false
     ) -> [UUID] {
-        workspaceReordering.sidebarReorderWorkspaceIds(
+        sidebarWorkspaceListSnapshot.sidebarReorderWorkspaceIds(
             forDraggedWorkspaceId: draggedWorkspaceId,
             targetWorkspaceId: targetWorkspaceId,
             usesTopLevelRows: usesTopLevelRows
@@ -1573,7 +1586,7 @@ class TabManager: ObservableObject {
         targetWorkspaceId: UUID? = nil,
         usesTopLevelRows: Bool = false
     ) -> Set<UUID> {
-        workspaceReordering.sidebarReorderPinnedWorkspaceIds(
+        sidebarWorkspaceListSnapshot.sidebarReorderPinnedWorkspaceIds(
             forDraggedWorkspaceId: draggedWorkspaceId,
             targetWorkspaceId: targetWorkspaceId,
             usesTopLevelRows: usesTopLevelRows
@@ -1611,7 +1624,7 @@ class TabManager: ObservableObject {
         forDraggedWorkspaceId draggedWorkspaceId: UUID?,
         targetWorkspaceId: UUID?
     ) -> Bool {
-        workspaceReordering.sidebarReorderUsesTopLevelRows(
+        sidebarWorkspaceListSnapshot.sidebarReorderUsesTopLevelRows(
             forDraggedWorkspaceId: draggedWorkspaceId,
             targetWorkspaceId: targetWorkspaceId
         )
@@ -1622,7 +1635,7 @@ class TabManager: ObservableObject {
         targetWorkspaceId: UUID?,
         workspaceGroupIdByWorkspaceId: [UUID: UUID?]
     ) -> Bool {
-        workspaceReordering.sidebarReorderUsesTopLevelRows(
+        sidebarWorkspaceListSnapshot.sidebarReorderUsesTopLevelRows(
             forDraggedWorkspaceId: draggedWorkspaceId,
             targetWorkspaceId: targetWorkspaceId,
             workspaceGroupIdByWorkspaceId: workspaceGroupIdByWorkspaceId

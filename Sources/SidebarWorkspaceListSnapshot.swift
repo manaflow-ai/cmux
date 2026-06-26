@@ -81,7 +81,7 @@ final class SidebarWorkspaceListSnapshot {
         ) else {
             return tabIds
         }
-        return topLevelWorkspaceIds(promotingWorkspaceId: draggedWorkspaceId)
+        return topLevelWorkspaceIdsForReorder(promotingWorkspaceId: draggedWorkspaceId)
     }
 
     func sidebarReorderPinnedWorkspaceIds(
@@ -139,7 +139,7 @@ final class SidebarWorkspaceListSnapshot {
         return targetWorkspaceGroupId == nil
     }
 
-    private func topLevelWorkspaceIds(promotingWorkspaceId promotedWorkspaceId: UUID?) -> [UUID] {
+    private func topLevelWorkspaceIdsForReorder(promotingWorkspaceId promotedWorkspaceId: UUID?) -> [UUID] {
         guard let promotedWorkspaceId,
               !topLevelWorkspaceIds.contains(promotedWorkspaceId),
               let tab = workspaceById[promotedWorkspaceId],
