@@ -22,6 +22,28 @@ final class ReflowParagraphTests: XCTestCase {
         XCTAssertFalse(result.contains("Helloworld"))
     }
 
+    func testAdjacentProseParagraphsGetBlankSeparator() {
+        // Terminal copy drops the blank line between paragraphs; reflow restores
+        // it between two substantial prose paragraphs.
+        let input =
+            "The afternoon settled over the valley like a slow exhale and gold light pooled in the grass.\n"
+            + "A heron stood motionless at the bend, one leg tucked beneath it, patient as carved stone.\n"
+        let result = reflowCopiedText(input)
+        XCTAssertTrue(result.contains("\n\n"), "expected a blank line between paragraphs, got: \(result)")
+        XCTAssertEqual(result.split(separator: "\n", omittingEmptySubsequences: true).count, 2)
+    }
+
+    func testListItemsGetNoBlankSeparator() {
+        let input = "- First item in this list with enough length to clear the width gate here.\n- Second item in this list with enough length to clear the width gate too.\n"
+        XCTAssertFalse(reflowCopiedText(input).contains("\n\n"))
+    }
+
+    func testShortAdjacentSentencesNotSeparated() {
+        // Two short sentences (below the substantial-paragraph gate) stay as-is.
+        let input = "First short one.\nSecond short one.\n"
+        XCTAssertEqual(reflowCopiedText(input), input)
+    }
+
     func testMixedIndentProseParagraphsLeftFlushed() {
         // First paragraph at indent 0, later ones at indent 2 (a terminal-output
         // artifact). Common-indent is 0, so the later paragraphs must still be

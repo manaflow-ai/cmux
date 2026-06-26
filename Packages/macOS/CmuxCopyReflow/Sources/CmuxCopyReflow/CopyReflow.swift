@@ -97,7 +97,8 @@ public nonisolated func reflowCopiedText(
                 isURL: false,
                 prevVisibleLength: LineClassifier.visibleLength(of: line),
                 prevEndsTerminator: lastNonSpaceIsTerminator(line, options: options),
-                prevHasSpace: line.contains(" ")
+                prevHasSpace: line.contains(" "),
+                isProse: false
             )
 
         case .prose, .urlLine:
@@ -119,7 +120,8 @@ public nonisolated func reflowCopiedText(
                     isURL: kind == .urlLine,
                     prevVisibleLength: visLen,
                     prevEndsTerminator: endsTerminator,
-                    prevHasSpace: hasSpace
+                    prevHasSpace: hasSpace,
+                    isProse: true
                 )
             }
 
@@ -147,7 +149,18 @@ public nonisolated func reflowCopiedText(
                     p.prevHasSpace = hasSpace
                     para = p
                 } else {
+                    // Paragraph boundary: a prose paragraph that ended a sentence,
+                    // followed by a new prose line starting with a capital, is a
+                    // real paragraph break. Re-insert the blank line that the
+                    // terminal copy dropped. Lists, logs, and lowercase
+                    // continuations do not trigger it.
+                    let paragraphBreak = p.isProse
+                        && p.text.count >= options.minWrapWidth
+                        && p.prevEndsTerminator
+                        && kind == .prose
+                        && startsUppercaseLetter(content)
                     flush()
+                    if paragraphBreak { output.append("") }
                     openParagraph()
                 }
             } else {
@@ -183,6 +196,9 @@ private struct Paragraph {
     /// (prose-like). Gates the width signal so single-token columns (paths,
     /// URLs, hashes) are not width-joined.
     var prevHasSpace: Bool
+    /// Whether this paragraph is ordinary prose (vs a list item). Only prose
+    /// paragraphs participate in blank-line paragraph separation.
+    var isProse: Bool
 }
 
 /// Minimum leading-whitespace column count across blank-excluded, fence-excluded
@@ -204,6 +220,13 @@ private func computeCommonIndent(_ lines: [Substring], isFenceLine: [Bool]) -> I
 private func startsLowercaseLetter(_ s: String) -> Bool {
     guard let first = s.first(where: { $0 != " " && $0 != "\t" }) else { return false }
     return first.isLowercase && first.isLetter
+}
+
+/// True when the first non-whitespace character is an uppercase letter — the
+/// signal that a line begins a new sentence/paragraph rather than continuing one.
+private func startsUppercaseLetter(_ s: String) -> Bool {
+    guard let first = s.first(where: { $0 != " " && $0 != "\t" }) else { return false }
+    return first.isUppercase && first.isLetter
 }
 
 /// Any space-like character that copied terminal text may carry: normal space,
