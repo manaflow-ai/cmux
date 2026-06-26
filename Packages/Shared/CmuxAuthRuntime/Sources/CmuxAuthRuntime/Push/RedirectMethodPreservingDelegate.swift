@@ -67,33 +67,49 @@ public final class RedirectMethodPreservingDelegate: NSObject, URLSessionTaskDel
             completionHandler(request)
             return
         }
+        // Restore the verb only when the body can come with it. Every push
+        // request builds its body with `JSONSerialization` (`httpBody`); a body
+        // set via `httpBodyStream` was already consumed sending the first
+        // request and cannot be replayed, so restoring just the verb would send
+        // a body-less POST/DELETE — worse than failing the redirect. In that
+        // case (no current caller streams), fail closed and follow Foundation's
+        // proposed request so it fails loudly.
+        guard let body = original.httpBody else {
+            if original.httpBodyStream != nil {
+                redirectLog.error(
+                    "Cannot restore a streamed (httpBodyStream) request body across a redirect; following Foundation's proposed request (fails closed)"
+                )
+            }
+            completionHandler(request)
+            return
+        }
         var preserved = request
         preserved.httpMethod = originalMethod
-        // Restores a body set via `httpBody` (every push request builds its body
-        // with `JSONSerialization`). A body set via `httpBodyStream` cannot be
-        // replayed — the stream was already consumed sending the first request —
-        // so it is left as Foundation proposed and logged. No current caller
-        // uses a streamed body; this guard keeps a future one from silently
-        // sending an empty body.
-        if let body = original.httpBody {
-            preserved.httpBody = body
-        } else if original.httpBodyStream != nil {
-            redirectLog.error(
-                "Cannot restore a streamed (httpBodyStream) request body across a redirect; the target may receive an empty body"
-            )
-        }
+        preserved.httpBody = body
         redirectLog.info(
             "Preserving \(originalMethod, privacy: .public) across same-origin HTTP \(response.statusCode, privacy: .public) redirect (Foundation proposed \(request.httpMethod ?? "GET", privacy: .public))"
         )
         completionHandler(preserved)
     }
 
-    /// Same scheme + host + port (case-insensitive scheme/host). A `nil` URL on
-    /// either side is treated as not-same-origin so it fails closed.
+    /// Same scheme + host + port (case-insensitive scheme/host). Default ports
+    /// compare equal to an absent port (`https://h` == `https://h:443`). A `nil`
+    /// URL on either side is treated as not-same-origin so it fails closed.
     private func sameOrigin(_ lhs: URL?, _ rhs: URL?) -> Bool {
         guard let lhs, let rhs else { return false }
         return lhs.scheme?.lowercased() == rhs.scheme?.lowercased()
             && lhs.host?.lowercased() == rhs.host?.lowercased()
-            && lhs.port == rhs.port
+            && effectivePort(of: lhs) == effectivePort(of: rhs)
+    }
+
+    /// The URL's explicit port, or the scheme's default (443 for https/wss, 80
+    /// for http/ws), so an absent port matches the scheme's default port.
+    private func effectivePort(of url: URL) -> Int? {
+        if let port = url.port { return port }
+        switch url.scheme?.lowercased() {
+        case "https", "wss": return 443
+        case "http", "ws": return 80
+        default: return nil
+        }
     }
 }
