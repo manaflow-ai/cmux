@@ -61,6 +61,38 @@ struct AccessibilityWindowCacheTests {
         expectWindowsEqual(value, [regularWindow])
     }
 
+    @Test("zero-numbered windows do not invalidate the cached AXWindows snapshot")
+    func zeroNumberedWindowsDoNotInvalidateCachedAXWindowsSnapshot() {
+        let regularWindow = makeWindow()
+        let invalidWindow = ZeroWindowNumberWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 24, height: 24),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            regularWindow.orderOut(nil)
+            invalidWindow.orderOut(nil)
+        }
+
+        let cache = AccessibilityWindowCache()
+        let stateWithInvalidWindow = AccessibilityWindowCache.StateToken(windows: [invalidWindow, regularWindow])
+        let stateWithoutInvalidWindow = AccessibilityWindowCache.StateToken(windows: [regularWindow])
+        var buildCount = 0
+
+        _ = cache.value(for: .windows, stateToken: stateWithInvalidWindow) {
+            buildCount += 1
+            return .init(windows: [invalidWindow, regularWindow])
+        }
+        let secondValue = cache.value(for: .windows, stateToken: stateWithoutInvalidWindow) {
+            buildCount += 1
+            return .init(windows: [regularWindow])
+        }
+
+        expectWindowsEqual(secondValue, [regularWindow])
+        #expect(buildCount == 1, "Invalid zero-numbered windows should not change the cache state token")
+    }
+
     @Test("repeated .windows queries reuse a single hierarchy build until state changes")
     func repeatedWindowsQueriesReuseSingleHierarchyBuildUntilStateChanges() {
         let firstWindow = makeWindow()

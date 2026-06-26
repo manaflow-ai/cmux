@@ -42,10 +42,13 @@ public final class AccessibilityWindowCache: AccessibilityWindowCaching, @unchec
         /// because it reads main-actor-isolated `NSWindow` properties.
         @MainActor
         public init(windows: [NSWindow]) {
-            self.windows = windows.map {
-                WindowToken(
+            self.windows = windows.compactMap {
+                guard let windowNumber = AccessibilityWindowCache.axWindowNumber(for: $0) else {
+                    return nil
+                }
+                return WindowToken(
                     identity: ObjectIdentifier($0),
-                    windowNumber: $0.windowNumber,
+                    windowNumber: windowNumber,
                     isVisible: $0.isVisible,
                     isMiniaturized: $0.isMiniaturized
                 )
@@ -61,14 +64,7 @@ public final class AccessibilityWindowCache: AccessibilityWindowCaching, @unchec
         /// expose a valid CoreGraphics window id to AX clients.
         @MainActor
         public init(windows: [NSWindow]) {
-            self.windows = windows.filter(Self.isExposedInAXWindows)
-        }
-
-        @MainActor
-        private static func isExposedInAXWindows(_ window: NSWindow) -> Bool {
-            // A zero window number is not targetable by tiling window managers
-            // and is how AppKit reports status-item backing windows such as Item-0.
-            window.windowNumber > 0
+            self.windows = windows.filter { AccessibilityWindowCache.axWindowNumber(for: $0) != nil }
         }
     }
 
@@ -117,10 +113,11 @@ public final class AccessibilityWindowCache: AccessibilityWindowCaching, @unchec
     /// Returns the cached value for `attribute`, building a fresh snapshot via
     /// `builder` only when `stateToken` differs from the cached one. Returns
     /// nil for attributes this cache does not handle.
+    @MainActor
     public func value(
         for attribute: NSAccessibility.Attribute,
         stateToken: StateToken,
-        builder: () -> Snapshot
+        builder: @MainActor () -> Snapshot
     ) -> Any? {
         guard Self.supportsCaching(attribute) else { return nil }
 
@@ -143,5 +140,14 @@ public final class AccessibilityWindowCache: AccessibilityWindowCaching, @unchec
 
     private static func supportsCaching(_ attribute: NSAccessibility.Attribute) -> Bool {
         attribute.rawValue == NSAccessibility.Attribute.windows.rawValue
+    }
+
+    @MainActor
+    private static func axWindowNumber(for window: NSWindow) -> Int? {
+        let windowNumber = window.windowNumber
+        // A zero window number is not targetable by tiling window managers
+        // and is how AppKit reports status-item backing windows such as Item-0.
+        guard windowNumber > 0 else { return nil }
+        return windowNumber
     }
 }
