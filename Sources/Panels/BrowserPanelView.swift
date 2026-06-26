@@ -4776,6 +4776,19 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 )
             }
 #endif
+            // #6250: AppKit invokes `performKeyEquivalent` across the entire
+            // window view hierarchy, so this coordinator runs even while web
+            // content (the WKWebView) — not the omnibar — owns first responder.
+            // In that state the omnibar field has no field editor, so `editor`
+            // is nil. Treating Return/Escape/arrows (and Ctrl+N/P, Shift+Delete)
+            // as omnibar input there makes an *unfocused* omnibar submit and
+            // hard-navigate the pane on a physical Enter that belongs to the
+            // page — a spurious reload that aborts in-flight `fetch`/XHR in SPAs.
+            // Only act on these keys while the field is actually being edited.
+            // This mirrors the `currentEditor()`-gated `insertNewline:` path in
+            // `control(_:textView:doCommandBy:)`, which only runs for the live
+            // field editor.
+            guard editor != nil else { return false }
             guard editor?.hasMarkedText() != true else { return false }
             let keyCode = event.keyCode
             let modifiers = event.modifierFlags.intersection([.command, .control, .shift, .option, .function])
