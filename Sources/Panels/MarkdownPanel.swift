@@ -82,6 +82,10 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     private var saveGeneration: Int = 0
     private var activeSaveGeneration: Int?
     private var pendingSearchNeedle: String?
+    /// Set when Cmd+F is requested before the text-edit `NSTextView` is attached
+    /// and in a window (e.g. find triggered while in preview mode). The find bar
+    /// is opened once the text view is ready via ``applyPendingShowFindBarIfPossible()``.
+    private var pendingShowFindBar: Bool = false
     private weak var textView: NSTextView?
     private var isClosed: Bool = false
     // NotificationCenter token; removal is thread-safe so deinit can drop it.
@@ -235,6 +239,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         guard displayMode == .text else { return }
         _ = textView?.window?.makeFirstResponder(textView)
         applyPendingSearchNeedleIfPossible()
+        applyPendingShowFindBarIfPossible()
     }
 
     func unfocus() {
@@ -418,6 +423,22 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         pendingSearchNeedle = nil
     }
 
+    /// Opens the text-edit find bar if a Cmd+F request is pending and the
+    /// `NSTextView` is attached and in a window. Re-invoked as the text view
+    /// reaches a window (via ``focus()`` from `viewDidMoveToWindow`), so a find
+    /// requested while in preview mode reliably surfaces after the switch to text.
+    private func applyPendingShowFindBarIfPossible() {
+        guard pendingShowFindBar,
+              displayMode == .text,
+              let textView,
+              textView.window != nil else {
+            return
+        }
+        pendingShowFindBar = false
+        textView.window?.makeFirstResponder(textView)
+        textView.performTextFinderAction(NSTextFinder.Action.showFindInterface.menuItemSender)
+    }
+
     // MARK: - File watcher
 
     /// Watches ``filePath`` for changes via ``CmuxFileWatch/FileWatcher``, which
@@ -448,5 +469,56 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         if let typographyDefaultsObserver {
             NotificationCenter.default.removeObserver(typographyDefaultsObserver)
         }
+    }
+}
+
+
+// MARK: - Find support
+
+extension MarkdownPanel: FindablePanel {
+    /// The text-edit mode can seed the find query from a non-empty selection.
+    var hasSelectionForFind: Bool {
+        displayMode == .text && (textView?.selectedRange.length ?? 0) > 0
+    }
+
+    /// Opens the find bar for the markdown document.
+    ///
+    /// Find operates on the markdown source via the AppKit `NSTextView` find bar.
+    /// When invoked from the rendered preview, the panel switches to text mode
+    /// first (`WKWebView` has no native macOS find bar) and the bar is opened
+    /// once the text view reaches a window. Always handles the request.
+    @discardableResult
+    func startFind() -> Bool {
+        pendingShowFindBar = true
+        if displayMode != .text {
+            setDisplayMode(.text)
+        }
+        applyPendingShowFindBarIfPossible()
+        return true
+    }
+
+    /// Advances to the next match in the markdown source.
+    func findNext() {
+        guard displayMode == .text, let textView else { return }
+        textView.performTextFinderAction(NSTextFinder.Action.nextMatch.menuItemSender)
+    }
+
+    /// Moves to the previous match in the markdown source.
+    func findPrevious() {
+        guard displayMode == .text, let textView else { return }
+        textView.performTextFinderAction(NSTextFinder.Action.previousMatch.menuItemSender)
+    }
+
+    /// Hides the find bar and cancels any pending find request.
+    func hideFind() {
+        pendingShowFindBar = false
+        guard displayMode == .text, let textView else { return }
+        textView.performTextFinderAction(NSTextFinder.Action.hideFindInterface.menuItemSender)
+    }
+
+    /// Seeds the find query from the current text selection.
+    func useSelectionForFind() {
+        guard displayMode == .text, let textView else { return }
+        textView.performTextFinderAction(NSTextFinder.Action.setSearchString.menuItemSender)
     }
 }

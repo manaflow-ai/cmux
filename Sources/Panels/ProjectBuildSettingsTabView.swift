@@ -13,6 +13,9 @@ struct ProjectBuildSettingsTabView: View {
     @ObservedObject var panel: ProjectPanel
     let model: ProjectModel
 
+    /// Drives keyboard focus into the settings filter field for Cmd+F.
+    @FocusState private var searchFieldFocused: Bool
+
     var body: some View {
         let computedRows = rows
         VStack(alignment: .leading, spacing: 0) {
@@ -22,6 +25,14 @@ struct ProjectBuildSettingsTabView: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onChange(of: panel.findFocus.request) { _, newValue in
+            guard newValue == .settings else { return }
+            searchFieldFocused = true
+            panel.findFocus.request = nil
+        }
+        .onChange(of: panel.findFocus.resignToken) { _, _ in
+            searchFieldFocused = false
+        }
     }
 
     @ViewBuilder
@@ -38,6 +49,7 @@ struct ProjectBuildSettingsTabView: View {
                 TextField("Filter settings", text: $panel.settingsSearchText)
                     .textFieldStyle(.plain)
                     .cmuxFont(size: 12)
+                    .focused($searchFieldFocused)
                 Toggle("Customized only", isOn: $panel.settingsCustomizedOnly)
                     .toggleStyle(.checkbox)
                     .cmuxFont(size: 11)

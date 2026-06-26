@@ -20,6 +20,9 @@ struct ProjectFilesTabView: View {
     @ObservedObject var panel: ProjectPanel
     let model: ProjectModel
 
+    /// Drives keyboard focus into the files filter field for Cmd+F.
+    @FocusState private var searchFieldFocused: Bool
+
     var body: some View {
         let rows = flattenedRows
         VStack(alignment: .leading, spacing: 0) {
@@ -37,6 +40,14 @@ struct ProjectFilesTabView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .onChange(of: panel.findFocus.request) { _, newValue in
+            guard newValue == .files else { return }
+            searchFieldFocused = true
+            panel.findFocus.request = nil
+        }
+        .onChange(of: panel.findFocus.resignToken) { _, _ in
+            searchFieldFocused = false
+        }
     }
 
     @ViewBuilder
@@ -47,6 +58,7 @@ struct ProjectFilesTabView: View {
             TextField("Filter files (e.g. AppDelegate)", text: $panel.filesSearchText)
                 .textFieldStyle(.plain)
                 .cmuxFont(size: 12)
+                .focused($searchFieldFocused)
             if !panel.filesSearchText.isEmpty {
                 Button {
                     panel.filesSearchText = ""

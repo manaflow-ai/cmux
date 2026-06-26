@@ -2,6 +2,7 @@ import AppKit
 import CMUXProjectModel
 import Combine
 import Foundation
+import Observation
 import SwiftUI
 
 /// Which tab is active inside a ``ProjectPanel``.
@@ -71,6 +72,12 @@ public final class ProjectPanel: NSObject, Panel, ObservableObject {
     @Published public var collapsedNodeIDs: Set<ProjectNodeID> = []
     @Published public var filesSearchText: String = ""
     @Published public var lastLoadError: String?
+
+    /// Find-focus requests for the active tab's filter field, driven by the
+    /// global Cmd+F command. Kept on a separate `@Observable` object rather than
+    /// as another `@Published` property so it follows the modern value-snapshot
+    /// shape and does not invalidate the legacy `ObservableObject` panel.
+    let findFocus = ProjectPanelFindFocus()
     private var reloadTask: Task<Void, Never>?
 
     public var displayTitle: String {
@@ -261,5 +268,54 @@ public final class ProjectPanel: NSObject, Panel, ObservableObject {
         _ = intent
         _ = window
         return false
+    }
+}
+
+// MARK: - Find support
+
+/// Identifies which ``ProjectPanel`` filter field a find request targets.
+public enum ProjectPanelSearchFocus: Hashable, Sendable {
+    case files
+    case settings
+}
+
+/// Lightweight, view-observable find-focus state for a ``ProjectPanel``.
+///
+/// The tab views drive their `@FocusState` from these signals: ``request``
+/// moves keyboard focus into a filter field (cleared by the view once applied),
+/// and ``resignToken`` bumps to pull focus back out for "Hide Find Bar".
+@MainActor
+@Observable
+public final class ProjectPanelFindFocus {
+    /// The filter field that should receive focus, or `nil` when no request is pending.
+    public var request: ProjectPanelSearchFocus?
+
+    /// Incremented to ask the active filter field to resign first-responder.
+    public var resignToken: Int = 0
+
+    public init() {}
+}
+
+extension ProjectPanel: FindablePanel {
+    /// Focuses the filter field for tabs that have one (Files, Build Settings).
+    /// - Returns: `true` for filterable tabs; `false` for Targets/Schemes so
+    ///   Cmd+F falls through instead of focusing a nonexistent field.
+    @discardableResult
+    public func startFind() -> Bool {
+        switch activeTab {
+        case .files:
+            findFocus.request = .files
+            return true
+        case .buildSettings:
+            findFocus.request = .settings
+            return true
+        case .targets, .schemes:
+            return false
+        }
+    }
+
+    /// Asks the active filter field to resign keyboard focus.
+    public func hideFind() {
+        findFocus.resignToken &+= 1
     }
 }
