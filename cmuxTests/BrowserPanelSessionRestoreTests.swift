@@ -70,4 +70,25 @@ struct BrowserPanelSessionRestoreTests {
         #expect(viewportSize.width == 1400)
         #expect(viewportSize.height == 900)
     }
+
+    @Test
+    func browserSnapshotRoundTripPreservesMinimumViewportSize() throws {
+        let source = SessionBrowserPanelSnapshot(
+            urlString: "https://example.com/current",
+            profileID: nil,
+            shouldRenderWebView: true,
+            pageZoom: 1.2,
+            minimumViewportWidth: 1400,
+            minimumViewportHeight: 900,
+            developerToolsVisible: false,
+            backHistoryURLStrings: nil,
+            forwardHistoryURLStrings: nil
+        )
+
+        let data = try JSONEncoder().encode(source)
+        let decoded = try JSONDecoder().decode(SessionBrowserPanelSnapshot.self, from: data)
+
+        #expect(decoded.minimumViewportWidth == 1400)
+        #expect(decoded.minimumViewportHeight == 900)
+    }
 }
