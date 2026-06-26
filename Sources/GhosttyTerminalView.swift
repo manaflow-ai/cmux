@@ -3226,6 +3226,16 @@ class GhosttyApp {
                 }
                 return true
             }
+        case GHOSTTY_ACTION_MOUSE_SHAPE:
+            // libghostty tells us which OS cursor to show over the surface (e.g.
+            // the text I-beam over selectable text, or the arrow when a program
+            // enables mouse reporting). Without this the viewport keeps whatever
+            // cursor the parent portal set, so text never shows the I-beam.
+            let shape = action.action.mouse_shape
+            performOnMain {
+                surfaceView.applyGhosttyMouseShape(shape)
+            }
+            return true
         default:
             return false
         }
@@ -3540,7 +3550,27 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keySequence: [ghostty_input_trigger_s] = []
     private var keyTables: [String] = []
     fileprivate private(set) var keyboardCopyModeActive = false
-    private var wordPathHoverActive = false
+    /// Whether the Cmd-hover word-path affordance (pointing hand over a
+    /// resolvable filename) is active. Toggling it refreshes the terminal
+    /// cursor so the pointing hand overrides the libghostty-requested mouse
+    /// shape while a hovered path is resolvable.
+    private var wordPathHoverActive = false {
+        didSet {
+            guard wordPathHoverActive != oldValue else { return }
+            refreshTerminalCursor()
+        }
+    }
+    /// The mouse-cursor shape libghostty most recently requested for this
+    /// surface via `GHOSTTY_ACTION_MOUSE_SHAPE`. Defaults to the text I-beam so
+    /// the terminal viewport shows the text-selection affordance before the
+    /// first action arrives (libghostty only emits the action when the shape
+    /// changes, so the initial "text" shape is otherwise never delivered).
+    private var ghosttyMouseShapeCursor: NSCursor = .iBeam {
+        didSet {
+            guard ghosttyMouseShapeCursor != oldValue else { return }
+            refreshTerminalCursor()
+        }
+    }
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var imeConsumedKeyUps: Set<UInt16> = []
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
@@ -3841,11 +3871,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             NotificationCenter.default.removeObserver(windowObserver)
             self.windowObserver = nil
         }
-        // Balance the cursor stack if the view is removed while hover is active
-        if wordPathHoverActive {
-            wordPathHoverActive = false
-            NSCursor.pop()
-        }
+        // Clear any Cmd-hover affordance when the view changes windows; the
+        // didSet refreshes the cursor rect for the new window.
+        wordPathHoverActive = false
 #if DEBUG
         cmuxDebugLog(
             "surface.view.windowMove surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
@@ -6612,10 +6640,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     ) {
         let hoverWasActive = wordPathHoverActive
         guard cmdHeld, !suppressPathHover else {
-            if wordPathHoverActive {
-                wordPathHoverActive = false
-                NSCursor.pop()
-            }
+            wordPathHoverActive = false
 #if DEBUG
             if cmdHeld || suppressPathHover || hoverWasActive {
                 runtimeDebugLog(
@@ -6636,15 +6661,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         let resolution = resolveWordUnderCursorPath(at: point)
-        if resolution != nil {
-            if !wordPathHoverActive {
-                wordPathHoverActive = true
-                NSCursor.pointingHand.push()
-            }
-        } else if wordPathHoverActive {
-            wordPathHoverActive = false
-            NSCursor.pop()
-        }
+        // The didSet refreshes the cursor rect when the hover state flips, which
+        // makes the pointing hand override the libghostty mouse shape.
+        wordPathHoverActive = resolution != nil
 #if DEBUG
         if cmdHeld || hoverWasActive || wordPathHoverActive || resolution != nil {
             var payload: [String: Any] = [
@@ -7361,10 +7380,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseExited(with event: NSEvent) {
-        if wordPathHoverActive {
-            wordPathHoverActive = false
-            NSCursor.pop()
-        }
+        wordPathHoverActive = false
         guard let surface = surface else { return }
         if NSEvent.pressedMouseButtons != 0 {
             return
@@ -7480,6 +7496,76 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         if let trackingArea {
             addTrackingArea(trackingArea)
+        }
+    }
+
+    // MARK: - Mouse cursor shape
+
+    /// The cursor the terminal viewport should display. The libghostty-requested
+    /// shape (`ghosttyMouseShapeCursor`) is the default, but the Cmd-hover
+    /// word-path affordance overrides it with a pointing hand while a hovered
+    /// filename is resolvable.
+    var effectiveTerminalCursor: NSCursor {
+        wordPathHoverActive ? .pointingHand : ghosttyMouseShapeCursor
+    }
+
+    // AppKit owns cursor display via cursor rects: it sets `effectiveTerminalCursor`
+    // when the pointer enters this rect and restores the parent cursor on exit.
+    // This is the same mechanism standalone Ghostty's SurfaceView uses, and it
+    // is what makes the OS pointer become an I-beam over selectable terminal text.
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: effectiveTerminalCursor)
+    }
+
+    /// Re-establish the viewport cursor rect so AppKit re-applies the current
+    /// `effectiveTerminalCursor` at the pointer's location.
+    private func refreshTerminalCursor() {
+        window?.invalidateCursorRects(for: self)
+    }
+
+    /// Apply a mouse-cursor shape requested by libghostty via
+    /// `GHOSTTY_ACTION_MOUSE_SHAPE` (e.g. the text I-beam over selectable text,
+    /// the arrow when a program enables mouse reporting, or a pointing hand over
+    /// links).
+    func applyGhosttyMouseShape(_ shape: ghostty_action_mouse_shape_e) {
+        ghosttyMouseShapeCursor = Self.cursor(for: shape)
+    }
+
+    /// Map a libghostty mouse shape to the closest AppKit cursor. Unknown or
+    /// unsupported shapes fall back to the arrow, matching standalone Ghostty.
+    static func cursor(for shape: ghostty_action_mouse_shape_e) -> NSCursor {
+        switch shape {
+        case GHOSTTY_MOUSE_SHAPE_TEXT:
+            return .iBeam
+        case GHOSTTY_MOUSE_SHAPE_DEFAULT:
+            return .arrow
+        case GHOSTTY_MOUSE_SHAPE_POINTER:
+            return .pointingHand
+        case GHOSTTY_MOUSE_SHAPE_CROSSHAIR:
+            return .crosshair
+        case GHOSTTY_MOUSE_SHAPE_VERTICAL_TEXT:
+            return .iBeamCursorForVerticalLayout
+        case GHOSTTY_MOUSE_SHAPE_GRAB:
+            return .openHand
+        case GHOSTTY_MOUSE_SHAPE_GRABBING:
+            return .closedHand
+        case GHOSTTY_MOUSE_SHAPE_NOT_ALLOWED, GHOSTTY_MOUSE_SHAPE_NO_DROP:
+            return .operationNotAllowed
+        case GHOSTTY_MOUSE_SHAPE_CONTEXT_MENU:
+            return .contextualMenu
+        case GHOSTTY_MOUSE_SHAPE_COL_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_E_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_W_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_EW_RESIZE:
+            return .resizeLeftRight
+        case GHOSTTY_MOUSE_SHAPE_ROW_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_N_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_S_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_NS_RESIZE:
+            return .resizeUpDown
+        default:
+            return .arrow
         }
     }
 
