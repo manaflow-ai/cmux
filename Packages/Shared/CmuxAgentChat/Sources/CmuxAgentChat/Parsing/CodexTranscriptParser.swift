@@ -221,7 +221,11 @@ public struct CodexTranscriptParser: Sendable {
                             role: .agent,
                             timestamp: timestamp,
                             kind: .question(question)
-                        )
+                        ),
+                        // Pair with the request_user_input function_call_output by
+                        // call id so the answer marks the question resolved (the
+                        // GUI then shows the selection and stops being tappable).
+                        pendingKey: index == 0 ? callID : nil
                     )
                 }
                 return

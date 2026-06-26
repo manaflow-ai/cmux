@@ -75,19 +75,42 @@ struct TranscriptToolCompletion: Sendable {
         }
     }
 
-    /// Extracts the chosen answer for a question prompt from the
-    /// `Your questions have been answered: "Q"="A"...` result text.
+    /// Extracts the chosen answer for a question prompt.
+    ///
+    /// Handles two formats:
+    /// - Claude: `Your questions have been answered: "Q"="A"...`.
+    /// - Codex `request_user_input`: a JSON output
+    ///   `{"answers":{"<id>":{"answers":["<label>"]}}}`. Codex keys answers by
+    ///   question id (not prompt), so for the common single-question picker the
+    ///   first non-empty answer is returned.
     ///
     /// - Parameter prompt: The question prompt to look up.
     /// - Returns: The answer text, or `nil` when not extractable.
     private func answer(forPrompt prompt: String) -> String? {
         guard let output else { return nil }
+        // Claude `"Q"="A"` format.
         let needle = "\"\(prompt)\"=\""
-        guard let start = output.range(of: needle) else { return nil }
-        let tail = output[start.upperBound...]
-        guard let end = tail.range(of: "\"") else { return nil }
-        let answer = String(tail[..<end.lowerBound])
-        return answer.isEmpty ? nil : answer
+        if let start = output.range(of: needle) {
+            let tail = output[start.upperBound...]
+            if let end = tail.range(of: "\"") {
+                let answer = String(tail[..<end.lowerBound])
+                if !answer.isEmpty { return answer }
+            }
+        }
+        // Codex JSON `{"answers":{<id>:{"answers":[<label>]}}}` format.
+        if output.contains("\"answers\""),
+           let data = output.data(using: .utf8),
+           let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let answers = root["answers"] as? [String: Any] {
+            for value in answers.values {
+                if let entry = value as? [String: Any],
+                   let labels = entry["answers"] as? [String],
+                   let first = labels.first(where: { !$0.isEmpty }) {
+                    return first
+                }
+            }
+        }
+        return nil
     }
 }
 
