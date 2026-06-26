@@ -8439,6 +8439,29 @@ func browserNavigationShouldFallbackNilTargetToNewTab(
     navigationType != .other
 }
 
+/// A scripted `window.open()` / `window.open("about:blank")` with no destination
+/// URL is the deferred-navigation popup pattern: the page keeps the returned
+/// window handle and later sets `popup.location.href` (often asynchronously, to
+/// dodge popup blockers). Returning a live popup web view is the only way to
+/// preserve that handle — falling back to a new tab makes `window.open()` return
+/// `null`, which silently breaks flows like VS Code Web's GitHub / Settings Sync
+/// auth popup (https://github.com/manaflow-ai/cmux/issues/6649): the first attempt
+/// shows `about:blank` and the auth navigation never happens.
+///
+/// `popupFeaturesWereSpecified` is intentionally NOT required here: the deferred
+/// pattern usually omits window features, so `browserNavigationShouldCreatePopup`
+/// alone would route it to a tab. Bare `_blank` links with a real destination URL
+/// still fall through to tabs because they are not blank-targeted.
+func browserNavigationShouldCreateBlankScriptedPopup(
+    navigationType: WKNavigationType,
+    requestURL: URL?
+) -> Bool {
+    // Stubbed to the pre-fix behavior so the #6649 regression test added in this
+    // commit fails (red). The real predicate and delegate wiring land in the next
+    // commit (green).
+    false
+}
+
 func browserNavigationHasSimpleUserActivation(
     currentEventType: NSEvent.EventType? = NSApp.currentEvent?.type
 ) -> Bool {

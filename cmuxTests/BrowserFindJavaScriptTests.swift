@@ -94,4 +94,50 @@ final class BrowserPopupDecisionTests: XCTestCase {
             )
         )
     }
+
+    // MARK: - Blank-targeted scripted popups (#6649)
+
+    func testBlankScriptedWindowOpenCreatesPopupForAboutBlank() throws {
+        // window.open("about:blank") with no features is the deferred-navigation
+        // pattern (VS Code Web auth). It must return a live popup web view, even
+        // though no window features were specified.
+        XCTAssertTrue(
+            browserNavigationShouldCreateBlankScriptedPopup(
+                navigationType: .other,
+                requestURL: try XCTUnwrap(URL(string: "about:blank"))
+            )
+        )
+    }
+
+    func testBlankScriptedWindowOpenCreatesPopupForNilURL() {
+        // window.open() with no argument can surface a nil request URL.
+        XCTAssertTrue(
+            browserNavigationShouldCreateBlankScriptedPopup(
+                navigationType: .other,
+                requestURL: nil
+            )
+        )
+    }
+
+    func testBlankScriptedPopupIgnoresRealDestinationURL() throws {
+        // window.open("https://example.com") already carries its destination, so a
+        // tab navigation works; do not force it onto the blank-popup path.
+        XCTAssertFalse(
+            browserNavigationShouldCreateBlankScriptedPopup(
+                navigationType: .other,
+                requestURL: try XCTUnwrap(URL(string: "https://example.com/"))
+            )
+        )
+    }
+
+    func testBlankScriptedPopupIgnoresLinkActivatedNavigation() throws {
+        // A real link click (target=_blank) is .linkActivated, not scripted, and
+        // must keep falling through to tab handling.
+        XCTAssertFalse(
+            browserNavigationShouldCreateBlankScriptedPopup(
+                navigationType: .linkActivated,
+                requestURL: try XCTUnwrap(URL(string: "about:blank"))
+            )
+        )
+    }
 }
