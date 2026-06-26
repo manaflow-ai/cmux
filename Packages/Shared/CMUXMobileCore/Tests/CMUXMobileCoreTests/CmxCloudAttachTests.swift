@@ -7,10 +7,12 @@ import Testing
 /// ``CmxAttachTicket`` that reuses the same route model a paired Mac uses
 /// (issue #6700).
 @Suite struct CmxCloudAttachTests {
-    /// A representative Freestyle WebSocket response with both the terminal PTY
-    /// lease and the cmuxd-remote daemon lease, mirroring `WebSocketPtyEndpoint`
-    /// in `web/services/vms/drivers/types.ts`.
-    private func fullResponseJSON(
+    /// A header-less Freestyle-style WebSocket response (the default provider;
+    /// it authorizes by token alone) with both the terminal PTY lease and the
+    /// cmuxd-remote daemon lease. Mirrors `WebSocketPtyEndpoint` in
+    /// `web/services/vms/drivers/types.ts`. This is the shape `ticket(from:)`
+    /// accepts.
+    private func freestyleResponseJSON(
         terminalURL: String = "wss://vm-123.vm.freestyle.sh/terminal",
         terminalToken: String = "cmux-freestyle-pty-aaaa",
         daemonURL: String = "wss://vm-123.vm.freestyle.sh/rpc",
@@ -21,16 +23,40 @@ import Testing
         {
           "transport": "websocket",
           "url": "\(terminalURL)",
-          "headers": { "Authorization": "Bearer \(terminalToken)" },
+          "headers": {},
           "token": "\(terminalToken)",
           "sessionId": "sess-pty-1",
           "expiresAtUnix": 1899999000,
           "daemon": {
             "url": "\(daemonURL)",
-            "headers": { "Authorization": "Bearer \(daemonToken)" },
+            "headers": {},
             "token": "\(daemonToken)",
             "sessionId": "sess-rpc-1",
             "expiresAtUnix": \(daemonExpiresAtUnix)
+          }
+        }
+        """
+    }
+
+    /// An E2B-style response: every lease carries the `e2b-traffic-access-token`
+    /// handshake header the brokered upgrade requires (`drivers/e2b.ts`). The
+    /// endpoint decodes fine, but `ticket(from:)` refuses it because the route
+    /// model cannot yet carry per-lease headers.
+    private func e2bResponseJSON() -> String {
+        """
+        {
+          "transport": "websocket",
+          "url": "wss://7777-sandbox.e2b.app/terminal",
+          "headers": { "e2b-traffic-access-token": "tok-pty" },
+          "token": "cmux-e2b-pty-aaaa",
+          "sessionId": "sess-pty-1",
+          "expiresAtUnix": 1899999000,
+          "daemon": {
+            "url": "wss://7777-sandbox.e2b.app/rpc",
+            "headers": { "e2b-traffic-access-token": "tok-rpc" },
+            "token": "cmux-e2b-rpc-bbbb",
+            "sessionId": "sess-rpc-1",
+            "expiresAtUnix": 1900000000
           }
         }
         """
@@ -43,21 +69,29 @@ import Testing
     // MARK: - Decoding
 
     @Test func decodesTerminalAndDaemonLeases() throws {
-        let endpoint = try CmxCloudAttach().decode(data(fullResponseJSON()))
+        let endpoint = try CmxCloudAttach().decode(data(freestyleResponseJSON()))
 
         #expect(endpoint.transport == "websocket")
         #expect(endpoint.terminal.url == "wss://vm-123.vm.freestyle.sh/terminal")
         #expect(endpoint.terminal.token == "cmux-freestyle-pty-aaaa")
         #expect(endpoint.terminal.sessionID == "sess-pty-1")
         #expect(endpoint.terminal.expiresAtUnix == 1_899_999_000)
-        #expect(endpoint.terminal.headers["Authorization"] == "Bearer cmux-freestyle-pty-aaaa")
+        #expect(endpoint.terminal.headers.isEmpty)
 
         let daemon = try #require(endpoint.daemon)
         #expect(daemon.url == "wss://vm-123.vm.freestyle.sh/rpc")
         #expect(daemon.token == "cmux-freestyle-rpc-bbbb")
         #expect(daemon.sessionID == "sess-rpc-1")
         #expect(daemon.expiresAtUnix == 1_900_000_000)
-        #expect(daemon.headers["Authorization"] == "Bearer cmux-freestyle-rpc-bbbb")
+        #expect(daemon.headers.isEmpty)
+    }
+
+    @Test func decodePreservesHandshakeHeaders() throws {
+        // Decoding is faithful: an E2B endpoint keeps its headers on the model
+        // even though `ticket(from:)` later refuses to build a route from it.
+        let endpoint = try CmxCloudAttach().decode(data(e2bResponseJSON()))
+        #expect(endpoint.terminal.headers["e2b-traffic-access-token"] == "tok-pty")
+        #expect(endpoint.daemon?.headers["e2b-traffic-access-token"] == "tok-rpc")
     }
 
     @Test func decodesEndpointWithoutDaemon() throws {
@@ -97,17 +131,30 @@ import Testing
         }
     }
 
-    @Test func roundTripsEndpoint() throws {
-        let endpoint = try CmxCloudAttach().decode(data(fullResponseJSON()))
+    @Test func roundTripsEndpointWithHeaders() throws {
+        // The header-bearing path exercises the headers encode branch.
+        let endpoint = try CmxCloudAttach().decode(data(e2bResponseJSON()))
         let encoded = try JSONEncoder().encode(endpoint)
         let reDecoded = try JSONDecoder().decode(CmxCloudAttachEndpoint.self, from: encoded)
         #expect(reDecoded == endpoint)
     }
 
+    @Test func roundTripsEndpointWithoutHeaders() throws {
+        let endpoint = try CmxCloudAttach().decode(data(freestyleResponseJSON()))
+        let encoded = try JSONEncoder().encode(endpoint)
+        let reDecoded = try JSONDecoder().decode(CmxCloudAttachEndpoint.self, from: encoded)
+        #expect(reDecoded == endpoint)
+        // Empty headers are omitted from the encoded form, not written as `{}`.
+        let object = try #require(
+            try JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        #expect(object["headers"] == nil)
+    }
+
     // MARK: - Ticket construction
 
     @Test func ticketCarriesWebSocketRouteToDaemon() throws {
-        let endpoint = try CmxCloudAttach().decode(data(fullResponseJSON()))
+        let endpoint = try CmxCloudAttach().decode(data(freestyleResponseJSON()))
         let ticket = try CmxCloudAttach().ticket(
             from: endpoint,
             displayName: "Reviewer Cloud VM",
@@ -137,7 +184,7 @@ import Testing
     }
 
     @Test func ticketDefaultsCarryNoIdentityHints() throws {
-        let endpoint = try CmxCloudAttach().decode(data(fullResponseJSON()))
+        let endpoint = try CmxCloudAttach().decode(data(freestyleResponseJSON()))
         let ticket = try CmxCloudAttach().ticket(from: endpoint)
         #expect(ticket.macDisplayName == nil)
         #expect(ticket.macUserID == nil)
@@ -145,7 +192,7 @@ import Testing
     }
 
     @Test func ticketPrefersWebSocketRouteAndRejectsTailscaleOnly() throws {
-        let endpoint = try CmxCloudAttach().decode(data(fullResponseJSON()))
+        let endpoint = try CmxCloudAttach().decode(data(freestyleResponseJSON()))
         let ticket = try CmxCloudAttach().ticket(from: endpoint)
 
         // A client that speaks WebSocket reaches the cloud VM...
@@ -158,7 +205,7 @@ import Testing
 
     @Test func ticketExpiryDrivesIsExpired() throws {
         let endpoint = try CmxCloudAttach().decode(
-            data(fullResponseJSON(daemonExpiresAtUnix: 1_900_000_000))
+            data(freestyleResponseJSON(daemonExpiresAtUnix: 1_900_000_000))
         )
         let ticket = try CmxCloudAttach().ticket(from: endpoint)
         #expect(ticket.isExpired(at: Date(timeIntervalSince1970: 1_899_999_999)) == false)
@@ -169,7 +216,7 @@ import Testing
         // A missing/zero lease expiry must not pin the ticket to the 1970 epoch
         // (which would make it instantly expired); it should be non-expiring.
         let endpoint = try CmxCloudAttach().decode(
-            data(fullResponseJSON(daemonExpiresAtUnix: 0))
+            data(freestyleResponseJSON(daemonExpiresAtUnix: 0))
         )
         let ticket = try CmxCloudAttach().ticket(from: endpoint)
         #expect(ticket.expiresAt == nil)
@@ -178,7 +225,7 @@ import Testing
 
     @Test func ticketFromResponseDecodesAndBuilds() throws {
         let ticket = try CmxCloudAttach().ticket(
-            fromResponse: data(fullResponseJSON()),
+            fromResponse: data(freestyleResponseJSON()),
             displayName: "VM",
             macUserID: "u-1"
         )
@@ -187,6 +234,15 @@ import Testing
     }
 
     // MARK: - Ticket errors
+
+    @Test func ticketRejectsHeaderBearingDaemonLease() throws {
+        // E2B requires per-lease handshake headers the route model cannot carry;
+        // building a route would silently drop them, so it is refused outright.
+        let endpoint = try CmxCloudAttach().decode(data(e2bResponseJSON()))
+        #expect(throws: CmxCloudAttachError.unsupportedHandshakeHeaders(["e2b-traffic-access-token"])) {
+            _ = try CmxCloudAttach().ticket(from: endpoint)
+        }
+    }
 
     @Test func ticketThrowsWhenDaemonMissing() throws {
         let endpoint = CmxCloudAttachEndpoint(

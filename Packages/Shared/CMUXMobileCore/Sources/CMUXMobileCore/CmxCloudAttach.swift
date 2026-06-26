@@ -20,6 +20,17 @@ public enum CmxCloudAttachError: Error, Equatable, Sendable {
     /// host's authorization gate for a cloud session, mirroring the Mac attach
     /// token, so a tokenless lease authorizes nothing.
     case missingDaemonToken
+    /// The daemon lease carried WebSocket handshake headers the attach-ticket +
+    /// route model cannot yet carry (it holds a URL and a token, but no
+    /// per-route headers). E2B returns `e2b-traffic-access-token` on every
+    /// lease, and the brokered upgrade fails without it, so a header-bearing
+    /// endpoint is refused here rather than turned into a ticket that silently
+    /// drops the header and cannot connect. Freestyle, the default provider,
+    /// authorizes by token alone and carries no headers. Lifted once the route
+    /// model and a WebSocket transport can replay handshake headers (issue
+    /// #6700 follow-up). The associated value is the sorted header field names,
+    /// never their values.
+    case unsupportedHandshakeHeaders([String])
 }
 
 /// A Cloud VM attach endpoint as returned by the backend
@@ -212,6 +223,12 @@ public struct CmxCloudAttach: Sendable {
     /// ticket. As with a scanned pairing QR, `macDeviceID` stays empty and the
     /// shell adopts the host-reported identity once connected.
     ///
+    /// Header-bearing endpoints are rejected: the route model carries a token
+    /// but not the per-lease handshake headers some providers (E2B) require, so
+    /// such an endpoint is refused rather than silently degraded. Freestyle —
+    /// the default provider and the App Review demo-VM path — authorizes by
+    /// token alone and carries no headers.
+    ///
     /// - Parameters:
     ///   - endpoint: The decoded attach-endpoint response.
     ///   - displayName: An optional human-readable label for the VM, shown in
@@ -240,6 +257,14 @@ public struct CmxCloudAttach: Sendable {
         let token = daemon.token.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !token.isEmpty else {
             throw CmxCloudAttachError.missingDaemonToken
+        }
+        // The route this builds carries a URL + token but no per-route handshake
+        // headers. A header-bearing lease (E2B returns `e2b-traffic-access-token`
+        // on every lease) would lose those headers here and fail the brokered
+        // WebSocket upgrade, so refuse it loudly instead of minting a ticket
+        // that cannot connect.
+        guard daemon.headers.isEmpty else {
+            throw CmxCloudAttachError.unsupportedHandshakeHeaders(daemon.headers.keys.sorted())
         }
 
         let route = try CmxAttachRoute(
