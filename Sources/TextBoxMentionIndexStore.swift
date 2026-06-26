@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 actor TextBoxMentionIndexStore {
@@ -691,7 +692,9 @@ actor TextBoxMentionIndexStore {
         let probePaths = relativePaths + relativePaths.map { "\($0)/" }
         let input = probePaths.joined(separator: "\n") + "\n"
         if let data = input.data(using: .utf8) {
-            stdin.fileHandleForWriting.write(data)
+            // git check-ignore may close stdin before we finish writing; swallow
+            // the broken pipe so it can't SIGABRT. See manaflow-ai/cmux#5750
+            stdin.fileHandleForWriting.writeIgnoringBrokenPipe(data)
         }
         stdin.fileHandleForWriting.closeFile()
 
