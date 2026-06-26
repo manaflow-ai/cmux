@@ -7,12 +7,10 @@ import CmuxMobileSupport
 import SwiftUI
 
 /// The Computers screen: the Macs signed in to the user's account, each shown
-/// with its name, live/last-seen status, and workspace count. There is no longer
-/// a "connect to a device" step — workspaces from every computer already appear
-/// together in the main list — so this screen is now for *managing* computers:
-/// see their details (online state, when last seen, how many workspaces) and add
-/// or remove one. The data is the durable-object–backed device registry (with a
-/// paired-Mac fallback) plus live presence.
+/// with its name, live/last-seen status, and workspace count. The main workspace
+/// list owns the Mac picker; this screen manages the saved computer set and lets
+/// users inspect or remove one. The data is the durable-object–backed device
+/// registry (with a paired-Mac fallback) plus live presence.
 ///
 /// Snapshot boundary (see AGENTS.md): every row below the `List` takes an
 /// immutable ``MacComputerSnapshot`` value only — no `@Observable`/`store`
@@ -85,7 +83,7 @@ struct DeviceTreeView: View {
                     } footer: {
                         Text(L10n.string(
                             "mobile.computers.footer",
-                            defaultValue: "The Macs signed in to your account. Workspaces from every computer appear together in the main list."
+                            defaultValue: "The Macs signed in to your account. Use the workspace title picker to focus one Mac or show All Macs."
                         ))
                     }
                 }
