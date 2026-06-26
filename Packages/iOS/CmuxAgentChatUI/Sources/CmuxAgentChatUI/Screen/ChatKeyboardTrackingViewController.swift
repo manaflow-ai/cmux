@@ -311,7 +311,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         updateConstraint(composerHeightConstraint, to: composerHeight)
         updateConstraint(transcriptClipTopConstraint, to: -topUnderlap)
         updateConstraint(transcriptHeightConstraint, to: fullTranscriptHeight)
-        updateTranscriptOverlayBottomInset(composerHeight)
+        updateTranscriptViewportInsets(topInset: topUnderlap, composerHeight: composerHeight)
     }
 
     private func applyKeyboardOverlap(_ overlap: CGFloat) {
@@ -375,11 +375,15 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         }
     }
 
-    private func updateTranscriptOverlayBottomInset(_ inset: CGFloat) {
-        let bottomInset = showsComposer ? max(0, ceil(inset)) : 0
+    private func updateTranscriptViewportInsets(topInset: CGFloat, composerHeight: CGFloat) {
+        let resolvedTopInset = max(0, ceil(topInset))
+        let bottomInset = showsComposer ? max(0, ceil(composerHeight)) : 0
         let tables = trackedTranscriptTables(in: transcriptHostingController.view)
         for tableView in tables {
-            tableView.applyComposerOverlayBottomInset(bottomInset)
+            tableView.applyTranscriptViewportInsets(
+                topChromeInset: resolvedTopInset,
+                composerBottomInset: bottomInset
+            )
         }
         scrollEdgeCoordinator.configure(
             tableView: tables.first,

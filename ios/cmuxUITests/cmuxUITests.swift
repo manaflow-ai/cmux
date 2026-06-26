@@ -1037,9 +1037,32 @@ final class cmuxUITests: XCTestCase {
             startedAt: Date(),
             metrics: loadedMetrics
         )
-        try scrollTranscript(table, direction: .down, timeout: 8) {
-            $0.offsetY < 80 && $0.contentHeight > $0.boundsHeight * 1.6
+        let topMetrics = try scrollTranscript(table, direction: .down, timeout: 8) {
+            abs($0.visibleTopY) <= 3
+                && $0.adjustedTopInset > 20
+                && $0.contentHeight > $0.boundsHeight * 1.6
         }
+        XCTAssertNotNil(topMetrics)
+        if let topMetrics {
+            XCTAssertEqual(
+                topMetrics.offsetY,
+                -topMetrics.adjustedTopInset,
+                accuracy: 3,
+                "At the beginning of the chat, the transcript offset must include the top chrome reservation so the first date header is not hidden behind the toolbar. metrics=\(topMetrics)"
+            )
+            XCTAssertGreaterThan(
+                topMetrics.topChromeOverlayInset,
+                20,
+                "The transcript table must own the top chrome inset when it underlaps the navigation bar. metrics=\(topMetrics)"
+            )
+        }
+        let todayHeader = app.staticTexts["ChatDateHeader"].firstMatch
+        XCTAssertTrue(todayHeader.waitForExistence(timeout: 2))
+        XCTAssertGreaterThanOrEqual(
+            todayHeader.frame.minY,
+            navigationFrame.maxY - 4,
+            "The Today header must be visible below the navigation controls at top scroll. today=\(todayHeader.frame) navigationBar=\(navigationFrame)"
+        )
         captureTopScrollEdgeEvidenceFrames(table: table, prefix: "top-edge")
     }
 
@@ -1786,6 +1809,8 @@ final class cmuxUITests: XCTestCase {
         let presentationFrameMaxY: CGFloat
         let boundsHeight: CGFloat
         let offsetY: CGFloat
+        let adjustedTopInset: CGFloat
+        let visibleTopY: CGFloat
         let visibleBottomY: CGFloat
         let contentHeight: CGFloat
         let distanceFromBottom: CGFloat
@@ -1795,6 +1820,7 @@ final class cmuxUITests: XCTestCase {
         let composerMinY: CGFloat
         let composerPresentationMinY: CGFloat
         let presentationGap: CGFloat
+        let topChromeOverlayInset: CGFloat
         let composerOverlayBottomInset: CGFloat
         let keyboardAnimationActive: Bool
         let keyboardAnimationProgress: CGFloat
@@ -1803,7 +1829,7 @@ final class cmuxUITests: XCTestCase {
         let keyboardAnimationSamples: Int
 
         var description: String {
-            "frameMinY=\(frameMinY), frameMaxY=\(frameMaxY), frameHeight=\(frameHeight), presentationFrameMaxY=\(presentationFrameMaxY), boundsHeight=\(boundsHeight), offsetY=\(offsetY), visibleBottomY=\(visibleBottomY), contentHeight=\(contentHeight), distanceFromBottom=\(distanceFromBottom), keyboardEvents=\(keyboardEvents), keyboardOverlap=\(keyboardOverlap), keyboardTargetOverlap=\(keyboardTargetOverlap), composerMinY=\(composerMinY), composerPresentationMinY=\(composerPresentationMinY), presentationGap=\(presentationGap), composerOverlayBottomInset=\(composerOverlayBottomInset), keyboardAnimationActive=\(keyboardAnimationActive), keyboardAnimationProgress=\(keyboardAnimationProgress), keyboardTransitionDuration=\(keyboardTransitionDuration), maxAnimationPresentationGap=\(maxAnimationPresentationGap), keyboardAnimationSamples=\(keyboardAnimationSamples)"
+            "frameMinY=\(frameMinY), frameMaxY=\(frameMaxY), frameHeight=\(frameHeight), presentationFrameMaxY=\(presentationFrameMaxY), boundsHeight=\(boundsHeight), offsetY=\(offsetY), adjustedTopInset=\(adjustedTopInset), visibleTopY=\(visibleTopY), visibleBottomY=\(visibleBottomY), contentHeight=\(contentHeight), distanceFromBottom=\(distanceFromBottom), keyboardEvents=\(keyboardEvents), keyboardOverlap=\(keyboardOverlap), keyboardTargetOverlap=\(keyboardTargetOverlap), composerMinY=\(composerMinY), composerPresentationMinY=\(composerPresentationMinY), presentationGap=\(presentationGap), topChromeOverlayInset=\(topChromeOverlayInset), composerOverlayBottomInset=\(composerOverlayBottomInset), keyboardAnimationActive=\(keyboardAnimationActive), keyboardAnimationProgress=\(keyboardAnimationProgress), keyboardTransitionDuration=\(keyboardTransitionDuration), maxAnimationPresentationGap=\(maxAnimationPresentationGap), keyboardAnimationSamples=\(keyboardAnimationSamples)"
         }
 
         var effectiveFrameMaxY: CGFloat {
@@ -1836,6 +1862,8 @@ final class cmuxUITests: XCTestCase {
             self.presentationFrameMaxY = values["presentationFrameMaxY"] ?? frameMaxY
             self.boundsHeight = boundsHeight
             self.offsetY = offsetY
+            self.adjustedTopInset = values["adjustedTopInset"] ?? 0
+            self.visibleTopY = values["visibleTopY"] ?? offsetY
             self.visibleBottomY = visibleBottomY
             self.contentHeight = contentHeight
             self.distanceFromBottom = distanceFromBottom
@@ -1845,6 +1873,7 @@ final class cmuxUITests: XCTestCase {
             self.composerMinY = values["composerMinY"] ?? frameMaxY
             self.composerPresentationMinY = values["composerPresentationMinY"] ?? self.composerMinY
             self.presentationGap = values["presentationGap"] ?? 0
+            self.topChromeOverlayInset = values["topChromeOverlayInset"] ?? 0
             self.composerOverlayBottomInset = values["composerOverlayBottomInset"] ?? 0
             self.keyboardAnimationActive = (values["keyboardAnimationActive"] ?? 0) >= 0.5
             self.keyboardAnimationProgress = values["keyboardAnimationProgress"] ?? 1
@@ -2276,6 +2305,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    @discardableResult
     private func scrollTranscript(
         _ table: XCUIElement,
         direction: TranscriptScrollDirection,
@@ -2283,14 +2313,14 @@ final class cmuxUITests: XCTestCase {
         until predicate: @escaping (ChatTranscriptMetrics) -> Bool,
         file: StaticString = #filePath,
         line: UInt = #line
-    ) throws {
+    ) throws -> ChatTranscriptMetrics? {
         let deadline = Date().addingTimeInterval(timeout)
         var lastMetrics: ChatTranscriptMetrics?
         while Date() < deadline {
             if let metrics = transcriptMetrics(from: table) {
                 lastMetrics = metrics
                 if predicate(metrics) {
-                    return
+                    return metrics
                 }
             }
             switch direction {
@@ -2303,18 +2333,19 @@ final class cmuxUITests: XCTestCase {
             if let metrics = transcriptMetrics(from: table) {
                 lastMetrics = metrics
                 if predicate(metrics) {
-                    return
+                    return metrics
                 }
             }
         }
         if let metrics = transcriptMetrics(from: table), predicate(metrics) {
-            return
+            return metrics
         }
         XCTFail(
             "Timed out scrolling transcript \(direction). Last metrics: \(String(describing: transcriptMetrics(from: table) ?? lastMetrics))",
             file: file,
             line: line
         )
+        return lastMetrics
     }
 
     @MainActor

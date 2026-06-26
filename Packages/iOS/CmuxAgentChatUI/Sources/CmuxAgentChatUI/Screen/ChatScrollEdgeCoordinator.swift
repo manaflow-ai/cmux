@@ -4,10 +4,7 @@ import UIKit
 @MainActor
 final class ChatScrollEdgeCoordinator {
     private var bottomInteraction: UIInteraction?
-    private var topInteraction: UIInteraction?
     private weak var bottomInteractionTableView: ChatTranscriptUITableView?
-    private weak var topInteractionNavigationBar: UINavigationBar?
-    private weak var topInteractionTableView: ChatTranscriptUITableView?
     private weak var topContentScrollViewController: UIViewController?
 
     func configure(
@@ -17,12 +14,10 @@ final class ChatScrollEdgeCoordinator {
     ) {
         configureEdgeEffect(for: tableView)
         configureContentScrollView(tableView, owner: owner)
-        configureTopInteraction(tableView, owner: owner)
         configureBottomInteraction(tableView, composerView: composerView)
     }
 
     func reset() {
-        resetTopInteraction()
         resetBottomInteraction()
         clearTopContentScrollViewController()
     }
@@ -63,38 +58,6 @@ final class ChatScrollEdgeCoordinator {
         }
     }
 
-    private func configureTopInteraction(
-        _ tableView: ChatTranscriptUITableView?,
-        owner: UIViewController
-    ) {
-        if #available(iOS 26.0, *) {
-            guard let tableView, let navigationBar = nearestNavigationBar(from: owner) else {
-                resetTopInteraction()
-                return
-            }
-
-            let interaction: UIScrollEdgeElementContainerInteraction
-            if let existing = topInteraction as? UIScrollEdgeElementContainerInteraction {
-                interaction = existing
-            } else {
-                interaction = UIScrollEdgeElementContainerInteraction()
-                interaction.edge = .top
-                topInteraction = interaction
-            }
-
-            if topInteractionNavigationBar !== navigationBar {
-                topInteractionNavigationBar?.removeInteraction(interaction)
-                navigationBar.addInteraction(interaction)
-                topInteractionNavigationBar = navigationBar
-            }
-
-            if topInteractionTableView !== tableView {
-                interaction.scrollView = tableView
-                topInteractionTableView = tableView
-            }
-        }
-    }
-
     private func configureBottomInteraction(
         _ tableView: ChatTranscriptUITableView?,
         composerView: UIView
@@ -120,15 +83,6 @@ final class ChatScrollEdgeCoordinator {
                 bottomInteractionTableView = tableView
             }
         }
-    }
-
-    private func resetTopInteraction() {
-        if let interaction = topInteraction {
-            topInteractionNavigationBar?.removeInteraction(interaction)
-        }
-        topInteraction = nil
-        topInteractionNavigationBar = nil
-        topInteractionTableView = nil
     }
 
     private func resetBottomInteraction() {
