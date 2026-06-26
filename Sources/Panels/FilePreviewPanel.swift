@@ -999,6 +999,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private var textLoadGeneration = 0
     private var saveGeneration = 0
     private var activeSaveGeneration: Int?
+    private var pendingTextFinderAction: NSTextFinder.Action?
     private weak var textView: NSTextView?
     private let focusCoordinator: FilePreviewFocusCoordinator
     private let textLoader: @Sendable (URL) async -> FilePreviewTextLoader.Result
@@ -1054,6 +1055,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     func attachTextView(_ textView: NSTextView) {
         self.textView = textView
         focusCoordinator.register(root: textView, primaryResponder: textView, intent: .textEditor)
+        performPendingTextFinderActionIfPossible()
     }
 
     func handleDroppedFileURLsAsText(_ urls: [URL]) -> Bool {
@@ -4483,5 +4485,55 @@ private final class FilePreviewPointerObserverView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         nil
+    }
+}
+
+// MARK: - Find support
+
+extension FilePreviewPanel: FindablePanel {
+    var hasSelectionForFind: Bool {
+        guard previewMode == .text else { return false }
+        return (textView?.selectedRange().length ?? 0) > 0
+    }
+
+    @discardableResult
+    func startFind() -> Bool {
+        performTextFinderAction(.showFindInterface)
+    }
+
+    func findNext() {
+        _ = performTextFinderAction(.nextMatch)
+    }
+
+    func findPrevious() {
+        _ = performTextFinderAction(.previousMatch)
+    }
+
+    func hideFind() {
+        _ = performTextFinderAction(.hideFindInterface)
+    }
+
+    func useSelectionForFind() {
+        guard hasSelectionForFind else { return }
+        _ = performTextFinderAction(.setSearchString)
+    }
+
+    @discardableResult
+    private func performTextFinderAction(_ action: NSTextFinder.Action) -> Bool {
+        guard previewMode == .text else { return false }
+        guard let textView else {
+            pendingTextFinderAction = action
+            return true
+        }
+        _ = textView.window?.makeFirstResponder(textView)
+        textView.performTextFinderAction(action.menuItemSender)
+        pendingTextFinderAction = nil
+        return true
+    }
+
+    @discardableResult
+    private func performPendingTextFinderActionIfPossible() -> Bool {
+        guard let action = pendingTextFinderAction else { return false }
+        return performTextFinderAction(action)
     }
 }

@@ -782,6 +782,7 @@ class TabManager: ObservableObject {
 
     var canUseSelectionForFind: Bool {
         selectedTerminalPanel?.hasSelection() == true
+            || focusedFindablePanel?.hasSelectionForFind == true
     }
 
     @discardableResult
@@ -807,24 +808,26 @@ class TabManager: ObservableObject {
 #endif
             return handled
         }
-        guard let browserPanel = focusedBrowserPanel else { return false }
-        browserPanel.startFind()
-        return browserPanel.searchState != nil
+        return startFindInFocusedNonTerminalPanel()
     }
 
     func searchSelection() {
-        guard let panel = selectedTerminalPanel else { return }
-        if panel.searchState == nil {
-            panel.searchState = TerminalSurface.SearchState()
-        }
+        if let panel = selectedTerminalPanel {
+            if panel.searchState == nil {
+                panel.searchState = TerminalSurface.SearchState()
+            }
 #if DEBUG
-        cmuxDebugLog(
-            "find.searchSelection workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
-            "panel=\(panel.id.uuidString.prefix(5))"
-        )
+            cmuxDebugLog(
+                "find.searchSelection workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
+                "panel=\(panel.id.uuidString.prefix(5))"
+            )
 #endif
-        NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
-        _ = panel.performBindingAction("search_selection")
+            NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
+            _ = panel.performBindingAction("search_selection")
+            return
+        }
+
+        focusedFindablePanel?.useSelectionForFind()
     }
 
     func findNext() {
@@ -833,7 +836,7 @@ class TabManager: ObservableObject {
             return
         }
 
-        focusedBrowserPanel?.findNext()
+        findNextInFocusedNonTerminalPanel()
     }
 
     func findPrevious() {
@@ -842,7 +845,7 @@ class TabManager: ObservableObject {
             return
         }
 
-        focusedBrowserPanel?.findPrevious()
+        findPreviousInFocusedNonTerminalPanel()
     }
 
     @discardableResult
@@ -941,7 +944,7 @@ class TabManager: ObservableObject {
             return
         }
 
-        focusedBrowserPanel?.hideFind()
+        hideFindInFocusedNonTerminalPanel()
     }
 
     func makeWorkspaceForCreation(
@@ -6136,6 +6139,54 @@ extension TabManager: WorkspaceGroupHosting {}
 // Workspace satisfies the CmuxWorkspaces tab seam with its existing
 // id/groupId/isPinned storage.
 extension Workspace: WorkspaceTabRepresenting {}
+
+// MARK: - Find routing for non-terminal panels
+
+extension TabManager {
+    /// The focused panel if it participates in global find commands.
+    var focusedFindablePanel: FindablePanel? {
+        guard let tab = selectedWorkspace,
+              let panelId = tab.focusedPanelId else { return nil }
+        return tab.panels[panelId] as? FindablePanel
+    }
+
+    /// Opens find in the focused browser or findable panel.
+    @discardableResult
+    func startFindInFocusedNonTerminalPanel() -> Bool {
+        if let browserPanel = focusedBrowserPanel {
+            browserPanel.startFind()
+            return browserPanel.searchState != nil
+        }
+        return focusedFindablePanel?.startFind() ?? false
+    }
+
+    /// Navigates to the next find result in the focused browser or findable panel.
+    func findNextInFocusedNonTerminalPanel() {
+        if let browserPanel = focusedBrowserPanel {
+            browserPanel.findNext()
+            return
+        }
+        focusedFindablePanel?.findNext()
+    }
+
+    /// Navigates to the previous find result in the focused browser or findable panel.
+    func findPreviousInFocusedNonTerminalPanel() {
+        if let browserPanel = focusedBrowserPanel {
+            browserPanel.findPrevious()
+            return
+        }
+        focusedFindablePanel?.findPrevious()
+    }
+
+    /// Hides find UI in the focused browser or findable panel.
+    func hideFindInFocusedNonTerminalPanel() {
+        if let browserPanel = focusedBrowserPanel {
+            browserPanel.hideFind()
+            return
+        }
+        focusedFindablePanel?.hideFind()
+    }
+}
 
 extension Notification.Name {
     // The sidebar multi-selection sync events moved to CmuxSidebar as typed
