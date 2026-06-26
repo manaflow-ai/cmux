@@ -740,40 +740,40 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertNotNil(workspace.panels[initialPanelId], "Expected sibling panel to remain")
     }
 
-    /// Companion to `testChildExitKeepsWaitAfterCommandSplitOpen` covering the last-panel
-    /// path: an initial-command workspace also sets wait-after-command on its only surface
-    /// (to keep a failed startup script's output visible), so a single such surface must
-    /// survive its child exiting too — the keep-open check runs before the last-panel
-    /// collapse, not only the split collapse (#6244).
-    func testChildExitKeepsSingleWaitAfterCommandSurfaceOpen() {
+    /// Companion to `testChildExitKeepsWaitAfterCommandSplitOpen` that pins the predicate
+    /// driving the keep-open decision. `closePanelAfterChildExited` consults
+    /// `shouldKeepSurfaceOpenAfterCommandExit` before both the split collapse and the
+    /// last-panel collapse, so a wait-after-command surface is honored regardless of pane
+    /// role (#6244). The predicate is role-agnostic, and excludes plain surfaces and remote
+    /// surfaces.
+    func testKeepOpenPredicateHonorsWaitAfterCommandForLocalSurfaces() {
         let manager = TabManager()
-        let workspace = manager.addWorkspace(initialTerminalCommand: "echo subagent")
-        guard let panelId = workspace.focusedPanelId,
-              let terminalPanel = workspace.terminalPanel(for: panelId) else {
-            XCTFail("Expected an initial-command workspace with a focused terminal panel")
+        guard let workspace = manager.selectedWorkspace,
+              let plainPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
             return
         }
 
-        XCTAssertEqual(workspace.panels.count, 1)
-        XCTAssertFalse(workspace.isRemoteWorkspace)
-        XCTAssertTrue(
-            terminalPanel.surface.waitAfterCommand,
-            "An initial-command workspace surface should wait after its command exits"
-        )
+        // A plain shell surface (no startup command) does not wait after its command and
+        // must not be kept open.
+        XCTAssertFalse(workspace.terminalPanel(for: plainPanelId)?.surface.waitAfterCommand ?? true)
+        XCTAssertFalse(workspace.shouldKeepSurfaceOpenAfterCommandExit(surfaceId: plainPanelId))
 
-        let workspaceCountBefore = manager.tabs.count
-        manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: panelId)
-        drainMainQueue()
-
-        XCTAssertNotNil(
-            workspace.panels[panelId],
-            "A single wait-after-command surface must survive its child process exiting"
-        )
-        XCTAssertTrue(
-            manager.tabs.contains(where: { $0.id == workspace.id }),
-            "The workspace hosting a wait-after-command surface must stay open after child exit"
-        )
-        XCTAssertEqual(manager.tabs.count, workspaceCountBefore)
+        // A local surface created with an initial command waits after its command, so the
+        // predicate keeps it open. This is the same signal the last-panel and split collapse
+        // paths both consult.
+        guard let commandSplit = workspace.newTerminalSplit(
+            from: plainPanelId,
+            orientation: .horizontal,
+            focus: false,
+            initialCommand: "echo subagent"
+        ) else {
+            XCTFail("Expected split terminal panel to be created")
+            return
+        }
+        XCTAssertTrue(commandSplit.surface.waitAfterCommand)
+        XCTAssertFalse(workspace.isRemoteTerminalSurface(commandSplit.id))
+        XCTAssertTrue(workspace.shouldKeepSurfaceOpenAfterCommandExit(surfaceId: commandSplit.id))
     }
 
     func testChildExitWindowCloseRequestsNoClosedWindowHistory() throws {
