@@ -166,6 +166,32 @@ import Testing
         #expect(!harness.flow.isSigningIn)
     }
 
+    @Test func dismissingSlowPopupSurfacesActionableBrowserFailure() async {
+        // Issue #6015: the ASWebAuthenticationSession popup opens its Safari
+        // window but never redirects back to cmux://auth-callback, so the user
+        // eventually gives up and closes the hung window. The attempt must not
+        // resolve silently — dropping straight back to "Not signed in" with no
+        // explanation and no recovery path is the reported hang. Dismissing a
+        // popup that had already gone slow records an actionable browser
+        // sign-in failure the account UI can surface (and offer the
+        // default-browser fallback against).
+        let clock = ManualTestClock()
+        let harness = HostBrowserSignInFlowHarness(slowSignInThreshold: 1, clock: clock)
+
+        harness.flow.beginSignIn()
+        await harness.waitForSession()
+        await clock.waitUntilSleepers(count: 2)
+        clock.advance(by: .seconds(1))
+        await harness.waitForCondition { harness.flow.signInIsSlow }
+
+        // The user closes the hung Safari window.
+        harness.factory.sessions[0].cancel()
+
+        await harness.waitForCondition { harness.flow.isSigningIn == false }
+        #expect(harness.flow.lastFailure == .browserSignInFailed("dismissed_after_slow"))
+        #expect(harness.coordinator.isAuthenticated == false)
+    }
+
     @Test func activeAttemptSignInURLCarriesActiveAttemptState() async {
         let harness = HostBrowserSignInFlowHarness()
         #expect(harness.flow.activeAttemptSignInURL == nil)
