@@ -129,8 +129,9 @@ final class RemoteTmuxController {
     // MARK: - Sidebar mirroring (P3, initial increment)
 
     /// Active session→workspace mirrors keyed `connectionHash\u{1}session`
-    /// (see ``RemoteTmuxHost/connectionKey(sessionName:)``).
-    private var sessionMirrors: [String: RemoteTmuxSessionMirror] = [:]
+    /// (see ``RemoteTmuxHost/connectionKey(sessionName:)``), owned by
+    /// ``RemoteTmuxController`` and delegated to.
+    private let mirrorRegistry = RemoteTmuxSessionMirrorRegistry()
 
     /// Dedicated-window bindings (host↔window) and the in-flight-attach guard for
     /// the "one cmux window per remote endpoint" mirror mode (Option 1), owned by
@@ -261,7 +262,7 @@ final class RemoteTmuxController {
         // Avoid binding an empty dedicated window when sessions failed or were
         // already mirrored elsewhere; the next attach must be able to retry.
         let newWindowWorkspaceIds = Set(manager.tabs.map(\.id))
-        let newWindowHasMirrorForHost = sessionMirrors.values.contains { mirror in
+        let newWindowHasMirrorForHost = mirrorRegistry.allMirrors().contains { mirror in
             mirror.host.connectionHash == host.connectionHash
                 && mirror.mirroredWorkspaceId.map(newWindowWorkspaceIds.contains) == true
         }
@@ -312,7 +313,7 @@ final class RemoteTmuxController {
         into tabManager: TabManager
     ) throws -> Bool {
         let key = host.connectionKey(sessionName: sessionName)
-        guard sessionMirrors[key] == nil else { return false }
+        guard mirrorRegistry.mirror(forKey: key) == nil else { return false }
         // Attach (and start the ssh process) BEFORE creating the workspace, so a
         // failed connection doesn't leave an orphaned empty mirror workspace in
         // the sidebar.
@@ -323,11 +324,14 @@ final class RemoteTmuxController {
             autoWelcomeIfNeeded: false
         )
         workspace.isRemoteTmuxMirror = true
-        sessionMirrors[key] = RemoteTmuxSessionMirror(
-            host: host,
-            sessionName: sessionName,
-            connection: connection,
-            workspace: workspace
+        mirrorRegistry.setMirror(
+            RemoteTmuxSessionMirror(
+                host: host,
+                sessionName: sessionName,
+                connection: connection,
+                workspace: workspace
+            ),
+            forKey: key
         )
         return true
     }
@@ -347,7 +351,7 @@ final class RemoteTmuxController {
     ///   mirror/connection (callers must still NOT create a local tab in a
     ///   mirror workspace — they report failure instead).
     func handleMirrorNewTabRequested(workspaceId: UUID) -> Bool {
-        guard let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId }),
+        guard let mirror = mirrorRegistry.allMirrors().first(where: { $0.mirroredWorkspaceId == workspaceId }),
               mirror.connection.connectionState == .connected else { return false }
         return mirror.connection.send("new-window")
     }
@@ -356,9 +360,8 @@ final class RemoteTmuxController {
     /// tmux session name tracks the cmux workspace title.
     func handleMirrorWorkspaceRenamed(workspaceId: UUID, title: String?) {
         guard let name = RemoteTmuxHost.controlModeCommandName(title),
-              let entry = sessionMirrors.first(where: { $0.value.mirroredWorkspaceId == workspaceId })
+              let mirror = mirrorRegistry.allMirrors().first(where: { $0.mirroredWorkspaceId == workspaceId })
         else { return }
-        let mirror = entry.value
         let oldName = mirror.sessionName
         guard name != oldName, mirror.connection.connectionState == .connected else { return }
         // Target by the stable session id when known, so the rename can't race a
@@ -385,20 +388,14 @@ final class RemoteTmuxController {
         let host = mirror.host
         let oldKey = host.connectionKey(sessionName: oldName)
         let newKey = host.connectionKey(sessionName: safeName)
-        if let existing = sessionMirrors[newKey], existing !== mirror { return }
+        if let existing = mirrorRegistry.mirror(forKey: newKey), existing !== mirror { return }
         if let existing = connectionRegistry.connection(forKey: newKey), existing !== mirror.connection { return }
 
         mirror.setSessionName(safeName)
         mirror.connection.setSessionName(safeName)
 
         if oldKey != newKey {
-            if let entry = sessionMirrors.removeValue(forKey: oldKey) {
-                sessionMirrors[newKey] = entry
-            } else if let currentKey = sessionMirrors.first(where: { $0.value === mirror })?.key {
-                sessionMirrors.removeValue(forKey: currentKey)
-                sessionMirrors[newKey] = mirror
-            }
-
+            mirrorRegistry.rekey(from: oldKey, to: newKey, matching: mirror)
             connectionRegistry.rekey(from: oldKey, to: newKey, matching: mirror.connection)
         }
     }
@@ -412,7 +409,7 @@ final class RemoteTmuxController {
     /// `swap-window` only swaps two windows' indices (no unlink), so there is no
     /// churn. `-d` keeps the active window unchanged.
     func handleMirrorWindowsReordered(workspaceId: UUID, orderedPanelIds: [UUID]) {
-        guard let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId }),
+        guard let mirror = mirrorRegistry.allMirrors().first(where: { $0.mirroredWorkspaceId == workspaceId }),
               mirror.connection.connectionState == .connected else { return }
         let desired = orderedPanelIds.compactMap { mirror.windowId(forPanel: $0) }
         guard desired.count >= 2 else { return }
@@ -446,7 +443,7 @@ final class RemoteTmuxController {
     /// `%layout-change`. Returns `true` if `surfaceId` is a mirror pane (the
     /// caller suppresses the local split).
     func handleMirrorSplitRequested(surfaceId: UUID, vertical: Bool) -> Bool {
-        for sessionMirror in sessionMirrors.values {
+        for sessionMirror in mirrorRegistry.allMirrors() {
             if let match = sessionMirror.windowMirror(forSurfaceId: surfaceId) {
                 return match.mirror.requestSplit(fromPane: match.tmuxPaneId, vertical: vertical)
             }
@@ -457,7 +454,7 @@ final class RemoteTmuxController {
     /// Whether `surfaceId` is a pane of a mirrored multi-pane tmux window (used
     /// to keep the context-menu Split items enabled for mirror panes).
     func isMirrorPaneSurface(_ surfaceId: UUID) -> Bool {
-        for sessionMirror in sessionMirrors.values {
+        for sessionMirror in mirrorRegistry.allMirrors() {
             if sessionMirror.windowMirror(forSurfaceId: surfaceId) != nil { return true }
         }
         return false
@@ -481,7 +478,7 @@ final class RemoteTmuxController {
     private func pasteTarget(forSurfaceId surfaceId: UUID)
         -> (connection: RemoteTmuxControlConnection, paneId: Int)?
     {
-        for sessionMirror in sessionMirrors.values where sessionMirror.connection.connectionState == .connected {
+        for sessionMirror in mirrorRegistry.allMirrors() where sessionMirror.connection.connectionState == .connected {
             if let paneId = sessionMirror.paneId(forSurfaceId: surfaceId) {
                 return (sessionMirror.connection, paneId)
             }
@@ -494,7 +491,7 @@ final class RemoteTmuxController {
     /// to the remote tmux host (and insert the remote path) instead of an
     /// unreadable macOS-local one.
     func remoteUploadTarget(forSurfaceId surfaceId: UUID) -> TerminalRemoteUploadTarget? {
-        for sessionMirror in sessionMirrors.values
+        for sessionMirror in mirrorRegistry.allMirrors()
         where !sessionMirror.connection.exited && sessionMirror.ownsSurface(surfaceId) {
             return .detectedSSH(sessionMirror.host.detectedSSHSession())
         }
@@ -505,7 +502,7 @@ final class RemoteTmuxController {
     /// bonsplit-level split) → propagate to tmux `split-window`. Covers both
     /// single-pane mirror windows and multi-pane ones. Returns `true` if handled.
     func handleMirrorTabSplitRequested(workspaceId: UUID, panelId: UUID, vertical: Bool) -> Bool {
-        guard let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId })
+        guard let mirror = mirrorRegistry.allMirrors().first(where: { $0.mirroredWorkspaceId == workspaceId })
         else { return false }
         return mirror.requestSplit(windowPanelId: panelId, vertical: vertical)
     }
@@ -513,7 +510,7 @@ final class RemoteTmuxController {
     /// A mirrored window's tab was renamed → `rename-window` on the remote.
     func handleMirrorWindowRenamed(workspaceId: UUID, panelId: UUID, title: String?) {
         guard let name = RemoteTmuxHost.controlModeCommandName(title),
-              let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId }),
+              let mirror = mirrorRegistry.allMirrors().first(where: { $0.mirroredWorkspaceId == workspaceId }),
               mirror.connection.connectionState == .connected,
               let windowId = mirror.windowId(forPanel: panelId) else { return }
         _ = mirror.connection.send("rename-window -t @\(windowId) \(RemoteTmuxHost.shellSingleQuoted(name))")
@@ -526,7 +523,7 @@ final class RemoteTmuxController {
     private func mirrorWindowTarget(workspaceId: UUID, panelId: UUID)
         -> (mirror: RemoteTmuxSessionMirror, windowId: Int)?
     {
-        guard let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId }),
+        guard let mirror = mirrorRegistry.allMirrors().first(where: { $0.mirroredWorkspaceId == workspaceId }),
               let windowId = mirror.windowId(forPanel: panelId) else { return nil }
         return (mirror, windowId)
     }
@@ -655,11 +652,11 @@ final class RemoteTmuxController {
         workspaceId: UUID
     ) {
         let key = host.connectionKey(sessionName: sessionName)
-        if let mirror = sessionMirrors.removeValue(forKey: key) {
+        if let mirror = mirrorRegistry.removeMirror(forKey: key) {
             mirror.detachObserver()
         }
         connectionRegistry.removeConnection(forKey: key)?.stop()
-        let hostHasOtherMirrors = sessionMirrors.values.contains(where: { $0.host.connectionHash == host.connectionHash })
+        let hostHasOtherMirrors = mirrorRegistry.hasMirror(forHostHash: host.connectionHash)
         // The dedicated window for this host, captured before the bindings are torn
         // down. `nil` once other sessions remain — losing one of several sessions
         // closes only its workspace, never the shared window.
@@ -685,7 +682,7 @@ final class RemoteTmuxController {
         // still-live mirrors for the same host (none once hostHasOtherMirrors is
         // false, but computed generally).
         let endingHostWorkspaceIds: Set<UUID> = Set(
-            sessionMirrors.values
+            mirrorRegistry.allMirrors()
                 .filter { $0.host.connectionHash == host.connectionHash }
                 .compactMap { $0.mirroredWorkspaceId }
         ).union([workspaceId])
@@ -760,11 +757,11 @@ final class RemoteTmuxController {
     func handleWindowWorkspacesClosed(workspaceIds: [UUID]) {
         let ids = Set(workspaceIds)
         var affectedHosts: [String: RemoteTmuxHost] = [:]
-        for (key, mirror) in sessionMirrors {
+        for (key, mirror) in mirrorRegistry.allEntries() {
             guard let workspaceId = mirror.mirroredWorkspaceId, ids.contains(workspaceId) else { continue }
             affectedHosts[mirror.host.connectionHash] = mirror.host
             mirror.detachObserver()
-            sessionMirrors.removeValue(forKey: key)
+            mirrorRegistry.removeMirror(forKey: key)
             connectionRegistry.removeConnection(forKey: key)?.stop()
         }
         // For any host left with no live mirror or connection, close its shared SSH
@@ -772,7 +769,7 @@ final class RemoteTmuxController {
         // and a non-dedicated `remote.tmux.mirror` window must too or the master
         // lingers for the full ControlPersist window.
         for (hash, host) in affectedHosts {
-            let stillUsed = sessionMirrors.values.contains { $0.host.connectionHash == hash }
+            let stillUsed = mirrorRegistry.hasMirror(forHostHash: hash)
                 || connectionRegistry.hasConnection(forHostHash: hash)
             if !stillUsed {
                 transportRegistry.remove(connectionHash: hash)
@@ -803,17 +800,17 @@ final class RemoteTmuxController {
                   let host = windowRegistry.host(forWindowId: windowId) else { continue }
             let closingWorkspaceIds = Set(AppDelegate.shared?.tabManagerFor(windowId: windowId)?.tabs.map(\.id) ?? [])
             let transport = transport(for: host)
-            let mirrorsInWindow = sessionMirrors.filter { _, mirror in
+            let mirrorsInWindow = mirrorRegistry.allEntries().filter { _, mirror in
                 mirror.host.connectionHash == host.connectionHash
                     && mirror.mirroredWorkspaceId.map(closingWorkspaceIds.contains) == true
             }
             for (key, mirror) in mirrorsInWindow {
-                sessionMirrors.removeValue(forKey: key)
+                mirrorRegistry.removeMirror(forKey: key)
                 mirror.detachObserver()
                 detach(host: host, sessionName: mirror.sessionName)  // removes the connection too
                 jobs.append((transport, mirror.connection.sessionId.map { "$\($0)" } ?? mirror.sessionName))
             }
-            let stillUsed = sessionMirrors.values.contains { $0.host.connectionHash == host.connectionHash } || connectionRegistry.hasConnection(forHostHash: host.connectionHash)
+            let stillUsed = mirrorRegistry.hasMirror(forHostHash: host.connectionHash) || connectionRegistry.hasConnection(forHostHash: host.connectionHash)
             if !stillUsed {
                 windowRegistry.unbind(hostHash: host.connectionHash)
                 transportRegistry.remove(connectionHash: host.connectionHash)
@@ -828,16 +825,16 @@ final class RemoteTmuxController {
         guard let host = windowRegistry.host(forWindowId: windowId) else { return }
         let closingWorkspaceIds = Set(AppDelegate.shared?.tabManagerFor(windowId: windowId)?.tabs.map(\.id) ?? [])
         windowRegistry.unbind(windowId: windowId)
-        let mirrorsInWindow = sessionMirrors.filter { _, mirror in
+        let mirrorsInWindow = mirrorRegistry.allEntries().filter { _, mirror in
             mirror.host.connectionHash == host.connectionHash
                 && mirror.mirroredWorkspaceId.map(closingWorkspaceIds.contains) == true
         }
         for (key, mirror) in mirrorsInWindow {
             mirror.detachObserver()
-            sessionMirrors.removeValue(forKey: key)
+            mirrorRegistry.removeMirror(forKey: key)
             connectionRegistry.removeConnection(forKey: key)?.stop()
         }
-        let stillUsed = sessionMirrors.values.contains { $0.host.connectionHash == host.connectionHash } || connectionRegistry.hasConnection(forHostHash: host.connectionHash)
+        let stillUsed = mirrorRegistry.hasMirror(forHostHash: host.connectionHash) || connectionRegistry.hasConnection(forHostHash: host.connectionHash)
         if !stillUsed {
             transportRegistry.remove(connectionHash: host.connectionHash)
             RemoteTmuxSSHTransport.spawnControlMasterExit(host: host)
@@ -849,18 +846,18 @@ final class RemoteTmuxController {
     /// uses ``killMarkedSessionsBeforeTerminate(timeout:)`` instead, which awaits the
     /// kill so it lands before cmux exits.)
     func handleWorkspaceClosed(workspaceId: UUID) {
-        guard let entry = sessionMirrors.first(where: { $0.value.mirroredWorkspaceId == workspaceId })
+        guard let entry = mirrorRegistry.allEntries().first(where: { $0.mirror.mirroredWorkspaceId == workspaceId })
         else { return }
-        let mirror = entry.value
+        let mirror = entry.mirror
         let host = mirror.host
         let sessionName = mirror.sessionName
-        sessionMirrors.removeValue(forKey: entry.key)
+        mirrorRegistry.removeMirror(forKey: entry.key)
         mirror.detachObserver()
         detach(host: host, sessionName: sessionName)
         // Last mirrored session for this host: drop the dedicated-window binding (so
         // the window's onClose handleRemoteWindowClosed becomes a no-op) and tear down
         // the shared SSH ControlMaster, matching the remote-end and window-close paths.
-        let isLastSession = !sessionMirrors.values.contains(where: { $0.host.connectionHash == host.connectionHash })
+        let isLastSession = !mirrorRegistry.hasMirror(forHostHash: host.connectionHash)
         if isLastSession {
             windowRegistry.unbind(hostHash: host.connectionHash)
         }
@@ -882,7 +879,7 @@ final class RemoteTmuxController {
                 // round-trip (a concurrent `cmux ssh-tmux` rebuilds on the same
                 // ControlPath); this Task is @MainActor so check + exit is atomic.
                 let reclaimed = transportRegistry.contains(connectionHash: host.connectionHash)
-                    || sessionMirrors.values.contains { $0.host.connectionHash == host.connectionHash }
+                    || mirrorRegistry.hasMirror(forHostHash: host.connectionHash)
                     || connectionRegistry.hasConnection(forHostHash: host.connectionHash)
                 if !reclaimed {
                     RemoteTmuxSSHTransport.spawnControlMasterExit(host: host)

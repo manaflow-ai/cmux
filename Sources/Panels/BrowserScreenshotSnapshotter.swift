@@ -8,24 +8,6 @@ private struct BrowserScreenshotWebContentMetrics {
     let scrollOffset: NSPoint
 }
 
-enum BrowserScreenshotCaptureBounds {
-    static let maximumFullPagePixels: CGFloat = 100_000_000
-
-    static func validateFullPageSize(_ size: NSSize) throws {
-        guard size.width.isFinite,
-              size.height.isFinite,
-              size.width > 0,
-              size.height > 0 else {
-            throw BrowserScreenshotError.webContentMetricsUnavailable
-        }
-
-        let pixelCount = ceil(size.width) * ceil(size.height)
-        guard pixelCount <= maximumFullPagePixels else {
-            throw BrowserScreenshotError.captureAreaTooLarge
-        }
-    }
-}
-
 @MainActor
 enum BrowserScreenshotWebViewSnapshotter {
     static func captureFullPage(
@@ -33,7 +15,7 @@ enum BrowserScreenshotWebViewSnapshotter {
         afterScreenUpdates: Bool = true
     ) async throws -> NSImage {
         let metrics = try await webContentMetrics(for: webView)
-        try BrowserScreenshotCaptureBounds.validateFullPageSize(metrics.contentSize)
+        try BrowserScreenshotCaptureBounds().validateFullPageSize(metrics.contentSize)
         do {
             let image = try await captureSingleFullContentSnapshot(
                 from: webView,
@@ -100,7 +82,7 @@ enum BrowserScreenshotWebViewSnapshotter {
               viewportSize.height > 0 else {
             throw BrowserScreenshotError.webContentMetricsUnavailable
         }
-        try BrowserScreenshotCaptureBounds.validateFullPageSize(contentSize)
+        try BrowserScreenshotCaptureBounds().validateFullPageSize(contentSize)
 
         let placement = BrowserScreenshotTilePlacement(contentSize: contentSize, viewportSize: viewportSize)
         let xPositions = placement.horizontalTileOrigins

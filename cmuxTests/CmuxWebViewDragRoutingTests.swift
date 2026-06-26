@@ -422,13 +422,13 @@ final class BrowserScreenshotPipelineTests: XCTestCase {
 
     func testFullPageCaptureBoundsRejectsHugePageBeforeBitmapAllocation() throws {
         XCTAssertNoThrow(
-            try BrowserScreenshotCaptureBounds.validateFullPageSize(
+            try BrowserScreenshotCaptureBounds().validateFullPageSize(
                 NSSize(width: 10_000, height: 10_000)
             )
         )
 
         XCTAssertThrowsError(
-            try BrowserScreenshotCaptureBounds.validateFullPageSize(
+            try BrowserScreenshotCaptureBounds().validateFullPageSize(
                 NSSize(width: 10_001, height: 10_000)
             )
         ) { error in
@@ -439,7 +439,7 @@ final class BrowserScreenshotPipelineTests: XCTestCase {
         }
 
         XCTAssertThrowsError(
-            try BrowserScreenshotCaptureBounds.validateFullPageSize(
+            try BrowserScreenshotCaptureBounds().validateFullPageSize(
                 NSSize(width: 10_000, height: 10_001)
             )
         ) { error in
