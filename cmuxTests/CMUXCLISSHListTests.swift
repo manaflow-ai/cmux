@@ -20,13 +20,17 @@ extension CMUXCLIErrorOutputRegressionTests {
         try FileManager.default.createDirectory(at: hostsB, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
+        // Absolute Include path: a relative path would resolve under ~/.ssh
+        // (OpenSSH's rule for user configs), not this temp dir, so use an
+        // absolute path to keep the test hermetic while still exercising
+        // wildcard-directory glob expansion.
         let configPath = root.appendingPathComponent("config")
         try """
         Host top
             HostName top.example.com
             User alice
             Port 2222
-        Include hosts/*/config
+        Include \(root.path)/hosts/*/config
         """.write(to: configPath, atomically: true, encoding: .utf8)
         try """
         Host alpha

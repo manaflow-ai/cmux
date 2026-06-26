@@ -116,28 +116,28 @@ extension CMUXCLI {
             }
             return []
         }
-        // OpenSSH resolves every relative `Include` under a single fixed base
-        // (`~/.ssh` for a user config), independent of nesting depth — the
-        // including file's own directory does not matter (ssh_config(5):
-        // "Files without absolute paths are assumed to be in ~/.ssh"). So the
-        // base is captured once here and shared by every (possibly nested)
-        // include, rather than re-derived per included file. For the default
-        // `~/.ssh/config` this base is exactly `~/.ssh`.
-        let baseDirectory = (configPath as NSString).deletingLastPathComponent
+        // OpenSSH resolves every relative `Include` in a user configuration
+        // under `~/.ssh` — even with an explicit `-F`/`--config` path the base
+        // is the user SSH directory, not the config file's own directory
+        // (ssh_config(5): "Files without absolute paths are assumed to be in
+        // ~/.ssh"; verified with `ssh -G -F`). So resolve relative includes
+        // under ~/.ssh regardless of where the config file lives, listing
+        // exactly what ssh would read. (For the default ~/.ssh/config this is
+        // the same directory.)
+        let userSSHDirectory = (NSHomeDirectory() as NSString).appendingPathComponent(".ssh")
         let resolver: (String) -> [String] = { path in
-            Self.sshIncludeFile(path: path, baseDirectory: baseDirectory)
+            Self.sshIncludeFile(path: path, baseDirectory: userSSHDirectory)
         }
         return SSHConfigParser().hosts(configText: contents, includeResolver: resolver)
     }
 
     /// Expand a single `Include` path into the contents of each file it matches.
     /// Mirrors OpenSSH: `~` expands to home, and a relative path resolves
-    /// against `baseDirectory` (the directory of the config file being listed —
-    /// `~/.ssh` for the default config), the same fixed base at every nesting
-    /// depth per ssh_config(5). Glob wildcards in any path component are expanded
-    /// (via `glob(3)`) and matches are read in sorted order. The parser has
-    /// already tokenized multi-path / quoted `Include` arguments, so this
-    /// receives exactly one path.
+    /// against `baseDirectory` — the user SSH directory (`~/.ssh`) for a user
+    /// configuration, at every nesting depth per ssh_config(5). Glob wildcards
+    /// in any path component are expanded (via `glob(3)`) and matches are read in
+    /// sorted order. The parser has already tokenized multi-path / quoted
+    /// `Include` arguments, so this receives exactly one path.
     private static func sshIncludeFile(path: String, baseDirectory: String) -> [String] {
         let expanded: String
         if path.hasPrefix("~") {
