@@ -294,6 +294,41 @@ struct FeedEventClassifier {
         "generate_image",
     ]
 
+    /// Grok Build (xAI's coding agent) emits Cursor-style lowercase /
+    /// snake_case tool names — `write`/`write_file` (Write), `search_replace`
+    /// (Edit), `run_terminal_cmd` (Bash), `edit_file`, `delete_file`, … —
+    /// that are absent from ``sideEffectingTools``. Without these aliases the
+    /// Cursor-style capitalized `Write`/`Bash` escalate (exact match) while
+    /// Grok-native lowercase names silently slip past the Feed approval gate,
+    /// an inconsistency reported in
+    /// https://github.com/manaflow-ai/cmux/issues/6303. Matched
+    /// case-insensitively, but only for the `grok` source, so another agent's
+    /// lowercase tool name is never broadened into an approval prompt.
+    /// Read-only Grok tools (`read_file`, `list_dir`, `codebase_search`,
+    /// `grep`, `file_search`, `web_search`, …) are intentionally excluded.
+    private static let grokSideEffectingToolAliases: Set<String> = [
+        "bash",
+        "shell",
+        "terminal",
+        "run_terminal_cmd",
+        "run_command",
+        "write",
+        "write_file",
+        "write_to_file",
+        "create_file",
+        "edit",
+        "edit_file",
+        "multiedit",
+        "multi_edit",
+        "search_replace",
+        "replace_file_content",
+        "multi_replace_file_content",
+        "delete_file",
+        "apply_patch",
+        "notebookedit",
+        "notebook_edit",
+    ]
+
     /// Kiro emits lowercase / internal tool names (`fs_write`,
     /// `execute_bash`, `use_aws`, …) absent from ``sideEffectingTools``.
     /// Matched case-insensitively, but only for the `kiro` source, so another
@@ -325,10 +360,10 @@ struct FeedEventClassifier {
     ]
 
     /// Whether a tool mutates state and deserves an approval prompt. Exact
-    /// match against ``sideEffectingTools`` for every source; the `kiro`
-    /// source additionally matches its case-insensitive internal aliases.
-    /// Kept source-scoped so another agent's lowercase tool name is not
-    /// escalated into an approval.
+    /// match against ``sideEffectingTools`` for every source; the `kiro` and
+    /// `grok` sources additionally match their case-insensitive internal
+    /// aliases. Kept source-scoped so another agent's lowercase tool name is
+    /// not escalated into an approval.
     static func isSideEffectingTool(_ toolName: String, source: String) -> Bool {
         guard !toolName.isEmpty else { return false }
         if sideEffectingTools.contains(toolName) {
@@ -336,6 +371,9 @@ struct FeedEventClassifier {
         }
         if source == "kiro" {
             return kiroSideEffectingToolAliases.contains(toolName.lowercased())
+        }
+        if source == "grok" {
+            return grokSideEffectingToolAliases.contains(toolName.lowercased())
         }
         return false
     }
