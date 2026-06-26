@@ -51,6 +51,45 @@ struct PairingView: View {
                 }
 
                 Section {
+                    VStack(alignment: .leading, spacing: 12) {
+                        trustExplanationRow(
+                            systemName: "checkmark.seal",
+                            title: L10n.string("mobile.addDevice.trustMacTitle", defaultValue: "Trusts this Mac"),
+                            body: L10n.string(
+                                "mobile.addDevice.trustMacBody",
+                                defaultValue: "Pairing approves this signed-in iPhone for the Mac shown by the QR/link. A copied or photographed code is not enough on its own."
+                            )
+                        )
+                        Divider()
+                        trustExplanationRow(
+                            systemName: "person.crop.circle.badge.checkmark",
+                            title: L10n.string("mobile.addDevice.trustAccountTitle", defaultValue: "Uses your cmux account"),
+                            body: L10n.string(
+                                "mobile.addDevice.trustAccountBody",
+                                defaultValue: "The Mac checks that this phone is signed in to the same cmux account before it allows workspace access, terminal input, or notifications."
+                            )
+                        )
+                        Divider()
+                        trustExplanationRow(
+                            systemName: "network",
+                            title: L10n.string("mobile.addDevice.trustRouteTitle", defaultValue: "Uses your network route"),
+                            body: L10n.string(
+                                "mobile.addDevice.trustRouteBody",
+                                defaultValue: "The QR/link carries reachable addresses and non-secret app/account metadata. Terminal traffic uses the route you choose, usually Tailscale."
+                            )
+                        )
+                    }
+                    .padding(.vertical, 2)
+                } header: {
+                    Text(L10n.string("mobile.addDevice.trustSectionTitle", defaultValue: "How pairing works"))
+                } footer: {
+                    Text(L10n.string(
+                        "mobile.addDevice.trustSectionFooter",
+                        defaultValue: "The QR/link does not contain your password or a long-lived access token."
+                    ))
+                }
+
+                Section {
                     TextField(
                         L10n.string("mobile.addDevice.namePlaceholder", defaultValue: "Work Mac"),
                         text: $deviceName
@@ -266,6 +305,26 @@ struct PairingView: View {
 
     private var errorText: String? {
         validationError ?? connectionError
+    }
+
+    private func trustExplanationRow(systemName: String, title: String, body: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: systemName)
+                .font(.body)
+                .foregroundStyle(.tint)
+                .frame(width: 24)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Text(body)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 
     /// The guidance line only belongs to a connection error. A local validation
