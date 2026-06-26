@@ -3,19 +3,11 @@ import CmuxRemoteSession
 import Foundation
 import Darwin
 
-struct DetectedSSHSession: Equatable {
-    let destination: String
-    let port: Int?
-    let identityFile: String?
-    let configFile: String?
-    let jumpHost: String?
-    let controlPath: String?
-    let useIPv4: Bool
-    let useIPv6: Bool
-    let forwardAgent: Bool
-    let compressionEnabled: Bool
-    let sshOptions: [String]
-
+// `DetectedSSHSession` (the value descriptor: stored connection parameters plus the
+// `scpArguments`/`sshArguments` builders and shell-quoting helper) lives in the
+// `CmuxRemoteSession` package. The scp/ssh upload + cleanup *service* (process spawning,
+// cancellation, ControlMaster reuse) is app-coupled and stays here as an extension.
+extension DetectedSSHSession {
     func uploadDroppedFiles(
         _ fileURLs: [URL],
         operation: TerminalImageTransferOperation,
@@ -128,104 +120,6 @@ struct DetectedSSHSession: Equatable {
         }
     }
 
-    private func scpArguments(localPath: String, remotePath: String) -> [String] {
-        var args: [String] = [
-            "-q",
-            "-o", "ConnectTimeout=6",
-            "-o", "ServerAliveInterval=20",
-            "-o", "ServerAliveCountMax=2",
-            "-o", "BatchMode=yes",
-            "-o", "ControlMaster=no",
-        ]
-
-        if useIPv4 {
-            args.append("-4")
-        } else if useIPv6 {
-            args.append("-6")
-        }
-        if forwardAgent {
-            args.append("-A")
-        }
-        if compressionEnabled {
-            args.append("-C")
-        }
-        if let configFile, !configFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            args += ["-F", configFile]
-        }
-        if let jumpHost, !jumpHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            args += ["-J", jumpHost]
-        }
-        if let port {
-            args += ["-P", String(port)]
-        }
-        if let identityFile, !identityFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            args += ["-i", identityFile]
-        }
-        if let controlPath,
-           !controlPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           !Self.hasSSHOptionKey(sshOptions, key: "ControlPath") {
-            args += ["-o", "ControlPath=\(controlPath)"]
-        }
-        if !Self.hasSSHOptionKey(sshOptions, key: "StrictHostKeyChecking") {
-            args += ["-o", "StrictHostKeyChecking=accept-new"]
-        }
-        for option in sshOptions {
-            args += ["-o", option]
-        }
-
-        args += [localPath, "\(Self.scpRemoteDestination(destination)):\(remotePath)"]
-        return args
-    }
-
-    private func sshArguments(command: String) -> [String] {
-        var args: [String] = [
-            "-T",
-            "-o", "ConnectTimeout=6",
-            "-o", "ServerAliveInterval=20",
-            "-o", "ServerAliveCountMax=2",
-            "-o", "BatchMode=yes",
-            "-o", "ControlMaster=no",
-        ]
-
-        if useIPv4 {
-            args.append("-4")
-        } else if useIPv6 {
-            args.append("-6")
-        }
-        if forwardAgent {
-            args.append("-A")
-        }
-        if compressionEnabled {
-            args.append("-C")
-        }
-        if let configFile, !configFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            args += ["-F", configFile]
-        }
-        if let jumpHost, !jumpHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            args += ["-J", jumpHost]
-        }
-        if let port {
-            args += ["-p", String(port)]
-        }
-        if let identityFile, !identityFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            args += ["-i", identityFile]
-        }
-        if let controlPath,
-           !controlPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           !Self.hasSSHOptionKey(sshOptions, key: "ControlPath") {
-            args += ["-o", "ControlPath=\(controlPath)"]
-        }
-        if !Self.hasSSHOptionKey(sshOptions, key: "StrictHostKeyChecking") {
-            args += ["-o", "StrictHostKeyChecking=accept-new"]
-        }
-        for option in sshOptions {
-            args += ["-o", option]
-        }
-
-        args += [destination, command]
-        return args
-    }
-
     private func cleanupUploadedRemotePaths(_ remotePaths: [String]) {
         guard !remotePaths.isEmpty else { return }
         let cleanupScript = "rm -f -- " + remotePaths.map(Self.shellSingleQuoted).joined(separator: " ")
@@ -323,59 +217,6 @@ struct DetectedSSHSession: Equatable {
             throw TerminalImageTransferExecutionError.cancelled
         }
         return CommandResult(status: process.terminationStatus, stdout: stdout, stderr: stderr)
-    }
-
-    private static func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
-        let loweredKey = key.lowercased()
-        return options.contains { optionKey($0) == loweredKey }
-    }
-
-    private static func optionKey(_ option: String) -> String? {
-        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        return trimmed
-            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
-            .first
-            .map(String.init)?
-            .lowercased()
-    }
-
-    private static func scpRemoteDestination(_ destination: String) -> String {
-        let trimmedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedDestination.isEmpty else { return destination }
-
-        let parts = trimmedDestination.split(separator: "@", maxSplits: 1, omittingEmptySubsequences: false)
-        let userPart: String?
-        let hostPart: String
-        if parts.count == 2 {
-            userPart = String(parts[0])
-            hostPart = String(parts[1])
-        } else {
-            userPart = nil
-            hostPart = trimmedDestination
-        }
-
-        guard shouldBracketIPv6Literal(hostPart) else {
-            return trimmedDestination
-        }
-
-        let bracketedHost = "[\(hostPart)]"
-        if let userPart {
-            return "\(userPart)@\(bracketedHost)"
-        }
-        return bracketedHost
-    }
-
-    private static func shouldBracketIPv6Literal(_ host: String) -> Bool {
-        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !trimmedHost.isEmpty &&
-            trimmedHost.contains(":") &&
-            !trimmedHost.hasPrefix("[") &&
-            !trimmedHost.hasSuffix("]")
-    }
-
-    private static func shellSingleQuoted(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
 #if DEBUG

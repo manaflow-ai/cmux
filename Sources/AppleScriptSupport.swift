@@ -48,12 +48,6 @@ private enum AppleScriptStrings {
     )
 }
 
-private extension String {
-    var fourCharCode: UInt32 {
-        utf8.reduce(0) { ($0 << 8) + UInt32($1) }
-    }
-}
-
 private extension Workspace {
     func scriptingTerminalPanels() -> [TerminalPanel] {
         var results: [TerminalPanel] = []
@@ -564,7 +558,7 @@ final class ScriptTerminal: NSObject {
         guard NSApp.validateScript(command: command) else { return nil }
 
         guard let directionCode = command.evaluatedArguments?["direction"] as? UInt32,
-              let direction = ScriptSplitDirection(code: directionCode)?.splitDirection else {
+              let direction = SplitDirection(fourCharCode: directionCode) else {
             command.scriptErrorNumber = errAEParamMissed
             command.scriptErrorString = AppleScriptStrings.missingSplitDirection
             return nil
@@ -685,31 +679,5 @@ final class ScriptInputTextCommand: NSScriptCommand {
             return nil
         }
         return nil
-    }
-}
-
-private enum ScriptSplitDirection {
-    case right
-    case left
-    case down
-    case up
-
-    init?(code: UInt32) {
-        switch code {
-        case "GSrt".fourCharCode: self = .right
-        case "GSlf".fourCharCode: self = .left
-        case "GSdn".fourCharCode: self = .down
-        case "GSup".fourCharCode: self = .up
-        default: return nil
-        }
-    }
-
-    var splitDirection: SplitDirection {
-        switch self {
-        case .right: return .right
-        case .left: return .left
-        case .down: return .down
-        case .up: return .up
-        }
     }
 }

@@ -24,6 +24,7 @@ let package = Package(
     dependencies: [
         .package(path: "../CmuxFoundation"),
         .package(path: "../CMUXDebugLog"),
+        .package(path: "../CmuxCore"),
     ],
     targets: [
         // The same libghostty the app links; the terminal core's value types and
@@ -39,6 +40,7 @@ let package = Package(
                 "GhosttyKit",
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
+                .product(name: "CmuxCore", package: "CmuxCore"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

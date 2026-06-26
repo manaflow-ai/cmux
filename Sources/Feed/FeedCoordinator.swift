@@ -495,57 +495,28 @@ extension FeedCoordinator {
         return slot.value
     }
 
-    /// Parses `workstreamId` in the form `<agent>-<sessionId>` and
-    /// looks up the matching hook-session entry in
-    /// `~/.cmuxterm/<agent>-hook-sessions.json` (written by
-    /// `cmux <agent>-hook session-start`). Returns `true` if a match
-    /// was found so the UI can gate the jump gesture.
-    ///
-    /// Actual focus (workspace.select + surface.focus) is scheduled via
-    /// `focusIfPossible` on the main actor.
+    /// Forwards to `HookSessionResolver.resolvesSurface(for:)`: returns `true`
+    /// if `workstreamId` maps to a known hook session so the UI can gate the
+    /// jump gesture. Actual focus is scheduled via `focusIfPossible`.
     func resolvePossibleSurface(for workstreamId: String) -> Bool {
-        let resolver = HookSessionResolver()
-        guard let parsed = resolver.parse(workstreamId) else {
-            return false
-        }
-        return resolver.lookup(agent: parsed.agent, sessionId: parsed.sessionId) != nil
+        HookSessionResolver().resolvesSurface(for: workstreamId)
     }
 
-    /// Fires a best-effort focus for the given `workstreamId`. Returns
-    /// `true` if a target was found and the focus commands were
-    /// dispatched. Runs on the main actor because the focus commands
-    /// touch AppKit state.
+    /// Forwards to `HookSessionResolver.focus(workstreamId:)`: fires a
+    /// best-effort focus for `workstreamId`, returning `true` when a target was
+    /// found and the focus intent was dispatched.
     @MainActor
     func focusIfPossible(workstreamId: String) -> Bool {
-        let resolver = HookSessionResolver()
-        guard let parsed = resolver.parse(workstreamId),
-              let target = resolver.lookup(
-                agent: parsed.agent, sessionId: parsed.sessionId
-              )
-        else { return false }
-        resolver.focus(workspaceId: target.workspaceId, surfaceId: target.surfaceId)
-        return true
+        HookSessionResolver().focus(workstreamId: workstreamId)
     }
 
-    /// Resolves `workstreamId` to a `(workspace, surface)` pair and
-    /// types the user's `text` into that surface, followed by Return.
-    /// Used by Stop-kind cards so the user can reply to Claude from
-    /// the Feed without switching focus to the terminal.
+    /// Forwards to `HookSessionResolver.sendText(workstreamId:text:)`: types
+    /// `text` into the surface bound to `workstreamId`, followed by Return, so
+    /// Stop-kind cards can reply without switching focus to the terminal.
     @MainActor
     @discardableResult
     func sendTextToWorkstream(workstreamId: String, text: String) -> Bool {
-        let resolver = HookSessionResolver()
-        guard let parsed = resolver.parse(workstreamId),
-              let target = resolver.lookup(
-                agent: parsed.agent, sessionId: parsed.sessionId
-              )
-        else { return false }
-        resolver.sendText(
-            workspaceId: target.workspaceId,
-            surfaceId: target.surfaceId,
-            text: text
-        )
-        return true
+        HookSessionResolver().sendText(workstreamId: workstreamId, text: text)
     }
 }
 

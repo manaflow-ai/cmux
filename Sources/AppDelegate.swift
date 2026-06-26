@@ -2162,6 +2162,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // accessor read by the remaining SwiftUI view sites resolves to this same
         // injected instance instead of a self-vivified eager singleton.
         KeyboardShortcutSettingsObserver.installCompositionRootInstance(keyboardShortcutSettingsObserver)
+        // De-singletonization stage (settings-file store): `CmuxSettingsFileStore`
+        // no longer self-vivifies an eager `static let shared`. Record
+        // composition-root ownership of the single instance now held by
+        // `KeyboardShortcutSettings.settingsFileStore` (seeded from `.shared`
+        // earlier in app init) so the transitional `CmuxSettingsFileStore.shared`
+        // accessor resolves to that same object.
+        CmuxSettingsFileStore.installCompositionRootInstance(KeyboardShortcutSettings.settingsFileStore)
         self.sidebarState = sidebarState
         self.auth = auth
         VMClient.bootstrap(auth: auth.coordinator)
@@ -4723,13 +4730,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let preferredWindow = mainWindowForShortcutEvent(event)
 #if DEBUG
         cmuxDebugLog(
-            "shortcut.activate.pre event=\(NSWindow.keyDescription(event)) preferred={\(debugWindowToken(preferredWindow))} \(debugShortcutRouteSnapshot(event: event))"
+            "shortcut.activate.pre event=\(event.cmuxKeyDescription) preferred={\(debugWindowToken(preferredWindow))} \(debugShortcutRouteSnapshot(event: event))"
         )
 #endif
         _ = synchronizeActiveMainWindowContext(preferredWindow: preferredWindow)
 #if DEBUG
         cmuxDebugLog(
-            "shortcut.activate.post event=\(NSWindow.keyDescription(event)) preferred={\(debugWindowToken(preferredWindow))} \(debugShortcutRouteSnapshot(event: event))"
+            "shortcut.activate.post event=\(event.cmuxKeyDescription) preferred={\(debugWindowToken(preferredWindow))} \(debugShortcutRouteSnapshot(event: event))"
         )
 #endif
     }
@@ -7648,7 +7655,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 if shortcutMonitorTraceEnabled {
                     let frType = shortcutRoutingKeyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
                     cmuxDebugLog(
-                        "monitor.keyDown: \(NSWindow.keyDescription(event)) fr=\(frType) addrBarId=\(self.browserOmnibarFocusTracker.focusedPanelId?.uuidString.prefix(8) ?? "nil") \(self.debugShortcutRouteSnapshot(event: event))"
+                        "monitor.keyDown: \(event.cmuxKeyDescription) fr=\(frType) addrBarId=\(self.browserOmnibarFocusTracker.focusedPanelId?.uuidString.prefix(8) ?? "nil") \(self.debugShortcutRouteSnapshot(event: event))"
                     )
                 }
                 if let probeKind = self.developerToolsShortcutProbeKind(event: event) {
@@ -8620,7 +8627,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             let beforeResponder = shortcutRoutingFirstResponder(preferredWindow: preferredWindow)
             dlog(
-                "rs.focus.toggle.shortcut.begin event=\(NSWindow.keyDescription(event)) " +
+                "rs.focus.toggle.shortcut.begin event=\(event.cmuxKeyDescription) " +
                 "preferred={\(debugWindowToken(preferredWindow))} fr=\(beforeResponder.map { String(describing: type(of: $0)) } ?? "nil") " +
                 "\(debugShortcutRouteSnapshot(event: event))"
             )
@@ -9299,7 +9306,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let panelToken = panel.map { String($0.id.uuidString.prefix(8)) } ?? "nil"
         let panelZoom = panel?.webView.pageZoom ?? -1
         var line =
-            "zoom.shortcut stage=\(stage) event=\(NSWindow.keyDescription(event)) " +
+            "zoom.shortcut stage=\(stage) event=\(event.cmuxKeyDescription) " +
             "chars='\(chars)' flags=\(browserZoomShortcutTraceFlagsString(flags)) " +
             "action=\(browserZoomShortcutTraceActionString(action)) keyWin=\(keyWindow?.windowNumber ?? -1) " +
             "fr=\(firstResponderType) panel=\(panelToken) zoom=\(String(format: "%.3f", panelZoom)) " +
@@ -9486,7 +9493,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let candidatePanelId else { return nil }
             cmuxDebugLog(
                 "browser.focus.addressBar.shortcutContext panel=\(candidatePanelId.uuidString.prefix(5)) " +
-                "accepted=0 reason=no_context event=\(NSWindow.keyDescription(event))"
+                "accepted=0 reason=no_context event=\(event.cmuxKeyDescription)"
             )
 #endif
             return nil
@@ -9499,7 +9506,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog(
                 "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
-                "accepted=0 reason=no_workspace event=\(NSWindow.keyDescription(event))"
+                "accepted=0 reason=no_workspace event=\(event.cmuxKeyDescription)"
             )
 #endif
             return nil
@@ -9510,7 +9517,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             cmuxDebugLog(
                 "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
                 "accepted=0 reason=panel_not_in_workspace workspace=\(workspace.id.uuidString.prefix(5)) " +
-                "event=\(NSWindow.keyDescription(event))"
+                "event=\(event.cmuxKeyDescription)"
             )
 #endif
             return nil
@@ -9521,7 +9528,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             cmuxDebugLog(
                 "browser.focus.addressBar.shortcutContext panel=\(responderPanelId.uuidString.prefix(5)) " +
                 "accepted=1 reason=omnibar_responder workspace=\(workspace.id.uuidString.prefix(5)) " +
-                "event=\(NSWindow.keyDescription(event))"
+                "event=\(event.cmuxKeyDescription)"
             )
 #endif
             return responderPanelId
@@ -9532,7 +9539,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             cmuxDebugLog(
                 "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
                 "accepted=1 reason=addressbar_intent workspace=\(workspace.id.uuidString.prefix(5)) " +
-                "event=\(NSWindow.keyDescription(event))"
+                "event=\(event.cmuxKeyDescription)"
             )
 #endif
             return panelId
@@ -9553,7 +9560,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             cmuxDebugLog(
                 "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
                 "accepted=1 reason=tracked_omnibar_field workspace=\(workspace.id.uuidString.prefix(5)) " +
-                "event=\(NSWindow.keyDescription(event))"
+                "event=\(event.cmuxKeyDescription)"
             )
 #endif
             return panelId
@@ -9569,7 +9576,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             cmuxDebugLog(
                 "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
                 "accepted=1 reason=transient_omnibar_focus workspace=\(workspace.id.uuidString.prefix(5)) " +
-                "event=\(NSWindow.keyDescription(event))"
+                "event=\(event.cmuxKeyDescription)"
             )
 #endif
             return panelId
@@ -9581,7 +9588,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
             "accepted=0 reason=responder_not_omnibar responder=\(shortcutResponder.map { String(describing: type(of: $0)) } ?? "nil") " +
             "pending=\(panel.pendingAddressBarFocusRequestId != nil ? 1 : 0) focusedPanel=\(focusedPanel) " +
-            "event=\(NSWindow.keyDescription(event))"
+            "event=\(event.cmuxKeyDescription)"
         )
 #endif
         return nil
@@ -9779,7 +9786,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let firstResponder = keyWindow?.firstResponder
         let firstResponderType = firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
         let firstResponderPtr = firstResponder.map { String(describing: Unmanaged.passUnretained($0).toOpaque()) } ?? "nil"
-        let eventDescription = event.map(NSWindow.keyDescription) ?? "none"
+        let eventDescription = event.map(\.cmuxKeyDescription) ?? "none"
         if let browser = tabManager?.focusedBrowserPanel {
             var line =
                 "browser.devtools shortcut=\(phase) panel=\(browser.id.uuidString.prefix(5)) " +
@@ -12029,7 +12036,7 @@ private extension NSWindow {
             )
         }
         let frType = self.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        cmuxDebugLog("performKeyEquiv: \(Self.keyDescription(event)) fr=\(frType)")
+        cmuxDebugLog("performKeyEquiv: \(event.cmuxKeyDescription) fr=\(frType)")
 #endif
 
         // When a terminal owns first responder, bypass SwiftUI's hosting view:
@@ -12148,7 +12155,7 @@ private extension NSWindow {
             ) {
                 if cmuxForceDispatchKeyDownOnce(event, to: ghosttyView, reason: "terminal font zoom") {
 #if DEBUG
-                    cmuxDebugLog("zoom.shortcut stage=window.ghosttyKeyDownDirect event=\(Self.keyDescription(event)) handled=1")
+                    cmuxDebugLog("zoom.shortcut stage=window.ghosttyKeyDownDirect event=\(event.cmuxKeyDescription) handled=1")
 #endif
                     return true
                 }
@@ -12398,7 +12405,7 @@ private extension NSWindow {
                 literalChars: event.characters
             ) {
                 cmuxDebugLog(
-                    "zoom.shortcut stage=window.mainMenuBypass event=\(Self.keyDescription(event)) " +
+                    "zoom.shortcut stage=window.mainMenuBypass event=\(event.cmuxKeyDescription) " +
                     "consumed=\(consumedByMenu ? 1 : 0) fr=GhosttyNSView"
                 )
             }
@@ -12426,23 +12433,6 @@ private extension NSWindow {
         if result { cmuxDebugLog("  → consumed by original performKeyEquivalent") }
 #endif
         return result
-    }
-
-    static func keyDescription(_ event: NSEvent) -> String {
-        var parts: [String] = []
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if flags.contains(.command) { parts.append("Cmd") }
-        if flags.contains(.shift) { parts.append("Shift") }
-        if flags.contains(.option) { parts.append("Opt") }
-        if flags.contains(.control) { parts.append("Ctrl") }
-        let chars: String
-        if event.type == .keyDown || event.type == .keyUp {
-            chars = event.charactersIgnoringModifiers ?? "?"
-        } else {
-            chars = String(describing: event.type)
-        }
-        parts.append("'\(chars)'(\(event.keyCode))")
-        return parts.joined(separator: "+")
     }
 
     private static func cmuxOwningWebView(for responder: NSResponder) -> CmuxWebView? {

@@ -55,7 +55,41 @@ final class KeyboardShortcutSettingsObserver: ObservableObject {
 }
 
 final class CmuxSettingsFileStore {
-    static let shared = CmuxSettingsFileStore()
+    /// Composition-root-owned single instance, recorded once at startup.
+    /// `nonisolated(unsafe)`: written exactly once in ``AppDelegate/configure``
+    /// (with the instance held by `KeyboardShortcutSettings.settingsFileStore`)
+    /// before any concurrent reader exists, then only read. Retires together with
+    /// the transitional ``shared`` accessor once the settings-file store is a
+    /// constructor-injected dependency rather than a static singleton.
+    nonisolated(unsafe) private static var compositionRootInstance: CmuxSettingsFileStore?
+
+    /// The single instance, lazily constructed on first access. The sole
+    /// production consumer (`KeyboardShortcutSettings.settingsFileStore`, seeded
+    /// with ``shared``) resolves this, and ``AppDelegate/configure`` installs the
+    /// same object as the composition-root instance, so there is exactly one
+    /// settings-file store.
+    private static let instance = CmuxSettingsFileStore()
+
+    /// Transitional accessor for the de-singletonization (CONVENTIONS §5
+    /// `static let shared` → construct-and-inject). The type no longer
+    /// self-vivifies an eager `static let shared`; the composition root records
+    /// ownership of the single instance via ``installCompositionRootInstance(_:)``
+    /// in `AppDelegate.configure`. The one remaining production consumer
+    /// (`KeyboardShortcutSettings.settingsFileStore`) seeds itself from here while
+    /// it is migrated to an injected reference; dropping ``shared`` is the end
+    /// state.
+    static var shared: CmuxSettingsFileStore {
+        compositionRootInstance ?? instance
+    }
+
+    /// Called once by ``AppDelegate`` (in `configure`, with the instance held by
+    /// `KeyboardShortcutSettings.settingsFileStore`) to record composition-root
+    /// ownership of the single instance. Idempotent (keeps the first installed
+    /// instance).
+    static func installCompositionRootInstance(_ instance: CmuxSettingsFileStore) {
+        guard compositionRootInstance == nil else { return }
+        compositionRootInstance = instance
+    }
 
     static let currentSchemaVersion = 1
     static let schemaURLString = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json"

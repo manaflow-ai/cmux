@@ -1151,49 +1151,6 @@ private final class PopoverAnchorView: NSView {
     }
 }
 
-/// Invisible AppKit view that fires `onEscape` when Escape is pressed while
-/// the popover content is key. Lives in the popover's view tree so it inherits
-/// the popover's responder chain.
-struct EscapeKeyCatcher: NSViewRepresentable {
-    let onEscape: () -> Void
-
-    func makeNSView(context: Context) -> NSView {
-        let view = EscapeMonitorView()
-        view.onEscape = onEscape
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        (nsView as? EscapeMonitorView)?.onEscape = onEscape
-    }
-
-    private final class EscapeMonitorView: NSView {
-        var onEscape: (() -> Void)?
-        private var monitor: Any?
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            if let monitor {
-                NSEvent.removeMonitor(monitor)
-                self.monitor = nil
-            }
-            guard window != nil else { return }
-            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard let self, let win = self.window, win.isKeyWindow else { return event }
-                if event.keyCode == 53 {
-                    self.onEscape?()
-                    return nil
-                }
-                return event
-            }
-        }
-
-        deinit {
-            if let monitor { NSEvent.removeMonitor(monitor) }
-        }
-    }
-}
-
 // MARK: - Drag payload
 
 /// Mirrors `Bonsplit.TabItem`'s Codable shape so we can produce a JSON payload
