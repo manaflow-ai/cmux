@@ -521,20 +521,15 @@ final class GotoSplitUITestRecorder: UITestRecording {
             if let window = panel.webView.window {
                 let webFrame = panel.webView.convert(panel.webView.bounds, to: nil)
                 let contentHeight = Double(window.contentView?.bounds.height ?? 0)
-                if webFrame.width > 1,
-                   webFrame.height > 1,
-                   contentHeight > 1,
-                   secondaryCenterX > 0,
-                   secondaryCenterX < 1,
-                   secondaryCenterY > 0,
-                   secondaryCenterY < 1 {
-                    let xInContent = Double(webFrame.minX) + (secondaryCenterX * Double(webFrame.width))
-                    let yFromTopInWeb = secondaryCenterY * Double(webFrame.height)
-                    let yInContent = Double(webFrame.maxY) - yFromTopInWeb
-                    let yFromTopInContent = contentHeight - yInContent
-                    let titlebarHeight = max(0, Double(window.frame.height) - contentHeight)
-                    secondaryClickOffsetX = xInContent
-                    secondaryClickOffsetY = titlebarHeight + yFromTopInContent
+                if let offset = FocusSeedClickOffset(
+                    webFrame: webFrame,
+                    contentHeight: contentHeight,
+                    windowHeight: Double(window.frame.height),
+                    secondaryCenterX: secondaryCenterX,
+                    secondaryCenterY: secondaryCenterY
+                ) {
+                    secondaryClickOffsetX = offset.x
+                    secondaryClickOffsetY = offset.y
                 }
             }
             if focused,
