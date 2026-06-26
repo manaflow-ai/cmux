@@ -1,5 +1,7 @@
 import XCTest
+import AppKit
 import CoreGraphics
+import SwiftUI
 import Bonsplit
 
 #if canImport(cmux_DEV)
@@ -9,6 +11,117 @@ import Bonsplit
 #endif
 
 final class WorkspaceContentViewVisibilityTests: XCTestCase {
+    private final class MinimalModeBodyProbeCounts {
+        var contentViewBody = 0
+        var workspaceContentBody = 0
+        var verticalTabsSidebarBody = 0
+
+        func reset() {
+            contentViewBody = 0
+            workspaceContentBody = 0
+            verticalTabsSidebarBody = 0
+        }
+    }
+
+    @MainActor
+    func testMinimalModeToggleDoesNotReevaluateChromeHeavyBodies() async {
+        _ = NSApplication.shared
+
+        let defaults = UserDefaults.standard
+        let savedMode = defaults.object(forKey: WorkspacePresentationModeSettings.modeKey)
+        defaults.set(
+            WorkspacePresentationModeSettings.Mode.standard.rawValue,
+            forKey: WorkspacePresentationModeSettings.modeKey
+        )
+        defer {
+            Self.restoreDefaultsValue(
+                savedMode,
+                forKey: WorkspacePresentationModeSettings.modeKey,
+                defaults: defaults
+            )
+        }
+
+        let tabManager = TabManager()
+        for _ in 0..<6 {
+            tabManager.addWorkspace(autoWelcomeIfNeeded: false)
+        }
+        let notificationStore = TerminalNotificationStore.shared
+        let counts = MinimalModeBodyProbeCounts()
+        let root = ContentView(updateViewModel: UpdateStateModel(), windowId: UUID())
+            .environmentObject(tabManager)
+            .environmentObject(notificationStore)
+            .environmentObject(notificationStore.sidebarUnread)
+            .environmentObject(SidebarState())
+            .environmentObject(SidebarSelectionState())
+            .environmentObject(FileExplorerState())
+            .environmentObject(CmuxConfigStore())
+            .environment(
+                \.minimalModeInvalidationProbe,
+                MinimalModeInvalidationProbe(
+                    contentViewBody: { counts.contentViewBody += 1 },
+                    workspaceContentBody: { counts.workspaceContentBody += 1 },
+                    verticalTabsSidebarBody: { counts.verticalTabsSidebarBody += 1 }
+                )
+            )
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = MainWindowHostingView(rootView: root)
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        await Self.drainMainRunLoop(for: window)
+        XCTAssertGreaterThan(counts.contentViewBody, 0)
+        XCTAssertGreaterThan(counts.workspaceContentBody, 0)
+        XCTAssertGreaterThan(counts.verticalTabsSidebarBody, 0)
+
+        counts.reset()
+        defaults.set(
+            WorkspacePresentationModeSettings.Mode.minimal.rawValue,
+            forKey: WorkspacePresentationModeSettings.modeKey
+        )
+        await Self.drainMainRunLoop(for: window)
+
+        XCTAssertEqual(
+            counts.contentViewBody,
+            0,
+            "Minimal-mode toggles must not re-evaluate the whole ContentView body."
+        )
+        XCTAssertEqual(
+            counts.workspaceContentBody,
+            0,
+            "Minimal-mode toggles must not re-evaluate WorkspaceContentView/Bonsplit content."
+        )
+        XCTAssertEqual(
+            counts.verticalTabsSidebarBody,
+            0,
+            "Minimal-mode toggles must not rebuild the vertical sidebar render context."
+        )
+    }
+
+    @MainActor
+    private static func drainMainRunLoop(for window: NSWindow, iterations: Int = 20) async {
+        for _ in 0..<iterations {
+            window.contentView?.layoutSubtreeIfNeeded()
+            _ = RunLoop.main.run(mode: .default, before: Date())
+            await Task.yield()
+        }
+    }
+
+    private static func restoreDefaultsValue(_ value: Any?, forKey key: String, defaults: UserDefaults) {
+        if let value {
+            defaults.set(value, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
     func testNonSelectedNonRetiringWorkspaceIsFullyHidden() {
         XCTAssertEqual(
             MountedWorkspacePresentation.resolve(

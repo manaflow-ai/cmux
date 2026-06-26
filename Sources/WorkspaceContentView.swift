@@ -7,6 +7,25 @@ import Bonsplit
 import CmuxWorkspaces
 import CmuxTerminal
 
+#if DEBUG
+struct MinimalModeInvalidationProbe {
+    var contentViewBody: (() -> Void)?
+    var workspaceContentBody: (() -> Void)?
+    var verticalTabsSidebarBody: (() -> Void)?
+}
+
+private struct MinimalModeInvalidationProbeKey: EnvironmentKey {
+    static let defaultValue = MinimalModeInvalidationProbe()
+}
+
+extension EnvironmentValues {
+    var minimalModeInvalidationProbe: MinimalModeInvalidationProbe {
+        get { self[MinimalModeInvalidationProbeKey.self] }
+        set { self[MinimalModeInvalidationProbeKey.self] = newValue }
+    }
+}
+#endif
+
 enum TmuxOverlayExperimentTarget: String, CaseIterable, Codable, Sendable {
     case surface
     case bonsplitPane
@@ -137,6 +156,9 @@ struct WorkspaceContentView: View {
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var notificationStore: TerminalNotificationStore
+#if DEBUG
+    @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
+#endif
 
     private var isMinimalMode: Bool { WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal }
 
@@ -152,6 +174,9 @@ struct WorkspaceContentView: View {
     }
 
     var body: some View {
+#if DEBUG
+        let _ = { minimalModeInvalidationProbe.workspaceContentBody?() }()
+#endif
         let appearance = PanelAppearance.fromConfig(config)
         let isSplit = workspace.bonsplitController.allPaneIds.count > 1 ||
             workspace.panels.count > 1
