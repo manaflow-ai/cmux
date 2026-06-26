@@ -207,6 +207,23 @@ struct AgentLaunchSanitizerTests {
                 "--model", "sonnet",
             ]
         )
+        // Variadic consumption is constrained to the `server:` grammar: a
+        // trailing positional (a startup prompt) is NOT a channel value, so it
+        // ends the run and is dropped as the prompt boundary. This preserves the
+        // sanitizer's no-prompt-replay invariant — the channel values survive
+        // but the prompt (and anything after it) is not replayed on resume.
+        #expect(
+            AgentLaunchSanitizer.preservedArguments(
+                kind: "claude",
+                args: [
+                    "--dangerously-load-development-channels", "server:bus",
+                    "initial prompt should not replay",
+                    "--model", "sonnet",
+                ]
+            ) == [
+                "--dangerously-load-development-channels", "server:bus",
+            ]
+        )
     }
 
     @Test("Drops OpenCode startup files before preserving cwd")

@@ -20,6 +20,12 @@ public enum AgentLaunchSanitizer {
         var valueOptions: Set<String>
         var optionalValueOptions: Set<String> = []; var optionalValueChoices: [String: Set<String>] = [:]; var greedyOptionalValueOptions: Set<String> = []
         var variadicOptions: Set<String> = []
+        /// Per-option grammar for variadic value consumption. When an option in
+        /// `variadicOptions` has an entry here, only following tokens that start
+        /// with one of these prefixes are consumed as values; the first
+        /// non-matching token ends the run. Options without an entry consume any
+        /// non-option token (the default variadic behavior).
+        var variadicValuePrefixes: [String: Set<String>] = [:]
         var nonRestorableCommands: Set<String>
         var droppedOptions: Set<String>
         var droppedOptionPrefixes: [String] = []
@@ -493,15 +499,29 @@ public enum AgentLaunchSanitizer {
         }
         guard policy.valueOptions.contains(arg), index + 1 < args.count else { return 1 }
         if policy.variadicOptions.contains(arg) {
+            let requiredPrefixes = policy.variadicValuePrefixes[arg]
             var end = index + 1
             while end < args.count,
                   !args[end].hasPrefix("-"),
-                  !stopVariadicAtPositionals.contains(args[end]) {
+                  !stopVariadicAtPositionals.contains(args[end]),
+                  variadicValueMatchesRequiredPrefix(args[end], requiredPrefixes: requiredPrefixes) {
                 end += 1
             }
             return max(1, end - index)
         }
         return 2
+    }
+
+    /// Whether `value` may be consumed as a value for a variadic option whose
+    /// values follow a constrained grammar. Options without a prefix constraint
+    /// (`requiredPrefixes == nil`) accept any non-option token, so existing
+    /// variadic options keep their current behavior.
+    private static func variadicValueMatchesRequiredPrefix(
+        _ value: String,
+        requiredPrefixes: Set<String>?
+    ) -> Bool {
+        guard let requiredPrefixes else { return true }
+        return requiredPrefixes.contains { value.hasPrefix($0) }
     }
 
     private static func looksLikeOptionalValue(_ value: String, following: String?) -> Bool {
