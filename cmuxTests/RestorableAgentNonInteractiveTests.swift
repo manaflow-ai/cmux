@@ -16,6 +16,27 @@ final class RestorableAgentNonInteractiveTests: XCTestCase {
         XCTAssertEqual(url.path, "/tmp/cmux hook state/codex-hook-sessions.json")
     }
 
+    func testGrokResumeWithCwdRunsInParentShell() throws {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .grok,
+            sessionId: "grok-session-123",
+            workingDirectory: "/tmp/grok repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "grok",
+                executablePath: "grok",
+                arguments: ["grok"],
+                workingDirectory: "/tmp/grok repo",
+                capturedAt: nil,
+                source: nil
+            )
+        )
+
+        let command = try XCTUnwrap(snapshot.resumeCommand)
+        XCTAssertTrue(command.hasPrefix("cd -- '/tmp/grok repo'"), command)
+        XCTAssertFalse(command.contains("/bin/sh -c"), command)
+        XCTAssertTrue(command.contains("'grok' '-r' 'grok-session-123'"), command)
+    }
+
     func testNonInteractiveAgentLaunchesAreNotAutoRestored() {
         let claudePrint = SessionRestorableAgentSnapshot(
             kind: .claude,

@@ -4292,7 +4292,7 @@ extension SessionPersistenceTests {
 
     private func portableShellCommandPayload(from command: String) throws -> String {
         let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(command)
-        let shellIndex = try XCTUnwrap(words.firstIndex { $0.value == "/bin/sh" }, command)
+        guard let shellIndex = words.firstIndex(where: { $0.value == "/bin/sh" }) else { return command }
         XCTAssertGreaterThan(words.count, shellIndex + 2, command)
         XCTAssertEqual(words[shellIndex + 1].value, "-c", command)
         return words[shellIndex + 2].value
@@ -4432,7 +4432,7 @@ extension SessionPersistenceTests {
         )
 
         XCTAssertTrue(binding.command.hasPrefix("cd -- '/tmp/project'"), binding.command)
-        XCTAssertTrue(binding.command.contains("] && /bin/sh -c "), binding.command)
+        XCTAssertFalse(binding.command.contains("/bin/sh -c"), binding.command)
         XCTAssertFalse(binding.command.hasPrefix("{ "), binding.command)
         XCTAssertTrue(binding.command.contains("codex resume session"), binding.command)
     }

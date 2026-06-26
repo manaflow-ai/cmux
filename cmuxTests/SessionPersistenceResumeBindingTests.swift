@@ -558,7 +558,7 @@ import Testing
             let inlineInput = scriptLines.dropFirst(2).joined(separator: "\n")
             return try portableShellCommandPayload(from: inlineInput)
         }
-        let shellIndex = try #require(words.firstIndex { $0.value == "/bin/sh" }, "\(startupInput)")
+        guard let shellIndex = words.firstIndex(where: { $0.value == "/bin/sh" }) else { return trimmedInput }
         try #require(shellIndex + 2 < words.count, "\(startupInput)")
         #expect(words[shellIndex + 1].value == "-c", "\(startupInput)")
         return words[shellIndex + 2].value

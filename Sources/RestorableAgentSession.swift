@@ -92,11 +92,12 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
         _ command: String,
         workingDirectory: String
     ) -> String {
-        portableParentChangeDirectoryPrefix(TerminalStartupShellQuoting.singleQuoted(workingDirectory)) + [
-            TerminalStartupShellQuoting.shellToken("/bin/sh", allowingBareASCII: true),
-            TerminalStartupShellQuoting.shellToken("-c", allowingBareASCII: true),
-            literalSingleQuoted(command),
-        ].joined(separator: " ")
+        let needsShell = portableShellCommandPayload(from: command) == nil &&
+            (command.contains("$(") || command.contains("${") || command.contains("`"))
+        let sh = TerminalStartupShellQuoting.shellToken("/bin/sh", allowingBareASCII: true)
+        let option = TerminalStartupShellQuoting.shellToken("-c", allowingBareASCII: true)
+        let payload = needsShell ? "\(sh) \(option) \(literalSingleQuoted(command))" : command
+        return portableParentChangeDirectoryPrefix(TerminalStartupShellQuoting.singleQuoted(workingDirectory)) + payload
     }
 
     private static func strippedPortableChangeDirectoryCommand(
