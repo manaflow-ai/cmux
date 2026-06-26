@@ -753,125 +753,10 @@ final class CmuxWebView: WKWebView {
     /// Resolve the topmost image URL near a point, accounting for overlay layers.
     private func findImageURLAtPoint(_ point: NSPoint, completion: @escaping (URL?) -> Void) {
         let cssPoint = cssViewportPoint(for: point)
-        let js = """
-        (() => {
-            const x = \(cssPoint.x);
-            const y = \(cssPoint.y);
-            const normalize = (raw) => {
-                if (!raw || typeof raw !== 'string') return '';
-                const trimmed = raw.trim();
-                if (!trimmed) return '';
-                if (trimmed.startsWith('//')) return window.location.protocol + trimmed;
-                return trimmed;
-            };
-            const firstSrcsetURL = (srcset) => {
-                if (!srcset || typeof srcset !== 'string') return '';
-                const first = srcset.split(',').map((part) => part.trim()).find(Boolean);
-                if (!first) return '';
-                const urlPart = first.split(/\\s+/)[0];
-                return normalize(urlPart);
-            };
-            const firstBackgroundURL = (value) => {
-                if (!value || value === 'none') return '';
-                const match = /url\\((['"]?)(.*?)\\1\\)/.exec(value);
-                if (!match || !match[2]) return '';
-                return normalize(match[2]);
-            };
-            const collectChain = (start) => {
-                const out = [];
-                const seen = new Set();
-                const pushParents = (node) => {
-                    while (node && !seen.has(node)) {
-                        seen.add(node);
-                        out.push(node);
-                        node = node.parentElement;
-                    }
-                };
-                pushParents(start);
-                if (start && start.tagName === 'PICTURE' && start.querySelector) {
-                    const img = start.querySelector('img');
-                    if (img) pushParents(img);
-                }
-                return out;
-            };
-            const candidateFromElement = (el) => {
-                if (!el) return '';
-                const attr = (name) => normalize(el.getAttribute ? el.getAttribute(name) : '');
-                if (el.tagName === 'IMG') {
-                    const imageCandidates = [
-                        normalize(el.currentSrc || ''),
-                        attr('src'),
-                        firstSrcsetURL(attr('srcset')),
-                        attr('data-src'),
-                        attr('data-iurl'),
-                        attr('data-lazy-src'),
-                        attr('data-original'),
-                    ];
-                    const foundImage = imageCandidates.find(Boolean);
-                    if (foundImage) return foundImage;
-                }
-                const genericAttrs = [
-                    'src', 'data-src', 'data-iurl', 'data-lazy-src',
-                    'data-original', 'data-image', 'data-image-url',
-                    'data-thumb', 'data-thumbnail-url', 'content'
-                ];
-                for (const name of genericAttrs) {
-                    const v = attr(name);
-                    if (v) return v;
-                }
-                const inlineBg = firstBackgroundURL(el.style && el.style.backgroundImage ? el.style.backgroundImage : '');
-                if (inlineBg) return inlineBg;
-                try {
-                    const computed = window.getComputedStyle(el);
-                    const computedBg = firstBackgroundURL(computed ? computed.backgroundImage : '');
-                    if (computedBg) return computedBg;
-                } catch (_) {}
-                if (el.querySelector) {
-                    const nestedImg = el.querySelector('img[src],img[srcset],img[data-src],img[data-iurl],source[srcset]');
-                    if (nestedImg) {
-                        const nestedCandidates = [
-                            normalize(nestedImg.currentSrc || ''),
-                            normalize(nestedImg.getAttribute ? nestedImg.getAttribute('src') : ''),
-                            firstSrcsetURL(nestedImg.getAttribute ? nestedImg.getAttribute('srcset') : ''),
-                            normalize(nestedImg.getAttribute ? (nestedImg.getAttribute('data-src') || nestedImg.getAttribute('data-iurl') || '') : '')
-                        ];
-                        const foundNested = nestedCandidates.find(Boolean);
-                        if (foundNested) return foundNested;
-                    }
-                    const nestedBg = el.querySelector('[style*="background-image"]');
-                    if (nestedBg) {
-                        const styleValue = nestedBg.getAttribute ? nestedBg.getAttribute('style') : '';
-                        const bgURL = firstBackgroundURL(styleValue || '');
-                        if (bgURL) return bgURL;
-                    }
-                }
-                return '';
-            };
-            const tryNodes = (nodes) => {
-                for (const start of nodes) {
-                    for (const el of collectChain(start)) {
-                        const found = candidateFromElement(el);
-                        if (found) return found;
-                    }
-                    if (start && start.shadowRoot && start.shadowRoot.elementFromPoint) {
-                        const inner = start.shadowRoot.elementFromPoint(x, y);
-                        if (inner) {
-                            for (const el of collectChain(inner)) {
-                                const found = candidateFromElement(el);
-                                if (found) return found;
-                            }
-                        }
-                    }
-                }
-                return '';
-            };
-            const all = document.elementsFromPoint ? document.elementsFromPoint(x, y) : [];
-            const foundFromAll = tryNodes(all);
-            if (foundFromAll) return foundFromAll;
-            const single = document.elementFromPoint ? document.elementFromPoint(x, y) : null;
-            return candidateFromElement(single) || '';
-        })();
-        """
+        let js = BrowserContextMenuPointProbe(
+            x: Double(cssPoint.x),
+            y: Double(cssPoint.y)
+        ).imageURLResolverScript
         evaluateJavaScript(js) { result, _ in
             guard let src = result as? String, !src.isEmpty,
                   let url = URL(string: src) else {
@@ -885,35 +770,10 @@ final class CmuxWebView: WKWebView {
     private func debugInspectElementsAtPoint(_ point: NSPoint, traceID: String, kind: String) {
 #if DEBUG
         let cssPoint = cssViewportPoint(for: point)
-        let js = """
-        (() => {
-            const clip = (value, max = 180) => {
-                if (value == null) return '';
-                const s = String(value);
-                return s.length > max ? s.slice(0, max) + '…' : s;
-            };
-            const x = \(cssPoint.x);
-            const y = \(cssPoint.y);
-            const nodes = document.elementsFromPoint ? document.elementsFromPoint(x, y) : [];
-            const entries = [];
-            const limit = Math.min(nodes.length, 8);
-            for (let i = 0; i < limit; i++) {
-                const el = nodes[i];
-                if (!el) continue;
-                entries.push({
-                    tag: clip((el.tagName || '').toLowerCase()),
-                    id: clip(el.id || ''),
-                    cls: clip(typeof el.className === 'string' ? el.className : ''),
-                    href: clip(el.href || ''),
-                    src: clip(el.src || ''),
-                    currentSrc: clip(el.currentSrc || ''),
-                    dataHref: clip(el.getAttribute ? el.getAttribute('data-href') : ''),
-                    dataSrc: clip(el.getAttribute ? el.getAttribute('data-src') : '')
-                });
-            }
-            return JSON.stringify({count: nodes.length, entries});
-        })();
-        """
+        let js = BrowserContextMenuPointProbe(
+            x: Double(cssPoint.x),
+            y: Double(cssPoint.y)
+        ).elementStackInspectorScript
         evaluateJavaScript(js) { [weak self] result, _ in
             guard let self,
                   let payload = result as? String,
