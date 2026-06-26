@@ -9879,7 +9879,13 @@ struct CMUXCLI {
         remoteShellCommand: String
     ) -> String {
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
-        let commandB64 = Data(remoteShellCommand.utf8).base64EncodedString()
+        // Carry the remote bootstrap compressed (deflate+base64) so the live
+        // surface command does not inline ≈280 KB of base64 into argv and bloat
+        // `ps aux` past 1 MiB (manaflow-ai/cmux#6738). Fall back to plain base64 if
+        // compression somehow fails so the command is always well-formed.
+        let (commandFlagName, commandFlagValue) = remoteShellCommand.deflatedBase64
+            .map { ("--command-zb64", $0) }
+            ?? ("--command-b64", Data(remoteShellCommand.utf8).base64EncodedString())
         let attachCommand = [
             shellQuote(executablePath),
             "ssh-pty-attach",
@@ -9887,7 +9893,7 @@ struct CMUXCLI {
             "--workspace", "\"$cmux_ssh_pty_workspace_id\"",
             "--session-id", "\"$cmux_ssh_pty_session_id\"",
             "--attachment-id", "\"$cmux_ssh_pty_surface_id\"",
-            "--command-b64", shellQuote(commandB64),
+            commandFlagName, shellQuote(commandFlagValue),
         ].joined(separator: " ")
         return [
             "cmux_ssh_pty_workspace_id=\"${CMUX_WORKSPACE_ID:-}\"",
@@ -11267,14 +11273,15 @@ struct CMUXCLI {
         let (sessionIDOpt, rem1) = parseOption(rem0, name: "--session-id")
         let (attachmentIDOpt, rem2) = parseOption(rem1, name: "--attachment-id")
         let (commandB64Opt, rem3) = parseOption(rem2, name: "--command-b64")
-        let waitForReady = rem3.contains("--wait")
-        let requireExisting = rem3.contains("--require-existing")
-        let remaining = rem3.filter { $0 != "--wait" && $0 != "--require-existing" }
+        let (commandZB64Opt, rem4) = parseOption(rem3, name: "--command-zb64")
+        let waitForReady = rem4.contains("--wait")
+        let requireExisting = rem4.contains("--require-existing")
+        let remaining = rem4.filter { $0 != "--wait" && $0 != "--require-existing" }
         if let unknown = remaining.first(where: { Self.isFlagToken($0) }) {
             throw CLIError(message: "ssh-pty-attach: unknown flag '\(unknown)'")
         }
         guard remaining.isEmpty else {
-            throw CLIError(message: "Usage: cmux ssh-pty-attach --workspace <workspace> --session-id <id> [--attachment-id <id>] [--command-b64 <base64>] [--require-existing]")
+            throw CLIError(message: "Usage: cmux ssh-pty-attach --workspace <workspace> --session-id <id> [--attachment-id <id>] [--command-zb64 <deflate+base64> | --command-b64 <base64>] [--require-existing]")
         }
         let workspaceRaw = workspaceOpt ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
         guard let workspaceRaw,
@@ -11290,11 +11297,26 @@ struct CMUXCLI {
         let explicitAttachmentID = Self.normalizedEnvValue(attachmentIDOpt)
         let surfaceID = environmentSurfaceID ?? (explicitAttachmentID.flatMap { UUID(uuidString: $0) == nil ? nil : $0 })
         let attachmentID = explicitAttachmentID ?? environmentSurfaceID ?? UUID().uuidString.lowercased()
-        let command: String? = try commandB64Opt.flatMap { encoded in
-            guard let data = Data(base64Encoded: encoded),
-                  var decoded = String(data: data, encoding: .utf8) else {
-                throw CLIError(message: "ssh-pty-attach: --command-b64 must be valid UTF-8 base64")
+        let command: String? = try { () throws -> String? in
+            // --command-zb64 (deflate+base64) is the compact form that keeps argv
+            // small; --command-b64 (plain base64) stays accepted for sessions
+            // restored from snapshots written before #6738.
+            let rawDecoded: String?
+            if let zEncoded = commandZB64Opt {
+                guard let decoded = String(deflatedBase64: zEncoded) else {
+                    throw CLIError(message: "ssh-pty-attach: --command-zb64 must be valid base64 raw-DEFLATE UTF-8")
+                }
+                rawDecoded = decoded
+            } else if let encoded = commandB64Opt {
+                guard let data = Data(base64Encoded: encoded),
+                      let decoded = String(data: data, encoding: .utf8) else {
+                    throw CLIError(message: "ssh-pty-attach: --command-b64 must be valid UTF-8 base64")
+                }
+                rawDecoded = decoded
+            } else {
+                rawDecoded = nil
             }
+            guard var decoded = rawDecoded else { return nil }
             decoded = decoded
                 .replacingOccurrences(of: "__CMUX_WORKSPACE_ID__", with: workspaceId)
                 .replacingOccurrences(
@@ -11302,7 +11324,7 @@ struct CMUXCLI {
                     with: ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] ?? ""
                 )
             return decoded
-        }
+        }()
         var bridgeReachedReady = false
         var attachFinished = false
         var attachmentToken = ""

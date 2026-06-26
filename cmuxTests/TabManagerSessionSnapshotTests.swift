@@ -1,6 +1,7 @@
 import CmuxWorkspaces
 import Darwin
 import CmuxCore
+import CmuxFoundation
 import XCTest
 import CmuxTerminal
 
@@ -2202,7 +2203,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(terminalStartupCommand.contains(restoredForegroundAuthToken), terminalStartupCommand)
         XCTAssertFalse(terminalStartupCommand.contains(expectedSessionID), terminalStartupCommand)
         XCTAssertFalse(terminalStartupCommand.contains("--require-existing"), terminalStartupCommand)
-        XCTAssertTrue(terminalStartupCommand.contains("--command-b64 "), terminalStartupCommand)
+        XCTAssertTrue(terminalStartupCommand.contains("--command-zb64 "), terminalStartupCommand)
+        XCTAssertFalse(terminalStartupCommand.contains("--command-b64 "), terminalStartupCommand)
         XCTAssertTrue(terminalStartupCommand.contains("254|255"), terminalStartupCommand)
         let restoredDefaultRemoteCommand = try XCTUnwrap(
             Self.decodedSSHPTYCommandB64(in: terminalStartupCommand)
@@ -2275,6 +2277,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(restoredInitialCommand.contains("254|255"), restoredInitialCommand)
         XCTAssertTrue(restoredInitialCommand.contains(expectedSessionID), restoredInitialCommand)
         XCTAssertTrue(restoredInitialCommand.contains("CMUX_SURFACE_ID"), restoredInitialCommand)
+        XCTAssertFalse(restoredInitialCommand.contains("--command-zb64 "), restoredInitialCommand)
         XCTAssertFalse(restoredInitialCommand.contains("--command-b64 "), restoredInitialCommand)
 
         let roundTrip = restoredWorkspace.sessionSnapshot(includeScrollback: false)
@@ -2286,6 +2289,51 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             persistedWorkspace.panels.first { $0.id == remotePanelId }?.terminal?.scrollback,
             expectedScrollback
         )
+    }
+
+    /// Regression test for https://github.com/manaflow-ai/cmux/issues/6738.
+    /// `cmux ssh <host>` carried the ≈150 KB remote bootstrap as an uncompressed
+    /// base64 literal inside the SSH PTY attach command — and the `/bin/sh -c`
+    /// wrapper that embeds it, repeated across the surface's `login`/`sh` layers —
+    /// pushing `ps aux` output past 1 MiB and breaking tools that scan the process
+    /// table with a bounded buffer. The attach command must carry the payload
+    /// compressed so its inlined size stays a small fraction of the uncompressed
+    /// base64 form.
+    func testSSHPTYAttachCommandDoesNotInlineUncompressedBootstrap() throws {
+        let bootstrap = Self.makeLargeRemoteBootstrapStub()
+        let uncompressedBase64 = Data(bootstrap.utf8).base64EncodedString()
+        XCTAssertGreaterThan(
+            uncompressedBase64.count,
+            150_000,
+            "stub bootstrap should be large enough to exercise the argv-bloat path"
+        )
+
+        let command = SSHPTYAttachStartupCommandBuilder.command(remoteCommand: bootstrap)
+        XCTAssertTrue(command.contains("ssh-pty-attach"), command)
+
+        // The uncompressed base64 of the bootstrap must not appear verbatim in argv.
+        XCTAssertFalse(
+            command.contains(uncompressedBase64),
+            "attach command inlined the uncompressed base64 bootstrap (\(uncompressedBase64.count) bytes)"
+        )
+        // The whole attach command (payload + scaffold) must stay far below the
+        // uncompressed base64 size that bloated `ps aux` past 1 MiB.
+        XCTAssertLessThan(
+            command.count,
+            uncompressedBase64.count / 2,
+            "attach command is \(command.count) bytes; uncompressed base64 alone is \(uncompressedBase64.count) bytes"
+        )
+    }
+
+    private static func makeLargeRemoteBootstrapStub() -> String {
+        // Shell-shaped, structurally repetitive text — representative of the bundled
+        // shell-integration payload, which compresses several-fold.
+        var lines: [String] = []
+        for index in 0..<2200 {
+            lines.append("export CMUX_BOOTSTRAP_VAR_\(index)=\"value for bootstrap entry number \(index)\"")
+            lines.append("if [ \"${CMUX_BOOTSTRAP_VAR_\(index):-}\" != \"0\" ]; then printf '%s\\n' \"line \(index)\"; fi")
+        }
+        return lines.joined(separator: "\n")
     }
 
     func testSessionSnapshotRestoresSplitPersistentSSHPTYWithoutDefaultAttachScaffold() throws {
@@ -2340,7 +2388,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
 
         let workspaceDefaultCommand = try XCTUnwrap(restoredWorkspace.remoteConfiguration?.terminalStartupCommand)
-        XCTAssertTrue(workspaceDefaultCommand.contains("--command-b64 "), workspaceDefaultCommand)
+        XCTAssertTrue(workspaceDefaultCommand.contains("--command-zb64 "), workspaceDefaultCommand)
         XCTAssertFalse(workspaceDefaultCommand.contains("--require-existing"), workspaceDefaultCommand)
 
         for panelSnapshot in restoredTerminalPanels {
@@ -2348,6 +2396,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             let command = try XCTUnwrap(panel.surface.debugInitialCommand())
             XCTAssertTrue(command.contains("ssh-pty-attach"), command)
             XCTAssertTrue(command.contains("--require-existing"), command)
+            XCTAssertFalse(command.contains("--command-zb64 "), command)
             XCTAssertFalse(command.contains("--command-b64 "), command)
             XCTAssertTrue(
                 expectedSessionIDs.contains { command.contains($0) },
@@ -3292,13 +3341,23 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     private static func decodedSSHPTYCommandB64(in command: String) -> String? {
-        let marker = "--command-b64 "
+        // Prefer the compressed flag (deflate+base64) the producers now emit; fall
+        // back to plain base64 for legacy/restored commands (manaflow-ai/cmux#6738).
+        if let token = tokenAfterMarker("--command-zb64 ", in: command) {
+            return String(deflatedBase64: token)
+        }
+        guard let token = tokenAfterMarker("--command-b64 ", in: command),
+              let data = Data(base64Encoded: token) else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private static func tokenAfterMarker(_ marker: String, in command: String) -> String? {
         guard let markerRange = command.range(of: marker) else { return nil }
         let suffix = command[markerRange.upperBound...]
         guard let token = suffix.split(whereSeparator: { $0.isWhitespace }).first else { return nil }
-        let encoded = String(token).trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
-        guard let data = Data(base64Encoded: encoded) else { return nil }
-        return String(data: data, encoding: .utf8)
+        return String(token).trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
     }
 
     private func waitForClosedHistoryCount(
