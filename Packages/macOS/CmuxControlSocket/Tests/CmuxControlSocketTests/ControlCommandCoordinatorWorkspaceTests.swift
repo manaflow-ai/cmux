@@ -204,6 +204,23 @@ struct ControlCommandCoordinatorWorkspaceTests {
         #expect(context.setDefaultDirectoryCall == nil)
     }
 
+    @Test func workspaceSetCwdRejectsPathAlias() throws {
+        let (coordinator, context) = coordinator()
+        let workspaceID = UUID()
+
+        guard case .err(let code, let message, _) = coordinator.handle(request("workspace.set_cwd", [
+            "workspace_id": .string(workspaceID.uuidString),
+            "path": .string("/tmp/project"),
+        ])) else {
+            Issue.record("unexpected workspace.set_cwd result")
+            return
+        }
+
+        #expect(code == "invalid_params")
+        #expect(message == "Missing cwd")
+        #expect(context.setDefaultDirectoryCall == nil)
+    }
+
     @Test func workspaceGroupAddForwardsPlacementAndReference() throws {
         let (coordinator, context) = coordinator()
         let groupID = UUID()

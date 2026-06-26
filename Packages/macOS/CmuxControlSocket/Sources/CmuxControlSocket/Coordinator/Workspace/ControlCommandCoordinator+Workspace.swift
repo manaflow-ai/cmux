@@ -180,7 +180,7 @@ extension ControlCommandCoordinator {
         if hasNonNull(params, "workspace_id"), workspaceID == nil {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
         }
-        guard let cwd = string(params, "cwd") ?? string(params, "path") else {
+        guard let cwd = string(params, "cwd") else {
             return .err(code: "invalid_params", message: "Missing cwd", data: nil)
         }
         let resolution = context?.controlSetWorkspaceDefaultDirectory(
