@@ -286,18 +286,28 @@ final class OfflineNotesStore: ObservableObject {
     /// No-ops while offline or when another flush is already running. Failed
     /// notes are left in the ``OfflineNoteStatus/failed`` state (not retried in
     /// the same pass) so a persistently-failing dispatcher cannot spin.
+    ///
+    /// Status transitions are applied in memory and persisted **once** when the
+    /// pass finishes, so reconnecting with a large backlog performs one
+    /// coalesced encode + atomic write on the main actor rather than two writes
+    /// per note. A status held only in memory if the app is killed mid-flush is
+    /// recovered as ``OfflineNoteStatus/pending`` on next launch (see
+    /// ``normalizedForLoad(_:)``), so the note is retried rather than lost.
     func flush() async {
         guard isOnline else { return }
         guard !isFlushing else { return }
         isFlushing = true
-        defer { isFlushing = false }
+        defer {
+            isFlushing = false
+            persist()
+        }
 
         while isOnline, let index = notes.firstIndex(where: { $0.status == .pending }) {
             var note = notes[index]
             note.status = .sending
             note.attemptCount += 1
             note.updatedAt = Date()
-            apply(note)
+            applyInMemory(note)
 
             do {
                 try await dispatcher.dispatch(note)
@@ -306,14 +316,14 @@ final class OfflineNotesStore: ObservableObject {
                     delivered.sentAt = Date()
                     delivered.lastError = nil
                     delivered.updatedAt = Date()
-                    apply(delivered)
+                    applyInMemory(delivered)
                 }
             } catch {
                 if var failed = self.note(id: note.id) {
                     failed.status = .failed
                     failed.lastError = Self.describe(error)
                     failed.updatedAt = Date()
-                    apply(failed)
+                    applyInMemory(failed)
                 }
             }
         }
@@ -325,11 +335,11 @@ final class OfflineNotesStore: ObservableObject {
         notes.first { $0.id == id }
     }
 
-    /// Replaces a note by id (the array may have mutated across an `await`) and persists.
-    private func apply(_ note: OfflineNote) {
+    /// Replaces a note by id in memory only (the array may have mutated across
+    /// an `await`). Callers persist separately so a flush can coalesce writes.
+    private func applyInMemory(_ note: OfflineNote) {
         guard let index = notes.firstIndex(where: { $0.id == note.id }) else { return }
         notes[index] = note
-        persist()
     }
 
     private static func describe(_ error: Error) -> String {

@@ -142,6 +142,7 @@ struct SettingsRowAnchorResolutionTests {
         "setting:mobile:iOSPairingDisplayName",
         "setting:betaFeatures:feed",
         "setting:betaFeatures:dock",
+        "setting:betaFeatures:notes",
         "setting:betaFeatures:customSidebars",
         "setting:betaFeatures:remoteTmux",
         "setting:customSidebars:enabled",
