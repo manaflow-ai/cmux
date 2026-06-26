@@ -1,4 +1,5 @@
 import CmuxBrowser
+import CmuxNotifications
 import CmuxSettings
 import Foundation
 
@@ -141,10 +142,10 @@ enum AppSettingsFileMapping {
 
 enum NotificationSettingsFileMapping {
     static let booleanSettings: [SettingsFileBooleanMapping] = [
-        .init(jsonKey: "dockBadge", defaultsKey: NotificationBadgeSettings.dockBadgeEnabledKey),
+        .init(jsonKey: "dockBadge", defaultsKey: NotificationDefaultsToggle.dockBadge.key),
         .init(jsonKey: "showInMenuBar", defaultsKey: MenuBarExtraSettings.showInMenuBarKey),
-        .init(jsonKey: "unreadPaneRing", defaultsKey: NotificationPaneRingSettings.enabledKey),
-        .init(jsonKey: "paneFlash", defaultsKey: NotificationPaneFlashSettings.enabledKey),
+        .init(jsonKey: "unreadPaneRing", defaultsKey: NotificationDefaultsToggle.paneRing.key),
+        .init(jsonKey: "paneFlash", defaultsKey: NotificationDefaultsToggle.paneFlash.key),
     ]
 
     static let stringSettings: [SettingsFileStringMapping] = [

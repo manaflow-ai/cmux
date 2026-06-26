@@ -459,9 +459,7 @@ final class OmnibarStateMachineTests: XCTestCase {
         _ = state.reduce(.bufferChanged("abcdef"))
 
         let effects = state.reduce(.focusReasserted(
-                shouldSelectAll: browserOmnibarShouldSelectAllOnFocusReassertion(
-                    selectionIntent: .selectAll
-                )
+                shouldSelectAll: BrowserAddressBarFocusSelectionIntent.selectAll.shouldSelectAll
             )
         )
 
@@ -474,14 +472,10 @@ final class OmnibarStateMachineTests: XCTestCase {
 
     func testFocusReassertionHonorsSelectionIntent() throws {
         XCTAssertTrue(
-            browserOmnibarShouldSelectAllOnFocusReassertion(
-                selectionIntent: .selectAll
-            )
+            BrowserAddressBarFocusSelectionIntent.selectAll.shouldSelectAll
         )
         XCTAssertFalse(
-            browserOmnibarShouldSelectAllOnFocusReassertion(
-                selectionIntent: .preserveFieldEditorSelection
-            )
+            BrowserAddressBarFocusSelectionIntent.preserveFieldEditorSelection.shouldSelectAll
         )
     }
 
@@ -489,11 +483,11 @@ final class OmnibarStateMachineTests: XCTestCase {
     // omnibar selects the whole URL so the next keystroke replaces it (Chrome parity).
     func testFocusGainingClickSelectsAll() throws {
         XCTAssertTrue(
-            browserOmnibarFocusGainingClickShouldSelectAll(
+            BrowserOmnibarFocusGainingClick(
                 gainedFocusOnThisClick: true,
                 isShiftClick: false,
                 didDrag: false
-            )
+            ).shouldSelectAll
         )
     }
 
@@ -501,11 +495,11 @@ final class OmnibarStateMachineTests: XCTestCase {
     // first responder keeps the caret placed at the click point — no select-all.
     func testAlreadyFocusedClickPlacesCaret() throws {
         XCTAssertFalse(
-            browserOmnibarFocusGainingClickShouldSelectAll(
+            BrowserOmnibarFocusGainingClick(
                 gainedFocusOnThisClick: false,
                 isShiftClick: false,
                 didDrag: false
-            )
+            ).shouldSelectAll
         )
     }
 
@@ -513,18 +507,18 @@ final class OmnibarStateMachineTests: XCTestCase {
     // select-all defers to it even on the click that gains focus.
     func testFocusGainingClickDefersToExplicitSelection() throws {
         XCTAssertFalse(
-            browserOmnibarFocusGainingClickShouldSelectAll(
+            BrowserOmnibarFocusGainingClick(
                 gainedFocusOnThisClick: true,
                 isShiftClick: true,
                 didDrag: false
-            )
+            ).shouldSelectAll
         )
         XCTAssertFalse(
-            browserOmnibarFocusGainingClickShouldSelectAll(
+            BrowserOmnibarFocusGainingClick(
                 gainedFocusOnThisClick: true,
                 isShiftClick: false,
                 didDrag: true
-            )
+            ).shouldSelectAll
         )
     }
 
@@ -1059,7 +1053,7 @@ final class OmnibarRemoteSuggestionMergeTests: XCTestCase {
             ),
         ]
 
-        let merged = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { resolveBrowserNavigableURL($0) }).buildSuggestions(
+        let merged = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { ($0).omnibarNavigableURL }).buildSuggestions(
             query: "go",
             engineName: "Google",
             historyEntries: entries,
@@ -1080,7 +1074,7 @@ final class OmnibarRemoteSuggestionMergeTests: XCTestCase {
     }
 
     func testStaleRemoteSuggestionsKeptForNearbyEdits() {
-        let stale = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { resolveBrowserNavigableURL($0) }).staleRemoteSuggestionsForDisplay(
+        let stale = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { ($0).omnibarNavigableURL }).staleRemoteSuggestionsForDisplay(
             query: "go t",
             previousRemoteQuery: "go",
             previousRemoteSuggestions: ["go tutorial", "go json", "golang tips"],
@@ -1091,7 +1085,7 @@ final class OmnibarRemoteSuggestionMergeTests: XCTestCase {
     }
 
     func testStaleRemoteSuggestionsTrimAndRespectLimit() {
-        let stale = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { resolveBrowserNavigableURL($0) }).staleRemoteSuggestionsForDisplay(
+        let stale = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { ($0).omnibarNavigableURL }).staleRemoteSuggestionsForDisplay(
             query: "gooo",
             previousRemoteQuery: "goo",
             previousRemoteSuggestions: [" go tutorial ", "", "go json", "   ", "go fmt"],
@@ -1102,7 +1096,7 @@ final class OmnibarRemoteSuggestionMergeTests: XCTestCase {
     }
 
     func testStaleRemoteSuggestionsDroppedForUnrelatedQuery() {
-        let stale = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { resolveBrowserNavigableURL($0) }).staleRemoteSuggestionsForDisplay(
+        let stale = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { ($0).omnibarNavigableURL }).staleRemoteSuggestionsForDisplay(
             query: "python",
             previousRemoteQuery: "go",
             previousRemoteSuggestions: ["go tutorial", "go json"],
@@ -1141,7 +1135,7 @@ final class OmnibarSuggestionRankingTests: XCTestCase {
             ),
         ]
 
-        let results = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { resolveBrowserNavigableURL($0) }).buildSuggestions(
+        let results = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { ($0).omnibarNavigableURL }).buildSuggestions(
             query: "n",
             engineName: "Google",
             historyEntries: entries,
@@ -1179,7 +1173,7 @@ final class OmnibarSuggestionRankingTests: XCTestCase {
             ),
         ]
 
-        let results = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { resolveBrowserNavigableURL($0) }).buildSuggestions(
+        let results = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { ($0).omnibarNavigableURL }).buildSuggestions(
             query: "gm",
             engineName: "Google",
             historyEntries: entries,
@@ -1225,7 +1219,7 @@ final class OmnibarSuggestionRankingTests: XCTestCase {
             ),
         ]
 
-        let results = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { resolveBrowserNavigableURL($0) }).buildSuggestions(
+        let results = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { ($0).omnibarNavigableURL }).buildSuggestions(
             query: "gm",
             engineName: "Google",
             historyEntries: entries,
@@ -1270,7 +1264,7 @@ final class OmnibarSuggestionRankingTests: XCTestCase {
             ),
         ]
 
-        let results = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { resolveBrowserNavigableURL($0) }).buildSuggestions(
+        let results = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { ($0).omnibarNavigableURL }).buildSuggestions(
             query: "gm",
             engineName: "Google",
             historyEntries: entries,
@@ -1313,7 +1307,7 @@ final class OmnibarSuggestionRankingTests: XCTestCase {
             ),
         ]
 
-        let results = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { resolveBrowserNavigableURL($0) }).buildSuggestions(
+        let results = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { ($0).omnibarNavigableURL }).buildSuggestions(
             query: "ne",
             engineName: "Google",
             historyEntries: entries,
@@ -1358,7 +1352,7 @@ final class OmnibarSuggestionRankingTests: XCTestCase {
             ),
         ]
 
-        let results = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { resolveBrowserNavigableURL($0) }).buildSuggestions(
+        let results = BrowserOmnibarSuggestionEngine(resolveNavigableURL: { ($0).omnibarNavigableURL }).buildSuggestions(
             query: "gm",
             engineName: "Google",
             historyEntries: entries,

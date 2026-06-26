@@ -1,5 +1,6 @@
 import AppKit
 import CmuxFoundation
+import CmuxNotifications
 import Combine
 import SwiftUI
 
@@ -149,7 +150,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
         _ = reason
-        guard NotificationPaneFlashSettings.isEnabled() else { return }
+        guard NotificationDefaultsToggle.paneFlash.isEnabled() else { return }
         focusFlashToken += 1
     }
 

@@ -569,7 +569,7 @@ private struct SessionRow: View, Equatable {
             .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
         .contextMenu {
-            sessionRowMenuItems(entry: entry, onResume: onResume)
+            SessionRowMenuItems(entry: entry, onResume: onResume)
         }
     }
 
@@ -617,67 +617,6 @@ private struct SessionRow: View, Equatable {
 
     private func absoluteTime(_ date: Date) -> String {
         SessionIndexView.absoluteFormatter.string(from: date)
-    }
-}
-
-// MARK: - Shared row actions
-
-/// Right-click menu items for any session row (full or popover). Built as a
-/// free `@ViewBuilder` so SessionRow and PopoverRow both attach the same set
-/// without duplicating the button list or the action helpers.
-@ViewBuilder
-func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) -> Void)?) -> some View {
-    if let onResume {
-        Button {
-            onResume(entry)
-        } label: {
-            Text(String(localized: "sessionIndex.row.resume", defaultValue: "Resume in New Tab"))
-        }
-        Divider()
-    }
-    if let url = entry.fileURL {
-        Button {
-            NSWorkspace.shared.open(url)
-        } label: {
-            Text(String(localized: "sessionIndex.row.open", defaultValue: "Open"))
-        }
-        Button {
-            NSWorkspace.shared.activateFileViewerSelecting([url])
-        } label: {
-            Text(String(localized: "sessionIndex.row.reveal", defaultValue: "Reveal in Finder"))
-        }
-        Divider()
-        Button {
-            let pb = NSPasteboard.general
-            pb.clearContents()
-            pb.setString(url.path, forType: .string)
-        } label: {
-            Text(String(localized: "sessionIndex.row.copyPath", defaultValue: "Copy File Path"))
-        }
-    }
-    if let resumeCommand = entry.resumeCommand {
-        Button {
-            let pb = NSPasteboard.general
-            pb.clearContents()
-            pb.setString(resumeCommand, forType: .string)
-        } label: {
-            Text(String(localized: "sessionIndex.row.copyResume", defaultValue: "Copy Resume Command"))
-        }
-    }
-    if let cwd = entry.cwd, !cwd.isEmpty {
-        Button {
-            NSWorkspace.shared.open(URL(fileURLWithPath: cwd))
-        } label: {
-            Text(String(localized: "sessionIndex.row.openCwd", defaultValue: "Open Working Directory"))
-        }
-    }
-    if let pr = entry.pullRequest, let url = URL(string: pr.url) {
-        Divider()
-        Button {
-            NSWorkspace.shared.open(url)
-        } label: {
-            Text(String(localized: "sessionIndex.row.openPR", defaultValue: "Open Pull Request"))
-        }
     }
 }
 

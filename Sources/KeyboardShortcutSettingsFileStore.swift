@@ -3,16 +3,18 @@ import Combine
 import CmuxFoundation
 import CmuxSettings
 import Foundation
+import Observation
 import os
 
 nonisolated private let cmuxSettingsFileStoreLogger = Logger(subsystem: "com.cmuxterm.app", category: "SettingsStore")
 
 @MainActor
-final class KeyboardShortcutSettingsObserver: ObservableObject {
-    @Published private(set) var revision: UInt64 = 0
+@Observable
+final class KeyboardShortcutSettingsObserver {
+    private(set) var revision: UInt64 = 0
 
-    private var settingsCancellable: AnyCancellable?
-    private var recorderCancellable: AnyCancellable?
+    @ObservationIgnored private var settingsCancellable: AnyCancellable?
+    @ObservationIgnored private var recorderCancellable: AnyCancellable?
 
     /// Composition-root-owned single instance, recorded once at startup.
     /// `nonisolated(unsafe)`: written exactly once in

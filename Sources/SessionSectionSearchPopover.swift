@@ -424,7 +424,7 @@ private struct PopoverRow: View, Equatable {
         }
         .help(entry.cwdLabel ?? entry.displayTitle)
         .contextMenu {
-            sessionRowMenuItems(entry: entry, onResume: { _ in onActivate() })
+            SessionRowMenuItems(entry: entry, onResume: { _ in onActivate() })
         }
     }
 }

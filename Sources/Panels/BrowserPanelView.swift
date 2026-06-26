@@ -184,7 +184,7 @@ struct BrowserPanelView: View {
     @AppStorage(BrowserImportHintSettings.variantKey) private var browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
     @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
     @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    private let keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @State private var omnibarSuggestionRefreshScheduler = OmnibarSuggestionRefreshScheduler()
     @State private var omnibarSuggestionRefreshConsumerTask: Task<Void, Never>?
@@ -1962,9 +1962,7 @@ struct BrowserPanelView: View {
             // Re-run explicit selection behavior only for requests that own it
             // (Cmd+L), without replacing a caret from focus restoration.
             let effects = omnibarState.reduce(.focusReasserted(
-                    shouldSelectAll: browserOmnibarShouldSelectAllOnFocusReassertion(
-                        selectionIntent: selectionIntent
-                    )
+                    shouldSelectAll: selectionIntent.shouldSelectAll
                 )
             )
             applyOmnibarEffects(effects)
@@ -2638,7 +2636,7 @@ struct BrowserPanelView: View {
     /// The pure omnibar ranking engine, wired to the app's navigable-URL
     /// resolver so URL-intent classification matches address-bar navigation.
     private var omnibarSuggestionEngine: BrowserOmnibarSuggestionEngine {
-        BrowserOmnibarSuggestionEngine(resolveNavigableURL: { resolveBrowserNavigableURL($0) })
+        BrowserOmnibarSuggestionEngine(resolveNavigableURL: { $0.omnibarNavigableURL })
     }
 
     private func staleRemoteSuggestionsForDisplay(
@@ -2797,46 +2795,6 @@ private struct BrowserAddressBarWidthPreferenceKey: PreferenceKey {
     }
 }
 
-func browserOmnibarShouldReacquireFocusAfterEndEditing(
-    desiredOmnibarFocus: Bool,
-    nextResponderIsOtherTextField: Bool
-) -> Bool {
-    desiredOmnibarFocus && !nextResponderIsOtherTextField
-}
-
-func browserOmnibarShouldSelectAllOnFocusReassertion(
-    selectionIntent: BrowserAddressBarFocusSelectionIntent
-) -> Bool {
-    selectionIntent.shouldSelectAll
-}
-
-/// Whether a completed single click that just moved first responder into the
-/// omnibar should select the field's entire contents (Chrome/Safari/Arc parity),
-/// instead of leaving the caret the field editor placed at the click point.
-///
-/// The first click on an unfocused omnibar showing a URL selects everything so
-/// the user can immediately type a replacement. A subsequent click (the field is
-/// already first responder, so `gainedFocusOnThisClick` is `false`) keeps the
-/// caret placement from https://github.com/manaflow-ai/cmux/issues/5268. A drag
-/// or a Shift-click expresses an explicit range, so select-all defers to it; a
-/// double-click never reaches this path (the field routes multi-clicks straight
-/// to the field editor for word/line selection, and its second click lands after
-/// this click's `mouseUp`, so word selection wins).
-///
-/// - Parameters:
-///   - gainedFocusOnThisClick: `true` when the field had no field editor at
-///     `mouseDown`, i.e. this click is the one that moved focus into the omnibar.
-///   - isShiftClick: `true` when Shift was held, extending an explicit selection.
-///   - didDrag: `true` when the pointer moved far enough to build a drag selection.
-/// - Returns: `true` only for an undragged, unmodified focus-gaining click.
-func browserOmnibarFocusGainingClickShouldSelectAll(
-    gainedFocusOnThisClick: Bool,
-    isShiftClick: Bool,
-    didDrag: Bool
-) -> Bool {
-    gainedFocusOnThisClick && !isShiftClick && !didDrag
-}
-
 final class OmnibarNativeTextField: NSTextField {
     var panelId: UUID?
     var onPointerDown: (() -> Void)?
@@ -2956,11 +2914,11 @@ final class OmnibarNativeTextField: NSTextField {
         // to the field editor for word/line selection and leaves `mouseSelectionState`
         // nil, and the second click lands after this `mouseUp`, so word selection wins.
         // The keyboard path (Cmd+L) still selects all via the `selectAllRequestId` flow.
-        guard browserOmnibarFocusGainingClickShouldSelectAll(
+        guard BrowserOmnibarFocusGainingClick(
             gainedFocusOnThisClick: state.gainedFocus,
             isShiftClick: state.isShift,
             didDrag: state.didDrag
-        ), let editor = currentEditor() as? NSTextView else {
+        ).shouldSelectAll, let editor = currentEditor() as? NSTextView else {
             return
         }
         editor.setSelectedRange(NSRange(location: 0, length: editor.string.utf16.count))
@@ -3202,10 +3160,10 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             if pointerDownBlurIntent(window: window) {
                 return false
             }
-            return browserOmnibarShouldReacquireFocusAfterEndEditing(
+            return BrowserOmnibarEndEditingFocusReacquisition(
                 desiredOmnibarFocus: parent.isFocused,
                 nextResponderIsOtherTextField: nextResponderIsOtherTextField(window: window)
-            )
+            ).shouldReacquireFocus
         }
 
         func controlTextDidBeginEditing(_ obj: Notification) {

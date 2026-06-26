@@ -1,4 +1,5 @@
 import CmuxCommandPalette
+import CmuxNotifications
 import CmuxSettings
 import Foundation
 
@@ -159,8 +160,8 @@ extension CommandPaletteSettingsToggleCatalog {
                 },
                 sectionTitle: app,
                 keywords: ["notifications.dockBadge", "dock", "badge", "notification", "unread", "count"],
-                defaultValue: NotificationBadgeSettings.defaultDockBadgeEnabled,
-                defaultsKey: NotificationBadgeSettings.dockBadgeEnabledKey
+                defaultValue: NotificationDefaultsToggle.dockBadge.defaultValue,
+                defaultsKey: NotificationDefaultsToggle.dockBadge.key
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "showInMenuBar",
@@ -182,8 +183,8 @@ extension CommandPaletteSettingsToggleCatalog {
                 },
                 sectionTitle: app,
                 keywords: ["notifications.unreadPaneRing", "notification", "unread", "pane", "ring", "outline"],
-                defaultValue: NotificationPaneRingSettings.defaultEnabled,
-                defaultsKey: NotificationPaneRingSettings.enabledKey
+                defaultValue: NotificationDefaultsToggle.paneRing.defaultValue,
+                defaultsKey: NotificationDefaultsToggle.paneRing.key
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "paneFlash",
@@ -193,8 +194,8 @@ extension CommandPaletteSettingsToggleCatalog {
                 },
                 sectionTitle: app,
                 keywords: ["notifications.paneFlash", "notification", "pane", "flash", "highlight", "pulse"],
-                defaultValue: NotificationPaneFlashSettings.defaultEnabled,
-                defaultsKey: NotificationPaneFlashSettings.enabledKey
+                defaultValue: NotificationDefaultsToggle.paneFlash.defaultValue,
+                defaultsKey: NotificationDefaultsToggle.paneFlash.key
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "sendAnonymousTelemetry",

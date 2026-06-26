@@ -36,4 +36,28 @@ extension NSView {
         }
         return viewIndex > referenceIndex
     }
+
+    /// Convert this anchor view's bounds to window coordinates while honoring
+    /// ancestor clipping. SwiftUI/AppKit hosting layers can report an anchor
+    /// bounds wider than its split pane when intrinsic-size content overflows;
+    /// intersecting through each finite ancestor bounds gives the effective
+    /// visible rect that should drive portal geometry. The walk stops after
+    /// intersecting `stopView` (the portal's installed reference view), or at the
+    /// top of the superview chain. Returns `.zero` once the running intersection
+    /// becomes null.
+    public func effectiveAnchorFrameInWindow(stoppingAt stopView: NSView?) -> NSRect {
+        var frameInWindow = convert(bounds, to: nil)
+        var current = superview
+        while let ancestor = current {
+            let ancestorBoundsInWindow = ancestor.convert(ancestor.bounds, to: nil)
+            let finiteAncestorBounds = ancestorBoundsInWindow.hasFiniteComponents
+            if finiteAncestorBounds {
+                frameInWindow = frameInWindow.intersection(ancestorBoundsInWindow)
+                if frameInWindow.isNull { return .zero }
+            }
+            if ancestor === stopView { break }
+            current = ancestor.superview
+        }
+        return frameInWindow
+    }
 }

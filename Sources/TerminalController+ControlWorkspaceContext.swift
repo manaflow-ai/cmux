@@ -772,14 +772,15 @@ extension TerminalController: ControlWorkspaceContext {
 
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
-        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
-        let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
-        guard !parts.isEmpty else {
+        let directionArg: String
+        let panelArg: String
+        switch ControlWorkspaceV1SplitArguments(rawArguments: args) {
+        case .empty:
             return "ERROR: Invalid direction. Use left, right, up, or down."
+        case let .tokens(direction, panel):
+            directionArg = direction
+            panelArg = panel
         }
-
-        let directionArg = parts[0]
-        let panelArg = parts.count > 1 ? parts[1] : ""
 
         guard let direction = SplitDirection(controlToken: directionArg) else {
             return "ERROR: Invalid direction. Use left, right, up, or down."
@@ -834,7 +835,9 @@ extension TerminalController: ControlWorkspaceContext {
 
     func controlCloseWorkspaceV1(arg: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
-        guard let uuid = UUID(uuidString: arg) else { return "ERROR: Invalid tab ID" }
+        guard case let .uuid(uuid) = ControlWorkspaceV1Selector(rawArgument: arg) else {
+            return "ERROR: Invalid tab ID"
+        }
 
         var result = "ERROR: Tab not found"
         v2MainSync {
@@ -855,17 +858,19 @@ extension TerminalController: ControlWorkspaceContext {
 
         var success = false
         v2MainSync {
-            // Try as UUID first
-            if let uuid = UUID(uuidString: arg) {
+            switch ControlWorkspaceV1Selector(rawArgument: arg) {
+            case let .uuid(uuid):
                 if let tab = tabManager.tabs.first(where: { $0.id == uuid }) {
                     tabManager.selectTab(tab)
                     success = true
                 }
-            }
-            // Try as index
-            else if let index = Int(arg), index >= 0, index < tabManager.tabs.count {
-                tabManager.selectTab(at: index)
-                success = true
+            case let .index(index):
+                if index >= 0, index < tabManager.tabs.count {
+                    tabManager.selectTab(at: index)
+                    success = true
+                }
+            case .unparseable:
+                break
             }
         }
         return success ? "OK" : "ERROR: Tab not found"

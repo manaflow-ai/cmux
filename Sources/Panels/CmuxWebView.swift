@@ -1283,114 +1283,17 @@ final class CmuxWebView: WKWebView {
         traceID: String,
         completion: @escaping (BrowserImageCopyPasteboardPayload?) -> Void
     ) {
-        let scheme = sourceURL.scheme?.lowercased() ?? ""
-        debugContextDownload(
-            "browser.ctxcopy.fetch trace=\(traceID) stage=start scheme=\(scheme) url=\(sourceURL.absoluteString)"
+        // Logic lives in CmuxBrowser; bind the live webview state (cookie store,
+        // page URL, user agent) and the DEBUG logger here, where they originate.
+        BrowserImageCopyPasteboardPayload.fetchForContextMenuCopy(
+            from: sourceURL,
+            cookieStore: { self.configuration.websiteDataStore.httpCookieStore },
+            referer: { self.url?.absoluteString },
+            userAgent: { self.customUserAgent },
+            traceID: traceID,
+            log: { self.debugContextDownload($0) },
+            completion: completion
         )
-
-        if scheme == "data" {
-            guard let parsed = ParsedDataURL(dataURL: sourceURL), !parsed.data.isEmpty else {
-                debugContextDownload(
-                    "browser.ctxcopy.fetch trace=\(traceID) stage=dataParseFailure"
-                )
-                completion(nil)
-                return
-            }
-            debugContextDownload(
-                "browser.ctxcopy.fetch trace=\(traceID) stage=dataParseSuccess mime=\(parsed.mimeType ?? "nil") bytes=\(parsed.data.count)"
-            )
-            completion(
-                BrowserImageCopyPasteboardPayload(
-                    imageData: parsed.data,
-                    mimeType: parsed.mimeType,
-                    sourceURL: nil
-                )
-            )
-            return
-        }
-
-        if scheme == "file" {
-            DispatchQueue.global(qos: .userInitiated).async {
-                let data = try? Data(contentsOf: sourceURL)
-                DispatchQueue.main.async {
-                    guard let data, !data.isEmpty else {
-                        self.debugContextDownload(
-                            "browser.ctxcopy.fetch trace=\(traceID) stage=fileReadFailure path=\(sourceURL.path)"
-                        )
-                        completion(nil)
-                        return
-                    }
-
-                    self.debugContextDownload(
-                        "browser.ctxcopy.fetch trace=\(traceID) stage=fileReadSuccess bytes=\(data.count) path=\(sourceURL.path)"
-                    )
-                    completion(
-                        BrowserImageCopyPasteboardPayload(
-                            imageData: data,
-                            mimeType: BrowserDownloadURLClassifier(url: sourceURL).inferredImageMIMEType,
-                            sourceURL: nil
-                        )
-                    )
-                }
-            }
-            return
-        }
-
-        guard scheme == "http" || scheme == "https" else {
-            debugContextDownload(
-                "browser.ctxcopy.fetch trace=\(traceID) stage=unsupportedScheme url=\(sourceURL.absoluteString)"
-            )
-            completion(nil)
-            return
-        }
-
-        let cookieStore = configuration.websiteDataStore.httpCookieStore
-        cookieStore.getAllCookies { cookies in
-            var request = URLRequest(url: sourceURL)
-            request.httpMethod = "GET"
-            let cookieHeaders = HTTPCookie.requestHeaderFields(with: cookies)
-            for (key, value) in cookieHeaders {
-                request.setValue(value, forHTTPHeaderField: key)
-            }
-            if let referer = self.url?.absoluteString, !referer.isEmpty {
-                request.setValue(referer, forHTTPHeaderField: "Referer")
-            }
-            if let ua = self.customUserAgent, !ua.isEmpty {
-                request.setValue(ua, forHTTPHeaderField: "User-Agent")
-            }
-
-            self.debugContextDownload(
-                "browser.ctxcopy.fetch trace=\(traceID) stage=dispatch cookies=\(cookies.count) referer=\(request.value(forHTTPHeaderField: "Referer") ?? "nil") uaSet=\(request.value(forHTTPHeaderField: "User-Agent") == nil ? 0 : 1)"
-            )
-
-            URLSession.shared.dataTask(with: request) { data, response, error in
-                DispatchQueue.main.async {
-                    guard let data, !data.isEmpty, error == nil else {
-                        self.debugContextDownload(
-                            "browser.ctxcopy.fetch trace=\(traceID) stage=networkFailure status=\((response as? HTTPURLResponse)?.statusCode ?? -1) mime=\(response?.mimeType ?? "nil") error=\(error?.localizedDescription ?? "unknown")"
-                        )
-                        completion(nil)
-                        return
-                    }
-
-                    let resolvedURL = response?.url.flatMap {
-                        let scheme = $0.scheme?.lowercased() ?? ""
-                        return (scheme == "http" || scheme == "https") ? $0 : nil
-                    } ?? sourceURL
-                    let mimeType = response?.mimeType ?? BrowserDownloadURLClassifier(url: resolvedURL).inferredImageMIMEType
-                    self.debugContextDownload(
-                        "browser.ctxcopy.fetch trace=\(traceID) stage=networkSuccess status=\((response as? HTTPURLResponse)?.statusCode ?? -1) mime=\(mimeType ?? "nil") bytes=\(data.count)"
-                    )
-                    completion(
-                        BrowserImageCopyPasteboardPayload(
-                            imageData: data,
-                            mimeType: mimeType,
-                            sourceURL: resolvedURL
-                        )
-                    )
-                }
-            }.resume()
-        }
     }
 
     private func writeContextMenuImageCopyPayload(
@@ -1398,28 +1301,11 @@ final class CmuxWebView: WKWebView {
         expectedPasteboardChangeCount: Int,
         traceID: String
     ) -> (wrote: Bool, shouldFallback: Bool) {
-        let pasteboard = NSPasteboard.general
-        if pasteboard.changeCount != expectedPasteboardChangeCount {
-            debugContextDownload(
-                "browser.ctxcopy.write trace=\(traceID) stage=skipPasteboardRace expected=\(expectedPasteboardChangeCount) actual=\(pasteboard.changeCount)"
-            )
-            return (false, false)
-        }
-
-        let items = payload.pasteboardItems
-        guard !items.isEmpty else {
-            debugContextDownload(
-                "browser.ctxcopy.write trace=\(traceID) stage=buildFailure mime=\(payload.mimeType ?? "nil") url=\(payload.sourceURL?.absoluteString ?? "nil") bytes=\(payload.imageData.count)"
-            )
-            return (false, true)
-        }
-
-        _ = pasteboard.clearContents()
-        let wrote = pasteboard.writeObjects(items)
-        debugContextDownload(
-            "browser.ctxcopy.write trace=\(traceID) stage=finish wrote=\(wrote ? 1 : 0) itemCount=\(items.count) types=\(items.map { $0.types.map(\.rawValue).joined(separator: ",") }.joined(separator: "|"))"
+        payload.writeToContextMenuPasteboard(
+            expectedPasteboardChangeCount: expectedPasteboardChangeCount,
+            traceID: traceID,
+            log: { self.debugContextDownload($0) }
         )
-        return (wrote, !wrote)
     }
 
     // MARK: - Drag-and-drop passthrough

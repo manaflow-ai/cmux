@@ -869,7 +869,7 @@ final class SessionIndexStore {
     /// Path to `rg` (ripgrep), if installed. nil when not found — the search
     /// code falls back to the Foundation substring scan.
     nonisolated private static func resolvedRipgrepPath() -> String? {
-        switch RipgrepExecutableResolver.resolution() {
+        switch RipgrepExecutableResolver().resolution() {
         case .found(let executable):
             return executable.url.path
         case .configuredPathNotExecutable(let path):

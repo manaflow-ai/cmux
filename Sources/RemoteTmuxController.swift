@@ -33,10 +33,20 @@ final class RemoteTmuxController {
     /// (reference-type) registries, so it reads and re-keys the same live state.
     private let mirrorCommandRouter: RemoteTmuxMirrorCommandRouter
 
+    /// Owns the `tmux -CC` control-connection lifecycle (attach/reuse, ready-gated
+    /// stream attach, per-host+session lookup). Constructed with this controller's
+    /// shared (reference-type) registries, so it reads and re-keys the same live
+    /// connection state and reaches the same transports.
+    private let connectionCoordinator: RemoteTmuxConnectionCoordinator
+
     init() {
         mirrorCommandRouter = RemoteTmuxMirrorCommandRouter(
             mirrorRegistry: mirrorRegistry,
             connectionRegistry: connectionRegistry
+        )
+        connectionCoordinator = RemoteTmuxConnectionCoordinator(
+            connectionRegistry: connectionRegistry,
+            transportRegistry: transportRegistry
         )
     }
 
@@ -67,74 +77,31 @@ final class RemoteTmuxController {
 
     // MARK: - Control connections (tmux -CC mirroring)
 
-    /// Attaches a `tmux -CC` control connection to `sessionName` on `host`,
-    /// reusing an existing live connection for the same host+session.
+    /// Forwards to ``RemoteTmuxConnectionCoordinator/attach(host:sessionName:createIfMissing:)``.
     @discardableResult
     func attach(
         host: RemoteTmuxHost,
         sessionName: String,
         createIfMissing: Bool = false
     ) throws -> RemoteTmuxControlConnection {
-        let key = host.connectionKey(sessionName: sessionName)
-        if let existing = connectionRegistry.connection(forKey: key) {
-            if !existing.exited { return existing }
-            // Replace a dead connection — fully tear down the old one first so
-            // its ssh process, stdin fd, stream continuation and ingest task
-            // don't leak.
-            existing.stop()
-            connectionRegistry.removeConnection(forKey: key)
-        }
-        let connection = RemoteTmuxControlConnection(
+        try connectionCoordinator.attach(
             host: host,
             sessionName: sessionName,
             createIfMissing: createIfMissing
         )
-        // Insert only after a successful launch, so a failed `start()` never
-        // leaves a dead (never-started, `exited == false`) connection that a
-        // later attach would wrongly reuse.
-        try connection.start()
-        connectionRegistry.setConnection(connection, forKey: key)
-        return connection
     }
 
-    /// Attaches a single control connection and returns success only after tmux has
-    /// emitted `%enter`. Before launching the long-lived control stream, run a
-    /// BatchMode tmux probe through the shared transport so auth/session failures
-    /// are reported synchronously instead of looking like a successful attach.
+    /// Forwards to ``RemoteTmuxConnectionCoordinator/attachControlStreamWhenReady(host:sessionName:createIfMissing:)``.
     func attachControlStreamWhenReady(
         host: RemoteTmuxHost,
         sessionName: String,
         createIfMissing: Bool = false
     ) async throws -> [String]? {
-        if let sshArgv = try await transport(for: host).preflightControlAttach(
-            sessionName: sessionName,
-            createIfMissing: createIfMissing
-        ) {
-            return sshArgv
-        }
-
-        let connection = try attach(
+        try await connectionCoordinator.attachControlStreamWhenReady(
             host: host,
             sessionName: sessionName,
             createIfMissing: createIfMissing
         )
-        guard await connection.waitUntilConnected() else {
-            stopCachedConnectionIfCurrent(connection, host: host, sessionName: sessionName)
-            try Task.checkCancellation()
-            throw RemoteTmuxError.unreachable("tmux control stream ended before attach for \(host.destination)")
-        }
-        return nil
-    }
-
-    private func stopCachedConnectionIfCurrent(
-        _ connection: RemoteTmuxControlConnection,
-        host: RemoteTmuxHost,
-        sessionName: String
-    ) {
-        let key = host.connectionKey(sessionName: sessionName)
-        guard connectionRegistry.connection(forKey: key) === connection else { return }
-        connectionRegistry.removeConnection(forKey: key)
-        connection.stop()
     }
 
     // MARK: - Sidebar mirroring (P3, initial increment)
@@ -717,9 +684,9 @@ final class RemoteTmuxController {
         }
     }
 
-    /// Returns the control connection for a host+session, if attached.
+    /// Forwards to ``RemoteTmuxConnectionCoordinator/connection(host:sessionName:)``.
     func connection(host: RemoteTmuxHost, sessionName: String) -> RemoteTmuxControlConnection? {
-        connectionRegistry.connection(forKey: host.connectionKey(sessionName: sessionName))
+        connectionCoordinator.connection(host: host, sessionName: sessionName)
     }
 
     /// Detaches and forgets a control connection (leaves the remote session alive).

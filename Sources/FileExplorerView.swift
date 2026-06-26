@@ -608,7 +608,7 @@ final class FileExplorerContainerView: NSView {
         presentation: FileExplorerPanelPresentation,
         searchController: (any FileSearchControlling)? = nil
     ) {
-        headerView = FileExplorerHeaderView()
+        headerView = FileExplorerHeaderView(barHeight: RightSidebarChromeMetrics.secondaryBarHeight)
         searchBarView = NSView()
         searchField = FileExplorerSearchField()
         searchStatusLabel = NSTextField(labelWithString: "")
@@ -1580,82 +1580,6 @@ private final class FileExplorerSearchResultCellView: NSTableCellView {
         pathLabel.stringValue = "\(result.relativePath):\(result.lineNumber)"
         previewLabel.stringValue = result.preview.isEmpty ? " " : result.preview
         toolTip = "\(result.path):\(result.lineNumber):\(result.columnNumber)"
-    }
-}
-
-// MARK: - Header View (AppKit)
-
-/// Pure AppKit header bar with folder icon, path label, and hidden files toggle.
-final class FileExplorerHeaderView: NSView {
-    private let iconView = NSImageView()
-    private let pathLabel = NSTextField(labelWithString: "")
-    private var displayPath = ""
-    private var quickSearchQuery: String?
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        setupViews()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    private func setupViews() {
-        iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.contentTintColor = .secondaryLabelColor
-
-        pathLabel.translatesAutoresizingMaskIntoConstraints = false
-        pathLabel.font = .systemFont(ofSize: 11, weight: .medium)
-        pathLabel.textColor = .secondaryLabelColor
-        pathLabel.lineBreakMode = .byTruncatingMiddle
-        pathLabel.maximumNumberOfLines = 1
-        pathLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-        addSubview(iconView)
-        addSubview(pathLabel)
-
-        NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: RightSidebarChromeMetrics.secondaryBarHeight),
-
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 14),
-            iconView.heightAnchor.constraint(equalToConstant: 14),
-
-            pathLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 4),
-            pathLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            pathLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-        ])
-        applyHeaderState()
-    }
-
-    func update(displayPath: String) {
-        guard self.displayPath != displayPath else { return }
-        self.displayPath = displayPath
-        applyHeaderState()
-    }
-
-    func updateQuickSearch(query: String?) {
-        guard quickSearchQuery != query else { return }
-        quickSearchQuery = query
-        applyHeaderState()
-    }
-
-    private func applyHeaderState() {
-        assert(Thread.isMainThread, "AppKit image updates must run on the main thread")
-        let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .regular)
-        if let quickSearchQuery {
-            iconView.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?
-                .withSymbolConfiguration(config)
-            pathLabel.stringValue = "/" + quickSearchQuery
-            pathLabel.toolTip = pathLabel.stringValue
-        } else {
-            iconView.image = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: nil)?
-                .withSymbolConfiguration(config)
-            pathLabel.stringValue = displayPath
-            pathLabel.toolTip = displayPath
-        }
     }
 }
 
