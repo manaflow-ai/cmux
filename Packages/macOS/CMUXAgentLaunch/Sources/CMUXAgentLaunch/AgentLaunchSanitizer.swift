@@ -499,29 +499,22 @@ public enum AgentLaunchSanitizer {
         }
         guard policy.valueOptions.contains(arg), index + 1 < args.count else { return 1 }
         if policy.variadicOptions.contains(arg) {
+            // Consume value tokens up to the next option token. When the option
+            // constrains its value grammar (variadicValuePrefixes), only tokens
+            // matching a required prefix are consumed, so a following positional
+            // (e.g. a startup prompt) ends the run instead of being swallowed as
+            // a value. Options without a constraint accept any non-option token.
             let requiredPrefixes = policy.variadicValuePrefixes[arg]
             var end = index + 1
             while end < args.count,
                   !args[end].hasPrefix("-"),
                   !stopVariadicAtPositionals.contains(args[end]),
-                  variadicValueMatchesRequiredPrefix(args[end], requiredPrefixes: requiredPrefixes) {
+                  requiredPrefixes?.contains(where: { args[end].hasPrefix($0) }) ?? true {
                 end += 1
             }
             return max(1, end - index)
         }
         return 2
-    }
-
-    /// Whether `value` may be consumed as a value for a variadic option whose
-    /// values follow a constrained grammar. Options without a prefix constraint
-    /// (`requiredPrefixes == nil`) accept any non-option token, so existing
-    /// variadic options keep their current behavior.
-    private static func variadicValueMatchesRequiredPrefix(
-        _ value: String,
-        requiredPrefixes: Set<String>?
-    ) -> Bool {
-        guard let requiredPrefixes else { return true }
-        return requiredPrefixes.contains { value.hasPrefix($0) }
     }
 
     private static func looksLikeOptionalValue(_ value: String, following: String?) -> Bool {
