@@ -5090,63 +5090,12 @@ class TerminalController: MobileViewportSurfaceLimiting {
 
     @MainActor
     func mobileHostHandleRPC(_ request: MobileHostRPCRequest) async -> MobileHostRPCResult {
-        // The mobile data-plane RPC speaks `MobileHostRPCRequest` /
-        // `MobileHostRPCResult` and dispatches directly to the app-side
-        // `v2Mobile*` bodies. It deliberately does NOT route through the v2
-        // control-socket `ControlCommandCoordinator` (whose native result type is
-        // `ControlCallResult`): doing so would force a
-        // `MobileHostRPCRequest → ControlRequest → ControlCallResult →
-        // MobileHostRPCResult` type round-trip with no behavior change. The v2
-        // control socket shares the same bodies through `handleMobileHost`, so the
-        // wire bytes stay identical across both entrypoints without a bridge here.
-        let result: V2CallResult
-        switch request.method {
-        case "mobile.host.status":
-            result = v2MobileHostStatus(params: request.params, includePrivateMetadata: false)
-        case "mobile.attach_ticket.create":
-            result = await v2MobileAttachTicketCreate(params: request.params)
-        case "mobile.workspace.list", "workspace.list":
-            result = v2MobileWorkspaceList(params: request.params)
-        case "workspace.create":
-            result = v2MobileWorkspaceCreate(params: request.params)
-        case "mobile.terminal.create", "terminal.create":
-            result = v2MobileTerminalCreate(params: request.params)
-        case "mobile.terminal.input", "terminal.input":
-            result = v2MobileTerminalInput(params: request.params)
-        case "mobile.terminal.paste", "terminal.paste":
-            result = v2MobileTerminalPaste(params: request.params)
-        case "mobile.terminal.paste_image", "terminal.paste_image":
-            result = v2MobileTerminalPasteImage(params: request.params)
-        case "mobile.terminal.replay", "terminal.replay":
-            result = v2MobileTerminalReplay(params: request.params)
-        case "mobile.terminal.viewport", "terminal.viewport":
-            result = v2MobileTerminalViewport(params: request.params)
-        case "mobile.terminal.scroll", "terminal.scroll":
-            result = v2MobileTerminalScroll(params: request.params)
-        case "mobile.terminal.mouse", "terminal.mouse":
-            result = v2MobileTerminalMouse(params: request.params)
-        case "workspace.action":
-            result = v2MobileWorkspaceAction(params: request.params)
-        case let method where method.hasPrefix("mobile.chat."):
-            result = await v2MobileChatDispatch(method: method, params: request.params)
-        case "workspace.close":
-            result = v2MobileWorkspaceClose(params: request.params)
-        case "workspace.group.collapse":
-            result = v2MobileWorkspaceGroupSetCollapsed(params: request.params, isCollapsed: true)
-        case "workspace.group.expand":
-            result = v2MobileWorkspaceGroupSetCollapsed(params: request.params, isCollapsed: false)
-        case "notification.dismiss":
-            result = v2MobileNotificationDismiss(params: request.params)
-        case "notification.reconcile":
-            result = v2MobileNotificationReconcile(params: request.params)
-        case "dogfood.feedback.submit":
-            result = await v2MobileDogfoodFeedbackSubmit(params: request.params)
-        default:
-            result = .err(code: "method_not_found", message: "Unknown mobile method", data: [
-                "method": request.method
-            ])
-        }
-        return mobileHostResult(result)
+        // Forwards to the mobile domain's own host service, which owns the
+        // data-plane method-switch and the wire result mapping. The `v2Mobile*`
+        // bodies stay on this controller because they reach live god state; see
+        // ``MobileHostService/handleRPC(_:controller:)`` for the rationale that
+        // this path deliberately does not route through `ControlCommandCoordinator`.
+        await MobileHostService.shared.handleRPC(request, controller: self)
     }
 
     /// Privileged agent feedback sink (the Mac↔phone feedback loop).
@@ -5227,17 +5176,6 @@ class TerminalController: MobileViewportSurfaceLimiting {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
         }
         return v2WorkspaceAction(params: params)
-    }
-
-    private func mobileHostResult(_ result: V2CallResult) -> MobileHostRPCResult {
-        switch result {
-        case let .ok(payload):
-            return .ok(payload)
-        case let .err(code, message, data):
-            let safeMessage = code == "internal_error" ? "Mobile host operation failed" : message
-            let safeData = code == "internal_error" ? nil : data
-            return .failure(MobileHostRPCError(code: code, message: safeMessage, data: safeData))
-        }
     }
 
     func v2MobileHostStatus(
