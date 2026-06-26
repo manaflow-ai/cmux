@@ -19,8 +19,11 @@ public protocol SessionSnapshotStoring<SnapshotValue>: Sendable {
     func load(fileURL: URL?) -> SnapshotValue?
 
     /// Writes `snapshot` to `fileURL` (default snapshot location when nil),
-    /// creating intermediate directories. Skips the write when the encoded
-    /// bytes equal the file's current contents. Returns false on any failure.
+    /// creating intermediate directories. Non-restorable phantom windows are
+    /// stripped first; a snapshot with nothing restorable left is refused
+    /// (returns false, writes nothing) so empty shells never reach disk.
+    /// Skips the write when the encoded bytes equal the file's current
+    /// contents. Returns false on any failure.
     @discardableResult
     func save(_ snapshot: SnapshotValue, fileURL: URL?) -> Bool
 

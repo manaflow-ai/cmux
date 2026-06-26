@@ -12,7 +12,9 @@ private struct SnapshotFixture: SessionSnapshotRepresenting, Equatable {
     var version: Int
     var windows: [Window]
 
-    var hasWindows: Bool { !windows.isEmpty }
+    var discardingNonRestorableWindows: SnapshotFixture? {
+        windows.isEmpty ? nil : self
+    }
 }
 
 @Suite("SessionSnapshotRepository")
@@ -100,8 +102,16 @@ struct SessionSnapshotRepositoryTests {
         #expect(repository.save(makeSnapshot(version: schemaVersion + 1), fileURL: fileURL))
         #expect(repository.load(fileURL: fileURL) == nil)
 
-        #expect(repository.save(makeSnapshot(windowNames: []), fileURL: fileURL))
-        #expect(repository.load(fileURL: fileURL) == nil)
+        // An all-non-restorable snapshot (no windows / only phantom shells) is
+        // never persisted: save refuses it so phantom windows can't reach disk
+        // and be replayed into a WindowServer hang (issue #6646).
+        let emptyURL = fileURL.deletingLastPathComponent().appendingPathComponent("empty-session.json")
+        #expect(!repository.save(makeSnapshot(windowNames: []), fileURL: emptyURL))
+        guard case .missing = repository.loadOutcome(fileURL: emptyURL) else {
+            Issue.record("expected .missing — a refused save must not write a file")
+            return
+        }
+        #expect(repository.load(fileURL: emptyURL) == nil)
     }
 
     @Test("saving identical content does not rewrite the file")

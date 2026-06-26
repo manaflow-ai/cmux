@@ -58,8 +58,12 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         let decoder = JSONDecoder()
         guard let snapshot = try? decoder.decode(SnapshotValue.self, from: data) else { return .unusable }
         guard snapshot.version == schemaVersion else { return .unusable }
-        guard snapshot.hasWindows else { return .unusable }
-        return .loaded(snapshot)
+        // Discard phantom ("empty shell") windows that carry no tabs/surfaces.
+        // An unclean shutdown can persist them; replaying them on launch wedges
+        // the WindowServer (issue #6646). When none survive, the snapshot is
+        // unusable and the caller falls back to a fresh window.
+        guard let restorable = snapshot.discardingNonRestorableWindows else { return .unusable }
+        return .loaded(restorable)
     }
 
     public func load(fileURL: URL? = nil) -> SnapshotValue? {
@@ -71,10 +75,15 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
     @discardableResult
     public func save(_ snapshot: SnapshotValue, fileURL: URL? = nil) -> Bool {
         guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return false }
+        // Never persist phantom ("empty shell") windows that carry no
+        // tabs/surfaces: replaying them on launch wedges the WindowServer
+        // (issue #6646). Strip them here so every save path is covered. A
+        // snapshot with nothing restorable left is not written.
+        guard let restorable = snapshot.discardingNonRestorableWindows else { return false }
         let directory = fileURL.deletingLastPathComponent()
         do {
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
-            let data = try encodedSnapshotData(snapshot)
+            let data = try encodedSnapshotData(restorable)
             if let existingData = try? Data(contentsOf: fileURL), existingData == data {
                 return true
             }

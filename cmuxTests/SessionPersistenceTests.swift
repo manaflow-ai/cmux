@@ -278,6 +278,39 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertFalse(restored.windows.contains { $0.tabManager.workspaces.isEmpty })
     }
 
+    func testDiscardingNonRestorableWindowsPrunesPhantomsAndPreservesRealWindows() throws {
+        let realWindow = try XCTUnwrap(
+            makeSnapshot(version: SessionSnapshotSchema.currentVersion).windows.first
+        )
+
+        // All phantom -> nil (treated as unusable / empty state).
+        let allPhantom = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 0,
+            windows: [makePhantomWindowSnapshot(), makePhantomWindowSnapshot()]
+        )
+        XCTAssertNil(allPhantom.discardingNonRestorableWindows)
+
+        // Mixed -> only the real window survives.
+        let mixed = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 0,
+            windows: [makePhantomWindowSnapshot(), realWindow]
+        )
+        let prunedMixed = try XCTUnwrap(mixed.discardingNonRestorableWindows)
+        XCTAssertEqual(prunedMixed.windows.count, 1)
+        XCTAssertEqual(prunedMixed.windows.first?.tabManager.workspaces.count, 1)
+
+        // All restorable -> unchanged value (stable on-disk bytes).
+        let allReal = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 0,
+            windows: [realWindow, realWindow]
+        )
+        let prunedReal = try XCTUnwrap(allReal.discardingNonRestorableWindows)
+        XCTAssertEqual(prunedReal.windows.count, 2)
+    }
+
     func testLoadReopenSessionSnapshotRequiresPreviousSnapshotFile() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
