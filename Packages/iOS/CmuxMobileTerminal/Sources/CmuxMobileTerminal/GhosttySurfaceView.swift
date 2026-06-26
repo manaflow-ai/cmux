@@ -642,7 +642,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// repair currently goes through the full-snapshot replay, which resets the
     /// scroll position, so enabling it before the keyframe is made viewport-only
     /// and scroll-aware would yank a scrolled-up reader. Flip on for dogfood.
-    static var gridDivergenceResyncEnabled = false
+    public static var gridDivergenceResyncEnabled = false
     /// Serial background queue for `ghostty_surface_process_output`, which
     /// blocks on libghostty's internal renderer/IO futex. Running it on the
     /// main thread hangs the app until the scene-update watchdog kills it.
@@ -2525,7 +2525,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the throttle and the dark-launch gate allow it, so this never adds a
     /// per-frame cost on the render path.
     @MainActor
-    func appliedGridDivergesFromExpected(_ expectedHash: UInt64?, surfaceID: String) async -> Bool {
+    public func appliedGridDivergesFromExpected(_ expectedHash: UInt64?, surfaceID: String) async -> Bool {
         guard Self.gridDivergenceResyncEnabled else { return false }
         guard gridDivergenceChecker.shouldVerify(
             expectedHash: expectedHash,
