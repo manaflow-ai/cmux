@@ -135,8 +135,8 @@ extension CMUXCLI {
     /// expands to home, and a relative path resolves against `baseDirectory`
     /// (the directory of the config file being listed — `~/.ssh` for the
     /// default config), which is the same fixed base at every nesting depth per
-    /// ssh_config(5). `*`/`?` globs in the final path component are expanded and
-    /// matches are read in lexical order.
+    /// ssh_config(5). Glob wildcards in any path component are expanded (via
+    /// `glob(3)`) and matches are read in sorted order.
     private static func sshIncludeFileContents(argument: String, baseDirectory: String) -> [String] {
         var results: [String] = []
         let patterns = argument.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
@@ -158,31 +158,30 @@ extension CMUXCLI {
         return results
     }
 
-    /// Expand a single include path that may contain a `*`/`?` glob in its last
-    /// component. Returns matching regular-file paths in lexical order.
-    private static func expandIncludeGlob(_ path: String) -> [String] {
-        let ns = path as NSString
-        let last = ns.lastPathComponent
+    /// Expand a single include path with POSIX `glob(3)` — the same call
+    /// OpenSSH uses for `Include`. Unlike a last-component-only matcher this
+    /// honors wildcards in any path component (e.g. `hosts/*/config`), and with
+    /// default flags an unqualified `*` does not match dotfiles, exactly as
+    /// OpenSSH behaves. A literal (wildcard-free) path round-trips through glob
+    /// too: it matches iff it exists. Only regular files are returned, in glob's
+    /// sorted order.
+    private static func expandIncludeGlob(_ pattern: String) -> [String] {
+        var globResult = glob_t()
+        defer { globfree(&globResult) }
+        guard pattern.withCString({ glob($0, 0, nil, &globResult) }) == 0 else { return [] }
         let fileManager = FileManager.default
-        guard last.contains("*") || last.contains("?") else {
-            var isDirectory: ObjCBool = false
-            let exists = fileManager.fileExists(atPath: path, isDirectory: &isDirectory)
-            return (exists && !isDirectory.boolValue) ? [path] : []
-        }
-        let directory = ns.deletingLastPathComponent
-        guard let entries = try? fileManager.contentsOfDirectory(atPath: directory) else { return [] }
-        return entries
-            // FNM_PERIOD mirrors glob(3) (what OpenSSH uses to expand Include):
-            // an unqualified `*` must not match dotfiles like `.vault-config`,
-            // so cmux reads exactly the files ssh would.
-            .filter { fnmatch(last, $0, FNM_PERIOD) == 0 }
-            .sorted()
-            .map { (directory as NSString).appendingPathComponent($0) }
-            .filter { candidate in
+        var matches: [String] = []
+        if let pathv = globResult.gl_pathv {
+            for index in 0..<Int(globResult.gl_pathc) {
+                guard let cString = pathv[index] else { continue }
+                let path = String(cString: cString)
                 var isDirectory: ObjCBool = false
-                let exists = fileManager.fileExists(atPath: candidate, isDirectory: &isDirectory)
-                return exists && !isDirectory.boolValue
+                if fileManager.fileExists(atPath: path, isDirectory: &isDirectory), !isDirectory.boolValue {
+                    matches.append(path)
+                }
             }
+        }
+        return matches
     }
 
     private static func sshHostJSON(_ host: SSHConfigHost) -> [String: Any] {
