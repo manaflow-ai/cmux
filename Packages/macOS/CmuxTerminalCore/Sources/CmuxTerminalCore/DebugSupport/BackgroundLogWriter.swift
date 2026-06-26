@@ -26,19 +26,8 @@ import QuartzCore
 /// Delivered lines keep contiguous `seq=` numbering; dropped entries never reach
 /// the consumer, so they leave no gap.
 public final class BackgroundLogWriter: Sendable {
-    /// One emitted event, with its timing captured on the calling thread. All
-    /// fields are value types so the entry crosses to the consumer task as
-    /// `Sendable` data.
-    private struct Entry: Sendable {
-        let message: String
-        let date: Date
-        let uptimeMs: Double
-        let mediaTime: Double
-        let threadLabel: String
-    }
-
     private let startUptime: TimeInterval
-    private let continuation: AsyncStream<Entry>.Continuation
+    private let continuation: AsyncStream<BackgroundLogEntry>.Continuation
 
     /// Creates a writer that appends to `fileURL`. `startUptime` is the
     /// `ProcessInfo.systemUptime` baseline used to compute the relative
@@ -61,7 +50,7 @@ public final class BackgroundLogWriter: Sendable {
         // entries, so a burst on stalled storage can lose the oldest diagnostics
         // but cannot grow memory without limit. This restores the safety the
         // previous synchronous writer got for free from implicit backpressure.
-        let (stream, continuation) = AsyncStream<Entry>.makeStream(
+        let (stream, continuation) = AsyncStream<BackgroundLogEntry>.makeStream(
             bufferingPolicy: .bufferingNewest(max(1, maxBufferedEntries))
         )
         self.continuation = continuation
@@ -70,7 +59,7 @@ public final class BackgroundLogWriter: Sendable {
         // of any caller's task tree. It does not capture `self`, so the writer can
         // deinit and end the stream.
         Task.detached(priority: .utility) {
-            await BackgroundLogWriter.consume(stream, fileURL: fileURL)
+            await consumeBackgroundLog(stream, into: fileURL)
         }
     }
 
@@ -88,7 +77,7 @@ public final class BackgroundLogWriter: Sendable {
     /// `thread=background` field's meaning.
     public func log(_ message: String, isMainThread: Bool) {
         continuation.yield(
-            Entry(
+            BackgroundLogEntry(
                 message: message,
                 date: Date(),
                 uptimeMs: (ProcessInfo.processInfo.systemUptime - startUptime) * 1000,
@@ -97,43 +86,58 @@ public final class BackgroundLogWriter: Sendable {
             )
         )
     }
+}
 
-    /// The single consumer: formats each entry and appends it through one
-    /// long-lived handle, in stream (FIFO) order. All mutable state is local to
-    /// this task.
-    private static func consume(_ stream: AsyncStream<Entry>, fileURL: URL) async {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        var handle: FileHandle?
-        var handleResolved = false
-        var sequence: UInt64 = 0
+/// One emitted event, with its timing captured on the calling thread. All fields
+/// are value types so the entry crosses to the consumer task as `Sendable` data.
+/// File-private DTO for ``BackgroundLogWriter``; it has no meaning outside this
+/// sink's producer→consumer hand-off.
+private struct BackgroundLogEntry: Sendable {
+    let message: String
+    let date: Date
+    let uptimeMs: Double
+    let mediaTime: Double
+    let threadLabel: String
+}
 
-        for await entry in stream {
-            sequence &+= 1
-            let frame60 = Int((entry.mediaTime * 60.0).rounded(.down))
-            let frame120 = Int((entry.mediaTime * 120.0).rounded(.down))
-            let line =
-                "\(formatter.string(from: entry.date)) seq=\(sequence) t+\(String(format: "%.3f", entry.uptimeMs))ms thread=\(entry.threadLabel) frame60=\(frame60) frame120=\(frame120) cmux bg: \(entry.message)\n"
+/// The single consumer: formats each entry and appends it through one long-lived
+/// handle, in stream (FIFO) order. All mutable state is local to this call, so it
+/// needs no synchronization.
+private func consumeBackgroundLog(
+    _ stream: AsyncStream<BackgroundLogEntry>,
+    into fileURL: URL
+) async {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    var handle: FileHandle?
+    var handleResolved = false
+    var sequence: UInt64 = 0
 
-            if !handleResolved {
-                handleResolved = true
-                handle = openHandle(fileURL: fileURL)
-            }
-            guard let data = line.data(using: .utf8), let handle else { continue }
-            try? handle.write(contentsOf: data)
+    for await entry in stream {
+        sequence &+= 1
+        let frame60 = Int((entry.mediaTime * 60.0).rounded(.down))
+        let frame120 = Int((entry.mediaTime * 120.0).rounded(.down))
+        let line =
+            "\(formatter.string(from: entry.date)) seq=\(sequence) t+\(String(format: "%.3f", entry.uptimeMs))ms thread=\(entry.threadLabel) frame60=\(frame60) frame120=\(frame120) cmux bg: \(entry.message)\n"
+
+        if !handleResolved {
+            handleResolved = true
+            handle = openBackgroundLogFile(at: fileURL)
         }
-        try? handle?.close()
+        guard let data = line.data(using: .utf8), let handle else { continue }
+        try? handle.write(contentsOf: data)
     }
+    try? handle?.close()
+}
 
-    /// Opens (and seeks to end of) the single long-lived file handle, creating the
-    /// file if needed. Called once by the consumer on its first entry.
-    private static func openHandle(fileURL: URL) -> FileHandle? {
-        let path = fileURL.path
-        if FileManager.default.fileExists(atPath: path) == false {
-            FileManager.default.createFile(atPath: path, contents: nil)
-        }
-        let handle = try? FileHandle(forWritingTo: fileURL)
-        try? handle?.seekToEnd()
-        return handle
+/// Opens (and seeks to end of) the single long-lived file handle, creating the
+/// file if needed. Called once by the consumer on its first entry.
+private func openBackgroundLogFile(at fileURL: URL) -> FileHandle? {
+    let path = fileURL.path
+    if FileManager.default.fileExists(atPath: path) == false {
+        FileManager.default.createFile(atPath: path, contents: nil)
     }
+    let handle = try? FileHandle(forWritingTo: fileURL)
+    try? handle?.seekToEnd()
+    return handle
 }
