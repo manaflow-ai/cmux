@@ -23,6 +23,27 @@ import CmuxTerminalCore
         #expect(!containsUserInputEvents(events))
     }
 
+    @Test func terminalCSIProbeRepliesStayTerminalBytes() {
+        let replies = [
+            "\u{1B}[?1;2c",
+            "\u{1B}[>0;95;0c",
+            "\u{1B}[?997;1n",
+            "\u{1B}[?0u",
+            "\u{1B}[?12;2$y",
+        ]
+        let events = TerminalSurface.parsedSocketInputEvents(for: replies.joined())
+
+        #expect(terminalBytePayloads(in: events) == replies.map { Data($0.utf8) })
+        #expect(!containsUserInputEvents(events))
+    }
+
+    @Test func keyboardProtocolKeyInputDoesNotBecomeTerminalBytes() {
+        let events = TerminalSurface.parsedSocketInputEvents(for: "\u{1B}[13;2u")
+
+        #expect(terminalBytePayloads(in: events).isEmpty)
+        #expect(containsUserInputEvents(events))
+    }
+
     private func terminalBytePayloads(in events: [ParsedSocketInput]) -> [Data] {
         events.compactMap { event in
             guard case .terminalBytes(let data) = event else {
