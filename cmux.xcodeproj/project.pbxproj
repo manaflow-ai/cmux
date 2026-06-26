@@ -579,6 +579,7 @@
 		6AA2F2E8BEB19ED6B8E125DB /* MobileHostAuthorizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BD519CFE74530A46DF0925D /* MobileHostAuthorizationTests.swift */; };
 		C7A50B000000000000000016 /* MobileHostBuildIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000015 /* MobileHostBuildIdentity.swift */; };
 		5E5511000000000000000001 /* MobileHostConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5511000000000000000002 /* MobileHostConnection.swift */; };
+		5E5511000000000000000010 /* MobileHostConnectionRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5511000000000000000011 /* MobileHostConnectionRegistry.swift */; };
 		DE71CE000000000000000008 /* MobileHostNetworkPathMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000007 /* MobileHostNetworkPathMonitor.swift */; };
 		DE71CE000000000000000006 /* MobileHostNetworkPathRefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000005 /* MobileHostNetworkPathRefreshTests.swift */; };
 		4C1A7E10B2D34F56A8C90098 /* MobileHostPublicStatusCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C1A7E10B2D34F56A8C90099 /* MobileHostPublicStatusCache.swift */; };
@@ -1698,6 +1699,7 @@
 		9BD519CFE74530A46DF0925D /* MobileHostAuthorizationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostAuthorizationTests.swift; sourceTree = "<group>"; };
 		C7A50B000000000000000015 /* MobileHostBuildIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostBuildIdentity.swift; sourceTree = "<group>"; };
 		5E5511000000000000000002 /* MobileHostConnection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostConnection.swift; sourceTree = "<group>"; };
+		5E5511000000000000000011 /* MobileHostConnectionRegistry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostConnectionRegistry.swift; sourceTree = "<group>"; };
 		DE71CE000000000000000007 /* MobileHostNetworkPathMonitor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostNetworkPathMonitor.swift; sourceTree = "<group>"; };
 		DE71CE000000000000000005 /* MobileHostNetworkPathRefreshTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostNetworkPathRefreshTests.swift; sourceTree = "<group>"; };
 		4C1A7E10B2D34F56A8C90099 /* MobileHostPublicStatusCache.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostPublicStatusCache.swift; sourceTree = "<group>"; };
@@ -2441,6 +2443,7 @@
 				A77C4E10000000000000C100 /* MobileAttachTicketAuthorization+RequestAuthorization.swift */,
 				47BDC06F004C02A52B05E4A0 /* MobileHostRPC.swift */,
 				7ACA497A6831165EA879C642 /* MobileHostService.swift */,
+				5E5511000000000000000011 /* MobileHostConnectionRegistry.swift */,
 				4C1A7E10B2D34F56A8C90099 /* MobileHostPublicStatusCache.swift */,
 				5E5511000000000000000002 /* MobileHostConnection.swift */,
 				C7A50B000000000000000015 /* MobileHostBuildIdentity.swift */,
@@ -4228,6 +4231,7 @@
 				4C1A7E10B2D34F56A8C90023 /* MobileHostAccessTokenStore.swift in Sources */,
 				C7A50B000000000000000016 /* MobileHostBuildIdentity.swift in Sources */,
 				5E5511000000000000000001 /* MobileHostConnection.swift in Sources */,
+				5E5511000000000000000010 /* MobileHostConnectionRegistry.swift in Sources */,
 				DE71CE000000000000000008 /* MobileHostNetworkPathMonitor.swift in Sources */,
 				4C1A7E10B2D34F56A8C90098 /* MobileHostPublicStatusCache.swift in Sources */,
 				4E673EDE464BF3AB80E94C1D /* MobileHostRPC.swift in Sources */,

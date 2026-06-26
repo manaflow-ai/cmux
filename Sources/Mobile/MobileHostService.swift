@@ -21,62 +21,6 @@ extension Notification.Name {
     )
 }
 
-private final class MobileHostConnectionRegistry: @unchecked Sendable {
-    static let shared = MobileHostConnectionRegistry()
-
-    private let lock = NSLock()
-    private var connections: [UUID: MobileHostConnection] = [:]
-
-    var count: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return connections.count
-    }
-
-    func insert(_ connection: MobileHostConnection, id: UUID, limit: Int) -> Bool {
-        lock.lock()
-        guard connections.count < limit else {
-            lock.unlock()
-            return false
-        }
-        connections[id] = connection
-        lock.unlock()
-        // Notify after the authoritative count actually changes (this registry
-        // backs `MobileHostServiceStatus.activeConnectionCount`), so the Mobile
-        // settings diagnostics reflect the real count rather than a stale one.
-        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
-        return true
-    }
-
-    func remove(id: UUID) {
-        lock.lock()
-        let didRemove = connections.removeValue(forKey: id) != nil
-        lock.unlock()
-        if didRemove {
-            NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
-        }
-    }
-
-    func removeAll() -> [MobileHostConnection] {
-        lock.lock()
-        let values = Array(connections.values)
-        connections.removeAll()
-        lock.unlock()
-        if !values.isEmpty {
-            NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
-        }
-        return values
-    }
-
-    /// Snapshot of current connections — caller fans out event delivery
-    /// without holding the registry lock across `await`.
-    func snapshot() -> [MobileHostConnection] {
-        lock.lock()
-        defer { lock.unlock() }
-        return Array(connections.values)
-    }
-}
-
 extension MobileHostServiceStatus {
     /// The `mobile.host.status` wire payload. App-side because it renders each
     /// route through `CmxAttachRoute.mobileHostJSONObject`, an app extension.
@@ -124,6 +68,15 @@ final class MobileHostService {
     /// is a real instance type with no static state); `nonisolated` because the
     /// status reader runs off the main actor.
     nonisolated static let sharedPublicStatusCache = MobileHostPublicStatusCache()
+
+    /// The process-wide set of live `MobileHostConnection`s, shared by the
+    /// decoupled subsystems that touch it: this service's connection lifecycle
+    /// (accept/limit, listener teardown, status count) and the off-main emit
+    /// path that fans server-pushed events out to every connection. A documented
+    /// composition-point default (the relocated ``MobileHostConnectionRegistry``
+    /// is a real instance type with no static state); `nonisolated` because the
+    /// accept and emit paths mutate and read it off the main actor.
+    nonisolated static let sharedConnectionRegistry = MobileHostConnectionRegistry()
 
     /// The single shape every public `mobile.host.status` reply uses (the
     /// public-status cache, the network status gate, and
@@ -280,7 +233,7 @@ final class MobileHostService {
         guard MobileHostService.sharedEventSubscriptionTracker.hasSubscribers(topic: topic) else {
             return
         }
-        let connections = MobileHostConnectionRegistry.shared.snapshot()
+        let connections = MobileHostService.sharedConnectionRegistry.snapshot()
         guard !connections.isEmpty else { return }
         #if DEBUG
         cmuxDebugLog("mobile.emit topic=\(topic) connections=\(connections.count)")
@@ -485,7 +438,7 @@ final class MobileHostService {
         for connection in activeConnections.values {
             Task { await connection.close(reason: "pairing port changed") }
         }
-        for connection in MobileHostConnectionRegistry.shared.removeAll() {
+        for connection in MobileHostService.sharedConnectionRegistry.removeAll() {
             Task { await connection.close(reason: "pairing port changed") }
         }
         activeConnections.removeAll()
@@ -618,7 +571,7 @@ final class MobileHostService {
         for connection in activeConnections.values {
             Task { await connection.close(reason: "service stopped") }
         }
-        for connection in MobileHostConnectionRegistry.shared.removeAll() {
+        for connection in MobileHostService.sharedConnectionRegistry.removeAll() {
             Task { await connection.close(reason: "service stopped") }
         }
         activeConnections.removeAll()
@@ -726,7 +679,7 @@ final class MobileHostService {
             // editing the preferred port before a restart must not flip this.
             usesEphemeralFallback: isRunning && listenerUsesEphemeralFallback,
             routes: routes,
-            activeConnectionCount: MobileHostConnectionRegistry.shared.count,
+            activeConnectionCount: MobileHostService.sharedConnectionRegistry.count,
             lastErrorDescription: lastErrorDescription
         )
     }
@@ -827,11 +780,11 @@ final class MobileHostService {
                     return result
                 },
                 onClose: { id in
-                    MobileHostConnectionRegistry.shared.remove(id: id)
+                    MobileHostService.sharedConnectionRegistry.remove(id: id)
                     await MobileHostService.shared.removeConnection(id: id)
                 }
             )
-            guard MobileHostConnectionRegistry.shared.insert(
+            guard MobileHostService.sharedConnectionRegistry.insert(
                 session,
                 id: id,
                 limit: Self.maximumActiveConnectionCount
@@ -985,7 +938,7 @@ final class MobileHostService {
     }
 
     private func removeConnection(id: UUID) {
-        MobileHostConnectionRegistry.shared.remove(id: id)
+        MobileHostService.sharedConnectionRegistry.remove(id: id)
         activeConnections.removeValue(forKey: id)
         // Drop this connection's sticky viewport reports so a disconnected
         // device stops pinning the shared grid (and its macOS viewport border
