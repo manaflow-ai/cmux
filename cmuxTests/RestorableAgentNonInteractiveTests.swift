@@ -37,6 +37,24 @@ final class RestorableAgentNonInteractiveTests: XCTestCase {
         XCTAssertTrue(command.contains("'grok' '-r' 'grok-session-123'"), command)
     }
 
+    func testLegacyCwdGuardPreservesExplicitPortableShellWrapper() throws {
+        let json = """
+        {
+          "command": "{ cd -- '/tmp/project' 2>/dev/null || [ ! -d '/tmp/project' ]; } && /bin/sh -c 'FOO=bar codex resume session'",
+          "cwd": "/tmp/project",
+          "checkpointId": "session-shell-wrapper",
+          "source": "agent-hook",
+          "autoResume": true,
+          "updatedAt": 123
+        }
+        """
+        let binding = try JSONDecoder().decode(SurfaceResumeBindingSnapshot.self, from: Data(json.utf8))
+
+        XCTAssertTrue(binding.command.hasPrefix("cd -- '/tmp/project'"), binding.command)
+        XCTAssertTrue(binding.command.contains("/bin/sh -c 'FOO=bar codex resume session'"), binding.command)
+        XCTAssertFalse(binding.command.hasPrefix("{ "), binding.command)
+    }
+
     func testNonInteractiveAgentLaunchesAreNotAutoRestored() {
         let claudePrint = SessionRestorableAgentSnapshot(
             kind: .claude,

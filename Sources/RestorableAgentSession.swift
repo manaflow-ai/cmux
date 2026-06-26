@@ -127,8 +127,7 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
                 "cd \(quoted) && "
             ]
             for prefix in prefixes where command.hasPrefix(prefix) {
-                let stripped = String(command.dropFirst(prefix.count))
-                return portableShellCommandPayload(from: stripped) ?? stripped
+                return String(command.dropFirst(prefix.count))
             }
         }
         return command
