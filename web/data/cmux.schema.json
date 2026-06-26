@@ -502,7 +502,7 @@
         },
         "textBoxDefaultSubmitAction": {
           "type": "string",
-          "default": "claude",
+          "default": "text-entry",
           "description": "Default TextBox submit action ID for new terminal sessions. Use text-entry for plain input or one of the configured action IDs.",
           "descriptionKey": "schemaDescriptions.terminal.textBoxDefaultSubmitAction"
         },

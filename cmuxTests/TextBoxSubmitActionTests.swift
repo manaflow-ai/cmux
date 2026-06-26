@@ -246,6 +246,14 @@ struct TextBoxSubmitActionTests {
         )
     }
 
+    @Test
+    func testDefaultTextBoxSubmitActionIsPlainTextEntry() {
+        XCTAssertEqual(
+            TerminalTextBoxInputSettings.defaultSubmitActionID,
+            TextBoxSubmitAction.textEntryAction.id
+        )
+    }
+
 
     @Test
     func testCustomTextBoxSubmitActionCatalogKeepsTextEntrySelectable() throws {
