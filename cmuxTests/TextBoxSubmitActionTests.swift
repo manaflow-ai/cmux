@@ -310,6 +310,33 @@ struct TextBoxSubmitActionTests {
         }
     }
 
+    @Test
+    func testTerminalAgentContextFallsBackToRunningAgentPanelTitle() throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        workspace.panelTitles[panel.id] = "codex --dangerously-bypass-approvals-and-sandbox"
+
+        panel.updateShellActivityState(.commandRunning)
+        let runningContext = WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
+        XCTAssertTrue(TextBoxAgentDetection.supportsAgentPrefixes(context: runningContext))
+        XCTAssertTrue(
+            TextBoxInputContainer.shouldForceTextEntrySubmit(
+                allowsCommandTemplateSubmit: false,
+                terminalAgentContext: runningContext
+            )
+        )
+
+        panel.updateShellActivityState(.promptIdle)
+        let idleContext = WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
+        XCTAssertFalse(TextBoxAgentDetection.supportsAgentPrefixes(context: idleContext))
+        XCTAssertFalse(
+            TextBoxInputContainer.shouldForceTextEntrySubmit(
+                allowsCommandTemplateSubmit: false,
+                terminalAgentContext: idleContext
+            )
+        )
+    }
+
 
     @Test
     func testTextBoxTextEntryClearsStaleAgentContextWhenShellIsPromptIdle() {

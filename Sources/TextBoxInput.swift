@@ -205,7 +205,7 @@ struct TextBoxSendButtonStyle: ButtonStyle {
 
     private func backgroundColor(isPressed: Bool) -> Color {
         guard canSend else {
-            return Color.white.opacity(0.48)
+            return Color.white.opacity(0.74)
         }
         return Color.white.opacity(isPressed ? 0.72 : 1.0)
     }
@@ -4976,7 +4976,7 @@ final class TextBoxInputTextView: NSTextView {
             return true
         }
         if textBoxShortcut(event, matches: .cycleTextBoxSubmitAction) {
-            guard !hasMarkedText() else { return false }
+            guard !hasMarkedText() else { return true }
             onCycleSubmitAction()
             return true
         }

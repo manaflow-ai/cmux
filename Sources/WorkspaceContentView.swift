@@ -625,12 +625,25 @@ struct WorkspaceContentView: View {
 extension WorkspaceContentView {
     static func terminalAgentContext(panel: any Panel, workspace: Workspace) -> String {
         var parts: [String] = []
+        func appendSupportedAgentCommandContext(_ command: String?) {
+            guard let command = command?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !command.isEmpty else { return }
+            let context = "initialCommand:\(command)"
+            guard TextBoxAgentDetection.supportsAgentPrefixes(context: context),
+                  !parts.contains(context) else { return }
+            parts.append(context)
+        }
+
         if let terminalPanel = panel as? TerminalPanel {
             if let initialCommand = terminalPanel.surface.initialCommand {
                 parts.append("initialCommand:\(initialCommand)")
             }
             if let tmuxStartCommand = terminalPanel.surface.tmuxStartCommand {
                 parts.append("tmuxStartCommand:\(tmuxStartCommand)")
+            }
+            if terminalPanel.surface.initialCommand == nil,
+               terminalPanel.shellActivity.state == .commandRunning {
+                appendSupportedAgentCommandContext(workspace.panelTitles[panel.id] ?? terminalPanel.displayTitle)
             }
         }
         if let restoredAgent = workspace.restoredAgentSnapshotsByPanelId[panel.id] {

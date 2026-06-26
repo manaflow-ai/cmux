@@ -186,7 +186,7 @@ extension TextBoxInputContainer {
 
     @ViewBuilder
     func submitButtonActionImage(_ action: TextBoxSubmitAction, canSend: Bool) -> some View {
-        let iconOpacity = canSend ? 0.86 : 0.62
+        let iconOpacity = canSend ? 0.86 : 0.76
         if let image = submitActionNSImage(for: action) {
             Image(nsImage: image)
                 .renderingMode(action.id == "codex" ? .template : .original)
