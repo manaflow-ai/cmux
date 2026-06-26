@@ -60,6 +60,14 @@ public struct SleepyModeConfig: Equatable, Sendable {
 /// store via `@Bindable`. Accessed only on the main thread in practice.
 /// Owned by the app composition root (`SleepyModeController`) and injected into
 /// the renderer and this section, rather than published as a package singleton.
+///
+/// This (and `SleepyModeConfig` / the theme enums) lives in CmuxSettingsUI by
+/// design: Sleepy Mode appearance is user *settings*, and CmuxSettingsUI is
+/// cmux's settings-model module — it already houses the other persisted settings
+/// models the app consumes (`DefaultsValueModel`, `JSONValueModel`,
+/// `SecretValueModel`, `MobilePairingStatusModel`, `SettingsErrorLog`). Splitting
+/// one screensaver's settings into a separate domain package would fragment that
+/// layer inconsistently.
 @Observable
 public final class SleepyModeSettingsStore {
     public var theme: SleepyTheme { didSet { persist(theme.rawValue, Keys.theme) } }

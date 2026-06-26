@@ -11,6 +11,9 @@ struct SleepyFaceView: View {
     /// Whether the controller actually acquired the keep-awake power assertions.
     /// When false, the badge says so instead of falsely claiming the Mac is safe.
     var keepingAwake: Bool
+    /// Frame-sampled data providers, injected by the controller.
+    var agentCensus: any SleepyAgentCensusing
+    var statusProvider: any SleepyStatusProviding
     @State private var lowPowerOn = false
 
     // Easter-egg reactions: timeIntervalSinceReferenceDate when poked.
@@ -43,8 +46,8 @@ struct SleepyFaceView: View {
                     // Sample the census + status here (main-actor view-builder
                     // context), never inside the Canvas renderer (which may run
                     // off-main, and runs once per display).
-                    let agents = config.showPets ? SleepyAgentCensus.shared.sample(at: t) : SleepyAgentCounts()
-                    let status = config.showStatus ? SleepyStatusProvider.shared.sample(at: t) : SleepyStatusSample(batteryLevel: nil, charging: false, wifiBars: nil)
+                    let agents = config.showPets ? agentCensus.sample(at: t) : SleepyAgentCounts()
+                    let status = config.showStatus ? statusProvider.sample(at: t) : SleepyStatusSample(batteryLevel: nil, charging: false, wifiBars: nil)
                     Canvas { context, size in
                         draw(in: &context, size: size, time: t, config: config, agents: agents, status: status, reactions: reactions)
                     }
@@ -69,7 +72,7 @@ struct SleepyFaceView: View {
         let pixel = max(2, (min(size.width, size.height) / 48).rounded())
 
         if config.showPets {
-            let counts = SleepyAgentCensus.shared.sample(at: now)
+            let counts = agentCensus.sample(at: now)
             for frame in petFrames(size: size, pixel: pixel, time: now, counts: counts).reversed() {
                 if frame.rect.insetBy(dx: -8, dy: -8).contains(location) {
                     petReactAt[frame.index] = now

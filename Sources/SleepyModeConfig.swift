@@ -262,13 +262,19 @@ struct SleepyStatusSample: Sendable {
     var wifiBars: Int?          // 0...4, nil if unknown/unavailable
 }
 
+/// Battery + wifi provider. Injected into the renderer (and owned by
+/// `SleepyModeController`) so tests/previews can supply deterministic status.
+@MainActor
+protocol SleepyStatusProviding: AnyObject {
+    func sample(at time: Double) -> SleepyStatusSample
+}
+
 /// Samples battery + wifi at most every few seconds (reads are cheap but not
 /// worth doing every frame). `@MainActor`-isolated: sampled from the renderer's
 /// TimelineView body on the main actor, so the cache has enforced isolation
 /// rather than `nonisolated(unsafe)` + convention.
 @MainActor
-final class SleepyStatusProvider {
-    static let shared = SleepyStatusProvider()
+final class SleepyStatusProvider: SleepyStatusProviding {
     private var cached = SleepyStatusSample(batteryLevel: nil, charging: false, wifiBars: nil)
     private var lastSample: Double = -100
     private let interval: Double = 4

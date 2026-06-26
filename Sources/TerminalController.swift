@@ -11519,10 +11519,10 @@ class TerminalController {
                 }
             case "pets":
                 if value == "clear" {
-                    SleepyAgentCensus.shared.debugOverride = nil
+                    SleepyModeController.shared.agentCensus.debugOverride = nil
                 } else {
                     let n = value.split(separator: " ").map { Int($0) ?? 0 }
-                    SleepyAgentCensus.shared.debugOverride = SleepyAgentCounts(
+                    SleepyModeController.shared.agentCensus.debugOverride = SleepyAgentCounts(
                         claude: n.count > 0 ? n[0] : 0,
                         codex: n.count > 1 ? n[1] : 0,
                         opencode: n.count > 2 ? n[2] : 0,

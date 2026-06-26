@@ -34,6 +34,11 @@ final class SleepyModeController {
     /// here and injected into the scene; swap the runner for tests.
     let powerControls: any SleepyPowerControlling = SleepyPowerControls()
 
+    /// Frame-sampled data providers, owned here and injected into the scene so
+    /// the renderer reads instances instead of global singletons.
+    let agentCensus: any SleepyAgentCensusing = SleepyAgentCensus()
+    let statusProvider: any SleepyStatusProviding = SleepyStatusProvider()
+
     private(set) var isActive = false
 
     /// Invoked whenever sleepy mode turns on or off so menu UI can refresh.
@@ -118,7 +123,7 @@ final class SleepyModeController {
         window.acceptsMouseMovedEvents = true
         window.setFrame(screen.frame, display: true)
         window.onExit = { [weak self] in self?.deactivate() }
-        window.contentView = NSHostingView(rootView: SleepyFaceView(store: store, power: powerControls, keepingAwake: keepAwakeFullyActive))
+        window.contentView = NSHostingView(rootView: SleepyFaceView(store: store, power: powerControls, keepingAwake: keepAwakeFullyActive, agentCensus: agentCensus, statusProvider: statusProvider))
         return window
     }
 
