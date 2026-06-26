@@ -27,6 +27,30 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testDogfoodAutoLoginReachesSignedInPairing() throws {
+        let processEnvironment = ProcessInfo.processInfo.environment
+        guard let email = processEnvironment["CMUX_UITEST_STACK_EMAIL"], !email.isEmpty,
+              let password = processEnvironment["CMUX_UITEST_STACK_PASSWORD"], !password.isEmpty else {
+            XCTFail("CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD are required")
+            return
+        }
+
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_STACK_EMAIL": email,
+            "CMUX_UITEST_STACK_PASSWORD": password,
+        ])
+
+        if app.buttons["MobileOnboardingSkipButton"].waitForExistence(timeout: 20) {
+            tap(app.buttons["MobileOnboardingSkipButton"], in: app)
+        }
+
+        let signedInAccount = app.staticTexts["MobileAddDeviceSignedInAccount"]
+        XCTAssertTrue(signedInAccount.waitForExistence(timeout: 35))
+        XCTAssertTrue(signedInAccount.label.localizedCaseInsensitiveContains(email))
+        XCTAssertFalse(app.buttons["signin.apple"].exists)
+    }
+
+    @MainActor
     func testAddDeviceManualHostValidationUsesStableIdentifiers() throws {
         let invalidHostApp = launchAddDeviceApp(environment: [
             "CMUX_UITEST_ADD_DEVICE_HOST": "dev/path.local"

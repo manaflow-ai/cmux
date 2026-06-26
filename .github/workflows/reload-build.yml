@@ -50,6 +50,14 @@ on:
         required: false
         default: cmuxUITests/cmuxUITests/testStackAuthEntryUsesStableIdentifiers
         type: string
+      auth_mode:
+        description: Auth state to prove during ios-video/sync-video.
+        required: false
+        default: signed-out
+        type: choice
+        options:
+          - signed-out
+          - signed-in
       device_family:
         description: Simulator family used for ios-video/sync-video.
         required: false
@@ -193,12 +201,27 @@ jobs:
           BUILD_TAG: ${{ inputs.tag }}
           DEVICE_FAMILY: ${{ inputs.device_family }}
           TEST_FILTER: ${{ inputs.test_filter }}
+          AUTH_MODE: ${{ inputs.auth_mode }}
           VIDEO_PLATFORM: ${{ inputs.platform }}
+          CMUX_UITEST_STACK_EMAIL: ${{ secrets.CMUX_UITEST_STACK_EMAIL }}
+          CMUX_UITEST_STACK_PASSWORD: ${{ secrets.CMUX_UITEST_STACK_PASSWORD }}
         run: |
           set -euo pipefail
           case "$DEVICE_FAMILY" in iphone|ipad) ;; *) echo "invalid device_family: $DEVICE_FAMILY" >&2; exit 1 ;; esac
           if [ -z "${TEST_FILTER:-}" ]; then
             echo "test_filter is required for $VIDEO_PLATFORM" >&2
+            exit 1
+          fi
+          if [ "$AUTH_MODE" = "signed-in" ]; then
+            if [ "$TEST_FILTER" = "cmuxUITests/cmuxUITests/testStackAuthEntryUsesStableIdentifiers" ]; then
+              TEST_FILTER="cmuxUITests/cmuxUITests/testDogfoodAutoLoginReachesSignedInPairing"
+            fi
+            if [ -z "${CMUX_UITEST_STACK_EMAIL:-}" ] || [ -z "${CMUX_UITEST_STACK_PASSWORD:-}" ]; then
+              echo "auth_mode=signed-in requires CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD repository secrets" >&2
+              exit 1
+            fi
+          elif [ "$AUTH_MODE" != "signed-out" ]; then
+            echo "invalid auth_mode: $AUTH_MODE" >&2
             exit 1
           fi
 
@@ -288,6 +311,51 @@ jobs:
           xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
           xcrun simctl bootstatus "$SIMULATOR_ID" -b
 
+          if [ "$VIDEO_PLATFORM" = "sync-video" ]; then
+            if [ -f scripts/create-virtual-display.m ]; then
+              clang -framework Foundation -framework CoreGraphics \
+                -o "$RUNNER_TEMP/create-virtual-display" scripts/create-virtual-display.m
+              VDISPLAY_READY="$RUNNER_TEMP/cmux-virtual-display.ready"
+              VDISPLAY_ID_PATH="$RUNNER_TEMP/cmux-virtual-display.id"
+              VDISPLAY_LOG="$RUNNER_TEMP/cmux-virtual-display.log"
+              rm -f "$VDISPLAY_READY" "$VDISPLAY_ID_PATH" "$VDISPLAY_LOG"
+              "$RUNNER_TEMP/create-virtual-display" \
+                --ready-path "$VDISPLAY_READY" \
+                --display-id-path "$VDISPLAY_ID_PATH" \
+                >"$VDISPLAY_LOG" 2>&1 &
+              VDISPLAY_PID=$!
+              for _ in $(seq 1 100); do
+                [ -s "$VDISPLAY_READY" ] && [ -s "$VDISPLAY_ID_PATH" ] && break
+                kill -0 "$VDISPLAY_PID" >/dev/null 2>&1 || { cat "$VDISPLAY_LOG" >&2 || true; exit 1; }
+                sleep 0.1
+              done
+              [ -s "$VDISPLAY_READY" ] && [ -s "$VDISPLAY_ID_PATH" ] || { cat "$VDISPLAY_LOG" >&2 || true; exit 1; }
+              echo "Virtual display ready: $(tr -d '\n' < "$VDISPLAY_ID_PATH")"
+            fi
+            if ! command -v ffmpeg >/dev/null 2>&1 || ! ffmpeg -version >/dev/null 2>&1; then
+              brew install --quiet ffmpeg
+            fi
+            FFMPEG_BIN="$(command -v ffmpeg)"
+            SYS_TCC="/Library/Application Support/com.apple.TCC/TCC.db"
+            if [ -f "$SYS_TCC" ] && command -v sudo >/dev/null 2>&1; then
+              sudo -n sqlite3 "$SYS_TCC" \
+                "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, csreq, policy_id, indirect_object_identifier_type, indirect_object_identifier, indirect_object_code_identity, flags, last_modified) VALUES ('kTCCServiceScreenCapture', '$FFMPEG_BIN', 1, 2, 4, 1, NULL, NULL, 0, 'UNUSED', NULL, 0, $(date +%s));" \
+                || true
+            fi
+            USER_TCC="$HOME/Library/Application Support/com.apple.TCC/TCC.db"
+            if [ -f "$USER_TCC" ]; then
+              sqlite3 "$USER_TCC" \
+                "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, csreq, policy_id, indirect_object_identifier_type, indirect_object_identifier, indirect_object_code_identity, flags, last_modified) VALUES ('kTCCServiceScreenCapture', '$FFMPEG_BIN', 1, 2, 4, 1, NULL, NULL, 0, 'UNUSED', NULL, 0, $(date +%s));" \
+                || true
+            fi
+            APPROVALS_PLIST="$HOME/Library/Group Containers/group.com.apple.replayd/ScreenCaptureApprovals.plist"
+            if [ -d "$(dirname "$APPROVALS_PLIST")" ]; then
+              defaults write "$APPROVALS_PLIST" "$FFMPEG_BIN" -date "3000-01-01T00:00:00Z" || true
+            fi
+
+            open -a Simulator --args -CurrentDeviceUDID "$SIMULATOR_ID" >/dev/null 2>&1 || true
+          fi
+
           build_log="$IOS_DERIVED_DATA/logs/video-build.log"
           xcodebuild \
             -workspace ios/cmux.xcworkspace \
@@ -296,15 +364,49 @@ jobs:
             -derivedDataPath "$IOS_DERIVED_DATA" \
             build-for-testing 2>&1 | tee "$build_log"
 
-          video_path="$GITHUB_WORKSPACE/artifact/cmux-$VIDEO_PLATFORM-$BUILD_TAG-$DEVICE_FAMILY.mp4"
+          iphone_video_path="$GITHUB_WORKSPACE/artifact/cmux-$VIDEO_PLATFORM-$BUILD_TAG-$DEVICE_FAMILY-iphone.mp4"
+          mac_video_path="$GITHUB_WORKSPACE/artifact/cmux-$VIDEO_PLATFORM-$BUILD_TAG-mac.mp4"
+          stitched_video_path="$GITHUB_WORKSPACE/artifact/cmux-$VIDEO_PLATFORM-$BUILD_TAG-stitched.mp4"
           record_log="$RUNNER_TEMP/sim-record.log"
-          xcrun simctl io "$SIMULATOR_ID" recordVideo --codec=h264 --force "$video_path" >"$record_log" 2>&1 &
+          mac_record_log="$RUNNER_TEMP/mac-record.log"
+          mac_record_pid=""
+          stop_mac_recording() {
+            if [ -n "${mac_record_pid:-}" ] && kill -0 "$mac_record_pid" >/dev/null 2>&1; then
+              kill -INT "$mac_record_pid" >/dev/null 2>&1 || true
+              for _ in $(seq 1 15); do
+                kill -0 "$mac_record_pid" >/dev/null 2>&1 || break
+                sleep 1
+              done
+              kill -9 "$mac_record_pid" >/dev/null 2>&1 || true
+              wait "$mac_record_pid" >/dev/null 2>&1 || true
+            fi
+          }
+          if [ "$VIDEO_PLATFORM" = "sync-video" ]; then
+            DEVLIST="$(ffmpeg -f avfoundation -list_devices true -i "" 2>&1 || true)"
+            echo "$DEVLIST" > "$RUNNER_TEMP/ffmpeg-devices.log"
+            SCREEN_INDEX="$(echo "$DEVLIST" | grep "Capture screen" | head -1 | sed 's/.*\[\([0-9]*\)\].*/\1/' || true)"
+            SCREEN_INDEX="${SCREEN_INDEX:-0}"
+            ffmpeg -y -f avfoundation -framerate 10 -capture_cursor 1 \
+              -i "${SCREEN_INDEX}:none" \
+              -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
+              "$mac_video_path" </dev/null >"$mac_record_log" 2>&1 &
+            mac_record_pid=$!
+            sleep 2
+            if ! kill -0 "$mac_record_pid" >/dev/null 2>&1; then
+              echo "mac screen recording failed to start" >&2
+              cat "$mac_record_log" >&2 || true
+              exit 1
+            fi
+          fi
+
+          xcrun simctl io "$SIMULATOR_ID" recordVideo --codec=h264 --force "$iphone_video_path" >"$record_log" 2>&1 &
           record_pid=$!
           cleanup_recording() {
             if kill -0 "$record_pid" >/dev/null 2>&1; then
               kill -INT "$record_pid" >/dev/null 2>&1 || true
               wait "$record_pid" >/dev/null 2>&1 || true
             fi
+            stop_mac_recording
           }
           trap cleanup_recording EXIT
 
@@ -324,17 +426,34 @@ jobs:
 
           cleanup_recording
           trap - EXIT
-          [ -s "$video_path" ] || { echo "recording missing or empty: $video_path" >&2; cat "$record_log" >&2 || true; exit 1; }
+          [ -s "$iphone_video_path" ] || { echo "recording missing or empty: $iphone_video_path" >&2; cat "$record_log" >&2 || true; exit 1; }
+          if [ "$VIDEO_PLATFORM" = "sync-video" ]; then
+            [ -s "$mac_video_path" ] || { echo "mac recording missing or empty: $mac_video_path" >&2; cat "$mac_record_log" >&2 || true; exit 1; }
+            ffmpeg -y \
+              -i "$mac_video_path" \
+              -i "$iphone_video_path" \
+              -filter_complex "[0:v]scale=-2:960,setpts=PTS-STARTPTS[mac];[1:v]scale=-2:960,setpts=PTS-STARTPTS[ios];[mac][ios]hstack=inputs=2[v]" \
+              -map "[v]" \
+              -shortest \
+              -c:v libx264 -preset veryfast -pix_fmt yuv420p \
+              "$stitched_video_path" > "$RUNNER_TEMP/stitch.log" 2>&1 \
+              || { echo "stitching failed" >&2; cat "$RUNNER_TEMP/stitch.log" >&2 || true; exit 1; }
+            [ -s "$stitched_video_path" ] || { echo "stitched video missing or empty: $stitched_video_path" >&2; exit 1; }
+          fi
           if command -v ffprobe >/dev/null 2>&1; then
-            ffprobe -v error -show_entries format=duration,size -of json "$video_path" > artifact/video-metadata.json || true
+            ffprobe -v error -show_entries format=duration,size -of json "$iphone_video_path" > artifact/video-metadata.json || true
+            if [ "$VIDEO_PLATFORM" = "sync-video" ]; then
+              ffprobe -v error -show_entries format=duration,size -of json "$stitched_video_path" > artifact/stitched-video-metadata.json || true
+            fi
           else
-            size_bytes="$(stat -f %z "$video_path" 2>/dev/null || wc -c < "$video_path" | tr -d ' ')"
+            size_bytes="$(stat -f %z "$iphone_video_path" 2>/dev/null || wc -c < "$iphone_video_path" | tr -d ' ')"
             printf '{ "size": %s }\n' "$size_bytes" > artifact/video-metadata.json
           fi
           {
             echo "tag=$BUILD_TAG"
             echo "platform=$VIDEO_PLATFORM"
             echo "device_family=$DEVICE_FAMILY"
+            echo "auth_mode=$AUTH_MODE"
             echo "simulator_id=$SIMULATOR_ID"
             echo "simulator_name=$SIMULATOR_NAME"
             echo "test_filter=$TEST_FILTER"
