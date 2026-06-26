@@ -104,6 +104,21 @@ struct WorkspaceActionDispatcherTests {
     }
 
     @Test
+    func newWindowMovePlanMovesSecondWorkspaceOnlyOnceWithFocus() throws {
+        let first = UUID(uuidString: "00000000-0000-4000-8000-000000000011")!
+        let second = UUID(uuidString: "00000000-0000-4000-8000-000000000012")!
+
+        let plan = try #require(
+            WorkspaceActionDispatcher.newWindowMovePlan(orderedWorkspaceIds: [first, second])
+        )
+
+        #expect(plan.firstWorkspaceId == first)
+        #expect(!plan.focusFirstMove)
+        #expect(plan.followUpMoves.map(\.workspaceId) == [second])
+        #expect(plan.followUpMoves.map(\.focus) == [true])
+    }
+
+    @Test
     func newWindowMovePlanMovesLastWorkspaceOnlyOnceWithFocus() throws {
         let first = UUID(uuidString: "00000000-0000-4000-8000-000000000001")!
         let second = UUID(uuidString: "00000000-0000-4000-8000-000000000002")!
