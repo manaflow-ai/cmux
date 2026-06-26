@@ -44,6 +44,43 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         patchBytes()
     }
 
+    /// Scroll-safe repair bytes: clear and repaint every viewport row in place,
+    /// WITHOUT the `ESC c` hard reset that ``fullSnapshotBytes()`` uses.
+    ///
+    /// Because it only rewrites active-screen rows with absolute `CUP` and never
+    /// resets the terminal or touches scrollback, applying it while the user is
+    /// scrolled up updates the viewport off-screen and leaves their scroll
+    /// position and local scrollback mirror intact. This is the keyframe used to
+    /// repair a detected grid-hash divergence, where a full reset would yank a
+    /// scrolled-up reader to the bottom.
+    ///
+    /// Intended for a full frame (it repaints rows `0..<rows`); on a delta frame
+    /// it only repaints the rows the delta carries.
+    public func viewportRepaintBytes() -> Data {
+        var bytes = Data()
+        let stylesByID = Self.stylesByID(frame.styles)
+        let defaultStyle = stylesByID[0] ?? .default
+        // Synchronized update so the client never shows a half-cleared viewport.
+        bytes.append(Data("\u{1B}[?2026h".utf8))
+        for row in 0..<frame.rows {
+            bytes.append(Self.sgrBytes(for: defaultStyle))
+            bytes.append(Data("\u{1B}[\(row + 1);1H\u{1B}[2K".utf8))
+        }
+        var activeStyleID: Int?
+        for span in frame.rowSpans.sorted(by: { ($0.row, $0.column) < ($1.row, $1.column) }) {
+            bytes.append(Data("\u{1B}[\(span.row + 1);\(span.column + 1)H".utf8))
+            if activeStyleID != span.styleID, let style = stylesByID[span.styleID] {
+                bytes.append(Self.sgrBytes(for: style))
+                activeStyleID = span.styleID
+            }
+            bytes.append(Self.vtPrintableBytes(span.text))
+        }
+        bytes.append(Self.sgrBytes(for: defaultStyle))
+        appendCursorRestore(&bytes)
+        bytes.append(Data("\u{1B}[?2026l".utf8))
+        return bytes
+    }
+
     /// DEC private mode codes that switch screens or save the cursor. The
     /// active screen is restored explicitly via the frame's `activeScreen`, so
     /// these are never replayed from `modes` (replaying them would
