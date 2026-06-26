@@ -4456,19 +4456,39 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Directory Updates
 
-    func setDefaultWorkingDirectory(_ workingDirectory: String?) {
+    func setDefaultWorkingDirectory(_ workingDirectory: String?, syncCurrentDirectory: Bool = true) {
+        let previousDefault = defaultWorkingDirectory
         let normalized = Self.normalizedTerminalWorkingDirectory(workingDirectory)
         if defaultWorkingDirectory != normalized {
             defaultWorkingDirectory = normalized
         }
-        guard let normalized else { return }
-        if currentDirectory != normalized {
-            currentDirectory = normalized
+        if syncCurrentDirectory {
+            if let normalized {
+                if currentDirectory != normalized {
+                    currentDirectory = normalized
+                }
+            } else if let previousDefault,
+                      Self.normalizedTerminalWorkingDirectory(currentDirectory) == previousDefault {
+                let fallbackDirectory = fallbackCurrentDirectoryAfterClearingDefault()
+                if currentDirectory != fallbackDirectory {
+                    currentDirectory = fallbackDirectory
+                }
+            }
         }
         let trackingDirectory = configTrackingDirectory(for: focusedPanelId)
         if surfaceTabBarDirectory != trackingDirectory {
             surfaceTabBarDirectory = trackingDirectory
         }
+    }
+
+    private func fallbackCurrentDirectoryAfterClearingDefault() -> String {
+        let candidates = [
+            focusedPanelId.flatMap { panelDirectories[$0] },
+            focusedPanelId.flatMap { terminalPanel(for: $0)?.requestedWorkingDirectory },
+            FileManager.default.homeDirectoryForCurrentUser.path,
+        ]
+        return candidates.lazy.compactMap(Self.normalizedTerminalWorkingDirectory).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.path
     }
 
     func setWorkspaceProfileName(_ name: String?) {

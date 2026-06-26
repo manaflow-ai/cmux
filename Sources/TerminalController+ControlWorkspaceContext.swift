@@ -187,7 +187,7 @@ extension TerminalController: ControlWorkspaceContext {
             tabManager = resolvedTabManager
             workspace = selectedWorkspace
         }
-        workspace.setDefaultWorkingDirectory(cwd)
+        workspace.setDefaultWorkingDirectory(cwd, syncCurrentDirectory: false)
         return .resolved(
             windowID: AppDelegate.shared?.windowId(for: tabManager),
             workspaceID: workspace.id,

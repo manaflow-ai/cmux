@@ -2488,7 +2488,7 @@ final class CmuxConfigStore: ObservableObject {
         return profiles.compactMap { profile in
             guard seenNames.insert(profile.name).inserted else {
                 cmuxConfigLogger.warning(
-                    "[CmuxConfig] workspaceProfiles ignored duplicate profile '\(profile.name, privacy: .public)'"
+                    "[CmuxConfig] workspaceProfiles ignored duplicate profile '\(profile.name, privacy: .private)'"
                 )
                 return nil
             }
@@ -2516,7 +2516,7 @@ final class CmuxConfigStore: ObservableObject {
             }
 
             let workspace = tabManager.addWorkspace(
-                title: profile.name,
+                title: nil,
                 workingDirectory: profile.cwd,
                 inheritWorkingDirectory: false,
                 select: false,
