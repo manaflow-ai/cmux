@@ -231,30 +231,37 @@ struct MobileWorkspaceCloseReconcileTests {
         #expect(store.workspaces.count == 1)
     }
 
-    /// `closeWorkspace` can target a SECONDARY Mac, and its refresh writes that
-    /// Mac's `workspacesByMac` entry directly. The tombstone filter lives at the
-    /// single derivation chokepoint, so a stale secondary re-list of a confirmed
-    /// closed workspace is dropped from the derived list just like a foreground one
-    /// (issue #6349, secondary path). Seeds the per-Mac source of truth directly so
-    /// no live secondary connection is needed.
-    @Test func confirmedCloseIsFilteredFromSecondaryMacReingest() {
+    /// `closeWorkspace` can target a SECONDARY Mac, whose refresh writes that Mac's
+    /// `workspacesByMac` entry directly. The tombstone filter lives at the single
+    /// derivation chokepoint, so a stale secondary re-list of a confirmed-closed
+    /// workspace is dropped just like a foreground one — AND because tombstones are
+    /// scoped to the owning Mac, a different Mac's workspace that happens to share
+    /// the same Mac-local id is left untouched (issue #6349, secondary path +
+    /// multi-Mac id collision). Seeds the per-Mac source of truth directly so no
+    /// live secondary connection is needed.
+    @Test func confirmedCloseTombstoneIsScopedToOwningMac() {
         let store = MobileShellComposite.preview()
-        store.confirmedClosedWorkspaceIDs.insert("mac-b-ws-2")
+        // Only Mac B's copy of the shared local id was closed.
+        store.confirmedClosedWorkspaceIDsByMac = ["mac-b": ["shared-id"]]
         store.setWorkspaceStatesForTesting([
             "mac-a": MacWorkspaceState(
                 macDeviceID: "mac-a", displayName: "Mac A",
-                workspaces: [Self.preview(id: "mac-a-ws-1")], status: .connected),
+                workspaces: [Self.preview(id: "shared-id"), Self.preview(id: "mac-a-only")],
+                status: .connected),
             // Secondary Mac still lists the just-closed workspace (the stale snapshot).
             "mac-b": MacWorkspaceState(
                 macDeviceID: "mac-b", displayName: "Mac B",
-                workspaces: [Self.preview(id: "mac-b-ws-1"), Self.preview(id: "mac-b-ws-2")],
+                workspaces: [Self.preview(id: "shared-id"), Self.preview(id: "mac-b-only")],
                 status: .connected),
         ], foregroundMacDeviceID: "mac-a")
 
-        let rpcIDs = Set(store.workspaces.map { $0.rpcWorkspaceID.rawValue })
-        #expect(!rpcIDs.contains("mac-b-ws-2"))
-        #expect(rpcIDs.contains("mac-b-ws-1"))
-        #expect(rpcIDs.contains("mac-a-ws-1"))
+        func has(mac: String, rpc: String) -> Bool {
+            store.workspaces.contains { $0.macDeviceID == mac && $0.rpcWorkspaceID.rawValue == rpc }
+        }
+        #expect(!has(mac: "mac-b", rpc: "shared-id"))   // closed row gone
+        #expect(has(mac: "mac-a", rpc: "shared-id"))    // same id on another Mac survives
+        #expect(has(mac: "mac-b", rpc: "mac-b-only"))
+        #expect(has(mac: "mac-a", rpc: "mac-a-only"))
     }
 
     private static func preview(id: String) -> MobileWorkspacePreview {

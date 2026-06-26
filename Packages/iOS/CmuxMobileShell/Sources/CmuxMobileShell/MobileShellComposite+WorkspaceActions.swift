@@ -158,8 +158,8 @@ extension MobileShellComposite {
         localID: MobileWorkspacePreview.ID,
         target: WorkspaceMutationTarget
     ) {
-        confirmedClosedWorkspaceIDs.insert(localID.rawValue)
         let key = target.isForeground ? foregroundMacKey : (target.macDeviceID ?? foregroundMacKey)
+        confirmedClosedWorkspaceIDsByMac[key, default: []].insert(localID.rawValue)
         guard var state = workspacesByMac[key] else { return }
         let before = state.workspaces.count
         state.workspaces.removeAll { $0.rpcWorkspaceID == localID || $0.id == localID }
