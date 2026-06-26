@@ -9,5 +9,7 @@
 /// line, in FIFO order. The `async` requirement lets a conforming `actor` provide
 /// isolation without an `@unchecked Sendable` escape hatch.
 public protocol BackgroundLogLineSink: Sendable {
+    /// Appends one fully-formatted log line (terminated by `\n`). Called by the
+    /// writer's single consumer task, in FIFO order, once per delivered line.
     func write(_ line: String) async
 }

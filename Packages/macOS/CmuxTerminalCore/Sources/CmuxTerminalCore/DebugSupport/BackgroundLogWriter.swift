@@ -100,7 +100,7 @@ public final class BackgroundLogWriter: Sendable {
     public func log(_ message: String, isMainThread: Bool) {
         let reading = now()
         continuation.yield(
-            BackgroundLogEntry(
+            (
                 message: message,
                 date: reading.date,
                 uptimeMs: (reading.systemUptime - startUptime) * 1000,
@@ -111,17 +111,16 @@ public final class BackgroundLogWriter: Sendable {
     }
 }
 
-/// One emitted event, with its timing captured on the calling thread. All fields
-/// are value types so the entry crosses to the consumer task as `Sendable` data.
-/// File-private DTO for ``BackgroundLogWriter``; it has no meaning outside this
-/// sink's producer→consumer hand-off.
-private struct BackgroundLogEntry: Sendable {
-    let message: String
-    let date: Date
-    let uptimeMs: Double
-    let mediaTime: Double
-    let threadLabel: String
-}
+/// One emitted event, with its timing captured on the calling thread, carried to
+/// the consumer task as `Sendable` value data. A tuple (not a named type) keeps
+/// it a private, file-local hand-off with no meaning outside this sink.
+private typealias BackgroundLogEntry = (
+    message: String,
+    date: Date,
+    uptimeMs: Double,
+    mediaTime: Double,
+    threadLabel: String
+)
 
 /// The single consumer: formats each entry and forwards the line to `sink`, in
 /// stream (FIFO) order. The `seq` counter and formatter are local to this call,
