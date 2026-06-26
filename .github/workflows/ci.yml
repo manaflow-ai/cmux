@@ -429,7 +429,10 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ runner.temp }}/cmux-deriveddata-app-host-unit-tests-shard-${{ matrix.shard }}
-          key: deriveddata-app-host-unit-tests-shard-${{ matrix.shard }}-${{ hashFiles('.xcode-version') }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-${{ steps.ghostty-revision.outputs.sha }}
+          key: deriveddata-app-host-unit-tests-shard-${{ matrix.shard }}-${{ hashFiles('.xcode-version') }}-${{ steps.ghostty-revision.outputs.sha }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}
+          restore-keys: |
+            deriveddata-app-host-unit-tests-shard-${{ matrix.shard }}-${{ hashFiles('.xcode-version') }}-${{ steps.ghostty-revision.outputs.sha }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
+            deriveddata-app-host-unit-tests-shard-${{ matrix.shard }}-${{ hashFiles('.xcode-version') }}-${{ steps.ghostty-revision.outputs.sha }}-
 
       - name: Resolve Swift packages
         run: |
