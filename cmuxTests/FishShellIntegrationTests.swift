@@ -214,6 +214,29 @@ struct FishShellIntegrationTests {
         )
     }
 
+    @Test(.enabled(if: fishExecutablePath != nil))
+    func testFishPRCacheVariableNameSanitizesBranchName() throws {
+        _ = try requireFishExecutable()
+
+        let result = try runInteractiveFish(
+            command: """
+            set -l cache_var (_cmux_pr_cache_variable_name 'react/patch/v4.16-feature')
+            set -U $cache_var cached
+            printf 'CACHE_VAR=%s\\n' "$cache_var"
+            set -eU $cache_var
+            """,
+            extraEnvironment: [
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        expectTrue(
+            result.stdout.contains("CACHE_VAR=__cmux_pr_cache_react_patch_v4_16_feature"),
+            result.stdout
+        )
+        expectFalse(result.stderr.contains("invalid variable name"), result.stderr)
+    }
+
     @Test
     func testGeneratedFishBootstrapStagesIntegrationAndPreservesUserConfigHome() throws {
         let fileManager = FileManager.default

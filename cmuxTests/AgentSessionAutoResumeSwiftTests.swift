@@ -11,6 +11,29 @@ import Testing
 
 @Suite(.serialized)
 struct AgentSessionAutoResumeSwiftTests {
+    @Test func claudeResumeCommandWithCwdUsesSingleExternalShellCommand() throws {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-fish-safe-session",
+            workingDirectory: "/tmp/cmux fish repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/usr/local/bin/claude",
+                arguments: ["/usr/local/bin/claude", "--model", "sonnet"],
+                workingDirectory: "/tmp/cmux fish repo",
+                capturedAt: 1_777_777_777,
+                source: "process"
+            )
+        )
+
+        let command = try #require(snapshot.resumeCommand)
+
+        #expect(command.hasPrefix("/bin/sh -lc "), Comment(rawValue: command))
+        #expect(!command.hasPrefix("{ "), Comment(rawValue: command))
+        #expect(command.contains("claude"), Comment(rawValue: command))
+        #expect(command.contains("--resume"), Comment(rawValue: command))
+    }
+
     @MainActor
     @Test func sessionRestoreDropsPersistedAgentStatusRuntimeState() throws {
         let source = Workspace()

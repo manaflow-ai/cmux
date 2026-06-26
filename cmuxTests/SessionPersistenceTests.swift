@@ -4334,6 +4334,19 @@ extension SessionPersistenceTests {
         XCTAssertFalse(binding.command.contains(legacyQuotedCwd), binding.command)
     }
 
+    func testAgentHookSurfaceResumeBindingNormalizesLegacyGuardToSingleExternalCommand() {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "{ cd -- '/tmp/project' 2>/dev/null || [ ! -d '/tmp/project' ]; } && codex resume session",
+            cwd: "/tmp/project",
+            source: "agent-hook",
+            updatedAt: 1
+        )
+
+        XCTAssertTrue(binding.command.hasPrefix("/bin/sh -lc "), binding.command)
+        XCTAssertFalse(binding.command.hasPrefix("{ "), binding.command)
+        XCTAssertTrue(binding.command.contains("codex resume session"), binding.command)
+    }
+
     func testAgentHookSurfaceResumeStartupInputRunsWhenSavedWorkingDirectoryWasDeleted() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
