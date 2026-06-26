@@ -24032,7 +24032,7 @@ struct CMUXCLI {
         }
         guard let source = parsedInput.object?["source"] as? String,
               let normalizedSource = normalizedHookValue(source)?.lowercased() else {
-            return true
+            return false
         }
         return normalizedSource == "startup"
     }

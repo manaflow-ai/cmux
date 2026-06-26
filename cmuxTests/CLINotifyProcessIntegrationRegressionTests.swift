@@ -99,6 +99,50 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(record["agentLifecycle"] as? String, "running")
     }
 
+    func testClaudeNoFlickerSessionStartIgnoresNonStartupSources() throws {
+        let scenarios = [
+            (
+                name: "resume",
+                sessionId: "noflicker-resume-session",
+                sourceJSON: #""source":"resume","#
+            ),
+            (
+                name: "missing-source",
+                sessionId: "noflicker-missing-source-session",
+                sourceJSON: ""
+            ),
+        ]
+
+        for scenario in scenarios {
+            let context = try makeClaudeHookContext(name: "claude-noflicker-\(scenario.name)")
+            defer { context.cleanup() }
+
+            let result = runClaudeHook(
+                context: context,
+                arguments: ["hooks", "claude", "session-start"],
+                standardInput: #"{"session_id":"\#(scenario.sessionId)",\#(scenario.sourceJSON)"cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+                extraEnvironment: ["CLAUDE_CODE_NO_FLICKER": "1"]
+            )
+
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+            XCTAssertFalse(
+                context.state.commands.contains { command in
+                    command.hasPrefix("set_status claude_code Running ")
+                },
+                "Expected \(scenario.name) SessionStart not to mark Claude running, saw \(context.state.commands)"
+            )
+            XCTAssertFalse(
+                context.state.commands.contains { $0 == "clear_notifications --tab=\(context.workspaceId)" },
+                "Expected \(scenario.name) SessionStart not to clear notifications, saw \(context.state.commands)"
+            )
+
+            let record = try readClaudeHookSession(scenario.sessionId, context: context)
+            XCTAssertEqual(record["isRestorable"] as? Bool, false)
+            XCTAssertNotEqual(record["agentLifecycle"] as? String, "running")
+        }
+    }
+
     func testClaudePreToolUseFeedContextReadsOnlyRecentTranscriptTail() throws {
         let context = try makeClaudeHookContext(name: "claude-pretool-tail")
         defer { context.cleanup() }
