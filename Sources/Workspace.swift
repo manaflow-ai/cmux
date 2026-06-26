@@ -4481,28 +4481,13 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         )
     }
 
-    /// The sidebar directory/order resolver, reading this workspace's live panel
-    /// directories and canonicalization inputs through the
-    /// ``SidebarMetadataHosting`` seam. Constructed per use; the resolver is a
-    /// stateless throwaway value holding only the host reference.
-    private var sidebarDirectoryResolver: SidebarDirectoryResolver {
-        SidebarDirectoryResolver(host: self)
-    }
-
-    private func sidebarHomeDirectoryForCanonicalization(
-        resolvedPanelDirectories: [UUID: String]
-    ) -> String? {
-        sidebarDirectoryResolver.homeDirectoryForCanonicalization(
-            resolvedPanelDirectories: resolvedPanelDirectories
-        )
-    }
-
-    private func sidebarResolvedDirectory(for panelId: UUID) -> String? {
-        sidebarDirectoryResolver.resolvedDirectory(for: panelId)
-    }
-
-    private func sidebarResolvedPanelDirectories(orderedPanelIds: [UUID]) -> [UUID: String] {
-        sidebarDirectoryResolver.resolvedPanelDirectories(orderedPanelIds: orderedPanelIds)
+    /// The sidebar display-order projection, combining this workspace's live
+    /// panel directories and per-panel metadata into the ordered sidebar rows
+    /// through the ``SidebarMetadataHosting`` seam. Constructed per use; the
+    /// projection is a stateless throwaway value holding only the host and
+    /// metadata-model references.
+    private var sidebarDisplayOrderProjection: SidebarDisplayOrderProjection {
+        SidebarDisplayOrderProjection(host: self, metadata: sidebarMetadata)
     }
 
     // MARK: - SidebarMetadataHosting
@@ -4528,84 +4513,79 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         terminalPanel(for: panelId)?.requestedWorkingDirectory
     }
 
-    /// Resolves each panel's directory and the canonicalization home directory
-    /// from live `Workspace` state, then forwards to
-    /// ``WorkspaceSidebarMetadataModel/directoriesInDisplayOrder(orderedPanelIds:resolvedPanelDirectories:homeDirectoryForCanonicalization:fallbackDirectory:includeFallback:)``.
+    /// The bonsplit spatial panel order, exposed to
+    /// ``SidebarDisplayOrderProjection`` (the irreducible live-state read that
+    /// stays in the `Workspace` shim).
+    var sidebarSpatialPanelOrder: [UUID] { sidebarOrderedPanelIds() }
+
+    /// Whether a panel is a remote-display surface, exposed to
+    /// ``SidebarDisplayOrderProjection`` for the Finder-directory local-panel
+    /// filter.
+    func sidebarIsRemoteDisplaySurface(_ panelId: UUID) -> Bool {
+        remoteDetectedSurfaceIds.contains(panelId)
+            || isRemoteTerminalSurface(panelId)
+            || pendingRemoteTerminalChildExitSurfaceIds.contains(panelId)
+    }
+
+    /// The structured-hook status entries currently visible for display,
+    /// exposed to ``SidebarDisplayOrderProjection`` (the agent-visibility
+    /// filtering reads live `Workspace` agent state and stays in the shim).
+    var sidebarVisibleStatusEntriesForDisplay: [SidebarStatusEntry] {
+        sidebarStatusEntriesVisibleForDisplay()
+    }
+
+    /// Forwards to ``SidebarDisplayOrderProjection/directoriesInDisplayOrder(orderedPanelIds:includeFallback:)``.
     func sidebarDirectoriesInDisplayOrder(orderedPanelIds: [UUID], includeFallback: Bool = true) -> [String] {
-        let resolvedDirectories = sidebarResolvedPanelDirectories(orderedPanelIds: orderedPanelIds)
-        return sidebarMetadata.directoriesInDisplayOrder(
+        sidebarDisplayOrderProjection.directoriesInDisplayOrder(
             orderedPanelIds: orderedPanelIds,
-            resolvedPanelDirectories: resolvedDirectories,
-            homeDirectoryForCanonicalization: sidebarHomeDirectoryForCanonicalization(
-                resolvedPanelDirectories: resolvedDirectories
-            ),
-            fallbackDirectory: SidebarBranchOrdering().normalizedDirectory(currentDirectory),
             includeFallback: includeFallback
         )
     }
 
     func sidebarDirectoriesInDisplayOrder() -> [String] {
-        sidebarDirectoriesInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
-    }
-    func sidebarFinderDirectory() -> String? {
-        guard !isRemoteWorkspace else { return nil }
-        let panelIds = sidebarOrderedPanelIds()
-        let localPanelIds = panelIds.filter {
-            !remoteDetectedSurfaceIds.contains($0)
-                && !isRemoteTerminalSurface($0)
-                && !pendingRemoteTerminalChildExitSurfaceIds.contains($0)
-        }
-        return sidebarDirectoriesInDisplayOrder(orderedPanelIds: localPanelIds, includeFallback: panelIds.isEmpty || localPanelIds.count == panelIds.count).first
+        sidebarDisplayOrderProjection.directoriesInDisplayOrder()
     }
 
-    /// Forwards to ``WorkspaceSidebarMetadataModel/gitBranchesInDisplayOrder(orderedPanelIds:)``.
+    func sidebarFinderDirectory() -> String? {
+        sidebarDisplayOrderProjection.finderDirectory()
+    }
+
+    /// Forwards to ``SidebarDisplayOrderProjection/gitBranchesInDisplayOrder(orderedPanelIds:)``.
     func sidebarGitBranchesInDisplayOrder(orderedPanelIds: [UUID]) -> [SidebarGitBranchState] {
-        sidebarMetadata.gitBranchesInDisplayOrder(orderedPanelIds: orderedPanelIds)
+        sidebarDisplayOrderProjection.gitBranchesInDisplayOrder(orderedPanelIds: orderedPanelIds)
     }
 
     func sidebarGitBranchesInDisplayOrder() -> [SidebarGitBranchState] {
-        sidebarGitBranchesInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
+        sidebarDisplayOrderProjection.gitBranchesInDisplayOrder()
     }
 
-    /// Resolves each panel's directory from live `Workspace` state, then
-    /// forwards to ``WorkspaceSidebarMetadataModel/branchDirectoryEntriesInDisplayOrder(orderedPanelIds:resolvedPanelDirectories:defaultDirectory:homeDirectoryForCanonicalization:)``.
+    /// Forwards to ``SidebarDisplayOrderProjection/branchDirectoryEntriesInDisplayOrder(orderedPanelIds:)``.
     func sidebarBranchDirectoryEntriesInDisplayOrder(
         orderedPanelIds: [UUID]
     ) -> [SidebarBranchOrdering.BranchDirectoryEntry] {
-        let resolvedDirectories = sidebarResolvedPanelDirectories(orderedPanelIds: orderedPanelIds)
-        return sidebarMetadata.branchDirectoryEntriesInDisplayOrder(
-            orderedPanelIds: orderedPanelIds,
-            resolvedPanelDirectories: resolvedDirectories,
-            defaultDirectory: SidebarBranchOrdering().normalizedDirectory(currentDirectory),
-            homeDirectoryForCanonicalization: sidebarHomeDirectoryForCanonicalization(
-                resolvedPanelDirectories: resolvedDirectories
-            )
-        )
+        sidebarDisplayOrderProjection.branchDirectoryEntriesInDisplayOrder(orderedPanelIds: orderedPanelIds)
     }
 
     func sidebarBranchDirectoryEntriesInDisplayOrder() -> [SidebarBranchOrdering.BranchDirectoryEntry] {
-        sidebarBranchDirectoryEntriesInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
+        sidebarDisplayOrderProjection.branchDirectoryEntriesInDisplayOrder()
     }
 
-    /// Forwards to ``WorkspaceSidebarMetadataModel/pullRequestsInDisplayOrder(orderedPanelIds:)``.
+    /// Forwards to ``SidebarDisplayOrderProjection/pullRequestsInDisplayOrder(orderedPanelIds:)``.
     func sidebarPullRequestsInDisplayOrder(orderedPanelIds: [UUID]) -> [SidebarPullRequestState] {
-        sidebarMetadata.pullRequestsInDisplayOrder(orderedPanelIds: orderedPanelIds)
+        sidebarDisplayOrderProjection.pullRequestsInDisplayOrder(orderedPanelIds: orderedPanelIds)
     }
 
     func sidebarPullRequestsInDisplayOrder() -> [SidebarPullRequestState] {
-        sidebarPullRequestsInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
+        sidebarDisplayOrderProjection.pullRequestsInDisplayOrder()
     }
 
-    /// Resolves the visible status entries from live `Workspace` agent state,
-    /// then forwards to
-    /// ``WorkspaceSidebarMetadataModel/statusEntriesInDisplayOrder(_:)`` for the
-    /// stable display sort.
+    /// Forwards to ``SidebarDisplayOrderProjection/statusEntriesInDisplayOrder()``.
     func sidebarStatusEntriesInDisplayOrder() -> [SidebarStatusEntry] {
-        sidebarMetadata.statusEntriesInDisplayOrder(sidebarStatusEntriesVisibleForDisplay())
+        sidebarDisplayOrderProjection.statusEntriesInDisplayOrder()
     }
 
     func sidebarMetadataBlocksInDisplayOrder() -> [SidebarMetadataBlock] {
-        sidebarMetadata.metadataBlocksInDisplayOrder()
+        sidebarDisplayOrderProjection.metadataBlocksInDisplayOrder()
     }
 
     /// Forwards to

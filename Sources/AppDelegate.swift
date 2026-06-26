@@ -4184,15 +4184,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func orderedMainWindowSummaries(referenceWindowId: UUID?) -> [MainWindowSummary] {
-        let summaries = listMainWindowSummaries()
-        return summaries.sorted { lhs, rhs in
-            let lhsIsReference = lhs.windowId == referenceWindowId
-            let rhsIsReference = rhs.windowId == referenceWindowId
-            if lhsIsReference != rhsIsReference { return lhsIsReference }
-            if lhs.isKeyWindow != rhs.isKeyWindow { return lhs.isKeyWindow }
-            if lhs.isVisible != rhs.isVisible { return lhs.isVisible }
-            return lhs.windowId.uuidString < rhs.windowId.uuidString
-        }
+        // App-side: read the live NSWindow/TabManager state into the Sendable
+        // summaries, then defer the pure ordering to ``CmuxWindowing``.
+        listMainWindowSummaries().orderedByReference(referenceWindowId: referenceWindowId)
     }
 
     private func windowLabelsById(orderedSummaries: [MainWindowSummary], referenceWindowId: UUID?) -> [UUID: String] {

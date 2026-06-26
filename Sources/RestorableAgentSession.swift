@@ -1,5 +1,6 @@
 import Foundation
 import CMUXAgentLaunch
+import CmuxCommandPalette
 
 nonisolated enum TerminalStartupShellQuoting {
     static func singleQuoted(_ value: String) -> String {
@@ -848,6 +849,86 @@ extension SessionRestorableAgentSnapshot {
             return name
         }
         return kind.displayName
+    }
+}
+
+// MARK: - Command-palette fork availability
+
+extension SessionRestorableAgentSnapshot {
+    /// Classifies whether this snapshot can seed a "fork conversation" command,
+    /// and whether confirming that needs an asynchronous per-agent capability probe.
+    func commandPaletteForkAvailability(
+        isRemoteTerminal: Bool = false
+    ) -> CommandPaletteForkSnapshotAvailability {
+        guard forkCommand != nil else { return .unsupported }
+        if isRemoteTerminal,
+           forkStartupInput(allowLauncherScript: false) == nil {
+            return .unsupported
+        }
+        switch kind {
+        case .claude, .codex:
+            return .supportedWithoutProbe
+        case .opencode:
+            return launchCommand?.launcher == "omo" || isRemoteTerminal ? .supportedWithoutProbe : .requiresProbe
+        case .custom:
+            // Reaching here means `forkCommand != nil` (top guard), i.e. the
+            // agent's registration declares a `forkCommand` template, so it is
+            // fork-able. There is no per-agent fork-capability probe for custom
+            // agents (unlike opencode's version probe), so trust the template.
+            return .supportedWithoutProbe
+        default:
+            return .unsupported
+        }
+    }
+
+    /// Stable fingerprint of this snapshot, used to detect when a panel's
+    /// fallback snapshot changed and the cached probe result must be invalidated.
+    var commandPaletteForkFingerprint: String {
+        let launchArguments = launchCommand?.arguments.joined(separator: "\u{1f}") ?? ""
+        let parts: [String] = [
+            kind.rawValue,
+            sessionId,
+            workingDirectory ?? "",
+            launchCommand?.launcher ?? "",
+            launchCommand?.executablePath ?? "",
+            launchArguments,
+            launchCommand?.workingDirectory ?? "",
+            launchCommand?.source ?? "",
+            forkCommand ?? ""
+        ]
+        return parts.joined(separator: "\u{1e}")
+    }
+
+    /// The cache fingerprint for this snapshot, preferring a provided fallback
+    /// fingerprint, otherwise this snapshot's derived fingerprint.
+    func commandPaletteForkCacheFingerprint(fallbackFingerprint: String?) -> String {
+        fallbackFingerprint ?? commandPaletteForkFingerprint
+    }
+
+    /// Whether a panel (identified by its stable cache `panelKey`) currently has
+    /// a forkable agent, given the resolved support set, per-panel remote-context
+    /// flags, and an optional fallback snapshot to classify when no probe result
+    /// recorded a remote-context flag.
+    static func commandPalettePanelHasForkableAgent(
+        panelKey: String,
+        supportedPanelKeys: Set<String>,
+        supportedRemoteContextsByPanelKey: [String: Bool] = [:],
+        fallbackSnapshot: SessionRestorableAgentSnapshot?,
+        isRemoteTerminal: Bool = false
+    ) -> Bool {
+        if supportedPanelKeys.contains(panelKey) {
+            if let supportedRemoteContext = supportedRemoteContextsByPanelKey[panelKey],
+               supportedRemoteContext != isRemoteTerminal {
+                return false
+            }
+            if let fallbackSnapshot {
+                return fallbackSnapshot.commandPaletteForkAvailability(
+                    isRemoteTerminal: isRemoteTerminal
+                ) != .unsupported
+            }
+            return true
+        }
+        return false
     }
 }
 

@@ -102,7 +102,7 @@ extension TerminalController {
             return .failed(failure)
         case .success(let resolved):
             let store = resolved.browserPanel.webView.configuration.websiteDataStore.httpCookieStore
-            guard var cookies = v2BrowserCookieStoreAll(store) else {
+            guard var cookies = v2BrowserCookieRepository.allCookies(in: store) else {
                 return .timedOut
             }
             if let nameFilter {
@@ -142,10 +142,10 @@ extension TerminalController {
             for row in cookieRows {
                 guard case .object = row,
                       let raw = row.foundationObject as? [String: Any],
-                      let cookie = v2BrowserCookieFromObject(raw, fallbackURL: fallbackURL) else {
+                      let cookie = v2BrowserCookieRepository.cookie(from: raw, fallbackURL: fallbackURL) else {
                     return .invalidCookie(row: row)
                 }
-                if v2BrowserCookieStoreSet(store, cookie: cookie) {
+                if v2BrowserCookieRepository.setCookie(cookie, in: store) {
                     setCount += 1
                 } else {
                     return .timedOut(cookieName: cookie.name)
@@ -173,7 +173,7 @@ extension TerminalController {
             return .failed(failure)
         case .success(let resolved):
             let store = resolved.browserPanel.webView.configuration.websiteDataStore.httpCookieStore
-            guard let cookies = v2BrowserCookieStoreAll(store) else {
+            guard let cookies = v2BrowserCookieRepository.allCookies(in: store) else {
                 return .timedOut
             }
             let targets = cookies.filter { cookie in
@@ -184,7 +184,7 @@ extension TerminalController {
             }
             var removed = 0
             for cookie in targets {
-                if v2BrowserCookieStoreDelete(store, cookie: cookie) {
+                if v2BrowserCookieRepository.deleteCookie(cookie, in: store) {
                     removed += 1
                 }
             }
@@ -196,7 +196,8 @@ extension TerminalController {
         }
     }
 
-    /// The cookie wire value, the typed twin of `v2BrowserCookieDict(_:)`.
+    /// The cookie wire value, the typed twin of
+    /// `BrowserCookieRepository.cookieDictionary(from:)`.
     private func controlBrowserCookie(_ cookie: HTTPCookie) -> ControlBrowserCookie {
         ControlBrowserCookie(
             name: cookie.name,
@@ -216,7 +217,7 @@ extension TerminalController {
         key: String?
     ) -> ControlBrowserStorageGetResolution {
         let foundation = browserFoundationParams(params)
-        let storageType = v2BrowserStorageType(foundation)
+        let storageType = v2BrowserControl.storageType(params: foundation)
         switch browserResolvePanelTyped(params: foundation) {
         case .failure(let failure):
             return .failed(failure)
@@ -249,7 +250,7 @@ extension TerminalController {
         value: JSONValue
     ) -> ControlBrowserStorageSetResolution {
         let foundation = browserFoundationParams(params)
-        let storageType = v2BrowserStorageType(foundation)
+        let storageType = v2BrowserControl.storageType(params: foundation)
         switch browserResolvePanelTyped(params: foundation) {
         case .failure(let failure):
             return .failed(failure)
@@ -280,7 +281,7 @@ extension TerminalController {
         params: [String: JSONValue]
     ) -> ControlBrowserStorageClearResolution {
         let foundation = browserFoundationParams(params)
-        let storageType = v2BrowserStorageType(foundation)
+        let storageType = v2BrowserControl.storageType(params: foundation)
         switch browserResolvePanelTyped(params: foundation) {
         case .failure(let failure):
             return .failed(failure)
