@@ -130,19 +130,45 @@ final class CmuxMainWindow: NSWindow {
     }
 
     /// Whether `proposedFrame` is reachable enough across `visibleFrames` that
-    /// AppKit's constraining pass should be skipped. The frame qualifies when it
-    /// overlaps some screen's visible area by at least `minimumVisibleExtent`
-    /// points in both dimensions (or its full extent, when smaller) — i.e. a
-    /// usable, grabbable slice of the window is on-screen.
+    /// AppKit's constraining pass should be skipped.
+    ///
+    /// "Reachable" means a grabbable slice of the window's *titlebar* — its top
+    /// strip — is on some screen's visible area, not merely that some corner of
+    /// the window overlaps a screen. The main window is non-movable
+    /// (``configureCmuxMainWindowDragBehavior`` sets `isMovable = false`) and can
+    /// only be dragged by ``WindowDragHandleView`` in the titlebar band, so a
+    /// window whose titlebar is off-screen cannot be recovered by the user even
+    /// when its body still overlaps a display. Requiring the top strip to remain
+    /// reachable lets AppKit re-clamp a window stranded above the screen (e.g.
+    /// after disconnecting an external monitor that sat above the built-in
+    /// display) while still leaving a genuinely on-screen frame untouched, which
+    /// is what stops the sleep/wake drift (#6305).
+    ///
+    /// This mirrors the startup/restore-path reachability test
+    /// (`AppDelegate.shouldPreserveAccessibleFrame`); the two are kept in sync so
+    /// the runtime constrain pass is no weaker than the restore-time clamp.
     nonisolated static func shouldPreserveFrameDuringConstrain(
         _ proposedFrame: NSRect,
         visibleFrames: [NSRect],
-        minimumVisibleExtent: CGFloat = 60
+        topStripHeight: CGFloat = 64,
+        minimumVisibleTopStripWidth: CGFloat = 120,
+        minimumVisibleTopStripHeight: CGFloat = 24
     ) -> Bool {
-        let requiredWidth = min(proposedFrame.width, minimumVisibleExtent)
-        let requiredHeight = min(proposedFrame.height, minimumVisibleExtent)
+        let frame = proposedFrame.standardized
+        guard frame.width > 0, frame.height > 0 else { return false }
+
+        let stripHeight = min(topStripHeight, frame.height)
+        let topStrip = NSRect(
+            x: frame.minX,
+            y: frame.maxY - stripHeight,
+            width: frame.width,
+            height: stripHeight
+        )
+        let requiredWidth = min(minimumVisibleTopStripWidth, frame.width)
+        let requiredHeight = min(minimumVisibleTopStripHeight, stripHeight)
+
         for visibleFrame in visibleFrames {
-            let intersection = proposedFrame.intersection(visibleFrame)
+            let intersection = topStrip.intersection(visibleFrame)
             if intersection.width >= requiredWidth, intersection.height >= requiredHeight {
                 return true
             }
