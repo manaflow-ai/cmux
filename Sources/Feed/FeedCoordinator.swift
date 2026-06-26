@@ -30,16 +30,11 @@ final class FeedCoordinator: @unchecked Sendable {
     private let waiterLock = NSLock()
     private var waiters: [String: PendingWaiter] = [:]
 
-    /// One kqueue-backed DispatchSource per distinct agent PID we've
-    /// ever seen. The kernel fires `.exit` the instant the process
-    /// dies (or immediately if it's already dead). When that fires
-    /// we mark every pending item for that PID as `.expired` and
-    /// cancel the source. Keyed by PID so the same agent spawning
-    /// multiple prompts only installs one watcher.
-    @MainActor private var pidWatchers: [Int: DispatchSourceProcess] = [:]
-    private let pidWatcherQueue = DispatchQueue(
-        label: "cmux.feed.pidWatcher", qos: .utility
-    )
+    /// Owns the kqueue-backed per-PID exit watchers. When an agent process
+    /// dies, the watcher marks every pending item for that PID as `.expired`
+    /// on the store and cancels its source. Keyed by PID inside the watcher so
+    /// the same agent spawning multiple prompts only installs one watcher.
+    let pidExitWatcher = WorkstreamPidExitWatcher()
 
     /// In-flight blocking decisions whose needs-input overlay is currently lit,
     /// keyed by ``AttentionTarget``. Each state keeps the workspace object that
@@ -65,29 +60,14 @@ final class FeedCoordinator: @unchecked Sendable {
         }
     }
 
-    /// Installs a one-shot kqueue watcher for `ppid`. The handler
-    /// fires the moment the kernel observes process exit (or
-    /// immediately if `ppid` is already dead), marks every pending
-    /// item for that PID as `.expired`, and cancels the source.
-    /// Idempotent: subsequent calls with the same PID no-op.
+    /// Installs a one-shot kqueue watcher for `ppid` on the owning store. The
+    /// handler fires the moment the kernel observes process exit (or
+    /// immediately if `ppid` is already dead), marks every pending item for
+    /// that PID as `.expired`, and cancels the source. Idempotent: subsequent
+    /// calls with the same PID no-op.
     @MainActor
     func armPidWatcher(ppid: Int) {
-        guard ppid > 0, pidWatchers[ppid] == nil else { return }
-        let src = DispatchSource.makeProcessSource(
-            identifier: pid_t(ppid),
-            eventMask: .exit,
-            queue: pidWatcherQueue
-        )
-        src.setEventHandler { [weak self] in
-            Task { @MainActor in
-                guard let self else { return }
-                self.store?.expireItems(forPpid: ppid)
-                self.pidWatchers[ppid]?.cancel()
-                self.pidWatchers.removeValue(forKey: ppid)
-            }
-        }
-        pidWatchers[ppid] = src
-        src.resume()
+        pidExitWatcher.arm(ppid: ppid, store: store)
     }
 
     /// Ingests a wire-frame event and, when `waitTimeout` > 0, blocks the
