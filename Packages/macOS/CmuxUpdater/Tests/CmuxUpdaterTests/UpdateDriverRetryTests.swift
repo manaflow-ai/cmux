@@ -52,6 +52,18 @@ import Testing
         }
     }
 
+    @Test func laterTransientStatusIsNotShadowedByEarlierNonTransientStatus() {
+        let error = Self.sparkleDownloadHTTPError(
+            statusCode: 504,
+            statusText: "cached response marker (200); retryable upstream status HTTP 504",
+            urlString: "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml"
+        )
+
+        let delay = UpdateRetryPolicy().delay(afterFailureNumber: 1, for: error)
+
+        #expect(delay == 1)
+    }
+
     private static func sparkleDownloadHTTPError(statusCode: Int, statusText: String, urlString: String) -> NSError {
         let url = URL(string: urlString)!
         let underlying = NSError(

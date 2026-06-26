@@ -68,12 +68,10 @@ struct UpdateRetryPolicy {
             (error.userInfo[NSLocalizedRecoverySuggestionErrorKey] as? String) ?? "",
         ].joined(separator: "\n")
 
-        return firstHTTPStatusCode(in: text).flatMap { statusCode in
-            isTransientHTTPStatusCode(statusCode) ? statusCode : nil
-        }
+        return firstTransientHTTPStatusCode(in: text)
     }
 
-    private func firstHTTPStatusCode(in text: String) -> Int? {
+    private func firstTransientHTTPStatusCode(in text: String) -> Int? {
         let patterns = [
             #"\((\d{3})\)"#,
             #"(?i)\bHTTP\s+(\d{3})\b"#,
@@ -82,10 +80,11 @@ struct UpdateRetryPolicy {
         let fullRange = NSRange(location: 0, length: nsText.length)
         for pattern in patterns {
             guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
-            guard let match = regex.firstMatch(in: text, range: fullRange) else { continue }
-            guard match.numberOfRanges > 1 else { continue }
-            let status = nsText.substring(with: match.range(at: 1))
-            if let statusCode = Int(status) {
+            let matches = regex.matches(in: text, range: fullRange)
+            for match in matches where match.numberOfRanges > 1 {
+                let status = nsText.substring(with: match.range(at: 1))
+                guard let statusCode = Int(status) else { continue }
+                guard isTransientHTTPStatusCode(statusCode) else { continue }
                 return statusCode
             }
         }
