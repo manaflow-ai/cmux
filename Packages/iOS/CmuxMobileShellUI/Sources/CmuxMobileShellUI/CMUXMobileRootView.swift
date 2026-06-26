@@ -70,14 +70,6 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
-    private var shouldShowDeleteComputersVerifier: Bool {
-        #if os(iOS) && DEBUG
-        return MobileDeleteComputersVerifier().isEnabled
-        #else
-        return false
-        #endif
-    }
-
     @ViewBuilder private var terminalLayoutPreview: some View {
         #if os(iOS) && DEBUG
         TerminalLayoutPreviewView()
@@ -95,14 +87,6 @@ struct CMUXMobileRootView: View {
     @ViewBuilder private var workspaceListLayoutPreview: some View {
         #if os(iOS) && DEBUG
         WorkspaceListLayoutPreviewView()
-        #else
-        EmptyView()
-        #endif
-    }
-
-    @ViewBuilder private var deleteComputersVerifier: some View {
-        #if os(iOS) && DEBUG
-        DeleteComputersVerifierView()
         #else
         EmptyView()
         #endif

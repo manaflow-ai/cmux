@@ -202,7 +202,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// (``MobileWorkspaceAggregation``), never assigned directly, so a stale or
     /// half-merged aggregate is unrepresentable. Transport-agnostic: fed by N
     /// direct phone->Mac connections today, one phone->Durable Object stream later.
-    private var workspacesByMac: [String: MacWorkspaceState] = [:] {
+    var workspacesByMac: [String: MacWorkspaceState] = [:] {
         didSet { recomputeDerivedWorkspaceState() }
     }
     private let workspaceAggregation = MobileWorkspaceAggregation()
@@ -246,25 +246,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
         return result
-    }
-
-    /// Aggregate status for the workspace LIST chrome.
-    ///
-    /// `macConnectionStatus` describes the foreground RPC connection. After the
-    /// user deletes that foreground computer, the remaining workspace rows can
-    /// still belong to connected secondary Macs. In that state the list should
-    /// not show a disconnected banner, because the visible workspace list is
-    /// healthy even though the old foreground session was intentionally torn
-    /// down.
-    public var workspaceListConnectionStatus: MobileMacConnectionStatus {
-        let visibleStates = workspacesByMac.values.filter { !$0.workspaces.isEmpty }
-        if visibleStates.contains(where: { $0.status == .connected }) {
-            return .connected
-        }
-        if visibleStates.contains(where: { $0.status == .reconnecting }) {
-            return .reconnecting
-        }
-        return macConnectionStatus
     }
 
     /// Reachability prober for the Computers screen, injected via `init` (default
@@ -542,7 +523,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var terminalAutoFocusSuppressedSurfaceIDs: Set<String> = []
 
     let runtime: (any MobileSyncRuntime)?
-    private let pairedMacStore: (any MobilePairedMacStoring)?
+    let pairedMacStore: (any MobilePairedMacStoring)?
     private let pairedMacRestoreBoundary: PairedMacRestoreBoundary?
     /// Best-effort, team-scoped lookup of fresher attach routes from the device
     /// registry. Optional and failure-tolerant: when `nil` or unreachable,
@@ -553,8 +534,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Optional and failure-tolerant like the registry: when `nil` or down, the
     /// device tree simply keeps its registry "last seen" hints.
     private let presence: (any PresenceSubscribing)?
-    private let identityProvider: (any MobileIdentityProviding)?
-    private let teamIDProvider: @Sendable () async -> String?
+    let identityProvider: (any MobileIdentityProviding)?
+    let teamIDProvider: @Sendable () async -> String?
     private let reachability: any ReachabilityProviding
     // Internal (not private): used by the dismiss-sync extension file.
     let deliveredNotificationClearer: any DeliveredNotificationClearing
@@ -562,7 +543,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     let pendingDismissQueue: PendingNotificationDismissQueue
     private let pairingHintDefaults: UserDefaults
     private let multiMacAggregationDefaults: UserDefaults
-    private let forgottenMacStore: any PairedMacForgottenStoring
+    let forgottenMacStore: any PairedMacForgottenStoring
     let clientID: String
     /// Delivers the email path of Send Feedback (`/api/feedback`). `nil` when the
     /// web API base URL is unavailable; the email path then fails closed and the
@@ -698,7 +679,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Bumped on Stack team switches so every aggregation caller, including
     /// direct pull-to-refresh calls that are not owned by
     /// ``secondaryAggregationTask``, can reject old-team results after awaits.
-    private var secondaryAggregationScopeGeneration = 0
+    var secondaryAggregationScopeGeneration = 0
     private var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
     private var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
     private var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
@@ -745,7 +726,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return workspaces.first { $0.id == selectedWorkspaceID } ?? workspaces.first
     }
 
-    private var explicitlySelectedWorkspace: MobileWorkspacePreview? {
+    var explicitlySelectedWorkspace: MobileWorkspacePreview? {
         guard let selectedWorkspaceID else { return nil }
         return workspaces.first { $0.id == selectedWorkspaceID }
     }
@@ -1800,9 +1781,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// can write the removed row back into the local store after the remove
     /// completes. Filtering the current scope keeps that late write hidden until
     /// the user explicitly pairs/connects that Mac again.
-    @ObservationIgnored private var forgottenMacDeviceIDsByScope: [String: Set<String>] = [:]
+    @ObservationIgnored var forgottenMacDeviceIDsByScope: [String: Set<String>] = [:]
 
-    private var pairedMacsForIdentityMatching: [MobilePairedMac] {
+    var pairedMacsForIdentityMatching: [MobilePairedMac] {
         storedPairedMacs.isEmpty ? pairedMacs : storedPairedMacs
     }
     // MARK: - Device registry tree
@@ -1814,7 +1795,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// registry outage leaves this empty and the UI falls back to the locally
     /// known paired Macs, so the tree degrades to the same hosts the switcher
     /// shows rather than going blank.
-    public private(set) var registryDevices: [RegistryDevice] = []
+    public internal(set) var registryDevices: [RegistryDevice] = []
 
     /// The cmux device id of the Mac the live connection currently targets, or
     /// `nil` when not connected. Used by the device tree to mark which device row
@@ -1842,115 +1823,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return activeMacID
         }
         return nil
-    }
-
-    /// Capture the current signed-in account/team scope for async list loads and
-    /// route writes.
-    private func currentScopeSnapshot(userID explicitUserID: String? = nil) async -> MobileShellScopeSnapshot? {
-        guard isSignedIn,
-              let userID = explicitUserID ?? identityProvider?.currentUserID,
-              !userID.isEmpty else {
-            return nil
-        }
-        if let currentUserID = identityProvider?.currentUserID,
-           currentUserID != userID {
-            return nil
-        }
-        return MobileShellScopeSnapshot(
-            userID: userID,
-            teamID: await teamIDProvider(),
-            generation: secondaryAggregationScopeGeneration
-        )
-    }
-
-    private func pairedMacScopeKey(_ scope: MobileShellScopeSnapshot) -> String {
-        makePairedMacScopeKey(userID: scope.userID, teamID: scope.teamID)
-    }
-
-    private func makePairedMacScopeKey(userID: String, teamID: String?) -> String {
-        "\(userID)\t\(teamID ?? "")"
-    }
-
-    private func userWideScope(from scope: MobileShellScopeSnapshot) -> MobileShellScopeSnapshot {
-        MobileShellScopeSnapshot(userID: scope.userID, teamID: nil, generation: scope.generation)
-    }
-
-    private func storedForgottenMacDeviceIDs(scopeKey key: String) async -> Set<String> {
-        if let cached = forgottenMacDeviceIDsByScope[key] { return cached }
-        let loaded = await forgottenMacStore.load(scope: key)
-        forgottenMacDeviceIDsByScope[key] = loaded
-        return loaded
-    }
-
-    private func forgottenMacDeviceIDs(scope: MobileShellScopeSnapshot) async -> Set<String> {
-        let key = pairedMacScopeKey(scope)
-        let scoped = await storedForgottenMacDeviceIDs(scopeKey: key)
-        guard scope.teamID != nil else { return scoped }
-        let userWide = await storedForgottenMacDeviceIDs(scopeKey: pairedMacScopeKey(userWideScope(from: scope)))
-        return scoped.union(userWide)
-    }
-
-    private func visibleStoredPairedMacs(
-        from loadedMacs: [MobilePairedMac],
-        scope: MobileShellScopeSnapshot
-    ) async -> [MobilePairedMac] {
-        let forgottenIDs = await forgottenMacDeviceIDs(scope: scope)
-        return loadedMacs.filter { !forgottenIDs.contains($0.macDeviceID) }
-    }
-
-    private func isForgottenMacDeviceID(_ macDeviceID: String, scope: MobileShellScopeSnapshot) async -> Bool {
-        await forgottenMacDeviceIDs(scope: scope).contains(macDeviceID)
-    }
-
-    private func rememberForgottenMacDeviceID(
-        _ macDeviceID: String,
-        scope: MobileShellScopeSnapshot,
-        includeUserWideScope: Bool = false
-    ) async {
-        guard !macDeviceID.isEmpty else { return }
-        await rememberForgottenMacDeviceID(macDeviceID, scopeKey: pairedMacScopeKey(scope))
-        if includeUserWideScope, scope.teamID != nil {
-            await rememberForgottenMacDeviceID(macDeviceID, scopeKey: pairedMacScopeKey(userWideScope(from: scope)))
-        }
-        registryDevices.removeAll { $0.deviceId == macDeviceID }
-    }
-
-    private func rememberForgottenMacDeviceID(_ macDeviceID: String, scopeKey key: String) async {
-        var ids = await storedForgottenMacDeviceIDs(scopeKey: key)
-        ids.insert(macDeviceID)
-        forgottenMacDeviceIDsByScope[key] = ids
-        await forgottenMacStore.save(ids, scope: key)
-    }
-
-    private func clearForgottenMacDeviceID(_ macDeviceID: String, scope: MobileShellScopeSnapshot?) async {
-        guard !macDeviceID.isEmpty, let scope else { return }
-        await clearForgottenMacDeviceID(macDeviceID, scopeKey: pairedMacScopeKey(scope))
-        if scope.teamID != nil {
-            await clearForgottenMacDeviceID(macDeviceID, scopeKey: pairedMacScopeKey(userWideScope(from: scope)))
-        }
-    }
-
-    private func clearForgottenMacDeviceID(_ macDeviceID: String, scopeKey key: String) async {
-        var ids = await storedForgottenMacDeviceIDs(scopeKey: key)
-        guard ids.remove(macDeviceID) != nil else { return }
-        forgottenMacDeviceIDsByScope[key] = ids
-        await forgottenMacStore.save(ids, scope: key)
-        if ids.isEmpty {
-            forgottenMacDeviceIDsByScope[key] = nil
-        }
-    }
-
-    /// Whether a previously-captured list-load scope is still current.
-    private func isScopeCurrent(_ scope: MobileShellScopeSnapshot) async -> Bool {
-        guard isSignedIn,
-              secondaryAggregationScopeGeneration == scope.generation else {
-            return false
-        }
-        if let currentUserID = identityProvider?.currentUserID,
-           currentUserID != scope.userID {
-            return false
-        }
-        return await teamIDProvider() == scope.teamID
     }
 
     /// Reload ``registryDevices`` from the team-scoped device registry.
@@ -2551,141 +2423,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return switched
     }
 
-    /// Forget the logical computer represented by a stored Mac id.
-    ///
-    /// The Computers screen displays coalesced rows when multiple stored ids dial
-    /// the same physical Mac. Deleting that row must remove every represented
-    /// stored id, otherwise hidden aliases keep their workspace snapshots and the
-    /// workspace list still looks too full after the user deletes a computer.
-    /// - Parameter macDeviceID: A visible representative or hidden stored Mac id.
-    public func forgetMac(macDeviceID: String) async {
-        guard let scope = await currentScopeSnapshot() else { return }
-        let macDeviceIDs = Array(Set(pairedMacAliasIDs(for: macDeviceID))).sorted()
-        await forgetStoredMacDeviceIDs(macDeviceIDs, scope: scope)
-    }
-
-    /// Forget exactly one stored paired-Mac row.
-    ///
-    /// The host picker lists stored rows, not coalesced logical computers, and its
-    /// swipe action has no confirmation. Keep that surface exact so a full-swipe
-    /// cannot remove hidden alias rows that the user was not shown.
-    public func forgetStoredMac(macDeviceID: String) async {
-        guard let scope = await currentScopeSnapshot() else { return }
-        await forgetStoredMacDeviceIDs([macDeviceID], scope: scope)
-    }
-
-    private func forgetStoredMacDeviceIDs(
-        _ macDeviceIDs: [String],
-        scope: MobileShellScopeSnapshot
-    ) async {
-        guard !macDeviceIDs.isEmpty else { return }
-        let targetIDSet = Set(macDeviceIDs)
-        let teamlessLegacyIDs = Set(pairedMacsForIdentityMatching
-            .filter { targetIDSet.contains($0.macDeviceID) && $0.teamID == nil }
-            .map(\.macDeviceID))
-        for id in macDeviceIDs {
-            await rememberForgottenMacDeviceID(
-                id,
-                scope: scope,
-                includeUserWideScope: teamlessLegacyIDs.contains(id)
-            )
-        }
-        guard await isScopeCurrent(scope) else {
-            for id in macDeviceIDs {
-                await clearForgottenMacDeviceID(id, scope: scope)
-            }
-            return
-        }
-        let workspacesBeforeForget = workspacesByMac
-        let foregroundMacDeviceIDBeforeForget = foregroundMacDeviceID
-        let isActiveMac = pairedMacsForIdentityMatching.contains {
-            targetIDSet.contains($0.macDeviceID) && $0.isActive
-        }
-        if isActiveMac {
-            disconnectLiveConnection(preservingOtherMacWorkspaceState: true)
-        }
-        // Tear down any live SECONDARY (non-foreground) connection + its aggregated
-        // workspace rows for this Mac, so forgetting it removes its workspaces from
-        // the list immediately instead of leaving a dead, still-updating entry that
-        // taps route into until the next aggregation pass. (The active/foreground
-        // Mac's teardown is handled by disconnectLiveConnection above.)
-        for id in macDeviceIDs {
-            if let subscription = secondaryMacSubscriptions[id] {
-                subscription.cancel()
-                secondaryMacSubscriptions[id] = nil
-            }
-            pruneWorkspaceStateForForgottenMac(id)
-        }
-        guard await isScopeCurrent(scope) else {
-            for id in macDeviceIDs {
-                await clearForgottenMacDeviceID(id, scope: scope)
-            }
-            workspacesByMac = workspacesBeforeForget
-            foregroundMacDeviceID = foregroundMacDeviceIDBeforeForget
-            return
-        }
-        var removedIDs = Set<String>()
-        var failedIDs = Set<String>()
-        for id in macDeviceIDs {
-            do {
-                try await pairedMacStore?.remove(
-                    macDeviceID: id,
-                    stackUserID: scope.userID,
-                    teamID: scope.teamID
-                )
-                removedIDs.insert(id)
-            } catch {
-                failedIDs.insert(id)
-                mobileShellLog.error("paired mac store remove failed mac=\(id, privacy: .public) error=\(String(describing: error), privacy: .public)")
-            }
-        }
-        if !failedIDs.isEmpty {
-            for id in failedIDs {
-                await clearForgottenMacDeviceID(id, scope: scope)
-            }
-            workspacesByMac = workspacesBeforeForget
-            foregroundMacDeviceID = foregroundMacDeviceIDBeforeForget
-            for id in removedIDs {
-                pruneWorkspaceStateForForgottenMac(id)
-            }
-        }
-        await loadPairedMacs()
-        clearSavedMacHintAfterDeletingLastVisibleMacIfNeeded()
-    }
-
-    private func clearSavedMacHintAfterDeletingLastVisibleMacIfNeeded() {
+    func clearSavedMacHintAfterDeletingLastVisibleMacIfNeeded() {
         guard pairedMacs.isEmpty else { return }
         storedMacReconnectGeneration &+= 1
         hasKnownPairedMac = false
         isReconnectingStoredMac = false
         didFinishStoredMacReconnectAttempt = false
-    }
-
-    /// Remove every workspace snapshot owned by a forgotten stored Mac.
-    ///
-    /// Most per-Mac snapshots are keyed by the Mac's real device id, but older
-    /// manual/anonymous foreground attaches can keep the snapshot under
-    /// ``foregroundAnonymousKey`` while its rows are already stamped with the
-    /// real `macDeviceID`. Deleting the computer must clear both shapes so the
-    /// workspace list cannot keep routing taps into a removed Mac.
-    private func pruneWorkspaceStateForForgottenMac(_ macDeviceID: String) {
-        guard !macDeviceID.isEmpty else { return }
-        if foregroundMacDeviceID == macDeviceID {
-            foregroundMacDeviceID = nil
-        }
-        let pruned = workspacesByMac.reduce(into: [String: MacWorkspaceState]()) { result, entry in
-            let (key, state) = entry
-            guard key != macDeviceID, state.macDeviceID != macDeviceID else { return }
-            let filteredWorkspaces = state.workspaces.filter { $0.macDeviceID != macDeviceID }
-            var filteredState = state
-            filteredState.workspaces = filteredWorkspaces
-            result[key] = filteredState
-        }
-        if pruned.count != workspacesByMac.count {
-            workspacesByMac = pruned
-        } else if pruned != workspacesByMac {
-            workspacesByMac = pruned
-        }
     }
 
     /// Whether route selection should avoid loopback routes. A loopback route
@@ -3192,7 +2935,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// ``forgetMac(macDeviceID:)`` and ``switchToMac(macDeviceID:)`` reuse this,
     /// so it must not clear ``hasKnownPairedMac`` (that belongs to the explicit
     /// forget-active path below).
-    private func disconnectLiveConnection(preservingOtherMacWorkspaceState: Bool = false) {
+    func disconnectLiveConnection(preservingOtherMacWorkspaceState: Bool = false) {
         suppressNextConnectionOutageEdge = true
         invalidatePairingAttempt()
         clearPairingError()
@@ -6904,109 +6647,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// onto the single in-flight pull task rather than stacking duplicate
     /// `mobile.workspace.list` calls. Returns immediately when not connected, so an
     /// offline pull cannot hang the spinner on a transport timeout.
-    /// UI-facing recover action for the workspace list when it is showing an
-    /// offline/disconnected state (pull-to-refresh and the offline status row's
-    /// Reconnect button both call this). Connected: re-sync. Disconnected:
-    /// re-attempt the saved active Mac, so an offline returning user whose auto-
-    /// reconnect failed is never stranded on a list with no way to act.
-    public func reconnectOrRefresh() async {
-        if connectionState == .connected {
-            await refreshWorkspaces()
-            return
-        }
-        if workspaceListConnectionStatus == .connected {
-            if let macDeviceID = workspaceListConnectedRefreshTargetMacDeviceID(),
-               await switchToMac(macDeviceID: macDeviceID) {
-                await refreshWorkspaces()
-                return
-            }
-            await refreshSecondaryMacWorkspaces()
-            return
-        }
-        if let macDeviceID = workspaceListReconnectTargetMacDeviceID(),
-           await switchToMac(macDeviceID: macDeviceID) {
-            return
-        }
-        _ = await reconnectActiveMacIfAvailable(stackUserID: identityProvider?.currentUserID)
-    }
-
-    /// Pick a connected visible Mac for pull-to-refresh when the list is healthy
-    /// but the foreground RPC slot is disconnected, e.g. after deleting the old
-    /// foreground computer while secondary Mac rows remain visible. Pulling should
-    /// refresh/promote one of those visible owners, not bounce through the stale
-    /// foreground slot and finish immediately.
-    func workspaceListConnectedRefreshTargetMacDeviceID() -> String? {
-        let connectionStatusesByMacDeviceID = macConnectionStatuses
-        let pairedMacDeviceIDs = Set(pairedMacsForIdentityMatching.map(\.macDeviceID))
-
-        func connectedMacDeviceID(from workspace: MobileWorkspacePreview?) -> String? {
-            guard let workspace,
-                  let macDeviceID = workspace.macDeviceID,
-                  (workspace.macConnectionStatus ?? connectionStatusesByMacDeviceID[macDeviceID]) == .connected,
-                  isReconnectableWorkspaceMacID(macDeviceID),
-                  pairedMacDeviceIDs.contains(macDeviceID)
-            else {
-                return nil
-            }
-            return macDeviceID
-        }
-
-        if let selected = connectedMacDeviceID(from: explicitlySelectedWorkspace) {
-            return selected
-        }
-        var candidates: [String] = []
-        var seen: Set<String> = []
-        for workspace in workspaces {
-            guard let macDeviceID = connectedMacDeviceID(from: workspace),
-                  !seen.contains(macDeviceID) else { continue }
-            seen.insert(macDeviceID)
-            candidates.append(macDeviceID)
-        }
-        return candidates.count == 1 ? candidates[0] : nil
-    }
-
-    /// Pick the Mac a workspace-list recover gesture should reconnect.
-    ///
-    /// The banner's button and pull-to-refresh both enter through
-    /// ``reconnectOrRefresh()``. When the list is disconnected but still shows
-    /// workspace rows from a specific unavailable Mac, reconnect that visible
-    /// owner first instead of blindly redialing whichever row is currently marked
-    /// active in the paired-Mac store.
-    func workspaceListReconnectTargetMacDeviceID() -> String? {
-        let pairedMacDeviceIDs = Set(pairedMacsForIdentityMatching.map(\.macDeviceID))
-
-        func reconnectableMacDeviceID(from workspace: MobileWorkspacePreview?) -> String? {
-            guard let workspace,
-                  (workspace.macConnectionStatus ?? macConnectionStatus) != .connected,
-                  let macDeviceID = workspace.macDeviceID,
-                  isReconnectableWorkspaceMacID(macDeviceID),
-                  pairedMacDeviceIDs.contains(macDeviceID)
-            else {
-                return nil
-            }
-            return macDeviceID
-        }
-
-        if let selected = reconnectableMacDeviceID(from: explicitlySelectedWorkspace) {
-            return selected
-        }
-        var candidates: [String] = []
-        var seen: Set<String> = []
-        for workspace in workspaces {
-            guard let macDeviceID = reconnectableMacDeviceID(from: workspace),
-                  !seen.contains(macDeviceID) else { continue }
-            seen.insert(macDeviceID)
-            candidates.append(macDeviceID)
-        }
-        return candidates.count == 1 ? candidates[0] : nil
-    }
-
-    private func isReconnectableWorkspaceMacID(_ macDeviceID: String) -> Bool {
-        !macDeviceID.isEmpty
-            && macDeviceID != Self.foregroundAnonymousKey
-            && !macDeviceID.hasPrefix("manual-")
-    }
-
     /// Bounded periodic refresh for the Computers screen's "keep it live while
     /// open" timer. The online dots come from the live presence subscription and
     /// secondary workspace lists come from their live read-only subscriptions —
