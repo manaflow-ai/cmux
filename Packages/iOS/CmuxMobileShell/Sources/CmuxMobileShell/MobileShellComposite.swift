@@ -2561,6 +2561,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func forgetMac(macDeviceID: String) async {
         guard let scope = await currentScopeSnapshot() else { return }
         let macDeviceIDs = Array(Set(pairedMacAliasIDs(for: macDeviceID))).sorted()
+        await forgetStoredMacDeviceIDs(macDeviceIDs, scope: scope)
+    }
+
+    /// Forget exactly one stored paired-Mac row.
+    ///
+    /// The host picker lists stored rows, not coalesced logical computers, and its
+    /// swipe action has no confirmation. Keep that surface exact so a full-swipe
+    /// cannot remove hidden alias rows that the user was not shown.
+    public func forgetStoredMac(macDeviceID: String) async {
+        guard let scope = await currentScopeSnapshot() else { return }
+        await forgetStoredMacDeviceIDs([macDeviceID], scope: scope)
+    }
+
+    private func forgetStoredMacDeviceIDs(
+        _ macDeviceIDs: [String],
+        scope: MobileShellScopeSnapshot
+    ) async {
         guard !macDeviceIDs.isEmpty else { return }
         let targetIDSet = Set(macDeviceIDs)
         let teamlessLegacyIDs = Set(pairedMacsForIdentityMatching
@@ -2620,6 +2637,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
         await loadPairedMacs()
+        clearSavedMacHintAfterDeletingLastVisibleMacIfNeeded()
+    }
+
+    private func clearSavedMacHintAfterDeletingLastVisibleMacIfNeeded() {
+        guard pairedMacs.isEmpty else { return }
+        storedMacReconnectGeneration &+= 1
+        hasKnownPairedMac = false
+        isReconnectingStoredMac = false
+        didFinishStoredMacReconnectAttempt = false
     }
 
     /// Remove every workspace snapshot owned by a forgotten stored Mac.

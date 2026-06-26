@@ -109,6 +109,92 @@ import Testing
         #expect(try await pairedStore.loadAll(stackUserID: "user-1", teamID: "team-a").map(\.macDeviceID) == ["mac-other"])
     }
 
+    @Test func forgettingLastVisibleMacClearsSavedMacHint() async throws {
+        let defaultsSuiteName = "forget-last-mac-hint-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsSuiteName))
+        defaults.set(true, forKey: "cmux.mobile.hasKnownPairedMac")
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "mac-a",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: true
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            pairingHintDefaults: defaults
+        )
+        await store.loadPairedMacs()
+        #expect(store.hasKnownPairedMac)
+
+        await store.forgetMac(macDeviceID: "mac-a")
+
+        #expect(store.pairedMacs.isEmpty)
+        #expect(store.displayPairedMacs.isEmpty)
+        #expect(!store.hasKnownPairedMac)
+    }
+
+    @Test func forgetStoredMacRemovesOnlyExactAliasRow() async throws {
+        let defaultsSuiteName = "forget-exact-alias-hint-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsSuiteName))
+        defaults.set(true, forKey: "cmux.mobile.hasKnownPairedMac")
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "mac-old",
+                        displayName: "Lawrence Mac",
+                        host: "100.82.214.112",
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: false
+                    ),
+                    try Self.pairedMac(
+                        id: "mac-fresh",
+                        displayName: "Lawrence Mac",
+                        host: "100.82.214.112",
+                        lastSeenAt: Date(timeIntervalSince1970: 20),
+                        isActive: true
+                    ),
+                    try Self.pairedMac(
+                        id: "mac-other",
+                        displayName: "Other Mac",
+                        host: "100.82.214.113",
+                        lastSeenAt: Date(timeIntervalSince1970: 30),
+                        isActive: false
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            pairingHintDefaults: defaults
+        )
+        await store.loadPairedMacs()
+
+        await store.forgetStoredMac(macDeviceID: "mac-old")
+
+        #expect(try await pairedStore.loadAll(stackUserID: "user-1", teamID: "team-a").map(\.macDeviceID) == ["mac-fresh", "mac-other"])
+        #expect(store.pairedMacs.map(\.macDeviceID) == ["mac-fresh", "mac-other"])
+        #expect(store.displayPairedMacs.map(\.macDeviceID) == ["mac-fresh", "mac-other"])
+        #expect(store.hasKnownPairedMac)
+    }
+
     @Test func presenceRoutesForHiddenDuplicateRefreshOnlyTheEmittingRow() async throws {
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [
