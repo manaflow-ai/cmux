@@ -1710,6 +1710,41 @@ class TabManager: ObservableObject {
         setCustomDescription(tabId: tabId, description: nil)
     }
 
+    func setCustomTags(tabId: UUID, tags: [String]) {
+        guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
+        tabs[index].setCustomTags(tags)
+    }
+
+    func setCustomTags(tabId: UUID, editingText: String) {
+        guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
+        tabs[index].setCustomTags(fromEditingText: editingText)
+    }
+
+    func clearCustomTags(tabId: UUID) {
+        setCustomTags(tabId: tabId, tags: [])
+    }
+
+    func applyWorkspaceTags(_ tags: [String], toWorkspaceIds workspaceIds: [UUID]) {
+        guard !workspaceIds.isEmpty else { return }
+        if workspaceIds.count == 1, let workspaceId = workspaceIds.first {
+            setCustomTags(tabId: workspaceId, tags: tags)
+            return
+        }
+
+        let targetIds = Set(workspaceIds)
+        for tab in tabs where targetIds.contains(tab.id) {
+            tab.setCustomTags(tags)
+        }
+    }
+
+    func applyWorkspaceTags(editingText: String, toWorkspaceIds workspaceIds: [UUID]) {
+        applyWorkspaceTags(Workspace.customTags(fromEditingText: editingText), toWorkspaceIds: workspaceIds)
+    }
+
+    func clearWorkspaceTags(forWorkspaceIds workspaceIds: [UUID]) {
+        applyWorkspaceTags([], toWorkspaceIds: workspaceIds)
+    }
+
     func setTabColor(tabId: UUID, color: String?) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         tab.setCustomColor(color)

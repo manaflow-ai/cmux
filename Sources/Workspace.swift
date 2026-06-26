@@ -122,6 +122,7 @@ extension Workspace {
             customTitle: customTitle,
             customTitleSource: effectiveCustomTitleSource,
             customDescription: customDescription,
+            customTags: customTags.isEmpty ? nil : customTags,
             customColor: customColor,
             isPinned: isPinned,
             groupId: groupId,
@@ -211,6 +212,7 @@ extension Workspace {
         applyProcessTitle(snapshot.processTitle)
         setCustomTitle(snapshot.customTitle, source: snapshot.customTitleSource ?? .user)
         setCustomDescription(snapshot.customDescription)
+        setCustomTags(snapshot.customTags ?? [])
         setCustomColor(snapshot.customColor)
         isPinned = snapshot.isPinned
         groupId = snapshot.groupId
@@ -2170,6 +2172,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// cannot prove it owns.
     @Published var customTitleSource: CustomTitleSource?
     @Published var customDescription: String?
+    @Published var customTags: [String] = []
     @Published var isPinned: Bool = false
     /// Identifier of the WorkspaceGroup this workspace belongs to, or nil if ungrouped.
     /// The group entity itself lives in `TabManager.workspaceGroups`.
@@ -3006,6 +3009,7 @@ final class Workspace: Identifiable, ObservableObject {
         self.customTitle = nil
         self.customTitleSource = nil
         self.customDescription = nil
+        self.customTags = []
 
         let trimmedWorkingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let hasWorkingDirectory = !trimmedWorkingDirectory.isEmpty
@@ -4347,6 +4351,10 @@ final class Workspace: Identifiable, ObservableObject {
         Self.normalizedCustomDescription(customDescription) != nil
     }
 
+    var hasCustomTags: Bool {
+        !customTags.isEmpty
+    }
+
     func applyProcessTitle(_ title: String) {
         if processTitle != title {
             processTitle = title
@@ -4387,6 +4395,31 @@ final class Workspace: Identifiable, ObservableObject {
         let trimmed = normalizedLineEndings?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !trimmed.isEmpty else { return nil }
         return normalizedLineEndings
+    }
+
+    static func normalizedCustomTags(_ tags: [String]) -> [String] {
+        var seenKeys = Set<String>()
+        var normalizedTags: [String] = []
+        normalizedTags.reserveCapacity(tags.count)
+
+        for tag in tags {
+            let normalized = tag
+                .components(separatedBy: .whitespacesAndNewlines)
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+            guard !normalized.isEmpty else { continue }
+            let key = normalized.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            guard seenKeys.insert(key).inserted else { continue }
+            normalizedTags.append(normalized)
+        }
+
+        return normalizedTags
+    }
+
+    static func customTags(fromEditingText text: String) -> [String] {
+        normalizedCustomTags(
+            text.components(separatedBy: CharacterSet(charactersIn: ",\n"))
+        )
     }
 
     /// Sets, replaces, or clears (empty/nil `title`) the workspace custom title.
@@ -4432,6 +4465,14 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
         customDescription = normalizedDescription
+    }
+
+    func setCustomTags(_ tags: [String]) {
+        customTags = Self.normalizedCustomTags(tags)
+    }
+
+    func setCustomTags(fromEditingText text: String) {
+        setCustomTags(Self.customTags(fromEditingText: text))
     }
 
     // MARK: - Directory Updates

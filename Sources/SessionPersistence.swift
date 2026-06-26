@@ -1829,6 +1829,9 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// absent provenance as user-set (the conservative choice for auto-naming).
     var customTitleSource: Workspace.CustomTitleSource? = nil
     var customDescription: String?
+    /// User-defined tags used to label, filter, and sort workspaces. Optional
+    /// with a `nil` default so manifests written before this field decode cleanly.
+    var customTags: [String]? = nil
     var customColor: String?
     var isPinned: Bool
     var groupId: UUID? = nil
