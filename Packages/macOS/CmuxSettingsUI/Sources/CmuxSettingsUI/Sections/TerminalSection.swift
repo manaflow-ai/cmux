@@ -28,6 +28,16 @@ public struct TerminalSection: View {
     @State private var rendererMaxWarm: DefaultsValueModel<Int>
     @State private var memGuardrailEnabled: DefaultsValueModel<Bool>
     @State private var memGuardrailThresholdGB: DefaultsValueModel<Double>
+    @State private var badgeEnabled: DefaultsValueModel<Bool>
+    @State private var badgeTemplate: DefaultsValueModel<String>
+    @State private var badgePosition: DefaultsValueModel<TerminalBadgePosition>
+    @State private var badgeOpacity: DefaultsValueModel<Double>
+    @State private var badgeFontSize: DefaultsValueModel<Double>
+    @State private var badgeColorHex: DefaultsValueModel<String>
+    @State private var badgeTemplateDraft: String = ""
+    @State private var badgeTemplateLoaded = false
+    @State private var activeBadgeOpacityDragValue: Double?
+    @State private var activeBadgeFontSizeDragValue: Double?
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
@@ -51,12 +61,19 @@ public struct TerminalSection: View {
         _rendererMaxWarm = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.rendererRealizationMaxWarmRenderers))
         _memGuardrailEnabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.runawayMemoryGuardrailEnabled))
         _memGuardrailThresholdGB = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.runawayMemoryGuardrailThresholdGB))
+        _badgeEnabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.badgeEnabled))
+        _badgeTemplate = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.badgeTemplate))
+        _badgePosition = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.badgePosition))
+        _badgeOpacity = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.badgeOpacity))
+        _badgeFontSize = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.badgeFontSize))
+        _badgeColorHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.badgeColorHex))
     }
 
     public var body: some View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.terminal", defaultValue: "Terminal"), section: .terminal)
             mainCard
+            badgeCard
             resumeCommandsCard
         }
         .task { startObservingSettings() }
@@ -76,6 +93,12 @@ public struct TerminalSection: View {
             rendererMaxWarm,
             memGuardrailEnabled,
             memGuardrailThresholdGB,
+            badgeEnabled,
+            badgeTemplate,
+            badgePosition,
+            badgeOpacity,
+            badgeFontSize,
+            badgeColorHex,
         ]
         models.forEach { $0.startObserving() }
     }
@@ -98,6 +121,165 @@ public struct TerminalSection: View {
     private func commitScrollSpeedDrag() {
         scrollSpeed.set(displayedScrollSpeed)
         activeScrollSpeedDragValue = nil
+    }
+
+    private var displayedBadgeOpacity: Double {
+        activeBadgeOpacityDragValue ?? badgeOpacity.current
+    }
+
+    private func commitBadgeOpacityDrag() {
+        badgeOpacity.set(displayedBadgeOpacity)
+        activeBadgeOpacityDragValue = nil
+    }
+
+    private var displayedBadgeFontSize: Double {
+        activeBadgeFontSizeDragValue ?? badgeFontSize.current
+    }
+
+    private func commitBadgeFontSizeDrag() {
+        badgeFontSize.set(displayedBadgeFontSize)
+        activeBadgeFontSizeDragValue = nil
+    }
+
+    private func badgePositionLabel(_ position: TerminalBadgePosition) -> String {
+        switch position {
+        case .topLeading:
+            return String(localized: "settings.terminal.badge.position.topLeft", defaultValue: "Top Left")
+        case .topTrailing:
+            return String(localized: "settings.terminal.badge.position.topRight", defaultValue: "Top Right")
+        case .bottomLeading:
+            return String(localized: "settings.terminal.badge.position.bottomLeft", defaultValue: "Bottom Left")
+        case .bottomTrailing:
+            return String(localized: "settings.terminal.badge.position.bottomRight", defaultValue: "Bottom Right")
+        }
+    }
+
+    private var badgeColorBinding: Binding<Color> {
+        Binding(
+            get: { Color(cmuxHex: badgeColorHex.current) ?? .white },
+            set: { badgeColorHex.set($0.cmuxHexString) }
+        )
+    }
+
+    @ViewBuilder
+    private var badgeCard: some View {
+        SettingsCard {
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                String(localized: "settings.terminal.badge", defaultValue: "Workspace & Tab Badge"),
+                subtitle: badgeEnabled.current
+                    ? String(localized: "settings.terminal.badge.subtitleOn", defaultValue: "Draws a scroll-fixed watermark on every terminal surface showing which workspace and tab it belongs to. It stays put no matter how much output scrolls by.")
+                    : String(localized: "settings.terminal.badge.subtitleOff", defaultValue: "No workspace/tab watermark is drawn over terminal surfaces.")
+            ) {
+                Toggle("", isOn: Binding(get: { badgeEnabled.current }, set: { badgeEnabled.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalBadgeToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                String(localized: "settings.terminal.badge.template", defaultValue: "Badge Template"),
+                subtitle: String(localized: "settings.terminal.badge.template.subtitle", defaultValue: "Text drawn in the badge. Use {workspace} for the workspace name and {tab} for the surface title."),
+                controlWidth: 220
+            ) {
+                TextField(
+                    TerminalBadge.defaultTemplate,
+                    text: $badgeTemplateDraft,
+                    onCommit: { badgeTemplate.set(badgeTemplateDraft) }
+                )
+                .textFieldStyle(.roundedBorder)
+                .disabled(!badgeEnabled.current)
+                .accessibilityIdentifier("SettingsTerminalBadgeTemplateField")
+                .onChange(of: badgeTemplate.current) { _, newValue in
+                    if badgeTemplateDraft != newValue { badgeTemplateDraft = newValue }
+                }
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                String(localized: "settings.terminal.badge.position", defaultValue: "Badge Position"),
+                subtitle: String(localized: "settings.terminal.badge.position.subtitle", defaultValue: "Corner of the terminal surface the badge is anchored to."),
+                controlWidth: 160
+            ) {
+                Picker("", selection: Binding(get: { badgePosition.current }, set: { badgePosition.set($0) })) {
+                    ForEach(TerminalBadgePosition.allCases, id: \.self) { position in
+                        Text(badgePositionLabel(position)).tag(position)
+                    }
+                }
+                .labelsHidden()
+                .disabled(!badgeEnabled.current)
+                .accessibilityIdentifier("SettingsTerminalBadgePositionPicker")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                String(localized: "settings.terminal.badge.opacity", defaultValue: "Badge Opacity"),
+                subtitle: String(localized: "settings.terminal.badge.opacity.subtitle", defaultValue: "How opaque the badge text appears over terminal output."),
+                controlWidth: 250
+            ) {
+                HStack(spacing: 8) {
+                    Slider(
+                        value: Binding(get: { displayedBadgeOpacity }, set: { activeBadgeOpacityDragValue = $0 }),
+                        in: TerminalBadge.minOpacity...TerminalBadge.maxOpacity,
+                        step: 0.05
+                    ) { editing in
+                        if !editing { commitBadgeOpacityDrag() }
+                    }
+                    .frame(width: 130)
+                    .disabled(!badgeEnabled.current)
+                    .accessibilityIdentifier("SettingsTerminalBadgeOpacitySlider")
+
+                    Text(String.localizedStringWithFormat(String(localized: "settings.terminal.badge.opacity.value", defaultValue: "%d%%"), Int((displayedBadgeOpacity * 100).rounded())))
+                        .cmuxFont(size: 12, weight: .medium, design: .rounded)
+                        .monospacedDigit()
+                        .frame(width: 44, alignment: .trailing)
+                }
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                String(localized: "settings.terminal.badge.fontSize", defaultValue: "Badge Font Size"),
+                subtitle: String(localized: "settings.terminal.badge.fontSize.subtitle", defaultValue: "Point size of the badge text."),
+                controlWidth: 250
+            ) {
+                HStack(spacing: 8) {
+                    Slider(
+                        value: Binding(get: { displayedBadgeFontSize }, set: { activeBadgeFontSizeDragValue = $0 }),
+                        in: TerminalBadge.minFontSize...TerminalBadge.maxFontSize,
+                        step: 1
+                    ) { editing in
+                        if !editing { commitBadgeFontSizeDrag() }
+                    }
+                    .frame(width: 130)
+                    .disabled(!badgeEnabled.current)
+                    .accessibilityIdentifier("SettingsTerminalBadgeFontSizeSlider")
+
+                    Text(String.localizedStringWithFormat(String(localized: "settings.fontSize.valuePoints", defaultValue: "%@ pt"), String(Int(displayedBadgeFontSize.rounded()))))
+                        .cmuxFont(size: 12, weight: .medium, design: .rounded)
+                        .monospacedDigit()
+                        .frame(width: 44, alignment: .trailing)
+                }
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                String(localized: "settings.terminal.badge.color", defaultValue: "Badge Color"),
+                subtitle: String(localized: "settings.terminal.badge.color.subtitle", defaultValue: "Color of the badge text."),
+                controlWidth: 120
+            ) {
+                ColorPicker("", selection: badgeColorBinding, supportsOpacity: false)
+                    .labelsHidden()
+                    .disabled(!badgeEnabled.current)
+                    .accessibilityIdentifier("SettingsTerminalBadgeColorPicker")
+            }
+        }
+        .task {
+            if !badgeTemplateLoaded {
+                badgeTemplateDraft = badgeTemplate.current
+                badgeTemplateLoaded = true
+            }
+        }
     }
 
     @ViewBuilder

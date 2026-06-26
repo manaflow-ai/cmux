@@ -7991,6 +7991,8 @@ final class GhosttySurfaceScrollView: NSView {
     private let imageTransferIndicatorSpinner: NSProgressIndicator
     private let imageTransferCancelButton: NSButton
     private var searchOverlayHostingView: NSHostingView<SurfaceSearchOverlay>?
+    private var badgeOverlayHostingView: TerminalBadgeOverlayHostingView?
+    private var lastBadgeContent: TerminalBadgeContent?
     private var deferredSearchOverlayMutationWorkItem: DispatchWorkItem?
     private var imageTransferIndicatorShowWorkItem: DispatchWorkItem?
     private var activeImageTransferOperation: TerminalImageTransferOperation?
@@ -9363,6 +9365,49 @@ final class GhosttySurfaceScrollView: NSView {
                 force: true
             )
         }
+    }
+
+    /// Mounts, updates, or removes the scroll-fixed per-workspace/per-tab badge
+    /// overlay (an iTerm2-style watermark). Called on every `updateNSView`; the
+    /// ``TerminalBadgeContent`` equality check keeps it a no-op when nothing
+    /// changed, so it adds no work to the typing path.
+    ///
+    /// The overlay is a direct subview of this portal-hosted view (like the
+    /// find UI) so it stays fixed in the visible terminal rect regardless of
+    /// scrollback. It is inserted just above the terminal content but below the
+    /// find UI and HUD badges, and never intercepts pointer events.
+    func setBadge(_ content: TerminalBadgeContent?) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.setBadge(content)
+            }
+            return
+        }
+
+        guard let content else {
+            lastBadgeContent = nil
+            badgeOverlayHostingView?.removeFromSuperview()
+            badgeOverlayHostingView = nil
+            return
+        }
+
+        if let overlay = badgeOverlayHostingView, overlay.superview === self {
+            if lastBadgeContent != content {
+                overlay.rootView = TerminalBadgeOverlayView(content: content)
+                lastBadgeContent = content
+            }
+            _ = setFrameIfNeeded(overlay, to: bounds)
+            return
+        }
+
+        let overlay = TerminalBadgeOverlayHostingView(
+            rootView: TerminalBadgeOverlayView(content: content)
+        )
+        overlay.frame = bounds
+        overlay.autoresizingMask = [.width, .height]
+        addSubview(overlay, positioned: .above, relativeTo: scrollView)
+        badgeOverlayHostingView = overlay
+        lastBadgeContent = content
     }
 
     func syncKeyStateIndicator(text: String?) {
@@ -11773,6 +11818,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
     var inactiveOverlayColor: NSColor = .clear
     var inactiveOverlayOpacity: Double = 0
     var searchState: TerminalSurface.SearchState? = nil
+    var badge: TerminalBadgeContent? = nil
     var reattachToken: UInt64 = 0
     var onFocus: ((UUID) -> Void)? = nil
     var onTriggerFlash: (() -> Void)? = nil
@@ -11988,6 +12034,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
             )
             hostedView.setNotificationRing(visible: showsUnreadNotificationRing)
             hostedView.setSearchOverlay(searchState: searchState)
+            hostedView.setBadge(badge)
             hostedView.syncKeyStateIndicator(text: terminalSurface.currentKeyStateIndicatorText)
         }
         let portalExpectedSurfaceId = terminalSurface.id
