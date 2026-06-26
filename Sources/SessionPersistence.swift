@@ -2099,16 +2099,18 @@ enum SessionScrollbackReplayStore {
         let compactRows: [[Character]] = lines.map { Array(visiblePlainText(of: $0).filter { !$0.isWhitespace }) }
 
         // A user prompt row BEGINS with the message text, possibly after a short
-        // prompt sigil ("> ", "❯ ", "│ > ", "$ "). Anchoring to the row start —
-        // rather than an unconstrained substring scan — keeps us off agent output
-        // that merely echoes the user's words mid-sentence ("I'll refactor the
-        // login flow"). Take the FIRST anchored match top-to-bottom: the user's
-        // prompt always precedes the agent's response (and any quote/echo of the
-        // prompt) for that turn, so the earliest anchored row is the prompt, never
-        // a later agent line. The match may continue into following rows for
-        // wrapped prompts.
+        // prompt sigil ("> ", "❯ ", "│ > ", "$ "). Two filters, in order:
+        //  1. Anchoring to the row start — rather than an unconstrained substring
+        //     scan — excludes agent output that merely echoes the user's words
+        //     mid-sentence ("I'll refactor the login flow", "Summary: …"), which is
+        //     never at a row start.
+        //  2. Among the anchored prompt rows, keep the BOTTOM-most so jump-to-prompt
+        //     lands on the user's MOST RECENT prompt (duplicate/repeated prompt text
+        //     resolves to the latest turn). Bottom-most is safe here precisely
+        //     because anchoring already removed the mid-sentence agent echoes.
+        // The match may continue into following rows for wrapped prompts.
         var targetIndex: Int?
-        search: for index in compactRows.indices where !compactRows[index].isEmpty {
+        for index in compactRows.indices where !compactRows[index].isEmpty {
             // Leading run of up to 4 non-alphanumeric sigil characters.
             var sigil = 0
             let row = compactRows[index]
@@ -2122,7 +2124,7 @@ enum SessionScrollbackReplayStore {
                 startOffset: offset
             ) {
                 targetIndex = index
-                break search
+                break
             }
         }
         guard let targetIndex else { return scrollback }

@@ -703,19 +703,19 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
-    // Matching survives SGR color escapes interleaved through the prompt message
-    // text, and when the same text anchors multiple rows the FIRST (the user's
-    // actual prompt, which precedes any later echo) is marked — exactly once.
-    func testScrollbackReplayMarksFirstPromptRowThroughInterleavedSGR() {
+    // When the same prompt text was submitted in more than one turn, the marker
+    // must land on the MOST RECENT (bottom-most) anchored prompt row so
+    // jump-to-prompt restores to the latest turn — and matching survives SGR
+    // color escapes interleaved through that row's message text.
+    func testScrollbackReplayMarksMostRecentRepeatedPromptRow() {
         let esc = "\u{001B}"
         let reset = "\(esc)[0m"
         let message = "fix the flaky test"
         let lines = [
-            // The user's prompt row, with SGR interleaved through the message.
-            "> \(esc)[1mfix\(reset) the \(esc)[4mflaky\(reset) test",
+            "> \(message)",                                   // an earlier turn's prompt
             "\(esc)[33mthinking…\(reset)",
-            // A later row that also anchors the same text (e.g. an agent quote).
-            "> \(message)",
+            // the most recent turn's prompt, SGR interleaved through the message
+            "> \(esc)[1mfix\(reset) the \(esc)[4mflaky\(reset) test",
         ]
         let scrollback = lines.joined(separator: "\n")
 
@@ -726,11 +726,11 @@ final class SessionPersistenceTests: XCTestCase {
         let markedLines = marked.components(separatedBy: "\n")
 
         XCTAssertEqual(markedLines.count, 3)
+        XCTAssertFalse(markedLines[0].contains("\(esc)]133;A"), "the earlier turn must stay unmarked")
         XCTAssertTrue(
-            markedLines[0].hasPrefix(SessionScrollbackReplayStore.semanticPromptStartMark),
-            "the first (prompt) row must be marked, got: \(markedLines[0])"
+            markedLines[2].hasPrefix(SessionScrollbackReplayStore.semanticPromptStartMark),
+            "the most recent prompt row must be marked, got: \(markedLines[2])"
         )
-        XCTAssertFalse(markedLines[2].contains("\(esc)]133;A"), "the later echo row must stay unmarked")
         // Exactly one marker is injected.
         XCTAssertEqual(
             marked.components(separatedBy: "\(esc)]133;A").count - 1, 1
