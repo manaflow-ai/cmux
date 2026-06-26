@@ -61,11 +61,18 @@ struct CmuxTaskManagerSnapshot {
         memoryDiagnostic: CmuxTaskManagerMemoryDiagnostic? = nil,
         agentAssetResolver: SessionAgentAssetResolver = .standard
     ) {
+        // `programAggregateRows`/`childMemoryRows` operate only on the rows and
+        // diagnostic passed to them (never the decoder's `payload`), so an empty
+        // payload yields byte-identical output to the former static calls.
+        let decoder = CmuxTaskManagerSnapshotDecoder(
+            payload: [:],
+            agentAssetResolver: agentAssetResolver
+        )
         self.init(
             rows: rows,
             agentRows: agentRows,
-            aggregateRows: CmuxTaskManagerSnapshotDecoder.programAggregateRows(from: rows, agentAssetResolver: agentAssetResolver),
-            childMemoryRows: CmuxTaskManagerSnapshotDecoder.childMemoryRows(from: memoryDiagnostic, agentAssetResolver: agentAssetResolver),
+            aggregateRows: decoder.programAggregateRows(from: rows),
+            childMemoryRows: decoder.childMemoryRows(from: memoryDiagnostic),
             total: total,
             sampledAt: sampledAt,
             memoryDiagnostic: memoryDiagnostic

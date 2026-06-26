@@ -559,11 +559,6 @@ func browserLoadRequest(_ request: URLRequest, in webView: WKWebView) -> WKNavig
     return webView.load(browserPreparedNavigationRequest(request))
 }
 
-private func browserCopyExternalNavigationURL(_ url: URL) {
-    NSPasteboard.general.clearContents()
-    NSPasteboard.general.setString(url.absoluteString, forType: .string)
-}
-
 func browserInteractiveModalHostWindow(_ window: NSWindow?) -> NSWindow? {
     guard let window else { return nil }
     guard window.isVisible else { return nil }
@@ -575,13 +570,6 @@ func browserInteractiveModalHostWindow(_ window: NSWindow?) -> NSWindow? {
 
 func browserInteractiveModalHostWindow(for webView: WKWebView) -> NSWindow? {
     browserInteractiveModalHostWindow(webView.window)
-}
-
-private func browserFallbackInteractiveModalHostWindow() -> NSWindow? {
-    if let keyWindow = browserInteractiveModalHostWindow(NSApp.keyWindow) {
-        return keyWindow
-    }
-    return browserInteractiveModalHostWindow(NSApp.mainWindow)
 }
 
 typealias BrowserAlertPresenter = (
@@ -605,80 +593,17 @@ func browserPresentAlert(
     completion(alert.runModal())
 }
 
-private func browserPresentExternalNavigationPrompt(
-    for url: URL,
-    in webView: WKWebView,
-    completion: @escaping (Bool) -> Void,
-    presentAlert: BrowserAlertPresenter = browserPresentAlert
-) {
-    let alert = NSAlert()
-    alert.alertStyle = .informational
-    alert.messageText = String(
-        localized: "browser.externalOpenPrompt.title",
-        defaultValue: "Open External App?"
-    )
-    alert.informativeText = String(
-        localized: "browser.externalOpenPrompt.message",
-        defaultValue: "A web page in cmux wants to open a link in another app. You can stay in the browser instead."
-    )
-    alert.addButton(withTitle: String(
-        localized: "browser.externalOpenPrompt.openApp",
-        defaultValue: "Open App"
-    ))
-    alert.addButton(withTitle: String(
-        localized: "browser.externalOpenPrompt.stayInBrowser",
-        defaultValue: "Stay in Browser"
-    ))
-
-    let handleResponse: (NSApplication.ModalResponse) -> Void = { response in
-        completion(response == .alertFirstButtonReturn)
-    }
-
-    presentAlert(alert, webView, handleResponse) {
-        completion(false)
-    }
-}
-
-private func browserPresentExternalNavigationFailure(
-    for url: URL,
-    in webView: WKWebView,
-    presentAlert: BrowserAlertPresenter = browserPresentAlert
-) {
-    let alert = NSAlert()
-    alert.alertStyle = .warning
-    alert.messageText = String(
-        localized: "browser.externalOpenFailure.title",
-        defaultValue: "Cannot Open Link"
-    )
-    alert.informativeText = String(
-        localized: "browser.externalOpenFailure.message",
-        defaultValue: "cmux could not open this link. You can copy it and open it in another app."
-    )
-    alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
-    alert.addButton(withTitle: String(
-        localized: "browser.externalOpenFailure.copyLink",
-        defaultValue: "Copy Link"
-    ))
-
-    let handleResponse: (NSApplication.ModalResponse) -> Void = { response in
-        if response == .alertSecondButtonReturn {
-            browserCopyExternalNavigationURL(url)
-        }
-    }
-
-    presentAlert(alert, webView, handleResponse) {}
-}
-
 @discardableResult
 private func browserOpenExternalNavigationURL(
     _ url: URL,
     source: String,
     webView: WKWebView,
-    presentAlert: BrowserAlertPresenter = browserPresentAlert
+    presentAlert: @escaping BrowserAlertPresenter = browserPresentAlert
 ) -> Bool {
     let opened = NSWorkspace.shared.open(url)
     if !opened {
-        browserPresentExternalNavigationFailure(for: url, in: webView, presentAlert: presentAlert)
+        BrowserExternalNavigationPresenter(presentAlert: presentAlert)
+            .presentFailure(for: url, in: webView)
     }
 #if DEBUG
     cmuxDebugLog(
@@ -712,7 +637,7 @@ func browserHandleExternalNavigation(
         return true
 
     case let .promptToOpenApp(externalURL):
-        browserPresentExternalNavigationPrompt(
+        BrowserExternalNavigationPresenter(presentAlert: presentAlert).presentPrompt(
             for: externalURL,
             in: webView,
             completion: { shouldOpenApp in
@@ -731,8 +656,7 @@ func browserHandleExternalNavigation(
                     webView: webView,
                     presentAlert: presentAlert
                 )
-            },
-            presentAlert: presentAlert
+            }
         )
         return true
     }
@@ -3029,7 +2953,7 @@ final class BrowserPanel: Panel, ObservableObject {
             if let self, let window = browserInteractiveModalHostWindow(for: self.webView) {
                 return window
             }
-            return browserFallbackInteractiveModalHostWindow()
+            return BrowserExternalNavigationPresenter.fallbackInteractiveModalHostWindow()
         }
 
         if let initialRequest {
@@ -6747,7 +6671,7 @@ extension BrowserPanel {
             if let self, let window = browserInteractiveModalHostWindow(for: self.webView) {
                 return window
             }
-            return browserFallbackInteractiveModalHostWindow()
+            return BrowserExternalNavigationPresenter.fallbackInteractiveModalHostWindow()
         }
     }
 
