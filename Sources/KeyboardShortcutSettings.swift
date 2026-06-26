@@ -2024,11 +2024,22 @@ struct ShortcutStroke: Equatable, Hashable {
         applyShiftSymbolNormalization: Bool,
         eventKeyCode: UInt16
     ) -> Bool {
-        for candidate in [eventCharacter, layoutCharacter] {
-            guard let candidate, !candidate.isEmpty else { continue }
+        // `eventCharacter` (charactersIgnoringModifiers) keeps Shift but not the
+        // command-aware layout state, so it takes the caller's Shift flag — same
+        // as the primary character match. `layoutCharacter` is already produced
+        // through `layoutCharacterProvider(keyCode, modifierFlags)`, which is Shift
+        // aware, so it must NOT be Shift-normalized again (matching the `false`
+        // used for the layout-character match above); double-shifting would map a
+        // bare "{" to "[" and spuriously trip this guard.
+        let candidates: [(glyph: String?, applyShift: Bool)] = [
+            (eventCharacter, applyShiftSymbolNormalization),
+            (layoutCharacter, false),
+        ]
+        for (glyph, applyShift) in candidates {
+            guard let glyph, !glyph.isEmpty else { continue }
             let normalized = normalizedShortcutEventCharacter(
-                candidate,
-                applyShiftSymbolNormalization: applyShiftSymbolNormalization,
+                glyph,
+                applyShiftSymbolNormalization: applyShift,
                 eventKeyCode: eventKeyCode
             )
             guard normalized != shortcutKey else { continue }

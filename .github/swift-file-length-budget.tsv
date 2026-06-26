@@ -35,7 +35,7 @@
 3058	Sources/Update/UpdateTitlebarAccessory.swift
 2876	cmuxTests/CMUXOpenCommandTests.swift
 2875	Sources/SessionIndexView.swift
-2606	Sources/KeyboardShortcutSettings.swift
+2667	Sources/KeyboardShortcutSettings.swift
 2565	Sources/Panels/CmuxWebView.swift
 2546	cmuxTests/WorkspaceManualUnreadTests.swift
 2524	cmuxTests/CommandPaletteSearchEngineTests.swift
@@ -123,6 +123,7 @@
 759	Sources/App/MenuBarExtraController.swift
 756	Sources/Panels/AgentSessionWebRendererCoordinator.swift
 755	CLI/CMUXCLI+AgentHookDefinitions.swift
+755	cmuxTests/KeyboardShortcutContextTests.swift
 754	Sources/TerminalController+ControlWorkspaceContext.swift
 752	cmuxUITests/CloseWorkspaceCmdDUITests.swift
 739	cmuxTests/CLICodexHookTimeoutRegressionTests.swift
@@ -139,7 +140,6 @@
 696	cmuxTests/UpdatePillReleaseVisibilityTests.swift
 691	Sources/NotificationSoundSettings.swift
 691	cmuxTests/TaskManagerResourcesTests.swift
-688	cmuxTests/KeyboardShortcutContextTests.swift
 683	Packages/macOS/CmuxSwiftRender/Sources/CmuxSwiftRender/SwiftViewInterpreter.swift
 683	Sources/Panels/CodexAppServerSession.swift
 681	Sources/Panels/AgentSessionProcessStore.swift
