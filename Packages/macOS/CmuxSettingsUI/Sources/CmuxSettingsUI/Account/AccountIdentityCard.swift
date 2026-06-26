@@ -57,11 +57,12 @@ struct AccountIdentityCard: View {
         return flow?.signInIsSlow == true || signInErrorMessage != nil
     }
 
-    /// The display-safe failure for the last sign-in attempt, shown only while
-    /// signed out so it can never shadow a signed-in identity.
+    /// The display-safe failure for the last sign-in attempt. Reached only
+    /// through ``showSignInRecovery`` (which already gates on
+    /// `currentIdentity == nil`), and `HostAccountFlow.signInErrorMessage`
+    /// itself returns `nil` while signed in — so no extra guard is needed.
     private var signInErrorMessage: String? {
-        guard flow?.currentIdentity == nil else { return nil }
-        return flow?.signInErrorMessage
+        flow?.signInErrorMessage
     }
 
     private var signInRecovery: some View {

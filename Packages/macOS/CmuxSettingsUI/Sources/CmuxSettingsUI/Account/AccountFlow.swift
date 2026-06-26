@@ -48,10 +48,12 @@ public protocol AccountFlow: AnyObject {
     /// re-reads ``currentIdentity`` when the flow resolves.
     func startSignIn()
 
-    /// Opens the in-flight sign-in in the user's default browser as a fallback
-    /// when the system sign-in window hangs (``signInIsSlow``). The browser
-    /// completes the sign-in and deep-links back into the app to finish the
-    /// in-flight attempt. A no-op when no sign-in is in flight.
+    /// Opens sign-in in the user's default browser as a fallback when the
+    /// Safari-backed system sign-in window hangs (``signInIsSlow``) or has
+    /// failed (``signInErrorMessage``). When a popup attempt is in flight the
+    /// browser finishes that attempt; otherwise it starts a fresh
+    /// default-browser sign-in. Either way the browser completes the sign-in
+    /// and deep-links back into the app to finish it (issue #6015).
     func openSignInInDefaultBrowser()
 
     /// Signs out and clears any cached identity. After this returns,
