@@ -8,3 +8,11 @@ public enum MainWindowFindShortcutTarget: Equatable {
     /// Find has no applicable target.
     case none
 }
+
+extension MainWindowFindShortcutTarget {
+    /// The Find target when the right sidebar is showing `mode`: the file search
+    /// for the files mode, otherwise no right-sidebar target.
+    public static func forRightSidebarMode(_ mode: RightSidebarMode) -> MainWindowFindShortcutTarget {
+        mode == .files ? .rightSidebarFileSearch : .none
+    }
+}
