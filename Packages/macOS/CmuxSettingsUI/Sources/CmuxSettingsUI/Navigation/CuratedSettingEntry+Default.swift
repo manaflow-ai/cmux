@@ -211,7 +211,8 @@ extension Array where Element == CuratedSettingEntry {
                     Self.keyboardShortcutActionSynonyms,
                 ].joined(separator: " ")
             ),
-            .init(section: .keyboardShortcuts, id: "modifier-hold-hints", title: String(localized: "settings.shortcuts.showModifierHoldHints", defaultValue: "Show Shortcut Hints While Holding Modifier Keys"), synonyms: "shortcuts.showModifierHoldHints shortcut hints hotkey hints command cmd modifier hold chips badges"),
+            .init(section: .keyboardShortcuts, id: "modifier-hold-hints", title: String(localized: "settings.shortcuts.showModifierHoldHints", defaultValue: "Show Shortcut Hints While Holding Modifier Keys"), synonyms: "shortcuts.showModifierHoldHints shortcut hints hotkey hints command cmd control modifier hold chips badges"),
+            .init(section: .keyboardShortcuts, id: "command-hold-hints", title: String(localized: "settings.shortcuts.showCommandHoldHints", defaultValue: "Show Shortcut Hints While Holding Cmd"), synonyms: "shortcuts.showCommandHoldHints shortcut hints hotkey hints command cmd hold chips badges"),
             .init(section: .keyboardShortcuts, id: "shortcut-chords", title: "Shortcut Chords", synonyms: "tmux prefix ctrl-b control-b multi key sequence chord cmux json"),
             .init(section: .keyboardShortcuts, id: "reset-defaults", title: "Reset Default Shortcuts", synonyms: "reset restore default defaults built in builtin shortcuts hotkeys keybindings commands"),
 

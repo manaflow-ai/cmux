@@ -848,6 +848,7 @@
         },
         "shortcuts": {
           "when": "Необов'язкові контекстні предикати для кожної дії (клаузи `when` у стилі VS Code), індексовані за ідентифікатором дії cmux. Кожне значення — булевий вираз над ключами контексту, поєднаними за допомогою !, &&, || та дужок. Булеві ключі: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Типізовані ключі підтримують порівняння: рядок sidebarMode (files, find, sessions, feed або dock) і цілі числа paneCount та workspaceCount. Оператори порівняння: ==, !=, =~ (регулярний вираз), <, <=, >, >= та `in [a, b]`; невідомий або відсутній ключ вважається false. Також приймаються булеві літерали true і false; `key == false` еквівалентно `!key`. Скорочення дії спрацьовує (і конфліктує з іншими скороченнями) лише тоді, коли клауза істинна. Приклади: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } вибирає робочі простори за допомогою Ctrl+1–9 всюди, крім випадків, коли у фокусі права бічна панель; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } обмежує прив'язку бічною панеллю пошуку, коли в робочому просторі кілька панелей.",
+          "showCommandHoldHints": "Показувати підказки комбінацій клавіш, доки утримується Cmd. shortcuts.showModifierHoldHints також має бути ввімкнено.",
           "showModifierHoldHints": "Показувати підказки комбінацій клавіш, доки утримується Cmd або Control."
         }
       },

@@ -222,6 +222,8 @@ extension CmuxSettingsFileStore {
             ],
             [
                 "shortcuts": [
+                    "showModifierHoldHints": SettingCatalog().shortcuts.showModifierHoldHints.defaultValue,
+                    "showCommandHoldHints": SettingCatalog().shortcuts.showCommandHoldHints.defaultValue,
                     "bindings": shortcutsBindings,
                 ],
             ],

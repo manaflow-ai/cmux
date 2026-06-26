@@ -43,6 +43,22 @@ struct ShortcutHintModifierHoldPolicyTests {
         }
     }
 
+    @Test
+    func commandHoldHintsSettingSuppressesCommandOnly() throws {
+        try withDefaultsSuite { defaults in
+            defaults.set(false, forKey: ShortcutHintDebugSettings.showCommandHoldHintsKey)
+            let settings = ShortcutHintDebugSettings(defaults: defaults)
+            let policy = ShortcutHintModifierPolicy(defaults: defaults)
+
+            #expect(settings.modifierHoldHintsEnabled)
+            #expect(!settings.commandHoldHintsEnabled)
+            #expect(!policy.shouldShowHints(for: [.command]))
+            #expect(policy.shouldShowHints(for: [.control]))
+            #expect(!policy.shouldShowCommandHints(for: [.command]))
+            #expect(policy.shouldShowControlHints(for: [.control]))
+        }
+    }
+
     private func withDefaultsSuite(_ body: (UserDefaults) throws -> Void) throws {
         let suiteName = "ShortcutHintModifierHoldPolicyTests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))

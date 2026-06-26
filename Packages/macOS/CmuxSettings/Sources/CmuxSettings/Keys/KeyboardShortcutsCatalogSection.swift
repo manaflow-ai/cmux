@@ -16,6 +16,13 @@ public struct KeyboardShortcutsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "showModifierHoldHints"
     )
 
+    /// Whether holding Command shows shortcut-hint chips in the app UI.
+    public let showCommandHoldHints = DefaultsKey<Bool>(
+        id: "shortcuts.showCommandHoldHints",
+        defaultValue: true,
+        userDefaultsKey: "showCommandHoldHints"
+    )
+
     /// The persisted user bindings: `[actionID: StoredShortcut]`.
     /// Actions absent from this dictionary fall back to the layer's
     /// declared default. ``StoredShortcut/unbound`` for an action

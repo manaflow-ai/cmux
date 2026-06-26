@@ -28,6 +28,17 @@ public struct ShortcutHintDebugSettings {
     /// set it; mirrors the catalog default for `shortcuts.showModifierHoldHints`.
     public static let defaultShowModifierHoldHints = true
 
+    /// Raw `UserDefaults` key backing the user-facing
+    /// `shortcuts.showCommandHoldHints` toggle. `CmuxFoundation` is a leaf
+    /// module and cannot import `CmuxSettings`, so the key is duplicated here;
+    /// `ShortcutHintDebugSettingsBindingTests` asserts it stays in sync with
+    /// `SettingCatalog().shortcuts.showCommandHoldHints`.
+    public static let showCommandHoldHintsKey = "showCommandHoldHints"
+
+    /// Default applied for ``showCommandHoldHintsKey`` when the user has not
+    /// set it; mirrors the catalog default for `shortcuts.showCommandHoldHints`.
+    public static let defaultShowCommandHoldHints = true
+
     /// Allowed range (in points) for a debug hint position offset.
     public static let offsetRange: ClosedRange<Double> = -20...20
 
@@ -63,19 +74,29 @@ public struct ShortcutHintDebugSettings {
     /// Reads the raw value written by the `shortcuts.showModifierHoldHints`
     /// setting, falling back to ``defaultShowModifierHoldHints`` when unset.
     public var modifierHoldHintsEnabled: Bool {
-        guard defaults.object(forKey: Self.showModifierHoldHintsKey) != nil else {
-            return Self.defaultShowModifierHoldHints
-        }
-        return defaults.bool(forKey: Self.showModifierHoldHintsKey)
+        bool(forKey: Self.showModifierHoldHintsKey, defaultValue: Self.defaultShowModifierHoldHints)
+    }
+
+    /// Whether the user-facing command-hold hint toggle is enabled.
+    ///
+    /// Reads the raw value written by the `shortcuts.showCommandHoldHints`
+    /// setting, falling back to ``defaultShowCommandHoldHints`` when unset.
+    public var commandHoldHintsEnabled: Bool {
+        bool(forKey: Self.showCommandHoldHintsKey, defaultValue: Self.defaultShowCommandHoldHints)
     }
 
     /// Whether command-hold hints are enabled.
     public var showHintsOnCommandHoldEnabled: Bool {
-        Self.defaultShowHintsOnCommandHold && modifierHoldHintsEnabled
+        Self.defaultShowHintsOnCommandHold && modifierHoldHintsEnabled && commandHoldHintsEnabled
     }
 
     /// Whether control-hold hints are enabled.
     public var showHintsOnControlHoldEnabled: Bool {
         Self.defaultShowHintsOnControlHold && modifierHoldHintsEnabled
+    }
+
+    private func bool(forKey key: String, defaultValue: Bool) -> Bool {
+        guard defaults.object(forKey: key) != nil else { return defaultValue }
+        return defaults.bool(forKey: key)
     }
 }

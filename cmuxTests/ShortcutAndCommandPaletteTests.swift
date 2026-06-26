@@ -1001,7 +1001,7 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
         }
     }
 
-    func testCommandAndControlHintsAreHardcodedEnabled() {
+    func testCommandAndControlHintsAreEnabledByDefault() {
         withDefaultsSuite { defaults in
             XCTAssertTrue(ShortcutHintModifierPolicy(defaults: defaults).shouldShowHints(for: [.command]))
             XCTAssertTrue(ShortcutHintModifierPolicy(defaults: defaults).shouldShowHints(for: [.control]))
@@ -1527,7 +1527,7 @@ final class ShortcutHintDebugSettingsTests: XCTestCase {
         )
     }
 
-    func testShowHintsOnCommandHoldIsHardcodedEnabled() {
+    func testShowHintsOnCommandHoldIsEnabledByDefault() {
         let suiteName = "ShortcutHintDebugSettingsTests-\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Failed to create defaults suite")
@@ -1538,6 +1538,22 @@ final class ShortcutHintDebugSettingsTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         XCTAssertTrue(ShortcutHintDebugSettings(defaults: defaults).showHintsOnCommandHoldEnabled)
+    }
+
+    func testShowHintsOnCommandHoldFollowsCommandHoldSetting() {
+        let suiteName = "ShortcutHintDebugSettingsTests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create defaults suite")
+            return
+        }
+
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(false, forKey: ShortcutHintDebugSettings.showCommandHoldHintsKey)
+
+        XCTAssertFalse(ShortcutHintDebugSettings(defaults: defaults).showHintsOnCommandHoldEnabled)
+        XCTAssertTrue(ShortcutHintDebugSettings(defaults: defaults).showHintsOnControlHoldEnabled)
     }
 
     func testShowHintsOnControlHoldIsHardcodedEnabled() {
