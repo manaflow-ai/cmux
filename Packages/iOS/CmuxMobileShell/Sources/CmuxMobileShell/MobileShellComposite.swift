@@ -4495,11 +4495,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // the caller records the matching analytics reason from it.
             connectionError = MobilePairingFailureCategory.noSupportedRoute.message
             connectionErrorGuidance = MobilePairingFailureCategory.noSupportedRoute.guidance
-            pairingChecklist = pairingChecklist.applyingFailure(
-                .trust,
-                message: MobilePairingFailureCategory.noSupportedRoute.message,
-                guidance: MobilePairingFailureCategory.noSupportedRoute.guidance
-            )
+            pairingChecklist = pairingChecklist.applyingFailure(.noSupportedRoute, phase: "route_selection")
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
@@ -4972,12 +4968,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connectionError = category.message
         }
         connectionErrorGuidance = category.guidance
-        pairingChecklist = pairingChecklist.applyingFailure(
-            category.pairingStep,
-            message: category.message,
-            guidance: category.guidance,
-            succeededSteps: pairingSucceededSteps(before: category, phase: phase)
-        )
+        pairingChecklist = pairingChecklist.applyingFailure(category, phase: phase)
         recordPairingFailed(reason: category.analyticsReason, phase: phase)
     }
 
@@ -4986,20 +4977,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             _ = beginPairingValidationAttempt(method: "qr")
         }
         applyPairingFailure(category, phase: "validation")
-    }
-
-    private func pairingSucceededSteps(
-        before category: MobilePairingFailureCategory,
-        phase: String
-    ) -> Set<MobilePairingStep> {
-        switch category.pairingStep {
-        case .network:
-            return []
-        case .authentication:
-            return phase == "validation" ? [] : [.network]
-        case .trust:
-            return []
-        }
     }
 
     /// Clear the error and its guidance together (never bare `connectionError
@@ -5077,12 +5054,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         if let category {
-            pairingChecklist = pairingChecklist.applyingFailure(
-                category.pairingStep,
-                message: category.message,
-                guidance: category.guidance,
-                succeededSteps: pairingSucceededSteps(before: category, phase: phase)
-            )
+            pairingChecklist = pairingChecklist.applyingFailure(category, phase: phase)
         }
         recordPairingFailed(reason: category?.analyticsReason ?? "other", phase: phase)
     }
@@ -5097,12 +5069,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             : category.message
         connectionErrorGuidance = category.guidance
         pairingChecklist = pairingChecklist.applyingFailure(
-            category.pairingStep,
-            message: connectionError ?? category.message,
-            guidance: category.guidance,
-            succeededSteps: category.pairingStep == .authentication
-                ? Set<MobilePairingStep>([.network])
-                : Set<MobilePairingStep>()
+            category,
+            phase: "operation",
+            message: connectionError ?? category.message
         )
     }
 
@@ -6836,9 +6805,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             : category.message
         connectionErrorGuidance = category.guidance
         pairingChecklist = pairingChecklist.applyingFailure(
-            category.pairingStep,
+            category,
+            phase: "operation",
             message: connectionError ?? category.message,
-            guidance: category.guidance,
             succeededSteps: [.network]
         )
         connectionRequiresReauth = true
