@@ -110,18 +110,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         return "\(shortcutModifierSymbol)\(shortcutDigit)"
     }
 
-    private var rowHeightProbe: some View {
-        GeometryReader { proxy in
-            Color.clear
-                .onAppear {
-                    rowHeight = max(proxy.size.height, 1)
-                }
-                .onChange(of: proxy.size.height) { _, newHeight in
-                    rowHeight = max(newHeight, 1)
-                }
-        }
-    }
-
     var body: some View {
         HStack(spacing: 4) {
             CmuxSystemSymbolImage(
@@ -259,7 +247,10 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             offsetY: shortcutHintYOffset
         )
         .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
-        .background { rowHeightProbe }
+        .sidebarRowHeightProbe()
+        .onPreferenceChange(SidebarRowHeightPreferenceKey.self) { height in
+            rowHeight = max(height, 1)
+        }
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay(alignment: .top) {
