@@ -698,6 +698,18 @@ final class CmuxWebView: WKWebView {
             if result {
                 return finish(true)
             }
+            // The focused web content already saw this document-editing command and
+            // did not claim it. For commands with no AppKit Edit-menu counterpart
+            // (italic), swallow it here so the static main-menu key equivalent — e.g.
+            // ⌘I → Show Notifications — cannot hijack an editing keystroke the page
+            // owns. Copy/cut/select-all still fall through to their Edit-menu items
+            // (issue #6776).
+            if shouldSuppressAppMenuFallbackForBrowserDocumentEditingCommandEquivalent(
+                event,
+                responder: window?.firstResponder
+            ) {
+                return finish(true)
+            }
         }
 
         var replayedBrowserFindShortcutIntoWebContent = false
