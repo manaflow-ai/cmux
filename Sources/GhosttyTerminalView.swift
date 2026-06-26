@@ -426,11 +426,6 @@ class GhosttyApp {
     private static let appRegistryLock = NSLock()
     private static var appRegistry: [UInt: GhosttyApp] = [:]
     private static var initializingRuntimeApp: GhosttyApp?
-    private static let backgroundLogTimestampFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
 
     private(set) var app: ghostty_app_t?
     private(set) var config: ghostty_config_t?
@@ -639,10 +634,10 @@ class GhosttyApp {
         }
         return UserDefaults.standard.bool(forKey: "cmuxDebugBG")
     }()
-    private let backgroundLogURL = GhosttyApp.resolveBackgroundLogURL()
-    private let backgroundLogStartUptime = ProcessInfo.processInfo.systemUptime
-    private let backgroundLogLock = NSLock()
-    private var backgroundLogSequence: UInt64 = 0
+    private let backgroundLogWriter = BackgroundLogWriter(
+        fileURL: GhosttyApp.resolveBackgroundLogURL(),
+        startUptime: ProcessInfo.processInfo.systemUptime
+    )
     private var appObservers: [NSObjectProtocol] = []
     private var bellAudioSound: NSSound?
     private var backgroundEventCounter: UInt64 = 0
@@ -3271,31 +3266,17 @@ class GhosttyApp {
     }
 
     func logBackground(_ message: String) {
-        // Skip all work (string formatting and disk I/O) unless background logging is
-        // explicitly enabled via env/defaults. Without this guard, direct callers wrote
-        // to /tmp/cmux-bg.log on every theme/OSC color event even in normal runs.
+        // Skip all work (timing capture, string formatting, and disk I/O) unless
+        // background logging is explicitly enabled via env/defaults. Without this
+        // guard, direct callers wrote to /tmp/cmux-bg.log on every theme/OSC color
+        // event even in normal runs.
         guard backgroundLogEnabled else { return }
-        let timestamp = Self.backgroundLogTimestampFormatter.string(from: Date())
-        let uptimeMs = (ProcessInfo.processInfo.systemUptime - backgroundLogStartUptime) * 1000
-        let frame60 = Int((CACurrentMediaTime() * 60.0).rounded(.down))
-        let frame120 = Int((CACurrentMediaTime() * 120.0).rounded(.down))
-        let threadLabel = Thread.isMainThread ? "main" : "background"
-        backgroundLogLock.lock()
-        defer { backgroundLogLock.unlock() }
-        backgroundLogSequence &+= 1
-        let sequence = backgroundLogSequence
-        let line =
-            "\(timestamp) seq=\(sequence) t+\(String(format: "%.3f", uptimeMs))ms thread=\(threadLabel) frame60=\(frame60) frame120=\(frame120) cmux bg: \(message)\n"
-        if let data = line.data(using: .utf8) {
-            if FileManager.default.fileExists(atPath: backgroundLogURL.path) == false {
-                FileManager.default.createFile(atPath: backgroundLogURL.path, contents: nil)
-            }
-            if let handle = try? FileHandle(forWritingTo: backgroundLogURL) {
-                defer { try? handle.close() }
-                guard (try? handle.seekToEnd()) != nil else { return }
-                try? handle.write(contentsOf: data)
-            }
-        }
+        // The writer captures cheap timing values here and performs all string
+        // formatting + the file append on a dedicated serial queue against a single
+        // long-lived handle, so emitting a line never blocks the calling thread —
+        // frequently the main thread, inside SwiftUI appearance updates. See
+        // https://github.com/manaflow-ai/cmux/issues/5833.
+        backgroundLogWriter.log(message, isMainThread: Thread.isMainThread)
     }
 }
 
