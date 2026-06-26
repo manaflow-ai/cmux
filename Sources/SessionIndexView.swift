@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
+import CmuxFoundation
 import CMUXAgentLaunch
 import SQLite3
 import SwiftUI

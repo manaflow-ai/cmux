@@ -364,7 +364,7 @@ class GhosttyApp {
         runtimeFilesystem: .live(),
         sessionPortBase: GhosttyApp.terminalSessionPortBase,
         sessionPortRangeSize: GhosttyApp.terminalSessionPortRangeSize,
-        scrollbackReplayEnvironmentKey: SessionScrollbackReplayStore.environmentKey
+        scrollbackReplayEnvironmentKey: SessionScrollbackReplay.environmentKey
     )
 
     private static let releaseBundleIdentifier = "com.cmuxterm.app"

@@ -52,7 +52,7 @@
 1848	cmuxTests/NotificationAndMenuBarTests.swift
 1810	Sources/SessionIndexStore.swift
 1792	Sources/TerminalController+ControlDebugContext.swift
-1748	Sources/WindowDragHandleView.swift
+1688	Sources/WindowDragHandleView.swift
 1732	cmuxTests/WorkspacePullRequestSidebarTests.swift
 1687	cmuxTests/MarkdownPanelTests.swift
 1677	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
