@@ -445,6 +445,62 @@ struct TabManagerTitleUpdateTests {
         #expect(abs(PanelTitleUpdateCoalescingSettings.delay(settings: settings) - 5.0) < 0.000_1)
     }
 
+    /// Regression for #6291: CLI tools (pnpm, npm, cargo, …) animate a spinner by
+    /// rewriting the terminal title on every frame with a leading braille glyph
+    /// (`⠋⠙⠹…`). Each raw frame is a distinct string, so without normalization
+    /// every frame mutates the workspace title and posts `.workspaceTitleDidChange`,
+    /// thrashing the sidebar's main-thread layout until clicks are starved. The
+    /// frames should collapse to one stable, spinner-free panel title that mutates
+    /// the workspace exactly once.
+    @Test
+    func spinnerTerminalTitleFramesCollapseToStablePanelTitle() async throws {
+        let suiteName = "TabManagerSpinnerTitleCollapse.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let scheduler = ManualCoalescerScheduler()
+        let manager = TabManager(
+            panelTitleUpdateCoalescer: NotificationBurstCoalescer(
+                schedule: scheduler.schedule(delay:action:)
+            ),
+            settings: settings
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        let focusedPanelId = try #require(workspace.focusedPanelId)
+
+        var workspaceTitleChangeCount = 0
+        let titleDidChangeObserver = NotificationCenter.default.addObserver(
+            forName: .workspaceTitleDidChange,
+            object: manager,
+            queue: nil
+        ) { _ in
+            workspaceTitleChangeCount += 1
+        }
+        defer { NotificationCenter.default.removeObserver(titleDidChangeObserver) }
+
+        let spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        for (index, frame) in spinnerFrames.enumerated() {
+            NotificationCenter.default.post(
+                name: .ghosttyDidSetTitle,
+                object: titleNotificationObject(workspace, focusedPanelId),
+                userInfo: [
+                    GhosttyNotificationKey.tabId: workspace.id,
+                    GhosttyNotificationKey.surfaceId: focusedPanelId,
+                    GhosttyNotificationKey.title: "\(frame) pnpm install",
+                ]
+            )
+            await drainMainQueue()
+            scheduler.fire(at: index)
+            await drainMainQueue()
+        }
+
+        #expect(workspace.panelTitles[focusedPanelId] == "pnpm install")
+        #expect(workspace.title == "pnpm install")
+        #expect(workspaceTitleChangeCount == 1)
+    }
+
     private func drainMainQueue() async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             DispatchQueue.main.async {
