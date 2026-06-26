@@ -730,30 +730,44 @@ struct TextBoxSubmitActionTests {
     }
 
     @Test
-    func testCommandTemplateSubmitRequiresPromptIdleShellState() {
+    func testCommandTemplateSubmitAllowsUnknownOrPromptIdleShellState() {
         #expect(TextBoxInputContainer.allowsCommandTemplateSubmit(shellActivityState: .promptIdle))
-        #expect(!TextBoxInputContainer.allowsCommandTemplateSubmit(shellActivityState: .unknown))
+        #expect(TextBoxInputContainer.allowsCommandTemplateSubmit(shellActivityState: .unknown))
         #expect(!TextBoxInputContainer.allowsCommandTemplateSubmit(shellActivityState: .commandRunning))
     }
 
     @Test
-    func testUnknownShellStateFallsBackToTextEntryWithoutBlockingCycle() throws {
+    func testUnknownShellStateSubmitsProviderCommandWithoutBlockingCycle() throws {
         let codex = try #require(TextBoxSubmitAction.builtInActions.first { $0.id == "codex" })
         let shouldForceTextEntry = TextBoxInputContainer.shouldForceTextEntrySubmit(
-            allowsCommandTemplateSubmit: false,
+            allowsCommandTemplateSubmit: true,
             terminalAgentContext: ""
         )
 
         #expect(!shouldForceTextEntry)
-        #expect(TextBoxInputContainer.shouldUseTextEntryFallbackForCommandTemplate(
-            action: codex,
-            shouldForceTextEntrySubmit: shouldForceTextEntry,
-            allowsCommandTemplateSubmit: false
-        ))
         #expect(!TextBoxInputContainer.shouldUseTextEntryFallbackForCommandTemplate(
             action: codex,
             shouldForceTextEntrySubmit: shouldForceTextEntry,
             allowsCommandTemplateSubmit: true
+        ))
+        XCTAssertEqual(
+            TextBoxInputContainer.dispatchPlan(
+                [.text("hi how are you")],
+                applying: codex,
+                shouldForceTextEntrySubmit: shouldForceTextEntry,
+                allowsCommandTemplateSubmit: true,
+                terminalAgentContext: "",
+                pendingProviderLaunchAction: nil
+            ).events,
+            TextBoxSubmit.dispatchEvents(
+                for: [.text("codex --dangerously-bypass-approvals-and-sandbox 'hi how are you'")],
+                terminalAgentContext: ""
+            )
+        )
+        #expect(TextBoxInputContainer.shouldUseTextEntryFallbackForCommandTemplate(
+            action: codex,
+            shouldForceTextEntrySubmit: shouldForceTextEntry,
+            allowsCommandTemplateSubmit: false
         ))
         XCTAssertEqual(
             TextBoxInputContainer.submitActionPresentation(

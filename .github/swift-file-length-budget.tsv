@@ -86,9 +86,9 @@
 1093	cmuxUITests/BonsplitTabDragUITests.swift
 1087	Packages/macOS/CmuxCommandPalette/Sources/CmuxCommandPalette/Search/CommandPaletteFuzzyMatcher.swift
 1021	cmuxUITests/TerminalCmdClickUITests.swift
+1013	cmuxTests/TextBoxSubmitActionTests.swift
 1009	cmuxTests/CmuxTopSnapshotScopeTests.swift
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
-999	cmuxTests/TextBoxSubmitActionTests.swift
 951	Sources/App/TerminalDirectoryOpenSupport.swift
 947	Sources/TerminalNotificationPolicy.swift
 945	Sources/SessionIndexRegisteredAgents.swift
