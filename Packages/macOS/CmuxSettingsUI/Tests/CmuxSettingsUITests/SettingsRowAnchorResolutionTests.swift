@@ -49,6 +49,7 @@ struct SettingsRowAnchorResolutionTests {
         "app.newWorkspacePlacement",
         "app.openMarkdownInCmuxViewer",
         "app.openSupportedFilesInCmux",
+        "app.persistTerminalScrollback",
         "app.preferredEditor",
         "app.renameSelectsExistingName",
         "app.reorderOnNotification",
