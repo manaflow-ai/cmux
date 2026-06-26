@@ -81,7 +81,9 @@ final class RemoteTmuxController {
             // Log the non-sensitive connection hash, not the SSH destination (which
             // can carry a username / internal host / IP) — keeps collected diagnostics clean.
             Self.logger.warning("remote-tmux: ControlMaster not confirmed ready [\(host.connectionHash, privacy: .public)]; aborting attach burst")
-            throw RemoteTmuxError.unreachable("SSH ControlMaster not ready for \(host.destination)")
+            // `.unreachable` already means "the SSH master could not be opened"; its
+            // localized "host unreachable: %@" message takes the destination as detail.
+            throw RemoteTmuxError.unreachable(host.destination)
         }
     }
 

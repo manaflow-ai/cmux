@@ -75,8 +75,8 @@
 1277	cmuxTests/RestorableAgentSessionIndexTests.swift
 1258	Sources/Feed/FeedCoordinator.swift
 1209	Packages/macOS/CmuxCommandPalette/Tests/CmuxCommandPaletteTests/CommandPaletteSearchEngineTests.swift
+1205	Sources/RemoteTmuxController.swift
 1204	cmuxTests/FileExplorerStoreTests.swift
-1203	Sources/RemoteTmuxController.swift
 1197	cmuxTests/CodexAppServerSessionTests.swift
 1166	Sources/VaultAgentProcessScanner.swift
 1161	cmuxTests/SidebarOrderingTests.swift
