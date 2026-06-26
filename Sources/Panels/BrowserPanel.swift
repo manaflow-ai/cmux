@@ -8049,9 +8049,9 @@ private extension BrowserPanel {
         let didChange = abs(webView.pageZoom - clamped) >= 0.0001
         if didChange {
             webView.pageZoom = clamped
-        }
-        if persistPreference {
-            pageZoomPreference.save(clamped)
+            if persistPreference {
+                pageZoomPreference.save(clamped)
+            }
         }
         return didChange
     }

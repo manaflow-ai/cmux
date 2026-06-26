@@ -85,6 +85,26 @@ struct BrowserPageZoomPreferenceTests {
     }
 
     @Test
+    func noOpZoomDoesNotOverwriteAnotherPanelsLastUsedDefault() throws {
+        let suiteName = "cmux.browserPageZoomPreferenceTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let firstPanel = BrowserPanel(workspaceId: UUID(), pageZoomDefaults: defaults)
+        defer { firstPanel.close() }
+        let secondPanel = BrowserPanel(workspaceId: UUID(), pageZoomDefaults: defaults)
+        defer { secondPanel.close() }
+        let preference = BrowserPageZoomPreference(defaults: defaults)
+
+        #expect(firstPanel.setPageZoomFactor(0.8))
+        #expect(abs(preference.currentZoom() - 0.8) < 0.0001)
+
+        #expect(!secondPanel.resetZoom())
+        #expect(abs(preference.currentZoom() - 0.8) < 0.0001)
+    }
+
+    @Test
     func restoredSessionZoomDoesNotOverwriteLastUsedDefault() throws {
         let suiteName = "cmux.browserPageZoomPreferenceTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
