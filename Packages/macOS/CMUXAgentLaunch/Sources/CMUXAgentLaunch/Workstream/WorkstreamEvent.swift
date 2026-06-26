@@ -5,13 +5,14 @@ import Foundation
 ///
 /// Field names mirror Vibe Island's hook payload format exactly so existing
 /// agent payloads pass through untouched: `session_id`, `hook_event_name`,
-/// `workspace_id`, `cwd`, `tool_name`, `tool_input`, `_source`, `_ppid`,
-/// `_opencode_request_id`. `context` is cmux-specific and optional.
+/// `workspace_id`, `surface_id`, `cwd`, `tool_name`, `tool_input`, `_source`,
+/// `_ppid`, `_opencode_request_id`. `context` is cmux-specific and optional.
 public struct WorkstreamEvent: Codable, Sendable, Equatable {
     public let sessionId: String
     public let hookEventName: HookEventName
     public let source: String
     public let workspaceId: String?
+    public let surfaceId: String?
     public let cwd: String?
     public let toolName: String?
     public let toolInputJSON: String?
@@ -26,6 +27,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         hookEventName: HookEventName,
         source: String,
         workspaceId: String? = nil,
+        surfaceId: String? = nil,
         cwd: String? = nil,
         toolName: String? = nil,
         toolInputJSON: String? = nil,
@@ -39,6 +41,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         self.hookEventName = hookEventName
         self.source = source
         self.workspaceId = workspaceId
+        self.surfaceId = surfaceId
         self.cwd = cwd
         self.toolName = toolName
         self.toolInputJSON = toolInputJSON
@@ -78,6 +81,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         case hookEventName = "hook_event_name"
         case source = "_source"
         case workspaceId = "workspace_id"
+        case surfaceId = "surface_id"
         case cwd
         case toolName = "tool_name"
         case toolInputJSON = "tool_input"
@@ -93,6 +97,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         self.hookEventName = try c.decode(HookEventName.self, forKey: .hookEventName)
         self.source = try c.decode(String.self, forKey: .source)
         self.workspaceId = try c.decodeIfPresent(String.self, forKey: .workspaceId)
+        self.surfaceId = try c.decodeIfPresent(String.self, forKey: .surfaceId)
         self.cwd = try c.decodeIfPresent(String.self, forKey: .cwd)
         self.toolName = try c.decodeIfPresent(String.self, forKey: .toolName)
         self.context = try c.decodeIfPresent(WorkstreamContext.self, forKey: .context)
@@ -123,6 +128,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         try c.encode(hookEventName, forKey: .hookEventName)
         try c.encode(source, forKey: .source)
         try c.encodeIfPresent(workspaceId, forKey: .workspaceId)
+        try c.encodeIfPresent(surfaceId, forKey: .surfaceId)
         try c.encodeIfPresent(cwd, forKey: .cwd)
         try c.encodeIfPresent(toolName, forKey: .toolName)
         try c.encodeIfPresent(context, forKey: .context)
