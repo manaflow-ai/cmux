@@ -321,7 +321,7 @@ struct TextBoxSubmitActionTests {
         let workspace = Workspace()
         let panel = try #require(workspace.focusedTerminalPanel)
         workspace.panelTitles[panel.id] = "user-controlled title"
-        workspace.textBoxLaunchCommandsByPanelId[panel.id] = "codex --dangerously-bypass-approvals-and-sandbox"
+        panel.recordTextBoxLaunchCommand("codex --dangerously-bypass-approvals-and-sandbox")
 
         panel.updateShellActivityState(.promptIdle)
         let runningContext = WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
@@ -339,6 +339,27 @@ struct TextBoxSubmitActionTests {
                 terminalAgentContext: runningContext
             ),
             runningContext
+        )
+    }
+
+    @Test
+    func testTextBoxLaunchCommandContextExpiresAfterCommandReturnsToPrompt() throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+
+        panel.recordTextBoxLaunchCommand("codex --dangerously-bypass-approvals-and-sandbox")
+        panel.updateShellActivityState(.promptIdle)
+        #expect(panel.textBoxState.launchCommand != nil)
+
+        panel.updateShellActivityState(.commandRunning)
+        #expect(panel.textBoxState.launchCommand != nil)
+
+        panel.updateShellActivityState(.promptIdle)
+        #expect(panel.textBoxState.launchCommand == nil)
+        XCTAssertFalse(
+            TextBoxAgentDetection.supportsActiveAgentPrefixes(
+                context: WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
+            )
         )
     }
 

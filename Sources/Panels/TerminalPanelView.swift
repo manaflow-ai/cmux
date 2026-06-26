@@ -107,7 +107,7 @@ struct TerminalPanelView: View {
                         weight: .regular
                     ),
                     maxLines: TerminalTextBoxInputSettings.resolvedMaxLines(textBoxMaxLines),
-                    terminalAgentContext: terminalAgentContext,
+                    terminalAgentContext: effectiveTerminalAgentContext,
                     allowsCommandTemplateSubmit: panel.shellActivity.state == .promptIdle,
                     onFocusTextBox: {
                         panel.textBoxDidBecomeFocused()
@@ -135,6 +135,24 @@ struct TerminalPanelView: View {
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
             terminalFontSize = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).fontSize
         }
+    }
+
+    private var effectiveTerminalAgentContext: String {
+        guard let command = panel.textBoxState.launchCommand?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !command.isEmpty else {
+            return terminalAgentContext
+        }
+        let marker = "textBoxLaunchCommand:\(command)"
+        let existingLines = terminalAgentContext
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+        guard !existingLines.contains(marker) else {
+            return terminalAgentContext
+        }
+        if terminalAgentContext.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return marker
+        }
+        return terminalAgentContext + "\n" + marker
     }
 }
 

@@ -2514,7 +2514,6 @@ final class Workspace: Identifiable, ObservableObject {
     var agentPIDs: [String: pid_t] = [:]
     var agentPIDPanelIdsByKey: [String: UUID] = [:]
     var agentPIDKeysByPanelId: [UUID: Set<String>] = [:]
-    var textBoxLaunchCommandsByPanelId: [UUID: String] = [:]
     var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] = [:]
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 #if DEBUG

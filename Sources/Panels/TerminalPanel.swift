@@ -131,6 +131,11 @@ final class TerminalPanel: Panel, ObservableObject {
     func updateShellActivityState(_ state: PanelShellActivityState) {
         guard shellActivity.state != state else { return }
         shellActivity.state = state
+        textBoxState.updateShellActivityState(state)
+    }
+
+    func recordTextBoxLaunchCommand(_ command: String) {
+        textBoxState.recordLaunchCommand(command)
     }
 
     var isDirty: Bool {

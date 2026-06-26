@@ -227,7 +227,7 @@ extension TerminalController {
         }
         if let launchCommandMetadata = launchCommandMetadata?.trimmingCharacters(in: .whitespacesAndNewlines),
            !launchCommandMetadata.isEmpty {
-            ws.textBoxLaunchCommandsByPanelId[surfaceId] = launchCommandMetadata
+            terminalPanel.recordTextBoxLaunchCommand(launchCommandMetadata)
         }
         let queued: Bool
         switch terminalPanel.sendInputResult(text) {
