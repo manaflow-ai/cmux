@@ -169,9 +169,7 @@ extension SidebarGitMetadataService {
     ) -> [WorkspaceGitProbeKey] {
         let keys = Array(workspaceGitMetadataWatcherProbeKeysByWatchedPathsKey[watchedPathsKey] ?? [])
         let directories = Set(keys.compactMap { workspaceGitMetadataWatcherSourceDirectoryByKey[$0] })
-        for directory in directories {
-            recordWorkspaceGitMetadataFilesystemEvent(directory: directory)
-        }
+        advanceWorkspaceGitSnapshotCacheGenerationIfEligible(directories: directories)
         return keys
     }
 
@@ -181,6 +179,20 @@ extension SidebarGitMetadataService {
         }
         workspaceGitMetadataFilesystemEventGeneration &+= 1
         workspaceGitSnapshotCacheGenerationByDirectory[directory] = workspaceGitMetadataFilesystemEventGeneration
+    }
+
+    private func advanceWorkspaceGitSnapshotCacheGenerationIfEligible(directories: Set<String>) {
+        let eligibleDirectories = directories.filter {
+            workspaceGitSnapshotCacheGenerationByDirectory[$0] != nil
+        }
+        guard !eligibleDirectories.isEmpty else {
+            return
+        }
+        workspaceGitMetadataFilesystemEventGeneration &+= 1
+        let generation = workspaceGitMetadataFilesystemEventGeneration
+        for directory in eligibleDirectories {
+            workspaceGitSnapshotCacheGenerationByDirectory[directory] = generation
+        }
     }
 
     private func recordWorkspaceGitMetadataFilesystemEvent(directory: String) {
