@@ -10191,36 +10191,8 @@ final class Workspace: Identifiable, ObservableObject {
         return min(0.25, baseDelay * pow(2.0, Double(exponent)))
     }
 
-    /// The visible windows that actually host this workspace's mounted panel
-    /// views. Scoping layout flushes to these means a workspace never forces a
-    /// relayout on unrelated windows. Falls back to all visible windows when none
-    /// can be resolved (e.g. mid-reparenting), preserving the previous
-    /// conservative behavior rather than risking a stale-geometry read.
-    private func workspaceLayoutFlushWindows() -> [NSWindow] {
-        var windows: [NSWindow] = []
-        var seen = Set<ObjectIdentifier>()
-        func add(_ window: NSWindow?) {
-            guard let window, window.isVisible else { return }
-            if seen.insert(ObjectIdentifier(window)).inserted {
-                windows.append(window)
-            }
-        }
-        for panel in panels.values {
-            if let terminalPanel = panel as? TerminalPanel {
-                add(terminalPanel.hostedView.window)
-            } else if let browserPanel = panel as? BrowserPanel {
-                add(browserPanel.portalAnchorView.window)
-                add(browserPanel.webView.window)
-            }
-        }
-        if windows.isEmpty {
-            return NSApp.windows.filter { $0.isVisible }
-        }
-        return windows
-    }
-
     private func flushWorkspaceWindowLayouts() {
-        for window in workspaceLayoutFlushWindows() {
+        for window in NSApp.windows where window.isVisible {
             window.contentView?.layoutSubtreeIfNeeded()
         }
     }
@@ -10399,7 +10371,7 @@ final class Workspace: Identifiable, ObservableObject {
         let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
 
         // Flush pending AppKit layout first so terminal-host bounds reflect latest split topology.
-        for window in workspaceLayoutFlushWindows() {
+        for window in NSApp.windows where window.isVisible {
             window.contentView?.layoutSubtreeIfNeeded()
         }
 
