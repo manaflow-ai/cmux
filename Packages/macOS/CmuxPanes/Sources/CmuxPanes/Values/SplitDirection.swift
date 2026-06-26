@@ -27,6 +27,23 @@ public enum SplitDirection: Sendable {
         self == .left || self == .up
     }
 
+    /// The lowercase cardinal label for this direction (`left`/`right`/`up`/`down`).
+    ///
+    /// Byte-faithful home of the goto-split UI-test recorder's
+    /// `recordSplitIfNeeded(direction:)` mapping switch.
+    public var directionLabel: String {
+        switch self {
+        case .left:
+            return "left"
+        case .right:
+            return "right"
+        case .up:
+            return "up"
+        case .down:
+            return "down"
+        }
+    }
+
     /// Parse a control-command split-direction token (`left`/`l`, `right`/`r`,
     /// `up`/`u`, `down`/`d`, case-insensitive), returning `nil` for any other
     /// value. This is the byte-faithful home of the legacy

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import CmuxSettings
 import CmuxWorkspaces
 
@@ -30,7 +31,7 @@ struct FileExplorerFileOpener {
         case .preview:
             onOpenFilePreview(path)
         case .defaultEditor:
-            FileExternalOpenAction.openDefault(fileURL: URL(fileURLWithPath: path))
+            FileExternalOpenAction.live.openDefault(fileURL: URL(fileURLWithPath: path))
         case .preferredEditor:
             PreferredEditorService(defaults: defaults).open(URL(fileURLWithPath: path))
         }

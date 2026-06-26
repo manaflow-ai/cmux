@@ -114,66 +114,6 @@ enum SessionRestorePolicy {
     }
 }
 
-struct SessionRectSnapshot: Codable, Equatable, Sendable {
-    let x: Double
-    let y: Double
-    let width: Double
-    let height: Double
-
-    init(x: Double, y: Double, width: Double, height: Double) {
-        self.x = x
-        self.y = y
-        self.width = width
-        self.height = height
-    }
-
-    init(_ rect: CGRect) {
-        self.x = Double(rect.origin.x)
-        self.y = Double(rect.origin.y)
-        self.width = Double(rect.size.width)
-        self.height = Double(rect.size.height)
-    }
-
-    var cgRect: CGRect {
-        CGRect(x: x, y: y, width: width, height: height)
-    }
-}
-
-struct SessionDisplaySnapshot: Codable, Sendable {
-    var displayID: UInt32?
-    var frame: SessionRectSnapshot?
-    var visibleFrame: SessionRectSnapshot?
-}
-
-enum SessionSidebarSelection: String, Codable, Sendable, Equatable {
-    case tabs
-    case notifications
-
-    init(selection: SidebarSelection) {
-        switch selection {
-        case .tabs:
-            self = .tabs
-        case .notifications:
-            self = .notifications
-        }
-    }
-
-    var sidebarSelection: SidebarSelection {
-        switch self {
-        case .tabs:
-            return .tabs
-        case .notifications:
-            return .notifications
-        }
-    }
-}
-
-struct SessionSidebarSnapshot: Codable, Sendable {
-    var isVisible: Bool
-    var selection: SessionSidebarSelection
-    var width: Double?
-}
-
 enum SurfaceResumeApprovalPolicy: String, Codable, CaseIterable, Sendable {
     case manual
     case prompt
