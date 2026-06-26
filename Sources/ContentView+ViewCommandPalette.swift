@@ -26,6 +26,12 @@ extension ContentView {
                 subtitle: constant(String(localized: "command.redrawWindow.subtitle", defaultValue: "View")),
                 keywords: ["redraw", "refresh", "reload", "repaint", "render", "distortion", "glitch", "window", "layout", "surface"]
             ),
+            CommandPaletteCommandContribution(
+                commandId: "palette.sleepyMode",
+                title: constant(String(localized: "command.sleepyMode.title", defaultValue: "Sleepy Mode")),
+                subtitle: constant(String(localized: "command.sleepyMode.subtitle", defaultValue: "View")),
+                keywords: ["sleepy", "screensaver", "caffeinate", "keep awake", "do not sleep", "lock", "pets", "night"]
+            ),
         ]
     }
 
@@ -38,6 +44,9 @@ extension ContentView {
         }
         registry.register(commandId: "palette.redrawWindow") {
             tabManager.redrawVisibleSurfaces()
+        }
+        registry.register(commandId: "palette.sleepyMode") {
+            SleepyModeController.shared.activate()
         }
     }
 }
