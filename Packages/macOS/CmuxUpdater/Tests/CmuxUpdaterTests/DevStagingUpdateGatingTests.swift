@@ -15,7 +15,7 @@ import Testing
         let driver = UpdateDriver(
             model: model,
             log: NoopUpdateLog(),
-            clock: ImmediateUpdateClock(),
+            clock: SystemUpdateClock(),
             isDevLikeBundle: true
         )
 
@@ -32,7 +32,7 @@ import Testing
         let driver = UpdateDriver(
             model: model,
             log: NoopUpdateLog(),
-            clock: ImmediateUpdateClock(),
+            clock: SystemUpdateClock(),
             isDevLikeBundle: false
         )
 
@@ -68,7 +68,7 @@ import Testing
 
         let controller = UpdateController(
             log: NoopUpdateLog(),
-            clock: ImmediateUpdateClock(),
+            clock: SystemUpdateClock(),
             hostBundle: .main,
             defaults: defaults,
             isDevLikeBundle: true
@@ -92,7 +92,7 @@ import Testing
 
         _ = UpdateController(
             log: NoopUpdateLog(),
-            clock: ImmediateUpdateClock(),
+            clock: SystemUpdateClock(),
             hostBundle: .main,
             defaults: defaults,
             isDevLikeBundle: true
@@ -108,35 +108,27 @@ import Testing
 
         _ = UpdateController(
             log: NoopUpdateLog(),
-            clock: ImmediateUpdateClock(),
+            clock: SystemUpdateClock(),
             hostBundle: .main,
             defaults: defaults,
             isDevLikeBundle: false
         )
         #expect(defaults.bool(forKey: UpdateSettings.automaticChecksKey) == true)
     }
-}
 
-private struct NoopUpdateLog: UpdateLogging {
-    func append(_ message: String) {}
-    func logPath() -> String { "/dev/null" }
-}
-
-private struct ImmediateUpdateClock: UpdateClock {
-    func sleep(for duration: Duration) async throws {}
-}
-
-private func makeAppcastItem(version: String) -> SUAppcastItem? {
-    let enclosure: [String: Any] = [
-        "url": "https://example.com/cmux.zip",
-        "length": "1024",
-        "sparkle:version": version,
-        "sparkle:shortVersionString": version,
-    ]
-    let dictionary: [String: Any] = [
-        "title": "cmux \(version)",
-        "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
-        "enclosure": enclosure,
-    ]
-    return SUAppcastItem(dictionary: dictionary)
+    /// Builds a minimal valid `SUAppcastItem` for a version string (nested helper, not API).
+    private func makeAppcastItem(version: String) -> SUAppcastItem? {
+        let enclosure: [String: Any] = [
+            "url": "https://example.com/cmux.zip",
+            "length": "1024",
+            "sparkle:version": version,
+            "sparkle:shortVersionString": version,
+        ]
+        let dictionary: [String: Any] = [
+            "title": "cmux \(version)",
+            "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
+            "enclosure": enclosure,
+        ]
+        return SUAppcastItem(dictionary: dictionary)
+    }
 }
