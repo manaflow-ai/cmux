@@ -7268,6 +7268,58 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    // The first-responder gate must not regress normal text box paste: when the
+    // text box itself owns first responder, Cmd+V is handled by the text box.
+    func testTextBoxHandlesPasteShortcutWhenFirstResponder() {
+        let hostWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 80),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 80))
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        let textBoxScrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textBoxScrollView.documentView = textView
+        contentView.addSubview(textBoxScrollView)
+        hostWindow.animationBehavior = .none
+        hostWindow.isReleasedWhenClosed = false
+        hostWindow.contentView = contentView
+        hostWindow.makeKeyAndOrderFront(nil)
+        Self.retainedTextBoxUndoWindows.append(hostWindow)
+        Self.retainedTextBoxRestoreViews.append(textView)
+        defer { hostWindow.orderOut(nil) }
+
+        XCTAssertTrue(hostWindow.makeFirstResponder(textView))
+        XCTAssertTrue(hostWindow.firstResponder === textView)
+
+        let pasteEvent = makeKeyEvent(
+            modifierFlags: [.command],
+            characters: "v",
+            charactersIgnoringModifiers: "v",
+            keyCode: 9
+        )
+        XCTAssertTrue(
+            textView.performKeyEquivalent(with: pasteEvent),
+            "Text box must still handle Cmd+V while it owns first responder"
+        )
+    }
+
+    // Cmd+Shift+V (paste-and-match-style) must keep its dedicated CmuxWebView
+    // path and must not resolve as a plain document-editing paste.
+    func testBrowserPlainTextPasteCommandIsNotADocumentEditingPaste() {
+        let pasteAsPlainTextEvent = makeKeyEvent(
+            modifierFlags: [.command, .shift],
+            characters: "v",
+            charactersIgnoringModifiers: "v",
+            keyCode: 9
+        )
+        XCTAssertFalse(
+            shouldRouteBrowserDocumentEditingCommandEquivalentThroughWebContentFirst(pasteAsPlainTextEvent),
+            "Cmd+Shift+V keeps its dedicated paste-as-plain-text path"
+        )
+    }
+
     func testFocusTextBoxShortcutRoutesToEventWindowWhenActiveManagerIsStale() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")

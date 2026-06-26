@@ -614,6 +614,7 @@ func cmuxIsWebInspectorObject(_ object: NSObject) -> Bool {
 private enum BrowserDocumentEditingCommandEquivalent: CaseIterable {
     case copy
     case cut
+    case paste
     case selectAll
 
     var shortcut: StoredShortcut {
@@ -635,6 +636,18 @@ private enum BrowserDocumentEditingCommandEquivalent: CaseIterable {
                 option: false,
                 control: false,
                 keyCode: 7
+            )
+        case .paste:
+            // Cmd+V only. Cmd+Shift+V (paste-and-match-style) keeps its own
+            // dedicated path in CmuxWebView; `matches` requires an exact
+            // modifier match so the Shift variant never resolves here.
+            return StoredShortcut(
+                key: "v",
+                command: true,
+                shift: false,
+                option: false,
+                control: false,
+                keyCode: 9
             )
         case .selectAll:
             return StoredShortcut(
@@ -683,8 +696,11 @@ private func browserDocumentEditingCommandEquivalent(for event: NSEvent) -> Brow
 }
 
 /// For browser content, let the focused document/editor try native editing commands
-/// before cmux's menu fallback. Rich web apps often implement copy/cut/select-all
+/// before cmux's menu fallback. Rich web apps often implement copy/cut/paste/select-all
 /// in contentEditable handlers that AppKit's Edit menu path cannot reproduce.
+/// Paste also has to preflight here so the focused web view claims Cmd+V before the
+/// NSWindow.performKeyEquivalent broadcast can hand it to an unfocused text box
+/// (text box beta) in a sibling terminal pane (manaflow-ai/cmux#6380).
 func shouldRouteBrowserDocumentEditingCommandEquivalentThroughWebContentFirst(
     _ event: NSEvent,
     responder: NSResponder? = nil
