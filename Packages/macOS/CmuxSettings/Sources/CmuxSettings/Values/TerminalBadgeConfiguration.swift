@@ -30,6 +30,14 @@ public struct TerminalBadgeConfiguration: Equatable, Sendable {
     /// Default badge text color, a `#RRGGBB` hex string.
     public static let defaultColorHex = "#FFFFFF"
 
+    /// Maximum length of each substituted token value. The tab title is driven
+    /// by terminal escape sequences and is otherwise unbounded, so it is capped
+    /// before substitution to keep a hostile/buggy process from forcing large
+    /// allocations or text layout on the terminal update path.
+    public static let maxTokenLength = 128
+    /// Maximum length of the fully resolved badge text rendered in the overlay.
+    public static let maxResolvedLength = 256
+
     /// The badge template, e.g. `"{workspace} · {tab}"`.
     public let template: String
     /// The corner the badge is anchored to.
@@ -69,20 +77,28 @@ public struct TerminalBadgeConfiguration: Equatable, Sendable {
     /// — so only literal separators like `" · "` would remain — an empty string
     /// is returned, which the caller treats as "no badge to draw". A template
     /// with no tokens (pure literal text) always renders as-is.
+    ///
+    /// The terminal-controlled tab title is bounded to ``maxTokenLength`` before
+    /// substitution and the final result to ``maxResolvedLength``, so a process
+    /// emitting a very large title cannot force unbounded allocation or text
+    /// layout on the terminal update path.
     public func resolvedText(workspace: String, tab: String) -> String {
+        let boundedWorkspace = String(workspace.prefix(Self.maxTokenLength))
+        let boundedTab = String(tab.prefix(Self.maxTokenLength))
         let usesWorkspace = template.contains(Self.workspaceToken)
         let usesTab = template.contains(Self.tabToken)
-        let workspaceEmpty = workspace.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let tabEmpty = tab.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let workspaceEmpty = boundedWorkspace.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let tabEmpty = boundedTab.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let usesAnyToken = usesWorkspace || usesTab
         let everyUsedTokenEmpty = !(usesWorkspace && !workspaceEmpty) && !(usesTab && !tabEmpty)
         if usesAnyToken, everyUsedTokenEmpty {
             return ""
         }
-        return template
-            .replacingOccurrences(of: Self.workspaceToken, with: workspace)
-            .replacingOccurrences(of: Self.tabToken, with: tab)
+        let resolved = template
+            .replacingOccurrences(of: Self.workspaceToken, with: boundedWorkspace)
+            .replacingOccurrences(of: Self.tabToken, with: boundedTab)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        return String(resolved.prefix(Self.maxResolvedLength))
     }
 }
 

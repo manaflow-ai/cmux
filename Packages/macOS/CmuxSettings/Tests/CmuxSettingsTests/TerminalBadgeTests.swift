@@ -55,6 +55,16 @@ struct TerminalBadgeTests {
         #expect(config.resolvedText(workspace: "", tab: "") == "session")
     }
 
+    @Test func boundsTerminalControlledTitleLength() {
+        // A hostile/buggy process can set an enormous terminal title; the
+        // resolved badge text must stay bounded to avoid expensive layout.
+        let hugeTitle = String(repeating: "A", count: 1_000_000)
+        let config = TerminalBadgeConfiguration(template: "{tab}")
+        let resolved = config.resolvedText(workspace: "", tab: hugeTitle)
+        #expect(resolved.count <= TerminalBadgeConfiguration.maxResolvedLength)
+        #expect(!resolved.isEmpty)
+    }
+
     @Test func defaultTemplateUsesBothTokens() {
         let resolved = TerminalBadgeConfiguration().resolvedText(workspace: "Repo", tab: "agent")
         #expect(resolved.contains("Repo"))
