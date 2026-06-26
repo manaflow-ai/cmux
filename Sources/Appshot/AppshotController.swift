@@ -377,7 +377,10 @@ enum AppshotCapturer {
             charCount += trimmed.count
         }
 
-        guard let children = copyElements(element, kAXChildrenAttribute) else { return }
+        // Fetch only as many children as the remaining node budget allows, so a
+        // pathological node with thousands of children can't allocate a huge
+        // array before the node cap/deadline stops traversal.
+        guard let children = copyChildren(element, max: maxAccessibilityNodes - nodesVisited) else { return }
         for child in children {
             collectText(child, into: &pieces, seen: &seen, nodesVisited: &nodesVisited, charCount: &charCount, deadline: deadline)
             if nodesVisited >= maxAccessibilityNodes || charCount >= maxAccessibilityChars || Date() >= deadline { return }
@@ -385,19 +388,29 @@ enum AppshotCapturer {
     }
 
     /// Reads a string attribute capped at `limit` characters. For the value
-    /// attribute it first checks the element's character count and, when that
-    /// exceeds `limit`, fetches only a leading range via the parameterized AX
-    /// text API — so a whole-document `kAXValue` is never copied in full.
+    /// attribute it first checks the element's character count; when that exceeds
+    /// `limit` it fetches only a leading range via the parameterized AX text API
+    /// and never falls back to a full copy — so a whole-document `kAXValue` is
+    /// never materialized on this hotkey path.
     private static func boundedString(_ element: AXUIElement, _ attribute: String, limit: Int) -> String? {
         guard limit > 0 else { return nil }
-        if attribute == kAXValueAttribute,
-           let count = copyInt(element, kAXNumberOfCharactersAttribute), count > limit {
-            if let ranged = copyRangedString(element, location: 0, length: limit) {
-                return ranged
+        if attribute == kAXValueAttribute, let count = copyInt(element, kAXNumberOfCharactersAttribute) {
+            if count > limit {
+                return copyRangedString(element, location: 0, length: limit)
             }
         }
         guard let raw = copyString(element, attribute) else { return nil }
         return raw.count > limit ? String(raw.prefix(limit)) : raw
+    }
+
+    /// Fetches up to `max` children of `element` via the counted AX array API,
+    /// so the children array materialized per node stays bounded.
+    private static func copyChildren(_ element: AXUIElement, max: Int) -> [AXUIElement]? {
+        guard max > 0 else { return [] }
+        var values: CFArray?
+        guard AXUIElementCopyAttributeValues(element, kAXChildrenAttribute as CFString, 0, max, &values) == .success
+        else { return nil }
+        return values as? [AXUIElement]
     }
 
     private static func copyElement(_ element: AXUIElement, _ attribute: String) -> AXUIElement? {
