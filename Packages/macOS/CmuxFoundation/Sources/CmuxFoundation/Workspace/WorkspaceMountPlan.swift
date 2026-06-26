@@ -39,7 +39,10 @@ public struct WorkspaceMountPlan: Equatable {
         let clampedMax = max(1, maxMounted)
         var ordered = current.filter { existing.contains($0) }
 
-        if let selected, existing.contains(selected) {
+        // Session restore can briefly publish an ordered-tab snapshot that omits
+        // the selected workspace even though it is still mounted; keep it sticky.
+        let shouldKeepSelectedMounted = selected.map { existing.contains($0) || current.contains($0) } ?? false
+        if let selected, shouldKeepSelectedMounted {
             ordered.removeAll { $0 == selected }
             ordered.insert(selected, at: 0)
         }
@@ -67,7 +70,7 @@ public struct WorkspaceMountPlan: Equatable {
                 let rhsIndex = orderedTabIds.firstIndex(of: rhs) ?? .max
                 return lhsIndex < rhsIndex
             }
-        if let selected, existing.contains(selected) {
+        if let selected, shouldKeepSelectedMounted {
             ordered.removeAll { $0 == selected }
             ordered.insert(selected, at: 0)
         }
