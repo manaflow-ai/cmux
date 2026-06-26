@@ -825,7 +825,7 @@
           "customSearchEngineName": "Nom affiché lorsque defaultSearchEngine vaut custom.",
           "customSearchEngineURLTemplate": "URL de recherche utilisée lorsque defaultSearchEngine vaut custom. Incluez l’espace réservé de requête ou %s pour la requête encodée. Sans espace réservé, cmux ajoute q= à l’URL.",
           "proxy": {
-            "description": "Achemine les volets du navigateur intégré local via un proxy HTTP CONNECT ou SOCKSv5 (WKWebsiteDataStore.proxyConfigurations). S'applique uniquement aux volets locaux ; les volets des espaces de travail distants conservent leur tunnel d'espace de travail. Rechargeable via cmux reload-config. Pour un proxy authentifié, ou pour remplacer cet objet, utilisez la variable d'environnement CMUX_BROWSER_PROXY (p. ex. socks5://user:pass@host:port) ; les identifiants ne sont pas lus depuis cmux.json.",
+            "description": "Achemine les volets du navigateur intégré local via un proxy HTTP CONNECT ou SOCKSv5 (WKWebsiteDataStore.proxyConfigurations). S'applique uniquement aux volets locaux ; les volets des espaces de travail distants conservent leur tunnel d'espace de travail. Rechargeable via cmux reload-config. La variable d'environnement CMUX_BROWSER_PROXY (p. ex. socks5://127.0.0.1:1080) la remplace.",
             "type": "Protocole du proxy. off n'applique aucun proxy de navigateur cmux (un proxy système macOS actif est tout de même reflété pour le correctif loopback). socks5 utilise un proxy SOCKSv5 ; httpConnect utilise un proxy HTTP CONNECT.",
             "host": "Nom d'hôte ou IP du serveur proxy, p. ex. 127.0.0.1.",
             "port": "Port du serveur proxy, p. ex. 1080.",

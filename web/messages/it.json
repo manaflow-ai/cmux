@@ -825,7 +825,7 @@
           "customSearchEngineName": "Nome visualizzato quando defaultSearchEngine è custom.",
           "customSearchEngineURLTemplate": "URL di ricerca usato quando defaultSearchEngine è custom. Includi il segnaposto della query o %s per la query codificata. Senza segnaposto, cmux aggiunge q= all’URL.",
           "proxy": {
-            "description": "Instrada i riquadri del browser integrato locale attraverso un proxy HTTP CONNECT o SOCKSv5 (WKWebsiteDataStore.proxyConfigurations). Si applica solo ai riquadri locali; i riquadri degli spazi di lavoro remoti mantengono il loro tunnel dello spazio di lavoro. Ricaricabile tramite cmux reload-config. Per un proxy autenticato, o per sovrascrivere questo oggetto, usa la variabile d'ambiente CMUX_BROWSER_PROXY (ad es. socks5://user:pass@host:port); le credenziali non vengono lette da cmux.json.",
+            "description": "Instrada i riquadri del browser integrato locale attraverso un proxy HTTP CONNECT o SOCKSv5 (WKWebsiteDataStore.proxyConfigurations). Si applica solo ai riquadri locali; i riquadri degli spazi di lavoro remoti mantengono il loro tunnel dello spazio di lavoro. Ricaricabile tramite cmux reload-config. La variabile d'ambiente CMUX_BROWSER_PROXY (ad es. socks5://127.0.0.1:1080) ha la precedenza su questo.",
             "type": "Protocollo del proxy. off non applica alcun proxy del browser cmux (un proxy di sistema macOS attivo viene comunque rispecchiato per la correzione del loopback). socks5 usa un proxy SOCKSv5; httpConnect usa un proxy HTTP CONNECT.",
             "host": "Nome host o IP del server proxy, ad es. 127.0.0.1.",
             "port": "Porta del server proxy, ad es. 1080.",

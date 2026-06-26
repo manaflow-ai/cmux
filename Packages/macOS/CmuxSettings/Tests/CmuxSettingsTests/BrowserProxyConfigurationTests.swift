@@ -8,9 +8,14 @@ import Testing
 // override. Decoding is lenient so a partial or slightly-wrong object loads as
 // a (possibly disabled) configuration rather than failing the whole file, and
 // the env override wins over the file value while a typo cannot silently
-// disable a working file proxy.
+// disable a working file proxy. Only unauthenticated proxies are configurable;
+// no credential is sourced from cmux.json or the environment.
 @Suite("BrowserProxyConfiguration")
 struct BrowserProxyConfigurationTests {
+    private func socks(host: String = "127.0.0.1", port: Int = 1080, bypass: [String] = []) -> BrowserProxyConfiguration {
+        BrowserProxyConfiguration(type: .socks5, host: host, port: port, bypass: bypass)
+    }
+
     // MARK: - Type resolution
 
     @Test("Proxy type resolves known values and aliases")
@@ -36,55 +41,25 @@ struct BrowserProxyConfigurationTests {
 
     @Test("A socks5 configuration with a valid host and port is enabled")
     func validSocksConfigurationIsEnabled() {
-        let config = BrowserProxyConfiguration(
-            type: .socks5, host: "127.0.0.1", port: 1080,
-            username: "", password: "", bypass: []
-        )
-        #expect(config.isEnabled)
+        #expect(socks().isEnabled)
     }
 
     @Test("off, empty host, and out-of-range ports are not enabled")
     func invalidConfigurationsAreNotEnabled() {
         #expect(!BrowserProxyConfiguration.disabled.isEnabled)
-        #expect(!BrowserProxyConfiguration(
-            type: .off, host: "127.0.0.1", port: 1080,
-            username: "", password: "", bypass: []
-        ).isEnabled)
-        #expect(!BrowserProxyConfiguration(
-            type: .socks5, host: "   ", port: 1080,
-            username: "", password: "", bypass: []
-        ).isEnabled)
+        #expect(!BrowserProxyConfiguration(type: .off, host: "127.0.0.1", port: 1080, bypass: []).isEnabled)
+        #expect(!BrowserProxyConfiguration(type: .socks5, host: "   ", port: 1080, bypass: []).isEnabled)
         for port in [0, -1, 65536, 70000] {
-            #expect(!BrowserProxyConfiguration(
-                type: .socks5, host: "127.0.0.1", port: port,
-                username: "", password: "", bypass: []
-            ).isEnabled, "port=\(port)")
+            #expect(!socks(port: port).isEnabled, "port=\(port)")
         }
-        #expect(BrowserProxyConfiguration(
-            type: .socks5, host: "127.0.0.1", port: 65535,
-            username: "", password: "", bypass: []
-        ).isEnabled)
-    }
-
-    @Test("Credentials are detected only when a username is present")
-    func credentialsDetectedWhenUsernamePresent() {
-        #expect(!BrowserProxyConfiguration.disabled.hasCredentials)
-        #expect(BrowserProxyConfiguration(
-            type: .httpConnect, host: "proxy.example.com", port: 8080,
-            username: "user", password: "pass", bypass: []
-        ).hasCredentials)
-        #expect(!BrowserProxyConfiguration(
-            type: .httpConnect, host: "proxy.example.com", port: 8080,
-            username: "  ", password: "pass", bypass: []
-        ).hasCredentials)
+        #expect(socks(port: 65535).isEnabled)
     }
 
     // MARK: - Bypass normalization
 
     @Test("Bypass entries are trimmed, lowercased, wildcard-stripped, and deduplicated")
     func bypassEntriesAreNormalizedAndDeduplicated() {
-        let config = BrowserProxyConfiguration(
-            type: .socks5, host: "127.0.0.1", port: 1080, username: "", password: "",
+        let config = socks(
             bypass: ["*.local", "MyHost.Corp", " padded.example.com ", ".dotted.example.com", "myhost.corp", "", "*."]
         )
         #expect(config.normalizedBypassDomains == ["local", "myhost.corp", "padded.example.com", "dotted.example.com"])
@@ -92,8 +67,8 @@ struct BrowserProxyConfigurationTests {
 
     // MARK: - Lenient decoding
 
-    @Test("A proxy object decodes its non-credential fields from JSON")
-    func proxyObjectDecodesNonCredentialFieldsFromJSON() {
+    @Test("A proxy object decodes its fields from JSON")
+    func proxyObjectDecodesFieldsFromJSON() {
         let raw: [String: Any] = [
             "type": "socks5",
             "host": "127.0.0.1",
@@ -108,39 +83,25 @@ struct BrowserProxyConfigurationTests {
         #expect(config?.isEnabled == true)
     }
 
-    @Test("Credentials in cmux.json are never read (no plaintext password in the shared config)")
-    func credentialsInJSONAreIgnored() {
+    @Test("Credential keys in cmux.json are harmlessly ignored")
+    func credentialKeysInJSONAreIgnored() {
+        // The proxy object has no credential fields; stray username/password
+        // keys in cmux.json must not break decoding or appear anywhere.
         let raw: [String: Any] = [
-            "type": "socks5",
-            "host": "127.0.0.1",
-            "port": 1080,
-            "username": "alice",
-            "password": "secret",
+            "type": "socks5", "host": "127.0.0.1", "port": 1080,
+            "username": "alice", "password": "secret",
         ]
         let config = BrowserProxyConfiguration.decodeFromJSON(raw)
-        #expect(config?.username == "")
-        #expect(config?.password == "")
-        #expect(config?.hasCredentials == false)
-    }
-
-    @Test("Encoding for cmux.json never emits credentials")
-    func encodingForJSONNeverEmitsCredentials() {
-        let config = BrowserProxyConfiguration(
-            type: .socks5, host: "127.0.0.1", port: 1080,
-            username: "alice", password: "secret", bypass: []
-        )
-        let encoded = config.encodeForJSON() as? [String: Any]
+        #expect(config?.isEnabled == true)
+        let encoded = config?.encodeForJSON() as? [String: Any]
         #expect(encoded?["username"] == nil)
         #expect(encoded?["password"] == nil)
-        #expect(encoded?["host"] as? String == "127.0.0.1")
     }
 
     @Test("A partial proxy object decodes with safe defaults")
     func partialProxyObjectDecodesWithDefaults() {
         let config = BrowserProxyConfiguration.decodeFromJSON(["type": "httpConnect", "host": "proxy", "port": 8080])
         #expect(config?.type == .httpConnect)
-        #expect(config?.username == "")
-        #expect(config?.password == "")
         #expect(config?.bypass == [])
     }
 
@@ -164,21 +125,23 @@ struct BrowserProxyConfigurationTests {
         #expect(BrowserProxyConfiguration.decodeFromJSON(NSNull()) == nil)
     }
 
-    @Test("A credential-free configuration round-trips through JSON encoding")
+    @Test("Encoding for cmux.json emits only the config fields")
+    func encodingForJSONEmitsOnlyConfigFields() {
+        let encoded = socks(bypass: ["corp.example"]).encodeForJSON() as? [String: Any]
+        #expect(Set(encoded?.keys ?? [:].keys) == ["type", "host", "port", "bypass"])
+    }
+
+    @Test("A configuration round-trips through JSON encoding")
     func configurationRoundTripsThroughJSON() {
         let original = BrowserProxyConfiguration(
-            type: .httpConnect, host: "proxy.example.com", port: 8080,
-            username: "", password: "", bypass: ["corp.example"]
+            type: .httpConnect, host: "proxy.example.com", port: 8080, bypass: ["corp.example"]
         )
         #expect(BrowserProxyConfiguration.decodeFromJSON(original.encodeForJSON()) == original)
     }
 
-    @Test("A credential-free configuration round-trips through UserDefaults encoding")
+    @Test("A configuration round-trips through UserDefaults encoding")
     func configurationRoundTripsThroughUserDefaults() {
-        let original = BrowserProxyConfiguration(
-            type: .socks5, host: "127.0.0.1", port: 1080,
-            username: "", password: "", bypass: ["localhost"]
-        )
+        let original = socks(bypass: ["localhost"])
         #expect(BrowserProxyConfiguration.decodeFromUserDefaults(original.encodeForUserDefaults()) == original)
     }
 
@@ -190,7 +153,6 @@ struct BrowserProxyConfigurationTests {
         #expect(config?.type == .socks5)
         #expect(config?.host == "127.0.0.1")
         #expect(config?.port == 1080)
-        #expect(config?.username == "")
         #expect(config?.isEnabled == true)
     }
 
@@ -202,13 +164,17 @@ struct BrowserProxyConfigurationTests {
         #expect(config?.port == 8080)
     }
 
-    @Test("An authenticated proxy URL parses credentials")
-    func authenticatedProxyURLParsesCredentials() {
+    @Test("A proxy URL's user:pass userinfo is ignored (credentials never extracted)")
+    func proxyURLUserinfoIsIgnored() {
         let config = BrowserProxyConfiguration.parse(environmentValue: "socks5://alice:s3cret@10.0.0.1:1080")
-        #expect(config?.username == "alice")
-        #expect(config?.password == "s3cret")
+        #expect(config?.type == .socks5)
         #expect(config?.host == "10.0.0.1")
         #expect(config?.port == 1080)
+        // No credential is captured anywhere — round-tripping the encoded form
+        // proves there is no secret field on the value at all.
+        let encoded = config?.encodeForJSON() as? [String: Any]
+        #expect(encoded?["username"] == nil)
+        #expect(encoded?["password"] == nil)
     }
 
     @Test("Disable keywords parse to the disabled configuration")
@@ -229,11 +195,8 @@ struct BrowserProxyConfigurationTests {
 
     @Test("A valid env override wins over the file configuration")
     func envOverrideWinsOverFile() {
-        let file = BrowserProxyConfiguration(
-            type: .socks5, host: "file-host", port: 1, username: "", password: "", bypass: []
-        )
         let resolved = BrowserProxyConfiguration.resolved(
-            fileConfiguration: file,
+            fileConfiguration: socks(host: "file-host", port: 1),
             environment: ["CMUX_BROWSER_PROXY": "socks5://127.0.0.1:1080"]
         )
         #expect(resolved.host == "127.0.0.1")
@@ -242,11 +205,8 @@ struct BrowserProxyConfigurationTests {
 
     @Test("An env disable keyword overrides a file proxy")
     func envDisableOverridesFileProxy() {
-        let file = BrowserProxyConfiguration(
-            type: .socks5, host: "file-host", port: 1080, username: "", password: "", bypass: []
-        )
         let resolved = BrowserProxyConfiguration.resolved(
-            fileConfiguration: file,
+            fileConfiguration: socks(host: "file-host", port: 1080),
             environment: ["CMUX_BROWSER_PROXY": "off"]
         )
         #expect(resolved == .disabled)
@@ -255,9 +215,7 @@ struct BrowserProxyConfigurationTests {
 
     @Test("An unparseable env value falls back to the file configuration")
     func unparseableEnvFallsBackToFile() {
-        let file = BrowserProxyConfiguration(
-            type: .socks5, host: "file-host", port: 1080, username: "", password: "", bypass: []
-        )
+        let file = socks(host: "file-host", port: 1080)
         let resolved = BrowserProxyConfiguration.resolved(
             fileConfiguration: file,
             environment: ["CMUX_BROWSER_PROXY": "not-a-url"]
@@ -267,9 +225,7 @@ struct BrowserProxyConfigurationTests {
 
     @Test("No env value uses the file configuration")
     func noEnvUsesFile() {
-        let file = BrowserProxyConfiguration(
-            type: .httpConnect, host: "file-host", port: 8080, username: "", password: "", bypass: []
-        )
+        let file = BrowserProxyConfiguration(type: .httpConnect, host: "file-host", port: 8080, bypass: [])
         #expect(BrowserProxyConfiguration.resolved(fileConfiguration: file, environment: [:]) == file)
         #expect(BrowserProxyConfiguration.resolved(fileConfiguration: file, environment: ["CMUX_BROWSER_PROXY": "  "]) == file)
     }

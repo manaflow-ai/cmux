@@ -825,7 +825,7 @@
           "customSearchEngineName": "defaultSearchEngine 为 custom 时使用的显示名称。",
           "customSearchEngineURLTemplate": "defaultSearchEngine 为 custom 时使用的搜索 URL。使用查询占位符或 %s 表示已编码的查询。如果没有占位符，cmux 会向 URL 添加 q=。",
           "proxy": {
-            "description": "将本地嵌入式浏览器窗格通过 HTTP CONNECT 或 SOCKSv5 代理（WKWebsiteDataStore.proxyConfigurations）路由。仅适用于本地窗格；远程工作区窗格保留其工作区隧道。可通过 cmux reload-config 重新加载。如需使用经过身份验证的代理，或覆盖此对象，请使用 CMUX_BROWSER_PROXY 环境变量（例如 socks5://user:pass@host:port）；凭据不会从 cmux.json 读取。",
+            "description": "将本地嵌入式浏览器窗格通过 HTTP CONNECT 或 SOCKSv5 代理（WKWebsiteDataStore.proxyConfigurations）路由。仅适用于本地窗格；远程工作区窗格保留其工作区隧道。可通过 cmux reload-config 重新加载。CMUX_BROWSER_PROXY 环境变量（例如 socks5://127.0.0.1:1080）会覆盖此设置。",
             "type": "代理协议。off 不应用任何 cmux 浏览器代理（为修复 loopback，仍会镜像处于活动状态的 macOS 系统代理）。socks5 使用 SOCKSv5 代理；httpConnect 使用 HTTP CONNECT 代理。",
             "host": "代理服务器主机名或 IP，例如 127.0.0.1。",
             "port": "代理服务器端口，例如 1080。",

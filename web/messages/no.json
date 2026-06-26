@@ -825,7 +825,7 @@
           "customSearchEngineName": "Visningsnavn som brukes når defaultSearchEngine er custom.",
           "customSearchEngineURLTemplate": "Søke-URL som brukes når defaultSearchEngine er custom. Inkluder søkeplassholderen eller %s for det kodede søket. Uten plassholder legger cmux til q= i URLen.",
           "proxy": {
-            "description": "Ruter lokale innebygde nettleserpaneler gjennom en HTTP CONNECT- eller SOCKSv5-proxy (WKWebsiteDataStore.proxyConfigurations). Gjelder bare lokale paneler; paneler i eksterne arbeidsområder beholder arbeidsområdetunnelen sin. Kan lastes inn på nytt via cmux reload-config. For en autentisert proxy, eller for å overstyre dette objektet, bruk miljøvariabelen CMUX_BROWSER_PROXY (f.eks. socks5://user:pass@host:port); legitimasjon leses ikke fra cmux.json.",
+            "description": "Ruter lokale innebygde nettleserpaneler gjennom en HTTP CONNECT- eller SOCKSv5-proxy (WKWebsiteDataStore.proxyConfigurations). Gjelder bare lokale paneler; paneler i eksterne arbeidsområder beholder arbeidsområdetunnelen sin. Kan lastes inn på nytt via cmux reload-config. Miljøvariabelen CMUX_BROWSER_PROXY (f.eks. socks5://127.0.0.1:1080) overstyrer dette.",
             "type": "Proxy-protokoll. off bruker ingen cmux-nettleserproxy (en aktiv macOS-systemproxy speiles fortsatt for loopback-rettelsen). socks5 bruker en SOCKSv5-proxy; httpConnect bruker en HTTP CONNECT-proxy.",
             "host": "Vertsnavn eller IP til proxyserveren, f.eks. 127.0.0.1.",
             "port": "Proxyserverens port, f.eks. 1080.",

@@ -46,13 +46,12 @@ public enum BrowserProxyType: String, CaseIterable, Sendable, Equatable, Setting
 /// still loads as a (possibly disabled) configuration rather than failing the
 /// whole config file.
 ///
-/// Credentials are never sourced from `cmux.json`: the JSON coding deliberately
-/// drops `username`/`password` on both decode and encode so a proxy password
-/// can't leak into the shared, user-editable, copyable config (the same secret
-/// boundary the package keeps for `automation.socketPassword` via the secret
-/// store). Authenticated proxies pass credentials only through the
-/// `CMUX_BROWSER_PROXY` environment override (`socks5://user:pass@host:port`),
-/// which populates ``username``/``password`` via ``parse(environmentValue:)``.
+/// Only unauthenticated proxies are configurable: no proxy credential is read
+/// from `cmux.json` (a shared, copyable config) or the process environment
+/// (inherited by spawned terminals/agents), so a proxy password can't leak
+/// through either channel. Authenticated proxies are a planned follow-up that
+/// will source the credential from the secret store, the same boundary the
+/// package keeps for `automation.socketPassword`.
 public struct BrowserProxyConfiguration: Sendable, Equatable, Codable, SettingCodable {
     /// The proxy protocol, or ``BrowserProxyType/off`` to apply no proxy.
     public let type: BrowserProxyType
@@ -60,13 +59,6 @@ public struct BrowserProxyConfiguration: Sendable, Equatable, Codable, SettingCo
     public let host: String
     /// Proxy server TCP port (1...65535 when enabled).
     public let port: Int
-    /// Username for an authenticated proxy, or empty. Only set from the
-    /// `CMUX_BROWSER_PROXY` env override; never read from `cmux.json`.
-    public let username: String
-    /// Password for an authenticated proxy, or empty. Only set from the
-    /// `CMUX_BROWSER_PROXY` env override; never read from or written to
-    /// `cmux.json`.
-    public let password: String
     /// Hostname suffixes that connect directly instead of through the proxy.
     public let bypass: [String]
 
@@ -75,7 +67,7 @@ public struct BrowserProxyConfiguration: Sendable, Equatable, Codable, SettingCo
 
     /// The "no proxy" configuration, also the default when the key is absent.
     public static let disabled = BrowserProxyConfiguration(
-        type: .off, host: "", port: 0, username: "", password: "", bypass: []
+        type: .off, host: "", port: 0, bypass: []
     )
 
     /// Memberwise initializer.
@@ -83,15 +75,11 @@ public struct BrowserProxyConfiguration: Sendable, Equatable, Codable, SettingCo
         type: BrowserProxyType,
         host: String,
         port: Int,
-        username: String,
-        password: String,
         bypass: [String]
     ) {
         self.type = type
         self.host = host
         self.port = port
-        self.username = username
-        self.password = password
         self.bypass = bypass
     }
 
@@ -104,11 +92,6 @@ public struct BrowserProxyConfiguration: Sendable, Equatable, Codable, SettingCo
     /// non-empty host, and a port in 1...65535.
     public var isEnabled: Bool {
         type != .off && !trimmedHost.isEmpty && (1...65535).contains(port)
-    }
-
-    /// True when authenticated-proxy credentials are present.
-    public var hasCredentials: Bool {
-        !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// The user bypass entries normalized to hostname suffixes: trimmed,
@@ -148,13 +131,15 @@ public struct BrowserProxyConfiguration: Sendable, Equatable, Codable, SettingCo
         return parse(environmentValue: raw) ?? fileConfiguration
     }
 
-    /// Parses a `CMUX_BROWSER_PROXY` value of the form
-    /// `scheme://[user:pass@]host:port` (e.g. `socks5://127.0.0.1:1080`), or a
-    /// bare disable keyword (`off`, `none`, `disabled`, `direct`).
+    /// Parses a `CMUX_BROWSER_PROXY` value of the form `scheme://host:port`
+    /// (e.g. `socks5://127.0.0.1:1080`), or a bare disable keyword (`off`,
+    /// `none`, `disabled`, `direct`).
     ///
     /// Returns `nil` when the value is neither — callers then fall back to the
-    /// cmux.json configuration. A parsed value carries no bypass entries; the
-    /// always-on loopback exclusions are applied where the proxy is built.
+    /// cmux.json configuration. Any `user:pass@` userinfo is ignored:
+    /// authenticated proxies are not supported, and the credential is
+    /// deliberately not extracted so it never reaches a `ProxyConfiguration`
+    /// through this insecure channel.
     public static func parse(environmentValue raw: String) -> BrowserProxyConfiguration? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -178,8 +163,6 @@ public struct BrowserProxyConfiguration: Sendable, Equatable, Codable, SettingCo
             type: type,
             host: host,
             port: port,
-            username: components.user ?? "",
-            password: components.password ?? "",
             bypass: []
         )
     }
@@ -190,9 +173,6 @@ public struct BrowserProxyConfiguration: Sendable, Equatable, Codable, SettingCo
         case type, host, port, bypass
     }
 
-    /// Decodes from `cmux.json`. `username`/`password` are intentionally NOT
-    /// decoded — proxy credentials never come from the shared config file (see
-    /// the type doc); they arrive only via the `CMUX_BROWSER_PROXY` override.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let rawType = (try? container.decode(String.self, forKey: .type)) ?? ""
@@ -206,13 +186,9 @@ public struct BrowserProxyConfiguration: Sendable, Equatable, Codable, SettingCo
         } else {
             self.port = 0
         }
-        self.username = ""
-        self.password = ""
         self.bypass = (try? container.decode([String].self, forKey: .bypass)) ?? []
     }
 
-    /// Encodes for `cmux.json`. `username`/`password` are intentionally omitted
-    /// so a proxy credential can never be written into the shared config file.
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(type.rawValue, forKey: .type)

@@ -825,7 +825,7 @@
           "customSearchEngineName": "ชื่อที่แสดงเมื่อ defaultSearchEngine เป็น custom",
           "customSearchEngineURLTemplate": "URL ค้นหาที่ใช้เมื่อ defaultSearchEngine เป็น custom ใส่ตัวแทนคำค้นหรือ %s สำหรับคำค้นที่เข้ารหัส หากไม่มีตัวแทน cmux จะเพิ่ม q= ให้กับ URL",
           "proxy": {
-            "description": "กำหนดเส้นทางบานหน้าต่างเบราว์เซอร์ฝังตัวภายในเครื่องผ่านพร็อกซี HTTP CONNECT หรือ SOCKSv5 (WKWebsiteDataStore.proxyConfigurations) ใช้กับบานหน้าต่างภายในเครื่องเท่านั้น บานหน้าต่างของเวิร์กสเปซระยะไกลจะยังคงใช้อุโมงค์เวิร์กสเปซของตน สามารถโหลดซ้ำได้ผ่าน cmux reload-config สำหรับพร็อกซีที่ต้องตรวจสอบสิทธิ์ หรือเพื่อแทนที่อ็อบเจ็กต์นี้ ให้ใช้ตัวแปรสภาพแวดล้อม CMUX_BROWSER_PROXY (เช่น socks5://user:pass@host:port) ข้อมูลรับรองจะไม่ถูกอ่านจาก cmux.json",
+            "description": "กำหนดเส้นทางบานหน้าต่างเบราว์เซอร์ฝังตัวภายในเครื่องผ่านพร็อกซี HTTP CONNECT หรือ SOCKSv5 (WKWebsiteDataStore.proxyConfigurations) ใช้กับบานหน้าต่างภายในเครื่องเท่านั้น บานหน้าต่างของเวิร์กสเปซระยะไกลจะยังคงใช้อุโมงค์เวิร์กสเปซของตน สามารถโหลดซ้ำได้ผ่าน cmux reload-config ตัวแปรสภาพแวดล้อม CMUX_BROWSER_PROXY (เช่น socks5://127.0.0.1:1080) จะแทนที่ค่านี้",
             "type": "โปรโตคอลพร็อกซี off จะไม่ใช้พร็อกซีเบราว์เซอร์ของ cmux (พร็อกซีระบบ macOS ที่ใช้งานอยู่จะยังคงถูกมิเรอร์ไว้สำหรับการแก้ไข loopback) socks5 ใช้พร็อกซี SOCKSv5 ส่วน httpConnect ใช้พร็อกซี HTTP CONNECT",
             "host": "ชื่อโฮสต์หรือ IP ของเซิร์ฟเวอร์พร็อกซี เช่น 127.0.0.1",
             "port": "พอร์ตของเซิร์ฟเวอร์พร็อกซี เช่น 1080",

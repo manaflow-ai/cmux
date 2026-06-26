@@ -33,14 +33,9 @@ import Testing
     private func socksConfiguration(
         host: String = "127.0.0.1",
         port: Int = 1080,
-        username: String = "",
-        password: String = "",
         bypass: [String] = []
     ) -> BrowserProxyConfiguration {
-        BrowserProxyConfiguration(
-            type: .socks5, host: host, port: port,
-            username: username, password: password, bypass: bypass
-        )
+        BrowserProxyConfiguration(type: .socks5, host: host, port: port, bypass: bypass)
     }
 
     // MARK: - No proxy produced
@@ -52,10 +47,7 @@ import Testing
 
     @Test("An off-type configuration produces no proxy even with a host and port")
     func offTypeConfigurationProducesNoProxy() {
-        let config = BrowserProxyConfiguration(
-            type: .off, host: "127.0.0.1", port: 1080,
-            username: "", password: "", bypass: []
-        )
+        let config = BrowserProxyConfiguration(type: .off, host: "127.0.0.1", port: 1080, bypass: [])
         #expect(BrowserUserProxyMirror.proxyConfigurations(for: config) == nil)
     }
 
@@ -82,17 +74,7 @@ import Testing
 
     @Test("An HTTP CONNECT configuration produces one configuration")
     func httpConnectConfigurationProducesOneConfiguration() throws {
-        let config = BrowserProxyConfiguration(
-            type: .httpConnect, host: "proxy.example.com", port: 8080,
-            username: "", password: "", bypass: []
-        )
-        let configurations = try #require(BrowserUserProxyMirror.proxyConfigurations(for: config))
-        #expect(configurations.count == 1)
-    }
-
-    @Test("An authenticated configuration still produces one configuration")
-    func authenticatedConfigurationProducesOneConfiguration() throws {
-        let config = socksConfiguration(username: "alice", password: "s3cret")
+        let config = BrowserProxyConfiguration(type: .httpConnect, host: "proxy.example.com", port: 8080, bypass: [])
         let configurations = try #require(BrowserUserProxyMirror.proxyConfigurations(for: config))
         #expect(configurations.count == 1)
     }

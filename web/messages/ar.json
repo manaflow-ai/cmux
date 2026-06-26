@@ -825,7 +825,7 @@
           "customSearchEngineName": "اسم العرض المستخدم عندما تكون defaultSearchEngine هي custom.",
           "customSearchEngineURLTemplate": "عنوان URL للبحث عند استخدام custom. أدرج موضع الاستعلام أو %s لعبارة البحث المرمزة. عند عدم وجود موضع، يضيف cmux q= إلى العنوان.",
           "proxy": {
-            "description": "يوجّه أجزاء المتصفح المضمّن المحلية عبر وكيل HTTP CONNECT أو SOCKSv5 (WKWebsiteDataStore.proxyConfigurations). ينطبق على الأجزاء المحلية فقط؛ أما أجزاء مساحات العمل البعيدة فتحتفظ بنفق مساحة العمل الخاص بها. يمكن إعادة تحميله عبر cmux reload-config. لاستخدام وكيل مصادَق عليه، أو لتجاوز هذا الكائن، استخدم متغيّر البيئة CMUX_BROWSER_PROXY (مثل socks5://user:pass@host:port)؛ ولا تتم قراءة بيانات الاعتماد من cmux.json.",
+            "description": "يوجّه أجزاء المتصفح المضمّن المحلية عبر وكيل HTTP CONNECT أو SOCKSv5 (WKWebsiteDataStore.proxyConfigurations). ينطبق على الأجزاء المحلية فقط؛ أما أجزاء مساحات العمل البعيدة فتحتفظ بنفق مساحة العمل الخاص بها. يمكن إعادة تحميله عبر cmux reload-config. يتجاوز هذا متغيّرُ البيئة CMUX_BROWSER_PROXY (مثل socks5://127.0.0.1:1080).",
             "type": "بروتوكول الوكيل. off لا يطبّق أي وكيل متصفح خاص بـ cmux (يظل وكيل نظام macOS النشط منعكسًا لإصلاح loopback). يستخدم socks5 وكيل SOCKSv5؛ ويستخدم httpConnect وكيل HTTP CONNECT.",
             "host": "اسم مضيف خادم الوكيل أو عنوان IP، مثل 127.0.0.1.",
             "port": "منفذ خادم الوكيل، مثل 1080.",

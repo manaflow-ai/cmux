@@ -91,9 +91,10 @@ struct BrowserUserProxyMirror: Sendable {
     /// Converts a resolved configuration into Network.framework proxy
     /// configurations, or `nil` when the configuration is not a usable proxy.
     ///
-    /// Pure given its input (no settings/environment reads). Authenticated
-    /// proxies carry their credentials; the excluded domains merge the always-on
-    /// loopback/link-local defaults with the user's normalized bypass list.
+    /// Pure given its input (no settings/environment reads). The excluded
+    /// domains merge the always-on loopback/link-local defaults with the user's
+    /// normalized bypass list. Only unauthenticated proxies are produced — no
+    /// credential is sourced from cmux.json or the environment.
     static func proxyConfigurations(
         for configuration: BrowserProxyConfiguration
     ) -> [ProxyConfiguration]? {
@@ -116,12 +117,6 @@ struct BrowserUserProxyMirror: Sendable {
             return nil
         }
 
-        if configuration.hasCredentials {
-            proxyConfiguration.applyCredential(
-                username: configuration.username.trimmingCharacters(in: .whitespacesAndNewlines),
-                password: configuration.password
-            )
-        }
         proxyConfiguration.excludedDomains = mergedExcludedDomains(
             userBypass: configuration.normalizedBypassDomains
         )
