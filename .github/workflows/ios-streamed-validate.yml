@@ -1,0 +1,122 @@
+name: iOS streamed-screenshot CI validation
+
+# Validates the REAL Mac-streamed screenshot pipeline on a Blacksmith macOS
+# runner: build + run the desktop cmux Mac app, run an agent terminal, pair an
+# iOS simulator to that Mac, and capture the live streamed terminal. This proves
+# (or disproves) that the pipeline works headless in CI before we wire it into
+# the App Store screenshot flow.
+#
+# The big unknowns this de-risks:
+#   1. Does the desktop Mac app run + cmuxd stream a terminal on a headless
+#      Blacksmith runner? (cmux streams terminal CONTENT, rendered on-device, so
+#      the Mac's own GUI rendering should not matter — this confirms it.)
+#   2. Can a simulator sign in + pair to that Mac entirely in CI (loopback)?
+#   3. Can we navigate the device into the workspace and capture the stream?
+#
+# Prerequisites (repo secrets / vars):
+#   - CMUX_DOGFOOD_STACK_EMAIL / CMUX_DOGFOOD_STACK_PASSWORD : a dogfood account to
+#     sign the simulator in as. NOT currently configured — this is the gate.
+#   - NEXT_PUBLIC_STACK_PROJECT_ID / NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY (vars)
+#     and STACK_SECRET_SERVER_KEY (secret) : already present (see cloud-vm-smoke).
+#
+# Manual only while it is being brought up.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch or SHA
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 90
+    env:
+      STREAM_TAG: cistream
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          [ -d "$XCODE_DIR" ] || XCODE_DIR="$(find /Applications -maxdepth 1 -type d -name 'Xcode*.app' | sort | tail -n1)/Contents/Developer"
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          DEVELOPER_DIR="$XCODE_DIR" xcodebuild -version
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Ensure iOS simulator runtime
+        run: |
+          set -euo pipefail
+          xcrun simctl list runtimes available | grep -Eq '\biOS\b' || xcodebuild -downloadPlatform iOS
+
+      - name: Provision GhosttyKit
+        run: ./scripts/ensure-ghosttykit.sh
+
+      - name: Install bun + idb
+        run: |
+          set -euo pipefail
+          command -v bun >/dev/null 2>&1 || curl -fsSL https://bun.sh/install | bash
+          command -v idb >/dev/null 2>&1 || (brew tap facebook/fb && brew install idb-companion && pipx install fb-idb || pip3 install fb-idb)
+
+      - name: Start web dev server (sign-in / pairing backend)
+        env:
+          NEXT_PUBLIC_STACK_PROJECT_ID: ${{ vars.NEXT_PUBLIC_STACK_PROJECT_ID }}
+          NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ${{ vars.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY }}
+          STACK_SECRET_SERVER_KEY: ${{ secrets.STACK_SECRET_SERVER_KEY }}
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.bun/bin:$PATH"
+          ( cd web && bun install && CMUX_PORT=3000 bun dev > /tmp/webdev.log 2>&1 & )
+          for i in $(seq 1 60); do curl -fsS http://localhost:3000/ >/dev/null 2>&1 && break; sleep 3; done
+          curl -fsS http://localhost:3000/ >/dev/null
+
+      - name: Build desktop Mac app (tag cistream)
+        run: ./scripts/reload.sh --tag cistream
+
+      - name: Build + install iOS sim app (tag cistream)
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CMUX_DOGFOOD_STACK_EMAIL:-}" ]; then
+            echo "::error::CMUX_DOGFOOD_STACK_EMAIL/PASSWORD secrets are required to sign in the simulator. This is the gating prerequisite for streamed-capture CI." >&2
+            exit 1
+          fi
+          ./ios/scripts/reload.sh --tag cistream --simulator "iPhone 17 Pro Max" --no-attach
+
+      - name: Capture one streamed terminal shot
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.bun/bin:$PATH"
+          SIM_ID="$(xcrun simctl list devices booted -j | python3 -c 'import sys,json;d=json.load(sys.stdin);print(next(x["udid"] for r in d["devices"].values() for x in r if "Pro Max" in x["name"]))')"
+          # sign in + pair the sim to the cistream Mac app, then capture
+          ./scripts/mobile-dev-launch.sh --tag cistream --simulator-id "$SIM_ID" --ensure-mac &
+          sleep 45
+          python3 ios/scripts/capture-streamed.py --tag cistream --sim-id "$SIM_ID" --agents opencode --out /tmp/streamed-ci || true
+
+      - name: Upload validation artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-streamed-validation
+          path: |
+            /tmp/streamed-ci
+            /tmp/webdev.log
+          if-no-files-found: warn
+          retention-days: 7
