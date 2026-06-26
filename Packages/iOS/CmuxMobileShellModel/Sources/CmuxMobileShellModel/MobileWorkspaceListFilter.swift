@@ -40,6 +40,16 @@ public struct MobileWorkspaceListFilter: Hashable, Sendable {
         return readOK && machineOK
     }
 
+    /// Number of `workspaces` this filter matches. The Mac picker uses this to
+    /// show a per-row count that equals the list a selection lands on.
+    /// - Parameter workspaces: The rows to test against this filter.
+    /// - Returns: How many rows pass both dimensions.
+    public func matchCount(in workspaces: [MobileWorkspacePreview]) -> Int {
+        workspaces.reduce(into: 0) { total, workspace in
+            if matches(workspace) { total += 1 }
+        }
+    }
+
     /// Whether this filter actually narrows the list (drives the filled-vs-
     /// outlined filter icon and the empty-state copy).
     public var isActive: Bool { readState != .all || !machines.isEmpty }
