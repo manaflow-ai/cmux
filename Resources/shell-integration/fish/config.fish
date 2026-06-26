@@ -285,6 +285,12 @@ if test "$_cmux_integration_enabled" != 0
         end
     end
 
+    function _cmux_pr_cache_variable_name --argument-names branch
+        set -l safe_branch (string replace -ar '[^A-Za-z0-9_]' '_' -- "$branch")
+        test -n "$safe_branch"; or set safe_branch unknown
+        printf '__cmux_pr_cache_%s\n' "$safe_branch"
+    end
+
     function _cmux_preexec --on-event fish_preexec
         _cmux_report_tty_once
         _cmux_report_shell_activity_state running

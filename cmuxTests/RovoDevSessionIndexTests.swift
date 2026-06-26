@@ -124,7 +124,10 @@ final class RovoDevSessionIndexTests: XCTestCase {
         XCTAssertEqual(entry.fileURL?.lastPathComponent, "session_context.json")
         XCTAssertEqual(
             entry.resumeCommand,
-            "{ cd -- '/tmp/rovo repo' 2>/dev/null || [ ! -d '/tmp/rovo repo' ]; } && acli rovodev run --restore 'session with space'"
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "acli rovodev run --restore 'session with space'",
+                workingDirectory: "/tmp/rovo repo"
+            )
         )
     }
 

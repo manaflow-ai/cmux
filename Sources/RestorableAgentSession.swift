@@ -33,17 +33,11 @@ fileprivate func shellSingleQuoted(_ value: String) -> String {
 }
 
 nonisolated enum TerminalStartupWorkingDirectoryPrefix {
-    static func optionalChangeDirectoryPrefix(for workingDirectory: String?) -> String? {
-        guard let workingDirectory = normalized(workingDirectory) else { return nil }
-        let quoted = TerminalStartupShellQuoting.singleQuoted(workingDirectory)
-        return "{ cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ]; } && "
-    }
-
     static func prefix(_ command: String, workingDirectory: String?) -> String {
-        guard let prefix = optionalChangeDirectoryPrefix(for: workingDirectory) else {
+        guard let workingDirectory = normalized(workingDirectory) else {
             return command
         }
-        return prefix + command
+        return portableChangeDirectoryCommand(command, workingDirectory: workingDirectory)
     }
 
     static func replacingRequiredChangeDirectoryPrefix(
@@ -85,6 +79,49 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
         from command: String,
         workingDirectory: String
     ) -> String {
+        if let stripped = strippedPortableChangeDirectoryCommand(
+            from: command,
+            workingDirectory: workingDirectory
+        ) {
+            return stripped
+        }
+        return strippedLegacyChangeDirectoryPrefix(from: command, workingDirectory: workingDirectory)
+    }
+
+    private static func portableChangeDirectoryCommand(
+        _ command: String,
+        workingDirectory: String
+    ) -> String {
+        let innerCommand = legacyChangeDirectoryPrefix(for: workingDirectory) + command
+        return [
+            TerminalStartupShellQuoting.shellToken("/bin/sh", allowingBareASCII: true),
+            TerminalStartupShellQuoting.shellToken("-c", allowingBareASCII: true),
+            portableShellSingleQuoted(innerCommand),
+        ].joined(separator: " ")
+    }
+
+    private static func strippedPortableChangeDirectoryCommand(
+        from command: String,
+        workingDirectory: String
+    ) -> String? {
+        let words = shellWordRanges(command)
+        guard words.count == 3,
+              words[0].value == "/bin/sh",
+              words[1].value == "-c" || words[1].value == "-lc" else {
+            return nil
+        }
+        let innerCommand = words[2].value
+        let stripped = strippedLegacyChangeDirectoryPrefix(
+            from: innerCommand,
+            workingDirectory: workingDirectory
+        )
+        return stripped == innerCommand ? nil : stripped
+    }
+
+    private static func strippedLegacyChangeDirectoryPrefix(
+        from command: String,
+        workingDirectory: String
+    ) -> String {
         let quotedCandidates = [
             TerminalStartupShellQuoting.singleQuoted(workingDirectory),
             legacySingleQuoted(workingDirectory)
@@ -102,6 +139,11 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
             }
         }
         return command
+    }
+
+    private static func legacyChangeDirectoryPrefix(for workingDirectory: String) -> String {
+        let quoted = TerminalStartupShellQuoting.singleQuoted(workingDirectory)
+        return "{ cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ]; } && "
     }
 
     private static func strippedSavedWorkingDirectoryOptions(
@@ -126,6 +168,10 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
     }
 
     private static func legacySingleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private static func portableShellSingleQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
