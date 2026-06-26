@@ -32,8 +32,17 @@ struct PanelFindRoutingTests {
         #expect(workspace.focusedPanelId == panel.id)
         #expect(manager.selectedTerminalPanel == nil)
         #expect(panel.previewMode == .text)
+        #expect(!manager.isFindVisible)
         #expect(manager.startSearch())
+        #expect(manager.isFindVisible)
         #expect(textView.actionTags == [NSTextFinder.Action.showFindInterface.rawValue])
+
+        manager.hideFind()
+        #expect(!manager.isFindVisible)
+        #expect(textView.actionTags == [
+            NSTextFinder.Action.showFindInterface.rawValue,
+            NSTextFinder.Action.hideFindInterface.rawValue,
+        ])
     }
 
     @Test
@@ -54,12 +63,21 @@ struct PanelFindRoutingTests {
         #expect(workspace.focusedPanelId == panel.id)
         #expect(manager.selectedTerminalPanel == nil)
         #expect(panel.displayMode == .preview)
+        #expect(!manager.isFindVisible)
         #expect(manager.startSearch())
         #expect(panel.displayMode == .text)
+        #expect(manager.isFindVisible)
 
         let textView = RecordingTextFinderTextView()
         panel.attachTextView(textView)
         #expect(textView.actionTags == [NSTextFinder.Action.showFindInterface.rawValue])
+
+        manager.hideFind()
+        #expect(!manager.isFindVisible)
+        #expect(textView.actionTags == [
+            NSTextFinder.Action.showFindInterface.rawValue,
+            NSTextFinder.Action.hideFindInterface.rawValue,
+        ])
     }
 
     @Test
@@ -81,6 +99,7 @@ struct PanelFindRoutingTests {
         #expect(panel.displayMode == .preview)
         manager.findNext()
         #expect(panel.displayMode == .text)
+        #expect(manager.isFindVisible)
 
         let textView = RecordingTextFinderTextView()
         panel.attachTextView(textView)
@@ -106,6 +125,7 @@ struct PanelFindRoutingTests {
         #expect(panel.displayMode == .preview)
         manager.findPrevious()
         #expect(panel.displayMode == .text)
+        #expect(manager.isFindVisible)
 
         let textView = RecordingTextFinderTextView()
         panel.attachTextView(textView)
