@@ -45,6 +45,11 @@ let package = Package(
         // launch service expands into a `cmux ssh` argument vector) is owned by
         // CmuxRemoteWorkspace.
         .package(path: "../CmuxRemoteWorkspace"),
+        // TerminalStartupWorkingDirectoryPrefix / TerminalStartupReturnShellScript
+        // (the cd-prefix rewriting and command-then-return-to-login-shell line
+        // builders) used by SurfaceResumeBindingSnapshot's launcher-script path
+        // are owned by CMUXAgentLaunch.
+        .package(path: "../CMUXAgentLaunch"),
     ],
     targets: [
         .target(
@@ -60,6 +65,7 @@ let package = Package(
                 .product(name: "CmuxWindowing", package: "CmuxWindowing"),
                 .product(name: "CmuxTerminalCore", package: "CmuxTerminalCore"),
                 .product(name: "CmuxRemoteWorkspace", package: "CmuxRemoteWorkspace"),
+                .product(name: "CMUXAgentLaunch", package: "CMUXAgentLaunch"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

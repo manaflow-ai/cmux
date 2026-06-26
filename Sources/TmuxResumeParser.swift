@@ -1,4 +1,5 @@
 import Foundation
+import CmuxWorkspaces
 
 enum TmuxResumeParser {
     static func binding(
