@@ -1,0 +1,96 @@
+title = "cmux gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Sentry scrubber redaction fixtures and examples"
+targetRules = ["generic-api-key", "github-pat", "jwt", "private-key"]
+condition = "AND"
+paths = [
+  '''^\.gitleaks\.toml$''',
+  '''^Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/SentryScrubber\.swift$''',
+  '''^Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/ScrubberDenylistsTests\.swift$''',
+  '''^Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/SentryScrubberTests\.swift$''',
+  '''^cmuxTests/SentryEventScrubberTests\.swift$''',
+]
+regexTarget = "line"
+regexes = [
+  '''token=abcdef0123456789(?:secret|zz)''',
+  '''token=sk-abc123def456ghij''',
+  '''sk-proj-abcdef0123456789ABCDEF''',
+  '''ghp_0123456789abcdefABCDEF0123456789abcd''',
+  '''eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiIxMjM0In0\.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U''',
+  '''-----BEGIN (?:RSA |EC )?(?:PRIVATE|PUBLIC) KEY-----''',
+]
+
+[[allowlists]]
+description = "Intentional attach-token and relay-token test fixtures"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = [
+  '''^\.gitleaks\.toml$''',
+  '''^Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxAttachTicketCompactCoderTests\.swift$''',
+  '''^Packages/macOS/CmuxRemoteWorkspace/Tests/CmuxRemoteWorkspaceTests/RemoteCLIRelayServerTests\.swift$''',
+  '''^cmuxTests/DiffCommentStoreTests\.swift$''',
+  '''^daemon/remote/cmd/cmuxd-remote/ws_pty_fuzz_test\.go$''',
+  '''^ios/cmuxPackage/Tests/cmuxFeatureTests/cmuxFeatureTests\.swift$''',
+  '''^scripts/lib/attach-url\.test\.mjs$''',
+]
+regexTarget = "line"
+regexes = [
+  '''authToken: "(?:ticket-secret|active-ticket-secret|expired-ticket-secret|ui-test-ticket|secret-token|legacy-token|dev-token|camel-secret|canonical-secret|minted-but-never-in-the-qr|minted-but-not-in-qr|3q2-7wDqzfQqzKpQ4XB8x1n0o5pYkz9jW2sT8uVbLwM)"''',
+  '''"(?:auth_token|authToken)": "(?:ticket-secret|camel-secret|canonical-secret)"''',
+  '''private let tokenHex = "00112233445566778899aabbccddeeff"''',
+  '''private let token = "0c33124b-9f59-4ba2-a2c2-9bd3b1cba001"''',
+  '''"token_sha256":"2bb80d537b1da3e38bd30361aa855686bde0ba2cf9c27ffb6b3874b764d66e16"''',
+]
+
+[[allowlists]]
+description = "Checked-in public client keys"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = [
+  '''^\.gitleaks\.toml$''',
+  '''^Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthConfig\.swift$''',
+  '''^Sources/Auth/AuthEnvironment\.swift$''',
+  '''^scripts/setup-team-dev\.sh$''',
+  '''^Sources/PostHogAnalytics\.swift$''',
+  '''^web/app/\[locale\]/posthog\.tsx$''',
+  '''^web/services/analytics/iosEventPolicy\.ts$''',
+]
+regexTarget = "line"
+regexes = [
+  '''pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g''',
+  '''pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr''',
+  '''phc_opOVu7oFzR9wD3I6ZahFGOV2h3mqGpl5EHyQvmHciDP''',
+]
+
+[[allowlists]]
+description = "Pinned sentry-cli release checksum"
+targetRules = ["sentry-access-token"]
+condition = "AND"
+paths = [
+  '''^\.gitleaks\.toml$''',
+  '''^scripts/ensure-sentry-cli\.sh$''',
+  '''^tests/test_ci_self_hosted_guard\.sh$''',
+]
+regexTarget = "line"
+regexes = [
+  '''SENTRY_CLI_SHA256="dcede3b42632886a32753ad9d763f785d46afd5fa4580b5c979aad2d465d1cf5"''',
+]
+
+[[allowlists]]
+description = "Non-secret variable-name and probe-token fixtures"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = [
+  '''^\.gitleaks\.toml$''',
+  '''^tests_v2/test_command_palette_focus\.py$''',
+  '''^web/app/api/notifications/push/route\.ts$''',
+]
+regexTarget = "line"
+regexes = [
+  '''CMUX_PALETTE_(?:FOCUS|RESTORE)_PROBE_[0-9]+''',
+  '''const keyP8 = env\.CMUX_APNS_KEY_P8;''',
+]
