@@ -135,7 +135,13 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func recordTextBoxLaunchCommand(_ command: String) {
+        let context = "textBoxLaunchCommand:\(command)"
+        guard TextBoxAgentDetection.supportsAgentPrefixes(context: context) else { return }
         textBoxState.recordLaunchCommand(command)
+    }
+
+    func clearTextBoxLaunchCommand() {
+        textBoxState.clearLaunchCommand()
     }
 
     var isDirty: Bool {

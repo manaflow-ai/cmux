@@ -305,11 +305,30 @@ extension TextBoxInputContainer {
     struct SubmitDispatchPlan {
         let events: [TextBoxSubmit.DispatchEvent]
         let cleanupTerminalAgentContext: String
+        let launchCommand: String?
     }
 
     func dispatchPlan(
         _ parts: [TextBoxSubmissionPart],
         applying action: TextBoxSubmitAction
+    ) -> SubmitDispatchPlan {
+        Self.dispatchPlan(
+            parts,
+            applying: action,
+            shouldForceTextEntrySubmit: shouldForceTextEntrySubmit,
+            allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
+            terminalAgentContext: terminalAgentContext,
+            pendingProviderLaunchAction: pendingProviderLaunchAction
+        )
+    }
+
+    static func dispatchPlan(
+        _ parts: [TextBoxSubmissionPart],
+        applying action: TextBoxSubmitAction,
+        shouldForceTextEntrySubmit: Bool,
+        allowsCommandTemplateSubmit: Bool,
+        terminalAgentContext: String,
+        pendingProviderLaunchAction: TextBoxSubmitAction?
     ) -> SubmitDispatchPlan {
         guard !shouldForceTextEntrySubmit, allowsCommandTemplateSubmit else {
             let textEntryContext = Self.textEntryTerminalAgentContext(
@@ -319,7 +338,8 @@ extension TextBoxInputContainer {
             )
             return SubmitDispatchPlan(
                 events: TextBoxSubmit.dispatchEvents(for: parts, terminalAgentContext: textEntryContext),
-                cleanupTerminalAgentContext: textEntryContext
+                cleanupTerminalAgentContext: textEntryContext,
+                launchCommand: nil
             )
         }
 
@@ -331,7 +351,8 @@ extension TextBoxInputContainer {
             )
             return SubmitDispatchPlan(
                 events: TextBoxSubmit.dispatchEvents(for: parts, terminalAgentContext: textEntryContext),
-                cleanupTerminalAgentContext: textEntryContext
+                cleanupTerminalAgentContext: textEntryContext,
+                launchCommand: nil
             )
         }
         return SubmitDispatchPlan(
@@ -340,7 +361,8 @@ extension TextBoxInputContainer {
                 allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
                 terminalAgentContext: terminalAgentContext,
                 pendingProviderLaunchAction: pendingProviderLaunchAction
-            )
+            ),
+            launchCommand: command
         )
     }
 

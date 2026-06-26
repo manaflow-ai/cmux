@@ -185,6 +185,23 @@ struct TextBoxSubmitActionTests {
         XCTAssertTrue(launchCommandsByID.isEmpty)
     }
 
+    @Test
+    func testCommandTemplateSubmitPlanExposesAgentLaunchCommandForActiveSessionTracking() throws {
+        let codex = try #require(TextBoxSubmitAction.builtInActions.first { $0.id == "codex" })
+        let plan = TextBoxInputContainer.dispatchPlan(
+            [.text("ship user's fix\nwith\ttabs")],
+            applying: codex,
+            shouldForceTextEntrySubmit: false,
+            allowsCommandTemplateSubmit: true,
+            terminalAgentContext: "",
+            pendingProviderLaunchAction: nil
+        )
+
+        let expectedCommand = "codex --dangerously-bypass-approvals-and-sandbox 'ship user'\\''s fix\nwith\ttabs'"
+        XCTAssertEqual(plan.launchCommand, expectedCommand)
+        XCTAssertEqual(plan.events, TextBoxSubmit.dispatchEvents(for: [.text(expectedCommand)], terminalAgentContext: ""))
+    }
+
 
     @Test
     func testProviderLaunchEventsKeepPromptInTextBoxUntilAgentIsActive() {
@@ -611,8 +628,9 @@ struct TextBoxSubmitActionTests {
             return
         }
 
-        textView.keyDown(with: shiftTabEvent)
+        let handledByTextBoxShortcut = textView.debugHandleConfiguredTextBoxShortcutForTesting(shiftTabEvent)
 
+        XCTAssertFalse(handledByTextBoxShortcut)
         XCTAssertEqual(cycleCount, 0)
         XCTAssertTrue(textView.hasMarkedText())
     }

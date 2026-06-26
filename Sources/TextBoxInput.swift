@@ -2437,6 +2437,8 @@ struct TextBoxInputContainer: View {
     let allowsCommandTemplateSubmit: Bool
     let onFocusTextBox: () -> Void
     let onToggleFocus: () -> Void
+    let onRecordLaunchCommand: (String) -> Void
+    let onClearLaunchCommand: () -> Void
     let onEscape: () -> Void
     let onTextViewCreated: (TextBoxInputTextView) -> Void
     let onTextViewMovedToWindow: (TextBoxInputTextView) -> Void
@@ -2726,12 +2728,14 @@ struct TextBoxInputContainer: View {
         let launchAction = effectiveSubmitAction
         if let launchCommand = providerLaunchCommand(for: launchAction) {
             startPendingProviderLaunch(launchAction)
+            onRecordLaunchCommand(launchCommand)
             TextBoxSubmit.sendEvents(
                 TextBoxSubmit.launchDispatchEvents(launchCommand: launchCommand),
                 via: surface
             ) { completionContext in
                 if !completionContext.didSubmit {
                     clearPendingProviderLaunch()
+                    onClearLaunchCommand()
                     NSSound.beep()
                 }
             }
@@ -2761,11 +2765,17 @@ struct TextBoxInputContainer: View {
             attachmentCount: 0
         )
         let submitPlan = dispatchPlan(partsToSend, applying: effectiveSubmitAction)
+        if let launchCommand = submitPlan.launchCommand {
+            onRecordLaunchCommand(launchCommand)
+        }
         TextBoxSubmit.sendEvents(
             submitPlan.events,
             via: surface,
         ) { completionContext in
             guard completionContext.didSubmit else {
+                if submitPlan.launchCommand != nil {
+                    onClearLaunchCommand()
+                }
                 if let poolWorkspaceId, !pendingComments.isEmpty {
                     DiffCommentSubmissionPool.shared.restorePending(
                         pendingComments,
@@ -4963,6 +4973,10 @@ final class TextBoxInputTextView: NSTextView {
     func debugMentionCompletionControlNavigationKey(for event: NSEvent) -> String? {
         mentionCompletionControlNavigationKey(for: event)
     }
+
+    func debugHandleConfiguredTextBoxShortcutForTesting(_ event: NSEvent) -> Bool {
+        handleConfiguredTextBoxShortcut(event)
+    }
 #endif
 
     private func handleConfiguredTextBoxShortcut(_ event: NSEvent) -> Bool {
@@ -4976,7 +4990,7 @@ final class TextBoxInputTextView: NSTextView {
             return true
         }
         if textBoxShortcut(event, matches: .cycleTextBoxSubmitAction) {
-            guard !hasMarkedText() else { return true }
+            guard !hasMarkedText() else { return false }
             onCycleSubmitAction()
             return true
         }

@@ -116,6 +116,12 @@ struct TerminalPanelView: View {
                     onToggleFocus: {
                         _ = panel.focusTextBoxInputOrTerminal()
                     },
+                    onRecordLaunchCommand: { command in
+                        panel.recordTextBoxLaunchCommand(command)
+                    },
+                    onClearLaunchCommand: {
+                        panel.clearTextBoxLaunchCommand()
+                    },
                     onEscape: {
                         panel.handleTextBoxEscape()
                     },

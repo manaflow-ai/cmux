@@ -15,14 +15,18 @@ final class TerminalPanelTextBoxState {
         didObserveLaunchCommandRunning = false
     }
 
+    func clearLaunchCommand() {
+        launchCommand = nil
+        didObserveLaunchCommandRunning = false
+    }
+
     func updateShellActivityState(_ state: PanelShellActivityState) {
         guard launchCommand != nil else { return }
         switch state {
         case .commandRunning:
             didObserveLaunchCommandRunning = true
         case .promptIdle where didObserveLaunchCommandRunning:
-            launchCommand = nil
-            didObserveLaunchCommandRunning = false
+            clearLaunchCommand()
         case .promptIdle, .unknown:
             break
         }
