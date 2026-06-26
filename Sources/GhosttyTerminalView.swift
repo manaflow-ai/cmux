@@ -11829,6 +11829,12 @@ struct GhosttyTerminalView: NSViewRepresentable {
         }
 
         override func viewDidMoveToWindow() {
+            // AppKit delivers this callback while still enumerating the view tree inside
+            // `_setWindow:`. Mark that a host window-attachment is in progress so any portal
+            // bind triggered synchronously below defers its structural reparent instead of
+            // mutating the in-flight walk (crash #5704).
+            TerminalWindowPortalRegistry.beginHostWindowAttachment()
+            defer { TerminalWindowPortalRegistry.endHostWindowAttachment() }
             super.viewDidMoveToWindow()
             onDidMoveToWindow?()
             notifyGeometryChangedIfNeeded()
