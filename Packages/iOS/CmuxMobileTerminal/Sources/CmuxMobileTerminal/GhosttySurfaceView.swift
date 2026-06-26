@@ -638,15 +638,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// grid under the surface lock; running it per frame would load the
     /// typing-latency render path.
     private var gridDivergenceChecker = MobileTerminalRenderGridDivergenceChecker()
-    /// Gate for the divergence-triggered resync. ON: when the applied grid does
-    /// not match the producer's stamped hash, request a full-snapshot resync that
-    /// restores complete terminal state (alt-screen, modes, colors, scrollback),
-    /// so a stale/blank row self-heals instead of staying wrong. This shares the
-    /// existing recovery path, so it is correct by construction; the only cost is
-    /// that the full replay resets scroll position, which is acceptable because it
-    /// fires only on a rare genuine divergence (throttled, and a wrong screen is
-    /// worse than a reset scroll). A scroll-preserving repair is a follow-up.
-    public static var gridDivergenceResyncEnabled = true
+    /// Gate for the detection-only divergence check. ON: it reads the applied
+    /// grid back (throttled) and logs when it disagrees with the producer's
+    /// stamped hash. It performs no repair, so it has no scroll or rendering side
+    /// effect; it only measures how often a delta leaves the iOS grid stale, to
+    /// inform the scroll-safe repair follow-up.
+    public static var gridDivergenceCheckEnabled = true
     /// Serial background queue for `ghostty_surface_process_output`, which
     /// blocks on libghostty's internal renderer/IO futex. Running it on the
     /// main thread hangs the app until the scene-update watchdog kills it.
@@ -2521,21 +2518,30 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     /// After applying a render-grid frame, verify (throttled) that the resulting
-    /// grid matches the producer's stamped `expectedHash`, returning `true` when
-    /// it diverges and the caller should request a keyframe.
+    /// grid matches the producer's stamped `expectedHash`, and record a
+    /// diagnostic when it does not.
+    ///
+    /// This is detection-only instrumentation: a mismatch means a delta silently
+    /// failed to reproduce the authoritative grid (the "row blanks and stays
+    /// blank" class), and logging its rate is what tells us whether an automatic
+    /// repair is worth building and how aggressive it must be. It deliberately
+    /// does NOT trigger a resync: the only repair available today is the full
+    /// snapshot replay, which resets scroll position and would yank a reader who
+    /// is scrolled up into history. A scroll-preserving, full-state repair is a
+    /// separate follow-up; until then this only measures.
     ///
     /// The read-back runs on the serial ``outputQueue`` (the only place that may
     /// take the surface lock without contending `process_output`), and only when
-    /// the throttle and the dark-launch gate allow it, so this never adds a
-    /// per-frame cost on the render path.
+    /// the throttle allows it, so it never adds a per-frame cost on the render
+    /// path.
     @MainActor
-    public func appliedGridDivergesFromExpected(_ expectedHash: UInt64?, surfaceID: String) async -> Bool {
-        guard Self.gridDivergenceResyncEnabled else { return false }
+    public func recordAppliedGridDivergence(expectedHash: UInt64?, surfaceID: String) async {
+        guard Self.gridDivergenceCheckEnabled else { return }
         guard gridDivergenceChecker.shouldVerify(
             expectedHash: expectedHash,
             now: CACurrentMediaTime()
-        ) else { return false }
-        guard let surface else { return false }
+        ) else { return }
+        guard let surface else { return }
         let appliedHash: UInt64? = await withCheckedContinuation { continuation in
             Self.outputQueue.async {
                 continuation.resume(
@@ -2543,7 +2549,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 )
             }
         }
-        return gridDivergenceChecker.diverges(expectedHash: expectedHash, appliedHash: appliedHash)
+        guard gridDivergenceChecker.diverges(expectedHash: expectedHash, appliedHash: appliedHash) else {
+            return
+        }
+        log.warning(
+            "render-grid divergence surface=\(surfaceID, privacy: .public) expected=\(expectedHash ?? 0, privacy: .public) applied=\(appliedHash ?? 0, privacy: .public)"
+        )
     }
 
     func renderedHTMLForTesting(pointTag: ghostty_point_tag_e = GHOSTTY_POINT_VIEWPORT) -> String? {

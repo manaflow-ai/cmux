@@ -69,11 +69,16 @@ import Testing
     )
 
     let received = authoritative.stampingGridHash(authoritative.gridContentHash())
+    let checker = MobileTerminalRenderGridDivergenceChecker()
 
-    // Consumer applied a stale grid -> divergence detected -> keyframe requested.
-    #expect(received.divergesFromAppliedGrid(hash: appliedStale.gridContentHash()) == true)
+    // Consumer applied a stale grid -> divergence detected.
+    #expect(checker.diverges(
+        expectedHash: received.gridHash, appliedHash: appliedStale.gridContentHash()
+    ) == true)
     // Consumer applied the correct grid -> no false positive, no keyframe churn.
-    #expect(received.divergesFromAppliedGrid(hash: authoritative.gridContentHash()) == false)
+    #expect(checker.diverges(
+        expectedHash: received.gridHash, appliedHash: authoritative.gridContentHash()
+    ) == false)
 }
 
 @Test func gridHashRoundTripsAndIsBackCompatible() throws {
@@ -81,10 +86,12 @@ import Testing
         surfaceID: "terminal-a", stateSeq: 3, columns: 8, rows: 3, text: "alpha\nbeta\n"
     )
 
-    // Legacy producer: no hash stamped -> nil, and the detector never demands a
+    // Legacy producer: no hash stamped -> nil, and the checker never demands a
     // keyframe it cannot verify.
     #expect(base.gridHash == nil)
-    #expect(base.divergesFromAppliedGrid(hash: 0xDEAD_BEEF) == false)
+    #expect(MobileTerminalRenderGridDivergenceChecker().diverges(
+        expectedHash: base.gridHash, appliedHash: 0xDEAD_BEEF
+    ) == false)
 
     // Stamped hash survives a JSON round-trip.
     let stamped = base.stampingGridHash(base.gridContentHash())

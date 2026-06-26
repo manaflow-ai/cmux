@@ -6101,19 +6101,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return ack
     }
 
-    /// Request a fresh full-snapshot render-grid replay for one surface because
-    /// the consumer detected that its applied grid diverged from the producer's
-    /// authoritative ``MobileTerminalRenderGridFrame/gridHash``. Public so the
-    /// mounted surface can drive the repair after a post-apply hash check; it
-    /// reuses the existing per-surface resync (no event-stream restart).
-    public func requestTerminalRenderGridResync(surfaceID: String) {
-        resyncTerminalOutput(
-            reason: "grid_hash_mismatch",
-            restartEventStream: false,
-            surfaceIDs: [surfaceID]
-        )
-    }
-
     private func resyncTerminalOutput(
         reason: String,
         restartEventStream: Bool,

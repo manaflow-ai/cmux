@@ -329,17 +329,6 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         return copy
     }
 
-    /// Whether the consumer must request a full keyframe after applying this
-    /// frame, given the ``gridContentHash()`` of its own resulting grid.
-    ///
-    /// Returns `false` when the frame carries no ``gridHash`` (a producer that
-    /// predates the field), so the detector degrades to today's behavior rather
-    /// than looping on keyframes it cannot verify.
-    public func divergesFromAppliedGrid(hash appliedHash: UInt64) -> Bool {
-        guard let gridHash else { return false }
-        return gridHash != appliedHash
-    }
-
     public func filteredRows(_ includedRows: Set<Int>, full: Bool) throws -> MobileTerminalRenderGridFrame {
         try MobileTerminalRenderGridFrame(
             surfaceID: surfaceID,
