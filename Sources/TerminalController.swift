@@ -4155,13 +4155,13 @@ class TerminalController {
                 }
                 let colorInput = colorRaw.trimmingCharacters(in: .whitespacesAndNewlines)
                 // Resolve named colors from the effective palette, including file-defined additions.
-                let effectivePalette = WorkspaceTabColorSettings.palette()
+                let effectivePalette = WorkspaceTabColorPaletteStore().palette()
                 let hex: String
                 if let entry = effectivePalette.first(where: {
                     $0.name.caseInsensitiveCompare(colorInput) == .orderedSame
                 }) {
                     hex = entry.hex
-                } else if let normalized = WorkspaceTabColorSettings.normalizedHex(colorInput) {
+                } else if let normalized = WorkspaceTabColorPaletteStore().normalizedHex(colorInput) {
                     hex = normalized
                 } else {
                     let colorNames = effectivePalette.map(\.name)

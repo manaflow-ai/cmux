@@ -1,5 +1,6 @@
 import CmuxFoundation
 import AppKit
+import CmuxDesignSystem
 import CmuxSettings
 import SwiftUI
 
@@ -18,29 +19,7 @@ public struct WorkspaceColorsSection: View {
     @State private var badgeHex: DefaultsValueModel<String>
     @State private var paletteModel: DefaultsValueModel<[String: String]>
 
-    /// Built-in palette order and default hexes. Mirrors
-    /// `WorkspaceTabColorSettings.defaultPalette` in the legacy app target.
-    /// Kept in this file so the section can render the full effective
-    /// palette (built-ins + customs) with `Base:` subtitles and Remove
-    /// gating without reaching outside the package.
-    private static let builtInPalette: [(name: String, hex: String)] = [
-        ("Red", "#C0392B"),
-        ("Crimson", "#922B21"),
-        ("Orange", "#A04000"),
-        ("Amber", "#7D6608"),
-        ("Olive", "#4A5C18"),
-        ("Green", "#196F3D"),
-        ("Teal", "#006B6B"),
-        ("Aqua", "#0E6B8C"),
-        ("Blue", "#1565C0"),
-        ("Navy", "#1A5276"),
-        ("Indigo", "#283593"),
-        ("Purple", "#6A1B9A"),
-        ("Magenta", "#AD1457"),
-        ("Rose", "#880E4F"),
-        ("Brown", "#7B3F00"),
-        ("Charcoal", "#3E4B5E"),
-    ]
+    private let tabColorPalette = WorkspaceTabColorPalette.workspaceTabs
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
@@ -220,37 +199,27 @@ public struct WorkspaceColorsSection: View {
         }
     }
 
-    /// Returns the effective palette entries: built-in entries first
-    /// (in `builtInPalette` order, with overrides applied or default
-    /// hex), followed by custom entries sorted by name. Mirrors
-    /// `WorkspaceTabColorSettings.palette()`.
+    /// Returns the effective palette entries: built-in entries first,
+    /// followed by custom entries sorted by name.
     private func effectivePaletteEntries(overrides: [String: String]) -> [(name: String, hex: String)] {
-        let resolved = effectivePaletteMap(stored: overrides)
-        let builtInNames = Set(Self.builtInPalette.map(\.name))
-        let builtIn: [(name: String, hex: String)] = Self.builtInPalette.compactMap { entry in
-            guard let hex = resolved[entry.name] else { return nil }
-            return (name: entry.name, hex: hex)
-        }
-        let customs = resolved
-            .filter { !builtInNames.contains($0.key) }
-            .sorted { $0.key.localizedStandardCompare($1.key) == .orderedAscending }
-            .map { (name: $0.key, hex: $0.value) }
-        return builtIn + customs
+        tabColorPalette
+            .entries(stored: storedPaletteMap(overrides: overrides))
+            .map { (name: $0.name, hex: $0.hex) }
     }
 
     /// Returns the full effective palette dictionary. When `stored` is
     /// empty (no UserDefaults entry yet) this is the built-in default
-    /// palette; otherwise the stored map is returned verbatim. Matches
-    /// legacy `WorkspaceTabColorSettings.effectivePaletteMap`.
+    /// palette; otherwise the stored map is returned verbatim.
     private func effectivePaletteMap(stored: [String: String]) -> [String: String] {
-        if stored.isEmpty {
-            return Dictionary(uniqueKeysWithValues: Self.builtInPalette.map { ($0.name, $0.hex) })
-        }
-        return stored
+        tabColorPalette.effectivePaletteMap(stored: storedPaletteMap(overrides: stored))
     }
 
     private func baseHex(for name: String) -> String? {
-        Self.builtInPalette.first(where: { $0.name == name })?.hex
+        tabColorPalette.defaultColorHex(named: name)
+    }
+
+    private func storedPaletteMap(overrides: [String: String]) -> [String: String]? {
+        overrides.isEmpty ? nil : overrides
     }
 
     /// Localized label for an indicator style.

@@ -32,7 +32,7 @@ struct CmuxWorkspaceDefinition: Codable, Sendable {
 
         if let rawColor = try container.decodeIfPresent(String.self, forKey: .color) {
             let defaults = decoder.userInfo[.cmuxWorkspaceColorDefaults] as? UserDefaults ?? .standard
-            guard let normalized = WorkspaceTabColorSettings.resolvedColorHex(rawColor, defaults: defaults) else {
+            guard let normalized = WorkspaceTabColorPaletteStore(defaults: defaults).resolvedColorHex(rawColor) else {
                 throw DecodingError.dataCorruptedError(
                     forKey: .color,
                     in: container,

@@ -3070,7 +3070,7 @@ final class CmuxConfigStore: ObservableObject {
         let attributes = try? fileManager.attributesOfItem(atPath: path)
         let fileSize = (attributes?[.size] as? NSNumber)?.uint64Value ?? 0
         let modificationDate = attributes?[.modificationDate] as? Date
-        let paletteFingerprint = WorkspaceTabColorSettings.paletteCacheFingerprint()
+        let paletteFingerprint = WorkspaceTabColorPaletteStore().paletteCacheFingerprint()
 
         if let cached = parsedConfigCache[path],
            cached.fileSize == fileSize,

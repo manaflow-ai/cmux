@@ -109,6 +109,9 @@
          location = "group:CMUXDebugLog">
       </FileRef>
       <FileRef
+         location = "group:CmuxDesignSystem">
+      </FileRef>
+      <FileRef
          location = "group:CmuxExtensionKit">
       </FileRef>
       <FileRef

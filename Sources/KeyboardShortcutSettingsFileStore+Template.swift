@@ -150,7 +150,7 @@ extension CmuxSettingsFileStore {
                     "selectionColor": NSNull(),
                     "notificationBadgeColor": NSNull(),
                     "colors": Dictionary(
-                        uniqueKeysWithValues: WorkspaceTabColorSettings.defaultPalette.map { ($0.name, $0.hex) }
+                        uniqueKeysWithValues: WorkspaceTabColorPaletteStore().defaultPalette.map { ($0.name, $0.hex) }
                     ),
                 ],
             ],
