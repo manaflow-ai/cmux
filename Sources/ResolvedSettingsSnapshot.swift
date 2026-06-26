@@ -33,6 +33,12 @@ struct ResolvedSettingsSnapshot {
     }
 }
 
+extension ResolvedSettingsSnapshot: ManagedSettingsProjecting {
+    mutating func projectManagedDefault(_ value: ManagedSettingsValue, forKey key: String) {
+        managedUserDefaults[key] = value
+    }
+}
+
 enum ManagedStringOverride: Equatable {
     case set(String)
     case clear

@@ -17,7 +17,6 @@ struct SessionTranscriptLoader {
     private static let streamChunkSize = 256 * 1024
     private static let maxPreviewRecordBytes = 2 * 1024 * 1024
     private static let maxPreviewTurns = 500
-    private static let maxTurnTextCharacters = 40_000
     private static let newlineByte: UInt8 = 10
 
     /// Byte-level raw-line classifier, built once and reused for the per-line
@@ -76,9 +75,9 @@ struct SessionTranscriptLoader {
         }
         if agent == .rovodev {
             guard let preview = try RovoDevTranscriptPreview.load(from: url, limit: maxPreviewTurns) else { throw SessionTranscriptLoadError.missingFile }
-            return coalesce(preview.enumerated().map { index, turn in
-                let role = transcriptRole(from: turn.role) ?? .event
-                return SessionTranscriptTurn(id: index, role: role, text: truncatedText(turn.text, role: role))
+            return SessionTranscriptTurn.coalesce(preview.enumerated().map { index, turn in
+                let role = SessionTranscriptRole(transcriptRaw: turn.role) ?? .event
+                return SessionTranscriptTurn(id: index, role: role, text: SessionTranscriptTurn.truncatedText(turn.text, role: role))
             })
         }
 
@@ -106,7 +105,7 @@ struct SessionTranscriptLoader {
             }
             guard !isSkippingOversizedLine else {
                 if let oversizedPreviewRole {
-                    turns.append(largeRecordTurn(id: lineIndex, role: oversizedPreviewRole))
+                    turns.append(SessionTranscriptTurn.largeRecordTurn(id: lineIndex, role: oversizedPreviewRole))
                 }
                 didHitTurnLimit = turns.count >= maxPreviewTurns
                 return
@@ -174,10 +173,10 @@ struct SessionTranscriptLoader {
             finishLine()
         }
         if didHitTurnLimit {
-            appendTurnLimitMarker(to: &turns, id: lineIndex)
+            SessionTranscriptTurn.appendTurnLimitMarker(to: &turns, id: lineIndex)
         }
 
-        return coalesce(turns)
+        return SessionTranscriptTurn.coalesce(turns)
     }
 
     private static func loadAntigravityHistorySynchronously(
@@ -205,16 +204,16 @@ struct SessionTranscriptLoader {
                 return false
             }
             let content = object["display"] ?? object["prompt"] ?? object["text"] ?? object["message"]
-            guard let text = normalizedText(from: content, role: .user, agent: agent) else {
+            guard let text = SessionTranscriptTurn.normalizedText(from: content, role: .user, agent: agent) else {
                 return false
             }
             turns.append(SessionTranscriptTurn(id: lineIndex, role: .user, text: text))
             return false
         }
         if didHitTurnLimit {
-            appendTurnLimitMarker(to: &turns, id: lineIndex)
+            SessionTranscriptTurn.appendTurnLimitMarker(to: &turns, id: lineIndex)
         }
-        return coalesce(turns)
+        return SessionTranscriptTurn.coalesce(turns)
     }
 
     private static func antigravityHistorySessionID(in object: [String: Any]) -> String? {
@@ -305,10 +304,10 @@ struct SessionTranscriptLoader {
         }
 
         if didHitTurnLimit {
-            appendTurnLimitMarker(to: &turns, id: turnId)
+            SessionTranscriptTurn.appendTurnLimitMarker(to: &turns, id: turnId)
         }
 
-        return coalesce(turns)
+        return SessionTranscriptTurn.coalesce(turns)
     }
 
     private static func loadHermesAgentSynchronously(sessionId: String) throws -> [SessionTranscriptTurn] {
@@ -316,7 +315,7 @@ struct SessionTranscriptLoader {
             let turns = try HermesAgentIndex.loadTranscript(sessionId: sessionId, limit: maxPreviewTurns + 1)
             let didHitTurnLimit = turns.count > maxPreviewTurns
             var previewTurns: [SessionTranscriptTurn] = turns.prefix(maxPreviewTurns).enumerated().compactMap { index, turn -> SessionTranscriptTurn? in
-                let role: SessionTranscriptRole = (turn.toolName?.isEmpty == false) ? .tool : (transcriptRole(from: turn.role) ?? .event)
+                let role: SessionTranscriptRole = (turn.toolName?.isEmpty == false) ? .tool : (SessionTranscriptRole(transcriptRaw: turn.role) ?? .event)
                 let text: String
                 if role == .tool, let toolName = turn.toolName, !toolName.isEmpty {
                     text = [toolName, turn.content].joined(separator: "\n\n")
@@ -325,12 +324,12 @@ struct SessionTranscriptLoader {
                 }
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { return nil }
-                return SessionTranscriptTurn(id: index, role: role, text: truncatedText(trimmed, role: role))
+                return SessionTranscriptTurn(id: index, role: role, text: SessionTranscriptTurn.truncatedText(trimmed, role: role))
             }
             if didHitTurnLimit {
-                appendTurnLimitMarker(to: &previewTurns, id: previewTurns.count)
+                SessionTranscriptTurn.appendTurnLimitMarker(to: &previewTurns, id: previewTurns.count)
             }
-            return coalesce(previewTurns)
+            return SessionTranscriptTurn.coalesce(previewTurns)
         } catch HermesAgentIndexError.missingDatabase {
             throw SessionTranscriptLoadError.missingFile
         } catch let HermesAgentIndexError.sqlite(message) {
@@ -394,9 +393,9 @@ struct SessionTranscriptLoader {
             return nil
         }
         let message = object["message"] as? [String: Any]
-        let role = transcriptRole(from: message?["role"] as? String ?? type) ?? .event
+        let role = SessionTranscriptRole(transcriptRaw: message?["role"] as? String ?? type) ?? .event
         let content = message?["content"] ?? object["content"]
-        guard let text = normalizedText(from: content, role: role, agent: .claude) else {
+        guard let text = SessionTranscriptTurn.normalizedText(from: content, role: role, agent: .claude) else {
             return nil
         }
         return SessionTranscriptTurn(id: id, role: role, text: text)
@@ -409,17 +408,17 @@ struct SessionTranscriptLoader {
             return nil
         }
         if payloadType == "message" {
-            guard let role = transcriptRole(from: payload["role"] as? String),
+            guard let role = SessionTranscriptRole(transcriptRaw: payload["role"] as? String),
                   role == .user || role == .assistant else {
                 return nil
             }
-            guard let text = normalizedText(from: payload["content"], role: role, agent: .codex) else {
+            guard let text = SessionTranscriptTurn.normalizedText(from: payload["content"], role: role, agent: .codex) else {
                 return nil
             }
             return SessionTranscriptTurn(id: id, role: role, text: text)
         }
         if payloadType == "function_call" || payloadType == "function_call_output" {
-            guard let text = normalizedText(from: payload, role: .tool, agent: .codex) else {
+            guard let text = SessionTranscriptTurn.normalizedText(from: payload, role: .tool, agent: .codex) else {
                 return nil
             }
             return SessionTranscriptTurn(id: id, role: .tool, text: text)
@@ -470,7 +469,7 @@ struct SessionTranscriptLoader {
     ) -> SessionTranscriptTurn? {
         let fallbackRole: SessionTranscriptRole? = { if case .registered = agent { return .event }; return nil }()
         let rawRole = object["role"] as? String
-        let parsedRole = transcriptRole(from: rawRole)
+        let parsedRole = SessionTranscriptRole(transcriptRaw: rawRole)
         let roleFromRole = usesGrokTranscriptLayout
             && parsedRole == .event
             && rawRole?.caseInsensitiveCompare("event") != .orderedSame
@@ -481,7 +480,7 @@ struct SessionTranscriptLoader {
         let roleFromType: SessionTranscriptRole? = {
             guard shouldUseGrokTypeRole else { return nil }
             let rawType = object["type"] as? String
-            let parsedTypeRole = transcriptRole(from: rawType)
+            let parsedTypeRole = SessionTranscriptRole(transcriptRaw: rawType)
             if parsedTypeRole == .event,
                rawType?.caseInsensitiveCompare("event") != .orderedSame {
                 return nil
@@ -493,7 +492,7 @@ struct SessionTranscriptLoader {
             return nil
         }
         let content = object["content"] ?? object["text"] ?? object["message"]
-        guard let text = normalizedText(from: content, role: role, agent: agent) else {
+        guard let text = SessionTranscriptTurn.normalizedText(from: content, role: role, agent: agent) else {
             return nil
         }
         return SessionTranscriptTurn(id: id, role: role, text: text)
@@ -505,7 +504,7 @@ struct SessionTranscriptLoader {
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil
         }
-        return transcriptRole(from: object["role"] as? String)
+        return SessionTranscriptRole(transcriptRaw: object["role"] as? String)
     }
 
     private static func parseOpenCodePart(
@@ -533,89 +532,9 @@ struct SessionTranscriptLoader {
             role = messageRole
         }
 
-        guard let text = normalizedText(from: object, role: role, agent: .opencode) else {
+        guard let text = SessionTranscriptTurn.normalizedText(from: object, role: role, agent: .opencode) else {
             return nil
         }
         return SessionTranscriptTurn(id: id, role: role, text: text)
-    }
-
-    private static func transcriptRole(from raw: String?) -> SessionTranscriptRole? {
-        guard let raw else { return nil }
-        switch raw.lowercased() {
-        case "user":
-            return .user
-        case "assistant":
-            return .assistant
-        case "system", "developer":
-            return .system
-        case "tool", "tool_use", "tool_result", "function_call", "function_call_output":
-            return .tool
-        default:
-            return .event
-        }
-    }
-
-    private static func normalizedText(
-        from value: Any?,
-        role: SessionTranscriptRole,
-        agent: SessionAgent
-    ) -> String? {
-        let text = TranscriptContentFragments(value).fragments
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n\n")
-        guard !text.isEmpty else { return nil }
-        if agent == .claude, role == .user {
-            return SessionEntry.claudeDisplayTitle(from: text)
-                .map { truncatedText($0, role: role) }
-        }
-        return truncatedText(text, role: role)
-    }
-
-    private static func coalesce(_ turns: [SessionTranscriptTurn]) -> [SessionTranscriptTurn] {
-        var output: [SessionTranscriptTurn] = []
-        for turn in turns {
-            if let last = output.last, last.role == turn.role {
-                output[output.count - 1] = SessionTranscriptTurn(
-                    id: last.id,
-                    role: last.role,
-                    text: last.text + "\n\n" + turn.text
-                )
-            } else {
-                output.append(turn)
-            }
-        }
-        return output.enumerated().map { offset, turn in
-            SessionTranscriptTurn(id: offset, role: turn.role, text: turn.text)
-        }
-    }
-
-    private static func truncatedText(_ text: String, role: SessionTranscriptRole) -> String {
-        let limit = role == .tool ? 12_000 : maxTurnTextCharacters
-        guard text.count > limit else { return text }
-        let index = text.index(text.startIndex, offsetBy: limit)
-        let marker = String(localized: "sessionIndex.preview.truncated", defaultValue: "Preview truncated")
-        return String(text[..<index]) + "\n\n" + marker
-    }
-
-    private static func largeRecordTurn(id: Int, role: SessionTranscriptRole) -> SessionTranscriptTurn {
-        SessionTranscriptTurn(
-            id: id,
-            role: role,
-            text: String(
-                localized: "sessionIndex.preview.largeRecord",
-                defaultValue: "Large transcript record omitted"
-            )
-        )
-    }
-
-    private static func appendTurnLimitMarker(to turns: inout [SessionTranscriptTurn], id: Int) {
-        turns.append(
-            SessionTranscriptTurn(
-                id: id,
-                role: .event,
-                text: String(localized: "sessionIndex.preview.truncated", defaultValue: "Preview truncated")
-            )
-        )
     }
 }

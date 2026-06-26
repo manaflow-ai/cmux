@@ -560,19 +560,6 @@ extension TitlebarControlsStyleConfig {
     }
 }
 
-private enum TitlebarControlIconStyle {
-    static let opacity = HeaderChromeIconStyle.opacity
-    static let hoveredOpacity = HeaderChromeIconStyle.hoveredOpacity
-    static let pressedOpacity = HeaderChromeIconStyle.pressedOpacity
-    static let weight = HeaderChromeIconStyle.weight
-    static let foregroundColor = HeaderChromeIconStyle.foregroundColor
-    static let sidebarGlyphStrokeWidth = HeaderChromeIconStyle.sidebarGlyphStrokeWidth
-
-    static func iconFrameSize(for config: TitlebarControlsStyleConfig) -> CGFloat {
-        HeaderChromeIconStyle.iconFrameSize(forIconSize: config.iconSize)
-    }
-}
-
 struct TitlebarControlButton<Content: View>: View {
     let config: TitlebarControlsStyleConfig
     let foregroundColor: Color
@@ -1101,7 +1088,7 @@ struct TitlebarControlsView: View {
         titlebarIconChrome(config: config, iconGeometryKeyPrefix: iconGeometryKeyPrefix) {
             Image(systemName: systemName)
                 .symbolRenderingMode(.monochrome)
-                .cmuxSymbolRasterSize(config.iconSize, weight: TitlebarControlIconStyle.weight)
+                .cmuxSymbolRasterSize(config.iconSize, weight: HeaderChromeIconStyle.weight)
         }
     }
 
@@ -1123,8 +1110,8 @@ struct TitlebarControlsView: View {
     ) -> some View {
         icon()
             .frame(
-                width: TitlebarControlIconStyle.iconFrameSize(for: config),
-                height: TitlebarControlIconStyle.iconFrameSize(for: config)
+                width: HeaderChromeIconStyle.iconFrameSize(forIconSize: config.iconSize),
+                height: HeaderChromeIconStyle.iconFrameSize(forIconSize: config.iconSize)
             )
             .background(TitlebarChromeGeometryReporter(keyPrefix: iconGeometryKeyPrefix ?? ""))
     }
@@ -1137,7 +1124,7 @@ private struct TitlebarSidebarGlyph: View {
         TitlebarSidebarGlyphShape()
             .stroke(
                 style: StrokeStyle(
-                    lineWidth: TitlebarControlIconStyle.sidebarGlyphStrokeWidth,
+                    lineWidth: HeaderChromeIconStyle.sidebarGlyphStrokeWidth,
                     lineCap: .round,
                     lineJoin: .round
                 )
@@ -1586,8 +1573,10 @@ private struct PassthroughHoverTrackingView: NSViewRepresentable {
     }
 }
 
-enum TitlebarWindowGeometryNotifications {
-    static let names: [Notification.Name] = [
+extension [Notification.Name] {
+    /// Window notifications observed to keep the titlebar controls accessory
+    /// positioned as the window resizes, changes screen, or toggles full screen.
+    static let titlebarWindowGeometry: [Notification.Name] = [
         NSWindow.didResizeNotification,
         NSWindow.didEndLiveResizeNotification,
         NSWindow.willEnterFullScreenNotification,
@@ -1725,7 +1714,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         observedWindow = currentWindow
         guard let currentWindow else { return true }
         let center = NotificationCenter.default
-        windowGeometryObservers = TitlebarWindowGeometryNotifications.names.map { name in
+        windowGeometryObservers = [Notification.Name].titlebarWindowGeometry.map { name in
             center.addObserver(forName: name, object: currentWindow, queue: .main) { [weak self] _ in
                 self?.scheduleSizeUpdate(invalidateIntrinsicSize: true, invalidateLayout: true)
             }
@@ -1944,13 +1933,24 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     }
 }
 
-private enum NotificationsPopoverMetrics {
-    static let defaultWidth: CGFloat = 560
-    static let defaultHeight: CGFloat = 760
-    static let minWidth: CGFloat = 420
-    static let minHeight: CGFloat = 320
-    static let maxWidth: CGFloat = 1000
-    static let maxHeight: CGFloat = 1200
+/// Size constraints for the notifications popover (default, minimum, and maximum
+/// width/height in points).
+private struct NotificationsPopoverMetrics {
+    let defaultWidth: CGFloat
+    let defaultHeight: CGFloat
+    let minWidth: CGFloat
+    let minHeight: CGFloat
+    let maxWidth: CGFloat
+    let maxHeight: CGFloat
+
+    static let standard = NotificationsPopoverMetrics(
+        defaultWidth: 560,
+        defaultHeight: 760,
+        minWidth: 420,
+        minHeight: 320,
+        maxWidth: 1000,
+        maxHeight: 1200
+    )
 }
 
 private struct NotificationsPopoverView: View {
@@ -1959,9 +1959,9 @@ private struct NotificationsPopoverView: View {
     let onDismiss: () -> Void
 
     @AppStorage("cmux.notifications.popover.width")
-    private var savedWidth: Double = Double(NotificationsPopoverMetrics.defaultWidth)
+    private var savedWidth: Double = Double(NotificationsPopoverMetrics.standard.defaultWidth)
     @AppStorage("cmux.notifications.popover.height")
-    private var savedHeight: Double = Double(NotificationsPopoverMetrics.defaultHeight)
+    private var savedHeight: Double = Double(NotificationsPopoverMetrics.standard.defaultHeight)
 
     // Live size while the user drags the resize handle. We avoid writing through @AppStorage
     // on every mouseDragged event because each write hits UserDefaults and posts
@@ -1996,25 +1996,25 @@ private struct NotificationsPopoverView: View {
     }
 
     private var screenMaxWidth: CGFloat {
-        let screenWidth = popoverScreen?.visibleFrame.width ?? NotificationsPopoverMetrics.maxWidth
-        return max(NotificationsPopoverMetrics.minWidth, screenWidth - Self.screenMargin)
+        let screenWidth = popoverScreen?.visibleFrame.width ?? NotificationsPopoverMetrics.standard.maxWidth
+        return max(NotificationsPopoverMetrics.standard.minWidth, screenWidth - Self.screenMargin)
     }
 
     private var screenMaxHeight: CGFloat {
-        let screenHeight = popoverScreen?.visibleFrame.height ?? NotificationsPopoverMetrics.maxHeight
-        return max(NotificationsPopoverMetrics.minHeight, screenHeight - Self.screenMargin)
+        let screenHeight = popoverScreen?.visibleFrame.height ?? NotificationsPopoverMetrics.standard.maxHeight
+        return max(NotificationsPopoverMetrics.standard.minHeight, screenHeight - Self.screenMargin)
     }
 
     private var clampedWidth: CGFloat {
         let raw = liveWidth ?? CGFloat(savedWidth)
-        let upper = min(NotificationsPopoverMetrics.maxWidth, screenMaxWidth)
-        return min(upper, max(NotificationsPopoverMetrics.minWidth, raw))
+        let upper = min(NotificationsPopoverMetrics.standard.maxWidth, screenMaxWidth)
+        return min(upper, max(NotificationsPopoverMetrics.standard.minWidth, raw))
     }
 
     private var clampedHeight: CGFloat {
         let raw = liveHeight ?? CGFloat(savedHeight)
-        let upper = min(NotificationsPopoverMetrics.maxHeight, screenMaxHeight)
-        return min(upper, max(NotificationsPopoverMetrics.minHeight, raw))
+        let upper = min(NotificationsPopoverMetrics.standard.maxHeight, screenMaxHeight)
+        return min(upper, max(NotificationsPopoverMetrics.standard.minHeight, raw))
     }
 
     // Invisible bottom-right corner resize region. NSPopover has no native resize chrome and
@@ -2030,10 +2030,10 @@ private struct NotificationsPopoverView: View {
                 (clampedWidth, clampedHeight)
             },
             onDrag: { startW, startH, dx, dy in
-                let upperW = min(NotificationsPopoverMetrics.maxWidth, screenMaxWidth)
-                let upperH = min(NotificationsPopoverMetrics.maxHeight, screenMaxHeight)
-                let newW = min(upperW, max(NotificationsPopoverMetrics.minWidth, startW + dx))
-                let newH = min(upperH, max(NotificationsPopoverMetrics.minHeight, startH + dy))
+                let upperW = min(NotificationsPopoverMetrics.standard.maxWidth, screenMaxWidth)
+                let upperH = min(NotificationsPopoverMetrics.standard.maxHeight, screenMaxHeight)
+                let newW = min(upperW, max(NotificationsPopoverMetrics.standard.minWidth, startW + dx))
+                let newH = min(upperH, max(NotificationsPopoverMetrics.standard.minHeight, startH + dy))
                 liveWidth = newW
                 liveHeight = newH
             },

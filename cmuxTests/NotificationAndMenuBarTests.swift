@@ -1521,13 +1521,13 @@ final class NotificationDockBadgeTests: XCTestCase {
 }
 
 
-final class MenuBarBadgeLabelFormatterTests: XCTestCase {
+final class MenuBarBadgeLabelTests: XCTestCase {
     func testBadgeLabelFormatting() {
-        XCTAssertNil(MenuBarBadgeLabelFormatter.badgeText(for: 0))
-        XCTAssertEqual(MenuBarBadgeLabelFormatter.badgeText(for: 1), "1")
-        XCTAssertEqual(MenuBarBadgeLabelFormatter.badgeText(for: 9), "9")
-        XCTAssertEqual(MenuBarBadgeLabelFormatter.badgeText(for: 10), "9+")
-        XCTAssertEqual(MenuBarBadgeLabelFormatter.badgeText(for: 47), "9+")
+        XCTAssertNil(MenuBarBadgeLabel(unreadCount: 0).text)
+        XCTAssertEqual(MenuBarBadgeLabel(unreadCount: 1).text, "1")
+        XCTAssertEqual(MenuBarBadgeLabel(unreadCount: 9).text, "9")
+        XCTAssertEqual(MenuBarBadgeLabel(unreadCount: 10).text, "9+")
+        XCTAssertEqual(MenuBarBadgeLabel(unreadCount: 47).text, "9+")
     }
 }
 
@@ -1837,8 +1837,8 @@ final class MenuBarIconDebugSettingsTests: XCTestCase {
 
 final class MenuBarIconRendererTests: XCTestCase {
     func testImageWidthDoesNotShiftWhenBadgeAppears() {
-        let noBadge = MenuBarIconRenderer.makeImage(unreadCount: 0)
-        let withBadge = MenuBarIconRenderer.makeImage(unreadCount: 2)
+        let noBadge = NSImage.cmuxMenuBarStatusIcon(unreadCount: 0)
+        let withBadge = NSImage.cmuxMenuBarStatusIcon(unreadCount: 2)
 
         XCTAssertEqual(noBadge.size.width, 18, accuracy: 0.001)
         XCTAssertEqual(withBadge.size.width, 18, accuracy: 0.001)
