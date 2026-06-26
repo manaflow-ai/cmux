@@ -121,6 +121,27 @@ import Testing
         #expect(resolver.newestClaudeTranscript(workingDirectory: bareCwd)?.sessionID == "priv-sess")
     }
 
+    @Test("Codex fallback ignores a rollout whose session_meta id belongs to another session")
+    func codexFallbackRequiresMatchingSessionMetaID() throws {
+        let fm = FileManager.default
+        let home = fm.temporaryDirectory
+            .appendingPathComponent("agentchat-resolver-codex-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: home) }
+
+        let liveSessionID = "live-wedged-session-actual"
+        let liveRollout = try Self.writeCodexRollout(
+            home: home,
+            sessionID: liveSessionID
+        )
+        let resolver = AgentChatTranscriptResolver(homeDirectory: home)
+        let wedgedRecord = Self.codexRecord(sessionID: "wedged-session")
+
+        #expect(resolver.transcriptPath(for: wedgedRecord) == nil)
+
+        let liveRecord = Self.codexRecord(sessionID: liveSessionID)
+        #expect(resolver.transcriptPath(for: liveRecord) == liveRollout.path)
+    }
+
     @MainActor
     @Test("compaction telemetry preserves mobile session state")
     func compactionTelemetryPreservesMobileSessionState() {
@@ -193,5 +214,43 @@ import Testing
             )
         )
         #expect(record.state == .working(since: workingSince))
+    }
+
+    private static func codexRecord(sessionID: String) -> AgentChatSessionRecord {
+        AgentChatSessionRecord(
+            sessionID: sessionID,
+            agentKind: .codex,
+            workspaceID: nil,
+            surfaceID: nil,
+            workingDirectory: nil,
+            transcriptPath: nil,
+            state: .idle,
+            lastActivityAt: Date(timeIntervalSince1970: 0),
+            title: nil,
+            pid: nil
+        )
+    }
+
+    private static func writeCodexRollout(
+        home: URL,
+        sessionID: String
+    ) throws -> URL {
+        let dir = home
+            .appendingPathComponent(".codex", isDirectory: true)
+            .appendingPathComponent("sessions", isDirectory: true)
+            .appendingPathComponent("2026", isDirectory: true)
+            .appendingPathComponent("06", isDirectory: true)
+            .appendingPathComponent("26", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let rolloutURL = dir.appendingPathComponent(
+            "rollout-2026-06-26T00-00-00-\(sessionID).jsonl",
+            isDirectory: false
+        )
+        let contents = """
+        {"timestamp":"2026-06-26T00:00:00.000Z","type":"session_meta","payload":{"id":"\(sessionID)","cwd":"/tmp/project"}}
+        {"timestamp":"2026-06-26T00:00:01.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello"}]}}
+        """
+        try (contents + "\n").write(to: rolloutURL, atomically: true, encoding: .utf8)
+        return rolloutURL
     }
 }
