@@ -22,6 +22,27 @@ import UIKit
 @MainActor
 @Suite("iOS swipe-back over terminal/browser surfaces")
 struct MobileSwipeBackGestureTests {
+    /// Builds a navigation controller whose root view controller hosts a
+    /// `GestureHostController`, mirroring how `InteractiveSwipeBackEnabler` is
+    /// mounted inside the pushed workspace detail. The host is attached to the
+    /// root view controller (not the navigation controller) so
+    /// `host.navigationController` resolves up the containment chain without
+    /// pushing the host onto — and so inflating — the navigation stack.
+    private func makeHostedNavigation() -> (
+        nav: UINavigationController,
+        host: InteractiveSwipeBackEnabler.GestureHostController,
+        popGesture: UIGestureRecognizer
+    )? {
+        let host = InteractiveSwipeBackEnabler.GestureHostController()
+        let root = UIViewController()
+        let nav = UINavigationController(rootViewController: root)
+        root.addChild(host)
+        host.didMove(toParent: root)
+        nav.loadViewIfNeeded()
+        guard let popGesture = nav.interactivePopGestureRecognizer else { return nil }
+        return (nav, host, popGesture)
+    }
+
     /// The browser pane is pushed onto the workspace `NavigationStack`. With the
     /// web view's own edge gesture enabled, a left-edge swipe is eaten by the web
     /// view (going nowhere when there is no web history) instead of popping back
@@ -36,19 +57,11 @@ struct MobileSwipeBackGestureTests {
     /// the enabler re-arms the pop gesture — but only when there is actually a
     /// pushed screen to pop, never on the root workspace list.
     @Test("pop gesture begins only when a screen is pushed")
-    func popGestureBeginsOnlyWithPushedScreen() {
-        let host = InteractiveSwipeBackEnabler.GestureHostController()
-        let nav = UINavigationController(rootViewController: UIViewController())
-        nav.addChild(host)
-        host.didMove(toParent: nav)
-        nav.loadViewIfNeeded()
-        guard let popGesture = nav.interactivePopGestureRecognizer else {
-            Issue.record("navigation controller has no interactive pop gesture")
-            return
-        }
-        #expect(host.gestureRecognizerShouldBegin(popGesture) == false)
-        nav.pushViewController(UIViewController(), animated: false)
-        #expect(host.gestureRecognizerShouldBegin(popGesture) == true)
+    func popGestureBeginsOnlyWithPushedScreen() throws {
+        let hosted = try #require(makeHostedNavigation())
+        #expect(hosted.host.gestureRecognizerShouldBegin(hosted.popGesture) == false)
+        hosted.nav.pushViewController(UIViewController(), animated: false)
+        #expect(hosted.host.gestureRecognizerShouldBegin(hosted.popGesture) == true)
     }
 
     /// Replacing the pop gesture's delegate dropped UIKit's built-in rule that
@@ -56,19 +69,14 @@ struct MobileSwipeBackGestureTests {
     /// the terminal and browser. The delegate must allow the pop gesture to
     /// recognize simultaneously with a surface's pan/scroll recognizer.
     @Test("pop gesture coexists with surface scroll/pan recognizers")
-    func popGestureRecognizesSimultaneouslyWithSurfaceGestures() {
-        let host = InteractiveSwipeBackEnabler.GestureHostController()
-        let nav = UINavigationController(rootViewController: UIViewController())
-        nav.addChild(host)
-        host.didMove(toParent: nav)
-        nav.loadViewIfNeeded()
-        guard let popGesture = nav.interactivePopGestureRecognizer else {
-            Issue.record("navigation controller has no interactive pop gesture")
-            return
-        }
+    func popGestureRecognizesSimultaneouslyWithSurfaceGestures() throws {
+        let hosted = try #require(makeHostedNavigation())
         let surfacePan = UIPanGestureRecognizer()
         #expect(
-            host.gestureRecognizer(popGesture, shouldRecognizeSimultaneouslyWith: surfacePan) == true
+            hosted.host.gestureRecognizer(
+                hosted.popGesture,
+                shouldRecognizeSimultaneouslyWith: surfacePan
+            ) == true
         )
     }
 }
