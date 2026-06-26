@@ -83,7 +83,7 @@ final class TerminalOutputCollector {
     #expect(MobileAuthComposition.authEnvironment(
         buildEnvironment: .production,
         overrides: ["AuthEnvironment": "development"]
-    ) == .development)
+    ) == .production)
     #expect(MobileAuthComposition.authEnvironment(
         buildEnvironment: .development,
         overrides: ["AuthEnvironment": "bogus"]
