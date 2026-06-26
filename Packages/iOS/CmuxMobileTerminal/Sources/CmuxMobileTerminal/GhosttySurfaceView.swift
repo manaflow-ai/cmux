@@ -3257,11 +3257,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // perpetual main-queue present flood. The renderer presents a frame
         // behind (see display link).
         pendingRenderFrames = 6
-        // Arm the convergence backstop: keep redrawing past the fixed burst
-        // until a frame has actually presented at this settled size, so a frame
-        // lost to the iOS present-discard race (issue #6269) cannot leave the
-        // surface blank. Bounded by its own wall-clock deadline.
-        geometryConvergence.arm(now: CACurrentMediaTime())
+        // Arm the convergence backstop: redraw past the fixed burst until a frame
+        // presents at this settled size, so #6269's present-discard race can't leave
+        // the surface blank. Skip while suspended (the tick won't service it, resume
+        // would inherit an expired deadline); suspend disarms, next active sync re-arms.
+        if renderingSuspended { geometryConvergence.disarm() } else { geometryConvergence.arm(now: CACurrentMediaTime()) }
         syncSnapshotFallback()
 
         let naturalSize = result.naturalSize

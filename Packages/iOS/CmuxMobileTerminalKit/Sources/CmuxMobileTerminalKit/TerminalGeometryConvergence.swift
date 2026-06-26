@@ -28,7 +28,7 @@ import Foundation
 /// Pure value type with no UIKit / libghostty dependency: the surface view
 /// supplies the real media-time and the presented-size probe, keeping the
 /// decision logic unit-testable.
-public struct TerminalGeometryConvergence: Sendable, Equatable {
+nonisolated public struct TerminalGeometryConvergence: Sendable, Equatable {
     /// How long, in seconds, to keep retrying a present after a geometry change
     /// until one lands at the settled layer size. Generous enough to outlast a
     /// UIKit keyboard show/hide animation (~0.35s) plus a few settle frames,
