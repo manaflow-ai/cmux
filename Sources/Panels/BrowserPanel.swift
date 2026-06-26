@@ -4885,29 +4885,17 @@ final class BrowserPanel: Panel, ObservableObject {
     /// it to a tab. Bare `_blank` links with a real destination URL still fall
     /// through to tabs because they are not blank-targeted.
     ///
-    /// A user-driven new-tab gesture (Cmd-click, middle-click) is still excluded —
+    /// `isUserNewTab` is passed by the caller (computed from the same
+    /// `browserNavigationShouldOpenInNewTab` inputs the opener already evaluates):
+    /// an explicit user new-tab gesture (Cmd-click, middle-click) is excluded —
     /// mirroring `browserNavigationShouldCreatePopup` — so the existing new-tab
     /// fallback wins over a floating popup when the user explicitly asked for a tab.
     nonisolated static func shouldCreateBlankScriptedPopup(
         navigationType: WKNavigationType,
         requestURL: URL?,
-        modifierFlags: NSEvent.ModifierFlags,
-        buttonNumber: Int,
-        hasRecentMiddleClickIntent: Bool = false,
-        currentEventType: NSEvent.EventType? = NSApp.currentEvent?.type,
-        currentEventButtonNumber: Int? = NSApp.currentEvent?.buttonNumber
+        isUserNewTab: Bool
     ) -> Bool {
-        guard navigationType == .other, isBlankBrowserPageURL(requestURL) else {
-            return false
-        }
-        return !browserNavigationShouldOpenInNewTab(
-            navigationType: navigationType,
-            modifierFlags: modifierFlags,
-            buttonNumber: buttonNumber,
-            hasRecentMiddleClickIntent: hasRecentMiddleClickIntent,
-            currentEventType: currentEventType,
-            currentEventButtonNumber: currentEventButtonNumber
-        )
+        navigationType == .other && isBlankBrowserPageURL(requestURL) && !isUserNewTab
     }
 
     nonisolated static func isBlankBrowserPage(
@@ -8745,13 +8733,18 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         // ...but a scripted window.open() that targets a blank document is the
         // deferred-navigation pattern (e.g. VS Code Web auth, #6649) and must get
         // a live popup web view even without window features, or window.open()
-        // returns null and the later location.href navigation is lost.
-        let isBlankScriptedPopup = BrowserPanel.shouldCreateBlankScriptedPopup(
+        // returns null and the later location.href navigation is lost. Still honor
+        // an explicit user new-tab gesture so Cmd/middle-click keeps the tab path.
+        let isUserNewTab = browserNavigationShouldOpenInNewTab(
             navigationType: navigationAction.navigationType,
-            requestURL: navigationAction.request.url,
             modifierFlags: navigationAction.modifierFlags,
             buttonNumber: navigationAction.buttonNumber,
             hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
+        )
+        let isBlankScriptedPopup = BrowserPanel.shouldCreateBlankScriptedPopup(
+            navigationType: navigationAction.navigationType,
+            requestURL: navigationAction.request.url,
+            isUserNewTab: isUserNewTab
         )
 
         if isScriptedPopup || isBlankScriptedPopup,

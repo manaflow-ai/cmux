@@ -112,11 +112,7 @@ import WebKit
             BrowserPanel.shouldCreateBlankScriptedPopup(
                 navigationType: .other,
                 requestURL: url,
-                modifierFlags: [],
-                buttonNumber: 0,
-                hasRecentMiddleClickIntent: false,
-                currentEventType: .leftMouseUp,
-                currentEventButtonNumber: 0
+                isUserNewTab: false
             )
         )
     }
@@ -127,11 +123,7 @@ import WebKit
             BrowserPanel.shouldCreateBlankScriptedPopup(
                 navigationType: .other,
                 requestURL: nil,
-                modifierFlags: [],
-                buttonNumber: 0,
-                hasRecentMiddleClickIntent: false,
-                currentEventType: .leftMouseUp,
-                currentEventButtonNumber: 0
+                isUserNewTab: false
             )
         )
     }
@@ -144,11 +136,7 @@ import WebKit
             !BrowserPanel.shouldCreateBlankScriptedPopup(
                 navigationType: .other,
                 requestURL: url,
-                modifierFlags: [],
-                buttonNumber: 0,
-                hasRecentMiddleClickIntent: false,
-                currentEventType: .leftMouseUp,
-                currentEventButtonNumber: 0
+                isUserNewTab: false
             )
         )
     }
@@ -161,11 +149,7 @@ import WebKit
             !BrowserPanel.shouldCreateBlankScriptedPopup(
                 navigationType: .linkActivated,
                 requestURL: url,
-                modifierFlags: [],
-                buttonNumber: 0,
-                hasRecentMiddleClickIntent: false,
-                currentEventType: .leftMouseUp,
-                currentEventButtonNumber: 0
+                isUserNewTab: false
             )
         )
     }
@@ -173,16 +157,22 @@ import WebKit
     @Test func testBlankScriptedCmdClickFallsBackToNewTab() throws {
         // Cmd-click is an explicit user new-tab gesture: keep the new-tab fallback
         // instead of a floating popup, mirroring browserNavigationShouldCreatePopup.
+        // Drive it end to end through the real gesture predicate.
         let url = try #require(URL(string: "about:blank"))
+        let isUserNewTab = browserNavigationShouldOpenInNewTab(
+            navigationType: .other,
+            modifierFlags: [.command],
+            buttonNumber: 0,
+            hasRecentMiddleClickIntent: false,
+            currentEventType: .leftMouseUp,
+            currentEventButtonNumber: 0
+        )
+        #expect(isUserNewTab)
         #expect(
             !BrowserPanel.shouldCreateBlankScriptedPopup(
                 navigationType: .other,
                 requestURL: url,
-                modifierFlags: [.command],
-                buttonNumber: 0,
-                hasRecentMiddleClickIntent: false,
-                currentEventType: .leftMouseUp,
-                currentEventButtonNumber: 0
+                isUserNewTab: isUserNewTab
             )
         )
     }
@@ -190,15 +180,20 @@ import WebKit
     @Test func testBlankScriptedMiddleClickFallsBackToNewTab() throws {
         // Middle-click is an explicit user new-tab gesture: keep the new-tab fallback.
         let url = try #require(URL(string: "about:blank"))
+        let isUserNewTab = browserNavigationShouldOpenInNewTab(
+            navigationType: .other,
+            modifierFlags: [],
+            buttonNumber: 2,
+            hasRecentMiddleClickIntent: true,
+            currentEventType: .otherMouseUp,
+            currentEventButtonNumber: 2
+        )
+        #expect(isUserNewTab)
         #expect(
             !BrowserPanel.shouldCreateBlankScriptedPopup(
                 navigationType: .other,
                 requestURL: url,
-                modifierFlags: [],
-                buttonNumber: 2,
-                hasRecentMiddleClickIntent: true,
-                currentEventType: .otherMouseUp,
-                currentEventButtonNumber: 2
+                isUserNewTab: isUserNewTab
             )
         )
     }
