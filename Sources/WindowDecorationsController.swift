@@ -245,7 +245,7 @@ final class WindowDecorationsController {
         }
 
         lastMinimalModeTitlebarClick = nil
-        let result = handleTitlebarDoubleClick(window: window, behavior: .standardAction)
+        let result = TitlebarDoubleClickHandlingResult.handle(window: window, behavior: .standardAction)
         #if DEBUG
         cmuxDebugLog(
             "titlebar.minimalWindowDoubleClick.result=\(String(describing: result)) point=\(NSStringFromPoint(locationInWindow)) band=\(String(format: "%.1f", minimalModeTitlebarDoubleClickBandHeight(for: window)))"

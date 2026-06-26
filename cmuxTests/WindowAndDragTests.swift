@@ -2,6 +2,7 @@ import XCTest
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxWindowing
 import Carbon.HIToolbox
 import Darwin
 import PDFKit
@@ -1422,11 +1423,11 @@ final class WindowDragHandleHitTests: XCTestCase {
 
     func testSuppressedTitlebarDoubleClickConsumesWithoutWindowAction() {
         XCTAssertEqual(
-            handleTitlebarDoubleClick(window: nil, behavior: .suppress),
+            TitlebarDoubleClickHandlingResult.handle(window: nil, behavior: .suppress),
             .suppressed
         )
         XCTAssertEqual(
-            handleTitlebarDoubleClick(window: nil, behavior: .standardAction),
+            TitlebarDoubleClickHandlingResult.handle(window: nil, behavior: .standardAction),
             .ignored
         )
         XCTAssertTrue(TitlebarDoubleClickHandlingResult.suppressed.consumesEvent)

@@ -1,4 +1,5 @@
 import Combine
+import CmuxWorkspaces
 import XCTest
 
 #if canImport(cmux_DEV)
