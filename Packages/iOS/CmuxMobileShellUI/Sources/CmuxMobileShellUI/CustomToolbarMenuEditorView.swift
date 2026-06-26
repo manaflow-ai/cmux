@@ -166,7 +166,7 @@ struct CustomToolbarMenuEditorView: View {
         let action = CustomToolbarAction(
             id: existing?.id ?? UUID(),
             title: trimmedTitle,
-            symbolName: existing?.symbolName ?? "ellipsis.circle",
+            symbolName: existing?.symbolName,
             payload: .menu(menuItems)
         )
         onSave(action)
