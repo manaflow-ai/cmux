@@ -18,7 +18,7 @@ public struct MacPowerController: Sendable {
         guard let output = await runner.capture("/usr/bin/pmset", ["-g", "assertions"]) else {
             return .idle
         }
-        return MacKeepAwakeStatusParser.parse(output)
+        return MacKeepAwakeStatus.parse(pmsetAssertions: output)
     }
 
     /// Put the whole Mac to sleep now.

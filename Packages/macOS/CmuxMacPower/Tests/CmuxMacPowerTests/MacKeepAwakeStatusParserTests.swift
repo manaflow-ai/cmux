@@ -2,7 +2,7 @@ import Testing
 
 @testable import CmuxMacPower
 
-@Suite("MacKeepAwakeStatusParser")
+@Suite("MacKeepAwakeStatus.parse")
 struct MacKeepAwakeStatusParserTests {
     /// A fully idle Mac: a system-wide block with all-zero counts and no owning
     /// processes => nothing is keeping it awake.
@@ -21,7 +21,7 @@ struct MacKeepAwakeStatusParserTests {
         Listed by owning process:
         No assertions.
         """
-        let status = MacKeepAwakeStatusParser.parse(output)
+        let status = MacKeepAwakeStatus.parse(pmsetAssertions: output)
         #expect(status.keptAwake == false)
         #expect(status.preventsSystemSleep == false)
         #expect(status.preventsDisplaySleep == false)
@@ -40,7 +40,7 @@ struct MacKeepAwakeStatusParserTests {
         Listed by owning process:
            pid 42(caffeinate): [0x00000d65000204a0] 00:13:25 PreventUserIdleSystemSleep named: "caffeinate command-line tool"
         """
-        let status = MacKeepAwakeStatusParser.parse(output)
+        let status = MacKeepAwakeStatus.parse(pmsetAssertions: output)
         #expect(status.keptAwake)
         #expect(status.preventsSystemSleep)
         #expect(status.preventsDisplaySleep == false)
@@ -61,7 +61,7 @@ struct MacKeepAwakeStatusParserTests {
         Listed by owning process:
            pid 88(cmux DEV my-tag): [0x000a] PreventUserIdleSystemSleep named: "cmux keep awake"
         """
-        let status = MacKeepAwakeStatusParser.parse(output)
+        let status = MacKeepAwakeStatus.parse(pmsetAssertions: output)
         #expect(status.cmuxKeepingAwake)
         #expect(status.keptAwake)
         #expect(status.holders.first?.processName == "cmux DEV my-tag")
@@ -74,7 +74,7 @@ struct MacKeepAwakeStatusParserTests {
         Listed by owning process:
            pid 367(Google Chrome): [0x000b] 00:00:01 PreventUserIdleDisplaySleep named: "playing audio"
         """
-        let status = MacKeepAwakeStatusParser.parse(output)
+        let status = MacKeepAwakeStatus.parse(pmsetAssertions: output)
         #expect(status.keptAwake)
         #expect(status.preventsDisplaySleep)
         #expect(status.preventsSystemSleep == false)
@@ -90,7 +90,7 @@ struct MacKeepAwakeStatusParserTests {
            pid 42(caffeinate): [0x000b] PreventUserIdleDisplaySleep named: "caffeinate command-line tool"
            pid 42(caffeinate): [0x000c] PreventUserIdleSystemSleep named: "caffeinate command-line tool"
         """
-        let status = MacKeepAwakeStatusParser.parse(output)
+        let status = MacKeepAwakeStatus.parse(pmsetAssertions: output)
         #expect(status.holders.count == 1)
         #expect(status.preventsSystemSleep)
         #expect(status.preventsDisplaySleep)
@@ -107,7 +107,7 @@ struct MacKeepAwakeStatusParserTests {
         Kernel Assertions: 0x4=USB
            id=500 level=255 0x4=USB mod=06/26/24 description=com.apple.usb.externaldevice
         """
-        let status = MacKeepAwakeStatusParser.parse(output)
+        let status = MacKeepAwakeStatus.parse(pmsetAssertions: output)
         #expect(status.holders.count == 1)
         #expect(status.holders.first?.processName == "caffeinate")
     }
@@ -120,7 +120,7 @@ struct MacKeepAwakeStatusParserTests {
            pid 42(caffeinate): [0x000a] PreventUserIdleSystemSleep named: "caffeinate command-line tool"
            pid 99(Amphetamine): [0x000b] PreventUserIdleSystemSleep named: "User session"
         """
-        let status = MacKeepAwakeStatusParser.parse(output)
+        let status = MacKeepAwakeStatus.parse(pmsetAssertions: output)
         #expect(status.holders.count == 2)
         #expect(status.caffeinateRunning)
         #expect(status.cmuxKeepingAwake == false)
@@ -135,7 +135,7 @@ struct MacKeepAwakeStatusParserTests {
            pid not-a-real-line
            pid 42(caffeinate): [0x000a] PreventUserIdleSystemSleep named: "caffeinate command-line tool"
         """
-        let status = MacKeepAwakeStatusParser.parse(output)
+        let status = MacKeepAwakeStatus.parse(pmsetAssertions: output)
         #expect(status.holders.count == 1)
         #expect(status.holders.first?.pid == 42)
     }
@@ -143,7 +143,7 @@ struct MacKeepAwakeStatusParserTests {
     /// Empty pmset output (e.g. a failed run already mapped to "") is idle, not a
     /// crash.
     @Test func emptyOutputIsIdle() {
-        #expect(MacKeepAwakeStatusParser.parse("") == .idle)
+        #expect(MacKeepAwakeStatus.parse(pmsetAssertions: "") == .idle)
     }
 
     /// An owning-process line with no recognized assertion type contributes no
@@ -153,7 +153,7 @@ struct MacKeepAwakeStatusParserTests {
         Listed by owning process:
            pid 200(somed): [0x000a] SomeUnknownAssertion named: "irrelevant"
         """
-        let status = MacKeepAwakeStatusParser.parse(output)
+        let status = MacKeepAwakeStatus.parse(pmsetAssertions: output)
         #expect(status.holders.isEmpty)
         #expect(status.keptAwake == false)
     }
