@@ -261,6 +261,7 @@
 		E7E000000000000000000001 /* CmuxEventStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000002 /* CmuxEventStream.swift */; };
 		C0DE45000000000000000001 /* CmuxExtensionKit in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE45000000000000000002 /* CmuxExtensionKit */; };
 		C0DE49000000000000000001 /* CmuxExtensionSidebarExamples in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE49000000000000000002 /* CmuxExtensionSidebarExamples */; };
+		C3677005000000000000001 /* CmuxExternalLinkPromptPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3677005000000000000002 /* CmuxExternalLinkPromptPresenter.swift */; };
 		C3677002000000000000001 /* CmuxExternalURLSchemeDefaults.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3677002000000000000002 /* CmuxExternalURLSchemeDefaults.swift */; };
 		C9A2C00000000000000000C3 /* CmuxFeedback in Frameworks */ = {isa = PBXBuildFile; productRef = C9A2C00000000000000000C2 /* CmuxFeedback */; };
 		5E2701040000000000000004 /* CmuxFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 5E2701040000000000000002 /* CmuxFoundation */; };
@@ -734,6 +735,7 @@
 		E30780000000000000000014 /* SessionRemoteWorkspaceSnapshot+Restore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30780000000000000000013 /* SessionRemoteWorkspaceSnapshot+Restore.swift */; };
 		A5001670 /* SessionRestoredTerminalCommandStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001671 /* SessionRestoredTerminalCommandStore.swift */; };
 		A50016B1A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */; };
+		A5001672 /* SessionTranscriptLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001673 /* SessionTranscriptLoader.swift */; };
 		F5320002A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5320003A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift */; };
 		E30798000000000000000002 /* SessionWorkspaceLayoutSnapshot+NodeBuilding.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30798000000000000000001 /* SessionWorkspaceLayoutSnapshot+NodeBuilding.swift */; };
 		E30791000000000000000002 /* SessionWorkspaceLayoutSnapshot+Pruning.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30791000000000000000001 /* SessionWorkspaceLayoutSnapshot+Pruning.swift */; };
@@ -916,6 +918,7 @@
 		A5001532 /* TerminalWindowPortal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001531 /* TerminalWindowPortal.swift */; };
 		D0B10006A1B2C3D4E5F60001 /* TerminalWindowPortalDebug.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10007A1B2C3D4E5F60001 /* TerminalWindowPortalDebug.swift */; };
 		C0DE7B100000000000000001 /* TextBoxInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B100000000000000002 /* TextBoxInput.swift */; };
+		C0DE7B100000000000000003 /* TextBoxInputInteractionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B100000000000000004 /* TextBoxInputInteractionPolicy.swift */; };
 		C0DE7B310000000000000001 /* TextBoxMentionCachedIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B310000000000000002 /* TextBoxMentionCachedIndex.swift */; };
 		C0DE7B250000000000000001 /* TextBoxMentionCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B250000000000000002 /* TextBoxMentionCandidate.swift */; };
 		C0DE7B260000000000000001 /* TextBoxMentionCandidateIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B260000000000000002 /* TextBoxMentionCandidateIndex.swift */; };
@@ -1350,6 +1353,7 @@
 		E7E00000000000000000000E /* CmuxEventLogWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventLogWriter.swift; sourceTree = "<group>"; };
 		E7E000000000000000000008 /* CmuxEventPublishing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventPublishing.swift; sourceTree = "<group>"; };
 		E7E000000000000000000002 /* CmuxEventStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventStream.swift; sourceTree = "<group>"; };
+		C3677005000000000000002 /* CmuxExternalLinkPromptPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxExternalLinkPromptPresenter.swift; sourceTree = "<group>"; };
 		C3677002000000000000002 /* CmuxExternalURLSchemeDefaults.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxExternalURLSchemeDefaults.swift; sourceTree = "<group>"; };
 		C0DE34020000000000000003 /* CmuxHelpCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxHelpCommands.swift; sourceTree = "<group>"; };
 		C0DE34020000000000000004 /* CmuxHelpResource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxHelpResource.swift; sourceTree = "<group>"; };
@@ -1779,6 +1783,7 @@
 		E30780000000000000000013 /* SessionRemoteWorkspaceSnapshot+Restore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionRemoteWorkspaceSnapshot+Restore.swift"; sourceTree = "<group>"; };
 		A5001671 /* SessionRestoredTerminalCommandStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRestoredTerminalCommandStore.swift; sourceTree = "<group>"; };
 		A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/SessionSnapshotDebugBenchmark.swift; sourceTree = "<group>"; };
+		A5001673 /* SessionTranscriptLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptLoader.swift; sourceTree = "<group>"; };
 		F5320003A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptTypes.swift; sourceTree = "<group>"; };
 		E30798000000000000000001 /* SessionWorkspaceLayoutSnapshot+NodeBuilding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionWorkspaceLayoutSnapshot+NodeBuilding.swift"; sourceTree = "<group>"; };
 		E30791000000000000000001 /* SessionWorkspaceLayoutSnapshot+Pruning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionWorkspaceLayoutSnapshot+Pruning.swift"; sourceTree = "<group>"; };
@@ -1959,6 +1964,7 @@
 		A5001531 /* TerminalWindowPortal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWindowPortal.swift; sourceTree = "<group>"; };
 		D0B10007A1B2C3D4E5F60001 /* TerminalWindowPortalDebug.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWindowPortalDebug.swift; sourceTree = "<group>"; };
 		C0DE7B100000000000000002 /* TextBoxInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInput.swift; sourceTree = "<group>"; };
+		C0DE7B100000000000000004 /* TextBoxInputInteractionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInputInteractionPolicy.swift; sourceTree = "<group>"; };
 		C0DE7B310000000000000002 /* TextBoxMentionCachedIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxMentionCachedIndex.swift; sourceTree = "<group>"; };
 		C0DE7B250000000000000002 /* TextBoxMentionCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxMentionCandidate.swift; sourceTree = "<group>"; };
 		C0DE7B260000000000000002 /* TextBoxMentionCandidateIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxMentionCandidateIndex.swift; sourceTree = "<group>"; };
@@ -2484,6 +2490,7 @@
 				C0DE7B220000000000000002 /* TextBoxMentionSuggestion.swift */,
 				C0DE7B290000000000000002 /* TextBoxProcessTerminationStatus.swift */,
 				C0DE7B100000000000000002 /* TextBoxInput.swift */,
+				C0DE7B100000000000000004 /* TextBoxInputInteractionPolicy.swift */,
 				C1713003C1713003C1713003 /* KeyboardShortcutSettingsLookup.swift */,
 				C34670030000000000000002 /* KeyboardShortcutContext.swift */,
 				A50012F6 /* KeyboardShortcutRecorder.swift */,
@@ -2684,6 +2691,7 @@
 				C3873004C3873004C3873004 /* GhosttyCrashReportMetadata.swift */,
 				C3677002000000000000002 /* CmuxExternalURLSchemeDefaults.swift */,
 				C3677004000000000000002 /* AppDelegate+CmuxSSHURL.swift */,
+				C3677005000000000000002 /* CmuxExternalLinkPromptPresenter.swift */,
 				D5C0CE7A0000000000000002 /* AppDelegate+SocketListenerLifecycleHost.swift */,
 				E3309A02 /* AppDelegate+EqualizeSplitsShortcut.swift */,
 				D7AB00000000000000000002 /* AppDelegate+MoveTabToNewWorkspace.swift */,
@@ -2893,6 +2901,7 @@
 				A5001671 /* SessionRestoredTerminalCommandStore.swift */,
 				B35751000000000000000001 /* TmuxResumeParser.swift */,
 				A5001661 /* RestorableAgentSession.swift */,
+				A5001673 /* SessionTranscriptLoader.swift */,
 				C0DEF0C10000000000000002 /* AgentForkSupport.swift */,
 				C0DEF0C20000000000000002 /* SemanticVersion.swift */,
 				A5001642 /* RemoteInteractiveShellBootstrapBuilder.swift */,
@@ -3830,6 +3839,7 @@
 				E7E00000000000000000000D /* CmuxEventLogWriter.swift in Sources */,
 				E7E000000000000000000007 /* CmuxEventPublishing.swift in Sources */,
 				E7E000000000000000000001 /* CmuxEventStream.swift in Sources */,
+				C3677005000000000000001 /* CmuxExternalLinkPromptPresenter.swift in Sources */,
 				C3677002000000000000001 /* CmuxExternalURLSchemeDefaults.swift in Sources */,
 				C0DE34020000000000000001 /* CmuxHelpCommands.swift in Sources */,
 				C0DE34020000000000000002 /* CmuxHelpResource.swift in Sources */,
@@ -4118,6 +4128,7 @@
 				E30780000000000000000014 /* SessionRemoteWorkspaceSnapshot+Restore.swift in Sources */,
 				A5001670 /* SessionRestoredTerminalCommandStore.swift in Sources */,
 				A50016B1A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift in Sources */,
+				A5001672 /* SessionTranscriptLoader.swift in Sources */,
 				F5320002A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift in Sources */,
 				E30798000000000000000002 /* SessionWorkspaceLayoutSnapshot+NodeBuilding.swift in Sources */,
 				E30791000000000000000002 /* SessionWorkspaceLayoutSnapshot+Pruning.swift in Sources */,
@@ -4243,6 +4254,7 @@
 				A5001532 /* TerminalWindowPortal.swift in Sources */,
 				D0B10006A1B2C3D4E5F60001 /* TerminalWindowPortalDebug.swift in Sources */,
 				C0DE7B100000000000000001 /* TextBoxInput.swift in Sources */,
+				C0DE7B100000000000000003 /* TextBoxInputInteractionPolicy.swift in Sources */,
 				C0DE7B310000000000000001 /* TextBoxMentionCachedIndex.swift in Sources */,
 				C0DE7B250000000000000001 /* TextBoxMentionCandidate.swift in Sources */,
 				C0DE7B260000000000000001 /* TextBoxMentionCandidateIndex.swift in Sources */,

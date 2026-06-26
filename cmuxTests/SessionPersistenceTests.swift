@@ -4251,7 +4251,7 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(
             binding.command,
-            TerminalStartupWorkingDirectoryPrefix.prefix(
+            TerminalStartupWorkingDirectoryPrefix().prefix(
                 "codex resume session",
                 workingDirectory: "/tmp/project"
             )
@@ -4273,7 +4273,7 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(
             decoded.command,
-            TerminalStartupWorkingDirectoryPrefix.prefix(
+            TerminalStartupWorkingDirectoryPrefix().prefix(
                 "codex resume session",
                 workingDirectory: "/tmp/project"
             )
@@ -4290,7 +4290,7 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(
             binding.command,
-            TerminalStartupWorkingDirectoryPrefix.prefix(
+            TerminalStartupWorkingDirectoryPrefix().prefix(
                 "codex resume session --append-system-prompt 'use C:\\tmp' --model gpt-5.4",
                 workingDirectory: "/tmp/project"
             )
@@ -4307,7 +4307,7 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(
             binding.command,
-            TerminalStartupWorkingDirectoryPrefix.prefix(
+            TerminalStartupWorkingDirectoryPrefix().prefix(
                 "codex resume session && echo done",
                 workingDirectory: "/tmp/project"
             )
@@ -4327,7 +4327,7 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(
             binding.command,
-            TerminalStartupWorkingDirectoryPrefix.prefix(
+            TerminalStartupWorkingDirectoryPrefix().prefix(
                 "codex resume session",
                 workingDirectory: cwd
             )
