@@ -4,6 +4,7 @@ import Foundation
 import os
 import UserNotifications
 import Bonsplit
+import CmuxNotifications
 import CmuxSettings
 
 nonisolated private let terminalNotificationLogger = Logger(
@@ -110,116 +111,14 @@ enum AppFocusState {
     }
 }
 
-enum NotificationAuthorizationState: Equatable, Sendable {
-    case unknown
-    case notDetermined
-    case authorized
-    case denied
-    case provisional
-    case ephemeral
-
-    var statusLabel: String {
-        switch self {
-        case .unknown, .notDetermined:
-            return "Not Requested"
-        case .authorized:
-            return "Allowed"
-        case .denied:
-            return "Denied"
-        case .provisional:
-            return "Deliver Quietly"
-        case .ephemeral:
-            return "Temporary"
-        }
-    }
-
-    var allowsDelivery: Bool {
-        switch self {
-        case .authorized, .provisional, .ephemeral:
-            return true
-        case .unknown, .notDetermined, .denied:
-            return false
-        }
-    }
-}
-
-enum TerminalNotificationClickAction: Codable, Hashable, Sendable {
-    case revealInFinder(path: String)
-
-    private static let kindUserInfoKey = "cmuxClickAction"
-    private static let revealInFinderPathUserInfoKey = "cmuxRevealInFinderPath"
-    private static let revealInFinderKind = "revealInFinder"
-
-    var userInfo: [String: String] {
-        switch self {
-        case .revealInFinder(let path):
-            return [
-                Self.kindUserInfoKey: Self.revealInFinderKind,
-                Self.revealInFinderPathUserInfoKey: path,
-            ]
-        }
-    }
-
-    init?(userInfo: [AnyHashable: Any]) {
-        guard let kind = userInfo[Self.kindUserInfoKey] as? String else { return nil }
-        switch kind {
-        case Self.revealInFinderKind:
-            guard let path = userInfo[Self.revealInFinderPathUserInfoKey] as? String,
-                  !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-            self = .revealInFinder(path: path)
-        default:
-            return nil
-        }
-    }
-}
-
-struct TerminalNotification: Identifiable, Hashable, Sendable {
-    let id: UUID
-    let tabId: UUID
-    let surfaceId: UUID?
-    let panelId: UUID?
-    let title: String
-    let subtitle: String
-    let body: String
-    let createdAt: Date
-    var isRead: Bool
-    var paneFlash: Bool = true
-    var clickAction: TerminalNotificationClickAction?
-
-    init(
-        id: UUID,
-        tabId: UUID,
-        surfaceId: UUID?,
-        panelId: UUID? = nil,
-        title: String,
-        subtitle: String,
-        body: String,
-        createdAt: Date,
-        isRead: Bool,
-        paneFlash: Bool = true,
-        clickAction: TerminalNotificationClickAction? = nil
-    ) {
-        self.id = id
-        self.tabId = tabId
-        self.surfaceId = surfaceId
-        self.panelId = panelId
-        self.title = title
-        self.subtitle = subtitle
-        self.body = body
-        self.createdAt = createdAt
-        self.isRead = isRead
-        self.paneFlash = paneFlash
-        self.clickAction = clickAction
-    }
-
-    func matches(tabId targetTabId: UUID, surfaceId targetSurfaceId: UUID?) -> Bool {
-        guard tabId == targetTabId else { return false }
-        guard let targetSurfaceId else {
-            return surfaceId == nil && panelId == nil
-        }
-        return surfaceId == targetSurfaceId || panelId == targetSurfaceId
-    }
-}
+// `NotificationAuthorizationState`, `TerminalNotificationClickAction`, and
+// `TerminalNotification` are pure Sendable value types that moved to the
+// `CmuxNotifications` package. The typealiases below keep every app-target
+// consumer (GhosttyTerminalView, Feed, ContentView, mobile, the control-socket
+// conformances) referencing the unqualified names unchanged.
+typealias NotificationAuthorizationState = CmuxNotifications.NotificationAuthorizationState
+typealias TerminalNotificationClickAction = CmuxNotifications.TerminalNotificationClickAction
+typealias TerminalNotification = CmuxNotifications.TerminalNotification
 
 @MainActor
 final class TerminalNotificationStore: ObservableObject {

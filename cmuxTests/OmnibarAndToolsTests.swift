@@ -6,6 +6,8 @@ import WebKit
 import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
+import CmuxWorkspaces
+import CmuxBrowser
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -32,7 +34,7 @@ final class FinderServicePathResolverTests: XCTestCase {
             URL(fileURLWithPath: "/tmp/cmux-services/other", isDirectory: true),
         ]
 
-        let directories = FinderServicePathResolver.orderedUniqueDirectories(from: input)
+        let directories = FinderServicePathResolver().orderedUniqueDirectories(from: input)
         XCTAssertEqual(
             directories,
             [
@@ -50,7 +52,7 @@ final class FinderServicePathResolverTests: XCTestCase {
             URL(fileURLWithPath: "/tmp/cmux-services/b/file.txt", isDirectory: false),
         ]
 
-        let directories = FinderServicePathResolver.orderedUniqueDirectories(from: input)
+        let directories = FinderServicePathResolver().orderedUniqueDirectories(from: input)
         XCTAssertEqual(
             directories,
             [
@@ -70,7 +72,7 @@ final class FinderServicePathResolverTests: XCTestCase {
             URL(fileURLWithPath: "/Users/tester/Projects/cmux/README.md", isDirectory: false),
         ]
 
-        let directories = FinderServicePathResolver.orderedUniqueDirectories(
+        let directories = FinderServicePathResolver().orderedUniqueDirectories(
             from: input,
             excludingDescendantsOf: [bundleURL]
         )
@@ -90,7 +92,7 @@ final class FinderServicePathResolverTests: XCTestCase {
             URL(fileURLWithPath: "/Applications/cmux.app.beta/project/file.txt", isDirectory: false),
         ]
 
-        let directories = FinderServicePathResolver.orderedUniqueDirectories(
+        let directories = FinderServicePathResolver().orderedUniqueDirectories(
             from: input,
             excludingDescendantsOf: [bundleURL]
         )
@@ -115,7 +117,7 @@ final class FinderServicePathResolverTests: XCTestCase {
             FileManager.default.createFile(atPath: actualFile.path, contents: Data())
             try FileManager.default.createSymbolicLink(at: aliasDirectory, withDestinationURL: actualDirectory)
 
-            let directories = FinderServicePathResolver.orderedUniqueDirectories(
+            let directories = FinderServicePathResolver().orderedUniqueDirectories(
                 from: [aliasDirectory, aliasFile]
             )
 
@@ -132,7 +134,7 @@ final class FinderServicePathResolverTests: XCTestCase {
             try FileManager.default.createDirectory(at: actualDirectory, withIntermediateDirectories: true)
             try FileManager.default.createSymbolicLink(at: aliasDirectory, withDestinationURL: actualDirectory)
 
-            let directories = FinderServicePathResolver.orderedUniqueDirectories(
+            let directories = FinderServicePathResolver().orderedUniqueDirectories(
                 from: [aliasDirectory, actualDirectory]
             )
 
@@ -156,7 +158,7 @@ final class FinderServicePathResolverTests: XCTestCase {
             )
             try FileManager.default.createSymbolicLink(at: aliasApplications, withDestinationURL: applicationsDirectory)
 
-            let directories = FinderServicePathResolver.orderedUniqueDirectories(
+            let directories = FinderServicePathResolver().orderedUniqueDirectories(
                 from: [
                     aliasApplications.appendingPathComponent("cmux.app", isDirectory: true),
                     aliasApplications.appendingPathComponent("cmux.app/Contents/MacOS/cmux", isDirectory: false),
@@ -443,9 +445,7 @@ final class OmnibarStateMachineTests: XCTestCase {
     func testPointerFocusCanPreserveInitialClickSelection() throws {
         var state = OmnibarState()
 
-        let effects = omnibarReduce(
-            state: &state,
-            event: .focusGained(currentURLString: "https://example.com/", shouldSelectAll: false)
+        let effects = state.reduce(.focusGained(currentURLString: "https://example.com/", shouldSelectAll: false)
         )
 
         XCTAssertTrue(state.isFocused)
@@ -456,15 +456,11 @@ final class OmnibarStateMachineTests: XCTestCase {
     func testExplicitRefocusRequestPreservesEditingBufferAndSelectsAll() throws {
         var state = OmnibarState()
 
-        _ = omnibarReduce(
-            state: &state,
-            event: .focusGained(currentURLString: "https://example.com/")
+        _ = state.reduce(.focusGained(currentURLString: "https://example.com/")
         )
-        _ = omnibarReduce(state: &state, event: .bufferChanged("abcdef"))
+        _ = state.reduce(.bufferChanged("abcdef"))
 
-        let effects = omnibarReduce(
-            state: &state,
-            event: .focusReasserted(
+        let effects = state.reduce(.focusReasserted(
                 shouldSelectAll: browserOmnibarShouldSelectAllOnFocusReassertion(
                     selectionIntent: .selectAll
                 )
@@ -537,27 +533,25 @@ final class OmnibarStateMachineTests: XCTestCase {
     func testEscapeRevertsWhenEditingThenBlursOnSecondEscape() throws {
         var state = OmnibarState()
 
-        var effects = omnibarReduce(state: &state, event: .focusGained(currentURLString: "https://example.com/"))
+        var effects = state.reduce(.focusGained(currentURLString: "https://example.com/"))
         XCTAssertTrue(state.isFocused)
         XCTAssertEqual(state.buffer, "https://example.com/")
         XCTAssertFalse(state.isUserEditing)
         XCTAssertFalse(effects.shouldSelectAll)
 
-        effects = omnibarReduce(state: &state, event: .bufferChanged("exam"))
+        effects = state.reduce(.bufferChanged("exam"))
         XCTAssertTrue(state.isUserEditing)
         XCTAssertEqual(state.buffer, "exam")
         XCTAssertTrue(effects.shouldRefreshSuggestions)
 
         // Simulate an open popup.
-        effects = omnibarReduce(
-            state: &state,
-            event: .suggestionsUpdated([.search(engineName: "Google", query: "exam")])
+        effects = state.reduce(.suggestionsUpdated([.search(engineName: "Google", query: "exam")])
         )
         XCTAssertEqual(state.suggestions.count, 1)
         XCTAssertFalse(effects.shouldSelectAll)
 
         // First escape: revert + close popup + select-all.
-        effects = omnibarReduce(state: &state, event: .escape)
+        effects = state.reduce(.escape)
         XCTAssertEqual(state.buffer, "https://example.com/")
         XCTAssertFalse(state.isUserEditing)
         XCTAssertTrue(state.suggestions.isEmpty)
@@ -565,55 +559,55 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertFalse(effects.shouldBlurToWebView)
 
         // Second escape: blur (since we're not editing and popup is closed).
-        effects = omnibarReduce(state: &state, event: .escape)
+        effects = state.reduce(.escape)
         XCTAssertTrue(effects.shouldBlurToWebView)
     }
 
     func testPanelURLChangeDoesNotClobberUserBufferWhileEditing() throws {
         var state = OmnibarState()
-        _ = omnibarReduce(state: &state, event: .focusGained(currentURLString: "https://a.test/"))
-        _ = omnibarReduce(state: &state, event: .bufferChanged("hello"))
+        _ = state.reduce(.focusGained(currentURLString: "https://a.test/"))
+        _ = state.reduce(.bufferChanged("hello"))
         XCTAssertTrue(state.isUserEditing)
 
-        _ = omnibarReduce(state: &state, event: .panelURLChanged(currentURLString: "https://b.test/"))
+        _ = state.reduce(.panelURLChanged(currentURLString: "https://b.test/"))
         XCTAssertEqual(state.currentURLString, "https://b.test/")
         XCTAssertEqual(state.buffer, "hello")
         XCTAssertTrue(state.isUserEditing)
 
-        let effects = omnibarReduce(state: &state, event: .escape)
+        let effects = state.reduce(.escape)
         XCTAssertEqual(state.buffer, "https://b.test/")
         XCTAssertTrue(effects.shouldSelectAll)
     }
 
     func testFocusLostRevertsUnlessSuppressed() throws {
         var state = OmnibarState()
-        _ = omnibarReduce(state: &state, event: .focusGained(currentURLString: "https://example.com/"))
-        _ = omnibarReduce(state: &state, event: .bufferChanged("typed"))
+        _ = state.reduce(.focusGained(currentURLString: "https://example.com/"))
+        _ = state.reduce(.bufferChanged("typed"))
         XCTAssertEqual(state.buffer, "typed")
 
-        _ = omnibarReduce(state: &state, event: .focusLostPreserveBuffer(currentURLString: "https://example.com/"))
+        _ = state.reduce(.focusLostPreserveBuffer(currentURLString: "https://example.com/"))
         XCTAssertEqual(state.buffer, "typed")
 
-        _ = omnibarReduce(state: &state, event: .focusGained(currentURLString: "https://example.com/"))
-        _ = omnibarReduce(state: &state, event: .bufferChanged("typed2"))
-        _ = omnibarReduce(state: &state, event: .focusLostRevertBuffer(currentURLString: "https://example.com/"))
+        _ = state.reduce(.focusGained(currentURLString: "https://example.com/"))
+        _ = state.reduce(.bufferChanged("typed2"))
+        _ = state.reduce(.focusLostRevertBuffer(currentURLString: "https://example.com/"))
         XCTAssertEqual(state.buffer, "https://example.com/")
     }
 
     func testSuggestionsUpdateKeepsSelectionAcrossNonEmptyListRefresh() throws {
         var state = OmnibarState()
-        _ = omnibarReduce(state: &state, event: .focusGained(currentURLString: "https://example.com/"))
-        _ = omnibarReduce(state: &state, event: .bufferChanged("go"))
+        _ = state.reduce(.focusGained(currentURLString: "https://example.com/"))
+        _ = state.reduce(.bufferChanged("go"))
 
         let base: [OmnibarSuggestion] = [
             .search(engineName: "Google", query: "go"),
             .remoteSearchSuggestion("go tutorial"),
             .remoteSearchSuggestion("go json"),
         ]
-        _ = omnibarReduce(state: &state, event: .suggestionsUpdated(base))
+        _ = state.reduce(.suggestionsUpdated(base))
         XCTAssertEqual(state.selectedSuggestionIndex, 0)
 
-        _ = omnibarReduce(state: &state, event: .moveSelection(delta: 2))
+        _ = state.reduce(.moveSelection(delta: 2))
         XCTAssertEqual(state.selectedSuggestionIndex, 2)
 
         // Simulate remote merge update for the same query while popup remains open.
@@ -623,44 +617,44 @@ final class OmnibarStateMachineTests: XCTestCase {
             .remoteSearchSuggestion("go json"),
             .remoteSearchSuggestion("go fmt"),
         ]
-        _ = omnibarReduce(state: &state, event: .suggestionsUpdated(merged))
+        _ = state.reduce(.suggestionsUpdated(merged))
         XCTAssertEqual(state.selectedSuggestionIndex, 2, "Expected selection to remain stable while list stays open")
     }
 
     func testSuggestionsReopenResetsSelectionToFirstRow() throws {
         var state = OmnibarState()
-        _ = omnibarReduce(state: &state, event: .focusGained(currentURLString: "https://example.com/"))
-        _ = omnibarReduce(state: &state, event: .bufferChanged("go"))
+        _ = state.reduce(.focusGained(currentURLString: "https://example.com/"))
+        _ = state.reduce(.bufferChanged("go"))
 
         let rows: [OmnibarSuggestion] = [
             .search(engineName: "Google", query: "go"),
             .remoteSearchSuggestion("go tutorial"),
         ]
-        _ = omnibarReduce(state: &state, event: .suggestionsUpdated(rows))
-        _ = omnibarReduce(state: &state, event: .moveSelection(delta: 1))
+        _ = state.reduce(.suggestionsUpdated(rows))
+        _ = state.reduce(.moveSelection(delta: 1))
         XCTAssertEqual(state.selectedSuggestionIndex, 1)
 
-        _ = omnibarReduce(state: &state, event: .suggestionsUpdated([]))
+        _ = state.reduce(.suggestionsUpdated([]))
         XCTAssertEqual(state.selectedSuggestionIndex, 0)
 
-        _ = omnibarReduce(state: &state, event: .suggestionsUpdated(rows))
+        _ = state.reduce(.suggestionsUpdated(rows))
         XCTAssertEqual(state.selectedSuggestionIndex, 0, "Expected reopened popup to focus first row")
     }
 
     func testSuggestionsUpdatePrefersAutocompleteMatchWhenSelectionNotTracked() throws {
         var state = OmnibarState()
-        _ = omnibarReduce(state: &state, event: .focusGained(currentURLString: "https://example.com/"))
-        _ = omnibarReduce(state: &state, event: .bufferChanged("gm"))
+        _ = state.reduce(.focusGained(currentURLString: "https://example.com/"))
+        _ = state.reduce(.bufferChanged("gm"))
 
         let rows: [OmnibarSuggestion] = [
             .search(engineName: "Google", query: "gm"),
             .history(url: "https://google.com/", title: "Google"),
             .history(url: "https://gmail.com/", title: "Gmail"),
         ]
-        _ = omnibarReduce(state: &state, event: .suggestionsUpdated(rows))
+        _ = state.reduce(.suggestionsUpdated(rows))
         XCTAssertEqual(state.selectedSuggestionIndex, 2, "Expected autocomplete candidate to become selected without explicit index state.")
         XCTAssertEqual(state.selectedSuggestionID, rows[2].id)
-        XCTAssertTrue(omnibarSuggestionSupportsAutocompletion(query: "gm", suggestion: state.suggestions[state.selectedSuggestionIndex]))
+        XCTAssertTrue(state.suggestions[state.selectedSuggestionIndex].supportsAutocompletion(query: "gm"))
         XCTAssertEqual(state.suggestions[state.selectedSuggestionIndex].completion, "https://gmail.com/")
     }
 
@@ -982,7 +976,7 @@ private final class OmnibarInlineDeletionHarness {
     }
 
     private func replaceTypedPrefix(with updated: String) {
-        let effects = omnibarReduce(state: &state, event: .bufferChanged(updated))
+        let effects = state.reduce(.bufferChanged(updated))
         XCTAssertTrue(effects.shouldRefreshSuggestions)
         inlineCompletion = omnibarInlineCompletionForDisplay(
             typedText: state.buffer,
@@ -994,8 +988,8 @@ private final class OmnibarInlineDeletionHarness {
     }
 
     private func replaceTypedPrefixAndDismissSuggestions(with updated: String) {
-        _ = omnibarReduce(state: &state, event: .bufferChanged(updated))
-        let effects = omnibarReduce(state: &state, event: .suggestionsUpdated([]))
+        _ = state.reduce(.bufferChanged(updated))
+        let effects = state.reduce(.suggestionsUpdated([]))
         XCTAssertFalse(effects.shouldRefreshSuggestions)
         inlineCompletion = nil
     }
@@ -1162,7 +1156,7 @@ final class OmnibarSuggestionRankingTests: XCTestCase {
 
         XCTAssertEqual(results.first?.completion, "https://news.ycombinator.com/")
         XCTAssertNotEqual(results.map(\.completion).first, "n")
-        XCTAssertTrue(results.first.map { omnibarSuggestionSupportsAutocompletion(query: "n", suggestion: $0) } ?? false)
+        XCTAssertTrue(results.first.map { $0.supportsAutocompletion(query: "n") } ?? false)
     }
 
     func testGmAutocompleteCandidateIsFirstOnExactQueryMatch() {
@@ -1199,7 +1193,7 @@ final class OmnibarSuggestionRankingTests: XCTestCase {
         )
 
         XCTAssertEqual(results.first?.completion, "https://gmail.com/")
-        XCTAssertTrue(omnibarSuggestionSupportsAutocompletion(query: "gm", suggestion: results[0]))
+        XCTAssertTrue(results[0].supportsAutocompletion(query: "gm"))
 
         let inlineCompletion = omnibarInlineCompletionForDisplay(
             typedText: "gm",
@@ -1252,7 +1246,7 @@ final class OmnibarSuggestionRankingTests: XCTestCase {
             now: fixedNow
         )
 
-        XCTAssertTrue(omnibarSuggestionSupportsAutocompletion(query: "gm", suggestion: results[0]))
+        XCTAssertTrue(results[0].supportsAutocompletion(query: "gm"))
         XCTAssertEqual(results.first?.completion, "https://gmail.com/")
     }
 
@@ -1290,13 +1284,13 @@ final class OmnibarSuggestionRankingTests: XCTestCase {
         )
 
         var state = OmnibarState()
-        let _ = omnibarReduce(state: &state, event: .focusGained(currentURLString: ""))
-        let _ = omnibarReduce(state: &state, event: .bufferChanged("gm"))
-        let _ = omnibarReduce(state: &state, event: .suggestionsUpdated(results))
+        let _ = state.reduce(.focusGained(currentURLString: ""))
+        let _ = state.reduce(.bufferChanged("gm"))
+        let _ = state.reduce(.suggestionsUpdated(results))
 
         XCTAssertEqual(state.selectedSuggestionIndex, 0)
         XCTAssertEqual(state.selectedSuggestionID, results[0].id)
-        XCTAssertTrue(omnibarSuggestionSupportsAutocompletion(query: "gm", suggestion: state.suggestions[0]))
+        XCTAssertTrue(state.suggestions[0].supportsAutocompletion(query: "gm"))
     }
 
     func testTwoCharQueryWithRemoteSuggestionsStillPromotesAutocompletionMatch() {
@@ -1334,7 +1328,7 @@ final class OmnibarSuggestionRankingTests: XCTestCase {
 
         // The autocompletable history entry (news.ycombinator.com) should be first despite remote results.
         XCTAssertEqual(results.first?.completion, "https://news.ycombinator.com/")
-        XCTAssertTrue(results.first.map { omnibarSuggestionSupportsAutocompletion(query: "ne", suggestion: $0) } ?? false)
+        XCTAssertTrue(results.first.map { $0.supportsAutocompletion(query: "ne") } ?? false)
 
         // Remote suggestions should still appear in the results (two-char queries include them).
         let remoteCompletions = results.filter {
@@ -1387,7 +1381,7 @@ final class OmnibarSuggestionRankingTests: XCTestCase {
 
         // Gmail should be first (autocompletable + typed history).
         XCTAssertEqual(results.first?.completion, "https://gmail.com/")
-        XCTAssertTrue(omnibarSuggestionSupportsAutocompletion(query: "gm", suggestion: results[0]))
+        XCTAssertTrue(results[0].supportsAutocompletion(query: "gm"))
 
         // Verify remote suggestions are present alongside history/tab matches.
         let remoteCompletions = results.filter {

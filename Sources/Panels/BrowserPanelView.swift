@@ -288,18 +288,6 @@ enum BrowserProfilePopoverDebugSettings {
     }
 }
 
-struct OmnibarInlineCompletion: Equatable {
-    let typedText: String
-    let displayText: String
-    let acceptedText: String
-
-    var suffixRange: NSRange {
-        let typedCount = typedText.utf16.count
-        let fullCount = displayText.utf16.count
-        return NSRange(location: typedCount, length: max(0, fullCount - typedCount))
-    }
-}
-
 private struct OmnibarAddressButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         OmnibarAddressButtonStyleBody(configuration: configuration)
@@ -662,7 +650,7 @@ struct BrowserPanelView: View {
                 commitSuggestion(item)
             },
             onHighlight: { idx in
-                let effects = omnibarReduce(state: &omnibarState, event: .highlightIndex(idx))
+                let effects = omnibarState.reduce(.highlightIndex(idx))
                 applyOmnibarEffects(effects)
             }
         )
@@ -1064,9 +1052,7 @@ struct BrowserPanelView: View {
 #endif
                 onRequestPanelFocus()
             }
-            let effects = omnibarReduce(
-                state: &omnibarState,
-                event: .focusGained(currentURLString: urlString, shouldSelectAll: selectionIntent.shouldSelectAll)
+            let effects = omnibarState.reduce(.focusGained(currentURLString: urlString, shouldSelectAll: selectionIntent.shouldSelectAll)
             )
             applyOmnibarEffects(effects)
             refreshInlineCompletion()
@@ -1076,10 +1062,10 @@ struct BrowserPanelView: View {
             NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panel.id)
             if suppressNextFocusLostRevert {
                 suppressNextFocusLostRevert = false
-                let effects = omnibarReduce(state: &omnibarState, event: .focusLostPreserveBuffer(currentURLString: urlString))
+                let effects = omnibarState.reduce(.focusLostPreserveBuffer(currentURLString: urlString))
                 applyOmnibarEffects(effects)
             } else {
-                let effects = omnibarReduce(state: &omnibarState, event: .focusLostRevertBuffer(currentURLString: urlString))
+                let effects = omnibarState.reduce(.focusLostRevertBuffer(currentURLString: urlString))
                 applyOmnibarEffects(effects)
             }
             inlineCompletion = nil
@@ -1097,7 +1083,7 @@ struct BrowserPanelView: View {
 #if DEBUG
         logBrowserFocusState(event: "addressBarFocus.moveSelection", detail: "delta=\(delta)")
 #endif
-        let effects = omnibarReduce(state: &omnibarState, event: .moveSelection(delta: delta))
+        let effects = omnibarState.reduce(.moveSelection(delta: delta))
         applyOmnibarEffects(effects)
         refreshInlineCompletion()
     }
@@ -1149,7 +1135,7 @@ struct BrowserPanelView: View {
                     commitSuggestion(item)
                 },
                 onHighlight: { idx in
-                    let effects = omnibarReduce(state: &omnibarState, event: .highlightIndex(idx))
+                    let effects = omnibarState.reduce(.highlightIndex(idx))
                     applyOmnibarEffects(effects)
                 }
             )
@@ -1773,7 +1759,7 @@ struct BrowserPanelView: View {
                 text: Binding(
                     get: { omnibarState.buffer },
                     set: { newValue in
-                        let effects = omnibarReduce(state: &omnibarState, event: .bufferChanged(newValue))
+                        let effects = omnibarState.reduce(.bufferChanged(newValue))
                         applyOmnibarEffects(effects)
                         if !effects.shouldClearInlineCompletion {
                             refreshInlineCompletion()
@@ -1798,7 +1784,7 @@ struct BrowserPanelView: View {
                 },
                 onMoveSelection: { delta in
                     guard canHandleOmnibarSuggestionInteraction() else { return }
-                    let effects = omnibarReduce(state: &omnibarState, event: .moveSelection(delta: delta))
+                    let effects = omnibarState.reduce(.moveSelection(delta: delta))
                     applyOmnibarEffects(effects)
                     refreshInlineCompletion()
                 },
@@ -2132,7 +2118,7 @@ struct BrowserPanelView: View {
 
     private func syncURLFromPanel() {
         let urlString = panel.preferredURLStringForOmnibar() ?? ""
-        let effects = omnibarReduce(state: &omnibarState, event: .panelURLChanged(currentURLString: urlString))
+        let effects = omnibarState.reduce(.panelURLChanged(currentURLString: urlString))
         applyOmnibarEffects(effects)
     }
 
@@ -2228,9 +2214,7 @@ struct BrowserPanelView: View {
         if addressBarFocused {
             // Re-run explicit selection behavior only for requests that own it
             // (Cmd+L), without replacing a caret from focus restoration.
-            let effects = omnibarReduce(
-                state: &omnibarState,
-                event: .focusReasserted(
+            let effects = omnibarState.reduce(.focusReasserted(
                     shouldSelectAll: browserOmnibarShouldSelectAllOnFocusReassertion(
                         selectionIntent: selectionIntent
                     )
@@ -2535,7 +2519,7 @@ struct BrowserPanelView: View {
 
     private func hideSuggestions() {
         cancelPendingOmnibarSuggestionWork()
-        let effects = omnibarReduce(state: &omnibarState, event: .suggestionsUpdated([]))
+        let effects = omnibarState.reduce(.suggestionsUpdated([]))
         applyOmnibarEffects(effects)
         inlineCompletion = nil
     }
@@ -2577,7 +2561,7 @@ struct BrowserPanelView: View {
             if text != omnibarState.buffer {
                 // Reconcile the reducer with the live field before navigating so
                 // blur and URL-change handling see the text that was submitted.
-                let effects = omnibarReduce(state: &omnibarState, event: .bufferChanged(text))
+                let effects = omnibarState.reduce(.bufferChanged(text))
                 applyOmnibarEffects(effects)
             }
             panel.navigateSmart(text)
@@ -2618,7 +2602,7 @@ struct BrowserPanelView: View {
             return
         }
 
-        let effects = omnibarReduce(state: &omnibarState, event: .escape)
+        let effects = omnibarState.reduce(.escape)
         applyOmnibarEffects(effects)
         refreshInlineCompletion()
     }
@@ -2638,7 +2622,7 @@ struct BrowserPanelView: View {
 
     private func acceptInlineCompletion() {
         guard let completion = inlineCompletion else { return }
-        let effects = omnibarReduce(state: &omnibarState, event: .bufferChanged(completion.displayText))
+        let effects = omnibarState.reduce(.bufferChanged(completion.displayText))
         applyOmnibarEffects(effects)
         inlineCompletion = nil
     }
@@ -2648,7 +2632,7 @@ struct BrowserPanelView: View {
         let prefix = completion.typedText
         guard !prefix.isEmpty else { return }
         let updated = String(prefix.dropLast())
-        let effects = omnibarReduce(state: &omnibarState, event: .bufferChanged(updated))
+        let effects = omnibarState.reduce(.bufferChanged(updated))
         applyOmnibarEffects(effects)
         omnibarSelectionRange = NSRange(location: updated.utf16.count, length: 0)
         if !effects.shouldClearInlineCompletion {
@@ -2660,7 +2644,7 @@ struct BrowserPanelView: View {
         guard inlineCompletion != nil else { return }
         // Modified Backspace dismisses the current inline suggestion instead of
         // refetching suggestions for the shorter prefix.
-        _ = omnibarReduce(state: &omnibarState, event: .bufferChanged(""))
+        _ = omnibarState.reduce(.bufferChanged(""))
         omnibarSelectionRange = NSRange(location: 0, length: 0)
         hideSuggestions()
     }
@@ -2670,7 +2654,7 @@ struct BrowserPanelView: View {
         let updated = omnibarPrefixAfterDeletingTrailingWord(from: completion.typedText)
         // Modified Backspace dismisses the current inline suggestion instead of
         // refetching suggestions for the shorter prefix.
-        _ = omnibarReduce(state: &omnibarState, event: .bufferChanged(updated))
+        _ = omnibarState.reduce(.bufferChanged(updated))
         omnibarSelectionRange = NSRange(location: updated.utf16.count, length: 0)
         hideSuggestions()
     }
@@ -2784,7 +2768,7 @@ struct BrowserPanelView: View {
                 "bufferLen=\(omnibarState.buffer.utf8.count)"
             )
 #endif
-            let effects = omnibarReduce(state: &omnibarState, event: .suggestionsUpdated([]))
+            let effects = omnibarState.reduce(.suggestionsUpdated([]))
             applyOmnibarEffects(effects)
             return
         }
@@ -2823,7 +2807,7 @@ struct BrowserPanelView: View {
             resolvedURL: resolvedURL,
             limit: 8
         )
-        let effects = omnibarReduce(state: &omnibarState, event: .suggestionsUpdated(items))
+        let effects = omnibarState.reduce(.suggestionsUpdated(items))
         applyOmnibarEffects(effects)
         refreshInlineCompletion()
 #if DEBUG
@@ -2850,7 +2834,7 @@ struct BrowserPanelView: View {
                 resolvedURL: resolvedURL,
                 limit: 8
             )
-            let forcedEffects = omnibarReduce(state: &omnibarState, event: .suggestionsUpdated(merged))
+            let forcedEffects = omnibarState.reduce(.suggestionsUpdated(merged))
             applyOmnibarEffects(forcedEffects)
             refreshInlineCompletion()
 #if DEBUG
@@ -2889,7 +2873,7 @@ struct BrowserPanelView: View {
                     resolvedURL: panel.resolveNavigableURL(from: query),
                     limit: 8
                 )
-                let effects = omnibarReduce(state: &omnibarState, event: .suggestionsUpdated(merged))
+                let effects = omnibarState.reduce(.suggestionsUpdated(merged))
                 applyOmnibarEffects(effects)
                 refreshInlineCompletion()
                 isLoadingRemoteSuggestions = false
@@ -3033,12 +3017,6 @@ struct BrowserPanelView: View {
     }
 }
 
-enum OmnibarInputIntent: Equatable {
-    case urlLike
-    case queryLike
-    case ambiguous
-}
-
 func omnibarInputIntent(for query: String) -> OmnibarInputIntent {
     let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return .ambiguous }
@@ -3058,80 +3036,6 @@ func omnibarInputIntent(for query: String) -> OmnibarInputIntent {
     return .queryLike
 }
 
-func omnibarSuggestionCompletion(for suggestion: OmnibarSuggestion) -> String? {
-    switch suggestion.kind {
-    case .navigate(let url):
-        return url
-    case .history(let url, _):
-        return url
-    case .switchToTab(_, _, let url, _):
-        return url
-    default:
-        return nil
-    }
-}
-
-func omnibarSuggestionTitle(for suggestion: OmnibarSuggestion) -> String? {
-    switch suggestion.kind {
-    case .history(_, let title):
-        return title
-    case .switchToTab(_, _, _, let title):
-        return title
-    default:
-        return nil
-    }
-}
-
-func omnibarSuggestionMatchesTypedPrefix(
-    typedText: String,
-    suggestionCompletion: String,
-    suggestionTitle: String? = nil
-) -> Bool {
-    let trimmedQuery = typedText.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmedQuery.isEmpty else { return false }
-
-    let query = trimmedQuery.lowercased()
-    let trimmedCompletion = suggestionCompletion.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmedCompletion.isEmpty else { return false }
-    let loweredCompletion = trimmedCompletion.lowercased()
-
-    let schemeStripped = stripHTTPSchemePrefix(trimmedCompletion)
-    let schemeAndWWWStripped = stripHTTPSchemeAndWWWPrefix(trimmedCompletion)
-    let typedIncludesScheme = query.hasPrefix("https://") || query.hasPrefix("http://")
-    let typedIncludesWWWPrefix = query.hasPrefix("www.")
-
-    if typedIncludesScheme, loweredCompletion.hasPrefix(query) { return true }
-    if schemeStripped.hasPrefix(query) { return true }
-    if !typedIncludesWWWPrefix && schemeAndWWWStripped.hasPrefix(query) { return true }
-
-    let normalizedTitle = suggestionTitle?
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-        .lowercased() ?? ""
-    if !normalizedTitle.isEmpty && normalizedTitle.hasPrefix(query) {
-        return true
-    }
-
-    return false
-}
-
-func omnibarSuggestionSupportsAutocompletion(query: String, suggestion: OmnibarSuggestion) -> Bool {
-    if case .search = suggestion.kind { return false }
-    if case .remote = suggestion.kind { return false }
-    guard let completion = omnibarSuggestionCompletion(for: suggestion) else { return false }
-    // Reject URLs whose host lacks a TLD (e.g. "https://news." → host "news").
-    if let components = URLComponents(string: completion),
-       let host = components.host?.lowercased() {
-        let trimmedHost = host.hasSuffix(".") ? String(host.dropLast()) : host
-        if !trimmedHost.contains(".") { return false }
-    }
-    let title = omnibarSuggestionTitle(for: suggestion)
-    return omnibarSuggestionMatchesTypedPrefix(
-        typedText: query,
-        suggestionCompletion: completion,
-        suggestionTitle: title
-    )
-}
-
 func omnibarSingleCharacterQuery(for query: String) -> String? {
     let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     guard trimmed.utf16.count == 1 else { return nil }
@@ -3139,7 +3043,7 @@ func omnibarSingleCharacterQuery(for query: String) -> String? {
 }
 
 func omnibarStrippedURL(_ value: String) -> String {
-    return stripHTTPSchemeAndWWWPrefix(value)
+    return value.strippingHTTPSchemeAndWWWPrefix
 }
 
 func omnibarScoringCandidate(_ value: String) -> String {
@@ -3173,7 +3077,7 @@ func omnibarScoringCandidate(_ value: String) -> String {
         return normalized
     }
 
-    return stripHTTPSchemeAndWWWPrefix(trimmed)
+    return trimmed.strippingHTTPSchemeAndWWWPrefix
 }
 
 func omnibarHasSingleCharacterPrefixMatch(query: String, url: String, title: String?) -> Bool {
@@ -3265,7 +3169,7 @@ func buildOmnibarSuggestions(
     func insert(_ suggestion: OmnibarSuggestion, score: Double) {
         let key = suggestion.completion.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !key.isEmpty else { return }
-        let isAutocompletableMatch = omnibarSuggestionSupportsAutocompletion(query: trimmedQuery, suggestion: suggestion)
+        let isAutocompletableMatch = suggestion.supportsAutocompletion(query: trimmedQuery)
 
         let ranked = RankedSuggestion(
             suggestion: suggestion,
@@ -3406,8 +3310,8 @@ func buildOmnibarSuggestions(
 }
 
 private func prioritizedAutocompletionSuggestions(suggestions: [OmnibarSuggestion], for query: String) -> [OmnibarSuggestion] {
-    guard let preferred = omnibarPreferredAutocompletionSuggestionIndex(
-        suggestions: suggestions,
+    guard let preferred = OmnibarSuggestion.preferredAutocompletionIndex(
+        in: suggestions,
         query: query
     ) else {
         return suggestions
@@ -3419,54 +3323,6 @@ private func prioritizedAutocompletionSuggestions(suggestions: [OmnibarSuggestio
     let suggestion = reordered.remove(at: preferred)
     reordered.insert(suggestion, at: 0)
     return reordered
-}
-
-private func omnibarPreferredAutocompletionSuggestionIndex(
-    suggestions: [OmnibarSuggestion],
-    query: String
-) -> Int? {
-    guard !query.isEmpty else { return nil }
-
-    var candidates: [(idx: Int, suffixLength: Int)] = []
-    for (idx, suggestion) in suggestions.enumerated() {
-        guard omnibarSuggestionSupportsAutocompletion(query: query, suggestion: suggestion) else { continue }
-        guard let completion = omnibarSuggestionCompletion(for: suggestion) else { continue }
-        let displayCompletion = omnibarSuggestionMatchesTypedPrefix(
-            typedText: query,
-            suggestionCompletion: completion,
-            suggestionTitle: omnibarSuggestionTitle(for: suggestion)
-        ) ? completion : ""
-        guard !displayCompletion.isEmpty else { continue }
-
-        let suffixLength = max(
-            0,
-            omnibarSuggestionDisplayText(forPrefixing: displayCompletion, query: query).utf16.count - query.utf16.count
-        )
-        candidates.append((idx: idx, suffixLength: suffixLength))
-    }
-
-    guard let preferred = candidates.min(by: {
-        if $0.suffixLength != $1.suffixLength {
-            return $0.suffixLength < $1.suffixLength
-        }
-        return $0.idx < $1.idx
-    })?.idx else {
-        return nil
-    }
-
-    return preferred
-}
-
-private func omnibarSuggestionDisplayText(forPrefixing completion: String, query: String) -> String {
-    let typedIncludesScheme = query.hasPrefix("https://") || query.hasPrefix("http://")
-    let typedIncludesWWWPrefix = query.hasPrefix("www.")
-    if typedIncludesScheme {
-        return completion
-    }
-    if typedIncludesWWWPrefix {
-        return stripHTTPSchemePrefix(completion)
-    }
-    return stripHTTPSchemeAndWWWPrefix(completion)
 }
 
 func staleOmnibarRemoteSuggestionsForDisplay(
@@ -3516,11 +3372,11 @@ func omnibarInlineCompletionForDisplay(
     let queryCount = query.utf16.count
 
     let urlCandidate = suggestions.first { suggestion in
-        guard let completion = omnibarSuggestionCompletion(for: suggestion) else { return false }
-        return omnibarSuggestionMatchesTypedPrefix(
+        guard let completion = suggestion.autocompletionCompletion else { return false }
+        return OmnibarSuggestion.matchesTypedPrefix(
             typedText: query,
             suggestionCompletion: completion,
-            suggestionTitle: omnibarSuggestionTitle(for: suggestion)
+            suggestionTitle: suggestion.autocompletionTitle
         )
     }
     guard let candidate = urlCandidate else {
@@ -3533,9 +3389,9 @@ func omnibarInlineCompletionForDisplay(
         if typedIncludesScheme {
             displayText = acceptedText
         } else if typedIncludesWWWPrefix {
-            displayText = stripHTTPSchemePrefix(acceptedText)
+            displayText = acceptedText.strippingHTTPSchemePrefix
         } else {
-            displayText = stripHTTPSchemeAndWWWPrefix(acceptedText)
+            displayText = acceptedText.strippingHTTPSchemeAndWWWPrefix
         }
     } else if let hostOnlyDisplay = inlineCompletionHostDisplayText(
         for: acceptedText,
@@ -3547,13 +3403,13 @@ func omnibarInlineCompletionForDisplay(
         if typedIncludesScheme {
             displayText = acceptedText
         } else if typedIncludesWWWPrefix {
-            displayText = stripHTTPSchemePrefix(acceptedText)
+            displayText = acceptedText.strippingHTTPSchemePrefix
         } else {
-            displayText = stripHTTPSchemeAndWWWPrefix(acceptedText)
+            displayText = acceptedText.strippingHTTPSchemeAndWWWPrefix
         }
     }
 
-    guard omnibarSuggestionSupportsAutocompletion(query: query, suggestion: candidate) else { return nil }
+    guard candidate.supportsAutocompletion(query: query) else { return nil }
     // The display text must start with the typed query so the inline completion
     // visually extends what the user typed rather than replacing it (e.g. a
     // history entry matched via title "localhost:3000" whose URL is google.com
@@ -3695,24 +3551,6 @@ private func inlineCompletionHostDisplayText(
     return hostWithPort
 }
 
-private func stripHTTPSchemePrefix(_ raw: String) -> String {
-    var normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    if normalized.hasPrefix("https://") {
-        normalized.removeFirst("https://".count)
-    } else if normalized.hasPrefix("http://") {
-        normalized.removeFirst("http://".count)
-    }
-    return normalized
-}
-
-private func stripHTTPSchemeAndWWWPrefix(_ raw: String) -> String {
-    var normalized = stripHTTPSchemePrefix(raw)
-    if normalized.hasPrefix("www.") {
-        normalized.removeFirst("www.".count)
-    }
-    return normalized
-}
-
 private struct OmnibarPillFramePreferenceKey: PreferenceKey {
     static var defaultValue: CGRect = .zero
 
@@ -3737,346 +3575,6 @@ private struct BrowserAddressBarWidthPreferenceKey: PreferenceKey {
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = max(value, nextValue())
-    }
-}
-
-// MARK: - Omnibar State Machine
-
-struct OmnibarState: Equatable {
-    var isFocused: Bool = false
-    var currentURLString: String = ""
-    var buffer: String = ""
-    var suggestions: [OmnibarSuggestion] = []
-    var selectedSuggestionIndex: Int = 0
-    var selectedSuggestionID: String?
-    /// True only while the current suggestion selection came from an explicit
-    /// user action (arrow keys, Ctrl+N/P). Automatic highlighting (preferred
-    /// autocompletion pick, popup reopen, pointer hover) leaves this false so
-    /// a row auto-selected for an older query can never hijack Return.
-    var selectionIsExplicit: Bool = false
-    var isUserEditing: Bool = false
-}
-
-enum OmnibarEvent: Equatable {
-    case focusGained(currentURLString: String, shouldSelectAll: Bool = false)
-    case focusReasserted(shouldSelectAll: Bool = true)
-    case focusLostRevertBuffer(currentURLString: String)
-    case focusLostPreserveBuffer(currentURLString: String)
-    case panelURLChanged(currentURLString: String)
-    case bufferChanged(String)
-    case suggestionsUpdated([OmnibarSuggestion])
-    case moveSelection(delta: Int)
-    case highlightIndex(Int)
-    case escape
-}
-
-struct OmnibarEffects: Equatable {
-    var shouldSelectAll: Bool = false
-    var shouldBlurToWebView: Bool = false
-    var shouldRefreshSuggestions: Bool = false
-    var shouldClearInlineCompletion: Bool = false
-    var shouldCancelPendingSuggestionRefresh: Bool = false
-}
-
-@discardableResult
-func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEffects {
-    var effects = OmnibarEffects()
-
-    switch event {
-    case .focusGained(let url, let shouldSelectAll):
-        state.isFocused = true
-        state.currentURLString = url
-        state.buffer = url
-        state.isUserEditing = false
-        state.suggestions = []
-        state.selectedSuggestionIndex = 0
-        state.selectedSuggestionID = nil
-        state.selectionIsExplicit = false
-        effects.shouldSelectAll = shouldSelectAll
-        effects.shouldCancelPendingSuggestionRefresh = true
-
-    case .focusReasserted(let shouldSelectAll):
-        state.isFocused = true
-        effects.shouldSelectAll = shouldSelectAll
-        if shouldSelectAll {
-            // A Cmd+L style reassert restarts editing from the full selected
-            // text; an earlier arrow selection no longer reflects Return
-            // intent. Plain focus restoration (no select-all) keeps it.
-            state.selectionIsExplicit = false
-        }
-
-    case .focusLostRevertBuffer(let url):
-        state.isFocused = false
-        state.currentURLString = url
-        state.buffer = url
-        state.isUserEditing = false
-        state.suggestions = []
-        state.selectedSuggestionIndex = 0
-        state.selectedSuggestionID = nil
-        state.selectionIsExplicit = false
-        effects.shouldCancelPendingSuggestionRefresh = true
-
-    case .focusLostPreserveBuffer(let url):
-        state.isFocused = false
-        state.currentURLString = url
-        state.isUserEditing = false
-        state.suggestions = []
-        state.selectedSuggestionIndex = 0
-        state.selectedSuggestionID = nil
-        state.selectionIsExplicit = false
-        effects.shouldCancelPendingSuggestionRefresh = true
-
-    case .panelURLChanged(let url):
-        state.currentURLString = url
-        if !state.isUserEditing {
-            state.buffer = url
-            state.suggestions = []
-            state.selectedSuggestionIndex = 0
-            state.selectedSuggestionID = nil
-            state.selectionIsExplicit = false
-            effects.shouldCancelPendingSuggestionRefresh = true
-        }
-
-    case .bufferChanged(let newValue):
-        let bufferChanged = state.buffer != newValue
-        state.buffer = newValue
-        if state.isFocused {
-            state.isUserEditing = (newValue != state.currentURLString)
-            state.selectedSuggestionIndex = 0
-            state.selectedSuggestionID = nil
-            state.selectionIsExplicit = false
-            effects.shouldRefreshSuggestions = true
-            effects.shouldClearInlineCompletion = bufferChanged
-        }
-
-    case .suggestionsUpdated(let items):
-        let previousItems = state.suggestions
-        let previousSelectedID = state.selectedSuggestionID
-        state.suggestions = items
-        if items.isEmpty {
-            state.selectedSuggestionIndex = 0
-            state.selectedSuggestionID = nil
-            state.selectionIsExplicit = false
-        } else if let previousSelectedID,
-                  let existingIdx = items.firstIndex(where: { $0.id == previousSelectedID }) {
-            // Same row carried across a refresh: an explicit selection stays explicit.
-            state.selectedSuggestionIndex = existingIdx
-            state.selectedSuggestionID = items[existingIdx].id
-        } else if let preferredSuggestionIndex = omnibarPreferredAutocompletionSuggestionIndex(
-            suggestions: items,
-            query: state.buffer
-        ) {
-            state.selectedSuggestionIndex = preferredSuggestionIndex
-            state.selectedSuggestionID = items[preferredSuggestionIndex].id
-            state.selectionIsExplicit = false
-        } else if previousItems.isEmpty {
-            // Popup reopened: start keyboard focus from the first row.
-            state.selectedSuggestionIndex = 0
-            state.selectedSuggestionID = items[0].id
-            state.selectionIsExplicit = false
-        } else {
-            state.selectedSuggestionIndex = min(max(0, state.selectedSuggestionIndex), items.count - 1)
-            state.selectedSuggestionID = items[state.selectedSuggestionIndex].id
-            state.selectionIsExplicit = false
-        }
-
-    case .moveSelection(let delta):
-        guard !state.suggestions.isEmpty else { break }
-        state.selectedSuggestionIndex = min(
-            max(0, state.selectedSuggestionIndex + delta),
-            state.suggestions.count - 1
-        )
-        state.selectedSuggestionID = state.suggestions[state.selectedSuggestionIndex].id
-        state.selectionIsExplicit = true
-
-    case .highlightIndex(let idx):
-        guard !state.suggestions.isEmpty else { break }
-        state.selectedSuggestionIndex = min(max(0, idx), state.suggestions.count - 1)
-        state.selectedSuggestionID = state.suggestions[state.selectedSuggestionIndex].id
-        // Pointer hover tracks the highlight but is not an explicit selection:
-        // the popup can appear underneath a stationary cursor.
-        state.selectionIsExplicit = false
-
-    case .escape:
-        guard state.isFocused else { break }
-        // Chrome semantics:
-        // - If user input is in progress OR the popup is open: revert to the page URL and select-all.
-        // - Otherwise: exit omnibar focus.
-        if state.isUserEditing || !state.suggestions.isEmpty {
-            state.isUserEditing = false
-            state.buffer = state.currentURLString
-            state.suggestions = []
-            state.selectedSuggestionIndex = 0
-            state.selectedSuggestionID = nil
-            state.selectionIsExplicit = false
-            effects.shouldSelectAll = true
-            effects.shouldCancelPendingSuggestionRefresh = true
-        } else {
-            effects.shouldBlurToWebView = true
-        }
-    }
-
-    return effects
-}
-
-struct OmnibarSuggestion: Identifiable, Hashable {
-    enum Kind: Hashable {
-        case search(engineName: String, query: String)
-        case navigate(url: String)
-        case history(url: String, title: String?)
-        case switchToTab(tabId: UUID, panelId: UUID, url: String, title: String?)
-        case remote(query: String)
-    }
-
-    let kind: Kind
-
-    // Stable identity prevents row teardown/rebuild flicker while typing.
-    var id: String {
-        switch kind {
-        case .search(let engineName, let query):
-            return "search|\(engineName.lowercased())|\(query.lowercased())"
-        case .navigate(let url):
-            return "navigate|\(url.lowercased())"
-        case .history(let url, _):
-            return "history|\(url.lowercased())"
-        case .switchToTab(let tabId, let panelId, let url, _):
-            return "switch-tab|\(tabId.uuidString.lowercased())|\(panelId.uuidString.lowercased())|\(url.lowercased())"
-        case .remote(let query):
-            return "remote|\(query.lowercased())"
-        }
-    }
-
-    var completion: String {
-        switch kind {
-        case .search(_, let q): return q
-        case .navigate(let url): return url
-        case .history(let url, _): return url
-        case .switchToTab(_, _, let url, _): return url
-        case .remote(let q): return q
-        }
-    }
-
-    var primaryText: String {
-        switch kind {
-        case .search(let engineName, let q):
-            return "Search \(engineName) for \"\(q)\""
-        case .navigate(let url):
-            return Self.displayURLText(for: url)
-        case .history(let url, let title):
-            return (title?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
-                ? Self.singleLineText(title) : Self.displayURLText(for: url)
-        case .switchToTab(_, _, let url, let title):
-            return (title?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
-                ? Self.singleLineText(title) : Self.displayURLText(for: url)
-        case .remote(let q):
-            return q
-        }
-    }
-
-    var listText: String {
-        switch kind {
-        case .history(let url, let title), .switchToTab(_, _, let url, let title):
-            let titleOneline = Self.singleLineText(title)
-            guard !titleOneline.isEmpty else { return Self.displayURLText(for: url) }
-            return "\(titleOneline) — \(Self.displayURLText(for: url))"
-        default:
-            return primaryText
-        }
-    }
-
-    var secondaryText: String? {
-        switch kind {
-        case .history(let url, let title):
-            let titleOneline = Self.singleLineText(title)
-            return titleOneline.isEmpty ? nil : Self.displayURLText(for: url)
-        case .switchToTab(_, _, let url, let title):
-            let titleOneline = Self.singleLineText(title)
-            return titleOneline.isEmpty ? nil : Self.displayURLText(for: url)
-        default:
-            return nil
-        }
-    }
-
-    var trailingBadgeText: String? {
-        switch kind {
-        case .switchToTab:
-            return String(localized: "browser.switchToTab", defaultValue: "Switch to tab")
-        default:
-            return nil
-        }
-    }
-
-    var isHistoryRemovable: Bool {
-        if case .history = kind { return true }
-        return false
-    }
-
-    static func history(_ entry: BrowserHistoryStore.Entry) -> OmnibarSuggestion {
-        OmnibarSuggestion(kind: .history(url: entry.url, title: entry.title))
-    }
-
-    static func history(url: String, title: String?) -> OmnibarSuggestion {
-        OmnibarSuggestion(kind: .history(url: url, title: title))
-    }
-
-    static func search(engineName: String, query: String) -> OmnibarSuggestion {
-        OmnibarSuggestion(kind: .search(engineName: engineName, query: query))
-    }
-
-    static func navigate(url: String) -> OmnibarSuggestion {
-        OmnibarSuggestion(kind: .navigate(url: url))
-    }
-
-    static func switchToTab(tabId: UUID, panelId: UUID, url: String, title: String?) -> OmnibarSuggestion {
-        OmnibarSuggestion(kind: .switchToTab(tabId: tabId, panelId: panelId, url: url, title: title))
-    }
-
-    private static func singleLineText(_ value: String?) -> String {
-        var normalized = (value ?? "").replacingOccurrences(of: "\r", with: " ")
-            .replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: "\t", with: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        while normalized.contains("  ") {
-            let collapsed = normalized.replacingOccurrences(of: "  ", with: " ")
-            if collapsed == normalized { break }
-            normalized = collapsed
-        }
-        return normalized
-    }
-
-    static func remoteSearchSuggestion(_ query: String) -> OmnibarSuggestion {
-        OmnibarSuggestion(kind: .remote(query: query))
-    }
-
-    private static func displayURLText(for rawURL: String) -> String {
-        guard let components = URLComponents(string: rawURL),
-              var host = components.host else {
-            return rawURL
-        }
-
-        if host.hasPrefix("www.") {
-            host.removeFirst(4)
-        }
-        host = host.lowercased()
-
-        var result = host
-        if let port = components.port {
-            result += ":\(port)"
-        }
-
-        let path = components.percentEncodedPath
-        if !path.isEmpty, path != "/" {
-            result += path
-        } else if path == "/" {
-            result += "/"
-        }
-
-        if let query = components.percentEncodedQuery, !query.isEmpty {
-            result += "?\(query)"
-        }
-
-        if result.isEmpty { return rawURL }
-        return result
     }
 }
 

@@ -249,27 +249,19 @@ struct cmuxApp: App {
         StartupBreadcrumbLog.append("app.init.tabManager.begin")
         _tabManager = State(wrappedValue: TabManager())
         StartupBreadcrumbLog.append("app.init.tabManager.complete")
-        // Migrate legacy and old-format socket mode values to the new enum.
-        if let stored = defaults.string(forKey: SocketControlSettings.appStorageKey) {
-            let migrated = SocketControlSettings.migrateMode(stored)
-            if migrated.rawValue != stored {
-                defaults.set(migrated.rawValue, forKey: SocketControlSettings.appStorageKey)
+        // Normalize the persisted socket mode and (for release builds) migrate the
+        // legacy keychain password. Breadcrumb instrumentation stays app-side.
+        SocketControlModeDefaultsMigration(
+            defaults: defaults,
+            bundleIdentifier: Bundle.main.bundleIdentifier
+        ).migrate(
+            willMigrateKeychainPassword: {
+                StartupBreadcrumbLog.append("app.init.keychainMigration.begin")
+            },
+            didMigrateKeychainPassword: {
+                StartupBreadcrumbLog.append("app.init.keychainMigration.complete")
             }
-        } else if let legacy = defaults.object(forKey: SocketControlSettings.legacyEnabledKey) as? Bool {
-            defaults.set(legacy ? SocketControlMode.cmuxOnly.rawValue : SocketControlMode.off.rawValue,
-                         forKey: SocketControlSettings.appStorageKey)
-        }
-        // Skip keychain migration for DEV/staging builds. Each tagged build gets a
-        // unique bundle ID with its own UserDefaults domain, so migration would run
-        // on every launch and trigger a macOS keychain access prompt (the legacy
-        // keychain item was created by a differently-signed app).
-        let bundleID = Bundle.main.bundleIdentifier
-        if !SocketControlSettings.isDebugLikeBundleIdentifier(bundleID)
-            && !SocketControlSettings.isStagingBundleIdentifier(bundleID) {
-            StartupBreadcrumbLog.append("app.init.keychainMigration.begin")
-            SocketControlPasswordStore().migrateLegacyKeychainPasswordIfNeeded(defaults: defaults)
-            StartupBreadcrumbLog.append("app.init.keychainMigration.complete")
-        }
+        )
         SidebarAppearanceDefaultsMigration(defaults: defaults).migrate()
         StartupBreadcrumbLog.append("app.init.sidebarDefaults.migrated")
 

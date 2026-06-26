@@ -32,10 +32,6 @@ import CmuxSidebar
 import CmuxTestSupport
 #endif
 
-private enum CmuxThemeNotifications {
-    static let reloadConfig = Notification.Name("com.cmuxterm.themes.reload-config")
-}
-
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation, NSMenuDelegate, CmuxConfigStoreReloadEnvironment, ExternalOpenIntentHosting {
     nonisolated(unsafe) static var shared: AppDelegate?
@@ -1165,7 +1161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let externalOpenURLClassifier: any ExternalOpenURLClassifying = ExternalOpenURLClassifier(
         bundleURL: Bundle.main.bundleURL,
         orderedUniqueDirectories: { pathURLs, excludedRootURLs in
-            FinderServicePathResolver.orderedUniqueDirectories(
+            FinderServicePathResolver().orderedUniqueDirectories(
                 from: pathURLs,
                 excludingDescendantsOf: excludedRootURLs
             )
@@ -1490,7 +1486,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         DistributedNotificationCenter.default().addObserver(
             self,
             selector: #selector(handleThemesReloadNotification(_:)),
-            name: CmuxThemeNotifications.reloadConfig,
+            name: .cmuxThemesReloadConfig,
             object: nil,
             suspensionBehavior: .deliverImmediately
         )

@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import CmuxFoundation
 import Foundation
 
 struct GrokSessionRoot: Sendable, Hashable {
@@ -489,7 +490,7 @@ extension SessionIndexStore {
             let fallbackModified = ((try? fm.attributesOfItem(atPath: historyURL.path))?[.modificationDate] as? Date)
                 ?? Date.distantPast
 
-            forEachJSONLine(url: historyURL, maxBytes: Int.max) { object in
+            historyURL.forEachJSONLine(maxBytes: Int.max) { object in
                 if Task.isCancelled { return true }
                 guard let sessionId = RovoDevMetadataFields.firstString(from: object, keys: antigravitySessionIDKeys()) else {
                     return false
@@ -631,7 +632,7 @@ extension SessionIndexStore {
     nonisolated private static func extractGrokSessionMetadata(url: URL) -> GrokSessionMetadata {
         var metadata = GrokSessionMetadata()
         var remainingBranchProbeLines: Int?
-        forEachJSONLine(url: url, maxBytes: 512 * 1024) { object in
+        url.forEachJSONLine(maxBytes: 512 * 1024) { object in
             if metadata.title.isEmpty {
                 metadata.title = SessionJSONLMetadataReader.grokTitle(in: object) ?? ""
             }
@@ -685,7 +686,7 @@ extension SessionIndexStore {
         case .piSessionFile, .grokSessionDirectory:
             needsNativeSessionID = false
         }
-        forEachJSONLine(url: url, maxBytes: 512 * 1024) { object in
+        url.forEachJSONLine(maxBytes: 512 * 1024) { object in
             if metadata.sessionId == nil {
                 metadata.sessionId = RovoDevMetadataFields.firstString(from: object, keys: registeredJSONLSessionIDKeys())
             }

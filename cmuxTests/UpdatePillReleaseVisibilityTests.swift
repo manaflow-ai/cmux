@@ -198,8 +198,8 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
     func testShortcutHintVerticalOffsetTucksPillIntoBottomOfButtonLane() {
         for style in TitlebarControlsStyle.allCases {
             let config = style.config
-            let hintHeight = titlebarShortcutHintHeight(for: config)
-            let verticalOffset = titlebarShortcutHintVerticalOffset(for: config)
+            let hintHeight = config.shortcutHintHeight
+            let verticalOffset = config.shortcutHintVerticalOffset
 
             XCTAssertLessThan(verticalOffset, config.buttonSize)
             XCTAssertGreaterThan(verticalOffset + hintHeight, config.buttonSize)
@@ -212,7 +212,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
 
     func testTitlebarControlsUseNeutralVisualLift() {
         XCTAssertEqual(
-            TitlebarControlsVisualMetrics.liftedYOffset(3),
+            TitlebarControlsVisualMetrics.standard.liftedYOffset(3),
             3,
             accuracy: 0.001
         )
@@ -314,7 +314,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
             let config = style.config
 
             XCTAssertLessThan(
-                titlebarNotificationBadgeFontSize(for: config),
+                config.notificationBadgeFontSize,
                 8,
                 "Expected a compact notification badge font for style \(style)"
             )
@@ -336,7 +336,7 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
     func testHoverTrackingEnabledForEveryTitlebarStyle() {
         for style in TitlebarControlsStyle.allCases {
             XCTAssertTrue(
-                titlebarControlsShouldTrackButtonHover(config: style.config),
+                style.config.shouldTrackButtonHover,
                 "Expected hover tracking for titlebar style \(style)"
             )
         }
@@ -368,40 +368,40 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
     func testHoverAndPressedStatesHaveVisibleDelta() {
         for style in TitlebarControlsStyle.allCases {
             let config = style.config
-            let idleForeground = titlebarControlForegroundOpacity(isHovering: false, isPressed: false)
-            let hoverForeground = titlebarControlForegroundOpacity(isHovering: true, isPressed: false)
-            let pressedForeground = titlebarControlForegroundOpacity(isHovering: true, isPressed: true)
+            let idleForeground = TitlebarControlsStyleConfig.controlForegroundOpacity(isHovering: false, isPressed: false)
+            let hoverForeground = TitlebarControlsStyleConfig.controlForegroundOpacity(isHovering: true, isPressed: false)
+            let pressedForeground = TitlebarControlsStyleConfig.controlForegroundOpacity(isHovering: true, isPressed: true)
 
             XCTAssertGreaterThan(hoverForeground, idleForeground, "Expected hover foreground delta for style \(style)")
             XCTAssertGreaterThan(pressedForeground, hoverForeground, "Expected pressed foreground delta for style \(style)")
             XCTAssertGreaterThan(
-                titlebarControlBackgroundOpacity(config: config, isHovering: true, isPressed: false),
-                titlebarControlBackgroundOpacity(config: config, isHovering: false, isPressed: false),
+                config.controlBackgroundOpacity(isHovering: true, isPressed: false),
+                config.controlBackgroundOpacity(isHovering: false, isPressed: false),
                 "Expected hover background delta for style \(style)"
             )
             XCTAssertGreaterThan(
-                titlebarControlBackgroundOpacity(config: config, isHovering: true, isPressed: true),
-                titlebarControlBackgroundOpacity(config: config, isHovering: true, isPressed: false),
+                config.controlBackgroundOpacity(isHovering: true, isPressed: true),
+                config.controlBackgroundOpacity(isHovering: true, isPressed: false),
                 "Expected pressed background delta for style \(style)"
             )
             XCTAssertGreaterThanOrEqual(
-                titlebarControlBorderOpacity(config: config, isHovering: true, isPressed: true),
-                titlebarControlBorderOpacity(config: config, isHovering: true, isPressed: false),
+                config.controlBorderOpacity(isHovering: true, isPressed: true),
+                config.controlBorderOpacity(isHovering: true, isPressed: false),
                 "Expected pressed border to stay at least as visible as hover for style \(style)"
             )
         }
     }
 
     func testIdleTitlebarButtonsStayReadableButMuted() {
-        let idleForeground = titlebarControlForegroundOpacity(isHovering: false, isPressed: false)
+        let idleForeground = TitlebarControlsStyleConfig.controlForegroundOpacity(isHovering: false, isPressed: false)
 
         XCTAssertGreaterThanOrEqual(idleForeground, 0.84)
         XCTAssertLessThan(idleForeground, 1.0)
     }
 
     func testPressedStateDoesNotScaleTitlebarButtons() {
-        XCTAssertEqual(titlebarControlPressedScale(isPressed: false), 1, accuracy: 0.001)
-        XCTAssertEqual(titlebarControlPressedScale(isPressed: true), 1, accuracy: 0.001)
+        XCTAssertEqual(TitlebarControlsStyleConfig.controlPressedScale(isPressed: false), 1, accuracy: 0.001)
+        XCTAssertEqual(TitlebarControlsStyleConfig.controlPressedScale(isPressed: true), 1, accuracy: 0.001)
     }
 
     func testDisabledStateMutesTitlebarButtons() {
@@ -409,12 +409,12 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
             let config = style.config
 
             XCTAssertLessThan(
-                titlebarControlForegroundOpacity(isHovering: true, isPressed: false, isEnabled: false),
-                titlebarControlForegroundOpacity(isHovering: false, isPressed: false, isEnabled: true),
+                TitlebarControlsStyleConfig.controlForegroundOpacity(isHovering: true, isPressed: false, isEnabled: false),
+                TitlebarControlsStyleConfig.controlForegroundOpacity(isHovering: false, isPressed: false, isEnabled: true),
                 "Expected disabled foreground to stay muted for style \(style)"
             )
             XCTAssertEqual(
-                titlebarControlBackgroundOpacity(config: config, isHovering: true, isPressed: false, isEnabled: false),
+                config.controlBackgroundOpacity(isHovering: true, isPressed: false, isEnabled: false),
                 0,
                 "Expected disabled titlebar button hover to have no active background for style \(style)"
             )

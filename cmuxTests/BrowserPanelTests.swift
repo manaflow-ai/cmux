@@ -4309,9 +4309,7 @@ final class OmnibarNativeTextFieldCaretTests: XCTestCase {
         XCTAssertEqual(editor.selectedRange().length, 0, "Test precondition: native click should place a caret")
 
         var state = OmnibarState()
-        let effects = omnibarReduce(
-            state: &state,
-            event: .focusGained(currentURLString: field.stringValue)
+        let effects = state.reduce(.focusGained(currentURLString: field.stringValue)
         )
         let coordinator = makeCoordinator()
         coordinator.parentField = field
@@ -4347,10 +4345,8 @@ final class OmnibarNativeTextFieldCaretTests: XCTestCase {
         XCTAssertEqual(editor.selectedRange().length, 0, "Test precondition: native click should place a caret")
 
         var state = OmnibarState()
-        _ = omnibarReduce(state: &state, event: .focusGained(currentURLString: field.stringValue))
-        let effects = omnibarReduce(
-            state: &state,
-            event: .focusReasserted(
+        _ = state.reduce(.focusGained(currentURLString: field.stringValue))
+        let effects = state.reduce(.focusReasserted(
                 shouldSelectAll: browserOmnibarShouldSelectAllOnFocusReassertion(
                     selectionIntent: .preserveFieldEditorSelection
                 )

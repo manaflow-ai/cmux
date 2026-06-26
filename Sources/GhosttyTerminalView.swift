@@ -364,7 +364,7 @@ class GhosttyApp {
         runtimeFilesystem: .live(),
         sessionPortBase: GhosttyApp.terminalSessionPortBase,
         sessionPortRangeSize: GhosttyApp.terminalSessionPortRangeSize,
-        scrollbackReplayEnvironmentKey: SessionScrollbackReplayStore.environmentKey
+        scrollbackReplayEnvironmentKey: SessionScrollbackReplay.environmentKey
     )
 
     private static let releaseBundleIdentifier = "com.cmuxterm.app"
@@ -413,15 +413,23 @@ class GhosttyApp {
     /// pending tick on the main queue at any time.
     private var _tickScheduled = false
     private let _tickLock = NSLock()
-    private(set) var defaultBackgroundColor: NSColor = .windowBackgroundColor
-    private(set) var defaultBackgroundOpacity: Double = 1.0
-    private(set) var defaultBackgroundBlur: GhosttyBackgroundBlur = .disabled
-    private(set) var defaultForegroundColor: NSColor = GhosttyApp.fallbackAppearanceConfig.foregroundColor
-    private(set) var defaultCursorColor: NSColor = GhosttyApp.fallbackAppearanceConfig.cursorColor
-    private(set) var defaultCursorTextColor: NSColor = GhosttyApp.fallbackAppearanceConfig.cursorTextColor
-    private(set) var defaultSelectionBackground: NSColor = GhosttyApp.fallbackAppearanceConfig.selectionBackground
-    private(set) var defaultSelectionForeground: NSColor = GhosttyApp.fallbackAppearanceConfig.selectionForeground
-    private(set) var effectiveTerminalColorSchemePreference: GhosttyConfig.ColorSchemePreference = .dark
+    /// The terminal default-appearance/background state drained off this god
+    /// type into `CmuxTerminal` as `TerminalDefaultAppearanceState`. Owns the
+    /// resolved default background/foreground/cursor/selection colors, opacity,
+    /// blur, the effective color-scheme preference, the update-scope arbitration
+    /// state, the background event counter, and the coalescing change-notification
+    /// dispatcher. The legacy `defaultBackgroundColor`/.../`effectiveTerminalColorSchemePreference`
+    /// reads and the `updateDefaultBackground`/`applyDefaultBackground`/etc. entry
+    /// points forward here (see `GhosttyTerminalAppearance.swift`) so every app-side
+    /// call site stays byte-identical; the `NSWindow` side effects
+    /// (`applyBackgroundToKeyWindow`, `applyWindowBlur`) stay app-side.
+    private(set) lazy var appearanceState = TerminalDefaultAppearanceState(
+        baselineAppearanceConfig: Self.fallbackAppearanceConfig,
+        configDiscovery: Self.configDiscovery,
+        resolveColorSchemePreference: { Self.terminalRuntimeColorSchemePreference(forBackgroundColor: $0) },
+        isBackgroundLogEnabled: { [weak self] in self?.backgroundLogEnabled ?? false },
+        logBackground: { [weak self] message in self?.logBackground(message) }
+    )
     private var appliedGhosttyRuntimeColorScheme: ghostty_color_scheme_e?
     private var runtimeColorSchemeSynchronizationDepth = 0
     private var reloadConfigurationDepth = 0
@@ -605,17 +613,7 @@ class GhosttyApp {
     /// composition root and `GhosttyApp` retires.
     let ghosttyAppService = GhosttyAppService()
     private var appObservers: [NSObjectProtocol] = []
-    private var backgroundEventCounter: UInt64 = 0
-    private var defaultBackgroundUpdateScope: GhosttyDefaultBackgroundUpdateScope = .unscoped
-    private var defaultBackgroundScopeSource: String = "initialize"
     private var lastAppearanceColorScheme: GhosttyConfig.ColorSchemePreference?
-    private lazy var defaultBackgroundNotificationDispatcher: GhosttyDefaultBackgroundNotificationDispatcher =
-        // Theme chrome should track terminal theme changes in the same frame.
-        // Keep coalescing semantics, but flush in the next main turn instead of waiting ~1 frame.
-        GhosttyDefaultBackgroundNotificationDispatcher(delay: 0, logEvent: { [weak self] message in
-            guard let self, self.backgroundLogEnabled else { return }
-            self.logBackground(message)
-        })
 
     /// Scroll-lag telemetry probe (was the `scrollLag*` accumulator state +
     /// `markScrollActivity`/`endScrollSession`/`shouldCaptureScrollLagEvent`).
@@ -653,6 +651,11 @@ class GhosttyApp {
     }
 
     private init() {
+        // Construct the appearance state eagerly on the construction thread so its
+        // seeded default colors exist before any read, matching the eager stored
+        // properties it replaced (a lazy first-access could otherwise race a
+        // background OSC color callback).
+        _ = appearanceState
         initializeGhostty()
     }
 
@@ -1448,15 +1451,7 @@ class GhosttyApp {
     }
 
     private func resetDefaultBackgroundUpdateScope(source: String) {
-        let previousScope = defaultBackgroundUpdateScope
-        let previousScopeSource = defaultBackgroundScopeSource
-        defaultBackgroundUpdateScope = .unscoped
-        defaultBackgroundScopeSource = "reset:\(source)"
-        if backgroundLogEnabled {
-            logBackground(
-                "default background scope reset source=\(source) previousScope=\(previousScope.logLabel) previousSource=\(previousScopeSource)"
-            )
-        }
+        appearanceState.resetDefaultBackgroundUpdateScope(source: source)
     }
 
     @discardableResult
@@ -1486,26 +1481,12 @@ class GhosttyApp {
         scope: GhosttyDefaultBackgroundUpdateScope = .unscoped,
         forceNotify: Bool = false
     ) {
-        guard let config else { return }
-
-        let resolved = defaultBackgroundValues(from: config)
-        applyDefaultBackground(
-            color: resolved.backgroundColor,
-            opacity: resolved.backgroundOpacity,
-            backgroundBlur: resolved.backgroundBlur,
-            foregroundColor: resolved.foregroundColor,
-            cursorColor: resolved.cursorColor,
-            cursorTextColor: resolved.cursorTextColor,
-            selectionBackground: resolved.selectionBackground,
-            selectionForeground: resolved.selectionForeground,
+        appearanceState.updateDefaultBackground(
+            from: config,
             source: source,
             scope: scope,
             forceNotify: forceNotify
         )
-    }
-
-    private func defaultBackgroundValues(from config: ghostty_config_t?) -> GhosttyConfig.DefaultBackgroundValues {
-        GhosttyConfig.defaultBackgroundValues(from: config, baseline: Self.fallbackAppearanceConfig)
     }
 
     private func updateDefaultBackgroundFromResolvedGhosttyConfig(
@@ -1516,43 +1497,12 @@ class GhosttyApp {
         useOnDiskResolvedConfig: Bool = true,
         forceNotify: Bool = false
     ) {
-        let baseline = defaultBackgroundValues(from: baselineConfig)
-        guard useOnDiskResolvedConfig else {
-            applyDefaultBackground(
-                color: baseline.backgroundColor,
-                opacity: baseline.backgroundOpacity,
-                backgroundBlur: baseline.backgroundBlur,
-                foregroundColor: baseline.foregroundColor,
-                cursorColor: baseline.cursorColor,
-                cursorTextColor: baseline.cursorTextColor,
-                selectionBackground: baseline.selectionBackground,
-                selectionForeground: baseline.selectionForeground,
-                source: source,
-                scope: scope,
-                forceNotify: forceNotify
-            )
-            return
-        }
-        let resolved = GhosttyConfig.load(preferredColorScheme: preferredColorScheme, useCache: false)
-        let fallbackForUnspecified = Self.configDiscovery.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance()
-            ? defaultBackgroundValues(from: nil)
-            : baseline
-        let resolvedValues = GhosttyConfig.resolvedDefaultBackgroundValues(
-            resolved: resolved,
-            baseline: baseline,
-            fallbackForUnspecified: fallbackForUnspecified
-        )
-        applyDefaultBackground(
-            color: resolvedValues.backgroundColor,
-            opacity: resolvedValues.backgroundOpacity,
-            backgroundBlur: resolvedValues.backgroundBlur,
-            foregroundColor: resolvedValues.foregroundColor,
-            cursorColor: resolvedValues.cursorColor,
-            cursorTextColor: resolvedValues.cursorTextColor,
-            selectionBackground: resolvedValues.selectionBackground,
-            selectionForeground: resolvedValues.selectionForeground,
-            source: "\(source).resolvedGhosttyConfig",
+        appearanceState.updateDefaultBackgroundFromResolvedGhosttyConfig(
+            source: source,
+            preferredColorScheme: preferredColorScheme,
+            baselineConfig: baselineConfig,
             scope: scope,
+            useOnDiskResolvedConfig: useOnDiskResolvedConfig,
             forceNotify: forceNotify
         )
     }
@@ -1593,96 +1543,19 @@ class GhosttyApp {
         scope: GhosttyDefaultBackgroundUpdateScope,
         forceNotify: Bool = false
     ) {
-        let previousScope = defaultBackgroundUpdateScope
-        let previousScopeSource = defaultBackgroundScopeSource
-        guard scope.shouldApply(over: previousScope) else {
-            if backgroundLogEnabled {
-                logBackground(
-                    "default background skipped source=\(source) incomingScope=\(scope.logLabel) currentScope=\(previousScope.logLabel) currentSource=\(previousScopeSource) color=\(color.hexString()) opacity=\(String(format: "%.3f", opacity))"
-                )
-            }
-            return
-        }
-
-        defaultBackgroundUpdateScope = scope
-        defaultBackgroundScopeSource = source
-
-        let previousHex = defaultBackgroundColor.hexString()
-        let previousOpacity = defaultBackgroundOpacity
-        let previousBlur = defaultBackgroundBlur
-        let previousForegroundHex = defaultForegroundColor.hexString()
-        let previousCursorHex = defaultCursorColor.hexString()
-        let previousCursorTextHex = defaultCursorTextColor.hexString()
-        let previousSelectionBackgroundHex = defaultSelectionBackground.hexString()
-        let previousSelectionForegroundHex = defaultSelectionForeground.hexString()
-        let previousColorScheme = effectiveTerminalColorSchemePreference
-        defaultBackgroundColor = color
-        defaultBackgroundOpacity = opacity
-        defaultBackgroundBlur = backgroundBlur
-        effectiveTerminalColorSchemePreference = Self.terminalRuntimeColorSchemePreference(
-            forBackgroundColor: color
+        appearanceState.applyDefaultBackground(
+            color: color,
+            opacity: opacity,
+            backgroundBlur: backgroundBlur,
+            foregroundColor: foregroundColor,
+            cursorColor: cursorColor,
+            cursorTextColor: cursorTextColor,
+            selectionBackground: selectionBackground,
+            selectionForeground: selectionForeground,
+            source: source,
+            scope: scope,
+            forceNotify: forceNotify
         )
-        if let foregroundColor {
-            defaultForegroundColor = foregroundColor
-        }
-        if let cursorColor {
-            defaultCursorColor = cursorColor
-        }
-        if let cursorTextColor {
-            defaultCursorTextColor = cursorTextColor
-        }
-        if let selectionBackground {
-            defaultSelectionBackground = selectionBackground
-        }
-        if let selectionForeground {
-            defaultSelectionForeground = selectionForeground
-        }
-        let hasChanged = forceNotify ||
-            previousHex != defaultBackgroundColor.hexString() ||
-            abs(previousOpacity - defaultBackgroundOpacity) > 0.0001 ||
-            previousBlur != defaultBackgroundBlur ||
-            previousForegroundHex != defaultForegroundColor.hexString() ||
-            previousCursorHex != defaultCursorColor.hexString() ||
-            previousCursorTextHex != defaultCursorTextColor.hexString() ||
-            previousSelectionBackgroundHex != defaultSelectionBackground.hexString() ||
-            previousSelectionForegroundHex != defaultSelectionForeground.hexString() ||
-            previousColorScheme != effectiveTerminalColorSchemePreference
-        if hasChanged {
-            notifyDefaultBackgroundDidChange(source: source)
-        }
-        if backgroundLogEnabled {
-            logBackground(
-                "default appearance updated source=\(source) scope=\(scope.logLabel) previousScope=\(previousScope.logLabel) previousScopeSource=\(previousScopeSource) previousBg=\(previousHex) previousFg=\(previousForegroundHex) previousOpacity=\(String(format: "%.3f", previousOpacity)) previousBlur=\(previousBlur) previousScheme=\(previousColorScheme) bg=\(defaultBackgroundColor.hexString()) fg=\(defaultForegroundColor.hexString()) cursor=\(defaultCursorColor.hexString()) cursorText=\(defaultCursorTextColor.hexString()) selectionBg=\(defaultSelectionBackground.hexString()) selectionFg=\(defaultSelectionForeground.hexString()) opacity=\(String(format: "%.3f", defaultBackgroundOpacity)) blur=\(defaultBackgroundBlur) scheme=\(effectiveTerminalColorSchemePreference) changed=\(hasChanged) forced=\(forceNotify)"
-            )
-        }
-    }
-
-    private func nextBackgroundEventId() -> UInt64 {
-        precondition(Thread.isMainThread, "Background event IDs must be generated on main thread")
-        backgroundEventCounter &+= 1
-        return backgroundEventCounter
-    }
-
-    private func notifyDefaultBackgroundDidChange(source: String) {
-        let signal = { [self] in
-            let eventId = nextBackgroundEventId()
-            defaultBackgroundNotificationDispatcher.signal(
-                backgroundColor: defaultBackgroundColor,
-                opacity: defaultBackgroundOpacity,
-                eventId: eventId,
-                source: source,
-                foregroundColor: defaultForegroundColor,
-                cursorColor: defaultCursorColor,
-                cursorTextColor: defaultCursorTextColor,
-                selectionBackground: defaultSelectionBackground,
-                selectionForeground: defaultSelectionForeground
-            )
-        }
-        if Thread.isMainThread {
-            signal()
-        } else {
-            DispatchQueue.main.async(execute: signal)
-        }
     }
 
     private func logThemeAction(_ message: String) {
