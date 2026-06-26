@@ -362,7 +362,7 @@ public final class ComposerDictationController {
         // state stays `.requestingPermission` until it reports ready, then
         // `handleEngineReady` creates the recognition task on the main actor (so
         // the non-Sendable request/recognizer never leave it).
-        audioEngine.start(tapBlock: Self.makeTapBlock(request: request)) { [weak self] started in
+        audioEngine.start(tapBlock: makeTapBlock(request: request)) { [weak self] started in
             // Hop to the main actor before touching actor-isolated state.
             Task { @MainActor in self?.handleEngineReady(started, token: token) }
         }
@@ -389,12 +389,12 @@ public final class ComposerDictationController {
     /// Build the audio-tap block handed to the off-main ``audioEngine`` owner.
     /// `@Sendable` + `nonisolated` so it crosses into the owner's queue and runs
     /// off-main (a main-actor closure would trap in `swift_task_isCurrentExecutor`
-    /// on the realtime render thread). Captured via `nonisolated(unsafe)` because
-    /// `append` IS thread-safe but `SFSpeechAudioBufferRecognitionRequest` is not
-    /// `Sendable`; weak so the tap never keeps the request alive past teardown.
-    private nonisolated static func makeTapBlock(
+    /// on the realtime render thread). The request is captured `nonisolated(unsafe)`
+    /// (justified inline) because it is not `Sendable`. `nonisolated` (uses no `self`).
+    private nonisolated func makeTapBlock(
         request: SFSpeechAudioBufferRecognitionRequest
     ) -> @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void {
+        // `nonisolated(unsafe)`-safe: `append(_:)` is thread-safe, weak, never outlives the request.
         nonisolated(unsafe) weak let weakRequest: SFSpeechAudioBufferRecognitionRequest? = request
         return { buffer, _ in
             weakRequest?.append(buffer)
