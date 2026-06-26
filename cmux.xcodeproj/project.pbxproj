@@ -804,6 +804,7 @@
 		FE003101 /* SessionIndexStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003001 /* SessionIndexStore.swift */; };
 		FE003102 /* SessionIndexView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003002 /* SessionIndexView.swift */; };
 		8A3392FE64E0605D942213D1 /* SessionIndexViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42D69572C8D276745E502B94 /* SessionIndexViewTests.swift */; };
+		C59770010000000000000001 /* SessionIndexWorkingDirectoryOpenerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C59770010000000000000002 /* SessionIndexWorkingDirectoryOpenerTests.swift */; };
 		A5001610 /* SessionPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001611 /* SessionPersistence.swift */; };
 		C65930020000000000000002 /* SessionPersistencePolicy+CrashStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65930020000000000000001 /* SessionPersistencePolicy+CrashStorage.swift */; };
 		F6572002A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572003A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift */; };
@@ -1915,6 +1916,7 @@
 		FE003001 /* SessionIndexStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexStore.swift; sourceTree = "<group>"; };
 		FE003002 /* SessionIndexView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexView.swift; sourceTree = "<group>"; };
 		42D69572C8D276745E502B94 /* SessionIndexViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexViewTests.swift; sourceTree = "<group>"; };
+		C59770010000000000000002 /* SessionIndexWorkingDirectoryOpenerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexWorkingDirectoryOpenerTests.swift; sourceTree = "<group>"; };
 		A5001611 /* SessionPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistence.swift; sourceTree = "<group>"; };
 		C65930020000000000000001 /* SessionPersistencePolicy+CrashStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPersistencePolicy+CrashStorage.swift"; sourceTree = "<group>"; };
 		F6572003A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistenceResumeBindingTests.swift; sourceTree = "<group>"; };
@@ -3377,6 +3379,7 @@
 				C9A57002C9A57002C9A57002 /* WorkspaceGroupTests.swift */,
 				C9A57402C9A57402C9A57402 /* WorkspaceGroupMoveToMenuStateTests.swift */,
 				FEED49850000000000000002 /* FeedEventClassificationTests.swift */,
+				C59770010000000000000002 /* SessionIndexWorkingDirectoryOpenerTests.swift */,
 				42D69572C8D276745E502B94 /* SessionIndexViewTests.swift */,
 				F1C3F1DBF6BF5D7223C4A30C /* SidebarMarkdownRendererTests.swift */,
 				14A7DC53B9CA33BE2A421711 /* WorkspacePullRequestSidebarTests.swift */,
@@ -4827,6 +4830,7 @@
 				3865A0043865A0043865A004 /* SearchIndexTests.swift in Sources */,
 				5E2701030000000000000001 /* SentryEventScrubberTests.swift in Sources */,
 				8A3392FE64E0605D942213D1 /* SessionIndexViewTests.swift in Sources */,
+				C59770010000000000000001 /* SessionIndexWorkingDirectoryOpenerTests.swift in Sources */,
 				F6572002A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift in Sources */,
 				F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */,
 				583A675AA1224E8D82A44883 /* SetAutoTitleSocketTests.swift in Sources */,

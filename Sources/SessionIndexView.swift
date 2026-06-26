@@ -703,7 +703,7 @@ private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) 
     }
     if let cwd = entry.cwd, !cwd.isEmpty {
         Button {
-            NSWorkspace.shared.open(URL(fileURLWithPath: cwd))
+            SessionIndexWorkingDirectoryOpener.open(cwd: cwd)
         } label: {
             Text(String(localized: "sessionIndex.row.openCwd", defaultValue: "Open Working Directory"))
         }

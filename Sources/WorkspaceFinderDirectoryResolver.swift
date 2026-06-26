@@ -50,3 +50,21 @@ enum WorkspaceFinderDirectoryOpener {
         }
     }
 }
+
+enum SessionIndexWorkingDirectoryOpener {
+    typealias FinderOpener = @MainActor (URL?) async -> Void
+    typealias DirectURLOpener = @MainActor (URL) -> Void
+
+    @MainActor
+    @discardableResult
+    static func open(
+        cwd: String,
+        openInFinder: @escaping FinderOpener = WorkspaceFinderDirectoryOpener.openInFinder,
+        openURL: @escaping DirectURLOpener = { _ = NSWorkspace.shared.open($0) }
+    ) -> Task<Void, Never> {
+        let directoryURL = URL(fileURLWithPath: cwd, isDirectory: true)
+        return Task { @MainActor in
+            openURL(directoryURL)
+        }
+    }
+}
