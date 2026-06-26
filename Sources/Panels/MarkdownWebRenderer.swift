@@ -51,8 +51,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         let config = WKWebViewConfiguration()
         config.suppressesIncrementalRendering = false
         // Bridge: JS posts to `cmuxLib` to request lazy-loaded libraries
-        // (mermaid / vega-lite). Swift fetches the bundled source from the
-        // app bundle and injects it via evaluateJavaScript.
+        // (mermaid / vega-lite / katex). Swift fetches the bundled source from
+        // the app bundle and injects it via evaluateJavaScript.
         config.userContentController.add(WeakMarkdownScriptMessageHandler(context.coordinator), name: "cmuxLib")
         config.setURLSchemeHandler(
             context.coordinator,
@@ -662,6 +662,30 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                     assets.lazyAsset(name: "vega-lite.min", ext: "js"),
                     assets.lazyAsset(name: "vega-embed.min", ext: "js"),
                 ]
+            case "katex":
+                // KaTeX needs its stylesheet present before katex.min.js
+                // renders, so inject the CSS as a <style> element first, then
+                // the library source. The fonts are baked into the stylesheet
+                // as data: URIs (see scripts/embed-katex-fonts.py), so no
+                // separate WKURLSchemeHandler is needed — relative font paths
+                // would otherwise resolve against the user's markdown file
+                // (the base URL), not the app bundle.
+                let katexCSS = assets.lazyAsset(name: "katex-fonts.min", ext: "css")
+                // Wrap in a single-element array so JSONSerialization accepts a
+                // String payload (matches the `[lib]` pattern used below).
+                let cssLiteral = (try? JSONSerialization.data(withJSONObject: [katexCSS]))
+                    .flatMap { String(data: $0, encoding: .utf8) } ?? "[\"\"]"
+                let cssInjection = """
+                (function(css){
+                  if (!document.getElementById('cmux-katex-css')) {
+                    var styleEl = document.createElement('style');
+                    styleEl.id = 'cmux-katex-css';
+                    styleEl.textContent = css;
+                    (document.head || document.documentElement).appendChild(styleEl);
+                  }
+                })(\(cssLiteral)[0]);
+                """
+                sources = [cssInjection, assets.lazyAsset(name: "katex.min", ext: "js")]
             default:
                 return
             }
