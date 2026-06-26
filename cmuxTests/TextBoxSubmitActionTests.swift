@@ -584,6 +584,13 @@ struct TextBoxSubmitActionTests {
     }
 
     @Test
+    func testCommandTemplateSubmitAllowedWhenShellStateIsUnknown() {
+        #expect(TextBoxInputContainer.allowsCommandTemplateSubmit(shellActivityState: .promptIdle))
+        #expect(TextBoxInputContainer.allowsCommandTemplateSubmit(shellActivityState: .unknown))
+        #expect(!TextBoxInputContainer.allowsCommandTemplateSubmit(shellActivityState: .commandRunning))
+    }
+
+    @Test
     func testTextBoxCycleSubmitActionUsesConfiguredShortcut() {
         let originalShortcut = KeyboardShortcutSettings.shortcut(for: .cycleTextBoxSubmitAction)
         defer {

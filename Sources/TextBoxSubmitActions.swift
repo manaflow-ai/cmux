@@ -1,4 +1,5 @@
 import AppKit
+import CmuxWorkspaces
 import SwiftUI
 
 extension TextBoxInputContainer {
@@ -100,6 +101,10 @@ extension TextBoxInputContainer {
     ) -> Bool {
         TextBoxAgentDetection.supportsActiveAgentPrefixes(context: terminalAgentContext) ||
             (!allowsCommandTemplateSubmit && TextBoxAgentDetection.supportsAgentPrefixes(context: terminalAgentContext))
+    }
+
+    static func allowsCommandTemplateSubmit(shellActivityState: PanelShellActivityState) -> Bool {
+        shellActivityState != .commandRunning
     }
 
     static func textEntryTerminalAgentContext(

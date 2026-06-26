@@ -108,7 +108,9 @@ struct TerminalPanelView: View {
                     ),
                     maxLines: TerminalTextBoxInputSettings.resolvedMaxLines(textBoxMaxLines),
                     terminalAgentContext: effectiveTerminalAgentContext,
-                    allowsCommandTemplateSubmit: panel.shellActivity.state == .promptIdle,
+                    allowsCommandTemplateSubmit: TextBoxInputContainer.allowsCommandTemplateSubmit(
+                        shellActivityState: panel.shellActivity.state
+                    ),
                     onFocusTextBox: {
                         panel.textBoxDidBecomeFocused()
                         onFocus()
