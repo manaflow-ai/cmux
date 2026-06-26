@@ -21,6 +21,10 @@ import Testing
 
 private actor CloseReconcileHostRouter {
     private(set) var closeRequestCount = 0
+    /// Once set, `workspace.list` stops reporting the closed workspace — the Mac's
+    /// authoritative list has caught up, which should retire the close tombstone.
+    private var caughtUp = false
+    func markCaughtUp() { caughtUp = true }
     private let capabilities = [
         "events.v1",
         "workspace.actions.v1",
@@ -33,9 +37,9 @@ private actor CloseReconcileHostRouter {
     func response(method: String?, id: String?) async -> Data? {
         switch method {
         case "workspace.list", "mobile.workspace.list":
-            // Always returns BOTH workspaces, even after `live-workspace` is
-            // closed: the stale snapshot that drives the bug.
-            return try? Self.resultFrame(id: id, result: ["workspaces": Self.workspaceList()])
+            // Returns BOTH workspaces (the stale snapshot that drives the bug) until
+            // the Mac "catches up" and drops the closed one.
+            return try? Self.resultFrame(id: id, result: ["workspaces": Self.workspaceList(includeClosed: !caughtUp)])
         case "workspace.close":
             closeRequestCount += 1
             return try? Self.resultFrame(id: id, result: [
@@ -60,11 +64,14 @@ private actor CloseReconcileHostRouter {
         }
     }
 
-    private static func workspaceList() -> [[String: Any]] {
-        [
-            workspaceEntry(id: "live-workspace", title: "Workspace A", selected: true, terminalID: "live-terminal"),
-            workspaceEntry(id: "workspace-b", title: "Workspace B", selected: false, terminalID: "terminal-b"),
-        ]
+    private static func workspaceList(includeClosed: Bool) -> [[String: Any]] {
+        var list = [workspaceEntry(id: "workspace-b", title: "Workspace B", selected: true, terminalID: "terminal-b")]
+        if includeClosed {
+            list.insert(
+                workspaceEntry(id: "live-workspace", title: "Workspace A", selected: false, terminalID: "live-terminal"),
+                at: 0)
+        }
+        return list
     }
 
     private static func workspaceEntry(
@@ -229,6 +236,31 @@ struct MobileWorkspaceCloseReconcileTests {
         await store.refreshWorkspaces()
         #expect(!store.workspaces.contains { $0.id == liveWorkspaceID })
         #expect(store.workspaces.count == 1)
+    }
+
+    /// The close tombstone only bridges the stale-refresh window: once the Mac's
+    /// authoritative list stops reporting the closed workspace, the next refresh
+    /// retires the tombstone so it can't accumulate or suppress a future row
+    /// (issue #6349, tombstone lifecycle).
+    @Test func tombstoneClearsOnceMacListCatchesUp() async throws {
+        let router = CloseReconcileHostRouter()
+        let clock = TestClock()
+        let store = try await makeConnectedCloseStore(router: router, clock: clock)
+
+        #expect(try await pollUntil {
+            store.workspaces.count == 2
+                && (store.workspaces.first { $0.id == liveWorkspaceID }?
+                    .actionCapabilities.supportsCloseActions ?? false)
+        })
+        await store.closeWorkspace(id: liveWorkspaceID)
+        // Tombstoned while the Mac's list still reports the closed row.
+        #expect(store.confirmedClosedWorkspaceIDsByMac.values.contains { $0.contains("live-workspace") })
+
+        // Mac catches up; the next authoritative refresh must retire the tombstone.
+        await router.markCaughtUp()
+        await store.refreshWorkspaces()
+        #expect(!store.workspaces.contains { $0.id == liveWorkspaceID })
+        #expect(!store.confirmedClosedWorkspaceIDsByMac.values.contains { $0.contains("live-workspace") })
     }
 
     /// `closeWorkspace` can target a SECONDARY Mac, whose refresh writes that Mac's
