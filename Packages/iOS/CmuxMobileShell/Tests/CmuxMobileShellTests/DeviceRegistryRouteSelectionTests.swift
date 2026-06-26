@@ -41,6 +41,27 @@ import Testing
         #expect(selected == registry)
     }
 
+    @Test func registryRoutesAreUnionedWithLocalNotReplaced() throws {
+        // Server-death graceful fallback: a registry response that advertises a
+        // *different* (or narrower) route set must AUGMENT the locally cached
+        // routes, never silently drop a still-valid local route. Otherwise a
+        // partial/stale registry response (e.g. the LAN route lagged in the
+        // registry) wipes a working offline-cached route on the next refresh,
+        // making reconnect depend on the registry being complete and reachable.
+        let lan = try route(host: "192.168.1.50", port: 51000, id: "lan")
+        let tailnet = try route(host: "100.96.0.9", port: 51999, id: "tailnet")
+        let selected = DeviceRegistryService.selectReconnectRoutes(
+            local: [lan],
+            registry: [tailnet]
+        )
+        let endpoints = (selected ?? []).compactMap { route -> String? in
+            if case let .hostPort(host, port) = route.endpoint { return "\(host):\(port)" }
+            return nil
+        }
+        #expect(endpoints.contains("192.168.1.50:51000")) // local route retained
+        #expect(endpoints.contains("100.96.0.9:51999"))   // registry route added
+    }
+
     @Test func parsesRoutesForMatchingMacFromListResponse() throws {
         let json = """
         {
