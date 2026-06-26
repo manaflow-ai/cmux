@@ -97,7 +97,14 @@ public final class HostBrowserSignInFlow {
     /// attempt is active — the no-active-attempt mirror of
     /// ``activeAttemptSignInURL``.
     public var defaultBrowserSignInURL: URL {
-        let state = makeCallbackState()
+        // Reuse an outstanding issued fallback state so repeated taps — a common
+        // "nothing happened, click again" reaction to a hung popup — keep
+        // routing to the same callback. Minting a fresh state per tap would
+        // overwrite the single accepted slot and orphan the earlier browser
+        // tab (its callback would be rejected). Mirrors the idempotency of
+        // ``activeAttemptSignInURL``; the slot is cleared on completion and on
+        // sign-out, so a later recovery still gets a fresh state.
+        let state = pendingFallbackCallbackState ?? makeCallbackState()
         pendingFallbackCallbackState = state
         return makeSignInURL(state)
     }

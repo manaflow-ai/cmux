@@ -241,6 +241,35 @@ import Testing
         #expect(harness.flow.lastFailure == nil)
     }
 
+    @Test func defaultBrowserSignInURLReusesIssuedStateAcrossRepeatedTaps() async throws {
+        // The recovery affordance is a button the user can tap more than once
+        // while signed out ("nothing happened, click again"). Each tap must
+        // reuse the same callback state so the first opened browser tab still
+        // completes — minting a fresh state per tap would overwrite the single
+        // accepted slot and orphan the earlier tab (its callback rejected).
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let harness = HostBrowserSignInFlowHarness(user: user)
+
+        func authState(of url: URL) -> String? {
+            URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?
+                .first(where: { $0.name == "cmux_auth_state" })?
+                .value
+        }
+
+        let firstURL = harness.flow.defaultBrowserSignInURL
+        let secondURL = harness.flow.defaultBrowserSignInURL
+        let firstState = try #require(authState(of: firstURL))
+        let secondState = try #require(authState(of: secondURL))
+        #expect(firstState == secondState)
+
+        // Completing the first tab's callback still signs the user in.
+        let result = await harness.flow.handleCallbackURL(harness.callbackURL(state: firstState))
+        #expect(result)
+        #expect(harness.coordinator.isAuthenticated)
+        #expect(harness.coordinator.currentUser == user)
+    }
+
     @Test func issuedFallbackCallbackSurvivesPopupCancellation() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let harness = HostBrowserSignInFlowHarness(user: user)
