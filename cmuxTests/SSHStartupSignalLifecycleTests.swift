@@ -619,6 +619,157 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func testSSHStartupWaitsForLockedAgentInsteadOfExhaustingReconnectLimit() throws {
+        // Regression test for https://github.com/manaflow-ai/cmux/issues/6549.
+        // On wake from sleep the 1Password SSH agent is still locked, so every
+        // reconnect attempt fails instantly with `agent refused operation`.
+        // Those refusals must NOT consume the network reconnect budget; the
+        // wrapper should keep waiting on its separate agent budget and
+        // auto-reconnect the moment the agent is unlocked. Here the fake ssh
+        // simulates the agent staying locked for the first four attempts and
+        // then being unlocked (exit 0) — with a network reconnect limit of only
+        // 2, the old behavior would have given up (status 255) long before.
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-agent-wait-\(UUID().uuidString)", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let logFile = root.appendingPathComponent("ssh-session-end.log")
+        let attemptFile = root.appendingPathComponent("ssh-attempts.txt")
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_SESSION_END_LOG}\"",
+        ])
+        try writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "count=0",
+            "if [ -r \"${CMUX_TEST_ATTEMPT_FILE}\" ]; then count=$(cat \"${CMUX_TEST_ATTEMPT_FILE}\"); fi",
+            "count=$((count + 1))",
+            "printf '%s\\n' \"$count\" > \"${CMUX_TEST_ATTEMPT_FILE}\"",
+            "if [ \"$count\" -le 4 ]; then",
+            "  printf 'sign_and_send_pubkey: signing failed for ED25519 \\\"Key A\\\" from agent: agent refused operation\\n' >&2",
+            "  printf 'user@host: Permission denied (publickey).\\n' >&2",
+            "  exit 255",
+            "fi",
+            "exit 0",
+        ])
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
+
+        let startupCommand = try generatedVMSSHInitialStartupCommand()
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TEST_SESSION_END_LOG"] = logFile.path
+        environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
+        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+        environment["CMUX_SSH_RECONNECT_LIMIT"] = "2"
+        environment["CMUX_SSH_AGENT_WAIT_DELAY_SECONDS"] = "0"
+        environment["CMUX_SSH_AGENT_WAIT_LIMIT"] = "50"
+
+        let result = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment,
+            timeout: 10
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(
+            result.status,
+            0,
+            "A locked SSH agent must not exhaust the network reconnect budget; the session should auto-reconnect once the agent is unlocked. stderr: \(result.stderr)"
+        )
+        let attempts = Int(
+            (try? String(contentsOf: attemptFile, encoding: .utf8))?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        ) ?? 0
+        XCTAssertGreaterThan(
+            attempts,
+            3,
+            "Wrapper should have kept retrying past the network reconnect limit (2) while the agent was locked; saw \(attempts) attempts."
+        )
+    }
+
+    func testSSHStartupSurfacesAgentUnavailableBannerWhenAgentStaysLocked() throws {
+        // Companion to the issue #6549 fix: when the SSH agent never unlocks, the
+        // dedicated agent-wait budget is exhausted and the wrapper must surface a
+        // distinct "unlock your agent and press Reconnect" banner instead of the
+        // generic "remote VM may have been paused" message, and it must stop on
+        // the agent budget rather than burning all 20 network reconnect attempts.
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-agent-locked-\(UUID().uuidString)", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let logFile = root.appendingPathComponent("ssh-session-end.log")
+        let attemptFile = root.appendingPathComponent("ssh-attempts.txt")
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_SESSION_END_LOG}\"",
+        ])
+        try writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "count=0",
+            "if [ -r \"${CMUX_TEST_ATTEMPT_FILE}\" ]; then count=$(cat \"${CMUX_TEST_ATTEMPT_FILE}\"); fi",
+            "count=$((count + 1))",
+            "printf '%s\\n' \"$count\" > \"${CMUX_TEST_ATTEMPT_FILE}\"",
+            "printf 'sign_and_send_pubkey: signing failed for ED25519 \\\"Key A\\\" from agent: agent refused operation\\n' >&2",
+            "exit 255",
+        ])
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
+
+        let startupCommand = try generatedVMSSHInitialStartupCommand()
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TEST_SESSION_END_LOG"] = logFile.path
+        environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
+        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+        environment["CMUX_SSH_AGENT_WAIT_DELAY_SECONDS"] = "0"
+        environment["CMUX_SSH_AGENT_WAIT_LIMIT"] = "2"
+
+        let result = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment,
+            timeout: 10
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 255, result.stderr)
+        XCTAssertTrue(
+            result.stderr.contains("SSH agent unavailable"),
+            "Expected the agent-unavailable banner; got: \(result.stderr)"
+        )
+        XCTAssertFalse(
+            result.stderr.contains("the remote VM may have been paused"),
+            "A locked agent must not be reported as a paused/unreachable VM; got: \(result.stderr)"
+        )
+        let attempts = (try? String(contentsOf: attemptFile, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertEqual(
+            attempts,
+            "3",
+            "Wrapper should stop on the agent-wait budget (limit 2 => 3 attempts), not the 20-attempt network budget."
+        )
+    }
+
     private func generatedSSHStartupCommand(
         sshOptions: [String] = [
             "ControlMaster no",
