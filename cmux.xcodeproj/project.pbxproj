@@ -639,11 +639,14 @@
 		645645000000000000000002 /* NumberedShortcutSwapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 645645000000000000000001 /* NumberedShortcutSwapTests.swift */; };
 		0FF11E7E000000000000B002 /* OfflineNote.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FF11E7E000000000000B001 /* OfflineNote.swift */; };
 		0FF11E7E000000000000A012 /* OfflineNoteAgentDispatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FF11E7E000000000000A011 /* OfflineNoteAgentDispatcher.swift */; };
+		0FF11E7E000000000000D012 /* OfflineNoteDispatchError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FF11E7E000000000000D011 /* OfflineNoteDispatchError.swift */; };
 		0FF11E7E000000000000B012 /* OfflineNoteDispatching.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FF11E7E000000000000B011 /* OfflineNoteDispatching.swift */; };
+		0FF11E7E000000000000D022 /* OfflineNotesNetworkReachability.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FF11E7E000000000000D021 /* OfflineNotesNetworkReachability.swift */; };
 		0FF11E7E000000000000A022 /* OfflineNotesPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FF11E7E000000000000A021 /* OfflineNotesPanelView.swift */; };
 		0FF11E7E000000000000B022 /* OfflineNotesReachability.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FF11E7E000000000000B021 /* OfflineNotesReachability.swift */; };
 		0FF11E7E000000000000A002 /* OfflineNotesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FF11E7E000000000000A001 /* OfflineNotesStore.swift */; };
 		0FF11E7E000000000000C002 /* OfflineNotesStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FF11E7E000000000000C001 /* OfflineNotesStoreTests.swift */; };
+		0FF11E7E000000000000D002 /* OfflineNoteStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FF11E7E000000000000D001 /* OfflineNoteStatus.swift */; };
 		4378399A7C0245EF8186F306 /* OmnibarAndToolsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */; };
 		9637C6D3170F4BE1A7EF6243 /* OmnibarSubmitDecisionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48D6AE11906A4DF3BEB8CDFE /* OmnibarSubmitDecisionTests.swift */; };
 		0A0F00550000000000000001 /* OmpSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0F00550000000000000002 /* OmpSupportTests.swift */; };
@@ -1786,11 +1789,14 @@
 		645645000000000000000001 /* NumberedShortcutSwapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NumberedShortcutSwapTests.swift; sourceTree = "<group>"; };
 		0FF11E7E000000000000B001 /* OfflineNote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineNote.swift; sourceTree = "<group>"; };
 		0FF11E7E000000000000A011 /* OfflineNoteAgentDispatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineNoteAgentDispatcher.swift; sourceTree = "<group>"; };
+		0FF11E7E000000000000D011 /* OfflineNoteDispatchError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineNoteDispatchError.swift; sourceTree = "<group>"; };
 		0FF11E7E000000000000B011 /* OfflineNoteDispatching.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineNoteDispatching.swift; sourceTree = "<group>"; };
+		0FF11E7E000000000000D021 /* OfflineNotesNetworkReachability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineNotesNetworkReachability.swift; sourceTree = "<group>"; };
 		0FF11E7E000000000000A021 /* OfflineNotesPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineNotesPanelView.swift; sourceTree = "<group>"; };
 		0FF11E7E000000000000B021 /* OfflineNotesReachability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineNotesReachability.swift; sourceTree = "<group>"; };
 		0FF11E7E000000000000A001 /* OfflineNotesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineNotesStore.swift; sourceTree = "<group>"; };
 		0FF11E7E000000000000C001 /* OfflineNotesStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineNotesStoreTests.swift; sourceTree = "<group>"; };
+		0FF11E7E000000000000D001 /* OfflineNoteStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineNoteStatus.swift; sourceTree = "<group>"; };
 		B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OmnibarAndToolsTests.swift; sourceTree = "<group>"; };
 		48D6AE11906A4DF3BEB8CDFE /* OmnibarSubmitDecisionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OmnibarSubmitDecisionTests.swift; sourceTree = "<group>"; };
 		0A0F00550000000000000002 /* OmpSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OmpSupportTests.swift; sourceTree = "<group>"; };
@@ -2691,6 +2697,9 @@
 				D1FFC0DE000000000000A001 /* DiffCommentStore.swift */,
 				0FF11E7E000000000000A001 /* OfflineNotesStore.swift */,
 				0FF11E7E000000000000B001 /* OfflineNote.swift */,
+				0FF11E7E000000000000D001 /* OfflineNoteStatus.swift */,
+				0FF11E7E000000000000D011 /* OfflineNoteDispatchError.swift */,
+				0FF11E7E000000000000D021 /* OfflineNotesNetworkReachability.swift */,
 				0FF11E7E000000000000B011 /* OfflineNoteDispatching.swift */,
 				0FF11E7E000000000000B021 /* OfflineNotesReachability.swift */,
 				0FF11E7E000000000000A011 /* OfflineNoteAgentDispatcher.swift */,
@@ -4297,10 +4306,13 @@
 				D36090020000000000000001 /* NSWindow+CmuxPeerWindow.swift in Sources */,
 				0FF11E7E000000000000B002 /* OfflineNote.swift in Sources */,
 				0FF11E7E000000000000A012 /* OfflineNoteAgentDispatcher.swift in Sources */,
+				0FF11E7E000000000000D012 /* OfflineNoteDispatchError.swift in Sources */,
 				0FF11E7E000000000000B012 /* OfflineNoteDispatching.swift in Sources */,
+				0FF11E7E000000000000D022 /* OfflineNotesNetworkReachability.swift in Sources */,
 				0FF11E7E000000000000A022 /* OfflineNotesPanelView.swift in Sources */,
 				0FF11E7E000000000000B022 /* OfflineNotesReachability.swift in Sources */,
 				0FF11E7E000000000000A002 /* OfflineNotesStore.swift in Sources */,
+				0FF11E7E000000000000D002 /* OfflineNoteStatus.swift in Sources */,
 				A9F200000000000000000017 /* OpenCodeEventStreamParser.swift in Sources */,
 				A9F200000000000000000018 /* OpenCodeEventTextAccumulator.swift in Sources */,
 				A9F200000000000000000019 /* OpenCodeProcessOutputDisposition.swift in Sources */,

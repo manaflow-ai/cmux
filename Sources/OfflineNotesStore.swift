@@ -29,9 +29,13 @@ final class OfflineNotesStore {
     @ObservationIgnored private let reachability: any OfflineNotesReachabilityMonitoring
     @ObservationIgnored private var isFlushing = false
     @ObservationIgnored private var hasStarted = false
-    // All disk writes go through one serial queue, so they have a total order: a
-    // slower write can never land after (and overwrite) a newer one, and only one
-    // write runs at a time (no concurrent encoder use). The main actor only
+    // A serial queue used purely as an ordered *I/O executor* for disk writes —
+    // not to synchronize mutable shared state (the queue, `notes`, is
+    // `@MainActor`-isolated). It is deliberately a `DispatchQueue` rather than an
+    // actor because writes need a total order (a slower write must never land
+    // after and overwrite a newer one) *and* a synchronous final write from
+    // `applicationWillTerminate` (`writeQueue.sync`) for quit durability — which
+    // an actor cannot provide from a synchronous context. The main actor only
     // snapshots the value-type queue (O(1) COW) and enqueues.
     @ObservationIgnored private let writeQueue = DispatchQueue(label: "com.cmux.offline-notes.persist")
 

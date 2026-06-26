@@ -242,6 +242,12 @@ struct OfflineNotesStoreTests {
     }
 
     @Test
+    func cliArgumentParsesNotesMode() {
+        #expect(RightSidebarMode.from(cliArgument: "notes") == .notes)
+        #expect(RightSidebarMode.from(cliArgument: "NOTES") == .notes)
+    }
+
+    @Test
     func captureRecordsWorkspaceBinding() {
         let store = makeStore(fileURL: nil, reachability: FakeReachability(isOnline: false))
         let workspaceID = UUID()
