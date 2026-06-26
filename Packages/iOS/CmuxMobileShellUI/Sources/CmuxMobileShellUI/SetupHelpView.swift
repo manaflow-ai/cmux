@@ -152,7 +152,7 @@ struct SetupHelpView: View {
 
                 Text(L10n.string(
                     "mobile.setupHelp.lanBody",
-                    defaultValue: "No Tailscale? On the same Wi-Fi you can still connect by typing the Mac's local address and port by hand in Add device. That link is unencrypted, so only use it on a network you trust."
+                    defaultValue: "No Tailscale? On the same Wi-Fi you can still connect by typing the Mac's local address and port by hand in Add Computer. That link is unencrypted, so only use it on a network you trust."
                 ))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
