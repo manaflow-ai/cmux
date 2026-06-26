@@ -1956,7 +1956,7 @@ final class CmuxConfigStore: ObservableObject {
     /// configured.
     @Published private(set) var workspaceGroupConfigs: [CmuxResolvedWorkspaceGroupConfig] = []
     /// Persistent workspace profiles from the global `cmux.json`.
-    @Published private(set) var workspaceProfiles: [CmuxResolvedWorkspaceProfile] = []
+    private(set) var workspaceProfiles: [CmuxResolvedWorkspaceProfile] = []
     @Published private(set) var surfaceTabBarButtons: [CmuxSurfaceTabBarButton] = CmuxSurfaceTabBarButton.defaults
     @Published private(set) var notificationHooks: [CmuxResolvedNotificationHook] = []
     @Published private(set) var configurationIssues: [CmuxConfigIssue] = []
@@ -2505,10 +2505,9 @@ final class CmuxConfigStore: ObservableObject {
 
     private func reconcileWorkspaceProfiles(_ profiles: [CmuxResolvedWorkspaceProfile]) {
         guard let tabManager, !profiles.isEmpty else { return }
+        let workspacesByProfileName = Dictionary(tabManager.tabs.compactMap { workspace in workspace.workspaceProfileName.map { ($0, workspace) } }, uniquingKeysWith: { first, _ in first })
         for profile in profiles {
-            if let existing = tabManager.tabs.first(where: { workspace in
-                workspace.workspaceProfileName == profile.name
-            }) {
+            if let existing = workspacesByProfileName[profile.name] {
                 existing.setDefaultWorkingDirectory(profile.cwd)
                 existing.setCustomTitle(profile.name, source: .auto)
                 existing.isPinned = profile.pinned

@@ -849,6 +849,12 @@
         "shortcuts": {
           "when": "Prédicats de contexte facultatifs par action (clauses `when` de style VS Code), indexés par identifiant d'action cmux. Chaque valeur est une expression booléenne sur des clés de contexte, combinée avec !, &&, || et des parenthèses. Clés booléennes : sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Les clés typées acceptent des comparaisons : la chaîne sidebarMode (files, find, sessions, feed ou dock) et les entiers paneCount et workspaceCount. Les opérateurs de comparaison sont ==, !=, =~ (expression régulière), <, <=, >, >= et `in [a, b]` ; une clé inconnue ou absente vaut false. Les littéraux booléens true et false sont également acceptés ; `key == false` équivaut à `!key`. Le raccourci de l'action ne se déclenche (et n'entre en conflit avec d'autres raccourcis) que lorsque la clause est vraie. Exemples : { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } sélectionne les espaces de travail avec Ctrl+1–9 partout sauf lorsque la barre latérale droite a le focus ; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limite une liaison à la barre latérale Rechercher lorsque l'espace de travail comporte plusieurs panneaux.",
           "showModifierHoldHints": "Affiche les pastilles d’indication de raccourcis pendant que Cmd ou Control est maintenu enfoncé."
+        },
+        "workspaceProfiles": {
+          "description": "Profils globaux et persistants d’espaces de travail. Lors du rechargement de la configuration, cmux vérifie que chaque espace de travail nommé existe, applique son état épinglé et garde son cwd par défaut séparé des rapports PWD en direct du terminal. Les fichiers .cmux/cmux.json locaux au projet ne peuvent pas définir de profils d’espaces de travail.",
+          "name": "Nom de l’espace de travail à créer ou à rapprocher.",
+          "cwd": "Répertoire de travail par défaut pour les nouveaux onglets et splits de cet espace de travail. Les chemins relatifs sont résolus depuis le répertoire global de cmux.json ; ~ est développé vers le dossier personnel de l’utilisateur.",
+          "pinned": "Indique si l’espace de travail rapproché doit être épinglé dans la barre latérale."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

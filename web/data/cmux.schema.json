@@ -221,6 +221,7 @@
       "title": "workspaceProfiles",
       "default": [],
       "description": "Global persistent workspace profiles. On config reload, cmux ensures each named workspace exists, applies its pinned state, and keeps its default cwd separate from live terminal PWD reports. Project-local .cmux/cmux.json files cannot define workspace profiles.",
+      "descriptionKey": "schemaDescriptions.workspaceProfiles.description",
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -230,18 +231,21 @@
             "type": "string",
             "minLength": 1,
             "pattern": ".*\\S.*",
-            "description": "Workspace name to create or reconcile."
+            "description": "Workspace name to create or reconcile.",
+            "descriptionKey": "schemaDescriptions.workspaceProfiles.name"
           },
           "cwd": {
             "type": "string",
             "minLength": 1,
             "pattern": ".*\\S.*",
-            "description": "Default working directory for new tabs and splits in this workspace. Relative paths resolve from the global cmux.json directory; ~ expands to the user's home directory."
+            "description": "Default working directory for new tabs and splits in this workspace. Relative paths resolve from the global cmux.json directory; ~ expands to the user's home directory.",
+            "descriptionKey": "schemaDescriptions.workspaceProfiles.cwd"
           },
           "pinned": {
             "type": "boolean",
             "default": false,
-            "description": "Whether the reconciled workspace should be pinned in the sidebar."
+            "description": "Whether the reconciled workspace should be pinned in the sidebar.",
+            "descriptionKey": "schemaDescriptions.workspaceProfiles.pinned"
           }
         }
       }

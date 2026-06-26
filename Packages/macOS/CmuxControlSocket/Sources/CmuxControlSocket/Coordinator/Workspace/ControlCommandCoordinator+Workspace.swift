@@ -198,7 +198,7 @@ extension ControlCommandCoordinator {
     ) -> ControlCallResult {
         switch resolution {
         case .tabManagerUnavailable:
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: "Workspace unavailable", data: nil)
         case .noWorkspaceSelected:
             return .err(code: "not_found", message: "No workspace selected", data: nil)
         case .notFound:

@@ -149,6 +149,20 @@ struct ControlCommandCoordinatorWorkspaceTests {
         #expect(context.getDefaultDirectoryCall == nil)
     }
 
+    @Test func workspaceGetCwdUnavailableUsesGenericWorkspaceMessage() throws {
+        let (coordinator, context) = coordinator()
+        context.getDefaultDirectoryResolution = .tabManagerUnavailable
+
+        guard case .err(let code, let message, _) = coordinator.handle(request("workspace.get_cwd")) else {
+            Issue.record("unexpected workspace.get_cwd result")
+            return
+        }
+
+        #expect(code == "unavailable")
+        #expect(message == "Workspace unavailable")
+        #expect(context.getDefaultDirectoryCall != nil)
+    }
+
     @Test func workspaceSetCwdAcceptsCwdAndReturnsResolvedCwd() throws {
         let (coordinator, context) = coordinator()
         let workspaceID = UUID()
