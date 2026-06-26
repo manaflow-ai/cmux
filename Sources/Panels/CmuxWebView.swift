@@ -1023,63 +1023,6 @@ final class CmuxWebView: WKWebView {
         )
     }
 
-    private struct ParsedDataURL {
-        let data: Data
-        let mimeType: String?
-    }
-
-    private static func parseDataURL(_ url: URL) -> ParsedDataURL? {
-        let absolute = url.absoluteString
-        guard absolute.hasPrefix("data:"),
-              let commaIndex = absolute.firstIndex(of: ",") else {
-            return nil
-        }
-
-        let headerStart = absolute.index(absolute.startIndex, offsetBy: 5)
-        let header = String(absolute[headerStart..<commaIndex])
-        let payloadStart = absolute.index(after: commaIndex)
-        let payload = String(absolute[payloadStart...])
-
-        let segments = header.split(separator: ";", omittingEmptySubsequences: false).map(String.init)
-        let mimeType = segments.first.flatMap { $0.isEmpty ? nil : $0 }
-        let isBase64 = segments.dropFirst().contains { $0.caseInsensitiveCompare("base64") == .orderedSame }
-
-        if isBase64 {
-            guard let data = Data(base64Encoded: payload, options: [.ignoreUnknownCharacters]) else {
-                return nil
-            }
-            return ParsedDataURL(data: data, mimeType: mimeType)
-        }
-
-        guard let decoded = payload.removingPercentEncoding else { return nil }
-        return ParsedDataURL(data: Data(decoded.utf8), mimeType: mimeType)
-    }
-
-    private static func filenameExtension(forMIMEType mimeType: String?) -> String? {
-        guard let mimeType, !mimeType.isEmpty else { return nil }
-        if #available(macOS 11.0, *) {
-            if let preferred = UTType(mimeType: mimeType)?.preferredFilenameExtension, !preferred.isEmpty {
-                return preferred
-            }
-        }
-        switch mimeType.lowercased() {
-        case "image/jpeg":
-            return "jpg"
-        case "image/png":
-            return "png"
-        case "image/webp":
-            return "webp"
-        case "image/gif":
-            return "gif"
-        case "text/html":
-            return "html"
-        case "text/plain":
-            return "txt"
-        default:
-            return nil
-        }
-    }
-
     private static func suggestedFilenameForDataURL(
         mimeType: String?,
         suggestedFilename: String?
@@ -1088,7 +1031,7 @@ final class CmuxWebView: WKWebView {
            !suggested.isEmpty {
             return BrowserDownloadFilenameResolver().suggestedFilename(suggestedFilename: suggested, response: nil, sourceURL: URL(fileURLWithPath: "download"), imageType: nil)
         }
-        let ext = filenameExtension(forMIMEType: mimeType) ?? "bin"
+        let ext = ParsedDataURL.filenameExtension(forMIMEType: mimeType) ?? "bin"
         let base = (mimeType?.lowercased().hasPrefix("image/") ?? false) ? "image" : "download"
         return "\(base).\(ext)"
     }
@@ -1169,20 +1112,6 @@ final class CmuxWebView: WKWebView {
         return false
     }
 
-    private func isDownloadableScheme(_ url: URL) -> Bool {
-        let scheme = url.scheme?.lowercased() ?? ""
-        return scheme == "http" || scheme == "https" || scheme == "file"
-    }
-
-    private func isDataURLScheme(_ url: URL) -> Bool {
-        let scheme = url.scheme?.lowercased() ?? ""
-        return scheme == "data"
-    }
-
-    private func isDownloadSupportedScheme(_ url: URL) -> Bool {
-        return isDownloadableScheme(url) || isDataURLScheme(url)
-    }
-
     private func isOurContextMenuAction(target: AnyObject?, action: Selector?) -> Bool {
         guard target === self else { return false }
         if action == #selector(contextMenuToggleBrowserFocusMode(_:)) {
@@ -1193,73 +1122,6 @@ final class CmuxWebView: WKWebView {
         }
         return action == #selector(contextMenuDownloadImage(_:))
             || action == #selector(contextMenuDownloadLinkedFile(_:))
-    }
-
-    private func resolveGoogleRedirectURL(_ url: URL) -> URL? {
-        guard let host = url.host?.lowercased(), host.contains("google.") else { return nil }
-        guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let queryItems = comps.queryItems else { return nil }
-        let map = Dictionary(uniqueKeysWithValues: queryItems.map { ($0.name.lowercased(), $0.value ?? "") })
-        let candidates = ["imgurl", "mediaurl", "url", "q"]
-        for key in candidates {
-            guard let raw = map[key], !raw.isEmpty,
-                  let decoded = raw.removingPercentEncoding ?? raw as String?,
-                  let candidate = URL(string: decoded),
-                  isDownloadableScheme(candidate) else {
-                continue
-            }
-            return candidate
-        }
-        // Some links are wrapped as /url?...
-        if comps.path.lowercased() == "/url" {
-            for key in ["url", "q"] {
-                if let raw = map[key], let candidate = URL(string: raw), isDownloadableScheme(candidate) {
-                    return candidate
-                }
-            }
-        }
-        return nil
-    }
-
-    private func normalizedLinkedDownloadURL(_ url: URL) -> URL {
-        resolveGoogleRedirectURL(url) ?? url
-    }
-
-    private func isLikelyFaviconURL(_ url: URL) -> Bool {
-        let lower = url.absoluteString.lowercased()
-        if lower.contains("favicon") { return true }
-        let name = url.lastPathComponent.lowercased()
-        return name.hasPrefix("favicon")
-    }
-
-    private func isLikelyImageURL(_ url: URL) -> Bool {
-        if isDataURLScheme(url) {
-            guard let parsed = Self.parseDataURL(url),
-                  let mime = parsed.mimeType?.lowercased() else {
-                return false
-            }
-            return mime.hasPrefix("image/")
-        }
-        guard isDownloadableScheme(url) else { return false }
-        let ext = url.pathExtension.lowercased()
-        if [
-            "jpg", "jpeg", "png", "webp", "gif", "bmp",
-            "svg", "avif", "heic", "heif", "tif", "tiff", "ico"
-        ].contains(ext) {
-            return true
-        }
-        let lower = url.absoluteString.lowercased()
-        if lower.contains("imgurl=")
-            || lower.contains("mediaurl=")
-            || lower.contains("encrypted-tbn")
-            || lower.contains("format=jpg")
-            || lower.contains("format=jpeg")
-            || lower.contains("format=png")
-            || lower.contains("format=webp")
-            || lower.contains("format=gif") {
-            return true
-        }
-        return false
     }
 
     private func captureFallbackForMenuItemIfNeeded(_ item: NSMenuItem) {
@@ -1538,7 +1400,7 @@ final class CmuxWebView: WKWebView {
         fallbackTarget: AnyObject?,
         traceID: String
     ) {
-        guard isDownloadSupportedScheme(url) else {
+        guard BrowserDownloadURLClassifier(url: url).isDownloadSupportedScheme else {
             debugContextDownload(
                 "browser.ctxdl.request trace=\(traceID) stage=rejectUnsupportedScheme url=\(url.absoluteString)"
             )
@@ -1560,7 +1422,7 @@ final class CmuxWebView: WKWebView {
 
         if scheme == "data" {
             DispatchQueue.main.async {
-                guard let parsed = Self.parseDataURL(url) else {
+                guard let parsed = ParsedDataURL(dataURL: url) else {
                     self.notifyContextMenuDownloadState(false)
                     self.debugContextDownload(
                         "browser.ctxdl.data trace=\(traceID) stage=parseFailure urlLength=\(url.absoluteString.count)"
@@ -1778,15 +1640,6 @@ final class CmuxWebView: WKWebView {
         )
     }
 
-    private func inferredImageMIMEType(from url: URL) -> String? {
-        guard !url.pathExtension.isEmpty,
-              let type = UTType(filenameExtension: url.pathExtension),
-              type.conforms(to: .image) else {
-            return nil
-        }
-        return type.preferredMIMEType
-    }
-
     private func resolveContextMenuCopyImageSourceURL(
         at point: NSPoint,
         completion: @escaping (URL?) -> Void
@@ -1795,8 +1648,8 @@ final class CmuxWebView: WKWebView {
             guard let self else { return completion(nil) }
 
             if let imageURL {
-                let normalized = self.normalizedLinkedDownloadURL(imageURL)
-                if self.isDownloadSupportedScheme(normalized) {
+                let normalized = BrowserDownloadURLClassifier(url: imageURL).normalizedLinkedDownloadURL
+                if BrowserDownloadURLClassifier(url: normalized).isDownloadSupportedScheme {
                     completion(normalized)
                     return
                 }
@@ -1808,9 +1661,9 @@ final class CmuxWebView: WKWebView {
                     return
                 }
 
-                let normalized = self.normalizedLinkedDownloadURL(fallbackLinkURL)
-                guard self.isDownloadSupportedScheme(normalized),
-                      self.isLikelyImageURL(normalized) else {
+                let normalized = BrowserDownloadURLClassifier(url: fallbackLinkURL).normalizedLinkedDownloadURL
+                guard BrowserDownloadURLClassifier(url: normalized).isDownloadSupportedScheme,
+                      BrowserDownloadURLClassifier(url: normalized).isLikelyImageURL else {
                     completion(nil)
                     return
                 }
@@ -1831,7 +1684,7 @@ final class CmuxWebView: WKWebView {
         )
 
         if scheme == "data" {
-            guard let parsed = Self.parseDataURL(sourceURL), !parsed.data.isEmpty else {
+            guard let parsed = ParsedDataURL(dataURL: sourceURL), !parsed.data.isEmpty else {
                 debugContextDownload(
                     "browser.ctxcopy.fetch trace=\(traceID) stage=dataParseFailure"
                 )
@@ -1869,7 +1722,7 @@ final class CmuxWebView: WKWebView {
                     completion(
                         BrowserImageCopyPasteboardPayload(
                             imageData: data,
-                            mimeType: self.inferredImageMIMEType(from: sourceURL),
+                            mimeType: BrowserDownloadURLClassifier(url: sourceURL).inferredImageMIMEType,
                             sourceURL: nil
                         )
                     )
@@ -1919,7 +1772,7 @@ final class CmuxWebView: WKWebView {
                         let scheme = $0.scheme?.lowercased() ?? ""
                         return (scheme == "http" || scheme == "https") ? $0 : nil
                     } ?? sourceURL
-                    let mimeType = response?.mimeType ?? self.inferredImageMIMEType(from: resolvedURL)
+                    let mimeType = response?.mimeType ?? BrowserDownloadURLClassifier(url: resolvedURL).inferredImageMIMEType
                     self.debugContextDownload(
                         "browser.ctxcopy.fetch trace=\(traceID) stage=networkSuccess status=\((response as? HTTPURLResponse)?.statusCode ?? -1) mime=\(mimeType ?? "nil") bytes=\(data.count)"
                     )
@@ -2248,12 +2101,12 @@ final class CmuxWebView: WKWebView {
                         "browser.ctxdl.resolve trace=\(traceID) kind=image dataURLDetected length=\(url.absoluteString.count)"
                     )
                 } else if scheme == "http" || scheme == "https" || scheme == "file" {
-                    let normalized = self.normalizedLinkedDownloadURL(url)
+                    let normalized = BrowserDownloadURLClassifier(url: url).normalizedLinkedDownloadURL
                     self.debugContextDownload(
                         "browser.ctxdl.resolve trace=\(traceID) kind=image normalizedImageURL=\(normalized.absoluteString)"
                     )
-                    if self.isLikelyImageURL(normalized) {
-                        if !self.isLikelyFaviconURL(normalized) {
+                    if BrowserDownloadURLClassifier(url: normalized).isLikelyImageURL {
+                        if !BrowserDownloadURLClassifier(url: normalized).isLikelyFaviconURL {
                             self.startContextMenuDownload(
                                 normalized,
                                 sender: sender,
@@ -2267,7 +2120,7 @@ final class CmuxWebView: WKWebView {
                         self.debugContextDownload(
                             "browser.ctxdl.resolve trace=\(traceID) kind=image weakCandidateURL=\(normalized.absoluteString) reason=favicon_or_low_confidence"
                         )
-                    } else if self.isDownloadableScheme(normalized), !self.isLikelyFaviconURL(normalized) {
+                    } else if BrowserDownloadURLClassifier(url: normalized).isDownloadableScheme, !BrowserDownloadURLClassifier(url: normalized).isLikelyFaviconURL {
                         // Some image CDNs use extensionless URLs; keep as last-resort candidate.
                         weakImageURL = normalized
                         self.debugContextDownload(
@@ -2287,13 +2140,13 @@ final class CmuxWebView: WKWebView {
                     "browser.ctxdl.resolve trace=\(traceID) kind=image fallbackLinkURL=\(linkURL?.absoluteString ?? "nil")"
                 )
                 if let linkURL {
-                    let normalizedLink = self.normalizedLinkedDownloadURL(linkURL)
+                    let normalizedLink = BrowserDownloadURLClassifier(url: linkURL).normalizedLinkedDownloadURL
                     self.debugContextDownload(
                         "browser.ctxdl.resolve trace=\(traceID) kind=image normalizedFallbackLinkURL=\(normalizedLink.absoluteString)"
                     )
-                    if self.isDownloadableScheme(normalizedLink),
-                       self.isLikelyImageURL(normalizedLink),
-                       !self.isLikelyFaviconURL(normalizedLink) {
+                    if BrowserDownloadURLClassifier(url: normalizedLink).isDownloadableScheme,
+                       BrowserDownloadURLClassifier(url: normalizedLink).isLikelyImageURL,
+                       !BrowserDownloadURLClassifier(url: normalizedLink).isLikelyFaviconURL {
                         self.startContextMenuDownload(
                             normalizedLink,
                             sender: sender,
@@ -2380,11 +2233,11 @@ final class CmuxWebView: WKWebView {
                 "browser.ctxdl.resolve trace=\(traceID) kind=linked linkURL=\(url?.absoluteString ?? "nil")"
             )
             if let url {
-                let normalized = self.normalizedLinkedDownloadURL(url)
+                let normalized = BrowserDownloadURLClassifier(url: url).normalizedLinkedDownloadURL
                 self.debugContextDownload(
                     "browser.ctxdl.resolve trace=\(traceID) kind=linked normalizedLinkURL=\(normalized.absoluteString)"
                 )
-                if self.isDownloadSupportedScheme(normalized) {
+                if BrowserDownloadURLClassifier(url: normalized).isDownloadSupportedScheme {
                     self.startContextMenuDownload(
                         normalized,
                         sender: sender,
@@ -2402,7 +2255,7 @@ final class CmuxWebView: WKWebView {
                     "browser.ctxdl.resolve trace=\(traceID) kind=linked fallbackImageURL=\(imageURL?.absoluteString ?? "nil")"
                 )
                 var dataImageURL: URL?
-                if let imageURL, self.isDownloadableScheme(imageURL) {
+                if let imageURL, BrowserDownloadURLClassifier(url: imageURL).isDownloadableScheme {
                     self.startContextMenuDownload(
                         imageURL,
                         sender: sender,
@@ -2412,7 +2265,7 @@ final class CmuxWebView: WKWebView {
                     )
                     return
                 }
-                if let imageURL, self.isDataURLScheme(imageURL) {
+                if let imageURL, BrowserDownloadURLClassifier(url: imageURL).isDataURLScheme {
                     dataImageURL = imageURL
                     self.debugContextDownload(
                         "browser.ctxdl.resolve trace=\(traceID) kind=linked fallbackDataURLDetected length=\(imageURL.absoluteString.count)"
@@ -2448,11 +2301,11 @@ final class CmuxWebView: WKWebView {
                         )
                         return
                     }
-                    let normalized = self.normalizedLinkedDownloadURL(fallbackURL)
+                    let normalized = BrowserDownloadURLClassifier(url: fallbackURL).normalizedLinkedDownloadURL
                     self.debugContextDownload(
                         "browser.ctxdl.resolve trace=\(traceID) kind=linked normalizedNearestAnchorURL=\(normalized.absoluteString)"
                     )
-                    guard self.isDownloadSupportedScheme(normalized) else {
+                    guard BrowserDownloadURLClassifier(url: normalized).isDownloadSupportedScheme else {
                         if let dataImageURL {
                             self.debugContextDownload(
                                 "browser.ctxdl.resolve trace=\(traceID) kind=linked fallbackToDataURL=1"

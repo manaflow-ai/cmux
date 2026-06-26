@@ -5709,8 +5709,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         VSCodeServeWebController.shared.ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
             guard let serveWebURL,
-                  let openFolderURL = VSCodeServeWebURLBuilder.openFolderURL(
-                      baseWebUIURL: serveWebURL,
+                  let openFolderURL = serveWebURL.vscodeServeWebFolderURL(
                       directoryPath: normalizedDirectoryURL.path
                   ) else {
                 NSSound.beep()

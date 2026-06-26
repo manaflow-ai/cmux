@@ -173,7 +173,7 @@ final class FinderServicePathResolverTests: XCTestCase {
 }
 
 
-final class VSCodeServeWebURLBuilderTests: XCTestCase {
+final class VSCodeServeWebURLTests: XCTestCase {
     func testExtractWebUIURLParsesServeWebOutput() {
         let output = """
         *
@@ -182,15 +182,14 @@ final class VSCodeServeWebURLBuilderTests: XCTestCase {
         Web UI available at http://127.0.0.1:5555?tkn=test-token
         """
 
-        let url = VSCodeServeWebURLBuilder.extractWebUIURL(from: output)
+        let url = URL.vscodeServeWebUIURL(parsedFrom: output)
         XCTAssertEqual(url?.absoluteString, "http://127.0.0.1:5555?tkn=test-token")
     }
 
     func testOpenFolderURLAppendsFolderQueryWhilePreservingToken() {
         let baseURL = URL(string: "http://127.0.0.1:5555?tkn=test-token")!
 
-        let url = VSCodeServeWebURLBuilder.openFolderURL(
-            baseWebUIURL: baseURL,
+        let url = baseURL.vscodeServeWebFolderURL(
             directoryPath: "/Users/tester/Projects/cmux"
         )
 
@@ -202,8 +201,7 @@ final class VSCodeServeWebURLBuilderTests: XCTestCase {
     func testOpenFolderURLReplacesExistingFolderQuery() {
         let baseURL = URL(string: "http://127.0.0.1:5555?tkn=test-token&folder=/tmp/old")!
 
-        let url = VSCodeServeWebURLBuilder.openFolderURL(
-            baseWebUIURL: baseURL,
+        let url = baseURL.vscodeServeWebFolderURL(
             directoryPath: "/Users/tester/New Folder"
         )
 
@@ -220,7 +218,7 @@ final class VSCodeServeWebURLBuilderTests: XCTestCase {
 }
 
 
-final class VSCodeCLILaunchConfigurationBuilderTests: XCTestCase {
+final class VSCodeCLILaunchConfigurationResolverTests: XCTestCase {
     func testLaunchConfigurationPrefersCachedCodeServerOverCodeTunnelWrapper() {
         let appURL = URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true)
         let productURL = appURL.appendingPathComponent("Contents/Resources/app/product.json", isDirectory: false)
@@ -229,8 +227,7 @@ final class VSCodeCLILaunchConfigurationBuilderTests: XCTestCase {
         let codeTunnelPath = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel"
         let expectedExecutablePath = "/Users/tester/.vscode/cli/serve-web/server-new/bin/code-server"
 
-        let configuration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
-            vscodeApplicationURL: appURL,
+        let configuration = VSCodeCLILaunchConfigurationResolver(
             homeDirectoryURL: URL(fileURLWithPath: "/Users/tester", isDirectory: true),
             baseEnvironment: [
                 "ELECTRON_RUN_AS_NODE": "stale",
@@ -250,7 +247,7 @@ final class VSCodeCLILaunchConfigurationBuilderTests: XCTestCase {
                 return []
             },
             contentModificationDateAtURL: { _ in nil }
-        )
+        ).launchConfiguration(vscodeApplicationURL: appURL)
 
         XCTAssertEqual(configuration?.executableURL.path, expectedExecutablePath)
         XCTAssertEqual(configuration?.argumentsPrefix, [])
@@ -261,15 +258,14 @@ final class VSCodeCLILaunchConfigurationBuilderTests: XCTestCase {
         let appURL = URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true)
         let expectedExecutablePath = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel"
 
-        let configuration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
-            vscodeApplicationURL: appURL,
+        let configuration = VSCodeCLILaunchConfigurationResolver(
             homeDirectoryURL: URL(fileURLWithPath: "/Users/tester", isDirectory: true),
             baseEnvironment: [:],
             isExecutableAtPath: { $0 == expectedExecutablePath },
             dataAtURL: { _ in nil },
             contentsOfDirectoryAtURL: { _ in [] },
             contentModificationDateAtURL: { _ in nil }
-        )
+        ).launchConfiguration(vscodeApplicationURL: appURL)
 
         XCTAssertEqual(configuration?.executableURL.path, expectedExecutablePath)
         XCTAssertEqual(configuration?.argumentsPrefix, ["serve-web"])
@@ -277,14 +273,15 @@ final class VSCodeCLILaunchConfigurationBuilderTests: XCTestCase {
     }
 
     func testLaunchConfigurationMapsNodeEnvironmentVariables() {
-        let configuration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
-            vscodeApplicationURL: URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true),
+        let configuration = VSCodeCLILaunchConfigurationResolver(
             baseEnvironment: [
                 "PATH": "/usr/bin:/bin",
                 "NODE_OPTIONS": "--max-old-space-size=4096",
                 "NODE_REPL_EXTERNAL_MODULE": "module-name"
             ],
             isExecutableAtPath: { _ in true }
+        ).launchConfiguration(
+            vscodeApplicationURL: URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true)
         )
 
         XCTAssertEqual(configuration?.environment["PATH"], "/usr/bin:/bin")
@@ -295,14 +292,15 @@ final class VSCodeCLILaunchConfigurationBuilderTests: XCTestCase {
     }
 
     func testLaunchConfigurationClearsStaleVSCodeNodeVariablesWhenNodeVariablesAreAbsent() {
-        let configuration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
-            vscodeApplicationURL: URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true),
+        let configuration = VSCodeCLILaunchConfigurationResolver(
             baseEnvironment: [
                 "PATH": "/usr/bin:/bin",
                 "VSCODE_NODE_OPTIONS": "--stale",
                 "VSCODE_NODE_REPL_EXTERNAL_MODULE": "stale-module"
             ],
             isExecutableAtPath: { _ in true }
+        ).launchConfiguration(
+            vscodeApplicationURL: URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true)
         )
 
         XCTAssertEqual(configuration?.environment["PATH"], "/usr/bin:/bin")
