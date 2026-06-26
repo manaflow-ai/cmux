@@ -101,6 +101,21 @@ extension SurfaceResumeBindingSnapshot {
 extension SurfaceResumeCommandCanonicalizer {
     static func replacingPortableAgentExecutable(in command: String, kind: String?) -> String {
         let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(command)
+        if let portableShellCommand = portableShellCommand(in: words) {
+            let repairedInnerCommand = replacingPortableAgentExecutable(
+                in: portableShellCommand.innerCommand,
+                kind: kind
+            )
+            guard repairedInnerCommand != portableShellCommand.innerCommand else {
+                return command
+            }
+            return [
+                shellQuoted(portableShellCommand.shell),
+                shellQuoted(portableShellCommand.option),
+                literalSingleQuoted(repairedInnerCommand),
+            ].joined(separator: " ")
+        }
+
         guard let executableIndex = commandExecutableWordIndex(in: words, command: command) else { return command }
         let executable = words[executableIndex].value
         guard executable.hasPrefix("/") else { return command }
@@ -131,6 +146,25 @@ extension SurfaceResumeCommandCanonicalizer {
                 executableName: executableName
             )
         }
+    }
+
+    private static func portableShellCommand(
+        in words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange]
+    ) -> (shell: String, option: String, innerCommand: String)? {
+        guard words.count == 3,
+              words[0].value == "/bin/sh",
+              words[1].value == "-c" || words[1].value == "-lc" else {
+            return nil
+        }
+        return (
+            shell: words[0].value,
+            option: words[1].value,
+            innerCommand: words[2].value
+        )
+    }
+
+    private static func literalSingleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     private static func portableAgentExecutableName(for kind: String?, executableBasename: String) -> String? {

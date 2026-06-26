@@ -255,20 +255,14 @@ struct WorkspaceHermesAgentCommandBootstrapper {
         let range: Range<String.Index>
     }
 
-    private struct PortableShellCommand {
-        let shell: String
-        let option: String
-        let innerCommand: String
-    }
-
-    private func portableShellCommand(_ command: String) -> PortableShellCommand? {
+    private func portableShellCommand(_ command: String) -> (shell: String, option: String, innerCommand: String)? {
         let words = shellWords(in: command)
         guard words.count == 3,
               words[0].value == "/bin/sh",
               words[1].value == "-c" || words[1].value == "-lc" else {
             return nil
         }
-        return PortableShellCommand(
+        return (
             shell: words[0].value,
             option: words[1].value,
             innerCommand: words[2].value
