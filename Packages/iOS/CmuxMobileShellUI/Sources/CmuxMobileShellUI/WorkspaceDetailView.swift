@@ -77,7 +77,6 @@ struct WorkspaceDetailView: View {
     /// grid already sits below the nav bar (in the top safe area), so this is just
     /// a hairline so the first row is not jammed against the bar's bottom edge.
     private var terminalTopPadding: CGFloat { 4 }
-
     /// The active browser surface for this workspace, when a browser pane is open.
     private var activeBrowser: BrowserSurfaceState? {
         browserStore.activeBrowser(for: workspace.id.rawValue)
@@ -162,8 +161,7 @@ struct WorkspaceDetailView: View {
                     isChatMode = false
                 }
                 pinnedChatSessionID = nil
-            },
-            sendTerminalInput: sendTerminalInput
+            }
         )
         .id(session.id)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

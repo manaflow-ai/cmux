@@ -26,8 +26,6 @@ struct WorkspaceChatPane: View {
     @Binding var draft: String
     /// Flips chat mode off (the toggle's "back to terminal" path).
     let onExitChat: () -> Void
-    /// Sends raw text/control bytes to the session's terminal.
-    let sendTerminalInput: (String) -> Void
 
     @Environment(BrowserSurfaceStore.self) private var browserStore
 
@@ -192,7 +190,7 @@ struct WorkspaceChatPane: View {
                 systemImage: validSymbolName(custom.symbolName),
                 accessibilityLabel: custom.title
             ) {
-                sendTerminalInput(text)
+                sendSessionTerminalInput(text)
             }
         }
     }
@@ -213,7 +211,16 @@ struct WorkspaceChatPane: View {
                   let text = String(data: output, encoding: .utf8) else {
                 return
             }
-            sendTerminalInput(text)
+            sendSessionTerminalInput(text)
+        }
+    }
+
+    private func sendSessionTerminalInput(_ text: String) {
+        guard let terminalID = session.terminalID,
+              let data = text.data(using: .utf8)
+        else { return }
+        Task {
+            await store.submitTerminalRawInput(data, surfaceID: terminalID)
         }
     }
 
