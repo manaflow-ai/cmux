@@ -55,33 +55,15 @@ public struct SSHConfigParser: Sendable {
     }
 
     // MARK: - Scoped directives
+    //
+    // The `Scope` enum lives in SSHConfigParser+Scope.swift (one major type per
+    // file). These two trivial aggregates stay here as tuple typealiases.
 
-    /// The matching context a directive was seen in: a conjunction of `Host`
-    /// condition sets that must ALL match, or an unevaluable `Match` block.
-    ///
-    /// Conditions compound across conditional includes. A `Host` line inside a
-    /// file `Include`d under `Host work` carries both `work` and its own
-    /// patterns, so its directives reach only hosts in the intersection — the
-    /// way ssh reads that include only for work-matching targets.
-    enum Scope {
-        /// A conjunction of `Host`-line condition sets; an alias matches only if
-        /// it matches every set. `[]` matches every host (global).
-        case conditions([[HostPattern]])
-        /// A `Match` block (or anything we cannot evaluate statically); never
-        /// matches, and contributes no aliases.
-        case ignored
-    }
+    /// A single `Host` pattern: its glob text plus whether it was negated (`!`).
+    typealias HostPattern = (glob: String, negated: Bool)
 
-    struct HostPattern: Equatable {
-        let glob: String
-        let negated: Bool
-    }
-
-    private struct ScopedDirective {
-        let scope: Scope
-        let key: String
-        let value: String
-    }
+    /// A directive captured with the ``Scope`` it was seen in.
+    typealias ScopedDirective = (scope: Scope, key: String, value: String)
 
     /// Collect aliases and scoped directives from one config file's text.
     /// `enclosingConditions` is the conjunction of `Host` conditions this file
@@ -143,7 +125,7 @@ public struct SSHConfigParser: Sendable {
                     }
                 }
             default:
-                directives.append(ScopedDirective(scope: currentScope, key: key, value: value))
+                directives.append((scope: currentScope, key: key, value: value))
             }
         }
     }
@@ -298,7 +280,7 @@ public struct SSHConfigParser: Sendable {
                 text = String(text.dropFirst())
             }
             guard !text.isEmpty else { return nil }
-            return HostPattern(glob: text, negated: negated)
+            return (glob: text, negated: negated)
         }
     }
 
