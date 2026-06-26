@@ -8,28 +8,35 @@ import XCTest
 
 // MARK: - Variable parsing
 
-final class CmuxCommandVariableParserTests: XCTestCase {
+final class CmuxCommandTemplateTests: XCTestCase {
+
+    private func variables(_ command: String) -> [CmuxCommandVariable] {
+        CmuxCommandTemplate(rawValue: command).variables
+    }
+
+    private func substitute(_ command: String, _ values: [String: String]) -> String {
+        CmuxCommandTemplate(rawValue: command).substituting(values)
+    }
 
     func testNoPlaceholdersReturnsEmpty() {
-        XCTAssertEqual(CmuxCommandVariableParser.variables(in: "npm test"), [])
-        XCTAssertFalse(CmuxCommandVariableParser.containsVariables("npm test"))
+        XCTAssertEqual(variables("npm test"), [])
+        XCTAssertFalse(CmuxCommandTemplate(rawValue: "npm test").containsVariables)
     }
 
     func testSinglePlaceholder() {
-        let vars = CmuxCommandVariableParser.variables(in: "bin/deploy --env {{environment}}")
-        XCTAssertEqual(vars, [CmuxCommandVariable(name: "environment", defaultValue: nil)])
-        XCTAssertTrue(CmuxCommandVariableParser.containsVariables("bin/deploy --env {{environment}}"))
+        XCTAssertEqual(variables("bin/deploy --env {{environment}}"),
+                       [CmuxCommandVariable(name: "environment", defaultValue: nil)])
+        XCTAssertTrue(CmuxCommandTemplate(rawValue: "bin/deploy --env {{environment}}").containsVariables)
     }
 
     func testPlaceholderWithDefault() {
-        let vars = CmuxCommandVariableParser.variables(in: "bin/deploy --env {{environment=staging}}")
-        XCTAssertEqual(vars, [CmuxCommandVariable(name: "environment", defaultValue: "staging")])
+        XCTAssertEqual(variables("bin/deploy --env {{environment=staging}}"),
+                       [CmuxCommandVariable(name: "environment", defaultValue: "staging")])
     }
 
     func testWhitespaceIsTrimmed() {
-        let vars = CmuxCommandVariableParser.variables(in: "echo {{  name  }} {{ env = prod }}")
         XCTAssertEqual(
-            vars,
+            variables("echo {{  name  }} {{ env = prod }}"),
             [
                 CmuxCommandVariable(name: "name", defaultValue: nil),
                 CmuxCommandVariable(name: "env", defaultValue: "prod"),
@@ -38,122 +45,95 @@ final class CmuxCommandVariableParserTests: XCTestCase {
     }
 
     func testMultipleDistinctPlaceholdersPreserveOrder() {
-        let command = "bin/deploy --env {{environment}} --branch {{branch}}"
-        let vars = CmuxCommandVariableParser.variables(in: command)
-        XCTAssertEqual(vars.map(\.name), ["environment", "branch"])
+        XCTAssertEqual(variables("bin/deploy --env {{environment}} --branch {{branch}}").map(\.name),
+                       ["environment", "branch"])
     }
 
     func testDuplicatePlaceholdersAreDeduplicatedKeepingFirstDefault() {
-        let command = "echo {{env=a}} && deploy {{env=b}}"
-        let vars = CmuxCommandVariableParser.variables(in: command)
-        XCTAssertEqual(vars, [CmuxCommandVariable(name: "env", defaultValue: "a")])
+        XCTAssertEqual(variables("echo {{env=a}} && deploy {{env=b}}"),
+                       [CmuxCommandVariable(name: "env", defaultValue: "a")])
     }
 
     func testNameAllowsBareIdentifiers() {
-        let vars = CmuxCommandVariableParser.variables(in: "x {{branch_name}} {{RAILS_ENV}} {{my-var}}")
-        XCTAssertEqual(vars.map(\.name), ["branch_name", "RAILS_ENV", "my-var"])
+        XCTAssertEqual(variables("x {{branch_name}} {{RAILS_ENV}} {{my-var}}").map(\.name),
+                       ["branch_name", "RAILS_ENV", "my-var"])
     }
 
     func testEmptyPlaceholderIsIgnored() {
-        XCTAssertEqual(CmuxCommandVariableParser.variables(in: "echo {{}} {{   }}"), [])
+        XCTAssertEqual(variables("echo {{}} {{   }}"), [])
     }
 
     func testShellSyntaxIsNotMistakenForVariables() {
         // Names with shell-special characters keep the braces literal so
         // ordinary shell snippets are never treated as variables.
-        XCTAssertEqual(CmuxCommandVariableParser.variables(in: "echo {{ $(date) }}"), [])
-        XCTAssertEqual(CmuxCommandVariableParser.variables(in: "awk '{{ print $1 | sort }}'"), [])
-        XCTAssertEqual(CmuxCommandVariableParser.variables(in: "echo {{1+1}}"), [])
-        XCTAssertEqual(CmuxCommandVariableParser.variables(in: "echo {{a/b}}"), [])
+        XCTAssertEqual(variables("echo {{ $(date) }}"), [])
+        XCTAssertEqual(variables("awk '{{ print $1 | sort }}'"), [])
+        XCTAssertEqual(variables("echo {{1+1}}"), [])
+        XCTAssertEqual(variables("echo {{a/b}}"), [])
     }
 
     func testTemplateExpressionsAreLeftUntouched() {
         // Go/Handlebars-style templates (leading dot, internal spaces, pipes,
         // functions) must not be mistaken for cmux variables, so existing
         // templated shell commands keep running unchanged.
-        XCTAssertEqual(CmuxCommandVariableParser.variables(in: "gomplate -i '{{ .Env.FOO }}'"), [])
-        XCTAssertEqual(CmuxCommandVariableParser.variables(in: "echo '{{ range .Items }}'"), [])
-        XCTAssertEqual(CmuxCommandVariableParser.variables(in: "echo '{{ name | upper }}'"), [])
-        XCTAssertEqual(CmuxCommandVariableParser.variables(in: "echo '{{.value}}'"), [])
-        XCTAssertEqual(
-            CmuxCommandVariableParser.substitute("gomplate -i '{{ .Env.FOO }}'", values: ["FOO": "x"]),
-            "gomplate -i '{{ .Env.FOO }}'"
-        )
+        XCTAssertEqual(variables("gomplate -i '{{ .Env.FOO }}'"), [])
+        XCTAssertEqual(variables("echo '{{ range .Items }}'"), [])
+        XCTAssertEqual(variables("echo '{{ name | upper }}'"), [])
+        XCTAssertEqual(variables("echo '{{.value}}'"), [])
+        XCTAssertEqual(substitute("gomplate -i '{{ .Env.FOO }}'", ["FOO": "x"]),
+                       "gomplate -i '{{ .Env.FOO }}'")
     }
 
     func testBackslashEscapeProducesLiteralBraces() {
         // `\{{name}}` is not a variable and the backslash is stripped on run.
-        XCTAssertEqual(CmuxCommandVariableParser.variables(in: "echo \\{{name}}"), [])
-        XCTAssertEqual(CmuxCommandVariableParser.substitute("echo \\{{name}}", values: [:]), "echo {{name}}")
+        XCTAssertEqual(variables("echo \\{{name}}"), [])
+        XCTAssertEqual(substitute("echo \\{{name}}", [:]), "echo {{name}}")
         // An escaped and an unescaped occurrence can coexist; only the real
         // variable is substituted (and shell-quoted).
         let mixed = "echo \\{{env}} {{env}}"
-        XCTAssertEqual(CmuxCommandVariableParser.variables(in: mixed).map(\.name), ["env"])
-        XCTAssertEqual(
-            CmuxCommandVariableParser.substitute(mixed, values: ["env": "prod"]),
-            "echo {{env}} 'prod'"
-        )
+        XCTAssertEqual(variables(mixed).map(\.name), ["env"])
+        XCTAssertEqual(substitute(mixed, ["env": "prod"]), "echo {{env}} 'prod'")
     }
 
     func testNewlineInsidePlaceholderIsIgnored() {
-        XCTAssertEqual(CmuxCommandVariableParser.variables(in: "echo {{na\nme}}"), [])
+        XCTAssertEqual(variables("echo {{na\nme}}"), [])
     }
 
     // MARK: Substitution
 
     func testSubstituteShellQuotesEveryOccurrence() {
-        let result = CmuxCommandVariableParser.substitute(
-            "echo {{x}} and {{x}}",
-            values: ["x": "hi"]
-        )
-        XCTAssertEqual(result, "echo 'hi' and 'hi'")
+        XCTAssertEqual(substitute("echo {{x}} and {{x}}", ["x": "hi"]), "echo 'hi' and 'hi'")
     }
 
     func testSubstituteReplacesPlaceholderIncludingDefault() {
-        let result = CmuxCommandVariableParser.substitute(
-            "bin/deploy --env {{environment=staging}}",
-            values: ["environment": "production"]
-        )
-        XCTAssertEqual(result, "bin/deploy --env 'production'")
+        XCTAssertEqual(substitute("bin/deploy --env {{environment=staging}}", ["environment": "production"]),
+                       "bin/deploy --env 'production'")
     }
 
     func testSubstituteLeavesUnknownPlaceholdersIntact() {
-        let result = CmuxCommandVariableParser.substitute(
-            "{{a}}-{{b}}",
-            values: ["a": "x"]
-        )
-        XCTAssertEqual(result, "'x'-{{b}}")
+        XCTAssertEqual(substitute("{{a}}-{{b}}", ["a": "x"]), "'x'-{{b}}")
     }
 
     func testSubstituteWithNoPlaceholdersReturnsInput() {
-        XCTAssertEqual(
-            CmuxCommandVariableParser.substitute("npm test", values: ["x": "y"]),
-            "npm test"
-        )
+        XCTAssertEqual(substitute("npm test", ["x": "y"]), "npm test")
     }
 
     func testSubstitutePreservesValuesWithSpecialCharacters() {
-        let result = CmuxCommandVariableParser.substitute(
-            "git checkout {{branch}}",
-            values: ["branch": "feature/new-thing"]
-        )
-        XCTAssertEqual(result, "git checkout 'feature/new-thing'")
+        XCTAssertEqual(substitute("git checkout {{branch}}", ["branch": "feature/new-thing"]),
+                       "git checkout 'feature/new-thing'")
     }
 
     func testSubstituteNeutralizesShellMetacharacters() {
         // A value with shell metacharacters is passed as one literal argument,
         // never as separate shell words.
-        let result = CmuxCommandVariableParser.substitute(
-            "git checkout {{branch}}",
-            values: ["branch": "main; rm -rf /"]
-        )
-        XCTAssertEqual(result, "git checkout 'main; rm -rf /'")
+        XCTAssertEqual(substitute("git checkout {{branch}}", ["branch": "main; rm -rf /"]),
+                       "git checkout 'main; rm -rf /'")
     }
 
     func testShellQuoteEscapesEmbeddedSingleQuotes() {
-        XCTAssertEqual(CmuxCommandVariableParser.shellQuote("it's"), "'it'\\''s'")
-        XCTAssertEqual(CmuxCommandVariableParser.shellQuote(""), "''")
-        XCTAssertEqual(CmuxCommandVariableParser.shellQuote("plain"), "'plain'")
+        XCTAssertEqual(CmuxCommandTemplate.shellQuote("it's"), "'it'\\''s'")
+        XCTAssertEqual(CmuxCommandTemplate.shellQuote(""), "''")
+        XCTAssertEqual(CmuxCommandTemplate.shellQuote("plain"), "'plain'")
     }
 }
 

@@ -16,8 +16,11 @@ struct CmuxCommandVariable: Equatable, Sendable {
     let defaultValue: String?
 }
 
-/// Parses and substitutes `{{variable}}` placeholders inside custom command
-/// strings.
+/// A custom command string that may contain `{{variable}}` placeholders.
+///
+/// Wrapping the command in a value type keeps the placeholder logic on a
+/// constructable type (`CmuxCommandTemplate(rawValue:)`) rather than a static
+/// namespace.
 ///
 /// Grammar (deliberately narrow so it does not regress shell commands that
 /// embed Go/Handlebars-style `{{…}}` templates):
@@ -31,29 +34,36 @@ struct CmuxCommandVariable: Equatable, Sendable {
 ///   completely untouched and runs as-is.
 /// - Prefix the placeholder with a backslash (`\{{name}}`) to force a literal
 ///   `{{name}}`; cmux strips the backslash and never prompts for it.
-enum CmuxCommandVariableParser {
-    /// Returns the ordered, de-duplicated variables found in `command`,
-    /// preserving first-occurrence order. When the same name appears more than
-    /// once, the first occurrence's default value wins.
-    static func variables(in command: String) -> [CmuxCommandVariable] {
-        guard command.contains("{{") else { return [] }
+struct CmuxCommandTemplate {
+    /// The raw command string, exactly as written in `cmux.json`.
+    let rawValue: String
+
+    init(rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    /// The ordered, de-duplicated variables in the command, preserving
+    /// first-occurrence order. When the same name appears more than once, the
+    /// first occurrence's default value wins.
+    var variables: [CmuxCommandVariable] {
+        guard rawValue.contains("{{") else { return [] }
         var seen = Set<String>()
         var result: [CmuxCommandVariable] = []
-        for case let .variable(variable, _) in scan(command) where seen.insert(variable.name).inserted {
+        for case let .variable(variable, _) in scan() where seen.insert(variable.name).inserted {
             result.append(variable)
         }
         return result
     }
 
-    /// Whether `command` contains at least one recognized variable placeholder.
-    static func containsVariables(_ command: String) -> Bool {
-        guard command.contains("{{") else { return false }
-        for case .variable in scan(command) { return true }
+    /// Whether the command contains at least one recognized variable placeholder.
+    var containsVariables: Bool {
+        guard rawValue.contains("{{") else { return false }
+        for case .variable in scan() { return true }
         return false
     }
 
-    /// Resolves `command` for execution: replaces every recognized placeholder
-    /// whose name is present in `values` with its value as a single
+    /// Resolves the command for execution: replaces every recognized
+    /// placeholder whose name is present in `values` with its value as a single
     /// POSIX-quoted shell argument, leaves placeholders whose name is missing
     /// from `values` untouched, leaves non-identifier `{{…}}` template
     /// expressions untouched, and strips the escaping backslash from any
@@ -62,17 +72,17 @@ enum CmuxCommandVariableParser {
     /// Values are shell-quoted so that whatever the user types is passed as one
     /// literal argument — a value like `main; rm -rf /` cannot break out of the
     /// command and run as separate shell words.
-    static func substitute(_ command: String, values: [String: String]) -> String {
-        guard command.contains("{{") else { return command }
+    func substituting(_ values: [String: String]) -> String {
+        guard rawValue.contains("{{") else { return rawValue }
         var result = ""
-        result.reserveCapacity(command.count)
-        for token in scan(command) {
+        result.reserveCapacity(rawValue.count)
+        for token in scan() {
             switch token {
             case .literal(let text):
                 result.append(text)
             case .variable(let variable, let raw):
                 if let value = values[variable.name] {
-                    result.append(shellQuote(value))
+                    result.append(Self.shellQuote(value))
                 } else {
                     result.append(raw)
                 }
@@ -98,7 +108,8 @@ enum CmuxCommandVariableParser {
         case variable(CmuxCommandVariable, raw: String)
     }
 
-    private static func scan(_ command: String) -> [Token] {
+    private func scan() -> [Token] {
+        let command = rawValue
         var tokens: [Token] = []
         var literalStart = command.startIndex
         var index = command.startIndex
@@ -139,7 +150,7 @@ enum CmuxCommandVariableParser {
                 continue
             }
 
-            if let parsed = parse(inner: String(inner)) {
+            if let parsed = Self.parse(inner: String(inner)) {
                 flushLiteral(upTo: open.lowerBound)
                 tokens.append(
                     .variable(

@@ -121,6 +121,17 @@ struct CmuxConfigExecutor {
         }
     }
 
+    /// Resolves any `{{variable}}` placeholders, then authorizes and dispatches
+    /// the command. This single choke point feeds every command entrypoint
+    /// (palette, surface tab-bar buttons, dock, …), so variable prompting and
+    /// trust handling apply to all of them without per-surface duplication.
+    ///
+    /// - Returns: `true` when the request was accepted for handling — either it
+    ///   was authorized and dispatched, or an asynchronous variable/confirm
+    ///   sheet was presented. As with the existing confirm-dialog path, a
+    ///   `true` result does not guarantee execution: `onAuthorized` is invoked
+    ///   later only if the user fills in the prompt and the action is
+    ///   authorized, and is never called if the user cancels.
     @discardableResult
     static func prepareShellInputIfAuthorized(
         _ rawCommand: String,
@@ -135,17 +146,13 @@ struct CmuxConfigExecutor {
         presentingWindow: NSWindow? = nil,
         onAuthorized: @escaping (String) -> Void
     ) -> Bool {
-        // Resolve any `{{variable}}` placeholders before authorizing/dispatching.
-        // This single choke point feeds every command entrypoint (palette,
-        // surface tab-bar buttons, dock, …), so the prompt applies to all of
-        // them without per-surface duplication.
-        let variables = CmuxCommandVariableParser.variables(in: rawCommand)
+        let template = CmuxCommandTemplate(rawValue: rawCommand)
+        let variables = template.variables
         guard !variables.isEmpty else {
             // No variables to prompt for, but still strip any escaped
             // `\{{…}}` placeholders so they run as literal `{{…}}`.
-            let resolvedCommand = CmuxCommandVariableParser.substitute(rawCommand, values: [:])
             return authorizeSanitizedShellCommand(
-                resolvedCommand,
+                template.substituting([:]),
                 confirm: confirm,
                 actionID: actionID,
                 target: target,
@@ -160,26 +167,22 @@ struct CmuxConfigExecutor {
         }
 
         let resolvedWindow = presentingWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
-        return CmuxCommandVariablePrompt.present(
-            variables: variables,
-            displayTitle: displayTitle,
-            presentingWindow: resolvedWindow
-        ) { values in
-            let substituted = CmuxCommandVariableParser.substitute(rawCommand, values: values)
-            _ = authorizeSanitizedShellCommand(
-                substituted,
-                confirm: confirm,
-                actionID: actionID,
-                target: target,
-                configSourcePath: configSourcePath,
-                globalConfigPath: globalConfigPath,
-                displayTitle: displayTitle,
-                icon: icon,
-                iconSourcePath: iconSourcePath,
-                presentingWindow: resolvedWindow,
-                onAuthorized: onAuthorized
-            )
-        }
+        return CmuxCommandVariablePrompt(variables: variables, displayTitle: displayTitle)
+            .present(in: resolvedWindow) { values in
+                _ = authorizeSanitizedShellCommand(
+                    template.substituting(values),
+                    confirm: confirm,
+                    actionID: actionID,
+                    target: target,
+                    configSourcePath: configSourcePath,
+                    globalConfigPath: globalConfigPath,
+                    displayTitle: displayTitle,
+                    icon: icon,
+                    iconSourcePath: iconSourcePath,
+                    presentingWindow: resolvedWindow,
+                    onAuthorized: onAuthorized
+                )
+            }
     }
 
     @discardableResult

@@ -11,7 +11,12 @@ import Foundation
 /// ``CmuxConfigExecutor/prepareShellInputIfAuthorized(_:confirm:actionID:target:configSourcePath:globalConfigPath:displayTitle:icon:iconSourcePath:presentingWindow:onAuthorized:)``,
 /// wiring the prompt there gives variable support to all of them at once.
 @MainActor
-enum CmuxCommandVariablePrompt {
+struct CmuxCommandVariablePrompt {
+    /// The variables to prompt for, in display order.
+    let variables: [CmuxCommandVariable]
+    /// Optional dialog title (typically the command's display name).
+    let displayTitle: String?
+
     /// Presents the variable prompt and invokes `completion` with the collected
     /// `[name: value]` map when the user confirms. Cancelling does nothing.
     ///
@@ -19,10 +24,8 @@ enum CmuxCommandVariablePrompt {
     ///   non-empty `variables`). When `variables` is empty the completion runs
     ///   immediately with an empty map.
     @discardableResult
-    static func present(
-        variables: [CmuxCommandVariable],
-        displayTitle: String?,
-        presentingWindow: NSWindow?,
+    func present(
+        in presentingWindow: NSWindow?,
         completion: @escaping ([String: String]) -> Void
     ) -> Bool {
         guard !variables.isEmpty else {
@@ -51,17 +54,18 @@ enum CmuxCommandVariablePrompt {
             defaultValue: "Cancel"
         ))
 
-        let fields = makeFields(for: variables)
-        alert.accessoryView = makeAccessoryView(variables: variables, fields: fields)
+        let fields = makeFields()
+        alert.accessoryView = makeAccessoryView(fields: fields)
         alert.layout()
         if let firstField = fields.first {
             alert.window.initialFirstResponder = firstField
         }
 
+        let captured = variables
         let handler: (NSApplication.ModalResponse) -> Void = { response in
             guard response == .alertFirstButtonReturn else { return }
             var values: [String: String] = [:]
-            for (variable, field) in zip(variables, fields) {
+            for (variable, field) in zip(captured, fields) {
                 values[variable.name] = field.stringValue
             }
             completion(values)
@@ -83,7 +87,7 @@ enum CmuxCommandVariablePrompt {
     private static let labelToInputGap: CGFloat = 3
     private static let rowGap: CGFloat = 10
 
-    private static func makeFields(for variables: [CmuxCommandVariable]) -> [NSTextField] {
+    private func makeFields() -> [NSTextField] {
         variables.map { variable in
             let field = NSTextField(string: variable.defaultValue ?? "")
             field.placeholderString = variable.name
@@ -95,15 +99,12 @@ enum CmuxCommandVariablePrompt {
         }
     }
 
-    private static func makeAccessoryView(
-        variables: [CmuxCommandVariable],
-        fields: [NSTextField]
-    ) -> NSView {
-        let rowHeight = labelHeight + labelToInputGap + inputHeight
+    private func makeAccessoryView(fields: [NSTextField]) -> NSView {
+        let rowHeight = Self.labelHeight + Self.labelToInputGap + Self.inputHeight
         let totalHeight = CGFloat(variables.count) * rowHeight
-            + CGFloat(max(0, variables.count - 1)) * rowGap
+            + CGFloat(max(0, variables.count - 1)) * Self.rowGap
         let container = FlippedView(
-            frame: NSRect(x: 0, y: 0, width: fieldWidth, height: totalHeight)
+            frame: NSRect(x: 0, y: 0, width: Self.fieldWidth, height: totalHeight)
         )
 
         var y: CGFloat = 0
@@ -112,18 +113,18 @@ enum CmuxCommandVariablePrompt {
             label.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
             label.textColor = .secondaryLabelColor
             label.lineBreakMode = .byTruncatingTail
-            label.frame = NSRect(x: 0, y: y, width: fieldWidth, height: labelHeight)
+            label.frame = NSRect(x: 0, y: y, width: Self.fieldWidth, height: Self.labelHeight)
             container.addSubview(label)
 
             field.frame = NSRect(
                 x: 0,
-                y: y + labelHeight + labelToInputGap,
-                width: fieldWidth,
-                height: inputHeight
+                y: y + Self.labelHeight + Self.labelToInputGap,
+                width: Self.fieldWidth,
+                height: Self.inputHeight
             )
             container.addSubview(field)
 
-            y += rowHeight + rowGap
+            y += rowHeight + Self.rowGap
         }
 
         // Tab order: walk the fields top-to-bottom, then loop back to the first.

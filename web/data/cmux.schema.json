@@ -37,6 +37,16 @@
       "items": {
         "type": "object",
         "additionalProperties": true,
+        "oneOf": [
+          {
+            "required": ["command"],
+            "not": { "required": ["workspace"] }
+          },
+          {
+            "required": ["workspace"],
+            "not": { "required": ["command"] }
+          }
+        ],
         "properties": {
           "name": {
             "type": "string",
