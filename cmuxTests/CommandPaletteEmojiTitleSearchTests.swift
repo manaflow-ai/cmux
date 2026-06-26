@@ -1,6 +1,12 @@
 import CmuxCommandPalette
 import Testing
 
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
 struct CommandPaletteEmojiTitleSearchTests {
     @Test func searchPrefersEmojiPrefixedFullTitleWordsOverPartialTitlePrefix() {
         let entries = [
@@ -72,5 +78,21 @@ struct CommandPaletteEmojiTitleSearchTests {
         ) { _, _ in 0 }
 
         #expect(results.first?.payload == "workspace.fullTitleMatch")
+    }
+
+    @MainActor
+    @Test func commandPaletteWorkspaceNameUsesRenamedGroupAnchorTitle() throws {
+        let manager = TabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let groupId = try #require(manager.createWorkspaceGroup(name: "Group 1", childWorkspaceIds: [manager.tabs[0].id]))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let anchor = try #require(manager.tabs.first { $0.id == group.anchorWorkspaceId })
+
+        manager.renameWorkspaceGroup(groupId: groupId, name: "AUSTIN GENERAL INTELLIGENCE")
+
+        #expect(ContentView.commandPaletteWorkspaceDisplayName(
+            customTitle: anchor.customTitle,
+            resolvedTitle: manager.resolvedWorkspaceDisplayTitle(for: anchor)
+        ) == "AUSTIN GENERAL INTELLIGENCE")
     }
 }

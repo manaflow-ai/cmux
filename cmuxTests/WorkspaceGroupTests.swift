@@ -900,24 +900,6 @@ struct WorkspaceGroupTests {
         #expect(manager.resolvedWorkspaceDisplayTitle(for: anchor) == "AUSTIN GENERAL INTELLIGENCE")
     }
 
-    @Test func commandPaletteWorkspaceNameUsesRenamedGroupAnchorTitle() throws {
-        let manager = makeTabManager()
-        let groupId = try #require(
-            manager.createWorkspaceGroup(name: "Group 1", childWorkspaceIds: [manager.tabs[0].id])
-        )
-        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
-        let anchor = try #require(manager.tabs.first { $0.id == group.anchorWorkspaceId })
-
-        manager.renameWorkspaceGroup(groupId: groupId, name: "AUSTIN GENERAL INTELLIGENCE")
-
-        let displayName = ContentView.commandPaletteWorkspaceDisplayName(
-            customTitle: anchor.customTitle,
-            resolvedTitle: manager.resolvedWorkspaceDisplayTitle(for: anchor)
-        )
-
-        #expect(displayName == "AUSTIN GENERAL INTELLIGENCE")
-    }
-
     // A non-anchor workspace keeps its own title; only the anchor mirrors the
     // group name. Guards against the derivation over-reaching to every member.
     @Test func renamingGroupLeavesNonAnchorMemberTitleAlone() throws {

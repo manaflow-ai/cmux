@@ -5151,7 +5151,7 @@ struct ContentView: View {
                 workspaces: commandPaletteOrderedSwitcherWorkspaces(for: context).map { workspace in
                     CommandPaletteSwitcherFingerprintWorkspace(
                         id: workspace.id,
-                        displayName: workspaceDisplayName(workspace),
+                        displayName: workspaceDisplayName(workspace) + (context.tabManager.workspaceGroups.contains(where: { $0.anchorWorkspaceId == workspace.id }) ? "\u{0}group" : ""),
                         metadata: commandPaletteWorkspaceSearchMetadata(for: workspace),
                         surfaces: includeSurfaces
                             ? commandPaletteOrderedSwitcherPanels(for: workspace).compactMap { panelId in
@@ -5175,16 +5175,7 @@ struct ContentView: View {
                 }
             )
         }
-        var hasher = Hasher()
-        hasher.combine(CommandPaletteSwitcherFingerprintContext.fingerprint(windowContexts: fingerprintContexts))
-        for context in windowContexts {
-            hasher.combine(context.tabManager.workspaceGroups.count)
-            for group in context.tabManager.workspaceGroups {
-                hasher.combine(group.id)
-                hasher.combine(group.anchorWorkspaceId)
-            }
-        }
-        return hasher.finalize()
+        return CommandPaletteSwitcherFingerprintContext.fingerprint(windowContexts: fingerprintContexts)
     }
 
     private static func commandPaletteHighlightedTitleText(_ title: String, matchedIndices: Set<Int>) -> Text {
@@ -5280,10 +5271,7 @@ struct ContentView: View {
             let windowKeywords = commandPaletteWindowKeywords(windowLabel: context.windowLabel)
             for workspace in workspaces {
                 let workspaceName = workspaceDisplayName(workspace)
-                let workspaceKindLabel = commandPaletteWorkspaceKindLabel(
-                    for: workspace,
-                    tabManager: windowTabManager
-                )
+                let isWorkspaceGroupAnchor = windowTabManager.workspaceGroups.contains { $0.anchorWorkspaceId == workspace.id }
                 let workspaceCommandId = "switcher.workspace.\(workspace.id.uuidString.lowercased())"
                 let workspaceKeywords = CommandPaletteSwitcherSearchIndexer(
                     baseKeywords: [
@@ -5304,7 +5292,7 @@ struct ContentView: View {
                         title: workspaceName,
                         subtitle: Self.commandPaletteSwitcherSubtitle(base: String(localized: "commandPalette.switcher.workspaceLabel", defaultValue: "Workspace"), windowLabel: context.windowLabel),
                         shortcutHint: nil,
-                        kindLabel: workspaceKindLabel,
+                        kindLabel: isWorkspaceGroupAnchor ? String(localized: "commandPalette.kind.workspaceGroup", defaultValue: "Workspace group") : String(localized: "commandPalette.kind.workspace", defaultValue: "Workspace"),
                         keywords: workspaceKeywords,
                         dismissOnRun: true,
                         action: {
@@ -5427,16 +5415,6 @@ struct ContentView: View {
     private func commandPaletteWindowKeywords(windowLabel: String?) -> [String] {
         guard let windowLabel else { return [] }
         return ["window", windowLabel.lowercased()]
-    }
-
-    private func commandPaletteWorkspaceKindLabel(
-        for workspace: Workspace,
-        tabManager: TabManager
-    ) -> String {
-        if tabManager.workspaceGroups.contains(where: { $0.anchorWorkspaceId == workspace.id }) {
-            return String(localized: "commandPalette.kind.workspaceGroup", defaultValue: "Workspace group")
-        }
-        return String(localized: "commandPalette.kind.workspace", defaultValue: "Workspace")
     }
 
     private func commandPaletteOrderedSwitcherWorkspaces(
