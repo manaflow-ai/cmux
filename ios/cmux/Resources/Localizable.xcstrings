@@ -6937,24 +6937,6 @@
         }
       }
     },
-    "mobile.workspaces.macPicker.rowCountFormat": {
-      "comment": "Mac picker row: %1$@ is the Mac name, %2$d is how many workspaces that selection shows.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ (%2$d)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ (%2$d)"
-          }
-        }
-      }
-    },
     "mobile.workspaces.macPicker.title": {
       "extractionState": "manual",
       "localizations": {

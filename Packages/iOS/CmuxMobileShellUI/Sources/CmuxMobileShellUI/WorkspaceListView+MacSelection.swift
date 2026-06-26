@@ -35,19 +35,6 @@ extension WorkspaceListView {
         filter(forMacSelection: selection).matchCount(in: workspaces)
     }
 
-    /// A picker row label of the form "Name (3)", with the count rendered inline
-    /// without becoming part of the selected title (the title reads `name`).
-    func macPickerRowTitle(name: String, count: Int) -> String {
-        String(
-            format: L10n.string(
-                "mobile.workspaces.macPicker.rowCountFormat",
-                defaultValue: "%1$@ (%2$d)"
-            ),
-            name,
-            count
-        )
-    }
-
     var visibleMacSelection: WorkspaceMacSelection {
         let machineIDs = Set(macPickerMachines.map(\.id))
         switch macSelection {
@@ -137,24 +124,13 @@ extension WorkspaceListView {
                 L10n.string("mobile.workspaces.macPicker.title", defaultValue: "Choose Mac"),
                 selection: $macSelection
             ) {
-                Text(
-                    macPickerRowTitle(
-                        name: L10n.string(
-                            "mobile.workspaces.macPicker.allMacs",
-                            defaultValue: "All Macs"
-                        ),
-                        count: macSelectionCount(.all)
-                    )
-                )
-                .tag(WorkspaceMacSelection.all)
+                Text(L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Macs"))
+                    .badge(Text(macSelectionCount(.all), format: .number))
+                    .tag(WorkspaceMacSelection.all)
                 ForEach(macPickerMachines) { machine in
-                    Text(
-                        macPickerRowTitle(
-                            name: machine.name,
-                            count: macSelectionCount(.machine(machine.id))
-                        )
-                    )
-                    .tag(WorkspaceMacSelection.machine(machine.id))
+                    Text(machine.name)
+                        .badge(Text(macSelectionCount(.machine(machine.id)), format: .number))
+                        .tag(WorkspaceMacSelection.machine(machine.id))
                 }
             }
             .labelsVisibility(.visible)
