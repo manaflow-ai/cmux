@@ -2078,7 +2078,7 @@ final class CmuxConfigStore: ObservableObject {
         let newPath: String?
         if let directory, !directory.isEmpty {
             localConfigSearchDirectory = directory
-            newPath = resolvedLocalConfigPath(startingFrom: directory)
+            newPath = Self.resolvedLocalConfigPath(startingFrom: directory)
         } else {
             localConfigSearchDirectory = nil
             newPath = nil
@@ -2093,17 +2093,17 @@ final class CmuxConfigStore: ObservableObject {
         loadAll()
     }
 
-    private func resolvedLocalConfigPath(startingFrom directory: String) -> String {
+    private static func resolvedLocalConfigPath(startingFrom directory: String) -> String {
         findCmuxConfig(startingFrom: directory)
             ?? defaultLocalConfigPath(startingFrom: directory)
     }
 
-    private func defaultLocalConfigPath(startingFrom directory: String) -> String {
+    private static func defaultLocalConfigPath(startingFrom directory: String) -> String {
         (((directory as NSString).appendingPathComponent(".cmux") as NSString)
             .appendingPathComponent("cmux.json"))
     }
 
-    private func findCmuxConfig(startingFrom directory: String) -> String? {
+    private static func findCmuxConfig(startingFrom directory: String) -> String? {
         var current = directory
         let fs = FileManager.default
         while true {
@@ -2637,6 +2637,39 @@ final class CmuxConfigStore: ObservableObject {
 
     func resolvedAction(id: String) -> CmuxResolvedConfigAction? {
         actionLookup[canonicalActionID(id)]
+    }
+
+    func resolvedWorkspaceCommandAction(identifier: String) -> CmuxResolvedConfigAction? {
+        let trimmed = sanitizeConfigText(identifier)
+        guard !trimmed.isEmpty else { return nil }
+        if let action = resolvedAction(id: trimmed),
+           action.workspaceCommandName != nil {
+            return action
+        }
+        guard let command = loadedCommands.first(where: { command in
+            command.name == trimmed || command.id == trimmed
+        }), command.workspace != nil else {
+            return nil
+        }
+        return resolvedAction(id: command.id)
+    }
+
+    func executionContext(startingFrom directory: String?) -> CmuxConfigStore {
+        guard let directory = directory?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !directory.isEmpty else {
+            return self
+        }
+        let localPath = Self.resolvedLocalConfigPath(startingFrom: directory)
+        if localPath == localConfigPath {
+            return self
+        }
+        let context = CmuxConfigStore(
+            globalConfigPath: globalConfigPath,
+            localConfigPath: localPath,
+            startFileWatchers: false
+        )
+        context.loadAll()
+        return context
     }
 
     func paletteCustomActions() -> [CmuxResolvedConfigAction] {

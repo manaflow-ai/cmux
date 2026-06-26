@@ -24,6 +24,8 @@ public enum CmuxSidebarAction: Codable, Equatable, Sendable {
     case splitBrowser(workspaceID: UUID, surfaceID: UUID, direction: CmuxSidebarSplitDirection, url: String?)
     case toggleSurfaceZoom(workspaceID: UUID, surfaceID: UUID)
     case openURL(String)
+    case runWorkspaceCommand(name: String, workingDirectory: String?)
+    case invokeNewWorkspaceAction(workingDirectory: String?)
 
     public var requiredScopes: Set<CmuxExtensionActionScope> {
         switch self {
@@ -53,6 +55,9 @@ public enum CmuxSidebarAction: Codable, Equatable, Sendable {
             return [.zoomSurface]
         case .openURL:
             return [.openURL]
+        case .runWorkspaceCommand(_, let workingDirectory),
+             .invokeNewWorkspaceAction(let workingDirectory):
+            return workingDirectory == nil ? [.runWorkspaceCommand] : [.runWorkspaceCommand, .createWorkspaceWithPath]
         }
     }
 }

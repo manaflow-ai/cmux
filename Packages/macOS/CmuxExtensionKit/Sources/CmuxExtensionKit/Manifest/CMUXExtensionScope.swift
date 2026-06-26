@@ -23,4 +23,6 @@ public enum CmuxExtensionActionScope: String, Codable, CaseIterable, Equatable, 
     case navigateSurface
     case openURL
     case createWorkspaceWithPath
+    /// Run workspace commands already defined by the user in cmux.json.
+    case runWorkspaceCommand
 }

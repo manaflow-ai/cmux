@@ -8,6 +8,7 @@ Version 1 only supports sidebar extensions. The API exposes a stable workspace s
 - create, select, navigate, and close workspaces
 - create, select, navigate, split, zoom, and close surfaces
 - ask CMUX to open a URL
+- run workspace commands the user already defined in `cmux.json`
 
 The snapshot includes workspace identity, title, detail text, paths, git branch, unread state, listening ports, pull request URLs, and shared surface metadata. It does not expose terminal buffers, shell history, environment variables, secrets, or arbitrary filesystem access.
 
@@ -106,6 +107,10 @@ typed helpers for workspace, surface, and URL actions. Raw transport setup and
 host-side callbacks are SPI for CMUX's own host implementation.
 Creating or splitting a browser surface with a URL requires both the surface
 action scope and `openURL`.
+Running a workspace command uses only a command name or action identifier; CMUX
+resolves the user-authored `cmux.json` command host-side and never accepts shell
+text from the extension. Passing a working directory asks CMUX to resolve the
+nearest local config for that path and also requires `createWorkspaceWithPath`.
 
 ## Permissions
 
@@ -131,5 +136,6 @@ snapshot and rejects actions that have not been granted:
 - `navigateSurface`: select the next or previous surface
 - `openURL`: open links from your UI
 - `createWorkspaceWithPath`: create workspaces for specific local folders
+- `runWorkspaceCommand`: run workspace commands the user defined in `cmux.json`
 
 If your extension does not appear, confirm the containing app has been launched, the embedded appex is signed by your team, the extension point identifier is unchanged, and CMUX's Sidebar Extensions browser shows the extension as enabled.
