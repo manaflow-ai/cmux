@@ -1,4 +1,5 @@
 import Foundation
+import CMUXAgentLaunch
 import Darwin
 
 extension CMUXCLI {
@@ -426,9 +427,8 @@ extension CMUXCLI {
         record: ClaudeHookSessionRecord
     ) -> [String: Any] {
         let storedPIDAlive = sessionsListStoredPIDAlive(record.pid)
-        let agentSupportsFork = sessionsListAgentSupportsFork(agent)
         let hookRecordRestorable = record.isRestorable != false
-        let forkSupported = agentSupportsFork && hookRecordRestorable
+        let forkSupported = hookRecordRestorable && sessionsListForkArguments(agent: agent, record: record) != nil
         let unavailableReason: String
         if forkSupported {
             unavailableReason = "available"
@@ -449,12 +449,28 @@ extension CMUXCLI {
         return diagnostics
     }
 
-    private func sessionsListAgentSupportsFork(_ agent: String) -> Bool {
-        switch agent {
-        case "claude", "codex", "opencode", "pi", "omp":
-            return true
-        default:
-            return false
+    private func sessionsListForkArguments(
+        agent: String,
+        record: ClaudeHookSessionRecord
+    ) -> [String]? {
+        let normalizedSessionId = record.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSessionId.isEmpty else { return nil }
+        let forkArgv = AgentForkArgv()
+        switch forkArgv.launcherResolution(
+            launcher: record.launchCommand?.launcher,
+            sessionId: normalizedSessionId,
+            executablePath: record.launchCommand?.executablePath,
+            arguments: record.launchCommand?.arguments ?? []
+        ) {
+        case .resolved(let argv):
+            return argv
+        case .passthrough:
+            return forkArgv.builtInKind(
+                kind: agent,
+                sessionId: normalizedSessionId,
+                executablePath: record.launchCommand?.executablePath,
+                arguments: record.launchCommand?.arguments ?? []
+            )
         }
     }
 

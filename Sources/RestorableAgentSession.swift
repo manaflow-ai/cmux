@@ -501,63 +501,20 @@ enum AgentResumeCommandBuilder {
         workingDirectory: String?,
         customRegistration: CmuxVaultAgentRegistration?
     ) -> [String]? {
-        switch launchCommand?.launcher {
-        case "claudeTeams":
-            let original = commandParts(
-                launchCommand: launchCommand,
-                fallbackExecutable: "cmux"
-            )
-            var args = original.tail
-            if args.first == "claude-teams" {
-                args.removeFirst()
-            }
-            guard let preserved = AgentLaunchSanitizer.preservedClaudeTeamsLaunchArguments(args: args) else { return nil }
-            return [original.executable, "claude-teams", "--resume", sessionId, "--fork-session"] + preserved
-        case "codexTeams":
-            let original = commandParts(
-                launchCommand: launchCommand,
-                fallbackExecutable: "cmux"
-            )
-            var args = original.tail
-            if args.first == "codex-teams" {
-                args.removeFirst()
-            }
-            guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: args) else { return nil }
-            return [original.executable, "codex-teams", "fork", sessionId] + preserved
-        case "omo":
-            let original = commandParts(
-                launchCommand: launchCommand,
-                fallbackExecutable: "cmux"
-            )
-            var args = original.tail
-            if args.first == "omo" {
-                args.removeFirst()
-            }
-            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: args) else { return nil }
-            return [original.executable, "omo", "--session", sessionId, "--fork"] + preserved
-        case "omx", "omc":
-            return nil
-        default:
+        let forkArgv = AgentForkArgv()
+        switch forkArgv.launcherResolution(
+            launcher: launchCommand?.launcher,
+            sessionId: sessionId,
+            executablePath: launchCommand?.executablePath,
+            arguments: launchCommand?.arguments ?? []
+        ) {
+        case .resolved(let argv):
+            return argv
+        case .passthrough:
             break
         }
 
-        switch kind {
-        case .claude:
-            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "claude")
-            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "claude", args: original.tail) else { return nil }
-            // Mirror the resume path: route through the `claude` wrapper (not the
-            // captured real binary) so cmux hooks fire on the forked session.
-            // See https://github.com/manaflow-ai/cmux/issues/5427.
-            return ["claude", "--resume", sessionId, "--fork-session"] + preserved
-        case .codex:
-            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "codex")
-            guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: original.tail) else { return nil }
-            return [original.executable, "fork", sessionId] + preserved
-        case .opencode:
-            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "opencode")
-            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: original.tail) else { return nil }
-            return [original.executable, "--session", sessionId, "--fork"] + preserved
-        case .custom:
+        if case .custom = kind {
             guard let customRegistration else { return nil }
             let arguments = customForkArguments(
                 registration: customRegistration,
@@ -566,9 +523,14 @@ enum AgentResumeCommandBuilder {
                 workingDirectory: workingDirectory
             )
             return arguments.isEmpty ? nil : arguments
-        default:
-            return nil
         }
+
+        return forkArgv.builtInKind(
+            kind: kind.rawValue,
+            sessionId: sessionId,
+            executablePath: launchCommand?.executablePath,
+            arguments: launchCommand?.arguments ?? []
+        )
     }
 
     private static func customResumeArguments(
