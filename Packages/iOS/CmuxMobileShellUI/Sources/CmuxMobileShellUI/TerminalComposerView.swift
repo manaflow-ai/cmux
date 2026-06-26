@@ -163,12 +163,9 @@ struct TerminalComposerView: View {
         .onChange(of: store.terminalInputText) { _, _ in
             requestHeightRemeasure()
         }
-        // Staged attachments are the OTHER height driver: the chip row appears
-        // (0 -> 1) or disappears (1 -> 0) inside the bubble, changing the band's
-        // ideal height. Remeasure off the attachment count itself rather than
-        // relying on every mutation path to call `requestHeightRemeasure()`, so any
-        // staging route (the picker today, a future paste-into-composer path) grows
-        // the band instead of clipping the thumbnail in a one-line-measured field.
+        // Attachments are the other height driver: the chip row appearing/clearing
+        // changes the bubble's ideal height, so remeasure off the count itself — any
+        // staging route grows the band, not just paths that call the remeasure.
         .onChange(of: pendingAttachments.count) { _, _ in
             requestHeightRemeasure()
         }
