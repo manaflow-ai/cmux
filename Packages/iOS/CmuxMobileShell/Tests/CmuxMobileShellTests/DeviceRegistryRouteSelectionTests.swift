@@ -33,12 +33,41 @@ import Testing
         #expect(DeviceRegistryService.selectReconnectRoutes(local: routes, registry: routes) == nil)
     }
 
-    @Test func differentRegistryRoutesWin() throws {
-        // The Mac moved networks / changed port: registry has the current route.
-        let local = [try route(host: "100.0.0.1", port: 51000)]
-        let registry = [try route(host: "100.9.9.9", port: 51999)]
-        let selected = DeviceRegistryService.selectReconnectRoutes(local: local, registry: registry)
-        #expect(selected == registry)
+    @Test func differentRegistryRoutesAugmentLocalRoutes() throws {
+        // The Mac moved networks / changed port: the registry has a current route
+        // the local cache lacks. The union keeps BOTH (the stale local route
+        // fails fast if dead; the fresh registry route is tried first), so a
+        // partial registry response can never strand the phone by dropping a
+        // working route. The registry is authoritative, so it ranks first.
+        let local = [try route(host: "100.0.0.1", port: 51000, id: "old")]
+        let registry = [try route(host: "100.9.9.9", port: 51999, id: "new")]
+        let selected = try #require(
+            DeviceRegistryService.selectReconnectRoutes(local: local, registry: registry)
+        )
+        #expect(selected.count == 2)
+        if case let .hostPort(host, _) = selected.first?.endpoint {
+            #expect(host == "100.9.9.9") // registry route ranked ahead of cache
+        } else {
+            Issue.record("expected a host_port route first")
+        }
+        let hosts = selected.compactMap { route -> String? in
+            if case let .hostPort(host, _) = route.endpoint { return host }
+            return nil
+        }
+        #expect(hosts.contains("100.0.0.1")) // local route retained, not replaced
+    }
+
+    @Test func narrowerRegistrySubsetIsANoOp() throws {
+        // The registry advertises only a subset of the routes already cached
+        // locally (e.g. the LAN route lagged in the registry). There is nothing
+        // new to store, so keep the richer local set untouched (nil = no write).
+        let lan = try route(host: "192.168.1.50", port: 51000, id: "lan")
+        let tailnet = try route(host: "100.96.0.9", port: 51999, id: "tailnet")
+        let selected = DeviceRegistryService.selectReconnectRoutes(
+            local: [lan, tailnet],
+            registry: [tailnet]
+        )
+        #expect(selected == nil)
     }
 
     @Test func registryRoutesAreUnionedWithLocalNotReplaced() throws {

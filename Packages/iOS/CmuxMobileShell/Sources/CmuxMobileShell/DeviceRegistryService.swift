@@ -96,21 +96,54 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
 
     // MARK: - Reconnect route policy (pure, testable)
 
-    /// Choose the routes to persist for the next reconnect.
+    /// Fixed reference instant used to stamp both route sources when merging.
+    /// Local and registry routes have no per-route timestamps at this layer, so
+    /// stamping both equally makes freshness tie and ranking fall through to
+    /// source authority (registry over local cache) and proximity — keeping
+    /// ``selectReconnectRoutes(local:registry:)`` deterministic and clock-free
+    /// for tests.
+    private static let mergeReferenceDate = Date(timeIntervalSinceReferenceDate: 0)
+
+    /// Merge locally persisted routes with a fresh registry response into one
+    /// deduped, proximity-ranked candidate set to persist for the next reconnect.
     ///
-    /// The reconnect path connects on `local` routes immediately (no added
-    /// latency on the common case) and only *replaces* the persisted routes when
-    /// the registry returns a usable, different set, so a stale-route Mac gets
-    /// rescued on the next reconnect trigger. Returns `nil` to signal "no change
-    /// needed" (registry unavailable, empty, or identical), letting callers skip
-    /// a redundant store write and fall back to the locally persisted routes.
+    /// The registry *augments* the local routes rather than replacing them: a
+    /// partial or stale registry response (a route lagged behind, or the
+    /// single-instance selection returned a narrower set) can only add reachable
+    /// endpoints, never drop a still-valid offline-cached route. This is the
+    /// server-death graceful fallback for #6351 — reconnect no longer depends on
+    /// the registry being complete, and connectivity stays self-validating (a
+    /// dead route fails fast; the live one is tried first). The reconnect path
+    /// still connects on the local routes immediately, so this adds no latency to
+    /// the common case.
+    ///
+    /// Returns the merged union when the registry contributes at least one
+    /// endpoint the local cache lacked (persist the union), or `nil` when there
+    /// is nothing new to store — registry unavailable/empty, or every registry
+    /// endpoint is already cached locally — letting callers skip a redundant
+    /// store write and keep the locally persisted routes (and their order)
+    /// untouched.
     public static func selectReconnectRoutes(
         local: [CmxAttachRoute],
         registry: [CmxAttachRoute]?
     ) -> [CmxAttachRoute]? {
         guard let registry, !registry.isEmpty else { return nil }
-        guard registry != local else { return nil }
-        return registry
+        // No-op when the registry names no endpoint the local cache is missing:
+        // a narrower or identical registry response must never rewrite (and so
+        // never shrink or reorder) the locally persisted routes.
+        let localKeys = Set(local.map { CmxRouteCandidateSet.endpointKey(for: $0.endpoint) })
+        let registryKeys = Set(registry.map { CmxRouteCandidateSet.endpointKey(for: $0.endpoint) })
+        guard !registryKeys.isSubset(of: localKeys) else { return nil }
+        // Union both sources, dedup by endpoint, and rank closest-first. The
+        // registry is authoritative when reachable, so on a freshness tie its
+        // routes win dedup and rank ahead of the cached ones. `preferLoopback`
+        // stays false here — the persisted order is just a sensible default; the
+        // dial path re-applies the simulator/device loopback policy in
+        // `firstReconnectHostPortRoute`.
+        return CmxRouteCandidateSet.mergedRoutes(
+            CmxRouteCandidateSet.candidates(registry, source: .registry, lastSeenAt: mergeReferenceDate)
+                + CmxRouteCandidateSet.candidates(local, source: .localCache, lastSeenAt: mergeReferenceDate)
+        )
     }
 
     /// Whether a background registry refresh may write back into the paired-Mac
