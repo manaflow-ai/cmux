@@ -2114,9 +2114,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 teamID: scope.teamID,
                 now: Date()
             )
-            if await isScopeCurrent(scope) {
-                await loadPairedMacs()
-            }
+            guard await isScopeCurrent(scope) else { return }
+            if await removeStoredPairedMacIfForgotten(mac.macDeviceID, scope: scope) { return }
+            await loadPairedMacs()
         } catch {
             mobileShellLog.debug(
                 "presence route upsert failed: \(String(describing: error), privacy: .public)"

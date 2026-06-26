@@ -40,6 +40,25 @@ extension MobileShellComposite {
         await forgottenMacDeviceIDs(scope: scope).contains(macDeviceID)
     }
 
+    func removeStoredPairedMacIfForgotten(
+        _ macDeviceID: String,
+        scope: MobileShellScopeSnapshot
+    ) async -> Bool {
+        guard await isForgottenMacDeviceID(macDeviceID, scope: scope) else { return false }
+        do {
+            try await pairedMacStore?.remove(
+                macDeviceID: macDeviceID,
+                stackUserID: scope.userID,
+                teamID: scope.teamID
+            )
+        } catch {
+            forgottenMacLog.debug(
+                "forgotten paired mac stale-row cleanup failed mac=\(macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)"
+            )
+        }
+        return true
+    }
+
     func rememberForgottenMacDeviceID(
         _ macDeviceID: String,
         scope: MobileShellScopeSnapshot,

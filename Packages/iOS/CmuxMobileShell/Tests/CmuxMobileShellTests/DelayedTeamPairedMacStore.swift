@@ -10,6 +10,10 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
     private var blockers: [String: CheckedContinuation<Void, Never>] = [:]
     private var upsertCount = 0
     private var upsertWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
+    private var gatedUpsertIDs: Set<String> = []
+    private var upsertStartedIDs: Set<String> = []
+    private var upsertStartWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
+    private var upsertBlockers: [String: CheckedContinuation<Void, Never>] = [:]
     private var removeFailures: Set<String> = []
     private var gatedRemoveFailures: Set<String> = []
     private var removeStartedIDs: Set<String> = []
@@ -30,6 +34,12 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
         teamID: String?,
         now: Date
     ) async throws {
+        if gatedUpsertIDs.contains(macDeviceID) {
+            markUpsertStarted(macDeviceID)
+            await withCheckedContinuation { continuation in
+                upsertBlockers[macDeviceID] = continuation
+            }
+        }
         let key = teamID ?? ""
         if markActive {
             recordsByTeam[key] = recordsByTeam[key]?.map { mac in
@@ -133,6 +143,21 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
         upsertCount
     }
 
+    func gateUpsert(macDeviceID: String) {
+        gatedUpsertIDs.insert(macDeviceID)
+    }
+
+    func waitUntilUpsertStarted(macDeviceID: String) async {
+        if upsertStartedIDs.contains(macDeviceID) { return }
+        await withCheckedContinuation { continuation in
+            upsertStartWaiters[macDeviceID, default: []].append(continuation)
+        }
+    }
+
+    func releaseUpsert(macDeviceID: String) {
+        upsertBlockers.removeValue(forKey: macDeviceID)?.resume()
+    }
+
     func failRemove(macDeviceID: String) {
         removeFailures.insert(macDeviceID)
     }
@@ -155,6 +180,12 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
     private func markStarted(_ key: String) {
         startedTeams.insert(key)
         let waiters = startWaiters.removeValue(forKey: key) ?? []
+        for waiter in waiters { waiter.resume() }
+    }
+
+    private func markUpsertStarted(_ macDeviceID: String) {
+        upsertStartedIDs.insert(macDeviceID)
+        let waiters = upsertStartWaiters.removeValue(forKey: macDeviceID) ?? []
         for waiter in waiters { waiter.resume() }
     }
 
