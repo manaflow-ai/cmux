@@ -145,9 +145,7 @@ struct CMUXMobileRootView: View {
         .onOpenURL(perform: handleOpenURL)
         .onChange(of: isAuthenticated) { _, isAuthenticated in
             syncShellAuthentication(isAuthenticated)
-            guard isAuthenticated else {
-                return
-            }
+            guard isAuthenticated else { return }
             #if os(iOS)
             authCallbackError = nil
             shouldShowAuthCodeEntry = false
@@ -448,8 +446,6 @@ struct CMUXMobileRootView: View {
         #if os(iOS)
         authCallbackError = nil
         shouldShowAuthCodeEntry = false
-        // The hook receives the tokens captured before the local-first clear:
-        // by the time it runs, the live token store is already empty.
         let pushCoordinator = pushCoordinator
         let onSignedOut: @Sendable (String?, String?) async -> Void = { accessToken, refreshToken in
             await pushCoordinator.unregisterFromServer(
