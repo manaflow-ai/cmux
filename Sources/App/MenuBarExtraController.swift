@@ -67,7 +67,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         if let button = statusItem.button {
             button.imagePosition = .imageOnly
             button.imageScaling = .scaleProportionallyDown
-            button.image = MenuBarIconRenderer.makeImage(unreadCount: 0)
+            button.image = NSImage.cmuxMenuBarStatusIcon(unreadCount: 0)
             button.toolTip = "cmux"
         }
 
@@ -186,7 +186,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         rebuildInlineNotificationItems(recentNotifications: snapshot.recentNotifications)
 
         if let button = statusItem.button {
-            button.image = MenuBarIconRenderer.makeImage(unreadCount: displayedUnreadCount)
+            button.image = NSImage.cmuxMenuBarStatusIcon(unreadCount: displayedUnreadCount)
             button.toolTip = displayedUnreadCount == 0
                 ? "cmux"
                 : displayedUnreadCount == 1
@@ -342,16 +342,6 @@ enum NotificationMenuSnapshotBuilder {
         default:
             return String(localized: "statusMenu.unreadCount.other", defaultValue: "\(unreadCount) unread notifications")
         }
-    }
-}
-
-enum MenuBarBadgeLabelFormatter {
-    static func badgeText(for unreadCount: Int) -> String? {
-        guard unreadCount > 0 else { return nil }
-        if unreadCount > 9 {
-            return "9+"
-        }
-        return String(unreadCount)
     }
 }
 
@@ -551,73 +541,3 @@ enum MenuBarOnlySettings {
     }
 }
 
-enum MenuBarIconRenderer {
-
-    static func makeImage(unreadCount: Int) -> NSImage {
-        let badgeText = MenuBarBadgeLabelFormatter.badgeText(for: unreadCount)
-        let config = MenuBarIconDebugSettings.badgeRenderConfig()
-        let size = NSSize(width: 18, height: 18)
-        let image = NSImage(size: size)
-        image.lockFocus()
-        defer { image.unlockFocus() }
-
-        let glyphRect = NSRect(x: 1.2, y: 1.5, width: 11.6, height: 15.0)
-        drawGlyph(in: glyphRect)
-
-        if let text = badgeText {
-            drawBadge(text: text, in: config.badgeRect, config: config)
-        }
-
-        image.isTemplate = true
-        return image
-    }
-
-    private static func drawGlyph(in rect: NSRect) {
-        // Match the canonical cmux center-mark path from Icon Center Image Artwork.svg.
-        let srcMinX: CGFloat = 384.0
-        let srcMinY: CGFloat = 255.0
-        let srcWidth: CGFloat = 369.0
-        let srcHeight: CGFloat = 513.0
-
-        func map(_ x: CGFloat, _ y: CGFloat) -> NSPoint {
-            let nx = (x - srcMinX) / srcWidth
-            let ny = (y - srcMinY) / srcHeight
-            return NSPoint(
-                x: rect.minX + nx * rect.width,
-                y: rect.minY + (1.0 - ny) * rect.height
-            )
-        }
-
-        let path = NSBezierPath()
-        path.move(to: map(384.0, 255.0))
-        path.line(to: map(753.0, 511.5))
-        path.line(to: map(384.0, 768.0))
-        path.line(to: map(384.0, 654.0))
-        path.line(to: map(582.692, 511.5))
-        path.line(to: map(384.0, 369.0))
-        path.close()
-
-        NSColor.black.setFill()
-        path.fill()
-    }
-
-    private static func drawBadge(text: String, in rect: NSRect, config: MenuBarBadgeRenderConfig) {
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = .center
-        let fontSize: CGFloat = text.count > 1 ? config.multiDigitFontSize : config.singleDigitFontSize
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: fontSize, weight: .bold),
-            .foregroundColor: NSColor.systemBlue,
-            .paragraphStyle: paragraph,
-        ]
-        let yOffset: CGFloat = text.count > 1 ? config.multiDigitYOffset : config.singleDigitYOffset
-        let xAdjust: CGFloat = text.count > 1 ? config.multiDigitXAdjust : config.singleDigitXAdjust
-        let textRect = NSRect(
-            x: rect.origin.x + xAdjust,
-            y: rect.origin.y + yOffset,
-            width: rect.width + config.textRectWidthAdjust,
-            height: rect.height
-        )
-        (text as NSString).draw(in: textRect, withAttributes: attrs)
-    }
-}

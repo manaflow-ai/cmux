@@ -1,22 +1,11 @@
+import CmuxSidebar
 import Foundation
 
-nonisolated struct RightSidebarRemoteTarget: Equatable, Sendable {
-    var windowId: UUID? = nil
-    var workspaceId: UUID? = nil
-
-    var isActiveTarget: Bool {
-        windowId == nil && workspaceId == nil
-    }
-}
-
-nonisolated enum RightSidebarRemoteCommand: Equatable, Sendable {
-    case toggle
-    case show
-    case hide
-    case focus
-    case setMode(RightSidebarMode, focus: Bool)
-    case getState
-}
+// `RightSidebarRemoteCommand`, `RightSidebarRemoteTarget`,
+// `RightSidebarRemoteState`, and `RightSidebarRemoteApplyResult` now live in
+// `CmuxSidebar` (Remote/) alongside the `apply` interpreter. This file keeps the
+// app-side CLI token parser, which uses `String(localized:)` and so must stay
+// in the app bundle.
 
 nonisolated struct RightSidebarRemoteRequest: Equatable, Sendable {
     let command: RightSidebarRemoteCommand
@@ -25,17 +14,6 @@ nonisolated struct RightSidebarRemoteRequest: Equatable, Sendable {
 
 nonisolated struct RightSidebarRemoteParseError: Error, Equatable, Sendable {
     let message: String
-}
-
-nonisolated struct RightSidebarRemoteState: Equatable, Sendable {
-    let visible: Bool
-    let mode: RightSidebarMode
-}
-
-nonisolated enum RightSidebarRemoteApplyResult: Equatable, Sendable {
-    case ok
-    case state(RightSidebarRemoteState)
-    case failure(String)
 }
 
 extension RightSidebarRemoteRequest {

@@ -22,4 +22,8 @@ public protocol ManagedDefaultsPaletteSeam: Sendable {
 
     /// Persists `map` as the palette's stored value.
     func persistPaletteMap(_ map: [String: String], defaults: UserDefaults)
+
+    /// The currently effective palette map (stored, legacy-migrated, or built-in
+    /// default), used to compare against and seed a managed palette value.
+    func resolvedPaletteMap(defaults: UserDefaults) -> [String: String]
 }

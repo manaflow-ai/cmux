@@ -2,8 +2,8 @@
 //
 // The Sessions sidebar "Show more" search popover subsystem, split out of
 // SessionIndexView.swift. SectionPopoverView drives the paged/snapshot search
-// state machine; PopoverRow renders one result row; RelativeTimestampSchedule
-// is its self-rescheduling relative-time TimelineSchedule; SectionPopoverHost
+// state machine; PopoverRow renders one result row, driving its relative-time
+// label off CmuxAppKitSupportUI's RelativeTimestampSchedule; SectionPopoverHost
 // hosts the SwiftUI body inside a real NSPopover so the search field can take
 // first responder in cmux's focus-managed environment.
 //
@@ -372,13 +372,6 @@ private struct PopoverRow: View, Equatable {
         lhs.entry == rhs.entry
     }
 
-    fileprivate static func refreshInterval(for modified: Date, now: Date = .now) -> TimeInterval {
-        let age = max(0, now.timeIntervalSince(modified))
-        if age < 3_600 { return 60 }
-        if age < 86_400 { return 3_600 }
-        return 86_400
-    }
-
     @ViewBuilder
     private var modifiedText: some View {
         TimelineView(RelativeTimestampSchedule(modified: entry.modified)) { context in
@@ -420,26 +413,6 @@ private struct PopoverRow: View, Equatable {
         }
     }
 }
-
-private struct RelativeTimestampSchedule: TimelineSchedule {
-    let modified: Date
-
-    func entries(from startDate: Date, mode: Mode) -> Entries {
-        Entries(current: startDate, modified: modified)
-    }
-
-    struct Entries: Sequence, IteratorProtocol {
-        var current: Date
-        let modified: Date
-
-        mutating func next() -> Date? {
-            let date = current
-            current = current.addingTimeInterval(PopoverRow.refreshInterval(for: modified, now: date))
-            return date
-        }
-    }
-}
-
 
 // MARK: - NSPopover host
 

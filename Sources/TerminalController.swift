@@ -160,15 +160,20 @@ class TerminalController: MobileViewportSurfaceLimiting {
     /// thread-dictionary static. One instance per controller (one router per
     /// process today), so the allowance is genuinely instance-scoped.
     nonisolated let socketCommandFocusAllowance = ControlSocketFocusAllowanceStack()
-    private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
+    /// Deduplicates socket-listener failure captures (CmuxControlSocket),
+    /// replacing the former process-wide `socketListenerFailureCaptureLock`/
+    /// `socketListenerFailureLastCapturedAt` statics. Instance-scoped because
+    /// there is one router per process today; the failure closure in
+    /// `makeSocketServerEvents` captures it and reads it on the nonisolated
+    /// listener lane. Assigned in `init` (before `self` is usable) so the same
+    /// instance is threaded into the failure closure.
+    private nonisolated let socketListenerFailureThrottle: SocketListenerFailureCaptureThrottle
     // The download-wait timeout bounds moved to `BrowserAutomationController`
     // (CmuxBrowser); these aliases keep the worker-lane call sites byte identical.
     private nonisolated static let v2BrowserDownloadWaitDefaultTimeoutMs =
         BrowserAutomationController.downloadWaitDefaultTimeoutMs
     private nonisolated static let v2BrowserDownloadWaitMaxTimeoutMs =
         BrowserAutomationController.downloadWaitMaxTimeoutMs
-    private nonisolated static let socketListenerFailureCaptureLock = NSLock()
-    private nonisolated(unsafe) static var socketListenerFailureLastCapturedAt: [String: Date] = [:]
     /// Reference to the shared mobile-terminal viewport state machine
     /// (per-surface, per-client reported grids + TTL cleanup), whose owning model
     /// type `HostMobileViewportReportModel` lives in `CMUXMobileCore`. Lazily
@@ -388,11 +393,16 @@ class TerminalController: MobileViewportSurfaceLimiting {
         self.passwordStore = passwordStore
         self.transport = transport
         self.remoteProxyBroker = remoteProxyBroker
+        let socketListenerFailureThrottle = SocketListenerFailureCaptureThrottle()
+        self.socketListenerFailureThrottle = socketListenerFailureThrottle
         let serverEventTarget = ServerEventTarget()
         let socketServer = SocketControlServer(
             transport: transport,
             listenerPolicy: listenerPolicy,
-            events: Self.makeSocketServerEvents(target: serverEventTarget)
+            events: Self.makeSocketServerEvents(
+                target: serverEventTarget,
+                failureThrottle: socketListenerFailureThrottle
+            )
         )
         self.socketServer = socketServer
         // Single consumer of the accepted-connection stream, detached so
@@ -584,28 +594,12 @@ class TerminalController: MobileViewportSurfaceLimiting {
 
     func activeTabManagerForCallerNotification() -> TabManager? { tabManager }
 
-    private nonisolated static func shouldCaptureSocketListenerFailure(
-        message: String,
-        stage: String,
-        path: String,
-        errnoCode: Int32?
-    ) -> Bool {
-        let key = "\(message)|\(stage)|\(path)|\(errnoCode.map(String.init) ?? "none")"
-        let now = Date()
-        socketListenerFailureCaptureLock.lock()
-        defer { socketListenerFailureCaptureLock.unlock() }
-        if let lastCapturedAt = socketListenerFailureLastCapturedAt[key],
-           now.timeIntervalSince(lastCapturedAt) < socketListenerFailureCaptureCooldown {
-            return false
-        }
-        socketListenerFailureLastCapturedAt[key] = now
-        return true
-    }
-
     /// Builds the package server's host-callback seam. `target` is filled in
     /// at the end of `init`; no listener event can fire before `start`.
+    /// `failureThrottle` dedupes repeated failure captures on the listener lane.
     private nonisolated static func makeSocketServerEvents(
-        target: ServerEventTarget
+        target: ServerEventTarget,
+        failureThrottle: SocketListenerFailureCaptureThrottle
     ) -> SocketControlServerEvents {
         SocketControlServerEvents(
             breadcrumb: { message, data in
@@ -613,7 +607,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
             },
             failure: { message, stage, errnoCode, data in
                 sentryBreadcrumb(message, category: "socket", data: data)
-                guard shouldCaptureSocketListenerFailure(
+                guard failureThrottle.shouldCapture(
                     message: message,
                     stage: stage,
                     path: data["path"] as? String ?? "",

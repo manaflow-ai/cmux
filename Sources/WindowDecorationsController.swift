@@ -26,7 +26,7 @@ final class WindowDecorationsController {
         while let view = enumerator?.nextObject() as? NSView {
             view.removeFromSuperview()
         }
-        WindowMouseMovedEventsCoordinator.disableOwner(self)
+        WindowMouseMovedEventsCoordinator.shared.disableOwner(self)
     }
 
     func start() {
@@ -39,9 +39,9 @@ final class WindowDecorationsController {
 
     func apply(to window: NSWindow) {
         if isMainWorkspaceWindow(window), WorkspacePresentationModeSettings.isMinimal() {
-            WindowMouseMovedEventsCoordinator.enable(for: window, owner: self)
+            WindowMouseMovedEventsCoordinator.shared.enable(for: window, owner: self)
         } else {
-            WindowMouseMovedEventsCoordinator.disable(for: window, owner: self)
+            WindowMouseMovedEventsCoordinator.shared.disable(for: window, owner: self)
         }
         let shouldHideButtons = shouldHideTrafficLights(for: window)
         hideStandardButtons(on: window, hidden: shouldHideButtons)
@@ -57,7 +57,7 @@ final class WindowDecorationsController {
         }
         observers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main, using: handler))
         observers.append(center.addObserver(forName: NSWindow.didBecomeMainNotification, object: nil, queue: .main, using: handler))
-        for name in TitlebarWindowGeometryNotifications.names {
+        for name in [Notification.Name].titlebarWindowGeometry {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main, using: handler))
         }
         observers.append(center.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in

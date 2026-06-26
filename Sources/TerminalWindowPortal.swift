@@ -53,15 +53,15 @@ final class WindowTerminalHostView: NSView {
         rootView.collectSplitDividerRegions(into: &regions)
         let expansion: CGFloat = 4
         for region in regions {
-            var rectInHost = convert(region.rectInWindow, from: nil)
-            rectInHost = rectInHost.insetBy(
-                dx: region.isVertical ? -expansion : 0,
-                dy: region.isVertical ? 0 : -expansion
-            )
-            let clipped = rectInHost.intersection(bounds)
-            guard !clipped.isNull, clipped.width > 0, clipped.height > 0 else { continue }
-            guard !cursorRectIntersectsChromePassThrough(clipped) else { continue }
-            addCursorRect(clipped, cursor: region.isVertical ? .resizeLeftRight : .resizeUpDown)
+            let rectInHost = convert(region.rectInWindow, from: nil)
+            guard let candidate = PortalDividerCursorRect(
+                rectInHost: rectInHost,
+                isVertical: region.isVertical,
+                hostBounds: bounds,
+                expansion: expansion
+            ) else { continue }
+            guard !cursorRectIntersectsChromePassThrough(candidate.rect) else { continue }
+            addCursorRect(candidate.rect, cursor: candidate.cursor)
         }
     }
 

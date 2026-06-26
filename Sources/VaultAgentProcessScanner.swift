@@ -1,5 +1,6 @@
 import Foundation
 import CMUXAgentLaunch
+import CmuxWorkspaces
 import SQLite3
 
 extension RestorableAgentSessionIndex {
