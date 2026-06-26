@@ -173,72 +173,6 @@ private enum MobileHostPublicStatusCache {
     }
 }
 
-enum MobileHostRequestActivity {
-    private static let lock = NSLock()
-    private nonisolated(unsafe) static var activeRequestCount = 0
-    private nonisolated(unsafe) static var activeConnectionCount = 0
-    private nonisolated(unsafe) static var lastActivityUptime: TimeInterval = 0
-
-    static var hasActiveRequest: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return activeRequestCount > 0
-    }
-
-    static func hasRecentActivity(within interval: TimeInterval) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        guard activeRequestCount == 0 else { return true }
-        guard lastActivityUptime > 0 else { return false }
-        return ProcessInfo.processInfo.systemUptime - lastActivityUptime < interval
-    }
-
-    static func quietDelay(for interval: TimeInterval) -> TimeInterval {
-        lock.lock()
-        defer { lock.unlock() }
-        guard activeRequestCount == 0 else { return interval }
-        guard lastActivityUptime > 0 else { return 0 }
-        let elapsed = ProcessInfo.processInfo.systemUptime - lastActivityUptime
-        return max(0, interval - elapsed)
-    }
-
-    static func beginConnection() {
-        lock.lock()
-        activeConnectionCount += 1
-        lock.unlock()
-    }
-
-    static func endConnection() {
-        lock.lock()
-        activeConnectionCount = max(0, activeConnectionCount - 1)
-        lock.unlock()
-    }
-
-    static func beginRequest() {
-        lock.lock()
-        lastActivityUptime = ProcessInfo.processInfo.systemUptime
-        activeRequestCount += 1
-        lock.unlock()
-    }
-
-    static func endRequest() {
-        lock.lock()
-        activeRequestCount = max(0, activeRequestCount - 1)
-        lastActivityUptime = ProcessInfo.processInfo.systemUptime
-        lock.unlock()
-    }
-
-    #if DEBUG
-    static func resetForTesting() {
-        lock.lock()
-        activeRequestCount = 0
-        activeConnectionCount = 0
-        lastActivityUptime = 0
-        lock.unlock()
-    }
-    #endif
-}
-
 extension MobileHostServiceStatus {
     /// The `mobile.host.status` wire payload. App-side because it renders each
     /// route through `CmxAttachRoute.mobileHostJSONObject`, an app extension.
@@ -259,6 +193,15 @@ extension MobileHostServiceStatus {
 final class MobileHostService {
     static let shared = MobileHostService()
     nonisolated private static let maximumActiveConnectionCount = 10
+
+    /// The process-wide mobile-host request/connection activity counters, shared
+    /// by the decoupled subsystems that touch them: this service's connection
+    /// lifecycle, `MobileHostConnection`'s interactive-request tracking, and the
+    /// sidebar git-metadata scheduler's quiet-window reads. A documented
+    /// composition-point default (the relocated ``MobileHostRequestActivity`` is a
+    /// real instance type with no static state); `nonisolated` because the
+    /// connection and request paths bump it off the main actor.
+    nonisolated static let sharedRequestActivity = MobileHostRequestActivity()
 
     /// The single shape every public `mobile.host.status` reply uses (the
     /// public-status cache, the network status gate, and
@@ -588,7 +531,7 @@ final class MobileHostService {
             // never reaches `.ready`; wiring the real accept path (with this
             // generation) also means no connection is dropped once it's adopted.
             candidate.newConnectionHandler = { connection in
-                MobileHostRequestActivity.beginConnection()
+                MobileHostService.sharedRequestActivity.beginConnection()
                 Self.acceptConnectionOffMain(connection, generation: generation)
             }
             candidate.start(queue: queue)
@@ -705,7 +648,7 @@ final class MobileHostService {
                 }
             }
             nextListener.newConnectionHandler = { connection in
-                MobileHostRequestActivity.beginConnection()
+                MobileHostService.sharedRequestActivity.beginConnection()
                 Self.acceptConnectionOffMain(connection, generation: generation)
             }
             listener = nextListener
@@ -914,7 +857,7 @@ final class MobileHostService {
             guard canAccept else {
                 mobileHostLog.info("mobile host rejected stale listener connection")
                 connection.cancel()
-                MobileHostRequestActivity.endConnection()
+                MobileHostService.sharedRequestActivity.endConnection()
                 return
             }
 
@@ -929,7 +872,7 @@ final class MobileHostService {
             if Self.isLoopbackConnection(connection) {
                 mobileHostLog.error("mobile host rejected loopback connection in release build")
                 connection.cancel()
-                MobileHostRequestActivity.endConnection()
+                MobileHostService.sharedRequestActivity.endConnection()
                 return
             }
             #endif
@@ -973,7 +916,7 @@ final class MobileHostService {
             ) else {
                 mobileHostLog.error("mobile host rejected connection because active connection limit was reached")
                 connection.cancel()
-                MobileHostRequestActivity.endConnection()
+                MobileHostService.sharedRequestActivity.endConnection()
                 return
             }
             await session.start()
@@ -1047,13 +990,13 @@ final class MobileHostService {
     private func accept(_ connection: NWConnection, generation: UUID) {
         guard listener != nil, generation == listenerGeneration else {
             connection.cancel()
-            MobileHostRequestActivity.endConnection()
+            MobileHostService.sharedRequestActivity.endConnection()
             return
         }
         guard activeConnections.count < Self.maximumActiveConnectionCount else {
             mobileHostLog.error("mobile host rejected connection because active connection limit was reached")
             connection.cancel()
-            MobileHostRequestActivity.endConnection()
+            MobileHostService.sharedRequestActivity.endConnection()
             return
         }
 
@@ -1133,7 +1076,7 @@ final class MobileHostService {
                 reason: "mobile.connection.closed"
             )
         }
-        MobileHostRequestActivity.endConnection()
+        MobileHostService.sharedRequestActivity.endConnection()
     }
 
     private func recordClientID(_ clientID: String, for connectionID: UUID) {
@@ -1594,7 +1537,7 @@ extension MobileHostService {
         listenerPort = nil
         activeConnections.removeAll()
         clientIDsByConnectionID.removeAll()
-        MobileHostRequestActivity.resetForTesting()
+        MobileHostService.sharedRequestActivity.resetForTesting()
         MobileHostEventSubscriptionTracker.resetForTesting()
     }
 

@@ -326,15 +326,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
         private func applyTheme(_ theme: MarkdownWebTheme) {
             guard let webView else { return }
-            let payload = [
-                "--bgColor-default": theme.background,
-                "--bgColor-muted": theme.mutedBackground,
-                "--bgColor-neutral-muted": theme.neutralMutedBackground,
-                "--borderColor-default": theme.border,
-                "--borderColor-muted": theme.mutedBorder,
-                "--borderColor-neutral-muted": theme.mutedBorder
-            ]
-            guard let script = MarkdownRenderScript.applyThemeVariables(payload) else { return }
+            guard let script = MarkdownRenderScript.applyThemeVariables(theme.cssVariables) else { return }
             webView.evaluateJavaScript(script.source, completionHandler: nil)
         }
 

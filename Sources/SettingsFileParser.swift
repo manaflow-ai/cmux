@@ -6,73 +6,16 @@ import os
 
 nonisolated private let settingsFileParserLogger = Logger(subsystem: "com.cmuxterm.app", category: "SettingsStore")
 
-/// Stateless parser for cmux settings JSON files.
+/// Stateless parser for cmux settings JSON roots.
 ///
-/// Reads the primary `cmux.json` and any fallback files (`settings.json`,
-/// the Application Support copy), preprocesses JSONC, and projects each known
-/// section into a ``ResolvedSettingsSnapshot`` of managed `UserDefaults`
-/// values, custom settings, keyboard-shortcut overrides, and `when`-clause
-/// overrides. It performs no side effects: ``CmuxSettingsFileStore`` owns the
-/// apply/backup/restore lifecycle and calls ``resolveSettings()`` /
-/// ``loadSettings(at:)`` to obtain the parsed snapshot.
+/// Projects a decoded `cmux.json` / `settings.json` JSON object into a
+/// ``ResolvedSettingsSnapshot`` of managed `UserDefaults` values, custom
+/// settings, keyboard-shortcut overrides, and `when`-clause overrides. It holds
+/// no paths and touches no filesystem: ``SettingsFileReader`` owns the file I/O
+/// (reading bytes, JSONC preprocessing, JSON decoding) and calls
+/// ``parseSettingsFile(root:sourcePath:)`` once per source file.
 struct SettingsFileParser {
-    let primaryPath: String
-    let fallbackPaths: [String]
-    let fileManager: FileManager
-
-    func resolveSettings() -> ResolvedSettingsSnapshot {
-        switch loadSettings(at: primaryPath) {
-        case .parsed(var snapshot):
-            mergeFallbackSettings(into: &snapshot)
-            return snapshot
-        case .invalid:
-            return ResolvedSettingsSnapshot(path: primaryPath)
-        case .missing:
-            break
-        }
-
-        var fallbackSnapshot = ResolvedSettingsSnapshot(path: nil)
-        mergeFallbackSettings(into: &fallbackSnapshot)
-        return fallbackSnapshot
-    }
-
-    private func mergeFallbackSettings(into snapshot: inout ResolvedSettingsSnapshot) {
-        for fallbackPath in fallbackPaths {
-            guard case .parsed(let fallbackSnapshot) = loadSettings(at: fallbackPath) else {
-                continue
-            }
-            snapshot.fillMissingSettings(from: fallbackSnapshot)
-        }
-    }
-
-    enum LoadResult {
-        case missing
-        case invalid
-        case parsed(ResolvedSettingsSnapshot)
-    }
-
-    func loadSettings(at path: String) -> LoadResult {
-        guard fileManager.fileExists(atPath: path) else {
-            return .missing
-        }
-        guard let data = fileManager.contents(atPath: path), !data.isEmpty else {
-            return .invalid
-        }
-
-        do {
-            let sanitized = try JSONCParser.preprocess(data: data)
-            let object = try JSONSerialization.jsonObject(with: sanitized, options: [])
-            guard let root = object as? [String: Any] else {
-                return .invalid
-            }
-            return .parsed(parseSettingsFile(root: root, sourcePath: path))
-        } catch {
-            settingsFileParserLogger.warning("parse error at \(path, privacy: .private(mask: .hash)): \(String(describing: error), privacy: .private(mask: .hash))")
-            return .invalid
-        }
-    }
-
-    private func parseSettingsFile(root: [String: Any], sourcePath: String) -> ResolvedSettingsSnapshot {
+    func parseSettingsFile(root: [String: Any], sourcePath: String) -> ResolvedSettingsSnapshot {
         let schemaVersion = jsonInt(root["schemaVersion"]) ?? 1
         if schemaVersion > CmuxSettingsFileStore.currentSchemaVersion {
             settingsFileParserLogger.warning("\(sourcePath, privacy: .private(mask: .hash)) uses future schemaVersion \(schemaVersion, privacy: .private(mask: .hash)); parsing known fields only")

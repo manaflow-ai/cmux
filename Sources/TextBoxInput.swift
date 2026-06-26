@@ -699,8 +699,7 @@ private final class TextBoxInlineTextAttachment: NSTextAttachment {
     func refreshCell(font: NSFont, foregroundColor: NSColor, isFocused: Bool) {
         attachmentCell = TextBoxInlineAttachmentCell(
             attachment: textBoxAttachment,
-            image: TextBoxInlineAttachmentRenderer.image(
-                for: textBoxAttachment,
+            image: textBoxAttachment.inlineAttachmentImage(
                 font: font,
                 foregroundColor: foregroundColor,
                 isFocused: isFocused
@@ -799,9 +798,8 @@ private final class TextBoxInlineAttachmentCell: NSTextAttachmentCell {
     }
 }
 
-private enum TextBoxInlineAttachmentRenderer {
-    static func image(
-        for attachment: TextBoxAttachment,
+extension TextBoxAttachment {
+    func inlineAttachmentImage(
         font: NSFont,
         foregroundColor: NSColor,
         isFocused: Bool
@@ -816,7 +814,7 @@ private enum TextBoxInlineAttachmentRenderer {
         ]
         let textWidth = min(
             TextBoxLayout.inlineAttachmentMaxTextWidth,
-            ceil((attachment.displayName as NSString).size(withAttributes: textAttributes).width)
+            ceil((displayName as NSString).size(withAttributes: textAttributes).width)
         )
         let height = TextBoxLayout.attachmentChipHeight
         let iconSize = TextBoxLayout.attachmentImageSize
@@ -852,7 +850,7 @@ private enum TextBoxInlineAttachmentRenderer {
             width: iconSize,
             height: iconSize
         )
-        if let thumbnail = attachment.thumbnail {
+        if let thumbnail {
             NSGraphicsContext.saveGraphicsState()
             NSBezierPath(roundedRect: iconRect, xRadius: 4, yRadius: 4).addClip()
             thumbnail.draw(in: iconRect)
@@ -863,7 +861,7 @@ private enum TextBoxInlineAttachmentRenderer {
                 .draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 0.9)
         }
 
-        let textSize = (attachment.displayName as NSString).size(withAttributes: textAttributes)
+        let textSize = (displayName as NSString).size(withAttributes: textAttributes)
 
         let textRect = NSRect(
             x: iconRect.maxX + iconTextGap,
@@ -871,7 +869,7 @@ private enum TextBoxInlineAttachmentRenderer {
             width: textWidth,
             height: textSize.height
         )
-        (attachment.displayName as NSString).draw(in: textRect, withAttributes: textAttributes)
+        (displayName as NSString).draw(in: textRect, withAttributes: textAttributes)
 
         let closeAttributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 9, weight: .bold),

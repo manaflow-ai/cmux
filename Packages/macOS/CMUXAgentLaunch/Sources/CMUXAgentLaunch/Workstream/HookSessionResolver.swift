@@ -103,6 +103,43 @@ public struct HookSessionResolver {
     }
 }
 
+extension HookSessionResolver {
+    /// Resolves a feed `workstreamId` of the form `<agent>-<sessionId>` and
+    /// reports whether a matching hook-session entry exists, so the UI can gate
+    /// the jump gesture. Actual focus is scheduled via `focus(workstreamId:)`.
+    public func resolvesSurface(for workstreamId: String) -> Bool {
+        guard let parsed = parse(workstreamId) else { return false }
+        return lookup(agent: parsed.agent, sessionId: parsed.sessionId) != nil
+    }
+
+    /// Resolves `workstreamId` to its bound surface and fires a best-effort
+    /// focus intent. Returns `true` if a target was found and the focus intent
+    /// was dispatched. `@MainActor` because the focus intent touches AppKit state.
+    @MainActor
+    @discardableResult
+    public func focus(workstreamId: String) -> Bool {
+        guard let parsed = parse(workstreamId),
+              let target = lookup(agent: parsed.agent, sessionId: parsed.sessionId)
+        else { return false }
+        focus(workspaceId: target.workspaceId, surfaceId: target.surfaceId)
+        return true
+    }
+
+    /// Resolves `workstreamId` to its bound surface and types `text` into it,
+    /// followed by Return. Returns `true` if a target was found and the
+    /// send-text intent was dispatched. Used by Stop-kind feed cards so the user
+    /// can reply without switching focus to the terminal.
+    @MainActor
+    @discardableResult
+    public func sendText(workstreamId: String, text: String) -> Bool {
+        guard let parsed = parse(workstreamId),
+              let target = lookup(agent: parsed.agent, sessionId: parsed.sessionId)
+        else { return false }
+        sendText(workspaceId: target.workspaceId, surfaceId: target.surfaceId, text: text)
+        return true
+    }
+}
+
 extension Notification.Name {
     /// Posted by `HookSessionResolver.focus` to ask the app to select a
     /// workspace and focus a surface; observed in `AppDelegate`.

@@ -155,6 +155,7 @@
 		4BBF42E8A86EAAB94BC9EA16 /* BrowserSystemProxyMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = 048DACB3F8147BCBDD266297 /* BrowserSystemProxyMirror.swift */; };
 		C7B800062D4202A13C962D2D /* BrowserSystemProxyMirrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D828DA0070335773EBAE83F /* BrowserSystemProxyMirrorTests.swift */; };
 		0796994CA7CCA25DB990BFEF /* BrowserSystemProxyWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 326E7A5E13C6DF650B9F8971 /* BrowserSystemProxyWatcher.swift */; };
+		B7E3ME010000000000000001 /* BrowserThemeMode+Presentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7E3ME010000000000000002 /* BrowserThemeMode+Presentation.swift */; };
 		A5007422 /* BrowserWebAuthnSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5007423 /* BrowserWebAuthnSupport.swift */; };
 		C0DE49870000000000000001 /* BrowserWebContentProcessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE49870000000000000002 /* BrowserWebContentProcessTests.swift */; };
 		C0DE58990000000000000003 /* BrowserWebKitKeyDownDispatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE58990000000000000001 /* BrowserWebKitKeyDownDispatch.swift */; };
@@ -781,6 +782,7 @@
 		D10000000000000000A00018 /* SettingsAutomationBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A00019 /* SettingsAutomationBehaviorUITests.swift */; };
 		D10000000000000000A0001A /* SettingsBrowserBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A0001B /* SettingsBrowserBehaviorUITests.swift */; };
 		D5F11001A1B2C3D4E5F60720 /* SettingsFileParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5F11000A1B2C3D4E5F60720 /* SettingsFileParser.swift */; };
+		D5F11005A1B2C3D4E5F60720 /* SettingsFileReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5F11004A1B2C3D4E5F60720 /* SettingsFileReader.swift */; };
 		D9CCF002D9CCF002D9CCF002 /* SettingsLazyLoadHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9CCF001D9CCF001D9CCF001 /* SettingsLazyLoadHelpers.swift */; };
 		A50019A0 /* SettingsNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50019A1 /* SettingsNavigation.swift */; };
 		A50019B0 /* SettingsSearchAliases.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50019B1 /* SettingsSearchAliases.swift */; };
@@ -1312,6 +1314,7 @@
 		048DACB3F8147BCBDD266297 /* BrowserSystemProxyMirror.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserSystemProxyMirror.swift; sourceTree = "<group>"; };
 		8D828DA0070335773EBAE83F /* BrowserSystemProxyMirrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserSystemProxyMirrorTests.swift; sourceTree = "<group>"; };
 		326E7A5E13C6DF650B9F8971 /* BrowserSystemProxyWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserSystemProxyWatcher.swift; sourceTree = "<group>"; };
+		B7E3ME010000000000000002 /* BrowserThemeMode+Presentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserThemeMode+Presentation.swift"; sourceTree = "<group>"; };
 		A5007423 /* BrowserWebAuthnSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnSupport.swift; sourceTree = "<group>"; };
 		C0DE49870000000000000002 /* BrowserWebContentProcessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebContentProcessTests.swift; sourceTree = "<group>"; };
 		C0DE58990000000000000001 /* BrowserWebKitKeyDownDispatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebKitKeyDownDispatch.swift; sourceTree = "<group>"; };
@@ -1875,6 +1878,7 @@
 		D10000000000000000A00019 /* SettingsAutomationBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAutomationBehaviorUITests.swift; sourceTree = "<group>"; };
 		D10000000000000000A0001B /* SettingsBrowserBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsBrowserBehaviorUITests.swift; sourceTree = "<group>"; };
 		D5F11000A1B2C3D4E5F60720 /* SettingsFileParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsFileParser.swift; sourceTree = "<group>"; };
+		D5F11004A1B2C3D4E5F60720 /* SettingsFileReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsFileReader.swift; sourceTree = "<group>"; };
 		D9CCF001D9CCF001D9CCF001 /* SettingsLazyLoadHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsLazyLoadHelpers.swift; sourceTree = "<group>"; };
 		A50019A1 /* SettingsNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsNavigation.swift; sourceTree = "<group>"; };
 		A50019B1 /* SettingsSearchAliases.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSearchAliases.swift; sourceTree = "<group>"; };
@@ -2601,6 +2605,7 @@
 				A5F10010A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift */,
 				A5F10012A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore+Template.swift */,
 				D5F11000A1B2C3D4E5F60720 /* SettingsFileParser.swift */,
+				D5F11004A1B2C3D4E5F60720 /* SettingsFileReader.swift */,
 				D5F11002A1B2C3D4E5F60720 /* ResolvedSettingsSnapshot.swift */,
 				C0DEF0B10000000000000002 /* JSONCParser.swift */,
 				A50012F4 /* KeyboardLayout.swift */,
@@ -2856,6 +2861,7 @@
 				B42450020000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift */,
 				B42450040000000000000001 /* BrowserHiddenWebViewDiscardManager.swift */,
 				A5001412 /* BrowserPanel.swift */,
+				B7E3ME010000000000000002 /* BrowserThemeMode+Presentation.swift */,
 				C62530010000000000000002 /* BrowserPanelReloadMode.swift */,
 				C59240010000000000000002 /* BrowserDownloadFilenameResolver.swift */,
 				C6255D010000000000000002 /* CmuxWebView+ScriptedDownloads.swift */,
@@ -3955,6 +3961,7 @@
 				A5008371 /* BrowserSearchOverlay.swift in Sources */,
 				4BBF42E8A86EAAB94BC9EA16 /* BrowserSystemProxyMirror.swift in Sources */,
 				0796994CA7CCA25DB990BFEF /* BrowserSystemProxyWatcher.swift in Sources */,
+				B7E3ME010000000000000001 /* BrowserThemeMode+Presentation.swift in Sources */,
 				A5007422 /* BrowserWebAuthnSupport.swift in Sources */,
 				C0DE58990000000000000003 /* BrowserWebKitKeyDownDispatch.swift in Sources */,
 				A5001534 /* BrowserWindowPortal.swift in Sources */,
@@ -4307,6 +4314,7 @@
 				E30798000000000000000002 /* SessionWorkspaceLayoutSnapshot+NodeBuilding.swift in Sources */,
 				E30791000000000000000002 /* SessionWorkspaceLayoutSnapshot+Pruning.swift in Sources */,
 				D5F11001A1B2C3D4E5F60720 /* SettingsFileParser.swift in Sources */,
+				D5F11005A1B2C3D4E5F60720 /* SettingsFileReader.swift in Sources */,
 				D9CCF002D9CCF002D9CCF002 /* SettingsLazyLoadHelpers.swift in Sources */,
 				A50019A0 /* SettingsNavigation.swift in Sources */,
 				A50019B0 /* SettingsSearchAliases.swift in Sources */,

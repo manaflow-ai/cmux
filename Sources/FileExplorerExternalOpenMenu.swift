@@ -25,6 +25,7 @@ extension NSMenu {
         target: AnyObject,
         action: Selector
     ) {
+        let text = FileExternalOpenText()
         let applications = FileExternalOpenApplicationResolver.live.applications(for: fileURL)
         let primaryApplication = applications.first { $0.isDefault } ?? applications.first
         let otherApplications = applications.filter { application in
@@ -33,7 +34,7 @@ extension NSMenu {
 
         if let primaryApplication {
             let openItem = NSMenuItem(
-                title: FileExternalOpenText.openInApplication(primaryApplication.displayName),
+                title: text.openInApplication(primaryApplication.displayName),
                 action: action,
                 keyEquivalent: ""
             )
@@ -45,7 +46,7 @@ extension NSMenu {
             addItem(openItem)
 
             guard !otherApplications.isEmpty else { return }
-            let openWithMenu = NSMenu(title: FileExternalOpenText.openWithMenu)
+            let openWithMenu = NSMenu(title: text.openWithMenu)
             for application in otherApplications {
                 let appItem = NSMenuItem(
                     title: application.displayName,
@@ -59,12 +60,12 @@ extension NSMenu {
                 )
                 openWithMenu.addItem(appItem)
             }
-            let openWithItem = NSMenuItem(title: FileExternalOpenText.openWithMenu, action: nil, keyEquivalent: "")
+            let openWithItem = NSMenuItem(title: text.openWithMenu, action: nil, keyEquivalent: "")
             openWithItem.submenu = openWithMenu
             addItem(openWithItem)
         } else {
             let openItem = NSMenuItem(
-                title: FileExternalOpenText.openExternally,
+                title: text.openExternally,
                 action: action,
                 keyEquivalent: ""
             )

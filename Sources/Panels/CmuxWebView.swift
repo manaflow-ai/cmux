@@ -706,19 +706,6 @@ final class CmuxWebView: WKWebView {
         )
     }
 
-    private static func suggestedFilenameForDataURL(
-        mimeType: String?,
-        suggestedFilename: String?
-    ) -> String {
-        if let suggested = suggestedFilename?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !suggested.isEmpty {
-            return BrowserDownloadFilenameResolver().suggestedFilename(suggestedFilename: suggested, response: nil, sourceURL: URL(fileURLWithPath: "download"), imageType: nil)
-        }
-        let ext = ParsedDataURL.filenameExtension(forMIMEType: mimeType) ?? "bin"
-        let base = (mimeType?.lowercased().hasPrefix("image/") ?? false) ? "image" : "download"
-        return "\(base).\(ext)"
-    }
-
     private static func normalizedContextMenuToken(_ value: String?) -> String {
         guard let value else { return "" }
         let lowered = value.lowercased()
@@ -1120,7 +1107,7 @@ final class CmuxWebView: WKWebView {
                     return
                 }
 
-                let saveName = Self.suggestedFilenameForDataURL(
+                let saveName = BrowserDownloadFilenameResolver().suggestedFilenameForDataURL(
                     mimeType: parsed.mimeType,
                     suggestedFilename: suggestedFilename
                 )

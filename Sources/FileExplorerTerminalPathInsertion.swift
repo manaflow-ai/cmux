@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 
 enum FileExplorerTerminalPathInsertion {
     static func insertedText(forPaths paths: [String]) -> String {

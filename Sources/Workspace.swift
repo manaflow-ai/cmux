@@ -5429,18 +5429,11 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     ) {
         let trimmedDetail = detail?.trimmingCharacters(in: .whitespacesAndNewlines)
         let proxyOnlyError = trimmedDetail.map(\.indicatesProxyOnlyRemoteError) ?? false
-        let preserveConnectedStateForRetry =
-            (state == .connecting || state == .reconnecting) &&
-                preservesProxyFailureWhileSSHTerminalIsAlive &&
-                hasProxyOnlyRemoteSidebarError
-        let effectiveState: WorkspaceRemoteConnectionState
-        if state == .error && proxyOnlyError && preservesProxyFailureWhileSSHTerminalIsAlive {
-            effectiveState = .connected
-        } else if preserveConnectedStateForRetry {
-            effectiveState = .connected
-        } else {
-            effectiveState = state
-        }
+        let effectiveState = state.effectiveRemoteConnectionState(
+            isProxyOnlyError: proxyOnlyError,
+            preservesProxyFailureWhileSSHTerminalIsAlive: preservesProxyFailureWhileSSHTerminalIsAlive,
+            hasProxyOnlySidebarError: hasProxyOnlyRemoteSidebarError
+        )
 
         remoteConnectionState = effectiveState
         remoteConnectionDetail = detail

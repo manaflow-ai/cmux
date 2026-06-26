@@ -100,36 +100,6 @@ enum GhosttyBackgroundTheme {
     }
 }
 
-enum BrowserThemeMode: String, CaseIterable, Identifiable {
-    case system
-    case light
-    case dark
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .system:
-            return String(localized: "theme.system", defaultValue: "System")
-        case .light:
-            return String(localized: "theme.light", defaultValue: "Light")
-        case .dark:
-            return String(localized: "theme.dark", defaultValue: "Dark")
-        }
-    }
-
-    var iconName: String {
-        switch self {
-        case .system:
-            return "circle.lefthalf.filled"
-        case .light:
-            return "sun.max"
-        case .dark:
-            return "moon"
-        }
-    }
-}
-
 enum BrowserThemeSettings {
     static let modeKey = "browserThemeMode"
     static let legacyForcedDarkModeEnabledKey = "browserForcedDarkModeEnabled"
