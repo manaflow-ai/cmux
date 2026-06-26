@@ -20,6 +20,9 @@ public actor PushRegistrationService: PushRegistering {
     private let apnsEnvironment: String
     private let defaults: UserDefaults
     private let session: URLSession
+    /// Keeps a POST/DELETE from silently becoming a body-less GET on a
+    /// same-origin redirect (see ``RedirectMethodPreservingDelegate``).
+    private let redirectDelegate = RedirectMethodPreservingDelegate()
 
     private static let enabledKey = "cmux.notifications.pushEnabled"
     private static let cachedTokenKey = "cmux.notifications.deviceTokenHex"
@@ -181,7 +184,7 @@ public actor PushRegistrationService: PushRegistering {
             // becoming a body-less GET that never registers the token (#6270).
             let (_, response) = try await session.data(
                 for: request,
-                delegate: RedirectMethodPreservingDelegate.shared
+                delegate: redirectDelegate
             )
             if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
                 pushLog.error("\(label, privacy: .public) failed status=\(http.statusCode, privacy: .public)")

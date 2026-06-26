@@ -27,14 +27,14 @@ private let redirectLog = Logger(subsystem: "ai.manaflow.cmux", category: "push"
 /// unauthenticated) request, so it fails loudly with a non-2xx instead of
 /// leaking the payload or silently "succeeding" as the wrong method.
 ///
-/// Stateless and safe to share: a single ``shared`` instance can back every
-/// request. Used as a per-task delegate via `URLSession.data(for:delegate:)`,
-/// which works even on `URLSession.shared` (the shared session only forbids a
-/// session-level delegate, not per-task ones).
+/// Stateless: each owner constructs and retains its own instance (there is no
+/// state to share, so a per-owner instance is equivalent to a global one and
+/// avoids a package singleton). Used as a per-task delegate via
+/// `URLSession.data(for:delegate:)`, which works even on `URLSession.shared`
+/// (the shared session only forbids a session-level delegate, not per-task ones).
 public final class RedirectMethodPreservingDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
-    /// A shared, stateless instance (the delegate holds no mutable state).
-    public static let shared = RedirectMethodPreservingDelegate()
-
+    /// Creates a stateless redirect delegate. The owning service constructs and
+    /// retains one, then passes it to `URLSession.data(for:delegate:)`.
     public override init() { super.init() }
 
     public func urlSession(
@@ -54,7 +54,7 @@ public final class RedirectMethodPreservingDelegate: NSObject, URLSessionTaskDel
         }
         // Fail closed across origins: never re-send a stripped-auth payload to a
         // different origin. Restore only on a same-origin redirect.
-        guard Self.sameOrigin(original.url, request.url) else {
+        guard sameOrigin(original.url, request.url) else {
             redirectLog.info(
                 "Not restoring \(originalMethod, privacy: .public) across a cross-origin HTTP \(response.statusCode, privacy: .public) redirect; following Foundation's proposed request (fails closed)"
             )
@@ -84,7 +84,7 @@ public final class RedirectMethodPreservingDelegate: NSObject, URLSessionTaskDel
 
     /// Same scheme + host + port (case-insensitive scheme/host). A `nil` URL on
     /// either side is treated as not-same-origin so it fails closed.
-    static func sameOrigin(_ lhs: URL?, _ rhs: URL?) -> Bool {
+    private func sameOrigin(_ lhs: URL?, _ rhs: URL?) -> Bool {
         guard let lhs, let rhs else { return false }
         return lhs.scheme?.lowercased() == rhs.scheme?.lowercased()
             && lhs.host?.lowercased() == rhs.host?.lowercased()
