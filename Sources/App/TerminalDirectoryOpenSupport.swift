@@ -326,10 +326,24 @@ enum VSCodeServeWebURLBuilder {
     }
 }
 
+/// Which binary backs the inline serve-web launch. The two differ in how VS Code
+/// Web persists auth/Settings Sync state, so downstream launch options are shaped
+/// per kind (see ``VSCodeServeWebLaunchOptionsBuilder``).
+enum VSCodeServeWebLauncherKind: Equatable {
+    /// `code-tunnel serve-web`: the wrapper that wires up the CLI
+    /// secret-storage/keyring path VS Code Web auth + Settings Sync rely on.
+    case codeTunnelWrapper
+    /// Cached `~/.vscode/cli/serve-web/<id>/bin/code-server`, used only as a
+    /// fallback for installs where the wrapper is unavailable. Bypasses the
+    /// wrapper-managed keyring setup.
+    case cachedCodeServer
+}
+
 struct VSCodeCLILaunchConfiguration {
     let executableURL: URL
     let argumentsPrefix: [String]
     let environment: [String: String]
+    let launcherKind: VSCodeServeWebLauncherKind
 }
 
 enum VSCodeCLILaunchConfigurationBuilder {
@@ -357,6 +371,24 @@ enum VSCodeCLILaunchConfigurationBuilder {
         let contentsURL = vscodeApplicationURL.appendingPathComponent("Contents", isDirectory: true)
         let environment = nodeSafeEnvironment(from: baseEnvironment)
 
+        // Prefer the `code-tunnel serve-web` wrapper. It owns the CLI
+        // secret-storage/keyring setup that VS Code Web uses to persist GitHub
+        // auth + Settings Sync across reloads/folder changes/app relaunches.
+        // Launching the cached `code-server` binary directly bypasses that path
+        // and loses the auth/settings state (issue #6595).
+        let codeTunnelURL = contentsURL.appendingPathComponent("Resources/app/bin/code-tunnel", isDirectory: false)
+        if isExecutableAtPath(codeTunnelURL.path) {
+            var codeTunnelEnvironment = environment
+            codeTunnelEnvironment["ELECTRON_RUN_AS_NODE"] = "1"
+            return VSCodeCLILaunchConfiguration(
+                executableURL: codeTunnelURL,
+                argumentsPrefix: ["serve-web"],
+                environment: codeTunnelEnvironment,
+                launcherKind: .codeTunnelWrapper
+            )
+        }
+
+        // Fallback: the cached code-server binary for installs without the wrapper.
         if let codeServerURL = preferredCachedCodeServerURL(
             contentsURL: contentsURL,
             homeDirectoryURL: homeDirectoryURL,
@@ -370,20 +402,12 @@ enum VSCodeCLILaunchConfigurationBuilder {
             return VSCodeCLILaunchConfiguration(
                 executableURL: codeServerURL,
                 argumentsPrefix: [],
-                environment: codeServerEnvironment
+                environment: codeServerEnvironment,
+                launcherKind: .cachedCodeServer
             )
         }
 
-        let codeTunnelURL = contentsURL.appendingPathComponent("Resources/app/bin/code-tunnel", isDirectory: false)
-        guard isExecutableAtPath(codeTunnelURL.path) else { return nil }
-        var codeTunnelEnvironment = environment
-        codeTunnelEnvironment["ELECTRON_RUN_AS_NODE"] = "1"
-
-        return VSCodeCLILaunchConfiguration(
-            executableURL: codeTunnelURL,
-            argumentsPrefix: ["serve-web"],
-            environment: codeTunnelEnvironment
-        )
+        return nil
     }
 
     private static func nodeSafeEnvironment(from baseEnvironment: [String: String]) -> [String: String] {
@@ -482,24 +506,293 @@ enum VSCodeCLILaunchConfigurationBuilder {
     }
 }
 
+/// Stable on-disk locations + port for the inline serve-web server. Keeping these
+/// fixed across launches is what lets VS Code Web's keyring/secret-storage survive
+/// reloads, folder changes, and app relaunches (issue #6595).
+struct VSCodeServeWebRuntimeLocation: Equatable {
+    /// `--server-data-dir`: where serve-web keeps its server-side state.
+    let serverDataDirectoryURL: URL
+    /// `--user-data-dir` for the cached code-server fallback (the wrapper derives
+    /// this from `--server-data-dir` and rejects the flag).
+    let userDataDirectoryURL: URL
+    /// `VSCODE_CLI_DATA_DIR` for the wrapper's CLI keyring metadata.
+    let cliDataDirectoryURL: URL
+    /// `--connection-token-file`: a persisted token so the server URL is stable.
+    let connectionTokenFileURL: URL
+    /// Stable serve-web port (or `0` for the ephemeral fallback attempt).
+    let port: Int
+}
+
+enum VSCodeServeWebRuntimeLocator {
+    /// Override the serve-web server data directory (absolute path).
+    static let serverDataDirectoryEnvironmentKey = "CMUX_VSCODE_SERVE_WEB_DATA_DIR"
+    /// Override the stable serve-web port.
+    static let portEnvironmentKey = "CMUX_VSCODE_SERVE_WEB_PORT"
+    /// VS Code CLI data dir env var; honored as-is when already set.
+    static let cliDataDirectoryEnvironmentKey = "VSCODE_CLI_DATA_DIR"
+    /// UserDefaults key the resolved default port is persisted under.
+    static let portUserDefaultsKey = "vscodeServeWeb.port"
+
+    /// IANA dynamic/private port range (49152–65535) avoids well-known and
+    /// registered ports while still giving every bundle a stable default.
+    private static let minimumPort = 49152
+    private static let portRangeSize = 16384
+
+    static func resolve(
+        applicationSupportURL: URL,
+        bundleIdentifier: String,
+        environment: [String: String],
+        persistedPort: Int?
+    ) -> (location: VSCodeServeWebRuntimeLocation, portToPersist: Int?) {
+        let serverDataDirectoryURL = resolveServerDataDirectoryURL(
+            applicationSupportURL: applicationSupportURL,
+            bundleIdentifier: bundleIdentifier,
+            environment: environment
+        )
+        let userDataDirectoryURL = serverDataDirectoryURL
+            .appendingPathComponent("user-data", isDirectory: true)
+        let cliDataDirectoryURL = resolveCLIDataDirectoryURL(
+            serverDataDirectoryURL: serverDataDirectoryURL,
+            environment: environment
+        )
+        let connectionTokenFileURL = serverDataDirectoryURL
+            .appendingPathComponent("connection-token", isDirectory: false)
+        let (port, portToPersist) = resolvePort(
+            bundleIdentifier: bundleIdentifier,
+            environment: environment,
+            persistedPort: persistedPort
+        )
+
+        return (
+            VSCodeServeWebRuntimeLocation(
+                serverDataDirectoryURL: serverDataDirectoryURL,
+                userDataDirectoryURL: userDataDirectoryURL,
+                cliDataDirectoryURL: cliDataDirectoryURL,
+                connectionTokenFileURL: connectionTokenFileURL,
+                port: port
+            ),
+            portToPersist
+        )
+    }
+
+    private static func resolveServerDataDirectoryURL(
+        applicationSupportURL: URL,
+        bundleIdentifier: String,
+        environment: [String: String]
+    ) -> URL {
+        if let override = environment[serverDataDirectoryEnvironmentKey],
+           !override.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
+        return applicationSupportURL
+            .appendingPathComponent(bundleIdentifier, isDirectory: true)
+            .appendingPathComponent("vscode-serve-web", isDirectory: true)
+    }
+
+    private static func resolveCLIDataDirectoryURL(
+        serverDataDirectoryURL: URL,
+        environment: [String: String]
+    ) -> URL {
+        if let override = environment[cliDataDirectoryEnvironmentKey],
+           !override.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
+        return serverDataDirectoryURL.appendingPathComponent("cli-data", isDirectory: true)
+    }
+
+    private static func resolvePort(
+        bundleIdentifier: String,
+        environment: [String: String],
+        persistedPort: Int?
+    ) -> (port: Int, portToPersist: Int?) {
+        if let override = environment[portEnvironmentKey], let parsed = parsePort(override) {
+            // Env overrides win but are intentionally not persisted as the default.
+            return (parsed, nil)
+        }
+        if let persistedPort, isValidPort(persistedPort) {
+            return (persistedPort, nil)
+        }
+        let derived = derivePort(from: bundleIdentifier)
+        return (derived, derived)
+    }
+
+    static func parsePort(_ raw: String) -> Int? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let value = Int(trimmed), isValidPort(value) else { return nil }
+        return value
+    }
+
+    static func isValidPort(_ port: Int) -> Bool {
+        (1024...65535).contains(port)
+    }
+
+    /// Deterministic per-bundle default so different (e.g. tagged) builds get
+    /// distinct, stable ports instead of colliding on one fixed value.
+    static func derivePort(from bundleIdentifier: String) -> Int {
+        var hash: UInt64 = 1469598103934665603 // FNV-1a 64-bit offset basis
+        for byte in bundleIdentifier.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 1099511628211 // FNV-1a 64-bit prime
+        }
+        return minimumPort + Int(hash % UInt64(portRangeSize))
+    }
+}
+
+/// Connection-token format helpers. VS Code Web compares the URL `tkn` query item
+/// against this file's contents, so a stable, valid token keeps the server URL —
+/// and the browser-side session/cookies keyed to it — consistent across launches.
+enum VSCodeConnectionToken {
+    private static let hexCharacters = Set("0123456789abcdefABCDEF")
+
+    static func isValid(_ token: String) -> Bool {
+        guard token.count == 32 else { return false }
+        return token.allSatisfy { hexCharacters.contains($0) }
+    }
+
+    /// 128 bits of randomness rendered as 32 lowercase hex characters.
+    static func generate() -> String {
+        let hexDigits = Array("0123456789abcdef")
+        var characters = [Character]()
+        characters.reserveCapacity(32)
+        for _ in 0..<16 {
+            let byte = UInt8.random(in: UInt8.min...UInt8.max)
+            characters.append(hexDigits[Int(byte >> 4)])
+            characters.append(hexDigits[Int(byte & 0x0F)])
+        }
+        return String(characters)
+    }
+}
+
+/// Reads/creates the persisted connection-token file, reusing a valid existing
+/// token (32-hex, owner-only perms) and replacing anything invalid.
+enum VSCodeConnectionTokenStore {
+    @discardableResult
+    static func ensureToken(at url: URL, fileManager: FileManager = .default) -> String? {
+        if let existing = readValidToken(at: url, fileManager: fileManager) {
+            return existing
+        }
+        return writeToken(VSCodeConnectionToken.generate(), to: url, fileManager: fileManager)
+    }
+
+    static func readValidToken(at url: URL, fileManager: FileManager) -> String? {
+        guard let data = try? Data(contentsOf: url),
+              let raw = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        let token = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard VSCodeConnectionToken.isValid(token),
+              hasOwnerOnlyPermissions(at: url, fileManager: fileManager) else {
+            return nil
+        }
+        return token
+    }
+
+    static func hasOwnerOnlyPermissions(at url: URL, fileManager: FileManager) -> Bool {
+        guard let attributes = try? fileManager.attributesOfItem(atPath: url.path),
+              let permissions = attributes[.posixPermissions] as? NSNumber else {
+            return false
+        }
+        // No group/other bits set (e.g. 0600/0400).
+        return permissions.uint16Value & 0o077 == 0
+    }
+
+    @discardableResult
+    static func writeToken(_ token: String, to url: URL, fileManager: FileManager) -> String? {
+        guard let tokenData = token.data(using: .utf8) else { return nil }
+        try? fileManager.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        // Drop any stale/invalid file so the strict-perms create below succeeds.
+        try? fileManager.removeItem(at: url)
+
+        let fileDescriptor = open(url.path, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR)
+        guard fileDescriptor >= 0 else { return nil }
+        defer { _ = close(fileDescriptor) }
+
+        let wroteAllBytes = tokenData.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else { return false }
+            return write(fileDescriptor, baseAddress, rawBuffer.count) == rawBuffer.count
+        }
+        guard wroteAllBytes else {
+            try? fileManager.removeItem(at: url)
+            return nil
+        }
+        // Pin to 0600 in case umask widened the create mode.
+        try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        return token
+    }
+}
+
+struct VSCodeServeWebLaunchOptions: Equatable {
+    let executableURL: URL
+    let arguments: [String]
+    let environment: [String: String]
+}
+
+/// Shapes the final process arguments + environment per launcher kind. The wrapper
+/// and the cached code-server differ in supported flags and in how they manage the
+/// secret keyring, so the two paths are handled explicitly here.
+enum VSCodeServeWebLaunchOptionsBuilder {
+    static func launchOptions(
+        configuration: VSCodeCLILaunchConfiguration,
+        location: VSCodeServeWebRuntimeLocation,
+        port: Int
+    ) -> VSCodeServeWebLaunchOptions {
+        var arguments = configuration.argumentsPrefix
+        arguments += [
+            "--accept-server-license-terms",
+            "--host", "127.0.0.1",
+            "--port", String(port),
+            "--connection-token-file", location.connectionTokenFileURL.path,
+            "--server-data-dir", location.serverDataDirectoryURL.path,
+        ]
+        var environment = configuration.environment
+
+        switch configuration.launcherKind {
+        case .codeTunnelWrapper:
+            // `code-tunnel serve-web` does not accept --user-data-dir; it derives
+            // user data from --server-data-dir. Enable the CLI file keyring so VS
+            // Code Web auth/Settings Sync persist instead of using in-memory
+            // secret storage, and pin the CLI data dir for keyring stability.
+            environment["VSCODE_CLI_USE_FILE_KEYRING"] = "1"
+            let cliDataKey = VSCodeServeWebRuntimeLocator.cliDataDirectoryEnvironmentKey
+            let cliDataDirIsUnset = environment[cliDataKey]?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .isEmpty ?? true
+            if cliDataDirIsUnset {
+                environment[cliDataKey] = location.cliDataDirectoryURL.path
+            }
+        case .cachedCodeServer:
+            // The cached server binary accepts --user-data-dir directly.
+            arguments += ["--user-data-dir", location.userDataDirectoryURL.path]
+        }
+
+        return VSCodeServeWebLaunchOptions(
+            executableURL: configuration.executableURL,
+            arguments: arguments,
+            environment: environment
+        )
+    }
+}
+
 final class VSCodeServeWebController {
     static let shared = VSCodeServeWebController()
     private static let serveWebStartupTimeoutSeconds: TimeInterval = 60
+    /// Used to namespace the serve-web data dir when the running app has no bundle
+    /// identifier (e.g. some test hosts). Matches the release bundle id.
+    private static let fallbackBundleIdentifier = "com.cmuxterm.app"
 
     private let queue = DispatchQueue(label: "cmux.vscode.serveWeb")
     private let launchQueue = DispatchQueue(label: "cmux.vscode.serveWeb.launch")
     private let launchProcessOverride: ((URL, UInt64) -> (process: Process, url: URL)?)?
     private var serveWebProcess: Process?
     private var launchingProcess: Process?
-    private var connectionTokenFilesByProcessID: [ObjectIdentifier: URL] = [:]
     private var serveWebURL: URL?
     private var pendingCompletions: [(generation: UInt64, completion: (URL?) -> Void)] = []
     private var isLaunching = false
     private var activeLaunchGeneration: UInt64?
     private var lifecycleGeneration: UInt64 = 0
-#if DEBUG
-    private var testingTrackedProcesses: [Process] = []
-#endif
 
     private init(launchProcessOverride: ((URL, UInt64) -> (process: Process, url: URL)?)? = nil) {
         self.launchProcessOverride = launchProcessOverride
@@ -510,26 +803,6 @@ final class VSCodeServeWebController {
         launchProcessOverride: @escaping (URL, UInt64) -> (process: Process, url: URL)?
     ) -> VSCodeServeWebController {
         VSCodeServeWebController(launchProcessOverride: launchProcessOverride)
-    }
-
-    func trackConnectionTokenFileForTesting(
-        _ connectionTokenFileURL: URL,
-        setAsLaunchingProcess: Bool = false,
-        setAsServeWebProcess: Bool = false
-    ) {
-        let process = Process()
-        queue.sync {
-            if setAsLaunchingProcess {
-                self.launchingProcess = process
-            }
-            if setAsServeWebProcess {
-                self.serveWebProcess = process
-            }
-            if !setAsLaunchingProcess && !setAsServeWebProcess {
-                self.testingTrackedProcesses.append(process)
-            }
-            self.connectionTokenFilesByProcessID[ObjectIdentifier(process)] = connectionTokenFileURL
-        }
     }
 #endif
 
@@ -619,7 +892,10 @@ final class VSCodeServeWebController {
     }
 
     func stop() {
-        let (processes, tokenFileURLs, completions): ([Process], [URL], [(URL?) -> Void]) = queue.sync {
+        // The connection-token file is now persisted under the stable server data
+        // dir and reused across launches, so stop() must NOT delete it — doing so
+        // would change the server URL and drop VS Code Web auth/Settings Sync.
+        let (processes, completions): ([Process], [(URL?) -> Void]) = queue.sync {
             self.lifecycleGeneration &+= 1
             self.isLaunching = false
             self.activeLaunchGeneration = nil
@@ -633,22 +909,10 @@ final class VSCodeServeWebController {
             }
             self.serveWebProcess = nil
             self.launchingProcess = nil
-#if DEBUG
-            self.testingTrackedProcesses.removeAll()
-#endif
-            var tokenFileURLs = processes.compactMap {
-                self.connectionTokenFilesByProcessID.removeValue(forKey: ObjectIdentifier($0))
-            }
-            tokenFileURLs.append(contentsOf: self.connectionTokenFilesByProcessID.values)
-            self.connectionTokenFilesByProcessID.removeAll()
             self.serveWebURL = nil
             let completions = self.pendingCompletions.map(\.completion)
             self.pendingCompletions.removeAll()
-            return (processes, tokenFileURLs, completions)
-        }
-
-        for tokenFileURL in tokenFileURLs {
-            Self.removeConnectionTokenFile(at: tokenFileURL)
+            return (processes, completions)
         }
 
         for process in processes where process.isRunning {
@@ -687,19 +951,52 @@ final class VSCodeServeWebController {
             vscodeApplicationURL: vscodeApplicationURL
         ) else { return nil }
 
-        guard let connectionTokenFileURL = Self.makeConnectionTokenFile() else {
+        guard let location = prepareRuntimeLocation() else { return nil }
+
+        // Persist a stable, valid connection token so the server URL (and the
+        // browser-side session keyed to its token) stays consistent across launches.
+        guard VSCodeConnectionTokenStore.ensureToken(at: location.connectionTokenFileURL) != nil else {
             return nil
         }
 
+        // Try the stable port first; fall back to an ephemeral port if it can't be
+        // bound (e.g. already in use) so the inline server still comes up.
+        var attemptedPorts = [location.port]
+        if location.port != 0 {
+            attemptedPorts.append(0)
+        }
+
+        for port in attemptedPorts {
+            let options = VSCodeServeWebLaunchOptionsBuilder.launchOptions(
+                configuration: launchConfiguration,
+                location: location,
+                port: port
+            )
+            if let result = runServeWebProcess(options: options, expectedGeneration: expectedGeneration) {
+                return result
+            }
+            // Stop retrying if this launch generation was superseded mid-attempt.
+            let stillCurrent = queue.sync {
+                self.lifecycleGeneration == expectedGeneration
+                    && self.activeLaunchGeneration == expectedGeneration
+            }
+            guard stillCurrent else { return nil }
+        }
+
+        return nil
+    }
+
+    /// Runs a single serve-web launch attempt for the given options, returning the
+    /// process + resolved Web UI URL on success. The persisted connection-token
+    /// file is intentionally never deleted here — it must survive process exits.
+    private func runServeWebProcess(
+        options: VSCodeServeWebLaunchOptions,
+        expectedGeneration: UInt64
+    ) -> (process: Process, url: URL)? {
         let process = Process()
-        process.executableURL = launchConfiguration.executableURL
-        process.arguments = launchConfiguration.argumentsPrefix + [
-            "--accept-server-license-terms",
-            "--host", "127.0.0.1",
-            "--port", "0",
-            "--connection-token-file", connectionTokenFileURL.path,
-        ]
-        process.environment = launchConfiguration.environment
+        process.executableURL = options.executableURL
+        process.arguments = options.arguments
+        process.environment = options.environment
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -735,11 +1032,6 @@ final class VSCodeServeWebController {
                     self.serveWebProcess = nil
                     self.serveWebURL = nil
                 }
-                if let tokenFileURL = self.connectionTokenFilesByProcessID.removeValue(
-                    forKey: ObjectIdentifier(terminatedProcess)
-                ) {
-                    Self.removeConnectionTokenFile(at: tokenFileURL)
-                }
             }
         }
 
@@ -749,7 +1041,6 @@ final class VSCodeServeWebController {
                 return false
             }
             self.launchingProcess = process
-            self.connectionTokenFilesByProcessID[ObjectIdentifier(process)] = connectionTokenFileURL
             do {
                 try process.run()
                 return true
@@ -757,18 +1048,12 @@ final class VSCodeServeWebController {
                 if self.launchingProcess === process {
                     self.launchingProcess = nil
                 }
-                if let tokenFileURL = self.connectionTokenFilesByProcessID.removeValue(
-                    forKey: ObjectIdentifier(process)
-                ) {
-                    Self.removeConnectionTokenFile(at: tokenFileURL)
-                }
                 return false
             }
         }
         guard didStart else {
             stdoutPipe.fileHandleForReading.readabilityHandler = nil
             stderrPipe.fileHandleForReading.readabilityHandler = nil
-            Self.removeConnectionTokenFile(at: connectionTokenFileURL)
             return nil
         }
 
@@ -787,17 +1072,53 @@ final class VSCodeServeWebController {
                         self.serveWebProcess = nil
                         self.serveWebURL = nil
                     }
-                    if let tokenFileURL = self.connectionTokenFilesByProcessID.removeValue(
-                        forKey: ObjectIdentifier(process)
-                    ) {
-                        Self.removeConnectionTokenFile(at: tokenFileURL)
-                    }
                 }
             }
             return nil
         }
 
         return (process, serveWebURL)
+    }
+
+    /// Resolves the stable serve-web paths + port, persisting the derived default
+    /// port and ensuring the data directories exist before launch.
+    private func prepareRuntimeLocation() -> VSCodeServeWebRuntimeLocation? {
+        guard let applicationSupportURL = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first else {
+            return nil
+        }
+        let bundleIdentifier = Bundle.main.bundleIdentifier ?? Self.fallbackBundleIdentifier
+        let resolved = VSCodeServeWebRuntimeLocator.resolve(
+            applicationSupportURL: applicationSupportURL,
+            bundleIdentifier: bundleIdentifier,
+            environment: ProcessInfo.processInfo.environment,
+            persistedPort: Self.persistedPort()
+        )
+        if let portToPersist = resolved.portToPersist {
+            Self.persistPort(portToPersist)
+        }
+
+        let location = resolved.location
+        let fileManager = FileManager.default
+        for directoryURL in [
+            location.serverDataDirectoryURL,
+            location.userDataDirectoryURL,
+            location.cliDataDirectoryURL,
+        ] {
+            try? fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        }
+        return location
+    }
+
+    private static func persistedPort() -> Int? {
+        let value = UserDefaults.standard.integer(forKey: VSCodeServeWebRuntimeLocator.portUserDefaultsKey)
+        return value > 0 ? value : nil
+    }
+
+    private static func persistPort(_ port: Int) {
+        UserDefaults.standard.set(port, forKey: VSCodeServeWebRuntimeLocator.portUserDefaultsKey)
     }
 
     private static func drainAvailableOutput(from fileHandle: FileHandle, collector: ServeWebOutputCollector) {
@@ -809,37 +1130,6 @@ final class VSCodeServeWebController {
                 return
             }
         }
-    }
-
-    private static func randomConnectionToken() -> String {
-        UUID().uuidString.replacingOccurrences(of: "-", with: "")
-    }
-
-    private static func makeConnectionTokenFile() -> URL? {
-        let token = randomConnectionToken()
-        let tokenFileName = "cmux-vscode-token-\(UUID().uuidString)"
-        let tokenFileURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-            .appendingPathComponent(tokenFileName, isDirectory: false)
-        guard let tokenData = token.data(using: .utf8) else { return nil }
-
-        let fileDescriptor = open(tokenFileURL.path, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR)
-        guard fileDescriptor >= 0 else { return nil }
-        defer { _ = close(fileDescriptor) }
-
-        let wroteAllBytes = tokenData.withUnsafeBytes { rawBuffer in
-            guard let baseAddress = rawBuffer.baseAddress else { return false }
-            return write(fileDescriptor, baseAddress, rawBuffer.count) == rawBuffer.count
-        }
-        guard wroteAllBytes else {
-            removeConnectionTokenFile(at: tokenFileURL)
-            return nil
-        }
-
-        return tokenFileURL
-    }
-
-    private static func removeConnectionTokenFile(at url: URL) {
-        try? FileManager.default.removeItem(at: url)
     }
 
     private static func urlsShareLoopbackOrigin(_ lhs: URL, _ rhs: URL?) -> Bool {
