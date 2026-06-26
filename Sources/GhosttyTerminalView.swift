@@ -3345,13 +3345,26 @@ private final class TerminalSharedBackdropCutoutFilter: CIFilter {
 
 private func recordAgentHibernationTerminalInput(workspaceId: UUID, panelId: UUID) {
     guard AgentHibernationTrackingGate.isEnabled() else { return }
-    let recordedAt = Date()
-    Task { @MainActor in
-        AgentHibernationController.shared.recordTerminalInput(
-            workspaceId: workspaceId,
-            panelId: panelId,
-            recordedAt: recordedAt
-        )
+    // All real callers (key/IME/paste handlers) run on the main thread, so
+    // record inline instead of allocating a Task and deferring a sub-microsecond
+    // dictionary write to a later runloop turn. `recordTerminalInput` stamps its
+    // own `Date()` when `recordedAt` is nil, so the timestamp stays accurate.
+    if Thread.isMainThread {
+        MainActor.assumeIsolated {
+            AgentHibernationController.shared.recordTerminalInput(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                recordedAt: nil
+            )
+        }
+    } else {
+        Task { @MainActor in
+            AgentHibernationController.shared.recordTerminalInput(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                recordedAt: nil
+            )
+        }
     }
 }
 
@@ -3419,11 +3432,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
-    fileprivate static func focusLog(_ message: String) {
+    fileprivate static func focusLog(_ message: @autoclosure () -> String) {
         guard focusDebugEnabled else { return }
-        AppDelegate.shared?.focusLog.append(message)
+        let resolved = message()
+        AppDelegate.shared?.focusLog.append(resolved)
         #if DEBUG
-        NSLog("[FOCUSDBG] %@", message)
+        NSLog("[FOCUSDBG] %@", resolved)
         #endif
     }
 
@@ -11540,11 +11554,13 @@ extension GhosttyNSView: NSTextInputClient {
 
         if markedText.length > 0 {
             let str = markedText.string
-            let len = str.utf8CString.count
+            // `utf8.count` avoids the throwaway ContiguousArray<CChar> that
+            // `utf8CString.count` allocates, and already excludes the null
+            // terminator, so the byte length passed below is unchanged.
+            let len = str.utf8.count
             if len > 0 {
                 str.withCString { ptr in
-                    // Subtract 1 for the null terminator
-                    ghostty_surface_preedit(surface, ptr, UInt(len - 1))
+                    ghostty_surface_preedit(surface, ptr, UInt(len))
                 }
             }
         } else if clearIfNeeded {

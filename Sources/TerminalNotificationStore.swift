@@ -234,6 +234,12 @@ final class TerminalNotificationStore: ObservableObject {
         var unreadByTabSurface = Set<TabSurfaceKey>()
         var latestUnreadByTabId: [UUID: TerminalNotification] = [:]
         var latestByTabId: [UUID: TerminalNotification] = [:]
+        /// All notifications (read and unread) pre-grouped by the keys
+        /// ``TerminalNotification/matches(tabId:surfaceId:)`` would hit, so
+        /// `notifications(forTabId:surfaceId:)` is an O(1) lookup instead of a
+        /// full O(N) `filter` + allocation. Within-bucket order matches the
+        /// backing array's order.
+        var byTabSurface: [TabSurfaceKey: [TerminalNotification]] = [:]
     }
 
     static let shared = TerminalNotificationStore()
@@ -862,7 +868,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func notifications(forTabId tabId: UUID, surfaceId: UUID?) -> [TerminalNotification] {
-        notifications.filter { $0.matches(tabId: tabId, surfaceId: surfaceId) }
+        indexes.byTabSurface[TabSurfaceKey(tabId: tabId, surfaceId: surfaceId)] ?? []
     }
 
     func clearLatestNotification(forTabId tabId: UUID) {
@@ -2023,6 +2029,31 @@ final class TerminalNotificationStore: ObservableObject {
         for notification in notifications {
             if indexes.latestByTabId[notification.tabId] == nil {
                 indexes.latestByTabId[notification.tabId] = notification
+            }
+            // Group under exactly the keys matches() would resolve, preserving
+            // backing-array order within each bucket. Done before the isRead
+            // guard so reads are grouped too (notifications(forTabId:surfaceId:)
+            // returns read + unread).
+            if let surfaceId = notification.surfaceId {
+                indexes.byTabSurface[
+                    TabSurfaceKey(tabId: notification.tabId, surfaceId: surfaceId), default: []
+                ].append(notification)
+                if let panelId = notification.panelId, panelId != surfaceId {
+                    indexes.byTabSurface[
+                        TabSurfaceKey(tabId: notification.tabId, surfaceId: panelId), default: []
+                    ].append(notification)
+                }
+            } else if let panelId = notification.panelId {
+                // surfaceId == nil, panelId != nil: only a (tabId, panelId) query
+                // matches (the nil query requires panelId == nil too).
+                indexes.byTabSurface[
+                    TabSurfaceKey(tabId: notification.tabId, surfaceId: panelId), default: []
+                ].append(notification)
+            } else {
+                // surfaceId == nil && panelId == nil: only the (tabId, nil) query.
+                indexes.byTabSurface[
+                    TabSurfaceKey(tabId: notification.tabId, surfaceId: nil), default: []
+                ].append(notification)
             }
             guard !notification.isRead else { continue }
             indexes.unreadCount += 1

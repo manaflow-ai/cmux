@@ -10,6 +10,10 @@ import Foundation
 public struct ProjectFileNode: Sendable, Hashable, Identifiable {
     public let id: ProjectNodeID
     public let displayName: String
+    /// `displayName.lowercased()`, precomputed once so case-insensitive filter
+    /// matching does not allocate a lowercased string per file on every
+    /// keystroke. Derived purely from ``displayName``.
+    public let searchName: String
     public let resolvedPath: URL?
     public let fileType: String?
     public let existsOnDisk: Bool
@@ -25,6 +29,7 @@ public struct ProjectFileNode: Sendable, Hashable, Identifiable {
     ) {
         self.id = id
         self.displayName = displayName
+        self.searchName = displayName.lowercased()
         self.resolvedPath = resolvedPath
         self.fileType = fileType
         self.existsOnDisk = existsOnDisk

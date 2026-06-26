@@ -386,11 +386,17 @@ function revokeActiveIdentities(vm: CloudVmRow) {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const leases = yield* repo.activeIdentityLeases(vm.id);
-    for (const lease of leases) {
-      const identityHandle = lease.providerIdentityHandle;
-      if (!identityHandle) continue;
-      yield* providers.revokeSSHIdentity(vm.provider, identityHandle);
-    }
+    // Overlap the independent provider (HTTP) revocations with bounded
+    // concurrency instead of summing their latencies serially. Bounded at 8 so a
+    // VM that accumulated many leases does not hammer the provider. A failure
+    // short-circuits before markLeasesRevoked, preserving all-or-nothing
+    // semantics.
+    yield* Effect.forEach(
+      leases.filter((lease) => lease.providerIdentityHandle),
+      (lease) =>
+        providers.revokeSSHIdentity(vm.provider, lease.providerIdentityHandle!),
+      { concurrency: 8 },
+    );
     yield* repo.markLeasesRevoked(leases.map((lease) => lease.id));
   });
 }

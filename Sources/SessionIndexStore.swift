@@ -305,12 +305,14 @@ final class SessionIndexStore: ObservableObject {
             // Persistent backfill happens via `backfillDirectoryOrderFromEntries`,
             // called from `reload()` and `grouping.didSet`.
             let knownPaths = Set(directoryOrder)
+            // Precompute each bucket's max modified date in a single O(entries)
+            // pass instead of rescanning + allocating a fresh `[Date]` inside the
+            // comparator on every one of the sort's O(k log k) comparisons.
+            let maxModifiedByPath = buckets.mapValues { $0.map(\.modified).max() ?? .distantPast }
             let unknownSorted = buckets.keys
                 .filter { !knownPaths.contains($0) }
                 .sorted { lhs, rhs in
-                    let lMax = buckets[lhs]?.map(\.modified).max() ?? .distantPast
-                    let rMax = buckets[rhs]?.map(\.modified).max() ?? .distantPast
-                    return lMax > rMax
+                    (maxModifiedByPath[lhs] ?? .distantPast) > (maxModifiedByPath[rhs] ?? .distantPast)
                 }
             sections = (directoryOrder + unknownSorted)
                 .filter { buckets[$0] != nil }
@@ -1062,13 +1064,22 @@ final class SessionIndexStore: ObservableObject {
             if chunk.isEmpty { break }
             totalRead += chunk.count
             leftover.append(chunk)
-            while let nl = leftover.firstIndex(of: 0x0a) {
-                let lineData = leftover.subdata(in: 0..<nl)
-                leftover.removeSubrange(0..<(nl + 1))
-                if lineData.isEmpty { continue }
-                if let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] {
-                    if body(obj) { return }
+            // Scan with a moving cursor and drop the consumed prefix once per
+            // chunk. Removing from the front per line (`removeSubrange(0..<nl+1)`)
+            // shifts the whole remaining buffer each time, making a file of M
+            // lines O(M * fileSize) — quadratic on the multi-MB rollout paths.
+            var lineStart = leftover.startIndex
+            while let nl = leftover[lineStart...].firstIndex(of: 0x0a) {
+                if nl > lineStart {
+                    let lineData = leftover.subdata(in: lineStart..<nl)
+                    if let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] {
+                        if body(obj) { return }
+                    }
                 }
+                lineStart = leftover.index(after: nl)
+            }
+            if lineStart > leftover.startIndex {
+                leftover.removeSubrange(leftover.startIndex..<lineStart)
             }
         }
         // Flush trailing line if no newline at EOF.

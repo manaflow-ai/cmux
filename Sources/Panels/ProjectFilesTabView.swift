@@ -160,7 +160,11 @@ struct ProjectFilesTabView: View {
         for child in group.children {
             switch child {
             case let .file(file):
-                if file.displayName.lowercased().contains(filter) {
+                // `searchName` is the precomputed lowercased name; `filter` is
+                // already lowercased by the caller, so this stays a
+                // case-insensitive substring match with zero per-keystroke
+                // string allocations.
+                if file.searchName.contains(filter) {
                     out.append(file)
                 }
             case let .group(subgroup):

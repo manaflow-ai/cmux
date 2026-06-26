@@ -2843,6 +2843,17 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
     @Published private(set) var backgroundAppearanceRevision: UInt64 = 0
+    /// Last background appearance actually written to the live webview, used to
+    /// no-op redundant re-applies. Keyed on ``webViewInstanceID`` so a webview
+    /// replacement (which mints a fresh id) always re-applies. SPA pages that
+    /// fire `pushState`/`replaceState` on every interaction would otherwise
+    /// rewrite layers and bump ``backgroundAppearanceRevision`` for no change.
+    private struct AppliedWebViewBackground {
+        let webViewInstanceID: UUID
+        let drawsBackground: Bool
+        let color: NSColor
+    }
+    private var lastAppliedWebViewBackground: AppliedWebViewBackground?
     private let hiddenWebViewDiscardManager = BrowserHiddenWebViewDiscardManager()
 
     @Published private(set) var webViewLifecycleState: BrowserWebViewLifecycleState = .newTab
@@ -4788,13 +4799,18 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     /// Configures the live webview's background for the current Ghostty theme.
-    private func applyConfiguredWebViewBackground() {
+    @discardableResult
+    private func applyConfiguredWebViewBackground() -> Bool {
         applyWebViewBackground(color: GhosttyBackgroundTheme.currentColor())
     }
 
     private func refreshBackgroundAppearance() {
-        applyConfiguredWebViewBackground()
-        backgroundAppearanceRevision &+= 1
+        // Only bump the revision (which drives SwiftUI chrome-style refreshes)
+        // when the background actually changed; same-document SPA navigations
+        // resolve to the same appearance and should be no-ops.
+        if applyConfiguredWebViewBackground() {
+            backgroundAppearanceRevision &+= 1
+        }
     }
 
     /// Applies the webview background for a given terminal theme color.
@@ -4803,8 +4819,25 @@ final class BrowserPanel: Panel, ObservableObject {
     /// backdrop, clear the browser's native fill for blank pages. Real websites
     /// keep WebKit's background drawing so pages without their own CSS
     /// background remain readable.
-    private func applyWebViewBackground(color: NSColor) {
-        if !drawsConfiguredWebViewBackgroundForCurrentPage() {
+    @discardableResult
+    private func applyWebViewBackground(color: NSColor) -> Bool {
+        // Diff against the last applied appearance so redundant calls (notably
+        // the `\.url` KVO firing on every SPA navigation) become no-ops. NSColor
+        // `==` compares colorspace + components; a colorspace mismatch only
+        // forces a redundant re-apply (the safe direction), never a wrong skip.
+        let draws = drawsConfiguredWebViewBackgroundForCurrentPage()
+        if let last = lastAppliedWebViewBackground,
+           last.webViewInstanceID == webViewInstanceID,
+           last.drawsBackground == draws,
+           last.color == color {
+            return false
+        }
+        lastAppliedWebViewBackground = AppliedWebViewBackground(
+            webViewInstanceID: webViewInstanceID,
+            drawsBackground: draws,
+            color: color
+        )
+        if !draws {
             webView.wantsLayer = true
             webView.setValue(false, forKey: "drawsBackground")
             webView.underPageBackgroundColor = .clear
@@ -4813,7 +4846,7 @@ final class BrowserPanel: Panel, ObservableObject {
             portalAnchorView.wantsLayer = true
             portalAnchorView.layer?.isOpaque = false
             portalAnchorView.layer?.backgroundColor = NSColor.clear.cgColor
-            return
+            return true
         }
         if usesTransparentBackground {
             // Transparent internal pages keep their page CSS clear. On opaque
@@ -4827,7 +4860,7 @@ final class BrowserPanel: Panel, ObservableObject {
             portalAnchorView.wantsLayer = true
             portalAnchorView.layer?.isOpaque = color.alphaComponent >= 0.999
             portalAnchorView.layer?.backgroundColor = color.cgColor
-            return
+            return true
         }
         // Real website on an opaque theme: keep WebKit drawing its own background
         // so pages without their own CSS background remain readable. (Restores
@@ -4840,6 +4873,7 @@ final class BrowserPanel: Panel, ObservableObject {
         portalAnchorView.wantsLayer = true
         portalAnchorView.layer?.isOpaque = false
         portalAnchorView.layer?.backgroundColor = NSColor.clear.cgColor
+        return true
     }
 
     func drawsConfiguredWebViewBackgroundForCurrentPage() -> Bool {

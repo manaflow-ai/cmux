@@ -1898,3 +1898,73 @@ final class MenuBarIconRendererTests: XCTestCase {
         XCTAssertEqual(withBadge.size.width, 18, accuracy: 0.001)
     }
 }
+
+/// Locks the O(1) grouped-index lookup added to
+/// `TerminalNotificationStore.notifications(forTabId:surfaceId:)` to the exact
+/// semantics (and ordering) of the previous `filter { matches(...) }` scan.
+@MainActor
+final class TerminalNotificationLookupIndexParityTests: XCTestCase {
+    func testGroupedLookupMatchesFilterAcrossSurfaceAndPanelShapes() {
+        let store = TerminalNotificationStore.shared
+        store.replaceNotificationsForTesting([])
+        defer { store.replaceNotificationsForTesting([]) }
+
+        let tabA = UUID()
+        let tabB = UUID()
+        let surface1 = UUID()
+        let surface2 = UUID()
+        let panelX = UUID()
+        let unrelated = UUID()
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+
+        func make(
+            tab: UUID,
+            surfaceId: UUID?,
+            panelId: UUID?,
+            isRead: Bool,
+            offset: TimeInterval
+        ) -> TerminalNotification {
+            TerminalNotification(
+                id: UUID(),
+                tabId: tab,
+                surfaceId: surfaceId,
+                panelId: panelId,
+                title: "t",
+                subtitle: "s",
+                body: "b",
+                createdAt: base.addingTimeInterval(offset),
+                isRead: isRead
+            )
+        }
+
+        // Cover every shape matches() distinguishes, plus repeats per bucket so
+        // within-bucket ordering is exercised, plus a read notification (the
+        // lookup must return read + unread).
+        let notifications: [TerminalNotification] = [
+            make(tab: tabA, surfaceId: surface1, panelId: surface1, isRead: false, offset: 0), // surfaceId == panelId
+            make(tab: tabA, surfaceId: surface1, panelId: surface1, isRead: true, offset: 1),  // same bucket, read
+            make(tab: tabA, surfaceId: surface2, panelId: panelX, isRead: false, offset: 2),   // surfaceId != panelId (two buckets)
+            make(tab: tabA, surfaceId: nil, panelId: panelX, isRead: false, offset: 3),         // nil surface, non-nil panel
+            make(tab: tabA, surfaceId: nil, panelId: nil, isRead: false, offset: 4),            // both nil
+            make(tab: tabA, surfaceId: nil, panelId: nil, isRead: true, offset: 5),             // both nil, read
+            make(tab: tabB, surfaceId: surface1, panelId: surface1, isRead: false, offset: 6),  // different tab, same surface id
+        ]
+        store.replaceNotificationsForTesting(notifications)
+
+        let tabs = [tabA, tabB]
+        let surfaceQueries: [UUID?] = [nil, surface1, surface2, panelX, unrelated]
+        for tab in tabs {
+            for query in surfaceQueries {
+                let expected = store.notifications
+                    .filter { $0.matches(tabId: tab, surfaceId: query) }
+                    .map(\.id)
+                let actual = store.notifications(forTabId: tab, surfaceId: query).map(\.id)
+                XCTAssertEqual(
+                    actual,
+                    expected,
+                    "tab=\(tab) query=\(String(describing: query)) lookup must equal filter (same order)"
+                )
+            }
+        }
+    }
+}
