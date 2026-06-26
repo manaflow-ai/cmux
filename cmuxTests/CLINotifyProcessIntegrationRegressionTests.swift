@@ -73,6 +73,32 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudeNoFlickerSessionStartMarksWorkspaceRunning() throws {
+        let context = try makeClaudeHookContext(name: "claude-noflicker-running")
+        defer { context.cleanup() }
+
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"fullscreen-session","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: ["CLAUDE_CODE_NO_FLICKER": "1"]
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(
+            context.state.commands.contains {
+                $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "Expected CLAUDE_CODE_NO_FLICKER startup SessionStart to mark Claude running, saw \(context.state.commands)"
+        )
+
+        let record = try readClaudeHookSession("fullscreen-session", context: context)
+        XCTAssertEqual(record["isRestorable"] as? Bool, false)
+        XCTAssertEqual(record["agentLifecycle"] as? String, "running")
+    }
+
     func testClaudePreToolUseFeedContextReadsOnlyRecentTranscriptTail() throws {
         let context = try makeClaudeHookContext(name: "claude-pretool-tail")
         defer { context.cleanup() }
