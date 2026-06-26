@@ -369,10 +369,32 @@ extension CMUXCLI {
 
     static func hookCommandString(for def: AgentHookDef, event: AgentHookDef.HookEvent) -> String {
         let command = "cmux hooks \(def.name) \(event.cmuxSubcommand)"
+        let inline: String
         if def.name == "codex", codexHookCanRunFireAndForget(event.cmuxSubcommand) {
-            return codexFireAndForgetAgentHookShellCommand(command, for: def)
+            inline = codexFireAndForgetAgentHookShellCommand(command, for: def)
+        } else {
+            inline = agentHookShellCommand(command, for: def)
         }
-        return agentHookShellCommand(command, for: def)
+        if def.name == "codex" {
+            return codexPersistentHookScriptCommand(inline, eventTag: event.cmuxSubcommand)
+        }
+        return inline
+    }
+
+    /// Wraps a codex persistent hook command as a `#!/bin/sh` script file in the
+    /// cmux-owned hooks dir and returns its path. A bare executable path runs
+    /// correctly under any runtime, including ones (subrouters/proxies) that exec
+    /// the `command` string directly and fail an inline shell snippet with
+    /// "No such file or directory (os error 2)". Falls back to the inline command
+    /// on any write failure, so the persistent install can never regress.
+    private static func codexPersistentHookScriptCommand(_ inlineCommand: String, eventTag: String) -> String {
+        guard let dir = codexHookScriptsDirectory(),
+              let path = writeCodexHookScript(
+                  subcommand: "persistent-\(eventTag)", body: inlineCommand, in: dir
+              ) else {
+            return inlineCommand
+        }
+        return path
     }
 
     private static func codexHookCanRunFireAndForget(_ subcommand: String) -> Bool {
@@ -380,15 +402,20 @@ extension CMUXCLI {
     }
 
     static func feedHookCommandString(for def: AgentHookDef, agentEvent: String) -> String {
+        let inline: String
         switch def.format {
         case .kiroAgentJSON:
-            return exitTwoPropagatingAgentHookShellCommand(
+            inline = exitTwoPropagatingAgentHookShellCommand(
                 "cmux hooks feed --source \(def.name) --event \(agentEvent)",
                 for: def
             )
         default:
-            return agentHookShellCommand("cmux hooks feed --source \(def.name) --event \(agentEvent)", for: def)
+            inline = agentHookShellCommand("cmux hooks feed --source \(def.name) --event \(agentEvent)", for: def)
         }
+        if def.name == "codex" {
+            return codexPersistentHookScriptCommand(inline, eventTag: "feed-\(agentEvent)")
+        }
+        return inline
     }
 
     private static let grokPinnedHookMarker = "cmux-grok-hook-v2"
