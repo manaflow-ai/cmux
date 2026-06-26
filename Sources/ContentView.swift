@@ -8193,6 +8193,12 @@ struct ContentView: View {
         _ workspace: Workspace,
         groups: [WorkspaceGroup]
     ) -> String {
+        if let group = groups.first(where: { $0.anchorWorkspaceId == workspace.id }) {
+            let groupName = group.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !groupName.isEmpty {
+                return groupName
+            }
+        }
         return commandPaletteWorkspaceDisplayName(workspace)
     }
 
