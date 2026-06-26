@@ -33,6 +33,7 @@ import CmuxGit
 
         service.workspaceGitTrackedDirectoryByKey[key] = directory
         service.markWorkspaceGitSnapshotCacheEligible(directory: directory)
+        let initialGeneration = try #require(service.workspaceGitSnapshotCacheGeneration(directory: directory))
 
         service.scheduleWorkspaceGitMetadataRefreshIfPossible(
             workspaceId: workspaceId,
@@ -45,6 +46,8 @@ import CmuxGit
 
         let generations = await reader.probedTrackedPathEventGenerations
         #expect(generations == [nil])
+        let advancedGeneration = try #require(service.workspaceGitSnapshotCacheGeneration(directory: directory))
+        #expect(advancedGeneration != initialGeneration)
     }
 
     @Test(.timeLimit(.minutes(1)))

@@ -175,12 +175,16 @@ extension SidebarGitMetadataService {
         return keys
     }
 
-    private func recordWorkspaceGitMetadataFilesystemEvent(directory: String) {
+    func advanceWorkspaceGitSnapshotCacheGenerationIfEligible(directory: String) {
         guard workspaceGitSnapshotCacheGenerationByDirectory[directory] != nil else {
             return
         }
         workspaceGitMetadataFilesystemEventGeneration &+= 1
         workspaceGitSnapshotCacheGenerationByDirectory[directory] = workspaceGitMetadataFilesystemEventGeneration
+    }
+
+    private func recordWorkspaceGitMetadataFilesystemEvent(directory: String) {
+        advanceWorkspaceGitSnapshotCacheGenerationIfEligible(directory: directory)
     }
 
     private func removeWorkspaceGitSnapshotCacheEligibilityIfUnused(directory: String?) {

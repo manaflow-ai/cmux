@@ -34,6 +34,7 @@ extension SidebarGitMetadataService {
         reason: String
     ) -> GitTrackedPathEventGeneration? {
         guard shouldUseTrackedSnapshotCache(reason: reason) else {
+            advanceWorkspaceGitSnapshotCacheGenerationIfEligible(directory: directory)
             return nil
         }
         guard let generation = workspaceGitSnapshotCacheGeneration(directory: directory) else {
