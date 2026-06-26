@@ -385,7 +385,6 @@ final class RemoteTmuxControlConnection {
             // replace this connection instead of reusing a dead one. Close the
             // stdin writer too, so the connection is left in a clean, retry-safe
             // state instead of holding a dead pipe that silently EPIPEs on write.
-            reader.readabilityHandler = nil
             errReader.readabilityHandler = nil
             stdoutPipeReader.close()
             errContinuation.finish()
@@ -920,7 +919,6 @@ final class RemoteTmuxControlConnection {
         process?.terminationHandler = nil
         // Tear down the readers deterministically rather than waiting for EOF (the
         // consumers are already cancelled).
-        stdoutReader?.readabilityHandler = nil
         stdoutReader = nil
         stderrReader?.readabilityHandler = nil
         stderrReader = nil
