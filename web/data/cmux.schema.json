@@ -493,6 +493,33 @@
             }
           }
         },
+        "titleUpdates": {
+          "type": "object",
+          "additionalProperties": false,
+          "descriptionKey": "schemaDescriptions.terminal.titleUpdates",
+          "description": "Controls how cmux propagates terminal title changes, including opt-in coalescing of high-frequency title updates to reduce CPU usage during title spam.",
+          "properties": {
+            "coalescing": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Opt-in coalescing for high-frequency terminal title changes. When enabled, rapidly changing terminal titles are batched so the workspace title, sidebar, and mobile observers refresh at most once per window instead of at the raw title-change rate, reducing CPU during title spam. Default-off so title freshness is unchanged; the built-in ~30 Hz coalescing still applies when disabled. Pending titles are flushed before a workspace is detached, transferred, or snapshotted so a delayed title is never lost.",
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Enable terminal title update coalescing."
+                },
+                "milliseconds": {
+                  "type": "integer",
+                  "minimum": 33,
+                  "maximum": 5000,
+                  "default": 500,
+                  "description": "Coalescing window in milliseconds applied when title update coalescing is enabled. Clamped to 33-5000 ms."
+                }
+              }
+            }
+          }
+        },
         "textBoxMaxLines": {
           "type": "integer",
           "minimum": 1,

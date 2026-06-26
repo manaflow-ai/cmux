@@ -815,6 +815,7 @@
           "globalFontMagnification": "cmux'a ait terminalleri, sekme başlıklarını, kenar çubuklarını, ayarları, katmanları ve uygulama chrome'unu bu yüzdeyle ölçekler. Render edilen tarayıcı sayfası içeriği hariçtir."
         },
         "terminal": {
+          "titleUpdates": "cmux'un terminal başlığı değişikliklerini nasıl yaydığını denetler; başlık sık sık değiştiğinde CPU kullanımını azaltmak için yüksek frekanslı başlık güncellemelerinin isteğe bağlı olarak birleştirilmesini (coalescing) içerir.",
           "copyOnSelect": "true olduğunda, seçim kesinleştiğinde seçilen terminal metni sistem panosuna kopyalanır. false olduğunda cmux bir Ghostty copy-on-select geçersiz kılması yaymaz; seçim panosu davranışını Ghostty yapılandırması ve varsayılanları kontrol eder.",
           "scrollSpeed": "Terminalde fare tekerleği ve dokunmatik yüzey kaydırma değerlerine uygulanan çarpan. Yüksek değerler daha hızlı, düşük değerler daha yavaş kaydırır.",
           "showTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak gösterir.",
