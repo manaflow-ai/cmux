@@ -4438,6 +4438,40 @@
         }
       }
     },
+    "mobile.shortcuts.chat.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose which compatible terminal buttons appear on both the chat and terminal keyboard bars. Changes here also update the terminal keyboard bar."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットとターミナル両方のキーボードバーに表示する互換性のあるターミナルボタンを選びます。ここでの変更はターミナルのキーボードバーにも反映されます。"
+          }
+        }
+      }
+    },
+    "mobile.shortcuts.chat.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shared Shortcuts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有ショートカット"
+          }
+        }
+      }
+    },
     "mobile.shortcuts.footer": {
       "extractionState": "manual",
       "localizations": {
