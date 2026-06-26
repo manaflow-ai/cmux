@@ -43,19 +43,20 @@ Omit empty sections.
 
 ### Release note input
 
-For an in-progress release, gather the raw commit input from the last version tag to `HEAD`:
+For an in-progress release, gather the raw commit input from the last stable version tag to `HEAD`:
 
 ```bash
 git fetch --tags origin
-previous_tag="$(git describe --tags --abbrev=0 --match 'v[0-9]*')"
+previous_tag="$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*')"
 git log --first-parent --reverse --oneline "${previous_tag}..HEAD"
 ```
 
-For an already tagged release candidate, compare the previous version tag to the current tag:
+For an already tagged release candidate, compare the previous stable version tag to the current tag:
 
 ```bash
+git fetch --tags origin
 current_tag="vX.Y.Z"
-previous_tag="$(git describe --tags --abbrev=0 --match 'v[0-9]*' "${current_tag}^")"
+previous_tag="$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*' "${current_tag}^")"
 git log --first-parent --reverse --oneline "${previous_tag}..${current_tag}"
 ```
 
