@@ -34,10 +34,9 @@ extension VerticalTabsSidebar {
             return notificationStore.unreadCount(forTabId: group.anchorWorkspaceId)
         }()
         let anchorIndex = renderContext.tabIndexById[group.anchorWorkspaceId] ?? 0
-        let shortcutDigit = WorkspaceShortcutMapper.digitForWorkspace(
-            at: anchorIndex,
+        let shortcutDigit = WorkspaceShortcutMapper(
             workspaceCount: renderContext.workspaceCount
-        )
+        ).digitForWorkspace(at: anchorIndex)
         let modifierSymbol = renderContext.workspaceNumberShortcut.numberedDigitHintPrefix
         let showsHintForAnchor = showModifierHoldHints && modifierKeyMonitor.isModifierPressed
         let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate().topVisible(

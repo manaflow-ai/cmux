@@ -7692,10 +7692,9 @@ struct VerticalTabsSidebar: View {
             tab: tab,
             index: index,
             isActive: tabManager.selectedTabId == tab.id,
-            workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
-                at: index,
+            workspaceShortcutDigit: WorkspaceShortcutMapper(
                 workspaceCount: renderContext.workspaceCount
-            ),
+            ).digitForWorkspace(at: index),
             workspaceShortcutModifierSymbol: renderContext.workspaceNumberShortcut.numberedDigitHintPrefix,
             canCloseWorkspace: renderContext.canCloseWorkspace,
             accessibilityWorkspaceCount: renderContext.workspaceCount,

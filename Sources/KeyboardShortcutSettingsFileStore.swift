@@ -92,7 +92,7 @@ final class CmuxSettingsFileStore {
     private let notificationCenter: NotificationCenter
     private let passwordStore: SocketControlPasswordStore
     private let appearanceEnvironment: AppearanceSettings.LiveApplyEnvironment
-    private let parser: SettingsFileParser
+    private let reader: SettingsFileReader
     private let managedDefaultsRepository = ManagedDefaultsRepository(defaults: .standard)
     private let stateLock = NSLock()
 
@@ -128,7 +128,7 @@ final class CmuxSettingsFileStore {
         self.notificationCenter = notificationCenter
         self.appearanceEnvironment = appearanceEnvironment
         self.passwordStore = passwordStore
-        self.parser = SettingsFileParser(
+        self.reader = SettingsFileReader(
             primaryPath: self.primaryPath,
             fallbackPaths: self.fallbackPaths,
             fileManager: self.fileManager
@@ -195,7 +195,7 @@ final class CmuxSettingsFileStore {
                 sourcePath: activeSourcePath
             )
         }
-        let resolved = parser.resolveSettings()
+        let resolved = reader.resolveSettings()
         applyManagedSettings(
             snapshot: resolved,
             importedManagedDefaults: previousState.importedManagedDefaults,
@@ -273,7 +273,7 @@ final class CmuxSettingsFileStore {
             guard let data = fileManager.contents(atPath: fallbackPath), !data.isEmpty else {
                 continue
             }
-            guard case .parsed = parser.loadSettings(at: fallbackPath) else {
+            guard case .parsed = reader.loadSettings(at: fallbackPath) else {
                 continue
             }
             guard let source = String(data: data, encoding: .utf8) else {
