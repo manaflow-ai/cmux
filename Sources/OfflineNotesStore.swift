@@ -1,6 +1,6 @@
-import Combine
 import Foundation
 import Network
+import Observation
 
 /// Lifecycle status of a captured offline note as it moves through the queue.
 ///
@@ -76,7 +76,7 @@ protocol OfflineNoteDispatching: AnyObject {
 enum OfflineNoteDispatchError: LocalizedError, Equatable {
     /// No cmux window/workspace is available to receive the note.
     case noActiveWorkspace
-    /// The active workspace has no agent surface to stage the note into.
+    /// The active workspace has no focused agent surface to stage the note into.
     case noComposerTarget
 
     var errorDescription: String? {
@@ -89,7 +89,7 @@ enum OfflineNoteDispatchError: LocalizedError, Equatable {
         case .noComposerTarget:
             return String(
                 localized: "offlineNotes.dispatch.error.noComposerTarget",
-                defaultValue: "No agent surface is available to receive this note."
+                defaultValue: "Focus a terminal so cmux can send this note to its agent."
             )
         }
     }
@@ -154,22 +154,27 @@ final class OfflineNotesNetworkReachability: OfflineNotesReachabilityMonitoring 
 /// - Drain pending notes through an ``OfflineNoteDispatching`` seam whenever
 ///   connectivity is (re)gained, plus on explicit user request.
 ///
-/// The store is the tested heart of the feature; connectivity and the agent
-/// hand-off are injected so the queue logic can be exercised deterministically.
+/// State is `@Observable` (no Combine) and connectivity plus the agent hand-off
+/// are injected, so the queue logic is exercised deterministically in tests.
+/// The single app-wide instance is ``shared`` (one queue ⇒ one backing file);
+/// it is created lazily the first time the Notes panel is opened.
 @MainActor
-final class OfflineNotesStore: ObservableObject {
+@Observable
+final class OfflineNotesStore {
     static let shared = OfflineNotesStore()
 
     /// Captured notes, newest last (capture order).
-    @Published private(set) var notes: [OfflineNote] = []
+    private(set) var notes: [OfflineNote] = []
     /// Mirrors the injected reachability so the UI can show an online/offline hint.
-    @Published private(set) var isOnline: Bool = false
+    private(set) var isOnline: Bool = false
 
-    private let fileURL: URL?
-    private let dispatcher: any OfflineNoteDispatching
-    private let reachability: any OfflineNotesReachabilityMonitoring
-    private var isFlushing = false
-    private var hasStarted = false
+    @ObservationIgnored private let fileURL: URL?
+    @ObservationIgnored private let dispatcher: any OfflineNoteDispatching
+    @ObservationIgnored private let reachability: any OfflineNotesReachabilityMonitoring
+    @ObservationIgnored private var isFlushing = false
+    @ObservationIgnored private var hasStarted = false
+    @ObservationIgnored private var pendingSnapshot: [OfflineNote]?
+    @ObservationIgnored private var persistTask: Task<Void, Never>?
 
     init(
         fileURL: URL? = OfflineNotesStore.defaultFileURL(),
@@ -288,11 +293,11 @@ final class OfflineNotesStore: ObservableObject {
     /// the same pass) so a persistently-failing dispatcher cannot spin.
     ///
     /// Status transitions are applied in memory and persisted **once** when the
-    /// pass finishes, so reconnecting with a large backlog performs one
-    /// coalesced encode + atomic write on the main actor rather than two writes
-    /// per note. A status held only in memory if the app is killed mid-flush is
-    /// recovered as ``OfflineNoteStatus/pending`` on next launch (see
-    /// ``normalizedForLoad(_:)``), so the note is retried rather than lost.
+    /// pass finishes, so reconnecting with a large backlog performs a single
+    /// coalesced write (off the main actor) rather than two writes per note. A
+    /// status held only in memory if the app is killed mid-flush is recovered as
+    /// ``OfflineNoteStatus/pending`` on next launch (see ``normalizedForLoad(_:)``),
+    /// so the note is retried rather than lost.
     func flush() async {
         guard isOnline else { return }
         guard !isFlushing else { return }
@@ -319,9 +324,12 @@ final class OfflineNotesStore: ObservableObject {
                     applyInMemory(delivered)
                 }
             } catch {
+#if DEBUG
+                cmuxDebugLog("offlineNotes.dispatch.failed error=\(error.localizedDescription)")
+#endif
                 if var failed = self.note(id: note.id) {
                     failed.status = .failed
-                    failed.lastError = Self.describe(error)
+                    failed.lastError = Self.userFacingFailureMessage(for: error)
                     failed.updatedAt = Date()
                     applyInMemory(failed)
                 }
@@ -342,11 +350,19 @@ final class OfflineNotesStore: ObservableObject {
         notes[index] = note
     }
 
-    private static func describe(_ error: Error) -> String {
-        if let localized = error as? LocalizedError, let description = localized.errorDescription {
+    /// Maps a dispatch failure to a fixed, localized message. Only our own
+    /// ``OfflineNoteDispatchError`` text is surfaced; any other error (network,
+    /// provider, etc.) is reduced to a generic message so raw upstream/internal
+    /// strings never reach the notes UI. Detail stays in DEBUG diagnostics.
+    private static func userFacingFailureMessage(for error: Error) -> String {
+        if let dispatchError = error as? OfflineNoteDispatchError,
+           let description = dispatchError.errorDescription {
             return description
         }
-        return error.localizedDescription
+        return String(
+            localized: "offlineNotes.dispatch.error.generic",
+            defaultValue: "Couldn't send this note to an agent. It will stay queued for retry."
+        )
     }
 
     // MARK: - Persistence
@@ -362,14 +378,40 @@ final class OfflineNotesStore: ObservableObject {
         }
     }
 
+    /// Persists the current queue. Writes are coalesced and performed off the
+    /// main actor: each call records the latest snapshot and a single drain task
+    /// encodes + atomically writes the newest snapshot, so a burst of mutations
+    /// (or a reconnect flush) never blocks the main actor on repeated disk I/O.
     private func persist() {
         guard let fileURL else { return }
+        pendingSnapshot = notes
+        guard persistTask == nil else { return }
+        persistTask = Task { [weak self] in
+            await self?.drainPersist(to: fileURL)
+        }
+    }
+
+    private func drainPersist(to fileURL: URL) async {
+        while let snapshot = pendingSnapshot {
+            pendingSnapshot = nil
+            await Self.writeToDisk(snapshot, to: fileURL)
+        }
+        persistTask = nil
+    }
+
+    /// Awaits any in-flight persistence. Useful for flushing queued writes
+    /// before the app terminates, and lets tests observe a settled file.
+    func waitForPendingPersist() async {
+        await persistTask?.value
+    }
+
+    private nonisolated static func writeToDisk(_ notes: [OfflineNote], to fileURL: URL) async {
         do {
             try FileManager.default.createDirectory(
                 at: fileURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            let data = try Self.encoder().encode(notes)
+            let data = try encoder.encode(notes)
             try data.write(to: fileURL, options: .atomic)
         } catch {
 #if DEBUG
@@ -381,7 +423,7 @@ final class OfflineNotesStore: ObservableObject {
     private static func load(fileURL: URL?) -> [OfflineNote] {
         guard let fileURL,
               let data = try? Data(contentsOf: fileURL),
-              let decoded = try? decoder().decode([OfflineNote].self, from: data) else {
+              let decoded = try? decoder.decode([OfflineNote].self, from: data) else {
             return []
         }
         return decoded
@@ -400,16 +442,16 @@ final class OfflineNotesStore: ObservableObject {
             .appendingPathComponent("offline-notes.json", isDirectory: false)
     }
 
-    nonisolated static func encoder() -> JSONEncoder {
+    nonisolated static let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         return encoder
-    }
+    }()
 
-    nonisolated static func decoder() -> JSONDecoder {
+    nonisolated static let decoder: JSONDecoder = {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return decoder
-    }
+    }()
 }

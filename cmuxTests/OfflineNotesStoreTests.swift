@@ -79,7 +79,7 @@ final class OfflineNotesStoreTests: XCTestCase {
 
     // MARK: - Persistence
 
-    func testNotesSurviveRestartAndIgnoreWhitespace() throws {
+    func testNotesSurviveRestartAndIgnoreWhitespace() async throws {
         let url = tempFileURL()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
@@ -88,6 +88,8 @@ final class OfflineNotesStoreTests: XCTestCase {
         let note = first.addNote("ship the offline notes feature")
         XCTAssertNotNil(note)
         XCTAssertEqual(first.notes.count, 1)
+        // Persistence is coalesced + off-main; wait for the write to land on disk.
+        await first.waitForPendingPersist()
 
         // A fresh store instance (simulating an app restart) reloads from disk.
         let reloaded = makeStore(fileURL: url, reachability: FakeReachability(isOnline: false), autostart: false)
@@ -102,7 +104,7 @@ final class OfflineNotesStoreTests: XCTestCase {
 
         // Simulate a note left mid-flight by a crash/relaunch.
         let stuck = OfflineNote(text: "interrupted", status: .sending)
-        let data = try OfflineNotesStore.encoder().encode([stuck])
+        let data = try OfflineNotesStore.encoder.encode([stuck])
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true

@@ -30,7 +30,12 @@ final class OfflineNoteAgentDispatcher: OfflineNoteDispatching {
         guard let workspace = resolveWorkspace() else {
             throw OfflineNoteDispatchError.noActiveWorkspace
         }
-        guard let terminal = terminalPanel(in: workspace) else {
+        // Use the workspace's focused terminal as the single, deterministic
+        // target. We deliberately do not fall back to an arbitrary terminal from
+        // `workspace.panels` (collection order is not a reliable active-terminal
+        // signal and could stage the note into the wrong pane). If there is no
+        // focused terminal, fail closed — the note stays queued and retryable.
+        guard let terminal = workspace.focusedTerminalPanel else {
             throw OfflineNoteDispatchError.noComposerTarget
         }
 
@@ -47,12 +52,5 @@ final class OfflineNoteAgentDispatcher: OfflineNoteDispatching {
         terminal.restoreSessionTextBoxDraft(
             SessionTextBoxInputDraftSnapshot(isActive: isActive, parts: parts)
         )
-    }
-
-    private func terminalPanel(in workspace: Workspace) -> TerminalPanel? {
-        if let focused = workspace.focusedTerminalPanel {
-            return focused
-        }
-        return workspace.panels.values.compactMap { $0 as? TerminalPanel }.first
     }
 }

@@ -721,7 +721,10 @@ final class MainWindowFocusController {
         case .find:
             return fileSearchHost?.focusSearchField() == true
         case .sessions, .notes, .customSidebar:
-            return mode == .customSidebar ? focusFallbackRightSidebarHost() : false
+            // Notes and Custom Sidebar are SwiftUI panels hosted in the generic
+            // right-sidebar host, so focus the host itself; Sessions registers
+            // its own keyboard host elsewhere.
+            return (mode == .customSidebar || mode == .notes) ? focusFallbackRightSidebarHost() : false
         case .feed:
             if target == .firstItem {
                 feedHost?.focusFirstItemFromCoordinator()

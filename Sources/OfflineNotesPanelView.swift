@@ -7,7 +7,9 @@ import SwiftUI
 /// Rows receive immutable ``OfflineNote`` snapshots plus closure action bundles
 /// only — no view below the list holds the store (snapshot-boundary rule).
 struct OfflineNotesPanelView: View {
-    @ObservedObject private var store: OfflineNotesStore = .shared
+    /// The app-wide `@Observable` store; SwiftUI tracks the properties read in
+    /// `body`. Held as a plain reference (not owned) since it outlives the view.
+    private let store = OfflineNotesStore.shared
     @State private var draft: String = ""
 
     var body: some View {
@@ -235,10 +237,16 @@ private struct OfflineNoteRow: View {
     }
 
     private var relativeTime: String {
+        Self.relativeTimeFormatter.localizedString(for: note.createdAt, relativeTo: Date())
+    }
+
+    /// Shared across row renders so a flush (which republishes every row) does
+    /// not reallocate a formatter per render.
+    private static let relativeTimeFormatter: RelativeDateTimeFormatter = {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(for: note.createdAt, relativeTo: Date())
-    }
+        return formatter
+    }()
 }
 
 private extension OfflineNoteStatus {
