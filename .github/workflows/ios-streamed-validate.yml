@@ -76,17 +76,30 @@ jobs:
           printf '%s' "$CMUXTERM_DEV_ENV_B64" | base64 --decode > "$HOME/.secrets/cmuxterm-dev.env"
           chmod 600 "$HOME/.secrets/cmuxterm-dev.env"
 
-      - name: Stand up dev web backend (Postgres + Next.js)
+      - name: Stand up dev web backend (native Postgres + Next.js)
         run: |
           set -euo pipefail
           export PATH="$HOME/.bun/bin:/opt/homebrew/opt/postgresql@16/bin:$PATH"
+          # Blacksmith macOS runners have no Docker, so run NATIVE Postgres on the
+          # port/user/db db-local.sh would use (cmux:cmux@localhost:13000/cmux for
+          # CMUX_PORT=3000 + offset 10000), then apply migrations with drizzle.
+          export PGDATA=/tmp/cmuxpg PGPORT=13000
+          rm -rf "$PGDATA"; mkdir -p "$PGDATA"
+          initdb -U cmux -A trust "$PGDATA" >/dev/null
+          pg_ctl -D "$PGDATA" -o "-p $PGPORT" -l /tmp/pg.log -w start
+          createdb -h localhost -p "$PGPORT" -U cmux cmux
+          export DATABASE_URL="postgres://cmux:cmux@localhost:${PGPORT}/cmux"
+          export DIRECT_DATABASE_URL="$DATABASE_URL"
           cd web && bun install
-          # local Postgres (port derived from CMUX_PORT) + migrations, mirroring local dev
-          bash scripts/db-local.sh up
-          bash scripts/db-local.sh migrate
-          # load dev secrets (Stack keys + dedicated CI account) + run the dev server
+          bunx drizzle-kit migrate --config drizzle.config.ts
+          # load dev secrets (Stack keys + dedicated CI account); keep our DB url
           set -a; source scripts/load-dev-env.sh; set +a
-          nohup bun dev > /tmp/webdev.log 2>&1 &
+          export DATABASE_URL="postgres://cmux:cmux@localhost:${PGPORT}/cmux"
+          export DIRECT_DATABASE_URL="$DATABASE_URL"
+          # Run next dev directly (NOT `bun dev`/dev-local.sh, which calls the
+          # Docker db-local.sh). Fully detach (new session) so the server survives
+          # into later steps; GitHub Actions kills a step's process group at end.
+          setsid bash -c "cd '$PWD' && exec bunx next dev --port 3000" > /tmp/webdev.log 2>&1 < /dev/null &
           for i in $(seq 1 80); do curl -fsS http://localhost:3000/ >/dev/null 2>&1 && break; sleep 3; done
           curl -fsS http://localhost:3000/handler/sign-in >/dev/null
 
