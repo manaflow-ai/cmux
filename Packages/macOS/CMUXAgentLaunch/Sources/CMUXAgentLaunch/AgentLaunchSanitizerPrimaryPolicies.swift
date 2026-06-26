@@ -51,11 +51,25 @@ extension AgentLaunchSanitizer {
             "--allowedTools",
             "--allowed-tools",
             "--betas",
+            // Claude Code accepts multiple `server:<name>` values here. Without
+            // a variadic entry preserveOptions consumes only the first value and
+            // the break-on-positional branch silently drops every later flag
+            // from the rebuilt resume command (see issue #6235). Consumption is
+            // constrained to the `server:` grammar via variadicValuePrefixes so
+            // a trailing startup prompt is not swallowed as a channel value.
+            "--dangerously-load-development-channels",
             "--disallowedTools",
             "--disallowed-tools",
             "--file",
             "--mcp-config",
             "--tools"
+        ],
+        variadicValuePrefixes: [
+            // Channel values are always `server:<name>`. Restricting variadic
+            // consumption to that prefix preserves every value (issue #6235)
+            // while still treating a following positional (e.g. a startup
+            // prompt) as the prompt boundary, so the sanitizer never replays it.
+            "--dangerously-load-development-channels": ["server:"]
         ],
         nonRestorableCommands: [
             "agents",
