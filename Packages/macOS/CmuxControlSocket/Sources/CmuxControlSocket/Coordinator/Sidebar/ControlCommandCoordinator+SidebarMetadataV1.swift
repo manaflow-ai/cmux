@@ -292,6 +292,37 @@ extension ControlCommandCoordinator {
         return "OK"
     }
 
+    /// `workspace_loading <key> <on|off> [--tab=<id>]` — workspace-scoped manual
+    /// loading toggle. `off` clears the loader from every panel so it turns off
+    /// regardless of which surface ran it. Reports the workspace loading-spinner
+    /// state before and after, e.g. `before=ON;after=OFF`.
+    func sidebarWorkspaceLoading(_ args: String) -> String {
+        let parsed = sidebarParseOptions(args)
+        let usage = "workspace_loading <key> <on|off> [--tab=<id>]"
+        guard parsed.positional.count >= 2 else {
+            return "ERROR: Usage: \(usage)"
+        }
+        let key = parsed.positional[0]
+        let on: Bool
+        switch parsed.positional[1].lowercased() {
+        case "on", "running", "start", "show":
+            on = true
+        case "off", "idle", "stop", "hide":
+            on = false
+        default:
+            return "ERROR: Usage: \(usage)"
+        }
+        guard let result = sidebarContext?.controlSidebarSetWorkspaceLoading(
+            tabArg: parsed.options["tab"],
+            key: key,
+            on: on
+        ) else {
+            return "ERROR: No tab selected"
+        }
+        func label(_ value: Bool) -> String { value ? "ON" : "OFF" }
+        return "before=\(label(result.before));after=\(label(result.after))"
+    }
+
     /// `agent_hibernation` — the global hibernation toggle.
     func sidebarAgentHibernation(_ args: String) -> String {
         let parsed = sidebarParseOptions(args)

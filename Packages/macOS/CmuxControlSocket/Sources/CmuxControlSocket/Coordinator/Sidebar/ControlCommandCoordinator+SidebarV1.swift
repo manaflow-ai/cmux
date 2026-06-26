@@ -51,6 +51,7 @@ extension ControlCommandCoordinator {
         case "list_meta_blocks": return sidebarListMetaBlocks(args)
         case "set_agent_pid": return sidebarSetAgentPID(args)
         case "set_agent_lifecycle": return sidebarSetAgentLifecycle(args)
+        case "workspace_loading": return sidebarWorkspaceLoading(args)
         case "agent_hibernation": return sidebarAgentHibernation(args)
         case "clear_agent_pid": return sidebarClearAgentPID(args)
         case "log": return sidebarAppendLog(args)

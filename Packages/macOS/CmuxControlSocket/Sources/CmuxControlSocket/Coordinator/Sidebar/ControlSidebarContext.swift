@@ -12,6 +12,18 @@ public import Foundation
 /// no-ops once moved). The `Schedule*` methods preserve the legacy deferred
 /// mutation-bus semantics: they enqueue and return immediately, exactly as
 /// the original bodies did.
+/// The workspace loading-spinner state before and after a `workspace_loading`
+/// toggle, reported back to the caller (e.g. `before=ON;after=OFF`).
+public struct ControlSidebarWorkspaceLoadingState: Sendable, Equatable {
+    public let before: Bool
+    public let after: Bool
+
+    public init(before: Bool, after: Bool) {
+        self.before = before
+        self.after = after
+    }
+}
+
 @MainActor
 public protocol ControlSidebarContext: AnyObject {
     // MARK: Availability
@@ -66,6 +78,17 @@ public protocol ControlSidebarContext: AnyObject {
         lifecycleRawValue: String,
         panelID: UUID?
     )
+
+    /// Workspace-scoped manual loading toggle for `workspace_loading`. `on`
+    /// marks the manual loader `key` running on the workspace; `off` clears it
+    /// from every panel so it turns off regardless of which surface invoked it.
+    /// Returns the workspace's overall loading-spinner state before and after
+    /// the change, or `nil` if the workspace was not found.
+    func controlSidebarSetWorkspaceLoading(
+        tabArg: String?,
+        key: String,
+        on: Bool
+    ) -> ControlSidebarWorkspaceLoadingState?
 
     /// Applies the `agent_hibernation` global toggle.
     func controlSidebarSetAgentHibernation(enabled: Bool)

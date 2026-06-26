@@ -23918,22 +23918,21 @@ struct CMUXCLI {
         windowId: String?,
         jsonOutput: Bool
     ) throws {
-        let usage = "Usage: cmux workspace loading <on|off> [--id <name>] [--workspace <id>] [--surface <id>] [--window <id>] [--json]"
+        let usage = "Usage: cmux workspace loading <on|off> [--id <name>] [--workspace <id>] [--window <id>] [--json]"
         let (idArg, r0) = parseOption(commandArgs, name: "--id")
         let (wsArg, r1) = parseOption(r0, name: "--workspace")
-        let (sfArg, r2) = parseOption(r1, name: "--surface")
-        let (winArg, r3) = parseOption(r2, name: "--window")
+        let (winArg, r2) = parseOption(r1, name: "--window")
 
-        let positional = r3.filter { $0 != "--" && !$0.hasPrefix("--") }
+        let positional = r2.filter { $0 != "--" && !$0.hasPrefix("--") }
         guard let sub = positional.first?.lowercased() else {
             throw CLIError(message: usage)
         }
-        let lifecycle: AgentHibernationLifecycleState
+        let turnOn: Bool
         switch sub {
         case "on", "start", "show", "running", "busy":
-            lifecycle = .running
+            turnOn = true
         case "off", "stop", "hide", "done", "idle", "finished":
-            lifecycle = .idle
+            turnOn = false
         default:
             throw CLIError(message: "Invalid state '\(sub)'. Expected on or off. \(usage)")
         }
@@ -23948,12 +23947,11 @@ struct CMUXCLI {
             key = manual
         }
 
+        // Workspace-scoped: resolve the workspace (not a surface). The server
+        // sets/clears the loader across the whole workspace, so `off` works no
+        // matter which surface ran `on`.
         let windowRaw = winArg ?? windowId
-        let workspaceArg = wsArg ?? Self.callerWorkspaceForSurfaceHandle(sfArg, windowRaw: windowRaw)
-        let surfaceArg = sfArg ?? (wsArg == nil && windowRaw == nil
-            ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
-            : nil)
-
+        let workspaceArg = wsArg ?? Self.callerWorkspaceForSurfaceHandle(nil, windowRaw: windowRaw)
         let winId = try normalizeWindowHandle(windowRaw, client: client)
         guard let wsId = try normalizeWorkspaceHandle(
             workspaceArg,
@@ -23963,29 +23961,33 @@ struct CMUXCLI {
         ) else {
             throw CLIError(message: "No workspace resolved. Run inside a cmux workspace or pass --workspace <id>.")
         }
-        let sfId = try normalizeSurfaceHandle(
-            surfaceArg,
-            client: client,
-            workspaceHandle: wsId,
-            windowHandle: winId
-        )
 
-        _ = try sendV1Command(
-            "set_agent_lifecycle \(key) \(lifecycle.rawValue) --tab=\(wsId)\(socketPanelOption(sfId))",
+        // Response is "before=ON;after=OFF" so an agent sees the state change.
+        let response = try sendV1Command(
+            "workspace_loading \(key) \(turnOn ? "on" : "off") --tab=\(wsId)",
             client: client
         )
 
         if jsonOutput {
-            var payload: [String: Any] = [
+            var before = false
+            var after = false
+            for part in response.split(separator: ";") {
+                let kv = part.split(separator: "=", maxSplits: 1)
+                guard kv.count == 2 else { continue }
+                let isOn = kv[1].trimmingCharacters(in: .whitespaces).uppercased() == "ON"
+                if kv[0] == "before" { before = isOn }
+                if kv[0] == "after" { after = isOn }
+            }
+            print(jsonString([
                 "ok": true,
-                "loading": lifecycle == .running,
                 "id": idArg ?? "",
                 "workspace_id": wsId,
-            ]
-            if let sfId { payload["surface_id"] = sfId }
-            print(jsonString(payload))
+                "before": before,
+                "after": after,
+                "loading": after,
+            ]))
         } else {
-            print("OK")
+            print(response)
         }
     }
 

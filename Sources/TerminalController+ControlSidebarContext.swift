@@ -156,6 +156,32 @@ extension TerminalController: ControlSidebarContext {
         }
     }
 
+    func controlSidebarSetWorkspaceLoading(
+        tabArg: String?,
+        key: String,
+        on: Bool
+    ) -> ControlSidebarWorkspaceLoadingState? {
+        guard let tab = controlSidebarResolveTabForReport(tabArg: tabArg) else { return nil }
+        func isLoading() -> Bool {
+            SidebarAgentActivitySummary.activeCodingAgentCount(
+                statesByPanelId: tab.agentLifecycleStatesByPanelId
+            ) > 0
+        }
+        let before = isLoading()
+        if on {
+            // Any panel works for "on" since "off" clears the key from every
+            // panel; prefer the focused one so it co-locates with active work.
+            if let panelId = tab.focusedPanelId ?? tab.panels.keys.first {
+                tab.setAgentLifecycle(key: key, panelId: panelId, lifecycle: .running)
+            }
+        } else {
+            // Clear from ALL panels so the loader turns off regardless of which
+            // surface set it on (workspace-scoped, not panel-scoped).
+            _ = tab.clearAgentLifecycle(key: key, panelId: nil)
+        }
+        return ControlSidebarWorkspaceLoadingState(before: before, after: isLoading())
+    }
+
     func controlSidebarSetAgentHibernation(enabled: Bool) {
         AgentHibernationSettings.setValues(enabled: enabled)
     }
