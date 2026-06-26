@@ -2094,6 +2094,70 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testGeminiAfterAgentWithoutSessionIdMarksOriginalSessionIdle() throws {
+        let context = try makeClaudeHookContext(name: "gemini-idless-stop")
+        defer { context.cleanup() }
+
+        let sessionId = "gemini-session-with-idless-afteragent"
+        let launchEnvironment = agentLaunchEnvironment(
+            context: context,
+            kind: "gemini",
+            executable: "/usr/local/bin/gemini"
+        )
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+
+        let start = runAgentHook(
+            context: context,
+            agent: "gemini",
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+
+        let prompt = runAgentHook(
+            context: context,
+            agent: "gemini",
+            subcommand: "prompt-submit",
+            standardInput: #"{"cwd":"\#(context.root.path)","hook_event_name":"BeforeAgent","prompt":"fix it"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let stopCommandStart = context.state.commands.count
+        let stop = runAgentHook(
+            context: context,
+            agent: "gemini",
+            subcommand: "stop",
+            standardInput: #"{"cwd":"\#(context.root.path)","hook_event_name":"AfterAgent","last_assistant_message":"done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+
+        let stopCommands = Array(context.state.commands.dropFirst(stopCommandStart))
+        XCTAssertTrue(
+            stopCommands.contains {
+                $0.hasPrefix("set_agent_lifecycle gemini idle --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "Gemini AfterAgent must emit idle for hibernation, saw \(stopCommands)"
+        )
+
+        let storeURL = context.root.appendingPathComponent("gemini-hook-sessions.json")
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
+        let original = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        XCTAssertEqual(original["agentLifecycle"] as? String, "idle")
+        XCTAssertEqual(original["lastNotificationStatus"] as? String, "idle")
+        XCTAssertNil(
+            sessions[context.surfaceId],
+            "Id-less Gemini turn hooks must resolve to the original session record instead of creating a surface-id fallback record"
+        )
+    }
+
     func testCodexTurnStackPreservesAnonymousDepthBetweenKnownTurns() throws {
         let context = try makeClaudeHookContext(name: "codex-mixed-anonymous-depth")
         defer { context.cleanup() }
