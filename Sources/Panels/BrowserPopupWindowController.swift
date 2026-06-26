@@ -327,7 +327,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     fileprivate func requestNavigation(_ request: URLRequest, in webView: WKWebView) {
         guard let url = request.url else { return }
 
-        if browserShouldBlockInsecureHTTPURL(url) {
+        if BrowserInsecureHTTPSettings.shouldBlock(url) {
             presentInsecureHTTPAlert(for: url, in: webView) { [weak webView] policy in
                 guard policy == .allow, let webView else { return }
                 browserLoadRequest(request, in: webView)
@@ -584,7 +584,7 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         }
 
         // Insecure HTTP → show same prompt as main browser
-        if browserShouldBlockInsecureHTTPURL(url) {
+        if BrowserInsecureHTTPSettings.shouldBlock(url) {
             #if DEBUG
             cmuxDebugLog("popup.nav.insecureHTTP url=\(url.absoluteString)")
             #endif

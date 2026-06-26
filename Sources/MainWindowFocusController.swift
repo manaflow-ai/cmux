@@ -16,11 +16,11 @@ final class MainWindowFocusController {
     private weak var window: NSWindow?
     private weak var tabManager: TabManager?
     private weak var fileExplorerState: FileExplorerState?
-    private weak var rightSidebarHost: RightSidebarKeyboardFocusView?
-    private weak var fileExplorerHost: FileExplorerContainerView?
-    private weak var fileSearchHost: FileExplorerContainerView?
-    private weak var feedHost: FeedKeyboardFocusView?
-    private weak var dockHost: DockKeyboardFocusView?
+    private weak var rightSidebarHost: (any RightSidebarHostFocusing)?
+    private weak var fileExplorerHost: (any FileExplorerFocusHosting)?
+    private weak var fileSearchHost: (any FileExplorerFocusHosting)?
+    private weak var feedHost: (any FeedFocusHosting)?
+    private weak var dockHost: (any DockFocusHosting)?
 
     private(set) var intent: MainWindowKeyboardFocusIntent? {
         didSet {
@@ -66,14 +66,14 @@ final class MainWindowFocusController {
         publishFeedFocusSnapshot()
     }
 
-    func registerRightSidebarHost(_ host: RightSidebarKeyboardFocusView) {
+    func registerRightSidebarHost(_ host: any RightSidebarHostFocusing) {
         rightSidebarHost = host
         if let mode = rightSidebarFocus.state.request?.mode {
             focusRegisteredRightSidebarEndpointIfNeeded(mode: mode)
         }
     }
 
-    func registerFileExplorerHost(_ host: FileExplorerContainerView) {
+    func registerFileExplorerHost(_ host: any FileExplorerFocusHosting) {
         let mode = host.representedRightSidebarMode()
         switch mode {
         case .files:
@@ -86,13 +86,13 @@ final class MainWindowFocusController {
         focusRegisteredRightSidebarEndpointIfNeeded(mode: mode)
     }
 
-    func registerFeedHost(_ host: FeedKeyboardFocusView) {
+    func registerFeedHost(_ host: any FeedFocusHosting) {
         feedHost = host
         publishFeedFocusSnapshot(force: true)
         focusRegisteredRightSidebarEndpointIfNeeded(mode: .feed)
     }
 
-    func registerDockHost(_ host: DockKeyboardFocusView) {
+    func registerDockHost(_ host: any DockFocusHosting) {
         dockHost = host
         focusRegisteredRightSidebarEndpointIfNeeded(mode: .dock)
     }
@@ -587,7 +587,7 @@ final class MainWindowFocusController {
               let host = rightSidebarHost else {
             return false
         }
-        return window.makeFirstResponder(host)
+        return window.makeFirstResponder(host.focusResponder)
     }
 
     private func yieldCurrentTerminalSurfaceFocus(reason: String) {
