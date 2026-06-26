@@ -686,6 +686,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var terminalOutputTransport: TerminalOutputTransport
     var terminalByteContinuationsBySurfaceID: [String: AsyncStream<MobileTerminalOutputChunk>.Continuation]
     var terminalOutputStreamTokensBySurfaceID: [String: UUID]
+    /// Per-mount identity for a surface's output registration. Unlike
+    /// ``terminalOutputStreamTokensBySurfaceID`` (rotated by
+    /// ``resetTerminalOutputTracking()`` on reconnect to invalidate in-flight
+    /// delivery), this changes only when the surface is genuinely remounted. The
+    /// stream's deferred teardown checks it so a stale mount's `onTermination`
+    /// can't unregister a live remount's sink and strand it on stale content
+    /// (https://github.com/manaflow-ai/cmux/issues/6358).
+    var terminalOutputStreamLifetimeTokensBySurfaceID: [String: UUID]
     var terminalOutputQueuesBySurfaceID: [String: TerminalOutputDeliveryQueue]
     var terminalScrollQueueTokensBySurfaceID: [String: UUID]
     var terminalScrollQueuesBySurfaceID: [String: TerminalScrollDeliveryQueue]
@@ -868,6 +876,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalOutputTransport = .rawBytes
         self.terminalByteContinuationsBySurfaceID = [:]
         self.terminalOutputStreamTokensBySurfaceID = [:]
+        self.terminalOutputStreamLifetimeTokensBySurfaceID = [:]
         self.terminalOutputQueuesBySurfaceID = [:]
         self.terminalScrollQueueTokensBySurfaceID = [:]
         self.terminalScrollQueuesBySurfaceID = [:]
@@ -6214,12 +6223,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalByteContinuationsBySurfaceID[surfaceID] != nil
     }
 
+    @discardableResult
     private func registerTerminalOutput(
         surfaceID: String,
         continuation: AsyncStream<MobileTerminalOutputChunk>.Continuation
-    ) {
+    ) -> UUID {
+        let lifetimeToken = UUID()
         terminalByteContinuationsBySurfaceID[surfaceID] = continuation
         terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
+        terminalOutputStreamLifetimeTokensBySurfaceID[surfaceID] = lifetimeToken
         terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
@@ -6227,11 +6239,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         mobileShellLog.info("CMUX_REPLAY register sink surface=\(surfaceID, privacy: .public) connected=\(self.connectionState == .connected, privacy: .public) hasClient=\(self.remoteClient != nil, privacy: .public) workspaceCount=\(self.workspaces.count, privacy: .public)")
         #endif
         requestTerminalReplay(surfaceID: surfaceID)
+        return lifetimeToken
     }
 
     private func unregisterTerminalOutput(surfaceID: String) {
         terminalByteContinuationsBySurfaceID.removeValue(forKey: surfaceID)
         terminalOutputStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
+        terminalOutputStreamLifetimeTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalOutputQueuesBySurfaceID.removeValue(forKey: surfaceID)
         terminalScrollQueueTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalScrollQueuesBySurfaceID.removeValue(forKey: surfaceID)
@@ -6252,10 +6266,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// - Returns: An `AsyncStream` of output byte chunks.
     public func terminalOutputStream(surfaceID: String) -> AsyncStream<MobileTerminalOutputChunk> {
         AsyncStream { continuation in
-            registerTerminalOutput(surfaceID: surfaceID, continuation: continuation)
+            let lifetimeToken = registerTerminalOutput(surfaceID: surfaceID, continuation: continuation)
             continuation.onTermination = { [weak self] _ in
                 Task { @MainActor in
-                    self?.unregisterTerminalOutput(surfaceID: surfaceID)
+                    guard let self else { return }
+                    // Only tear down if this exact stream is still the registered
+                    // sink. A quick workspace switch away-and-back can remount the
+                    // same surface before this deferred teardown runs; unregistering
+                    // then would rip out the live remount's sink and strand it on
+                    // stale content. Mirrors ``terminalLiveFontStream``'s token guard
+                    // (https://github.com/manaflow-ai/cmux/issues/6358).
+                    guard self.terminalOutputStreamLifetimeTokensBySurfaceID[surfaceID] == lifetimeToken else {
+                        return
+                    }
+                    self.unregisterTerminalOutput(surfaceID: surfaceID)
                 }
             }
         }
