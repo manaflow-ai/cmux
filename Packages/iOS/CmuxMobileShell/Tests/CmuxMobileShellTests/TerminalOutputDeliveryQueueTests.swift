@@ -152,8 +152,9 @@ import Testing
     // main-actor teardown.
     firstMount = secondMount
 
-    // Drain the deferred teardown task (it runs FIFO ahead of our own hop).
-    for _ in 0..<8 { await Task.yield() }
+    // onTermination enqueued the deferred teardown on the main actor before this
+    // barrier enqueues its own job, so main-actor FIFO guarantees the teardown has
+    // run by the time `.value` returns.
     await Task { @MainActor in }.value
 
     // The remount's sink must still be registered and able to receive frames.
