@@ -192,14 +192,16 @@ normalize_claude_config_dir() {
 }
 
 # Claude stores transcripts at <config-dir>/projects/<encode(cwd)>/<id>.jsonl and
-# `--resume <id>` only resolves a session under the *current* CLAUDE_CONFIG_DIR.
+# `--resume <id>` only resolves a session under the *current* cwd's project dir.
 # cmux can launch with a foreign CLAUDE_CONFIG_DIR (the .app inherits the env of
 # whatever opened it, e.g. a terminal whose agent set one), so resuming a session
-# created under a different config root fails with "No conversation found" and drops
-# the user to a bare shell. Self-heal by relocating CLAUDE_CONFIG_DIR to the root
-# that actually holds the transcript, but only when the current root lacks it (so a
-# correct resume is never repointed). https://github.com/manaflow-ai/cmux/issues/6194
-cmux_claude_config_dir_has_session() {
+# created under a different config root or launched into a different cwd fails with
+# "No conversation found" and drops the user to a bare shell. Self-heal by locating
+# the root that holds the transcript, then copy the transcript into the target cwd's
+# project dir when it is missing. Copy, not hardlink, so concurrent resumes append
+# into independent files. https://github.com/manaflow-ai/cmux/issues/6194
+# https://github.com/manaflow-ai/cmux/issues/5941
+cmux_claude_find_session_transcript() {
     local root="$1" sid="$2"
     [[ -n "$root" && -d "$root/projects" ]] || return 1
     local transcript
@@ -209,9 +211,71 @@ cmux_claude_config_dir_has_session() {
         "$root"/projects/*/*/*/"$sid".jsonl \
         "$root"/projects/*/*/*/*/"$sid".jsonl \
         "$root"/projects/*/*/*/*/*/"$sid".jsonl; do
-        [[ -f "$transcript" && -s "$transcript" ]] && return 0
+        if [[ -f "$transcript" && -s "$transcript" ]]; then
+            printf '%s' "$transcript"
+            return 0
+        fi
     done
     return 1
+}
+
+cmux_claude_project_dir_name_for_cwd() {
+    local cwd="$1"
+    local encoded="${cwd//\//-}"
+    printf '%s' "${encoded//./-}"
+}
+
+cmux_claude_current_cwd_candidates() {
+    local logical="${PWD:-}"
+    [[ -n "$logical" ]] && printf '%s\n' "$logical"
+
+    local physical=""
+    physical="$(pwd -P 2>/dev/null || true)"
+    if [[ -n "$physical" && "$physical" != "$logical" ]]; then
+        printf '%s\n' "$physical"
+    fi
+
+    case "$logical" in
+        /private/*)
+            printf '%s\n' "${logical#/private}"
+            ;;
+        /*)
+            if [[ -e "/private$logical" ]]; then
+                printf '%s\n' "/private$logical"
+            fi
+            ;;
+    esac
+}
+
+cmux_claude_seed_resume_session_for_current_cwd() {
+    local root="$1" sid="$2"
+    local source_transcript
+    source_transcript="$(cmux_claude_find_session_transcript "$root" "$sid")" || return 1
+
+    local source_project_dir source_sidecar cwd target_project_dir target_transcript target_sidecar
+    source_project_dir="$(dirname "$source_transcript")"
+    source_sidecar="$source_project_dir/$sid"
+
+    local seen=":"
+    while IFS= read -r cwd; do
+        [[ -n "$cwd" ]] || continue
+        case "$seen" in
+            *:"$cwd":*) continue ;;
+        esac
+        seen="$seen$cwd:"
+        target_project_dir="$root/projects/$(cmux_claude_project_dir_name_for_cwd "$cwd")"
+        target_transcript="$target_project_dir/$sid.jsonl"
+        target_sidecar="$target_project_dir/$sid"
+        [[ "$target_transcript" == "$source_transcript" ]] && continue
+        [[ -f "$target_transcript" && -s "$target_transcript" ]] && continue
+        mkdir -p "$target_project_dir" 2>/dev/null || continue
+        cp -p "$source_transcript" "$target_transcript" 2>/dev/null || continue
+        if [[ -d "$source_sidecar" && ! -e "$target_sidecar" ]]; then
+            cp -Rp "$source_sidecar" "$target_sidecar" 2>/dev/null || true
+        fi
+    done < <(cmux_claude_current_cwd_candidates)
+
+    return 0
 }
 
 claude_option_consumes_value() {
@@ -356,12 +420,12 @@ reconcile_claude_config_dir_for_resume() {
     esac
 
     local current_root="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-    cmux_claude_config_dir_has_session "$current_root" "$sid" && return 0
+    cmux_claude_seed_resume_session_for_current_cwd "$current_root" "$sid" && return 0
 
     local root
     for root in "$HOME/.claude" "$HOME"/.codex-accounts/claude/* "$HOME/.subrouter/codex/claude" "$HOME"/.subrouter/codex/claude/*; do
         [[ "$root" == "$current_root" ]] && continue
-        if cmux_claude_config_dir_has_session "$root" "$sid"; then
+        if cmux_claude_seed_resume_session_for_current_cwd "$root" "$sid"; then
             export CLAUDE_CONFIG_DIR="$root"
             return 0
         fi
