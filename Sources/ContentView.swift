@@ -8177,18 +8177,11 @@ struct ContentView: View {
         return title.isEmpty ? String(localized: "workspace.displayName.fallback", defaultValue: "Workspace") : title
     }
 
-    /// Display name for a workspace across command-palette surfaces (the
-    /// switcher list and the command-context subtitles), accounting for group
-    /// anchors.
-    ///
-    /// A workspace group's anchor is represented everywhere by the group itself
-    /// — the sidebar draws only the group header, never a separate anchor row,
-    /// per `SidebarWorkspaceRenderItem` — so the single source of truth for an
-    /// anchor's displayed name is the group's `name`. The anchor's own
-    /// `title`/`customTitle` is merely seeded equal to the group name at
-    /// creation and drifts when the group is renamed, which is why the palette
-    /// previously listed the stale seeded title (e.g. "Group 1") instead of the
-    /// renamed group. Mirrors `TabManager.resolvedWorkspaceDisplayTitle(for:)`.
+    /// Command-palette display name for a workspace (switcher list and command
+    /// subtitles), accounting for group anchors: a group's anchor is rendered as
+    /// the group header, so it shows the group's `name`, not the anchor's own
+    /// title which is only seeded at creation and goes stale on rename (#5893).
+    /// Mirrors `TabManager.resolvedWorkspaceDisplayTitle(for:)`.
     static func commandPaletteWorkspaceDisplayName(
         _ workspace: Workspace,
         groups: [WorkspaceGroup]
@@ -9294,10 +9287,8 @@ struct ContentView: View {
         }
         let target = CommandPaletteRenameTarget(
             kind: .workspace(workspaceId: workspace.id),
-            // The workspace rename flow edits the workspace's own title (a group
-            // anchor renames the group through the sidebar header instead), so
-            // seed it with the workspace title rather than the group-resolved
-            // display name.
+            // Rename edits the workspace's own title (a group anchor is renamed
+            // via the sidebar header), so seed from the workspace title.
             currentName: Self.commandPaletteWorkspaceDisplayName(workspace)
         )
         startRenameFlow(target)
