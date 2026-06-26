@@ -81,8 +81,22 @@ struct CmuxCommandTemplate {
 
     /// Wraps `value` in POSIX single quotes so it is a single literal shell
     /// argument, escaping any embedded single quotes as `'\''`.
+    ///
+    /// The resolved command is delivered as interactive terminal input, so the
+    /// line editor (readline/zle) interprets control bytes — Ctrl-U, ESC, an
+    /// embedded newline — *before* the shell parses the quotes. A value such as
+    /// `\u{15}rm -rf ~ #` could otherwise clear the quoted prefix and run as its
+    /// own command. Drop C0/C1 control characters and DEL from the value first
+    /// so quoting is actually sufficient; legitimate argument values never need
+    /// them.
     static func shellQuote(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        let stripped = value.unicodeScalars.filter { scalar in
+            !(scalar.value <= 0x1F || scalar.value == 0x7F
+                || (scalar.value >= 0x80 && scalar.value <= 0x9F))
+        }
+        let escaped = String(String.UnicodeScalarView(stripped))
+            .replacingOccurrences(of: "'", with: "'\\''")
+        return "'" + escaped + "'"
     }
 
     // MARK: - Scanning

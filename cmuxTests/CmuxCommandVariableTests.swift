@@ -146,6 +146,19 @@ import Testing
         #expect(CmuxCommandTemplate.shellQuote("") == "''")
         #expect(CmuxCommandTemplate.shellQuote("plain") == "'plain'")
     }
+
+    @Test func shellQuoteStripsTerminalControlCharacters() {
+        // The resolved command is sent as interactive terminal input, so
+        // line-editor control bytes (Ctrl-U, newline, ESC, DEL) must be removed
+        // from values — quoting alone does not stop the line editor.
+        #expect(CmuxCommandTemplate.shellQuote("a\u{15}b") == "'ab'")
+        #expect(CmuxCommandTemplate.shellQuote("x\ny") == "'xy'")
+        #expect(CmuxCommandTemplate.shellQuote("e\u{1B}[31m") == "'e[31m'")
+        #expect(CmuxCommandTemplate.shellQuote("\u{7F}del") == "'del'")
+        // The Ctrl-U "clear line" injection is neutralized end-to-end.
+        #expect(substitute("git checkout {{branch}}", ["branch": "\u{15}rm -rf ~ #"])
+            == "git checkout 'rm -rf ~ #'")
+    }
 }
 
 // MARK: - Folder organization
