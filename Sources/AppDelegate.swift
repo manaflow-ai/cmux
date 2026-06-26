@@ -169,7 +169,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 reloading: StartupAppearanceDebugReloader(),
                 strings: self.debugWindowControlsContentProvider.startupAppearanceDebugStrings
             ))
-        }
+        },
+        openBonsplitTabBarDebug: { BonsplitTabBarDebugWindowController.shared.show() },
+        openDevWindowDisplayDebug: { DevWindowDisplayDebugWindowController.shared.show() },
+        openFeedPreview: { FeedPreviewWindowController.shared.show() },
+        openFeedTextEditorDebug: { FeedTextEditorDebugWindowController.shared.show() },
+        openFeedButtonStyleDebug: { FeedButtonStyleDebugWindowController.shared.show() },
+        openTitlebarLayoutDebug: { TitlebarLayoutDebugWindowController.shared.show() },
+        openPDFPreviewChromeDebug: { PDFPreviewChromeDebugWindowController.shared.show() }
     )
     #else
     lazy var debugWindowsCoordinator = DebugWindowsCoordinator(
@@ -7899,23 +7906,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func storedShortcutFromGhosttyTrigger(_ trigger: ghostty_input_trigger_s) -> StoredShortcut? {
-        let tag: GhosttyTriggerInput.Tag
-        switch trigger.tag {
-        case GHOSTTY_TRIGGER_PHYSICAL:
-            tag = .physical(GhosttyTriggerPhysicalKey(ghosttyPhysicalKey: trigger.key.physical))
-        case GHOSTTY_TRIGGER_UNICODE:
-            tag = .unicode(UnicodeScalar(trigger.key.unicode))
-        case GHOSTTY_TRIGGER_CATCH_ALL:
-            tag = .catchAll
-        default:
-            return nil
-        }
-
-        let input = GhosttyTriggerInput(
-            tag: tag,
-            modifiers: GhosttyModifierMask(rawValue: trigger.mods.rawValue)
-        )
-        guard let shortcut = GhosttyTriggerShortcut(decoding: input) else { return nil }
+        guard let shortcut = GhosttyTriggerShortcut(ghosttyConfigTrigger: trigger) else { return nil }
         return StoredShortcut(
             key: shortcut.key,
             command: shortcut.command,

@@ -588,65 +588,6 @@ func browserLoadRequest(_ request: URLRequest, in webView: WKWebView) -> WKNavig
     return webView.load(browserPreparedNavigationRequest(request))
 }
 
-private let browserEmbeddedNavigationSchemes: Set<String> = [
-    "about",
-    "applewebdata",
-    "blob",
-    "cmux-diff-viewer",
-    "data",
-    "file",
-    "http",
-    "https",
-    "javascript",
-]
-
-func browserShouldOpenURLExternally(_ url: URL) -> Bool {
-    guard let scheme = url.scheme?.lowercased(), !scheme.isEmpty else { return false }
-    return !browserEmbeddedNavigationSchemes.contains(scheme)
-}
-
-enum BrowserExternalNavigationAction: Equatable {
-    case browserFallback(URL)
-    case promptToOpenApp(URL)
-}
-
-func browserShouldRouteExternalNavigation(_ url: URL) -> Bool {
-    return browserExternalNavigationAction(for: url) != nil
-}
-
-func browserIntentFallbackURL(for url: URL) -> URL? {
-    guard url.scheme?.lowercased() == "intent" else { return nil }
-    guard let intentMarker = url.absoluteString.range(of: "#Intent;") else { return nil }
-
-    let fallbackPrefix = "S.browser_fallback_url="
-    let intentBody = url.absoluteString[intentMarker.upperBound...]
-    for component in intentBody.split(separator: ";", omittingEmptySubsequences: false) {
-        if component == "end" { break }
-        guard component.hasPrefix(fallbackPrefix) else { continue }
-
-        let rawFallbackURL = String(component.dropFirst(fallbackPrefix.count))
-        guard !rawFallbackURL.isEmpty else { return nil }
-
-        let decodedFallbackURL = rawFallbackURL.removingPercentEncoding ?? rawFallbackURL
-        guard let fallbackURL = URL(string: decodedFallbackURL),
-              let fallbackScheme = fallbackURL.scheme?.lowercased(),
-              fallbackScheme == "http" || fallbackScheme == "https" else {
-            return nil
-        }
-        return fallbackURL
-    }
-
-    return nil
-}
-
-func browserExternalNavigationAction(for url: URL) -> BrowserExternalNavigationAction? {
-    if let fallbackURL = browserIntentFallbackURL(for: url) {
-        return .browserFallback(fallbackURL)
-    }
-    guard browserShouldOpenURLExternally(url) else { return nil }
-    return .promptToOpenApp(url)
-}
-
 private func browserCopyExternalNavigationURL(_ url: URL) {
     NSPasteboard.general.clearContents()
     NSPasteboard.general.setString(url.absoluteString, forType: .string)
@@ -785,7 +726,7 @@ func browserHandleExternalNavigation(
     loadFallbackRequest: (URLRequest) -> Void,
     presentAlert: @escaping BrowserAlertPresenter = browserPresentAlert
 ) -> Bool {
-    guard let action = browserExternalNavigationAction(for: url) else { return false }
+    guard let action = BrowserExternalNavigationAction.resolve(for: url) else { return false }
 
     switch action {
     case let .browserFallback(fallbackURL):
@@ -7696,7 +7637,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         // WebKit cannot open app-specific deeplinks (discord://, slack://, zoommtg://, etc.).
         // Hand these off to macOS so the owning app can handle them.
         if let url = navigationAction.request.url,
-           browserShouldRouteExternalNavigation(url) {
+           BrowserExternalNavigationAction.shouldRoute(url) {
             browserHandleExternalNavigation(
                 url,
                 source: "navDelegate",
@@ -7883,7 +7824,7 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
 #endif
         // External URL schemes → hand off to macOS, don't create a popup
         if let url = navigationAction.request.url,
-           browserShouldRouteExternalNavigation(url) {
+           BrowserExternalNavigationAction.shouldRoute(url) {
             browserHandleExternalNavigation(
                 url,
                 source: "uiDelegate",

@@ -881,23 +881,6 @@ private enum SessionTranscriptPreviewState: Equatable {
     case loaded([SessionTranscriptDisplayRow])
 }
 
-extension SessionEntry {
-    /// Whether this entry's on-disk transcript uses Grok's role/type layout.
-    /// Read cross-file by `SessionTranscriptLoader`, so it stays `internal`.
-    var usesGrokTranscriptLayout: Bool {
-        if agent == .grok {
-            return true
-        }
-        guard case .registered(let registration) = specifics else {
-            return false
-        }
-        if case .grokSessionDirectory = registration.sessionIdSource {
-            return true
-        }
-        return false
-    }
-}
-
 private struct SessionTranscriptPopoverHost: NSViewRepresentable {
     @Binding var isPresented: Bool
     let entry: SessionEntry

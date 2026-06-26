@@ -1,3 +1,4 @@
+import CmuxRemoteWorkspace
 import Foundation
 
 /// Mirrors one remote tmux session into a dedicated cmux sidebar workspace.

@@ -118,6 +118,9 @@
          location = "group:CmuxFeedback">
       </FileRef>
       <FileRef
+         location = "group:CmuxFeedUI">
+      </FileRef>
+      <FileRef
          location = "group:CmuxFoundation">
       </FileRef>
       <FileRef

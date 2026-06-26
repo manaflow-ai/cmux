@@ -34,7 +34,7 @@ final class GotoSplitUITestRecorder: UITestRecording {
     private unowned let appDelegate: AppDelegate
     private let environment: [String: String]
     private var didSetup = false
-    private var recorderTimer: DispatchSourceTimer?
+    private let pollTimer = UITestPollTimer()
     private var focusObservers: [NSObjectProtocol] = []
 
     /// Creates a recorder bound to `appDelegate`, reading scenario gates from
@@ -50,10 +50,6 @@ final class GotoSplitUITestRecorder: UITestRecording {
     ) {
         self.appDelegate = appDelegate
         self.environment = environment
-    }
-
-    deinit {
-        recorderTimer?.cancel()
     }
 
     private var tabManager: TabManager? { appDelegate.tabManager }
@@ -327,33 +323,19 @@ final class GotoSplitUITestRecorder: UITestRecording {
 
     private func startRecorder(browserPanelId: UUID) {
         guard isRecordingEnabled() else { return }
-        recorderTimer?.cancel()
-        recorderTimer = nil
-
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now(), repeating: .milliseconds(100))
-        timer.setEventHandler { [weak self] in
+        pollTimer.start { [weak self] in
             self?.recordState(browserPanelId: browserPanelId)
         }
-        recorderTimer = timer
-        timer.resume()
     }
 
     private func startRecordOnlyRecorder() {
         guard isRecordingEnabled() else { return }
-        recorderTimer?.cancel()
-        recorderTimer = nil
-
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now(), repeating: .milliseconds(100))
-        timer.setEventHandler { [weak self] in
+        pollTimer.start { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, let workspace = self.tabManager?.selectedWorkspace else { return }
                 self.writeData(self.findStateSnapshot(for: workspace))
             }
         }
-        recorderTimer = timer
-        timer.resume()
     }
 
     private func recordState(browserPanelId: UUID) {

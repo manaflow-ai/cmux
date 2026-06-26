@@ -5,14 +5,6 @@ import CmuxSettings
 import ObjectiveC
 import WebKit
 
-private func browserPopupPanelShouldSuppressStaleCloseTabShortcut(_ event: NSEvent) -> Bool {
-    let closeTabShortcut = KeyboardShortcutSettings.shortcut(for: .closeTab)
-    guard closeTabShortcut.isUnbound || closeTabShortcut != KeyboardShortcutSettings.Action.closeTab.defaultShortcut else {
-        return false
-    }
-    return KeyboardShortcutSettings.Action.closeTab.defaultShortcut.matches(event: event)
-}
-
 /// NSPanel subclass that intercepts the configured Close Tab shortcut before the swizzled
 /// `cmux_performKeyEquivalent` can dispatch it to the main menu's
 /// "Close Tab" action (which would close the parent browser tab).
@@ -21,7 +13,7 @@ final class BrowserPopupPanel: NSPanel {
         if AppDelegate.shared?.handleBrowserPopupCloseShortcutKeyEquivalent(event: event, popupWindow: self) == true {
             return true
         }
-        if browserPopupPanelShouldSuppressStaleCloseTabShortcut(event) {
+        if KeyboardShortcutSettings.Action.closeTab.shouldSuppressStaleDefaultShortcut(matching: event) {
             #if DEBUG
             cmuxDebugLog("popup.panel.closeShortcut suppressStaleDefault")
             #endif
@@ -417,7 +409,7 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         if let url = navigationAction.request.url,
-           browserShouldRouteExternalNavigation(url) {
+           BrowserExternalNavigationAction.shouldRoute(url) {
             browserHandleExternalNavigation(
                 url,
                 source: "popupUIDelegate",
@@ -572,7 +564,7 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         }
 
         // External URL schemes → hand off to macOS
-        if browserShouldRouteExternalNavigation(url) {
+        if BrowserExternalNavigationAction.shouldRoute(url) {
             browserHandleExternalNavigation(
                 url,
                 source: "popupNavDelegate",
