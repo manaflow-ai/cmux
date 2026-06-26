@@ -103,28 +103,31 @@ struct CmuxCommandVariablePrompt {
         let rowHeight = Self.labelHeight + Self.labelToInputGap + Self.inputHeight
         let totalHeight = CGFloat(variables.count) * rowHeight
             + CGFloat(max(0, variables.count - 1)) * Self.rowGap
-        let container = FlippedView(
+        let container = NSView(
             frame: NSRect(x: 0, y: 0, width: Self.fieldWidth, height: totalHeight)
         )
 
-        var y: CGFloat = 0
-        for (variable, field) in zip(variables, fields) {
+        // Lay the rows out top-to-bottom in AppKit's default bottom-left origin
+        // coordinate space (no flipped-view subclass needed).
+        for (offset, pair) in zip(variables, fields).enumerated() {
+            let (variable, field) = pair
+            let rowTop = totalHeight - CGFloat(offset) * (rowHeight + Self.rowGap)
+            let rowBottom = rowTop - rowHeight
+
             let label = NSTextField(labelWithString: variable.name)
             label.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
             label.textColor = .secondaryLabelColor
             label.lineBreakMode = .byTruncatingTail
-            label.frame = NSRect(x: 0, y: y, width: Self.fieldWidth, height: Self.labelHeight)
+            label.frame = NSRect(
+                x: 0,
+                y: rowBottom + Self.inputHeight + Self.labelToInputGap,
+                width: Self.fieldWidth,
+                height: Self.labelHeight
+            )
             container.addSubview(label)
 
-            field.frame = NSRect(
-                x: 0,
-                y: y + Self.labelHeight + Self.labelToInputGap,
-                width: Self.fieldWidth,
-                height: Self.inputHeight
-            )
+            field.frame = NSRect(x: 0, y: rowBottom, width: Self.fieldWidth, height: Self.inputHeight)
             container.addSubview(field)
-
-            y += rowHeight + Self.rowGap
         }
 
         // Tab order: walk the fields top-to-bottom, then loop back to the first.
@@ -133,9 +136,5 @@ struct CmuxCommandVariablePrompt {
         }
 
         return container
-    }
-
-    private final class FlippedView: NSView {
-        override var isFlipped: Bool { true }
     }
 }
