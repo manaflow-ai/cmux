@@ -67,7 +67,7 @@ struct MobileMacConnectionStatusRow: View {
 
                     if let addDevice {
                         Button(action: addDevice) {
-                            Text(L10n.string("mobile.addDevice.title", defaultValue: "Add device"))
+                            Text(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
