@@ -43,7 +43,7 @@ extension CMUXCLI {
             "fork_unavailable_reason": unavailableReason,
             "fork_startup_input_available": forkStartupInputAvailable,
             "hook_record_restorable": hookRecordRestorable,
-            "stale_pid_blocks_restore_in_0_64_17": hookRecordRestorable && record.pid != nil && storedPIDExists == false,
+            "stale_pid_blocks_restore_in_0_64_17": hookRecordRestorable && record.pid != nil,
         ]
         diagnostics["stored_pid_exists"] = storedPIDExists ?? NSNull()
         return diagnostics
