@@ -236,6 +236,7 @@ extension CmuxWebView {
             const scheme = href.split(":", 1)[0].toLowerCase();
             const suggestedFilename = suggestedFilenameForAnchor(anchor);
 
+            if (!isMainFrame && (scheme === "blob" || scheme === "data")) return false;
             if (scheme === "blob") {
               if (!reserveDownloadPost()) return false;
               return postBlobURLDownload(href, suggestedFilename);
