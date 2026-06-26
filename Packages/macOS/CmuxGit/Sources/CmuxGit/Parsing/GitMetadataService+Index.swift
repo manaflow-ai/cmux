@@ -12,10 +12,24 @@ extension GitMetadataService {
     /// recorded object ID. A missing/unreadable file marks the tree dirty.
     nonisolated static func gitTrackedChangesSnapshot(
         repository: ResolvedGitRepository
-    ) -> (isDirty: Bool, indexSignature: String?, indexContentSignature: String?) {
+    ) -> GitTrackedChangesSnapshot {
+        gitTrackedChangesSnapshot(
+            repository: repository,
+            fileStatusReader: SystemGitFileStatusReader()
+        )
+    }
+
+    nonisolated static func gitTrackedChangesSnapshot(
+        repository: ResolvedGitRepository,
+        fileStatusReader: any GitFileStatusReading
+    ) -> GitTrackedChangesSnapshot {
         let indexURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("index")
         guard let indexSnapshot = gitIndexSnapshot(indexURL: indexURL) else {
-            return (false, gitIndexFileSignature(indexURL: indexURL), nil)
+            return GitTrackedChangesSnapshot(
+                isDirty: false,
+                indexSignature: gitIndexFileSignature(indexURL: indexURL),
+                indexContentSignature: nil
+            )
         }
 
         for entry in indexSnapshot.entries {
@@ -26,33 +40,56 @@ extension GitMetadataService {
                     parentRepository: repository,
                     gitlinkPath: entry.path
                 ) else {
-                    return (true, indexSnapshot.signature, indexSnapshot.contentSignature)
+                    return GitTrackedChangesSnapshot(
+                        isDirty: true,
+                        indexSignature: indexSnapshot.signature,
+                        indexContentSignature: indexSnapshot.contentSignature
+                    )
                 }
                 if submoduleCommit.caseInsensitiveCompare(entry.objectID) != .orderedSame {
-                    return (true, indexSnapshot.signature, indexSnapshot.contentSignature)
+                    return GitTrackedChangesSnapshot(
+                        isDirty: true,
+                        indexSignature: indexSnapshot.signature,
+                        indexContentSignature: indexSnapshot.contentSignature
+                    )
                 }
                 continue
             }
 
-            var statValue = stat()
-            guard lstat(fileURL.path, &statValue) == 0 else {
-                return (true, indexSnapshot.signature, indexSnapshot.contentSignature)
+            guard let fileStatus = fileStatusReader.status(atPath: fileURL.path) else {
+                return GitTrackedChangesSnapshot(
+                    isDirty: true,
+                    indexSignature: indexSnapshot.signature,
+                    indexContentSignature: indexSnapshot.contentSignature
+                )
             }
-            let size = gitIndexUInt32Field(statValue.st_size)
-            let mtimeSeconds = gitIndexUInt32Field(statValue.st_mtimespec.tv_sec)
-            let mtimeNanoseconds = gitIndexUInt32Field(statValue.st_mtimespec.tv_nsec)
-            guard let mode = gitIndexComparableMode(for: statValue.st_mode) else {
-                return (true, indexSnapshot.signature, indexSnapshot.contentSignature)
+            let size = gitIndexUInt32Field(fileStatus.size)
+            let mtimeSeconds = gitIndexUInt32Field(fileStatus.mtimeSeconds)
+            let mtimeNanoseconds = gitIndexUInt32Field(fileStatus.mtimeNanoseconds)
+            guard let mode = gitIndexComparableMode(for: mode_t(fileStatus.mode)) else {
+                return GitTrackedChangesSnapshot(
+                    isDirty: true,
+                    indexSignature: indexSnapshot.signature,
+                    indexContentSignature: indexSnapshot.contentSignature
+                )
             }
             if size != entry.size ||
                 mode != entry.mode ||
                 mtimeSeconds != entry.mtimeSeconds ||
                 mtimeNanoseconds != entry.mtimeNanoseconds {
-                return (true, indexSnapshot.signature, indexSnapshot.contentSignature)
+                return GitTrackedChangesSnapshot(
+                    isDirty: true,
+                    indexSignature: indexSnapshot.signature,
+                    indexContentSignature: indexSnapshot.contentSignature
+                )
             }
         }
 
-        return (false, indexSnapshot.signature, indexSnapshot.contentSignature)
+        return GitTrackedChangesSnapshot(
+            isDirty: false,
+            indexSignature: indexSnapshot.signature,
+            indexContentSignature: indexSnapshot.contentSignature
+        )
     }
 
     /// Parses a git `index` file (versions 2, 3, and 4) into a snapshot.

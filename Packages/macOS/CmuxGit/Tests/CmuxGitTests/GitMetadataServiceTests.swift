@@ -147,6 +147,85 @@ import Testing
         #expect(meta.isDirty == false)
     }
 
+    @Test func unchangedIndexAndGenerationReusesTrackedChangesSnapshot() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let entry = try fixture.writeWorkingTreeFile("file.txt", contents: "hello")
+        try fixture.writeIndex(GitIndexFixture(version: 2, entries: [entry]))
+        let repository = try #require(GitMetadataService.resolveGitRepository(containing: fixture.root.path))
+        let filePath = fixture.root.appendingPathComponent("file.txt").path
+        let reader = CountingGitFileStatusReader()
+        let service = GitMetadataService(fileStatusReader: reader)
+
+        let first = await service.gitTrackedChangesSnapshot(
+            repository: repository,
+            trackedPathEventGeneration: 10
+        )
+        let second = await service.gitTrackedChangesSnapshot(
+            repository: repository,
+            trackedPathEventGeneration: 10
+        )
+
+        #expect(first == second)
+        #expect(reader.callCount(atPath: filePath) == 1)
+    }
+
+    @Test func trackedPathEventGenerationRescansAndDetectsUnstagedEdit() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let entry = try fixture.writeWorkingTreeFile("file.txt", contents: "hello")
+        try fixture.writeIndex(GitIndexFixture(version: 2, entries: [entry]))
+        let repository = try #require(GitMetadataService.resolveGitRepository(containing: fixture.root.path))
+        let fileURL = fixture.root.appendingPathComponent("file.txt")
+        let reader = CountingGitFileStatusReader()
+        let service = GitMetadataService(fileStatusReader: reader)
+
+        let clean = await service.gitTrackedChangesSnapshot(
+            repository: repository,
+            trackedPathEventGeneration: 20
+        )
+        try "hello, dirty".write(to: fileURL, atomically: true, encoding: .utf8)
+        let dirty = await service.gitTrackedChangesSnapshot(
+            repository: repository,
+            trackedPathEventGeneration: 21
+        )
+
+        #expect(clean.isDirty == false)
+        #expect(dirty.isDirty)
+        #expect(reader.callCount(atPath: fileURL.path) == 2)
+    }
+
+    @Test func indexStatChangeRescansTrackedEntries() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let entry = try fixture.writeWorkingTreeFile("file.txt", contents: "hello")
+        try fixture.writeIndex(GitIndexFixture(version: 2, entries: [entry]))
+        let repository = try #require(GitMetadataService.resolveGitRepository(containing: fixture.root.path))
+        let indexPath = fixture.gitDirectory.appendingPathComponent("index").path
+        let filePath = fixture.root.appendingPathComponent("file.txt").path
+        let reader = CountingGitFileStatusReader()
+        let service = GitMetadataService(fileStatusReader: reader)
+
+        _ = await service.gitTrackedChangesSnapshot(
+            repository: repository,
+            trackedPathEventGeneration: 30
+        )
+        var changedIndexStatus = try #require(reader.statusWithoutRecording(atPath: indexPath))
+        changedIndexStatus = GitFileStatus(
+            mode: changedIndexStatus.mode,
+            size: changedIndexStatus.size,
+            mtimeSeconds: changedIndexStatus.mtimeSeconds + 1,
+            mtimeNanoseconds: changedIndexStatus.mtimeNanoseconds
+        )
+        reader.overrideStatus(changedIndexStatus, atPath: indexPath)
+        _ = await service.gitTrackedChangesSnapshot(
+            repository: repository,
+            trackedPathEventGeneration: 30
+        )
+
+        #expect(reader.callCount(atPath: filePath) == 2)
+    }
+
     // MARK: Index v4 prefix-compression
 
     @Test func indexVersionFourDecodesPrefixCompressedPaths() throws {

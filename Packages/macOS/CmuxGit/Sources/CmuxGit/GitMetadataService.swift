@@ -34,8 +34,16 @@ import Foundation
 /// if meta.isRepository, meta.isDirty { showDirtyIndicator() }
 /// ```
 public struct GitMetadataService: Sendable {
+    private let fileStatusReader: any GitFileStatusReading
+
     /// Creates a git-metadata service.
-    public init() {}
+    public init() {
+        self.fileStatusReader = SystemGitFileStatusReader()
+    }
+
+    init(fileStatusReader: any GitFileStatusReading) {
+        self.fileStatusReader = fileStatusReader
+    }
 
     /// Reads a point-in-time git snapshot for `directory`.
     ///
@@ -47,10 +55,31 @@ public struct GitMetadataService: Sendable {
     /// - Returns: The git metadata for the enclosing repository, or
     ///   ``GitWorkspaceMetadata/notARepository`` when there is none.
     public nonisolated func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata {
+        await workspaceMetadata(for: directory, trackedPathEventGeneration: nil)
+    }
+
+    /// Reads a point-in-time git snapshot for `directory`, allowing callers
+    /// with a repository filesystem-event generation to enable tracked-change
+    /// reuse when no relevant event has arrived.
+    ///
+    /// - Parameters:
+    ///   - directory: An absolute path to inspect.
+    ///   - trackedPathEventGeneration: A caller-owned generation that changes
+    ///     whenever the watched repository paths report a filesystem event.
+    ///     Pass `nil` when no watcher is active; the read then avoids reuse.
+    /// - Returns: The git metadata for the enclosing repository, or
+    ///   ``GitWorkspaceMetadata/notARepository`` when there is none.
+    public nonisolated func workspaceMetadata(
+        for directory: String,
+        trackedPathEventGeneration: UInt64?
+    ) async -> GitWorkspaceMetadata {
         guard let repository = Self.resolveGitRepository(containing: directory) else {
             return .notARepository
         }
-        let trackedChanges = Self.gitTrackedChangesSnapshot(repository: repository)
+        let trackedChanges = await gitTrackedChangesSnapshot(
+            repository: repository,
+            trackedPathEventGeneration: trackedPathEventGeneration
+        )
         return GitWorkspaceMetadata(
             isRepository: true,
             branch: Self.gitBranchName(repository: repository),
@@ -58,6 +87,16 @@ public struct GitMetadataService: Sendable {
             indexSignature: trackedChanges.indexSignature,
             indexContentSignature: trackedChanges.indexContentSignature,
             headSignature: Self.gitHeadSignature(repository: repository)
+        )
+    }
+
+    nonisolated func gitTrackedChangesSnapshot(
+        repository: ResolvedGitRepository,
+        trackedPathEventGeneration: UInt64?
+    ) async -> GitTrackedChangesSnapshot {
+        Self.gitTrackedChangesSnapshot(
+            repository: repository,
+            fileStatusReader: fileStatusReader
         )
     }
 
