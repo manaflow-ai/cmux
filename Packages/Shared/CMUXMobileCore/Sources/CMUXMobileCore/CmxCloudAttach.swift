@@ -188,11 +188,17 @@ public struct CmxCloudAttach: Sendable {
     ///   fallback, which the phone cannot dial), or a `DecodingError` when the
     ///   payload is malformed.
     public func decode(_ data: Data) throws -> CmxCloudAttachEndpoint {
-        let probe = try JSONDecoder().decode(CmxCloudAttachTransportProbe.self, from: data)
+        // Probe the transport first so the SSH fallback (a differently-shaped
+        // endpoint the phone can't dial) surfaces as a typed
+        // `unsupportedTransport` error rather than an opaque `DecodingError`
+        // from the WebSocket-shaped decode. One decoder is reused across both
+        // passes.
+        let decoder = JSONDecoder()
+        let probe = try decoder.decode(CmxCloudAttachTransportProbe.self, from: data)
         guard probe.transport == Self.webSocketTransport else {
             throw CmxCloudAttachError.unsupportedTransport(probe.transport)
         }
-        return try JSONDecoder().decode(CmxCloudAttachEndpoint.self, from: data)
+        return try decoder.decode(CmxCloudAttachEndpoint.self, from: data)
     }
 
     /// Build a ``CmxAttachTicket`` that drives a session against a Cloud VM,
