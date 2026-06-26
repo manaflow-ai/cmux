@@ -157,6 +157,84 @@ final class TerminalControllerSocketSecurityTests {
         XCTAssertNil(controller.v2PopBrowserDownloadEvent(surfaceId: surfaceId))
     }
 
+    @Test func browserDownloadQueuePrefersPromptedCompletionWhenAlreadyClosed() {
+        let controller = TerminalController.shared
+        let surfaceId = UUID()
+        controller.cleanupSurfaceState(surfaceIds: [surfaceId])
+        defer { controller.cleanupSurfaceState(surfaceIds: [surfaceId]) }
+
+        controller.v2RecordBrowserDownloadEvent(
+            surfaceId: surfaceId,
+            event: [
+                "type": "started",
+                "download_id": "download-closed",
+                "filename": "report.csv",
+            ]
+        )
+        controller.v2RecordBrowserDownloadEvent(
+            surfaceId: surfaceId,
+            event: [
+                "type": "ready_to_save",
+                "download_id": "download-closed",
+                "filename": "report.csv",
+            ]
+        )
+        controller.v2RecordBrowserDownloadEvent(
+            surfaceId: surfaceId,
+            event: [
+                "type": "saved",
+                "download_id": "download-closed",
+                "filename": "report.csv",
+                "path": "/tmp/report.csv",
+            ]
+        )
+
+        let returned = controller.v2PopBrowserDownloadEvent(surfaceId: surfaceId)
+        XCTAssertEqual(returned?["type"] as? String, "saved")
+        XCTAssertEqual(returned?["path"] as? String, "/tmp/report.csv")
+        XCTAssertNil(controller.v2PopBrowserDownloadEvent(surfaceId: surfaceId))
+    }
+
+    @Test func browserDownloadConsumedIDRegistryIsBounded() {
+        let controller = TerminalController.shared
+        let surfaceId = UUID()
+        controller.cleanupSurfaceState(surfaceIds: [surfaceId])
+        defer { controller.cleanupSurfaceState(surfaceIds: [surfaceId]) }
+
+        let oldestID = "download-0"
+        let newestID = "download-140"
+        for index in 0...140 {
+            controller.v2MarkBrowserDownloadEventConsumed(
+                [
+                    "type": "ready_to_save",
+                    "download_id": "download-\(index)",
+                ],
+                surfaceId: surfaceId
+            )
+        }
+
+        controller.v2RecordBrowserDownloadEvent(
+            surfaceId: surfaceId,
+            event: [
+                "type": "saved",
+                "download_id": oldestID,
+            ]
+        )
+
+        let returned = controller.v2PopBrowserDownloadEvent(surfaceId: surfaceId)
+        XCTAssertEqual(returned?["download_id"] as? String, oldestID)
+
+        controller.v2RecordBrowserDownloadEvent(
+            surfaceId: surfaceId,
+            event: [
+                "type": "saved",
+                "download_id": newestID,
+            ]
+        )
+
+        XCTAssertNil(controller.v2PopBrowserDownloadEvent(surfaceId: surfaceId))
+    }
+
     init() {
         TerminalController.shared.stop()
     }

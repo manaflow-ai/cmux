@@ -172,7 +172,7 @@ import WebKit
 
         let fileURL = directory.appendingPathComponent("report.csv", isDirectory: false)
         try Data("download".utf8).write(to: fileURL)
-        let sourceURL = try #require(URL(string: "https://example.test/report.csv"))
+        let sourceURL = try #require(URL(string: "https://user:pass@example.test/report.csv?token=secret#section"))
 
         try fileURL.cmuxApplyWebDownloadQuarantine(sourceURL: sourceURL)
 
@@ -182,6 +182,8 @@ import WebKit
         #expect(properties[kLSQuarantineTypeKey as String] as? String == kLSQuarantineTypeWebDownload as String)
         #expect(properties[kLSQuarantineAgentNameKey as String] as? String != nil)
         #expect(properties[kLSQuarantineTimeStampKey as String] is Date)
+        #expect((properties[kLSQuarantineDataURLKey as String] as? URL)?.absoluteString == "https://example.test/report.csv")
+        #expect((properties[kLSQuarantineOriginURLKey as String] as? URL)?.absoluteString == "https://example.test/report.csv")
     }
 
     @Test func webDownloadQuarantineMetadataSkipsLocalFileSources() throws {
@@ -258,6 +260,23 @@ import WebKit
         #expect(events[0]["path"] as? String == savedURL.path)
         #expect(events[1]["filename"] as? String == "cancelled.txt")
         #expect(events[2]["error"] as? String == "disk full")
+    }
+
+    @MainActor
+    @Test func promptedDownloadSavePanelSkipsHiddenPreloadWindow() throws {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: try #require(URL(string: "about:blank")),
+            preloadInitialNavigationInBackground: true,
+            isRemoteWorkspace: false
+        )
+        defer { panel.close() }
+
+        #expect(panel.hasBackgroundPreloadHost)
+        #expect(browserInteractiveModalHostWindow(for: panel.webView) == nil)
+        let delegate = try #require(panel.downloadDelegate)
+
+        #expect(delegate.savePanelParentWindow?() == nil)
     }
 
     @Test func rejectsNonSuccessHTTPStatusBeforeSavePanelNaming() throws {

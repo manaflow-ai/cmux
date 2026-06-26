@@ -3994,7 +3994,7 @@ final class BrowserPanel: Panel, ObservableObject {
         // callbacks), then auto-save to Downloads unless the prompt setting is enabled.
         let dlDelegate = BrowserDownloadDelegate()
         dlDelegate.savePanelParentWindow = { [weak self] in
-            self?.webView.window
+            self.flatMap { browserInteractiveModalHostWindow(for: $0.webView) }
         }
         dlDelegate.onDownloadStarted = { [weak self] filename, downloadID in
             guard let self else { return }

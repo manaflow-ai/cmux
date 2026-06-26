@@ -275,9 +275,9 @@ extension URL {
            !bundleIdentifier.isEmpty {
             quarantineProperties[kLSQuarantineAgentBundleIdentifierKey as String] = bundleIdentifier
         }
-        if Self.cmuxCanStoreDownloadSourceURL(sourceURL) {
-            quarantineProperties[kLSQuarantineDataURLKey as String] = sourceURL
-            quarantineProperties[kLSQuarantineOriginURLKey as String] = sourceURL
+        if let sanitizedSourceURL = Self.cmuxSanitizedDownloadSourceURL(sourceURL) {
+            quarantineProperties[kLSQuarantineDataURLKey as String] = sanitizedSourceURL
+            quarantineProperties[kLSQuarantineOriginURLKey as String] = sanitizedSourceURL
         }
 
         var resourceValues = URLResourceValues()
@@ -294,8 +294,16 @@ extension URL {
         return trimmed.isEmpty ? "cmux" : trimmed
     }
 
-    private static func cmuxCanStoreDownloadSourceURL(_ sourceURL: URL) -> Bool {
+    private static func cmuxSanitizedDownloadSourceURL(_ sourceURL: URL) -> URL? {
         let scheme = sourceURL.scheme?.lowercased()
-        return scheme == "http" || scheme == "https"
+        guard scheme == "http" || scheme == "https",
+              var components = URLComponents(url: sourceURL, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        components.user = nil
+        components.password = nil
+        components.query = nil
+        components.fragment = nil
+        return components.url
     }
 }
