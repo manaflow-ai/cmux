@@ -106,7 +106,10 @@ printf '\n---\n' >> "$FAKE_CMUX_STDIN_LOG"
 
         check_env = env.copy()
         check_env["CMUX_TEST_AMP_EXTENSION_PATH"] = str(extension_path)
-        check_env["CMUX_SURFACE_ID"] = "surface-amp-test"
+        check_env.pop("CMUX_SURFACE_ID", None)
+        check_env.pop("CMUX_PANEL_ID", None)
+        check_env["CMUX_WORKSPACE_ID"] = "workspace-amp-test"
+        check_env["CMUX_SOCKET_PATH"] = str(root / "cmux-test.sock")
         check_env["CMUX_AMP_CMUX_BIN"] = str(fake_cmux)
         check_env["AMP_API_KEY"] = "secret-should-not-propagate"
         check_env["FAKE_CMUX_ARGS_LOG"] = str(fake_args_log)

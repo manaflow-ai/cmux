@@ -83,7 +83,10 @@ printf '\n---\n' >> "$FAKE_CMUX_STDIN_LOG"
 
         check_env = env.copy()
         check_env["CMUX_TEST_PI_EXTENSION_PATH"] = str(extension_path)
-        check_env["CMUX_SURFACE_ID"] = "surface-pi-test"
+        check_env.pop("CMUX_SURFACE_ID", None)
+        check_env.pop("CMUX_PANEL_ID", None)
+        check_env["CMUX_WORKSPACE_ID"] = "workspace-pi-test"
+        check_env["CMUX_SOCKET_PATH"] = str(root / "cmux-test.sock")
         check_env["CMUX_PI_CMUX_BIN"] = str(fake_cmux)
         check_env["FAKE_CMUX_ARGS_LOG"] = str(fake_args_log)
         check_env["FAKE_CMUX_STDIN_LOG"] = str(fake_stdin_log)

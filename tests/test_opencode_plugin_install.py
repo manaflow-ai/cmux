@@ -155,7 +155,10 @@ printf '\\n---\\n' >> "$FAKE_CMUX_STDIN_LOG"
         check_env = env.copy()
         check_env["CMUX_TEST_OPENCODE_PLUGIN_PATH"] = str(plugin_path)
         check_env["CMUX_TEST_OPENCODE_PLUGIN_COPY_PATH"] = str(plugin_copy_path)
-        check_env["CMUX_SURFACE_ID"] = "surface-opencode-test"
+        check_env.pop("CMUX_SURFACE_ID", None)
+        check_env.pop("CMUX_PANEL_ID", None)
+        check_env["CMUX_WORKSPACE_ID"] = "workspace-opencode-test"
+        check_env["CMUX_SOCKET_PATH"] = str(root / "cmux-test.sock")
         check_env["CMUX_OPENCODE_CMUX_BIN"] = str(fake_cmux)
         check_env["FAKE_CMUX_ARGS_LOG"] = str(fake_args_log)
         check_env["FAKE_CMUX_STDIN_LOG"] = str(fake_stdin_log)
