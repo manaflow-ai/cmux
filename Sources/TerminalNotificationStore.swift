@@ -111,53 +111,16 @@ final class TerminalNotificationStore: ObservableObject {
     /// Recently dismissed/cleared notification ids, kept so the phone's
     /// foreground reconcile sweep can classify a delivered banner as "handled
     /// here" even after the entry left the store entirely (remove / clear-all
-    /// paths). Bounded ring: oldest evicted past ``dismissedTombstoneCapacity``.
-    /// Holds opaque UUIDs only, never content.
-    ///
-    /// Write-through persisted to `UserDefaults` (lazy-loaded on first use) so
-    /// the reconcile lane survives a Mac relaunch: session restore keeps
-    /// notification ids stable, so a phone that reconnects after this app
-    /// restarted must still learn that a banner it holds was dismissed here
-    /// even when the silent dismiss push never reached it.
-    private var dismissedTombstoneIDs = Set<UUID>()
-    private var dismissedTombstoneOrder: [UUID] = []
-    private var dismissedTombstonesLoaded = false
-    private static let dismissedTombstoneCapacity = 512
-    static let dismissedTombstoneDefaultsKey = "cmux.notifications.dismissedTombstoneIds"
-
-    private func loadDismissedTombstonesIfNeeded() {
-        guard !dismissedTombstonesLoaded else { return }
-        dismissedTombstonesLoaded = true
-        let stored = UserDefaults.standard.stringArray(forKey: Self.dismissedTombstoneDefaultsKey) ?? []
-        for id in stored.compactMap({ UUID(uuidString: $0) }) where dismissedTombstoneIDs.insert(id).inserted {
-            dismissedTombstoneOrder.append(id)
-        }
-    }
-
-    private func recordDismissTombstones(ids: [UUID]) {
-        loadDismissedTombstonesIfNeeded()
-        for id in ids where dismissedTombstoneIDs.insert(id).inserted {
-            dismissedTombstoneOrder.append(id)
-        }
-        let overflow = dismissedTombstoneOrder.count - Self.dismissedTombstoneCapacity
-        if overflow > 0 {
-            for stale in dismissedTombstoneOrder.prefix(overflow) {
-                dismissedTombstoneIDs.remove(stale)
-            }
-            dismissedTombstoneOrder.removeFirst(overflow)
-        }
-        UserDefaults.standard.set(
-            dismissedTombstoneOrder.map(\.uuidString),
-            forKey: Self.dismissedTombstoneDefaultsKey
-        )
-    }
+    /// paths). Bounded, write-through-persisted ring owned by the store; see
+    /// ``NotificationDismissTombstoneRing`` for the eviction/persistence
+    /// behavior. Holds opaque UUIDs only, never content.
+    private var dismissedTombstoneRing = NotificationDismissTombstoneRing()
+    static let dismissedTombstoneDefaultsKey = NotificationDismissTombstoneRing.defaultPersistenceKey
 
     /// Drop the in-memory tombstone copy so the next use re-reads the persisted
     /// ring — the behavior-test analogue of a process restart.
     func reloadDismissedTombstonesForTesting() {
-        dismissedTombstoneIDs.removeAll()
-        dismissedTombstoneOrder.removeAll()
-        dismissedTombstonesLoaded = false
+        dismissedTombstoneRing.reloadForTesting()
     }
 
     /// Phone-banner dismissals for superseded notifications, deferred until the
@@ -183,7 +146,7 @@ final class TerminalNotificationStore: ObservableObject {
     /// exists (markUnread after a dismiss resurrects it).
     func reconcileHandledNotificationIDs(deliveredIDs: [UUID]) -> [String] {
         guard !deliveredIDs.isEmpty else { return [] }
-        loadDismissedTombstonesIfNeeded()
+        dismissedTombstoneRing.loadIfNeeded()
         var readIDs = Set<UUID>()
         var knownIDs = Set<UUID>()
         for notification in notifications {
@@ -193,7 +156,7 @@ final class TerminalNotificationStore: ObservableObject {
         return deliveredIDs
             .filter { id in
                 if knownIDs.contains(id) { return readIDs.contains(id) }
-                return dismissedTombstoneIDs.contains(id)
+                return dismissedTombstoneRing.contains(id)
             }
             .map(\.uuidString)
     }
@@ -218,7 +181,7 @@ final class TerminalNotificationStore: ObservableObject {
     /// ``PhonePushClient/forwardDismissed(ids:badgeCount:)``.
     private func emitNotificationsDismissed(ids: [String]) {
         guard !ids.isEmpty else { return }
-        recordDismissTombstones(ids: ids.compactMap { UUID(uuidString: $0) })
+        dismissedTombstoneRing.record(ids: ids.compactMap { UUID(uuidString: $0) })
         let unreadCount = indexes.unreadCount
         // Live lane: nonisolated static fan-out; short-circuits when no phone is
         // subscribed.
@@ -1006,7 +969,7 @@ final class TerminalNotificationStore: ObservableObject {
                 // The superseded entries already left the store; tombstone them
                 // now so the reconcile sweep stays correct while the dismiss is
                 // deferred.
-                recordDismissTombstones(ids: idsToClear.compactMap { UUID(uuidString: $0) })
+                dismissedTombstoneRing.record(ids: idsToClear.compactMap { UUID(uuidString: $0) })
                 supersededPhoneDismissBuffer.stash(
                     ids: idsToClear,
                     forKey: SupersededPhoneDismissBuffer.key(

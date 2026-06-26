@@ -1,4 +1,3 @@
-import CmuxRemoteWorkspace
 import Foundation
 
 /// A tmux window within a mirrored session, assembled from the control-mode
@@ -6,21 +5,21 @@ import Foundation
 ///
 /// Maps to a cmux tab; its ``layout`` tree (parsed by
 /// ``RemoteTmuxRawLayoutParser``) maps to the tab's pane splits.
-struct RemoteTmuxWindow: Sendable, Equatable, Codable {
+public struct RemoteTmuxWindow: Sendable, Equatable, Codable {
     /// tmux's numeric window id (the `@N` without the leading `@`), stable for
     /// the server's lifetime.
-    let id: Int
+    public let id: Int
     /// The tmux window name (`#{window_name}`), shown as the mirrored tab's
     /// title. Empty when tmux has not reported a name yet.
-    let name: String
+    public let name: String
     /// Window width in terminal cells.
-    let width: Int
+    public let width: Int
     /// Window height in terminal cells.
-    let height: Int
+    public let height: Int
     /// The pane-layout tree for this window.
-    let layout: RemoteTmuxLayoutNode
+    public let layout: RemoteTmuxLayoutNode
 
-    init(id: Int, name: String = "", width: Int, height: Int, layout: RemoteTmuxLayoutNode) {
+    public init(id: Int, name: String = "", width: Int, height: Int, layout: RemoteTmuxLayoutNode) {
         self.id = id
         self.name = name
         self.width = width
@@ -29,5 +28,5 @@ struct RemoteTmuxWindow: Sendable, Equatable, Codable {
     }
 
     /// All pane ids in this window, depth-first left-to-right.
-    var paneIDsInOrder: [Int] { layout.paneIDsInOrder }
+    public var paneIDsInOrder: [Int] { layout.paneIDsInOrder }
 }
