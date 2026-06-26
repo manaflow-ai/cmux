@@ -37,37 +37,27 @@ public actor StackProjectKeychainTokenStore: StackAuthTokenStoreProtocol {
 
     /// Stores or clears the current Stack token pair.
     public func setTokens(accessToken: String?, refreshToken: String?) async {
-        var allOK = true
-        if let accessToken, !accessToken.isEmpty {
-            allOK = keychainWrite(accessToken, key: accessTokenKey) && allOK
-        } else {
-            allOK = keychainDelete(key: accessTokenKey) && allOK
-        }
-        if let refreshToken, !refreshToken.isEmpty {
-            allOK = keychainWrite(refreshToken, key: refreshTokenKey) && allOK
-        } else {
-            allOK = keychainDelete(key: refreshTokenKey) && allOK
+        let previousAccessToken = cachedAccessToken ?? keychainRead(key: accessTokenKey)
+        let previousRefreshToken = cachedRefreshToken ?? keychainRead(key: refreshTokenKey)
+        let normalizedAccessToken = normalizedToken(accessToken)
+        let normalizedRefreshToken = normalizedToken(refreshToken)
+
+        guard applyTokenPair(accessToken: normalizedAccessToken, refreshToken: normalizedRefreshToken) else {
+            _ = applyTokenPair(accessToken: previousAccessToken, refreshToken: previousRefreshToken)
+            cachedAccessToken = previousAccessToken
+            cachedRefreshToken = previousRefreshToken
+            return
         }
 
-        if allOK {
-            cachedAccessToken = (accessToken?.isEmpty == false) ? accessToken : nil
-            cachedRefreshToken = (refreshToken?.isEmpty == false) ? refreshToken : nil
-        } else {
-            cachedAccessToken = nil
-            cachedRefreshToken = nil
-        }
+        cachedAccessToken = normalizedAccessToken
+        cachedRefreshToken = normalizedRefreshToken
     }
 
     /// Clears both stored Stack tokens.
     public func clearTokens() async {
-        let accessCleared = keychainDelete(key: accessTokenKey)
-        let refreshCleared = keychainDelete(key: refreshTokenKey)
-        if accessCleared {
-            cachedAccessToken = nil
-        }
-        if refreshCleared {
-            cachedRefreshToken = nil
-        }
+        _ = applyTokenPair(accessToken: nil, refreshToken: nil)
+        cachedAccessToken = nil
+        cachedRefreshToken = nil
     }
 
     /// Clears tokens only when the current stored pair matches the expected pair.
@@ -92,6 +82,29 @@ public actor StackProjectKeychainTokenStore: StackAuthTokenStoreProtocol {
     ) async {
         guard keychainRead(key: refreshTokenKey) == compareRefreshToken else { return }
         await setTokens(accessToken: newAccessToken, refreshToken: newRefreshToken)
+    }
+
+    private func normalizedToken(_ token: String?) -> String? {
+        guard let token, !token.isEmpty else { return nil }
+        return token
+    }
+
+    private func applyTokenPair(accessToken: String?, refreshToken: String?) -> Bool {
+        let accessOK: Bool
+        if let accessToken {
+            accessOK = keychainWrite(accessToken, key: accessTokenKey)
+        } else {
+            accessOK = keychainDelete(key: accessTokenKey)
+        }
+
+        let refreshOK: Bool
+        if let refreshToken {
+            refreshOK = keychainWrite(refreshToken, key: refreshTokenKey)
+        } else {
+            refreshOK = keychainDelete(key: refreshTokenKey)
+        }
+
+        return accessOK && refreshOK
     }
 
 #if canImport(Security)

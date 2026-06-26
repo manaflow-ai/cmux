@@ -147,6 +147,9 @@ struct CMUXMobileRootView: View {
             guard isAuthenticated else {
                 return
             }
+            #if os(iOS)
+            authCallbackError = nil
+            #endif
             if consumePendingURLIfReady() {
                 return
             }
@@ -438,6 +441,7 @@ struct CMUXMobileRootView: View {
 
     private func signOut() {
         #if os(iOS)
+        authCallbackError = nil
         // The hook receives the tokens captured before the local-first clear:
         // by the time it runs, the live token store is already empty.
         let pushCoordinator = pushCoordinator

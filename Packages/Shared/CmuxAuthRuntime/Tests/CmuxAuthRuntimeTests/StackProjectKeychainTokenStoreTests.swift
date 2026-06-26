@@ -28,5 +28,19 @@ import Testing
         #expect(await store.getStoredRefreshToken() == nil)
         await store.clearTokens()
     }
+
+    @Test func clearTokensDropsCachedValues() async {
+        let store = StackProjectKeychainTokenStore(projectId: UUID().uuidString)
+        await store.clearTokens()
+
+        await store.setTokens(accessToken: "access-1", refreshToken: "refresh-1")
+        #expect(await store.getStoredAccessToken() == "access-1")
+        #expect(await store.getStoredRefreshToken() == "refresh-1")
+
+        await store.clearTokens()
+
+        #expect(await store.getStoredAccessToken() == nil)
+        #expect(await store.getStoredRefreshToken() == nil)
+    }
 }
 #endif

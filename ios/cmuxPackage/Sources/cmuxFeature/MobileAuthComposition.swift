@@ -62,10 +62,9 @@ public struct MobileAuthComposition {
         )
         self.config = resolvedConfig
 
-        let tokenStore = StackProjectKeychainTokenStore(projectId: resolvedConfig.stack.projectId)
         let client = StackAuthClient(
             config: resolvedConfig,
-            tokenStore: .custom(tokenStore)
+            tokenStore: Self.stackTokenStore(for: resolvedConfig)
         )
         let sessionCache = CMUXAuthSessionCache(
             keyValueStore: defaults,
@@ -116,7 +115,7 @@ public struct MobileAuthComposition {
         magicLinkCallbackURLProvider.set {
             guard canUseNativeMagicLinkCallback else { return nil }
             return Self.nativeMagicLinkCallbackURL(
-                websiteOrigin: resolvedConfig.apiBaseURL,
+                magicLinkCallbackURL: resolvedConfig.magicLinkCallbackURL,
                 callbackScheme: authCallbackScheme,
                 callbackState: Self.makeCallbackState()
             )
@@ -194,18 +193,29 @@ public struct MobileAuthComposition {
         return resolvedScheme
     }
 
+    static func stackTokenStore(for config: AuthConfig) -> TokenStoreInit {
+        #if DEBUG && targetEnvironment(simulator)
+        return .memory
+        #else
+        return .custom(StackProjectKeychainTokenStore(projectId: config.stack.projectId))
+        #endif
+    }
+
     static func nativeMagicLinkCallbackURL(
-        websiteOrigin: String,
+        magicLinkCallbackURL: String,
         callbackScheme: String,
         callbackState: String
-    ) -> URL {
-        let origin = URL(string: websiteOrigin) ?? URL(string: "https://cmux.com")!
-        let magicLink = AuthCallbackURLResolver(origin: origin).magicLinkCallbackURL()
-        var magicComponents = URLComponents(url: magicLink, resolvingAgainstBaseURL: false)!
+    ) -> URL? {
+        guard let magicLink = URL(string: magicLinkCallbackURL),
+              magicLink.scheme != nil,
+              magicLink.host != nil,
+              var magicComponents = URLComponents(url: magicLink, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
         magicComponents.queryItems = [
             URLQueryItem(name: "native_app_return_to", value: "\(callbackScheme)://auth-callback?cmux_auth_state=\(callbackState)"),
         ]
-        return magicComponents.url!
+        return magicComponents.url
     }
 
     private static func makeCallbackState() -> String {
