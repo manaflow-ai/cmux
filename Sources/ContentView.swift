@@ -13445,9 +13445,11 @@ struct TabItemView: View, Equatable {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top, spacing: 8) {
                 // Leading status slot. The unread badge and the left-positioned
-                // loading spinner share this one fixed-size slot and cross-fade
-                // into each other; the slot fades + the title slides right as it
-                // appears (animated via the value-scoped .animation below).
+                // loading spinner share this one fixed-size slot (the spinner
+                // takes over while loading); when present it pushes the title
+                // right. Changes apply in one discrete layout pass — no per-row
+                // .animation/.transition here, which would interpolate the
+                // LazyVStack height every frame (#5764 / #5845).
                 if leadingSlotActive {
                     ZStack {
                         if unreadCount > 0 {
@@ -13470,7 +13472,6 @@ struct TabItemView: View, Equatable {
                         }
                     }
                     .frame(width: scaledUnreadBadgeSize, height: scaledUnreadBadgeSize)
-                    .transition(.opacity)
                 }
 
                 if workspaceSnapshot.isPinned {
@@ -13546,7 +13547,6 @@ struct TabItemView: View, Equatable {
                             .safeHelp(activeCodingAgentTooltip)
                             .accessibilityLabel(Text(activeCodingAgentTooltip))
                             .opacity(showCloseButton ? 0 : 1)
-                            .transition(.opacity)
                         }
                         Button(action: {
                             #if DEBUG
@@ -13574,12 +13574,8 @@ struct TabItemView: View, Equatable {
                     )
                     .safeHelp(activeCodingAgentTooltip)
                     .accessibilityLabel(Text(activeCodingAgentTooltip))
-                    .transition(.opacity)
                 }
             }
-            .animation(.easeInOut(duration: 0.22), value: leadingSlotActive)
-            .animation(.easeInOut(duration: 0.2), value: spinnerOnLeading)
-            .animation(.easeInOut(duration: 0.2), value: spinnerOnTrailing)
 
             if let description = workspaceSnapshot.customDescription {
                 SidebarWorkspaceDescriptionText(

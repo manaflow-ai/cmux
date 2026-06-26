@@ -762,7 +762,7 @@
         "loadingSpinnerPosition": {
           "type": "string",
           "enum": ["leading", "trailing"],
-          "default": "trailing",
+          "default": "leading",
           "description": "Which side of the workspace row the loading spinner appears on: leading (left, sharing the unread-badge slot) or trailing (right)."
         },
         "showCustomMetadata": {
