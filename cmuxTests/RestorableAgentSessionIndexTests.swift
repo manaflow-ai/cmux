@@ -804,6 +804,50 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         }
     }
 
+    func testStalePidHookRecordStillRestoresAndForks() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-stale-pid-fork-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let dir = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let ws = UUID()
+        let panel = UUID()
+        let sid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        var record = driftedAgentHookRecord(
+            launcher: "codex",
+            sessionId: sid,
+            workspaceId: ws,
+            panelId: panel,
+            recordedCwd: dir.path,
+            launchCwd: dir.path,
+            updatedAt: 10
+        )
+        record["pid"] = 987_654_321
+        try writeHookStore(
+            root: root,
+            storeFilename: "codex-hook-sessions.json",
+            sessions: [sid: record]
+        )
+
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            processArgumentsProvider: { _ in nil }
+        )
+        let snapshot = try XCTUnwrap(
+            index.snapshot(workspaceId: ws, panelId: panel),
+            "A dead saved PID must not erase the restorable/forkable session snapshot."
+        )
+
+        XCTAssertEqual(snapshot.sessionId, sid)
+        XCTAssertEqual(index.processIDs(workspaceId: ws, panelId: panel), [])
+        XCTAssertFalse(index.hasLiveProcess(workspaceId: ws, panelId: panel))
+        let fork = try XCTUnwrap(snapshot.forkCommand)
+        XCTAssertTrue(fork.contains("'codex' 'fork' '\(sid)'"), "codex fork command expected; got: \(fork)")
+    }
+
     // Agents without a fork verb must not emit a fork command (a malformed one would launch a broken
     // session). This pins which agents support fork so the set is explicit.
     func testNonForkAgentsProduceNoForkCommand() throws {
