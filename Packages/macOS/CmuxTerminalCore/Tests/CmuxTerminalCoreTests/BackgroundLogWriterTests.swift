@@ -1,6 +1,71 @@
 import Foundation
 import Testing
-import CmuxTerminalCore
+@testable import CmuxTerminalCore
+
+/// In-memory ``BackgroundLogLineSink`` for deterministic tests: it records lines
+/// and lets a test `await` a target count (or a marker line) via continuations —
+/// no temp files, no `Task.sleep`, no polling. An optional gate holds the writer's
+/// consumer so a burst can overflow the bounded buffer on purpose.
+private actor RecordingSink: BackgroundLogLineSink {
+    private(set) var lines: [String] = []
+    private let gated: Bool
+    private var gateOpen: Bool
+    private var gateWaiters: [CheckedContinuation<Void, Never>] = []
+    private var countWaiters: [(target: Int, continuation: CheckedContinuation<[String], Never>)] = []
+    private var markerWaiters: [(marker: String, continuation: CheckedContinuation<[String], Never>)] = []
+
+    init(gated: Bool = false) {
+        self.gated = gated
+        self.gateOpen = !gated
+    }
+
+    func openGate() {
+        gateOpen = true
+        let waiters = gateWaiters
+        gateWaiters = []
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    func write(_ line: String) async {
+        if !gateOpen {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                gateWaiters.append(continuation)
+            }
+        }
+        lines.append(line)
+        let snapshot = lines
+        countWaiters.removeAll { waiter in
+            guard snapshot.count >= waiter.target else { return false }
+            waiter.continuation.resume(returning: snapshot)
+            return true
+        }
+        markerWaiters.removeAll { waiter in
+            guard line.contains(waiter.marker) else { return false }
+            waiter.continuation.resume(returning: snapshot)
+            return true
+        }
+    }
+
+    func waitForLines(_ count: Int) async -> [String] {
+        if lines.count >= count {
+            return lines
+        }
+        return await withCheckedContinuation { continuation in
+            countWaiters.append((count, continuation))
+        }
+    }
+
+    func waitForLineContaining(_ marker: String) async -> [String] {
+        if lines.contains(where: { $0.contains(marker) }) {
+            return lines
+        }
+        return await withCheckedContinuation { continuation in
+            markerWaiters.append((marker, continuation))
+        }
+    }
+}
 
 @Suite
 struct BackgroundLogWriterTests {
@@ -9,71 +74,14 @@ struct BackgroundLogWriterTests {
             .appendingPathComponent("cmux-bg-writer-test-\(UUID().uuidString).log")
     }
 
-    /// Polls `url` until it holds at least `count` complete (newline-terminated)
-    /// lines, then returns them. The writer drains on a background task, so tests
-    /// wait for the flush rather than a synchronous barrier.
-    private func waitForLines(
-        _ url: URL,
-        count: Int,
-        timeout: Duration = .seconds(10)
-    ) async throws -> [String] {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        while ContinuousClock.now < deadline {
-            if let contents = try? String(contentsOf: url, encoding: .utf8),
-               contents.hasSuffix("\n") {
-                let lines = contents
-                    .split(separator: "\n", omittingEmptySubsequences: true)
-                    .map(String.init)
-                if lines.count >= count {
-                    return lines
-                }
-            }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        let contents = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-        return contents
-            .split(separator: "\n", omittingEmptySubsequences: true)
-            .map(String.init)
-    }
-
-    /// Polls `url` until it has stopped growing for `settle`, then returns its
-    /// lines. Used by the flood test, where drop-oldest means the final line count
-    /// is not known in advance.
-    private func waitForFloodToSettle(
-        _ url: URL,
-        settle: Duration = .milliseconds(400),
-        timeout: Duration = .seconds(15)
-    ) async throws -> [String] {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        var lastContent = ""
-        var lastChange = ContinuousClock.now
-        while ContinuousClock.now < deadline {
-            let contents = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-            if contents != lastContent {
-                lastContent = contents
-                lastChange = ContinuousClock.now
-            } else if !contents.isEmpty,
-                      contents.hasSuffix("\n"),
-                      (ContinuousClock.now - lastChange) >= settle {
-                break
-            }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        return lastContent
-            .split(separator: "\n", omittingEmptySubsequences: true)
-            .map(String.init)
-    }
-
-    @Test func writesEnqueuedLinesInOrderWithMonotonicSequence() async throws {
-        let url = makeTempURL()
-        defer { try? FileManager.default.removeItem(at: url) }
-
-        let writer = BackgroundLogWriter(fileURL: url, startUptime: 0)
+    @Test func writesEnqueuedLinesInOrderWithMonotonicSequence() async {
+        let sink = RecordingSink()
+        let writer = BackgroundLogWriter(startUptime: 0, sink: sink)
         for index in 0..<50 {
             writer.log("message-\(index)", isMainThread: true)
         }
 
-        let lines = try await waitForLines(url, count: 50)
+        let lines = await sink.waitForLines(50)
         #expect(lines.count == 50)
         for (index, line) in lines.enumerated() {
             // The FIFO stream + single consumer preserve submission order, and the
@@ -84,32 +92,29 @@ struct BackgroundLogWriterTests {
         }
     }
 
-    @Test func appendsAcrossBatchesWithSingleLongLivedHandle() async throws {
-        let url = makeTempURL()
-        defer { try? FileManager.default.removeItem(at: url) }
+    @Test func formatsLineDeterministicallyFromInjectedClock() async {
+        let sink = RecordingSink()
+        // startUptime 1.0, sampled uptime 2.5 → t+1500.000ms; mediaTime 3.0 →
+        // frame60=180, frame120=360.
+        let writer = BackgroundLogWriter(
+            startUptime: 1.0,
+            sink: sink,
+            now: { (Date(timeIntervalSince1970: 0), 2.5, 3.0) }
+        )
+        writer.log("hello", isMainThread: true)
 
-        let writer = BackgroundLogWriter(fileURL: url, startUptime: 0)
-        writer.log("first", isMainThread: false)
-        _ = try await waitForLines(url, count: 1)
-        // A second emission after the file already exists must append rather than
-        // truncate — proving the consumer reuses one handle instead of reopening.
-        writer.log("second", isMainThread: true)
-
-        let lines = try await waitForLines(url, count: 2)
-        #expect(lines.count == 2)
-        #expect(lines[0].contains("cmux bg: first"))
-        #expect(lines[0].contains("thread=background"))
-        #expect(lines[0].contains("seq=1 "))
-        #expect(lines[1].contains("cmux bg: second"))
-        #expect(lines[1].contains("thread=main"))
-        #expect(lines[1].contains("seq=2 "))
+        let line = await sink.waitForLines(1)[0]
+        #expect(line.contains("seq=1 "))
+        #expect(line.contains("t+1500.000ms"))
+        #expect(line.contains("thread=main"))
+        #expect(line.contains("frame60=180 "))
+        #expect(line.contains("frame120=360 "))
+        #expect(line.hasSuffix("cmux bg: hello\n"))
     }
 
-    @Test func capturesCallerThreadLabel() async throws {
-        let url = makeTempURL()
-        defer { try? FileManager.default.removeItem(at: url) }
-
-        let writer = BackgroundLogWriter(fileURL: url, startUptime: 0)
+    @Test func capturesCallerThreadLabel() async {
+        let sink = RecordingSink()
+        let writer = BackgroundLogWriter(startUptime: 0, sink: sink)
         // Emit from a non-main thread; the label must reflect the caller, not the
         // consumer task (which is itself off the main thread).
         let queue = DispatchQueue(label: "test.background.emit")
@@ -117,26 +122,24 @@ struct BackgroundLogWriterTests {
             writer.log("from-background", isMainThread: Thread.isMainThread)
         }
 
-        let lines = try await waitForLines(url, count: 1)
+        let lines = await sink.waitForLines(1)
         #expect(lines.contains { $0.contains("thread=background") && $0.contains("cmux bg: from-background") })
     }
 
-    @Test func concurrentEmittersProduceUniqueMonotonicSequence() async throws {
-        let url = makeTempURL()
-        defer { try? FileManager.default.removeItem(at: url) }
-
-        let writer = BackgroundLogWriter(fileURL: url, startUptime: 0)
+    @Test func concurrentEmittersProduceUniqueMonotonicSequence() async {
+        let sink = RecordingSink()
+        let writer = BackgroundLogWriter(startUptime: 0, sink: sink)
         let total = 200
         DispatchQueue.concurrentPerform(iterations: total) { index in
             writer.log("concurrent-\(index)", isMainThread: false)
         }
 
-        let lines = try await waitForLines(url, count: total)
+        let lines = await sink.waitForLines(total)
         #expect(lines.count == total)
 
         // Every line carries a distinct seq in 1...total, regardless of how many
         // threads raced to emit — the single consumer serializes the counter and
-        // the appends without any explicit lock.
+        // forwards lines without any explicit lock.
         var sequences: Set<Int> = []
         for line in lines {
             guard let range = line.range(of: "seq="),
@@ -151,27 +154,44 @@ struct BackgroundLogWriterTests {
         #expect(sequences == Set(1...total))
     }
 
-    @Test func boundedBufferDropsOldestUnderFloodWithoutCorruptingDelivery() async throws {
-        let url = makeTempURL()
-        defer { try? FileManager.default.removeItem(at: url) }
-
-        // A tiny buffer plus a large synchronous burst lets emission outpace the
-        // single file writer, exercising the drop-oldest bound.
-        let writer = BackgroundLogWriter(fileURL: url, startUptime: 0, maxBufferedEntries: 8)
+    @Test func boundedBufferDropsOldestUnderFlood() async {
+        // Gate the consumer so a burst far larger than the buffer overflows it; the
+        // bounded `.bufferingNewest` policy must drop the oldest entries.
+        let sink = RecordingSink(gated: true)
+        let writer = BackgroundLogWriter(startUptime: 0, sink: sink, maxBufferedEntries: 8)
         let burst = 2000
         for index in 0..<burst {
             writer.log("flood-\(index)", isMainThread: false)
         }
+        // The newest entry survives drop-oldest, so it doubles as a drain marker.
+        writer.log("SENTINEL", isMainThread: false)
+        await sink.openGate()
 
-        let lines = try await waitForFloodToSettle(url)
-        // The writer survives the burst (no hang/crash) and delivers some lines.
-        #expect(!lines.isEmpty)
-        #expect(lines.count <= burst)
-        // Every delivered line is well-formed, and seq stays contiguous from 1:
-        // dropped entries never reach the consumer, so they leave no seq gap.
+        let lines = await sink.waitForLineContaining("SENTINEL")
+        // Only the buffer capacity (+ at most the in-flight entry) survive the
+        // 2001-entry burst: the bound holds, far below `burst`.
+        #expect(lines.count <= 8 + 2)
+        #expect(lines.count >= 1)
+        #expect(lines.last?.contains("cmux bg: SENTINEL") == true)
+        // Delivered seq stays contiguous from 1: dropped entries never reach the
+        // consumer, so they leave no gap.
         for (index, line) in lines.enumerated() {
             #expect(line.contains("seq=\(index + 1) "))
-            #expect(line.contains("cmux bg: flood-"))
         }
+    }
+
+    @Test func fileSinkAppendsThroughOneLongLivedHandle() async throws {
+        let url = makeTempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        // The actor's `write` is awaitable, so the appends are deterministic with no
+        // polling. A second write after the file exists must append, not truncate —
+        // proving the sink reuses one handle.
+        let sink = FileBackgroundLogLineSink(fileURL: url)
+        await sink.write("line-1\n")
+        await sink.write("line-2\n")
+
+        let contents = try String(contentsOf: url, encoding: .utf8)
+        #expect(contents == "line-1\nline-2\n")
     }
 }
