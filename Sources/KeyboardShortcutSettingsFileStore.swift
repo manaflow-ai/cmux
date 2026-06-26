@@ -75,6 +75,7 @@ final class CmuxSettingsFileStore {
     private let appearanceEnvironment: AppearanceSettings.LiveApplyEnvironment
     private let reader: SettingsFileReader
     private let managedDefaultsRepository = ManagedDefaultsRepository(defaults: .standard)
+    private let managedDefaultsBackupService: ManagedDefaultsBackupService
     private let stateLock = NSLock()
 
     private var watchers: [FileWatcher] = []
@@ -109,6 +110,11 @@ final class CmuxSettingsFileStore {
         self.notificationCenter = notificationCenter
         self.appearanceEnvironment = appearanceEnvironment
         self.passwordStore = passwordStore
+        self.managedDefaultsBackupService = ManagedDefaultsBackupService(
+            defaults: .standard,
+            passwordStore: passwordStore,
+            paletteSeam: WorkspaceTabColorPaletteSeam()
+        )
         self.reader = SettingsFileReader(
             primaryPath: self.primaryPath,
             fallbackPaths: self.fallbackPaths,
@@ -335,18 +341,18 @@ final class CmuxSettingsFileStore {
 
         if updateBackups {
             for (defaultsKey, value) in snapshot.managedUserDefaults where backups[defaultsKey] == nil {
-                backups[defaultsKey] = backupValueForUserDefaultsKey(defaultsKey, managedValue: value)
+                backups[defaultsKey] = managedDefaultsBackupService.backupValue(forUserDefaultsKey: defaultsKey, managedValue: value)
             }
             if snapshot.managedCustomSettings.socketPassword != nil,
                backups[ManagedDefaultBackupValue.socketPasswordBackupIdentifier] == nil {
-                backups[ManagedDefaultBackupValue.socketPasswordBackupIdentifier] = currentSocketPasswordBackupValue()
+                backups[ManagedDefaultBackupValue.socketPasswordBackupIdentifier] = managedDefaultsBackupService.currentSocketPasswordBackupValue()
             }
         }
 
         for identifier in currentManagedIdentifiers.subtracting(nextManagedIdentifiers) {
             guard let backup = backups[identifier] else { continue }
             sideEffects.merge(
-                restoreBackup(
+                managedDefaultsBackupService.restoreBackup(
                     backup,
                     for: identifier,
                     synchronizeManagedAppearanceTerminalTheme: synchronizeManagedAppearanceTerminalTheme
@@ -435,137 +441,6 @@ final class CmuxSettingsFileStore {
                 }
             }
         }
-    }
-
-    private func restoreBackup(
-        _ backup: ManagedDefaultBackupValue,
-        for identifier: String,
-        synchronizeManagedAppearanceTerminalTheme: Bool
-    ) -> ManagedDefaultBatchSideEffects {
-        switch identifier {
-        case ManagedDefaultBackupValue.socketPasswordBackupIdentifier:
-            switch backup {
-            case .string(let value):
-                try? passwordStore.savePassword(value)
-            case .absent:
-                try? passwordStore.clearPassword()
-            default:
-                break
-            }
-            return ManagedDefaultBatchSideEffects()
-        default:
-            return restoreUserDefaultsBackup(
-                backup,
-                for: identifier,
-                synchronizeManagedAppearanceTerminalTheme: synchronizeManagedAppearanceTerminalTheme
-            )
-        }
-    }
-
-    private func backupValueForUserDefaultsKey(_ defaultsKey: String, managedValue: ManagedSettingsValue) -> ManagedDefaultBackupValue {
-        let defaults = UserDefaults.standard
-        switch managedValue {
-        case .bool:
-            guard defaults.object(forKey: defaultsKey) != nil else { return .absent }
-            return .bool(defaults.bool(forKey: defaultsKey))
-        case .int:
-            guard defaults.object(forKey: defaultsKey) != nil else { return .absent }
-            return .int(defaults.integer(forKey: defaultsKey))
-        case .double:
-            guard defaults.object(forKey: defaultsKey) != nil else { return .absent }
-            return .double(defaults.double(forKey: defaultsKey))
-        case .string, .nullableString:
-            guard let value = defaults.string(forKey: defaultsKey) else { return .absent }
-            return .string(value)
-        case .stringArray:
-            guard let value = defaults.array(forKey: defaultsKey) as? [String] else { return .absent }
-            return .stringArray(value)
-        case .stringDictionary:
-            if defaultsKey == WorkspaceTabColorSettings.paletteKey {
-                guard let value = WorkspaceTabColorSettings.backupPaletteMap(defaults: defaults) else {
-                    return .absent
-                }
-                return .stringDictionary(value)
-            }
-            guard let value = defaults.dictionary(forKey: defaultsKey) as? [String: String] else {
-                return .absent
-            }
-            return .stringDictionary(value)
-        }
-    }
-
-    private func currentSocketPasswordBackupValue() -> ManagedDefaultBackupValue {
-        guard let current = try? passwordStore.loadPassword() else {
-            return .absent
-        }
-        return .string(current)
-    }
-
-    private func restoreUserDefaultsBackup(
-        _ backup: ManagedDefaultBackupValue,
-        for defaultsKey: String,
-        synchronizeManagedAppearanceTerminalTheme: Bool
-    ) -> ManagedDefaultBatchSideEffects {
-        let defaults = UserDefaults.standard
-        if defaultsKey == WorkspaceTabColorSettings.paletteKey {
-            switch backup {
-            case .absent:
-                WorkspaceTabColorSettings.reset(defaults: defaults)
-            case .stringDictionary(let value):
-                WorkspaceTabColorSettings.persistPaletteMap(value, defaults: defaults)
-            default:
-                break
-            }
-            return ManagedDefaultBatchSideEffects()
-        }
-
-        var didMutateStoredValue = false
-        switch backup {
-        case .absent:
-            if defaults.object(forKey: defaultsKey) != nil {
-                defaults.removeObject(forKey: defaultsKey)
-                didMutateStoredValue = true
-            }
-        case .bool(let value):
-            if defaults.object(forKey: defaultsKey) as? Bool != value {
-                defaults.set(value, forKey: defaultsKey)
-                didMutateStoredValue = true
-            }
-        case .int(let value):
-            if defaults.object(forKey: defaultsKey) as? Int != value {
-                defaults.set(value, forKey: defaultsKey)
-                didMutateStoredValue = true
-            }
-        case .double(let value):
-            if defaults.object(forKey: defaultsKey) as? Double != value {
-                defaults.set(value, forKey: defaultsKey)
-                didMutateStoredValue = true
-            }
-        case .string(let value):
-            if defaults.string(forKey: defaultsKey) != value {
-                defaults.set(value, forKey: defaultsKey)
-                didMutateStoredValue = true
-            }
-        case .stringArray(let value):
-            if defaults.array(forKey: defaultsKey) as? [String] != value {
-                defaults.set(value, forKey: defaultsKey)
-                didMutateStoredValue = true
-            }
-        case .stringDictionary(let value):
-            if defaults.dictionary(forKey: defaultsKey) as? [String: String] != value {
-                defaults.set(value, forKey: defaultsKey)
-                didMutateStoredValue = true
-            }
-        }
-
-        if didMutateStoredValue {
-            return managedDefaultSideEffects(
-                for: defaultsKey,
-                source: "cmuxConfig.restoreUserDefault",
-                synchronizeAppearanceTerminalTheme: synchronizeManagedAppearanceTerminalTheme
-            )
-        }
-        return ManagedDefaultBatchSideEffects()
     }
 
     private func applyManagedUserDefaultsValue(

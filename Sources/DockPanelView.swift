@@ -92,13 +92,6 @@ final class DockControlRuntime: Identifiable {
 
 }
 
-fileprivate struct DockControlSnapshot: Identifiable {
-    let id: String
-    let title: String
-    let command: String
-    let requestedHeight: Double?
-}
-
 fileprivate struct DockTerminalAttachment { let paneId: PaneID; let panelId: UUID; let terminalSurface: TerminalSurface; let searchState: TerminalSurface.SearchState?; let reattachToken: UInt64 }
 
 @MainActor
@@ -616,7 +609,7 @@ private struct DockKeyboardFocusBridge: NSViewRepresentable {
     }
 }
 
-final class DockKeyboardFocusView: NSView {
+final class DockKeyboardFocusView: NSView, DockFocusHosting {
     var focusFirstControl: (() -> Bool)?
     override var acceptsFirstResponder: Bool { true }
     override var canBecomeKeyView: Bool { true }

@@ -120,7 +120,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     @State private var isFullScreen: Bool = false
     @State private var observedWindow: NSWindow?
     @State private var sidebarRenderWorkerClient: RenderWorkerClient?
-    @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
+    @State private var fullscreenControlsViewModel = TitlebarControlsViewModel()
     @StateObject private var fileExplorerStore = FileExplorerStore()
     @State private var sessionIndexStore = SessionIndexStore()
     @State private var selectedWorkspaceDirectoryModel = SelectedWorkspaceDirectoryModel()

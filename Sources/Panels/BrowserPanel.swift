@@ -268,38 +268,9 @@ typealias BrowserLinkOpenSettings = CmuxBrowser.BrowserLinkOpenSettings
 typealias BrowserAvailabilitySettings = CmuxBrowser.BrowserAvailabilitySettings
 typealias BrowserInsecureHTTPSettings = CmuxBrowser.BrowserInsecureHTTPSettings
 
-func browserShouldBlockInsecureHTTPURL(
-    _ url: URL,
-    defaults: UserDefaults = .standard
-) -> Bool {
-    browserShouldBlockInsecureHTTPURL(
-        url,
-        rawAllowlist: defaults.string(forKey: BrowserInsecureHTTPSettings.allowlistKey)
-    )
-}
-
-func browserShouldBlockInsecureHTTPURL(
-    _ url: URL,
-    rawAllowlist: String?
-) -> Bool {
-    guard url.scheme?.lowercased() == "http" else { return false }
-    guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return true }
-    return !BrowserInsecureHTTPSettings.isHostAllowed(host, rawAllowlist: rawAllowlist)
-}
-
-func browserShouldConsumeOneTimeInsecureHTTPBypass(
-    _ url: URL,
-    bypassHostOnce: inout String?
-) -> Bool {
-    guard let bypassHost = bypassHostOnce else { return false }
-    guard url.scheme?.lowercased() == "http",
-          let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else {
-        return false
-    }
-    guard host == bypassHost else { return false }
-    bypassHostOnce = nil
-    return true
-}
+// The insecure-HTTP navigation-policy decisions (block decision + one-time
+// bypass) moved to CmuxBrowser as static methods on BrowserInsecureHTTPSettings
+// (Settings/BrowserInsecureHTTPSettings+NavigationPolicy.swift).
 
 func browserShouldPersistInsecureHTTPAllowlistSelection(
     response: NSApplication.ModalResponse,
@@ -4699,12 +4670,12 @@ final class BrowserPanel: Panel, ObservableObject {
         if consumeOneTimeInsecureHTTPBypassIfNeeded(for: url) {
             return false
         }
-        return browserShouldBlockInsecureHTTPURL(url)
+        return BrowserInsecureHTTPSettings.shouldBlock(url)
     }
 
     @discardableResult
     private func consumeOneTimeInsecureHTTPBypassIfNeeded(for url: URL) -> Bool {
-        browserShouldConsumeOneTimeInsecureHTTPBypass(url, bypassHostOnce: &insecureHTTPBypassHostOnce)
+        BrowserInsecureHTTPSettings.shouldConsumeOneTimeBypass(url, bypassHostOnce: &insecureHTTPBypassHostOnce)
     }
 
     private func requestNavigation(_ request: URLRequest, intent: BrowserInsecureHTTPNavigationIntent) {
