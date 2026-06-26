@@ -53,13 +53,16 @@ struct OfflineNotesStoreTests {
 
     private func makeStore(
         fileURL: URL?,
-        dispatcher: FakeDispatcher = FakeDispatcher(),
+        dispatcher: FakeDispatcher? = nil,
         reachability: FakeReachability,
         autostart: Bool = true
     ) -> OfflineNotesStore {
+        // Build the default fake in the @MainActor body, not as a default
+        // argument (default args are nonisolated, so a @MainActor init there
+        // fails to compile).
         OfflineNotesStore(
             fileURL: fileURL,
-            dispatcher: dispatcher,
+            dispatcher: dispatcher ?? FakeDispatcher(),
             reachability: reachability,
             autostart: autostart
         )
