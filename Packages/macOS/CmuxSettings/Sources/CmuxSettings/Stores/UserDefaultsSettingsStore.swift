@@ -76,12 +76,19 @@ public actor UserDefaultsSettingsStore {
     }
 
     /// Writes a value for the key.
+    ///
+    /// If `source` is older than a source from the same owner that this key has
+    /// already accepted or superseded, the stale write is ignored and `nil` is
+    /// returned.
     @discardableResult
     public func set<Value>(
         _ value: Value,
         for key: DefaultsKey<Value>,
         source: UserDefaultsSettingsMutationSource? = nil
     ) -> UserDefaultsSettingsMutationSource? {
+        guard shouldAcceptMutationSource(source, for: key.userDefaultsKey) else {
+            return nil
+        }
         recordMutationSource(source, value: value, for: key.userDefaultsKey)
         storage.set(value, for: key)
         return source
@@ -89,11 +96,18 @@ public actor UserDefaultsSettingsStore {
 
     /// Removes the stored override for the key. After this call ``value(for:)``
     /// returns the key's default value until something writes a new override.
+    ///
+    /// If `source` is older than a source from the same owner that this key has
+    /// already accepted or superseded, the stale reset is ignored and `nil` is
+    /// returned.
     @discardableResult
     public func reset<Value>(
         _ key: DefaultsKey<Value>,
         source: UserDefaultsSettingsMutationSource? = nil
     ) -> UserDefaultsSettingsMutationSource? {
+        guard shouldAcceptMutationSource(source, for: key.userDefaultsKey) else {
+            return nil
+        }
         recordMutationSource(source, value: key.defaultValue, for: key.userDefaultsKey)
         storage.removeObject(forKey: key.userDefaultsKey)
         return source
@@ -153,6 +167,28 @@ public actor UserDefaultsSettingsStore {
         }
     }
 
+    private func shouldAcceptMutationSource(
+        _ source: UserDefaultsSettingsMutationSource?,
+        for storageKey: String
+    ) -> Bool {
+        guard let source else { return true }
+
+        if let record = mutationSources[storageKey],
+           record.source.ownerID == source.ownerID,
+           record.source.sequence >= source.sequence {
+            return false
+        }
+
+        guard let supersededSources = supersededMutationSources[storageKey] else {
+            return true
+        }
+
+        return !supersededSources.contains { record in
+            record.source.ownerID == source.ownerID
+                && record.source.sequence >= source.sequence
+        }
+    }
+
     private func recordSupersededMutationSource(
         _ source: UserDefaultsSettingsMutationSource,
         sequence: UInt64,
@@ -178,7 +214,8 @@ public actor UserDefaultsSettingsStore {
     private func valueEvent<Value>(
         for key: DefaultsKey<Value>,
         consumedSourceSequence: UInt64,
-        includedMutationSources: Set<UserDefaultsSettingsMutationSource> = []
+        includedMutationSources: Set<UserDefaultsSettingsMutationSource> = [],
+        isInitialSnapshot: Bool = false
     ) -> (
         event: UserDefaultsSettingsValueEvent<Value>,
         consumedSourceSequence: UInt64
@@ -215,7 +252,8 @@ public actor UserDefaultsSettingsStore {
             UserDefaultsSettingsValueEvent(
                 value: value,
                 mutationSource: source,
-                supersededMutationSource: supersededSource
+                supersededMutationSource: supersededSource,
+                isInitialSnapshot: isInitialSnapshot
             ),
             nextConsumedSourceSequence
         )
@@ -319,7 +357,8 @@ public actor UserDefaultsSettingsStore {
                 let initialSnapshot = await self.valueEvent(
                     for: key,
                     consumedSourceSequence: consumedSourceSequence,
-                    includedMutationSources: includedMutationSources
+                    includedMutationSources: includedMutationSources,
+                    isInitialSnapshot: true
                 )
                 consumedSourceSequence = initialSnapshot.consumedSourceSequence
                 var lastYieldedEvent = initialSnapshot.event

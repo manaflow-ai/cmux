@@ -9,14 +9,19 @@ public struct UserDefaultsSettingsValueEvent<Value: SettingCodable>: Sendable, E
     /// Source whose stored value was overwritten before observation emitted it.
     public let supersededMutationSource: UserDefaultsSettingsMutationSource?
 
+    /// Whether this event is the stream's initial store snapshot.
+    public let isInitialSnapshot: Bool
+
     /// Creates an observed value event.
     public init(
         value: Value,
         mutationSource: UserDefaultsSettingsMutationSource? = nil,
-        supersededMutationSource: UserDefaultsSettingsMutationSource? = nil
+        supersededMutationSource: UserDefaultsSettingsMutationSource? = nil,
+        isInitialSnapshot: Bool = false
     ) {
         self.value = value
         self.mutationSource = mutationSource
         self.supersededMutationSource = supersededMutationSource
+        self.isInitialSnapshot = isInitialSnapshot
     }
 }

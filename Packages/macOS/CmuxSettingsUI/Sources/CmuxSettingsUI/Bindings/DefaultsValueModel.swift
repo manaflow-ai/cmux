@@ -40,7 +40,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     private let key: DefaultsKey<Value>
     private let initialStoreValue: Value
     @ObservationIgnored private let makeStream:
-        @MainActor (Set<UserDefaultsSettingsMutationSource>) async -> AsyncStream<UserDefaultsSettingsValueEvent<Value>>
+        @MainActor @Sendable (Set<UserDefaultsSettingsMutationSource>) async -> AsyncStream<UserDefaultsSettingsValueEvent<Value>>
     @ObservationIgnored private var pendingStoreEchoes: [(source: UserDefaultsSettingsMutationSource, value: Value)] = []
     @ObservationIgnored private let maximumPendingStoreEchoes = 16
     @ObservationIgnored private let mutationOwnerID = UUID()
@@ -82,7 +82,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         store: UserDefaultsSettingsStore,
         key: DefaultsKey<Value>,
         initialValue: Value? = nil,
-        makeStream: @escaping @MainActor (
+        makeStream: @escaping @MainActor @Sendable (
             Set<UserDefaultsSettingsMutationSource>
         ) async -> AsyncStream<UserDefaultsSettingsValueEvent<Value>>
     ) {
@@ -119,7 +119,8 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     public func set(_ value: Value) -> UserDefaultsSettingsMutationSource {
         let source = recordPendingStoreEcho(value)
         updateCurrent(value)
-        Task { [store, key, source] in
+        Task { @MainActor [self, store, key, source, value] in
+            guard shouldCommitStoreWrite(for: source) else { return }
             await store.set(value, for: key, source: source)
         }
         return source
@@ -142,9 +143,10 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     ) -> UserDefaultsSettingsMutationSource {
         let source = recordPendingStoreEcho(value)
         updateCurrent(value)
-        Task { [store, key, source, afterCommit] in
+        Task { @MainActor [self, store, key, source, value, afterCommit] in
+            guard shouldCommitStoreWrite(for: source) else { return }
             await store.set(value, for: key, source: source)
-            await MainActor.run { afterCommit() }
+            afterCommit()
         }
         return source
     }
@@ -166,7 +168,8 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         let defaultValue = key.defaultValue
         let source = recordPendingStoreEcho(defaultValue)
         updateCurrent(defaultValue)
-        Task { [store, key, source] in
+        Task { @MainActor [self, store, key, source] in
+            guard shouldCommitStoreWrite(for: source) else { return }
             await store.reset(key, source: source)
         }
         return source
@@ -180,6 +183,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
             return
         }
         if isInitialStoreEvent,
+           event.isInitialSnapshot,
            event.mutationSource == nil,
            event.supersededMutationSource == nil,
            !pendingStoreEchoes.isEmpty,
@@ -210,6 +214,13 @@ public final class DefaultsValueModel<Value: SettingCodable> {
             pendingStoreEchoes.removeFirst(overflow)
         }
         return source
+    }
+
+    private func shouldCommitStoreWrite(for source: UserDefaultsSettingsMutationSource) -> Bool {
+        guard let index = pendingStoreEchoes.firstIndex(where: { $0.source == source }) else {
+            return false
+        }
+        return index == pendingStoreEchoes.index(before: pendingStoreEchoes.endIndex)
     }
 
     private func consumePendingStoreEcho(source: UserDefaultsSettingsMutationSource?, value: Value) -> Bool {

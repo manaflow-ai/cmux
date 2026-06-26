@@ -11,12 +11,14 @@ import Testing
     private func event<Value: SettingCodable>(
         _ value: Value,
         source: UserDefaultsSettingsMutationSource? = nil,
-        supersededSource: UserDefaultsSettingsMutationSource? = nil
+        supersededSource: UserDefaultsSettingsMutationSource? = nil,
+        isInitialSnapshot: Bool = false
     ) -> DefaultsEvent<Value> {
         DefaultsEvent(
             value: value,
             mutationSource: source,
-            supersededMutationSource: supersededSource
+            supersededMutationSource: supersededSource,
+            isInitialSnapshot: isInitialSnapshot
         )
     }
 
@@ -25,7 +27,7 @@ import Testing
         let source = model.set("#111111")
         model.startObserving()
 
-        continuation.yield(event("#000000"))
+        continuation.yield(event("#000000", isInitialSnapshot: true))
         for _ in 0..<10 {
             await Task.yield()
         }
@@ -59,6 +61,18 @@ import Testing
         model.startObserving()
 
         continuation.yield(event("#000000", supersededSource: source))
+        await waitUntil { model.current == "#000000" }
+
+        #expect(model.current == "#000000")
+        #expect(model.revision == 2)
+    }
+
+    @Test func initialSourceLessUpdateMatchingInitialValueAfterPendingLocalWriteUpdatesCurrent() async {
+        let (model, continuation) = makeModel()
+        _ = model.set("#111111")
+        model.startObserving()
+
+        continuation.yield(event("#000000"))
         await waitUntil { model.current == "#000000" }
 
         #expect(model.current == "#000000")

@@ -34,12 +34,14 @@ import Testing
     private func event<Value: SettingCodable>(
         _ value: Value,
         source: UserDefaultsSettingsMutationSource? = nil,
-        supersededSource: UserDefaultsSettingsMutationSource? = nil
+        supersededSource: UserDefaultsSettingsMutationSource? = nil,
+        isInitialSnapshot: Bool = false
     ) -> DefaultsEvent<Value> {
         DefaultsEvent(
             value: value,
             mutationSource: source,
-            supersededMutationSource: supersededSource
+            supersededMutationSource: supersededSource,
+            isInitialSnapshot: isInitialSnapshot
         )
     }
 

@@ -98,12 +98,14 @@ struct UserDefaultsSettingsStoreTests {
         let initial = await iterator.next()
         #expect(initial?.value == .system)
         #expect(initial?.mutationSource == nil)
+        #expect(initial?.isInitialSnapshot == true)
 
         let source = UserDefaultsSettingsMutationSource()
         await store.set(.dark, for: key, source: source)
         let tagged = await iterator.next()
         #expect(tagged?.value == .dark)
         #expect(tagged?.mutationSource == source)
+        #expect(tagged?.isInitialSnapshot == false)
 
         await store.set(.light, for: key)
         let untagged = await iterator.next()
@@ -331,6 +333,33 @@ struct UserDefaultsSettingsStoreTests {
         #expect(secondEvents.count == 2)
         #expect(secondEvents.last?.value == .system)
         #expect(secondEvents.last?.mutationSource == source)
+    }
+
+    @Test func rejectsOlderMutationSourceAfterNewerSourceForSameOwner() async {
+        let (store, catalog) = makeStore()
+        let key = catalog.app.appearance
+        let ownerID = UUID()
+        let olderSource = UserDefaultsSettingsMutationSource(ownerID: ownerID, sequence: 1)
+        let newerSource = UserDefaultsSettingsMutationSource(ownerID: ownerID, sequence: 2)
+
+        await store.set(.dark, for: key, source: newerSource)
+        await store.set(.light, for: key, source: olderSource)
+
+        let value = await store.value(for: key)
+        #expect(value == .dark)
+    }
+
+    @Test func rejectsMutationSourceAfterSourceLessWriteSupersedesIt() async {
+        let (store, catalog) = makeStore()
+        let key = catalog.app.appearance
+        let source = UserDefaultsSettingsMutationSource(ownerID: UUID(), sequence: 1)
+
+        await store.set(.dark, for: key, source: source)
+        await store.set(.light, for: key)
+        await store.set(.dark, for: key, source: source)
+
+        let value = await store.value(for: key)
+        #expect(value == .light)
     }
 
     @Test func migratesLegacyKey() async {
