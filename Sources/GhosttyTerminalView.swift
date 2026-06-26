@@ -1,5 +1,6 @@
 import Foundation
 import CmuxAppKitSupportUI
+import CmuxCopyReflow
 import CmuxTerminal
 import CmuxFoundation
 import CmuxPanes
