@@ -73,6 +73,17 @@ struct WorkspaceDetailView: View {
         workspace.terminals.first { $0.id == store.selectedTerminalID } ?? workspace.terminals.first
     }
 
+    /// The nav-bar title. Mirrors the macOS app, which titles a tab from its
+    /// running program: it prefers the active terminal's live title (the Mac
+    /// reports each terminal's `panelTitle ?? displayTitle`, tracking the
+    /// foreground process) and falls back to the workspace name when no terminal
+    /// title is available. Resolved by
+    /// ``MobileWorkspacePreview/terminalHeaderTitle(selectedTerminalID:)`` so the
+    /// decision stays unit-testable and shared with the picker's title source.
+    private var headerTitle: String {
+        workspace.terminalHeaderTitle(selectedTerminalID: store.selectedTerminalID)
+    }
+
     /// Extra blank top padding for the terminal/chat, on top of the safe area. The
     /// grid already sits below the nav bar (in the top safe area), so this is just
     /// a hairline so the first row is not jammed against the bar's bottom edge.
@@ -412,7 +423,7 @@ struct WorkspaceDetailView: View {
         #else
         .background(TerminalPalette.background)
         #endif
-        .navigationTitle(workspace.name)
+        .navigationTitle(headerTitle)
         .mobileTerminalNavigationChrome()
         #if os(iOS)
         .task(id: chatRefreshKey) { await refreshChatSessions() }
@@ -420,7 +431,7 @@ struct WorkspaceDetailView: View {
         .toolbar {
             #if os(iOS)
             ToolbarItem(placement: .principal) {
-                glassTitle(workspace.name)
+                glassTitle(headerTitle)
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 chatToggleButton

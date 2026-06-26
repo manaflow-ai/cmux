@@ -147,6 +147,14 @@ jobs:
           # or app-target dependency, so it runs as a real CI gate here.
           swift test --package-path Packages/Shared/CmuxSyncStore
 
+      - name: Run CmuxMobileShellModel package tests
+        run: |
+          # Pure-value mobile shell model (workspace/terminal previews, header
+          # title resolution, …). Headless SwiftPM — only depends on
+          # CMUXMobileCore, no GhosttyKit or app target — so it runs as a real
+          # CI gate here.
+          swift test --package-path Packages/iOS/CmuxMobileShellModel
+
   ios-simulator:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}

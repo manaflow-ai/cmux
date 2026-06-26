@@ -142,3 +142,27 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         self.terminals = terminals
     }
 }
+
+extension MobileWorkspacePreview {
+    /// The title to show in the mobile terminal header.
+    ///
+    /// Mirrors the macOS app, which titles a tab from its running program: the
+    /// header prefers the active terminal's live title — the Mac reports each
+    /// terminal's `panelTitle ?? displayTitle`, which tracks the foreground
+    /// process (htop, nvim, codex, …) and is carried here as
+    /// ``MobileTerminalPreview/name`` — and falls back to the workspace name
+    /// only when no terminal title is available (no terminals yet, or a
+    /// blank/whitespace title). The selected-terminal resolution matches the
+    /// detail view's: the terminal whose id matches `selectedTerminalID`,
+    /// otherwise the first terminal.
+    ///
+    /// - Parameter selectedTerminalID: The currently selected terminal, or
+    ///   `nil`/an unmatched id to fall back to the first terminal.
+    /// - Returns: The active terminal's title when non-empty, otherwise ``name``.
+    public func terminalHeaderTitle(selectedTerminalID: MobileTerminalPreview.ID?) -> String {
+        // Behavior-preserving baseline: the header currently shows the workspace
+        // name regardless of the active terminal (issue #6665). The fix makes
+        // this prefer the active terminal's live title.
+        name
+    }
+}
