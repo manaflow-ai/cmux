@@ -589,7 +589,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
           "actions": {
             "start-codex": {
               "type": "command",
-              "command": "codex --yolo",
+              "command": "codex --dangerously-bypass-approvals-and-sandbox",
               "shortcut": "cmd+shift+c"
             }
           }
