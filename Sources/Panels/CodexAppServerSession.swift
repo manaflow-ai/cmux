@@ -436,16 +436,16 @@ final class CodexAppServerSession {
         let result: [String: Any]
         switch method {
         case "item/commandExecution/requestApproval":
-            result = ["decision": commandApprovalDecision()]
+            result = ["decision": activePermissionMode.commandApprovalDecision]
         case "item/fileChange/requestApproval":
-            result = ["decision": fileChangeApprovalDecision()]
+            result = ["decision": activePermissionMode.fileChangeApprovalDecision]
         case "item/permissions/requestApproval":
             result = [
-                "permissions": grantedPermissions(from: object["params"] as? [String: Any]),
+                "permissions": activePermissionMode.grantedPermissions(from: object["params"] as? [String: Any]),
                 "scope": "turn"
             ]
         case "execCommandApproval", "applyPatchApproval":
-            result = ["decision": legacyReviewDecision()]
+            result = ["decision": activePermissionMode.legacyReviewDecision]
         default:
             Task { @MainActor in
                 do {
@@ -474,40 +474,6 @@ final class CodexAppServerSession {
                 emitCodexRPCFailure(error)
             }
         }
-    }
-
-    private func commandApprovalDecision() -> String {
-        switch activePermissionMode {
-        case .fullAccess:
-            return "acceptForSession"
-        case .standard, .autoReview, .custom:
-            return "decline"
-        }
-    }
-
-    private func fileChangeApprovalDecision() -> String {
-        switch activePermissionMode {
-        case .fullAccess:
-            return "acceptForSession"
-        case .standard, .autoReview, .custom:
-            return "decline"
-        }
-    }
-
-    private func legacyReviewDecision() -> String {
-        switch activePermissionMode {
-        case .fullAccess:
-            return "approved_for_session"
-        case .standard, .autoReview, .custom:
-            return "denied"
-        }
-    }
-
-    private func grantedPermissions(from params: [String: Any]?) -> [String: Any] {
-        guard activePermissionMode == .fullAccess else {
-            return [:]
-        }
-        return params?["permissions"] as? [String: Any] ?? [:]
     }
 
     private func drainCodexAppServerQueuedInputs() {

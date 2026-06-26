@@ -2300,7 +2300,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         didPrepareStartupSessionSnapshot = true
         Self.windowGeometryStore.removeLegacy(defaults: .standard)
         sessionSnapshotStore.syncManualRestoreSnapshotCache()
-        guard SessionRestorePolicy.shouldAttemptRestore() else { return }
+        guard SessionRestorePolicy().shouldAttemptRestore else { return }
         startupSessionSnapshot = sessionSnapshotStore.loadStartupSnapshot()
     }
 
