@@ -10021,19 +10021,21 @@ struct CMUXCLI {
             // Close the write end so the background tee drains the FIFO and exits;
             // wait for it so the capture file is complete before classification.
             "  if [ -n \"${cmux_ssh_tee_pid:-}\" ]; then wait \"$cmux_ssh_tee_pid\" 2>/dev/null || true; cmux_ssh_tee_pid=; fi",
-            // Classify the failure: a key-signing refusal means the agent is locked
-            // (not that the host is unreachable), so it must not consume the network
-            // reconnect budget. stderr was already streamed live by the tee above.
-            // ssh exits 255 for network, auth, and agent failures alike, so its exit
-            // code carries no structured signal — the OpenSSH client's stderr wording
-            // is the only in-band discriminator, and cmux drives the system OpenSSH
-            // client whose phrasing these patterns match. The check fails safe: only a
-            // positive, specific match diverts to the gentler agent-wait path; anything
+            // Classify the failure: a locked agent refuses to sign, so it must not
+            // consume the network reconnect budget. stderr was already streamed live
+            // by the tee above. ssh exits 255 for network, auth, and agent failures
+            // alike, so its exit code carries no structured signal — the OpenSSH
+            // client's stderr wording is the only in-band discriminator. Match only
+            // the canonical refusal text "agent refused operation" (OpenSSH's
+            // SSH_ERR_AGENT_FAILURE string, present in the issue's repro line), NOT
+            // the broader "sign_and_send_pubkey: signing failed" prefix — that prefix
+            // also covers unrelated signing failures (e.g. "error in libcrypto") that
+            // must keep the normal retry/failure path. The check fails safe: anything
             // unmatched (a reworded/non-OpenSSH error) keeps the existing network-retry
             // behavior, and the agent-wait path itself auto-recovers on unlock or
             // degrades to the manual-reconnect banner.
             "  cmux_ssh_agent_locked=0",
-            "  if [ \"$cmux_ssh_capture_active\" = 1 ] && [ \"$cmux_ssh_status\" -ne 0 ] && grep -qiE 'agent refused operation|sign_and_send_pubkey: signing failed' \"$cmux_ssh_stderr_capture\" 2>/dev/null; then cmux_ssh_agent_locked=1; fi",
+            "  if [ \"$cmux_ssh_capture_active\" = 1 ] && [ \"$cmux_ssh_status\" -ne 0 ] && grep -qi 'agent refused operation' \"$cmux_ssh_stderr_capture\" 2>/dev/null; then cmux_ssh_agent_locked=1; fi",
             "  if [ \"$cmux_ssh_status\" -eq 0 ]; then break; fi",
             "  case \"$cmux_ssh_status\" in \(retryableStatusPattern)) ;; *) break ;; esac",
             // Locked SSH agent: wait on the dedicated agent budget instead of the

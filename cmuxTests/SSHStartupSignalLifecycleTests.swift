@@ -770,6 +770,82 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func testSSHStartupTreatsNonAgentSigningFailureAsNetworkFailure() throws {
+        // Guards the issue #6549 classifier against false positives. OpenSSH prints
+        // the "sign_and_send_pubkey: signing failed" prefix for non-agent signing
+        // errors too (e.g. "error in libcrypto"), which are NOT a locked agent and
+        // must keep the normal network reconnect/failure path rather than entering
+        // the agent-wait loop with the misleading "unlock your SSH agent" guidance.
+        // The fake ssh always fails with such a message; with a network limit of 2
+        // it must stop after 3 attempts and show the generic banner — never the
+        // 50-attempt agent-wait budget or the agent-unavailable banner.
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-nonagent-sign-\(UUID().uuidString)", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let logFile = root.appendingPathComponent("ssh-session-end.log")
+        let attemptFile = root.appendingPathComponent("ssh-attempts.txt")
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_SESSION_END_LOG}\"",
+        ])
+        try writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "count=0",
+            "if [ -r \"${CMUX_TEST_ATTEMPT_FILE}\" ]; then count=$(cat \"${CMUX_TEST_ATTEMPT_FILE}\"); fi",
+            "count=$((count + 1))",
+            "printf '%s\\n' \"$count\" > \"${CMUX_TEST_ATTEMPT_FILE}\"",
+            "printf 'sign_and_send_pubkey: signing failed for ED25519 \\\"Key X\\\": error in libcrypto\\n' >&2",
+            "exit 255",
+        ])
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
+
+        let startupCommand = try generatedVMSSHInitialStartupCommand()
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TEST_SESSION_END_LOG"] = logFile.path
+        environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
+        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+        environment["CMUX_SSH_RECONNECT_LIMIT"] = "2"
+        environment["CMUX_SSH_AGENT_WAIT_DELAY_SECONDS"] = "0"
+        environment["CMUX_SSH_AGENT_WAIT_LIMIT"] = "50"
+
+        let result = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment,
+            timeout: 10
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 255, result.stderr)
+        let attempts = (try? String(contentsOf: attemptFile, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertEqual(
+            attempts,
+            "3",
+            "A non-agent signing failure must follow the network reconnect budget (limit 2 => 3 attempts), not the agent-wait budget."
+        )
+        XCTAssertFalse(
+            result.stderr.contains("SSH agent unavailable"),
+            "A non-agent signing failure must not be reported as a locked agent; got: \(result.stderr)"
+        )
+        XCTAssertTrue(
+            result.stderr.contains("the remote VM may have been paused"),
+            "Expected the generic SSH failure banner for a non-agent failure; got: \(result.stderr)"
+        )
+    }
+
     private func generatedSSHStartupCommand(
         sshOptions: [String] = [
             "ControlMaster no",
