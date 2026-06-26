@@ -70,6 +70,7 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   "confirmQuit": "always",
   //   "openSupportedFilesInCmux": true,
   //   "workspaceInheritWorkingDirectory": true,
+  //   "persistTerminalScrollback": true,
   //   "iMessageMode": true
   // },
 

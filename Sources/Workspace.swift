@@ -485,13 +485,20 @@ extension Workspace {
                 shellActivityState: panelShellActivityStates[panelId],
                 fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()
             )
-            let shouldPersistScrollback = sessionRestorePolicy.shouldPersistSessionScrollback(
-                closeConfirmationRequired: closeConfirmationRequired
-            ) && sessionRestorePolicy.shouldReplaySessionScrollback(
-                hasRestorableAgent: effectiveRestorableAgent != nil,
-                tmuxStartCommand: restorableTmuxStartCommand,
-                hasResumeStartupWork: resumeStartupInput != nil
+            // `app.persistTerminalScrollback` (default true) is the user's
+            // opt-out: when off, scrollback is never captured into the snapshot
+            // even though tabs/layout/working-directories still restore (#6597).
+            let persistScrollbackEnabled = SessionScrollbackPersistenceSettings.isEnabled(
+                defaults: sessionScrollbackPersistenceDefaults
             )
+            let shouldPersistScrollback = persistScrollbackEnabled
+                && sessionRestorePolicy.shouldPersistSessionScrollback(
+                    closeConfirmationRequired: closeConfirmationRequired
+                ) && sessionRestorePolicy.shouldReplaySessionScrollback(
+                    hasRestorableAgent: effectiveRestorableAgent != nil,
+                    tmuxStartCommand: restorableTmuxStartCommand,
+                    hasResumeStartupWork: resumeStartupInput != nil
+                )
 #if DEBUG
             let allowDebugFallbackScrollback = debugSessionSnapshotScrollbackFallbackPanelIds.contains(panelId)
 #else
@@ -509,7 +516,11 @@ extension Workspace {
                 panelId: panelId,
                 capturedScrollback: capturedScrollback,
                 includeScrollback: includeScrollback,
-                allowFallbackScrollback: shouldPersistScrollback || allowDebugFallbackScrollback || hasRestoredScrollbackFallback
+                // Gate the restored-scrollback fallback too, so disabling the
+                // setting also purges scrollback that an earlier launch restored
+                // instead of silently re-persisting it on the next autosave.
+                allowFallbackScrollback: persistScrollbackEnabled
+                    && (shouldPersistScrollback || allowDebugFallbackScrollback || hasRestoredScrollbackFallback)
             )
             terminalSnapshot = SessionTerminalPanelSnapshot(
                 workingDirectory: directory,

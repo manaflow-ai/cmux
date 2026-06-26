@@ -96,6 +96,11 @@ enum AppSettingsFileMapping {
             defaultsKey: app.workspaceInheritWorkingDirectory.userDefaultsKey,
             invalidPath: "app.workspaceInheritWorkingDirectory"
         ),
+        .init(
+            jsonKey: "persistTerminalScrollback",
+            defaultsKey: app.persistTerminalScrollback.userDefaultsKey,
+            invalidPath: "app.persistTerminalScrollback"
+        ),
         .init(jsonKey: "focusPaneOnFirstClick", defaultsKey: PaneFirstClickFocusSettings.enabledKey),
         .init(
             jsonKey: "openSupportedFilesInCmux",
