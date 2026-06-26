@@ -8,6 +8,7 @@ import CmuxSettingsUI
 import CmuxSidebar
 import CmuxTestSupport
 import CmuxWindowing
+import Observation
 import SwiftUI
 
 enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
@@ -196,8 +197,13 @@ extension TitlebarControlsStyleConfig {
     }
 }
 
-final class TitlebarControlsViewModel: ObservableObject {
-    weak var notificationsAnchorView: NSView?
+@Observable
+final class TitlebarControlsViewModel {
+    // Plain (non-`@Published`) weak holder in the legacy `ObservableObject`; it never drove
+    // SwiftUI invalidation. `@ObservationIgnored` preserves that exactly: zero observation
+    // before and after, and keeps the `weak` reference semantics the macro would otherwise
+    // not carry.
+    @ObservationIgnored weak var notificationsAnchorView: NSView?
 }
 
 @MainActor
@@ -727,7 +733,7 @@ private final class TitlebarControlRightClickNSView: NSView {
 
 struct TitlebarControlsView: View {
     @ObservedObject var notificationStore: TerminalNotificationStore
-    @ObservedObject var viewModel: TitlebarControlsViewModel
+    let viewModel: TitlebarControlsViewModel
     let onToggleSidebar: () -> Void
     let onToggleNotifications: () -> Void
     let onNewTab: () -> Void
@@ -1252,7 +1258,7 @@ struct HiddenTitlebarSidebarControlsView: View {
     let onNewTab: () -> Void
     let onFocusHistoryBack: () -> Void
     let onFocusHistoryForward: () -> Void
-    @StateObject private var viewModel = TitlebarControlsViewModel()
+    @State private var viewModel = TitlebarControlsViewModel()
     @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @State private var isHoveringHost = false
     @State private var isHoveringWindowChrome = false
