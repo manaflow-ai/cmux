@@ -3905,7 +3905,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // sleep also fires here on full-system sleep, and screen reconfiguration
         // covers an external display being unplugged.
         let armInactiveDisplayTransition: @Sendable (Notification) -> Void = { [weak self] _ in
-            Task { @MainActor [weak self] in
+            // Update the flag synchronously on the main-queue delivery (no Task
+            // hop) so it is armed before applicationDidBecomeActive runs the
+            // restore — otherwise wake/reconfiguration could activate the app
+            // first, clearing the captured frames before the flag is set. This
+            // matches ScreenLockObserver's pattern (issue #5492).
+            MainActor.assumeIsolated {
                 self?.mainWindowFrameRestorer.noteDisplayTransition(appIsActive: NSApp.isActive)
             }
         }
