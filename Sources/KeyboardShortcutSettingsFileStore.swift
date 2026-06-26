@@ -1029,15 +1029,19 @@ final class CmuxSettingsFileStore {
     /// shortcuts stay single-stroke.
     private func parseCommandShortcutValue(_ rawValue: Any) -> StoredShortcut? {
         if rawValue is NSNull { return .unbound }
+
+        let shortcut: StoredShortcut
         if let stroke = jsonString(rawValue) {
             guard let parsed = StoredShortcut.parseConfig(stroke, allowBareFirstStroke: false) else {
                 return nil
             }
-            return parsed.hasChord ? nil : parsed
-        }
-        // A chord array is explicitly unsupported for command shortcuts.
-        if rawValue is [Any] { return nil }
-        if let object = rawValue as? [String: Any] {
+            if parsed.isUnbound { return .unbound }
+            if parsed.hasChord { return nil }
+            shortcut = parsed
+        } else if rawValue is [Any] {
+            // A chord array is explicitly unsupported for command shortcuts.
+            return nil
+        } else if let object = rawValue as? [String: Any] {
             if let secondValue = object["second"], !(secondValue is NSNull) {
                 return nil
             }
@@ -1046,12 +1050,18 @@ final class CmuxSettingsFileStore {
                 return nil
             }
             if first.key.isEmpty { return .unbound }
-            guard !first.modifierFlags.isEmpty || first.key == "space" else {
-                return nil
-            }
-            return StoredShortcut(first: first)
+            shortcut = StoredShortcut(first: first)
+        } else {
+            return nil
         }
-        return nil
+
+        // Command shortcuts must include a modifier: the Settings recorder
+        // enforces it and the docs require it. `parseConfig`/the object form
+        // still permit a bare Space, which would otherwise swallow ordinary
+        // Space key events away from terminal/browser text input — reject any
+        // first stroke without ⌘ ⌥ ⌃ or ⇧.
+        guard !shortcut.firstStroke.modifierFlags.isEmpty else { return nil }
+        return shortcut
     }
 
     /// Parses the optional `shortcuts.when` map — `{ "<actionId>": "<predicate>" }`
