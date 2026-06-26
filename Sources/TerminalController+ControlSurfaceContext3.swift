@@ -224,19 +224,12 @@ extension TerminalController {
         guard let terminalPanel = ws.terminalPanel(for: surfaceId) else {
             return .surfaceNotTerminal(surfaceId)
         }
-        let acceptedLaunchCommand = TextBoxAgentDetection.boundedLaunchCommandContext(from: text)
         let queued: Bool
         switch terminalPanel.sendInputResult(text) {
         case .sent:
-            if let acceptedLaunchCommand {
-                terminalPanel.recordTextBoxLaunchCommand(acceptedLaunchCommand)
-            }
             terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendText")
             queued = false
         case .queued:
-            if let acceptedLaunchCommand {
-                terminalPanel.recordTextBoxLaunchCommand(acceptedLaunchCommand)
-            }
             queued = true
         case .inputQueueFull:
             return .inputQueueFull(surfaceId)

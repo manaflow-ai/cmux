@@ -2586,7 +2586,7 @@ struct TextBoxInputContainer: View {
         .onChange(of: allowsCommandTemplateSubmit) { _, _ in
             reconcilePendingProviderLaunch()
         }
-        .onChange(of: defaultSubmitActionID) { _, _ in clearPendingProviderLaunch() }
+        .onChange(of: defaultSubmitActionID) { _, _ in cancelPendingProviderLaunch() }
     }
 
     private func addFilesButton(foreground: Color) -> some View {

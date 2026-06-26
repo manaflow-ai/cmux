@@ -521,6 +521,16 @@ struct TextBoxSubmitActionTests {
                 terminalAgentContext: ""
             )
         )
+        XCTAssertTrue(
+            TextBoxInputContainer.shouldClearLaunchCommandWhenClearingPending(
+                terminalAgentContext: ""
+            )
+        )
+        XCTAssertFalse(
+            TextBoxInputContainer.shouldClearLaunchCommandWhenClearingPending(
+                terminalAgentContext: "textBoxLaunchCommand:codex"
+            )
+        )
     }
 
 

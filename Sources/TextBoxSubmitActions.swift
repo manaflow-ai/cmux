@@ -85,12 +85,20 @@ extension TextBoxInputContainer {
         pendingProviderLaunchAction = nil
     }
 
+    func cancelPendingProviderLaunch() {
+        clearPendingProviderLaunch()
+        onClearLaunchCommand()
+    }
+
     func reconcilePendingProviderLaunch() {
         guard pendingProviderLaunchAction != nil else { return }
         if Self.shouldClearPendingProviderLaunch(
             allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
             terminalAgentContext: terminalAgentContext
         ) {
+            if Self.shouldClearLaunchCommandWhenClearingPending(terminalAgentContext: terminalAgentContext) {
+                onClearLaunchCommand()
+            }
             clearPendingProviderLaunch()
         }
     }
@@ -100,6 +108,10 @@ extension TextBoxInputContainer {
         terminalAgentContext: String
     ) -> Bool {
         allowsCommandTemplateSubmit || TextBoxAgentDetection.supportsAgentPrefixes(context: terminalAgentContext)
+    }
+
+    static func shouldClearLaunchCommandWhenClearingPending(terminalAgentContext: String) -> Bool {
+        !TextBoxAgentDetection.supportsAgentPrefixes(context: terminalAgentContext)
     }
 
     static func shouldForceTextEntrySubmit(
@@ -208,7 +220,7 @@ extension TextBoxInputContainer {
         .contextMenu {
             if pendingProviderLaunchAction != nil {
                 Button {
-                    clearPendingProviderLaunch()
+                    cancelPendingProviderLaunch()
                 } label: {
                     Label(
                         String(localized: "textbox.submitAction.cancelPending", defaultValue: "Cancel Pending Launch"),
