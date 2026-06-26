@@ -8395,10 +8395,9 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         savePanel.canCreateDirectories = true
         savePanel.directoryURL = filenameResolver.downloadsDirectory()
         let completion: (NSApplication.ModalResponse) -> Void = { [weak self] result in
-            guard let self else { return }
             guard result == .OK, let destURL = savePanel.url else {
                 try? FileManager.default.removeItem(at: tempURL)
-                self.onDownloadCancelled?(suggestedFilename, false)
+                self?.onDownloadCancelled?(suggestedFilename, false)
                 return
             }
             do {
@@ -8408,10 +8407,10 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
                 } else {
                     try FileManager.default.moveItem(at: tempURL, to: destURL)
                 }
-                self.onDownloadSaved?(suggestedFilename, destURL, false)
+                self?.onDownloadSaved?(suggestedFilename, destURL, false)
             } catch {
                 try? FileManager.default.removeItem(at: tempURL)
-                self.onDownloadFailed?(error, false)
+                self?.onDownloadFailed?(error, false)
             }
         }
         if let parentWindow = savePanelParentWindow?() {

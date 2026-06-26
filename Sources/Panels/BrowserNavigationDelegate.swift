@@ -330,7 +330,6 @@ import WebKit
     ) {
         let mime = navigationResponse.response.mimeType ?? "unknown"
         let canShow = navigationResponse.canShowMIMEType
-        let responseURL = navigationResponse.response.url?.absoluteString ?? "nil"
 
         // Only classify HTTP(S) responses as downloads. Subframes are eligible
         // only for explicit attachment/force-download MIME decisions; the
@@ -341,9 +340,11 @@ import WebKit
             return
         }
 
-        NSLog("BrowserPanel navigationResponse: url=%@ mime=%@ canShow=%d isMainFrame=%d",
-              responseURL, mime, canShow ? 1 : 0,
-              navigationResponse.isForMainFrame ? 1 : 0)
+        #if DEBUG
+        cmuxDebugLog(
+            "browser.nav.response mime=\(mime) canShow=\(canShow ? 1 : 0) mainFrame=\(navigationResponse.isForMainFrame ? 1 : 0)"
+        )
+        #endif
 
         let contentDisposition = (navigationResponse.response as? HTTPURLResponse)?
             .value(forHTTPHeaderField: "Content-Disposition")
@@ -356,7 +357,6 @@ import WebKit
             isForMainFrame: navigationResponse.isForMainFrame,
             allowsSubframeDownload: allowsSubframeDownload
         ) {
-            NSLog("BrowserPanel download: %@ mime=%@ url=%@", reason, mime, responseURL)
             #if DEBUG
             cmuxDebugLog("download.policy=download reason=\(reason) mime=\(mime) mainFrame=\(navigationResponse.isForMainFrame ? 1 : 0)")
             #endif
