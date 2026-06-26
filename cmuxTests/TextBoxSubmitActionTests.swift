@@ -212,6 +212,12 @@ struct TextBoxSubmitActionTests {
 
         XCTAssertEqual(panel.textBoxState.launchCommand, "codex")
         XCTAssertFalse(panel.textBoxState.launchCommand?.contains(prompt) ?? true)
+        XCTAssertFalse(
+            TextBoxAgentDetection.supportsActiveAgentPrefixes(
+                context: WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
+            )
+        )
+        panel.updateShellActivityState(.commandRunning)
         XCTAssertTrue(
             TextBoxAgentDetection.supportsActiveAgentPrefixes(
                 context: WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
@@ -357,6 +363,11 @@ struct TextBoxSubmitActionTests {
         workspace.panelTitles[panel.id] = "user-controlled title"
         panel.recordTextBoxLaunchCommand("codex --dangerously-bypass-approvals-and-sandbox")
 
+        let pendingContext = WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
+        XCTAssertFalse(TextBoxAgentDetection.supportsAgentPrefixes(context: pendingContext))
+        XCTAssertFalse(TextBoxAgentDetection.supportsActiveAgentPrefixes(context: pendingContext))
+
+        panel.updateShellActivityState(.commandRunning)
         let runningContext = WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
         XCTAssertTrue(TextBoxAgentDetection.supportsAgentPrefixes(context: runningContext))
         XCTAssertTrue(TextBoxAgentDetection.supportsActiveAgentPrefixes(context: runningContext))
@@ -394,7 +405,7 @@ struct TextBoxSubmitActionTests {
     }
 
     @Test
-    func testTextBoxLaunchCommandContextExpiresOnRepeatedPromptIdleReport() throws {
+    func testTextBoxLaunchCommandContextSurvivesRepeatedPromptIdleBeforeRunning() throws {
         let panel = TerminalPanel(workspaceId: UUID())
 
         panel.updateShellActivityState(.promptIdle)
@@ -402,7 +413,7 @@ struct TextBoxSubmitActionTests {
         #expect(panel.textBoxState.launchCommand != nil)
 
         panel.updateShellActivityState(.promptIdle)
-        #expect(panel.textBoxState.launchCommand == nil)
+        #expect(panel.textBoxState.launchCommand != nil)
     }
 
 
@@ -425,7 +436,7 @@ struct TextBoxSubmitActionTests {
     }
 
     @Test
-    func testTextBoxPendingPromptFreeClaudeLaunchPreservesSubmitContextWithoutPromptIdleReport() {
+    func testTextBoxPendingPromptFreeClaudeLaunchWaitsForActiveAgentContext() {
         let claude = TextBoxSubmitAction(
             id: "claude",
             title: "Claude",
@@ -435,9 +446,27 @@ struct TextBoxSubmitActionTests {
             systemImage: "sparkle",
             backgroundColorHex: "#F6D5C8"
         )
+        XCTAssertTrue(
+            TextBoxInputContainer.isPendingProviderLaunchAwaitingAgent(
+                pendingProviderLaunchAction: claude,
+                terminalAgentContext: ""
+            )
+        )
+        XCTAssertFalse(
+            TextBoxInputContainer.shouldForceTextEntrySubmit(
+                allowsCommandTemplateSubmit: false,
+                terminalAgentContext: ""
+            )
+        )
+        XCTAssertFalse(
+            TextBoxInputContainer.isPendingProviderLaunchAwaitingAgent(
+                pendingProviderLaunchAction: claude,
+                terminalAgentContext: "textBoxLaunchCommand:claude"
+            )
+        )
         let context = TextBoxInputContainer.textEntryTerminalAgentContext(
             allowsCommandTemplateSubmit: false,
-            terminalAgentContext: "",
+            terminalAgentContext: "textBoxLaunchCommand:claude",
             pendingProviderLaunchAction: claude
         )
 

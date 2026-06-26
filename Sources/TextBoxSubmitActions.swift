@@ -60,7 +60,7 @@ extension TextBoxInputContainer {
     }
 
     var shouldForceTextEntrySubmit: Bool {
-        pendingProviderLaunchAction != nil || Self.shouldForceTextEntrySubmit(
+        Self.shouldForceTextEntrySubmit(
             allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
             terminalAgentContext: terminalAgentContext
         )
@@ -68,6 +68,13 @@ extension TextBoxInputContainer {
 
     var isProviderLaunchAwaitingAgentOrCommand: Bool {
         pendingProviderLaunchAction != nil
+    }
+
+    var isPendingProviderLaunchAwaitingAgent: Bool {
+        Self.isPendingProviderLaunchAwaitingAgent(
+            pendingProviderLaunchAction: pendingProviderLaunchAction,
+            terminalAgentContext: terminalAgentContext
+        )
     }
 
     func startPendingProviderLaunch(_ action: TextBoxSubmitAction) {
@@ -115,6 +122,14 @@ extension TextBoxInputContainer {
         !shouldForceTextEntrySubmit &&
             !allowsCommandTemplateSubmit &&
             action.kind == .commandTemplate
+    }
+
+    static func isPendingProviderLaunchAwaitingAgent(
+        pendingProviderLaunchAction: TextBoxSubmitAction?,
+        terminalAgentContext: String
+    ) -> Bool {
+        pendingProviderLaunchAction != nil &&
+            !TextBoxAgentDetection.supportsActiveAgentPrefixes(context: terminalAgentContext)
     }
 
     static func textEntryTerminalAgentContext(

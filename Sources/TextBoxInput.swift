@@ -2502,7 +2502,7 @@ struct TextBoxInputContainer: View {
             action: selectedSubmitAction,
             shouldForceTextEntrySubmit: shouldForceTextEntrySubmit,
             allowsCommandTemplateSubmit: allowsCommandTemplateSubmit
-        )
+        ) && !isPendingProviderLaunchAwaitingAgent
 
         VStack(alignment: .leading, spacing: 6) {
             if pendingCommentCount > 0 {
@@ -2743,6 +2743,10 @@ struct TextBoxInputContainer: View {
             shouldForceTextEntrySubmit: shouldForceTextEntrySubmit,
             allowsCommandTemplateSubmit: allowsCommandTemplateSubmit
         ) {
+            NSSound.beep()
+            return
+        }
+        if isPendingProviderLaunchAwaitingAgent {
             NSSound.beep()
             return
         }

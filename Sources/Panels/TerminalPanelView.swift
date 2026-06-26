@@ -146,7 +146,7 @@ struct TerminalPanelView: View {
     }
 
     private var effectiveTerminalAgentContext: String {
-        guard let command = panel.textBoxState.launchCommand?.trimmingCharacters(in: .whitespacesAndNewlines),
+        guard let command = panel.textBoxState.activeLaunchCommand?.trimmingCharacters(in: .whitespacesAndNewlines),
               !command.isEmpty else {
             return terminalAgentContext
         }

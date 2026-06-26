@@ -641,7 +641,7 @@ extension WorkspaceContentView {
             if let tmuxStartCommand = terminalPanel.surface.tmuxStartCommand {
                 parts.append("tmuxStartCommand:\(tmuxStartCommand)")
             }
-            appendSupportedAgentCommandContext(terminalPanel.textBoxState.launchCommand, prefix: "textBoxLaunchCommand:")
+            appendSupportedAgentCommandContext(terminalPanel.textBoxState.activeLaunchCommand, prefix: "textBoxLaunchCommand:")
         }
         if let restoredAgent = workspace.restoredAgentSnapshotsByPanelId[panel.id] {
             parts.append("restoredAgent:\(restoredAgent.kind.rawValue)")
