@@ -2509,25 +2509,8 @@ final class Workspace: Identifiable, ObservableObject {
         get { surfaceRegistry.panelShellActivityStates }
         set { surfaceRegistry.panelShellActivityStates = newValue }
     }
-    /// PIDs associated with agent status entries (e.g. claude_code), keyed by status key.
-    /// Used for stale-session detection: if the PID is dead, the status entry is cleared.
+    /// Agent runtime maps that affect sidebar status visibility.
     let sidebarAgentRuntimeObservation = WorkspaceSidebarAgentRuntimeObservationModel()
-    var agentPIDs: [String: pid_t] {
-        get { sidebarAgentRuntimeObservation.agentPIDs }
-        set { sidebarAgentRuntimeObservation.setAgentPIDs(newValue) }
-    }
-    var agentPIDPanelIdsByKey: [String: UUID] {
-        get { sidebarAgentRuntimeObservation.agentPIDPanelIdsByKey }
-        set { sidebarAgentRuntimeObservation.setAgentPIDPanelIdsByKey(newValue) }
-    }
-    var agentPIDKeysByPanelId: [UUID: Set<String>] {
-        get { sidebarAgentRuntimeObservation.agentPIDKeysByPanelId }
-        set { sidebarAgentRuntimeObservation.setAgentPIDKeysByPanelId(newValue) }
-    }
-    var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] {
-        get { sidebarAgentRuntimeObservation.agentLifecycleStatesByPanelId }
-        set { sidebarAgentRuntimeObservation.setAgentLifecycleStatesByPanelId(newValue) }
-    }
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 #if DEBUG
     var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
