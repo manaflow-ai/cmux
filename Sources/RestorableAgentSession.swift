@@ -96,7 +96,7 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
         return [
             TerminalStartupShellQuoting.shellToken("/bin/sh", allowingBareASCII: true),
             TerminalStartupShellQuoting.shellToken("-c", allowingBareASCII: true),
-            portableShellSingleQuoted(innerCommand),
+            literalSingleQuoted(innerCommand),
         ].joined(separator: " ")
     }
 
@@ -124,7 +124,7 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
     ) -> String {
         let quotedCandidates = [
             TerminalStartupShellQuoting.singleQuoted(workingDirectory),
-            legacySingleQuoted(workingDirectory)
+            literalSingleQuoted(workingDirectory)
         ]
         var seen = Set<String>()
         for quoted in quotedCandidates where seen.insert(quoted).inserted {
@@ -167,11 +167,7 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
         return trimmed
     }
 
-    private static func legacySingleQuoted(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-
-    private static func portableShellSingleQuoted(_ value: String) -> String {
+    private static func literalSingleQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
