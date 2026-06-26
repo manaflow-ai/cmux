@@ -261,7 +261,7 @@ public struct AutomationSection: View {
                     .accessibilityIdentifier("SettingsCodexHooksToggle")
             }
             SettingsCardDivider()
-            SettingsCardNote(String(localized: "settings.automation.codex.note", defaultValue: "When enabled, cmux wraps the codex command to inject session tracking and notification hooks. Disable if you prefer to manage Codex hooks yourself. cmux still tracks live Codex sessions it can observe even when this is off."))
+            SettingsCardNote(String(localized: "settings.automation.codex.note", defaultValue: "When enabled, cmux wraps the codex command to inject session tracking and notification hooks. Disable if you prefer to manage Codex hooks yourself. cmux still tracks live Codex sessions it can observe even when this is off. To also track Codex launched through a custom launcher that bypasses the wrapper (e.g. a subrouter), run `cmux hooks setup --agent codex`, which installs hooks into ~/.codex/hooks.json."))
         }
     }
 
