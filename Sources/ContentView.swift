@@ -13043,6 +13043,17 @@ struct TabItemView: View, Equatable {
     private static let maxWrappedTitleLines = 8
     private static let maxDisplayedTitleCharacters = 2048
 
+    /// Animation for the leading status slot's width/opacity (the title
+    /// "x slide" + indicator fade). A spring rather than a fixed cubic ease:
+    /// it decelerates naturally and, crucially, is interruptible — toggling the
+    /// loader mid-animation re-targets from the current velocity instead of
+    /// restarting. Tuned quick + well-damped (short response, ~no overshoot) so
+    /// it settles in a few frames and never jiggles the title. It only animates
+    /// width/opacity (the slot stays badge-tall), so it never re-measures the
+    /// LazyVStack height the way the banned #5764 height animations did, and
+    /// it's value-scoped so idle rows never animate.
+    private static let statusSlideAnimation = Animation.spring(response: 0.3, dampingFraction: 0.9)
+
     var isMultiSelected: Bool {
         selectedTabIds.contains(tab.id)
     }
@@ -13598,10 +13609,10 @@ struct TabItemView: View, Equatable {
             // All of these are width/opacity only — never row height — so they
             // don't interpolate the LazyVStack height (#5764 / #5845) and don't
             // animate reordering.
-            .animation(.easeInOut(duration: 0.2), value: leadingSlotActive)
-            .animation(.easeInOut(duration: 0.2), value: spinnerOnLeading)
-            .animation(.easeInOut(duration: 0.2), value: spinnerOnTrailing)
-            .animation(.easeInOut(duration: 0.2), value: badgeOnTrailing)
+            .animation(Self.statusSlideAnimation, value: leadingSlotActive)
+            .animation(Self.statusSlideAnimation, value: spinnerOnLeading)
+            .animation(Self.statusSlideAnimation, value: spinnerOnTrailing)
+            .animation(Self.statusSlideAnimation, value: badgeOnTrailing)
 
             if let description = workspaceSnapshot.customDescription {
                 SidebarWorkspaceDescriptionText(
