@@ -4490,7 +4490,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func fallbackCurrentDirectoryAfterClearingDefault() -> String {
-        let candidates = [
+        let candidates: [String?] = [
             focusedPanelId.flatMap { panelDirectories[$0] },
             focusedPanelId.flatMap { terminalPanel(for: $0)?.requestedWorkingDirectory },
             FileManager.default.homeDirectoryForCurrentUser.path,
