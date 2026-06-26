@@ -258,24 +258,6 @@ final class FileExplorerNode: Identifiable {
     }
 }
 
-// MARK: - Root Resolver
-
-enum FileExplorerRootResolver {
-    static func displayPath(for fullPath: String, homePath: String?) -> String {
-        guard let home = homePath, !home.isEmpty else { return fullPath }
-        let normalizedHome = home.hasSuffix("/") ? String(home.dropLast()) : home
-        let normalizedPath = fullPath.hasSuffix("/") ? String(fullPath.dropLast()) : fullPath
-        if normalizedPath == normalizedHome {
-            return "~"
-        }
-        let homePrefix = normalizedHome + "/"
-        if normalizedPath.hasPrefix(homePrefix) {
-            return "~/" + normalizedPath.dropFirst(homePrefix.count)
-        }
-        return fullPath
-    }
-}
-
 // MARK: - Provider Protocol
 
 protocol FileExplorerProvider: AnyObject {
@@ -742,17 +724,6 @@ enum FileExplorerError: LocalizedError {
     }
 }
 
-// MARK: - Selection Restoration
-
-enum FileExplorerSelectionRestoration {
-    static func scrollRow(anchorRow: Int?, exactRows: IndexSet) -> Int? {
-        if let anchorRow, exactRows.contains(anchorRow) {
-            return anchorRow
-        }
-        return exactRows.first
-    }
-}
-
 // MARK: - Store
 
 /// All access must happen on the main thread. Properties are not marked @MainActor
@@ -811,7 +782,7 @@ final class FileExplorerStore: ObservableObject {
             }
             return "ssh://\(sshProvider.displayTarget):\(rootPath)"
         }
-        return FileExplorerRootResolver.displayPath(for: rootPath, homePath: provider?.homePath)
+        return rootPath.homeRelativeDisplayPath(homePath: provider?.homePath)
     }
 
     // MARK: - Public API

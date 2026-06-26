@@ -306,7 +306,10 @@ extension TerminalController {
                 return
             }
             let surfaceId = tabManager.focusedSurfaceId(for: tabId)
-            let (title, subtitle, body) = parseNotificationPayload(args)
+            let parsed = ControlNotificationPayload.parse(args)
+            let title = parsed.title
+            let subtitle = parsed.subtitle
+            let body = parsed.body
             deliverNotificationSynchronously(
                 tabId: tabId,
                 surfaceId: surfaceId,
@@ -338,7 +341,10 @@ extension TerminalController {
                 result = "ERROR: Surface not found"
                 return
             }
-            let (title, subtitle, body) = parseNotificationPayload(payload)
+            let parsed = ControlNotificationPayload.parse(payload)
+            let title = parsed.title
+            let subtitle = parsed.subtitle
+            let body = parsed.body
             deliverNotificationSynchronously(
                 tabId: tabId,
                 surfaceId: surfaceId,
@@ -361,7 +367,10 @@ extension TerminalController {
         let tabArg = parts[0]
         let panelArg = parts[1]
         let payload = parts.count > 2 ? parts[2] : ""
-        let (title, subtitle, body) = parseNotificationPayload(payload)
+        let parsed = ControlNotificationPayload.parse(payload)
+        let title = parsed.title
+        let subtitle = parsed.subtitle
+        let body = parsed.body
 
         if let workspaceId = UUID(uuidString: tabArg),
            let panelId = UUID(uuidString: panelArg) {
@@ -435,7 +444,10 @@ extension TerminalController {
         guard !payload.isEmpty else {
             return "ERROR: Usage: notify_target_async <workspace_uuid> <surface_uuid> <title>|<subtitle>|<body>"
         }
-        let (title, subtitle, body) = parseNotificationPayload(payload)
+        let parsed = ControlNotificationPayload.parse(payload)
+        let title = parsed.title
+        let subtitle = parsed.subtitle
+        let body = parsed.body
 #if DEBUG
         cmuxDebugLog(
             "socket.notifyTargetAsync.enqueue workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count) coalesces=0"
@@ -522,18 +534,6 @@ extension TerminalController {
             }
         }
         return "OK"
-    }
-
-    private func parseNotificationPayload(_ args: String) -> (String, String, String) {
-        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return ("Notification", "", "") }
-        let parts = trimmed.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
-        let title = parts.count > 0 ? parts[0].trimmingCharacters(in: .whitespacesAndNewlines) : ""
-        let subtitle = parts.count > 2 ? parts[1].trimmingCharacters(in: .whitespacesAndNewlines) : ""
-        let body = parts.count > 2
-            ? parts[2].trimmingCharacters(in: .whitespacesAndNewlines)
-            : (parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespacesAndNewlines) : "")
-        return (title.isEmpty ? "Notification" : title, subtitle, body)
     }
 
     func sendInput(_ text: String) -> String {

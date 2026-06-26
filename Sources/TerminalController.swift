@@ -101,6 +101,16 @@ class TerminalController: MobileViewportSurfaceLimiting {
     /// upserting a projection.
     let sidebarReplacementPolicy = SidebarReplacementPolicy()
 
+#if DEBUG
+    /// Per-panel registry of the last captured terminal-panel pixel snapshot,
+    /// backing the DEBUG-only `panel_snapshot` / `panel_snapshot_reset` socket
+    /// commands (see `TerminalController+ControlDebugContext.swift`). Replaces a
+    /// process-wide `static` dictionary + `NSLock`: this type is a single
+    /// `@MainActor` instance, so the registry is an owned `@MainActor` store and
+    /// the lock is dropped (every access already runs on the main actor).
+    let panelSnapshotStore = PanelSnapshotStore()
+#endif
+
     // `internal` (not `private`): the `workspace.remote.pty_*` worker-lane
     // availability wait + notify live in the sibling extension file
     // `TerminalController+ControlRemotePTYReading.swift` (the resolution seam that

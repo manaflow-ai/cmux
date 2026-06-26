@@ -239,18 +239,9 @@ enum MobileHostRequestActivity {
     #endif
 }
 
-struct MobileHostServiceStatus {
-    let isRunning: Bool
-    let port: Int?
-    /// The preferred port from settings the listener tried to bind.
-    let configuredPort: Int
-    /// True when the listener is running on an OS-assigned ephemeral port
-    /// because the configured port could not be bound.
-    let usesEphemeralFallback: Bool
-    let routes: [CmxAttachRoute]
-    let activeConnectionCount: Int
-    let lastErrorDescription: String?
-
+extension MobileHostServiceStatus {
+    /// The `mobile.host.status` wire payload. App-side because it renders each
+    /// route through `CmxAttachRoute.mobileHostJSONObject`, an app extension.
     var payload: [String: Any] {
         [
             "is_running": isRunning,

@@ -1,8 +1,10 @@
 import AppKit
+import CMUXAgentLaunch
 import CmuxTerminal
 import Carbon.HIToolbox
 import CmuxFoundation
 import CmuxSettingsUI
+import CmuxWindowing
 import CmuxWorkspaces
 import Observation
 import SwiftUI
@@ -669,50 +671,6 @@ private enum TextBoxSubmissionFormatter {
                 return true
             }
         }
-    }
-}
-
-struct TextBoxPasteboardRestorationToken: Equatable {
-    let changeCount: Int
-    let fileURL: URL
-}
-
-enum TextBoxPasteboardRestorationGuard {
-    static func token(
-        afterWritingTemporaryFileURL fileURL: URL,
-        to pasteboard: NSPasteboard
-    ) -> TextBoxPasteboardRestorationToken {
-        TextBoxPasteboardRestorationToken(
-            changeCount: pasteboard.changeCount,
-            fileURL: fileURL.standardizedFileURL
-        )
-    }
-
-    static func shouldRestore(
-        pasteboard: NSPasteboard,
-        token: TextBoxPasteboardRestorationToken?
-    ) -> Bool {
-        guard let token else {
-            return false
-        }
-        let temporaryPath = token.fileURL.standardizedFileURL.path
-        let currentFileURLPaths = Set(
-            PasteboardFileURLReader.fileURLs(from: pasteboard).map { $0.standardizedFileURL.path }
-        )
-        guard currentFileURLPaths.contains(temporaryPath) else {
-            return false
-        }
-        guard pasteboard.changeCount == token.changeCount else {
-            return currentFileURLPaths == [temporaryPath]
-        }
-        return true
-    }
-
-    static func isCurrentTemporaryWrite(
-        pasteboard: NSPasteboard,
-        token: TextBoxPasteboardRestorationToken?
-    ) -> Bool {
-        shouldRestore(pasteboard: pasteboard, token: token)
     }
 }
 
@@ -1906,6 +1864,9 @@ private final class TextBoxSubmitEventRunner {
     private var releaseRenderedFrameNotifications: (() -> Void)?
     private var originalPasteboardItems: [PasteboardItemSnapshot]?
     private var temporaryPasteboardRestorationToken: TextBoxPasteboardRestorationToken?
+    private let pasteboardRestorationGuard = TextBoxPasteboardRestorationGuard(
+        fileURLReader: PasteboardServiceFileURLReader()
+    )
     private var observationToken = UUID()
 
     private static var waitTimeoutSeconds: TimeInterval {
@@ -2421,7 +2382,7 @@ private final class TextBoxSubmitEventRunner {
         let pasteboard = NSPasteboard.general
         if originalPasteboardItems == nil {
             originalPasteboardItems = Self.snapshotPasteboardItems(pasteboard)
-        } else if !TextBoxPasteboardRestorationGuard.isCurrentTemporaryWrite(
+        } else if !pasteboardRestorationGuard.isCurrentTemporaryWrite(
             pasteboard: pasteboard,
             token: temporaryPasteboardRestorationToken
         ) {
@@ -2438,7 +2399,7 @@ private final class TextBoxSubmitEventRunner {
             _ = pasteboard.setString(fileURL.absoluteString, forType: .fileURL)
             _ = pasteboard.setPropertyList([fileURL.path], forType: PasteboardFileURLReader.legacyFilenamesPboardType)
         }
-        temporaryPasteboardRestorationToken = TextBoxPasteboardRestorationGuard.token(
+        temporaryPasteboardRestorationToken = pasteboardRestorationGuard.token(
             afterWritingTemporaryFileURL: fileURL,
             to: pasteboard
         )
@@ -2468,7 +2429,7 @@ private final class TextBoxSubmitEventRunner {
         guard let originalPasteboardItems else { return }
         self.originalPasteboardItems = nil
         let pasteboard = NSPasteboard.general
-        guard TextBoxPasteboardRestorationGuard.shouldRestore(
+        guard pasteboardRestorationGuard.shouldRestore(
             pasteboard: pasteboard,
             token: temporaryPasteboardRestorationToken
         ) else {

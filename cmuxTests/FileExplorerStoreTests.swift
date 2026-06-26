@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -586,11 +587,11 @@ struct FileExplorerStoreTests {
     func testRestoredMultiSelectionScrollsToAnchorRow() {
         let exactRows = IndexSet([2, 7, 11])
 
-        #expect(FileExplorerSelectionRestoration.scrollRow(anchorRow: 7, exactRows: exactRows) == 7)
-        #expect(FileExplorerSelectionRestoration.scrollRow(anchorRow: 4, exactRows: exactRows) == 2)
-        #expect(FileExplorerSelectionRestoration.scrollRow(anchorRow: nil, exactRows: exactRows) == 2)
+        #expect(exactRows.scrollAnchorRow(preferring: 7) == 7)
+        #expect(exactRows.scrollAnchorRow(preferring: 4) == 2)
+        #expect(exactRows.scrollAnchorRow(preferring: nil) == 2)
         #expect(
-            FileExplorerSelectionRestoration.scrollRow(anchorRow: nil, exactRows: []) == nil
+            IndexSet().scrollAnchorRow(preferring: nil) == nil
         )
     }
 
