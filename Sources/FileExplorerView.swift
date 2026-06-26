@@ -35,6 +35,7 @@ enum FileExplorerPanelPlacement: Equatable {
 /// The entire file explorer panel as one AppKit view hierarchy.
 /// Contains the header bar (path + controls) and NSOutlineView, with no SwiftUI intermediaries.
 struct FileExplorerPanelView: NSViewRepresentable {
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var store: FileExplorerStore
     @ObservedObject var state: FileExplorerState
     let onOpenFilePreview: (String) -> Void
@@ -57,6 +58,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
     func makeNSView(context: Context) -> FileExplorerContainerView {
         let container = FileExplorerContainerView(coordinator: context.coordinator, presentation: presentation)
         context.coordinator.containerView = container
+        container.updateContentColorScheme(colorScheme)
         context.coordinator.onContainerChange?(container)
         return container
     }
@@ -70,6 +72,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         context.coordinator.onContainerChange = onContainerChange
         context.coordinator.onContainerChange?(container)
         container.updateShortcutPlacement(placement)
+        container.updateContentColorScheme(colorScheme)
         container.updateHeader(store: store)
         container.updatePresentation(presentation)
         context.coordinator.reloadIfNeeded()
@@ -665,6 +668,7 @@ final class FileExplorerContainerView: NSView {
     private var presentation: FileExplorerPanelPresentation
     private let coordinator: FileExplorerPanelView.Coordinator
     private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
+    private var contentColorScheme: ColorScheme?
     private let searchDebounceDelayMilliseconds = 200
     private var searchBarVisibleHeight: CGFloat { max(48, GlobalFontMagnification.scaled(48)) }
     private var searchFieldVisibleHeight: CGFloat { max(24, GlobalFontMagnification.scaled(24)) }
@@ -737,7 +741,6 @@ final class FileExplorerContainerView: NSView {
         searchBarView.addSubview(searchField)
 
         searchStatusLabel.translatesAutoresizingMaskIntoConstraints = false
-        searchStatusLabel.textColor = .secondaryLabelColor
         searchStatusLabel.lineBreakMode = .byTruncatingTail
         searchStatusLabel.maximumNumberOfLines = 1
         searchStatusLabel.alignment = .left
@@ -747,7 +750,6 @@ final class FileExplorerContainerView: NSView {
 
         // Empty state label
         emptyLabel.translatesAutoresizingMaskIntoConstraints = false
-        emptyLabel.textColor = .secondaryLabelColor
         emptyLabel.alignment = .center
         emptyLabel.isHidden = true
         addSubview(emptyLabel)
@@ -759,6 +761,7 @@ final class FileExplorerContainerView: NSView {
         loadingIndicator.isHidden = true
         addSubview(loadingIndicator)
         applyChromeFonts()
+        applyChromeColors()
         fontMagnificationObserver = GlobalFontMagnificationChangeObserver { [weak self] in
             self?.applyChromeFonts()
             self?.outlineView.reloadData()
@@ -912,6 +915,38 @@ final class FileExplorerContainerView: NSView {
             searchBarHeightConstraint?.constant = searchBarVisibleHeight
         }
         headerView.applyFonts()
+    }
+
+    private func applyCurrentStyle() {
+        applyChromeColors()
+        headerView.applyColors()
+        outlineView.setNeedsDisplay(outlineView.bounds)
+        searchResultsView.setNeedsDisplay(searchResultsView.bounds)
+    }
+
+    func updateContentColorScheme(_ colorScheme: ColorScheme) {
+        guard contentColorScheme != colorScheme else { return }
+        contentColorScheme = colorScheme
+        let name: NSAppearance.Name = colorScheme == .dark ? .darkAqua : .aqua
+        let appKitAppearance = NSAppearance(named: name)
+        appearance = appKitAppearance
+        headerView.appearance = appKitAppearance
+        searchBarView.appearance = appKitAppearance
+        searchField.appearance = appKitAppearance
+        searchStatusLabel.appearance = appKitAppearance
+        scrollView.appearance = appKitAppearance
+        outlineView.appearance = appKitAppearance
+        searchScrollView.appearance = appKitAppearance
+        searchResultsView.appearance = appKitAppearance
+        emptyLabel.appearance = appKitAppearance
+        loadingIndicator.appearance = appKitAppearance
+        applyCurrentStyle()
+    }
+
+    private func applyChromeColors() {
+        let style = FileExplorerStyle.current
+        searchStatusLabel.textColor = style.secondaryTextColor
+        emptyLabel.textColor = style.secondaryTextColor
     }
 
     required init?(coder: NSCoder) {

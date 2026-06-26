@@ -27,12 +27,12 @@ final class FileExplorerSearchResultCellView: NSTableCellView {
 
     private func setupViews() {
         pathLabel.translatesAutoresizingMaskIntoConstraints = false
-        pathLabel.textColor = .labelColor
+        pathLabel.textColor = FileExplorerStyle.current.nameTextColor
         pathLabel.lineBreakMode = .byTruncatingMiddle
         pathLabel.maximumNumberOfLines = 1
 
         previewLabel.translatesAutoresizingMaskIntoConstraints = false
-        previewLabel.textColor = .secondaryLabelColor
+        previewLabel.textColor = FileExplorerStyle.current.secondaryTextColor
         previewLabel.lineBreakMode = .byTruncatingTail
         previewLabel.maximumNumberOfLines = 1
 
@@ -51,8 +51,11 @@ final class FileExplorerSearchResultCellView: NSTableCellView {
     }
 
     func configure(with result: FileSearchResult) {
+        let style = FileExplorerStyle.current
         pathLabel.font = GlobalFontMagnification.systemFont(ofSize: 12, weight: .semibold)
         previewLabel.font = GlobalFontMagnification.monospacedSystemFont(ofSize: 11, weight: .regular)
+        pathLabel.textColor = style.nameTextColor
+        previewLabel.textColor = style.secondaryTextColor
         pathLabel.stringValue = "\(result.relativePath):\(result.lineNumber)"
         previewLabel.stringValue = result.preview.isEmpty ? " " : result.preview
         toolTip = "\(result.path):\(result.lineNumber):\(result.columnNumber)"
