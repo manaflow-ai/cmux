@@ -202,6 +202,42 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 
     @MainActor
+    func testRestoredRunningAgentDoesNotAutoResumeBeforeVisit() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) // autoResumeAgentSessions = true (default)
+
+            let source = Workspace()
+            let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            let sourceIndex = try makeRestorableAgentIndex(
+                workspaceId: source.id,
+                panelId: sourcePanelId,
+                sessionId: "codex-lazy-running-at-snapshot-session"
+            )
+            source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+            let snapshot = source.sessionSnapshot(includeScrollback: false, restorableAgentIndex: sourceIndex)
+
+            let restored = Workspace()
+            restored.restoreSessionSnapshot(snapshot)
+            let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+            let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+            let restoredInput = restoredPanel.surface.debugInitialInputMetadata()
+
+            XCTAssertNil(restoredPanel.surface.debugInitialCommand())
+            XCTAssertFalse(restoredInput.hasInitialInput)
+            XCTAssertEqual(restoredInput.byteCount, 0)
+            XCTAssertEqual(
+                restored.restoredAgentResumeStatesByPanelId[restoredPanelId],
+                .manualResumeAvailable
+            )
+            XCTAssertEqual(
+                restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent?.sessionId,
+                "codex-lazy-running-at-snapshot-session"
+            )
+        }
+    }
+
+    @MainActor
     func testRemoteWorkspaceAutoResumeKeepsRemoteStartupCommand() throws {
         try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
             let defaults = UserDefaults.standard
