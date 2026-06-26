@@ -1734,7 +1734,7 @@ final class CmuxWebView: WKWebView {
         }
     }
 
-    private static func autoSaveSessionDownloadData(
+    private nonisolated static func autoSaveSessionDownloadData(
         _ data: Data,
         saveName: String,
         filenameResolver: BrowserDownloadFilenameResolver
@@ -1764,7 +1764,7 @@ final class CmuxWebView: WKWebView {
         }
     }
 
-    private static func writeSessionDownloadData(
+    private nonisolated static func writeSessionDownloadData(
         _ data: Data,
         to destinationURL: URL,
         replaceExisting: Bool
@@ -1779,7 +1779,7 @@ final class CmuxWebView: WKWebView {
         }
     }
 
-    private static func writeSessionDownloadDataWithoutReplacing(
+    private nonisolated static func writeSessionDownloadDataWithoutReplacing(
         _ data: Data,
         to destinationURL: URL,
         fileManager: FileManager
