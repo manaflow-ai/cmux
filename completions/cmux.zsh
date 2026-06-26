@@ -206,6 +206,8 @@ _cmux() {
             compadd -- --window --workspace ;;
         cloud)
             compadd -- exec ls new rm shell ssh ;;
+        config)
+            compadd -- check docs doctor documentation path paths reload validate ;;
         current-workspace)
             compadd -- --window ;;
         diff)

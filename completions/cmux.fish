@@ -289,6 +289,14 @@ complete -c cmux -n '__cmux_command_is cloud' -f -a 'new'
 complete -c cmux -n '__cmux_command_is cloud' -f -a 'rm'
 complete -c cmux -n '__cmux_command_is cloud' -f -a 'shell'
 complete -c cmux -n '__cmux_command_is cloud' -f -a 'ssh'
+complete -c cmux -n '__cmux_command_is config' -f -a 'check'
+complete -c cmux -n '__cmux_command_is config' -f -a 'docs'
+complete -c cmux -n '__cmux_command_is config' -f -a 'doctor'
+complete -c cmux -n '__cmux_command_is config' -f -a 'documentation'
+complete -c cmux -n '__cmux_command_is config' -f -a 'path'
+complete -c cmux -n '__cmux_command_is config' -f -a 'paths'
+complete -c cmux -n '__cmux_command_is config' -f -a 'reload'
+complete -c cmux -n '__cmux_command_is config' -f -a 'validate'
 complete -c cmux -n '__cmux_command_is current-workspace' -l window
 complete -c cmux -n '__cmux_command_is diff' -l base
 complete -c cmux -n '__cmux_command_is diff' -l branch

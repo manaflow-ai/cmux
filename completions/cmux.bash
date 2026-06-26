@@ -63,6 +63,8 @@ _cmux() {
             COMPREPLY=( $(compgen -W "--window --workspace" -- "$cur") ); return ;;
         cloud)
             COMPREPLY=( $(compgen -W "exec ls new rm shell ssh" -- "$cur") ); return ;;
+        config)
+            COMPREPLY=( $(compgen -W "check docs doctor documentation path paths reload validate" -- "$cur") ); return ;;
         current-workspace)
             COMPREPLY=( $(compgen -W "--window" -- "$cur") ); return ;;
         diff)

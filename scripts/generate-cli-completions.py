@@ -97,8 +97,17 @@ METAVARS = {
 
 
 def is_real_enum(tokens: list[str]) -> bool:
-    """A choice group is a completable enum only if no token is a metavar."""
-    return bool(tokens) and not any(t in METAVARS for t in tokens)
+    """Whether a `<a|b|c>` choice group is completable literal values.
+
+    A group is a placeholder only if *every* token is a type metavariable
+    (e.g. `<id|ref|index>`). A group with at least one literal is treated as
+    real and kept whole: a token like `path` is a placeholder in `--foo <path>`
+    but a real subcommand in `config <doctor|check|validate|path|...>`, and
+    rejecting the whole group on the single metavar-named token hid every
+    `config` subcommand (also `hooks <agent> ...`, `browser find|get|frame`)
+    from completion.
+    """
+    return bool(tokens) and not all(t in METAVARS for t in tokens)
 
 
 @dataclass
