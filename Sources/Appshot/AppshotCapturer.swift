@@ -181,15 +181,22 @@ enum AppshotCapturer {
     }
 
     /// Reads a string attribute capped at `limit` characters. For the value
-    /// attribute it first checks the element's character count; when that exceeds
-    /// `limit` it fetches only a leading range via the parameterized AX text API
-    /// and never falls back to a full copy — so a whole-document `kAXValue` is
-    /// never materialized on this hotkey path.
+    /// attribute — which can be a whole document — it reads only a provably
+    /// bounded amount: a leading ranged fetch, or a full read solely when the
+    /// reported character count proves the value is within budget. A large or
+    /// hostile `kAXValue` is never materialized in full on this hotkey path.
     private static func boundedString(_ element: AXUIElement, _ attribute: String, limit: Int) -> String? {
         guard limit > 0 else { return nil }
-        if attribute == kAXValueAttribute, let count = copyInt(element, kAXNumberOfCharactersAttribute) {
-            if count > limit {
-                return copyRangedString(element, location: 0, length: limit)
+        if attribute == kAXValueAttribute {
+            // The value can be a whole document, so only accept it through a
+            // provably bounded read: a leading ranged fetch, or — if ranged is
+            // unsupported — a full read only when the reported character count
+            // proves it is within budget. Never materialize an unbounded value.
+            if let ranged = copyRangedString(element, location: 0, length: limit) {
+                return ranged
+            }
+            guard let count = copyInt(element, kAXNumberOfCharactersAttribute), count <= limit else {
+                return nil
             }
         }
         guard let raw = copyString(element, attribute) else { return nil }
