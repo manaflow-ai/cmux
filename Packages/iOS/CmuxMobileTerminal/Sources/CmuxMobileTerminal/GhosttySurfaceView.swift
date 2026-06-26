@@ -658,6 +658,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var scrollMechanicsIsRecentering = false
     private var lastScrollMechanicsOffsetY: CGFloat?
     private var lastScrollMechanicsTouchPoint: CGPoint = .zero
+    /// Approximate distance the local mirror is scrolled up into scrollback, in
+    /// lines (0 = pinned at the live bottom). `applyLocalScrollbackScroll` is the
+    /// only path that moves the iOS viewport off the live bottom, so summing its
+    /// signed `lines` (positive = into history) and clamping at 0 tracks whether
+    /// the visible viewport is the live grid. The divergence diagnostic uses this
+    /// to skip checks while scrolled up, where the read-back would hash history
+    /// instead of the live grid the producer stamped. Approximate is fine: it
+    /// only ever suppresses a check, never forces a false positive.
+    var localScrollbackPositionLines: Double = 0
+    /// Whether the local mirror is currently showing the live bottom viewport.
+    var isAtLiveBottom: Bool { localScrollbackPositionLines <= 0.5 }
     private lazy var scrollMechanicsView: UIScrollView = {
         let view = UIScrollView()
         view.backgroundColor = .clear
@@ -2294,6 +2305,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func scrollInitialOutputToBottomIfNeeded() {
         guard shouldScrollInitialOutputToBottom, let surface else { return }
         shouldScrollInitialOutputToBottom = false
+        localScrollbackPositionLines = 0
         // `ghostty_surface_binding_action` takes the same internal surface lock
         // as `process_output`/`render_now`. This runs on the MAIN thread (inside
         // the `processOutput` completion hop), so calling it inline would contend
@@ -2537,6 +2549,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     @MainActor
     public func recordAppliedGridDivergence(expectedHash: UInt64?, surfaceID: String) async {
         guard Self.gridDivergenceCheckEnabled else { return }
+        // Only compare while showing the live bottom. When scrolled up, the
+        // read-back hashes scrollback history, not the live grid the producer
+        // stamped, so a check there would log a false divergence every interval.
+        guard isAtLiveBottom else { return }
         guard gridDivergenceChecker.shouldVerify(
             expectedHash: expectedHash,
             now: CACurrentMediaTime()

@@ -20,6 +20,10 @@ extension GhosttySurfaceView {
         let posY = (Double(max(0, row)) + 0.5) * cellHeightPt
         ghostty_surface_mouse_pos(surface, posX, posY, GHOSTTY_MODS_NONE)
         ghostty_surface_mouse_scroll(surface, 0, lines, 0)
+        // Track distance from the live bottom (positive lines scroll into
+        // history) so the divergence diagnostic can skip while scrolled up, where
+        // the read-back would hash history instead of the live grid.
+        localScrollbackPositionLines = max(0, localScrollbackPositionLines + lines)
         drawForWakeup()
     }
 }
