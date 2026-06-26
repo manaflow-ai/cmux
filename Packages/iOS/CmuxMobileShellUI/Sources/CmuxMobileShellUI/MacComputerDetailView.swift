@@ -65,10 +65,6 @@ struct MacComputerDetailView: View {
     private var workspaceCount: Int {
         store.workspaceCount(for: macDeviceID)
     }
-    private var removalAliasIDs: [String] {
-        store.pairedMacAliasIDs(for: macDeviceID)
-    }
-
     var body: some View {
         Form {
             appearanceSection
@@ -260,16 +256,9 @@ struct MacComputerDetailView: View {
     }
 
     private var removeMessage: String {
-        guard removalAliasIDs.count > 1 else {
-            return L10n.string("mobile.computers.removeMessage",
-                               defaultValue: "This computer and its workspaces stop appearing here. Pair it again to add it back.")
-        }
-        return String(
-            format: L10n.string(
-                "mobile.computers.removeMessageRepresentativeFormat",
-                defaultValue: "This removes paired record %@. Other matching records may still appear."
-            ),
-            macDeviceID
+        L10n.string(
+            "mobile.computers.removeMessage",
+            defaultValue: "This computer and its workspaces stop appearing here. Pair it again to add it back."
         )
     }
 
