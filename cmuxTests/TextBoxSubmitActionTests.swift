@@ -286,6 +286,12 @@ struct TextBoxSubmitActionTests {
                 terminalAgentContext: ""
             )
         )
+        XCTAssertTrue(
+            TextBoxInputContainer.shouldForceTextEntrySubmit(
+                allowsCommandTemplateSubmit: true,
+                terminalAgentContext: "activeAgentCommand:codex --dangerously-bypass-approvals-and-sandbox"
+            )
+        )
     }
 
     @Test
@@ -316,24 +322,22 @@ struct TextBoxSubmitActionTests {
         let panel = try #require(workspace.focusedTerminalPanel)
         workspace.panelTitles[panel.id] = "codex --dangerously-bypass-approvals-and-sandbox"
 
-        panel.updateShellActivityState(.commandRunning)
+        panel.updateShellActivityState(.promptIdle)
         let runningContext = WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
         XCTAssertTrue(TextBoxAgentDetection.supportsAgentPrefixes(context: runningContext))
+        XCTAssertTrue(TextBoxAgentDetection.supportsActiveAgentPrefixes(context: runningContext))
         XCTAssertTrue(
             TextBoxInputContainer.shouldForceTextEntrySubmit(
-                allowsCommandTemplateSubmit: false,
+                allowsCommandTemplateSubmit: true,
                 terminalAgentContext: runningContext
             )
         )
-
-        panel.updateShellActivityState(.promptIdle)
-        let idleContext = WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
-        XCTAssertFalse(TextBoxAgentDetection.supportsAgentPrefixes(context: idleContext))
-        XCTAssertFalse(
-            TextBoxInputContainer.shouldForceTextEntrySubmit(
-                allowsCommandTemplateSubmit: false,
-                terminalAgentContext: idleContext
-            )
+        XCTAssertEqual(
+            TextBoxInputContainer.textEntryTerminalAgentContext(
+                allowsCommandTemplateSubmit: true,
+                terminalAgentContext: runningContext
+            ),
+            runningContext
         )
     }
 

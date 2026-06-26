@@ -42,6 +42,14 @@ enum TextBoxAgentDetection: CaseIterable {
         allCases.contains { $0.matches(context: context) }
     }
 
+    static func supportsActiveAgentPrefixes(context: String) -> Bool {
+        allCases.contains { agent in
+            context
+                .split(separator: "\n", omittingEmptySubsequences: false)
+                .contains { agent.matchesActive(metadataLine: String($0)) }
+        }
+    }
+
     static func isClaudeCode(context: String) -> Bool {
         claudeCode.matches(context: context)
     }
@@ -60,6 +68,18 @@ enum TextBoxAgentDetection: CaseIterable {
             return matchesCommand(value)
         }
         if let value = Self.metadataValue(line, prefix: "tmuxStartCommand:") {
+            return matchesCommand(value)
+        }
+        if let value = Self.metadataValue(line, prefix: "activeAgentCommand:") {
+            return matchesCommand(value)
+        }
+        return false
+    }
+
+    private func matchesActive(metadataLine rawLine: String) -> Bool {
+        let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !line.isEmpty else { return false }
+        if let value = Self.metadataValue(line, prefix: "activeAgentCommand:") {
             return matchesCommand(value)
         }
         return false

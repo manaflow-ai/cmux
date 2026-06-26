@@ -625,10 +625,10 @@ struct WorkspaceContentView: View {
 extension WorkspaceContentView {
     static func terminalAgentContext(panel: any Panel, workspace: Workspace) -> String {
         var parts: [String] = []
-        func appendSupportedAgentCommandContext(_ command: String?) {
+        func appendSupportedAgentCommandContext(_ command: String?, prefix: String) {
             guard let command = command?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !command.isEmpty else { return }
-            let context = "initialCommand:\(command)"
+            let context = "\(prefix)\(command)"
             guard TextBoxAgentDetection.supportsAgentPrefixes(context: context),
                   !parts.contains(context) else { return }
             parts.append(context)
@@ -641,9 +641,11 @@ extension WorkspaceContentView {
             if let tmuxStartCommand = terminalPanel.surface.tmuxStartCommand {
                 parts.append("tmuxStartCommand:\(tmuxStartCommand)")
             }
-            if terminalPanel.surface.initialCommand == nil,
-               terminalPanel.shellActivity.state == .commandRunning {
-                appendSupportedAgentCommandContext(workspace.panelTitles[panel.id] ?? terminalPanel.displayTitle)
+            if terminalPanel.surface.initialCommand == nil {
+                appendSupportedAgentCommandContext(
+                    workspace.panelTitles[panel.id] ?? terminalPanel.displayTitle,
+                    prefix: "activeAgentCommand:"
+                )
             }
         }
         if let restoredAgent = workspace.restoredAgentSnapshotsByPanelId[panel.id] {
