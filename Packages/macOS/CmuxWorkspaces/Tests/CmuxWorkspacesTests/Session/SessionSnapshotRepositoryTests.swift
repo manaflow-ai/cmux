@@ -114,6 +114,27 @@ struct SessionSnapshotRepositoryTests {
         #expect(repository.load(fileURL: emptyURL) == nil)
     }
 
+    @Test("saving an all-non-restorable snapshot removes a previously written file")
+    func saveAllNonRestorableRemovesStaleFile() throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let repository = makeRepository(appSupport: dir)
+        let fileURL = try #require(repository.defaultSnapshotFileURL())
+
+        #expect(repository.save(makeSnapshot(windowNames: ["real"]), fileURL: fileURL))
+        #expect(FileManager.default.fileExists(atPath: fileURL.path))
+
+        // The live session degraded to nothing restorable. The stale real-window
+        // snapshot must not survive to resurrect old windows on next launch
+        // (issue #6646): callers ignore save()'s return, so the file is removed.
+        #expect(!repository.save(makeSnapshot(windowNames: []), fileURL: fileURL))
+        #expect(!FileManager.default.fileExists(atPath: fileURL.path))
+        guard case .missing = repository.loadOutcome(fileURL: fileURL) else {
+            Issue.record("expected .missing after the stale file was removed")
+            return
+        }
+    }
+
     @Test("saving identical content does not rewrite the file")
     func saveSkipsIdenticalContent() throws {
         let dir = try makeTempDirectory()

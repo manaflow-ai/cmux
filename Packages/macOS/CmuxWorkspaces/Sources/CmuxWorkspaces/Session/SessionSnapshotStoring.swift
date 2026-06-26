@@ -20,8 +20,9 @@ public protocol SessionSnapshotStoring<SnapshotValue>: Sendable {
 
     /// Writes `snapshot` to `fileURL` (default snapshot location when nil),
     /// creating intermediate directories. Non-restorable phantom windows are
-    /// stripped first; a snapshot with nothing restorable left is refused
-    /// (returns false, writes nothing) so empty shells never reach disk.
+    /// stripped first; a snapshot with nothing restorable left is treated as an
+    /// empty state — any existing file is removed (so a stale snapshot can't
+    /// resurrect old windows) and the call returns false without writing.
     /// Skips the write when the encoded bytes equal the file's current
     /// contents. Returns false on any failure.
     @discardableResult

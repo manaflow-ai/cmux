@@ -77,9 +77,15 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return false }
         // Never persist phantom ("empty shell") windows that carry no
         // tabs/surfaces: replaying them on launch wedges the WindowServer
-        // (issue #6646). Strip them here so every save path is covered. A
-        // snapshot with nothing restorable left is not written.
-        guard let restorable = snapshot.discardingNonRestorableWindows else { return false }
+        // (issue #6646). Strip them here so every save path is covered. When
+        // nothing restorable is left, the session is an empty state: remove any
+        // existing snapshot instead of leaving a stale one behind. Callers
+        // ignore this return value, so a refused-but-left file would otherwise
+        // resurrect old windows on the next launch.
+        guard let restorable = snapshot.discardingNonRestorableWindows else {
+            removeSnapshot(fileURL: fileURL)
+            return false
+        }
         let directory = fileURL.deletingLastPathComponent()
         do {
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
