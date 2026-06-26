@@ -485,13 +485,20 @@ extension Workspace {
                 shellActivityState: panelShellActivityStates[panelId],
                 fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()
             )
-            let shouldPersistScrollback = sessionRestorePolicy.shouldPersistSessionScrollback(
-                closeConfirmationRequired: closeConfirmationRequired
-            ) && sessionRestorePolicy.shouldReplaySessionScrollback(
-                hasRestorableAgent: effectiveRestorableAgent != nil,
-                tmuxStartCommand: restorableTmuxStartCommand,
-                hasResumeStartupWork: resumeStartupInput != nil
+            // `app.persistTerminalScrollback` (default true) is the user's
+            // opt-out: when off, scrollback is never captured into the snapshot
+            // even though tabs/layout/working-directories still restore (#6597).
+            let persistScrollbackEnabled = SessionScrollbackPersistenceSettings.isEnabled(
+                defaults: sessionScrollbackPersistenceDefaults
             )
+            let shouldPersistScrollback = persistScrollbackEnabled
+                && sessionRestorePolicy.shouldPersistSessionScrollback(
+                    closeConfirmationRequired: closeConfirmationRequired
+                ) && sessionRestorePolicy.shouldReplaySessionScrollback(
+                    hasRestorableAgent: effectiveRestorableAgent != nil,
+                    tmuxStartCommand: restorableTmuxStartCommand,
+                    hasResumeStartupWork: resumeStartupInput != nil
+                )
 #if DEBUG
             let allowDebugFallbackScrollback = debugSessionSnapshotScrollbackFallbackPanelIds.contains(panelId)
 #else
@@ -509,7 +516,11 @@ extension Workspace {
                 panelId: panelId,
                 capturedScrollback: capturedScrollback,
                 includeScrollback: includeScrollback,
-                allowFallbackScrollback: shouldPersistScrollback || allowDebugFallbackScrollback || hasRestoredScrollbackFallback
+                // Gate the restored-scrollback fallback too, so disabling the
+                // setting also purges scrollback that an earlier launch restored
+                // instead of silently re-persisting it on the next autosave.
+                allowFallbackScrollback: persistScrollbackEnabled
+                    && (shouldPersistScrollback || allowDebugFallbackScrollback || hasRestoredScrollbackFallback)
             )
             terminalSnapshot = SessionTerminalPanelSnapshot(
                 workingDirectory: directory,
@@ -1258,7 +1269,15 @@ extension Workspace {
                 } else {
                     nil
                 }
-            let shouldReplayScrollback = sessionRestorePolicy.shouldReplaySessionScrollback(
+            // Honor the `app.persistTerminalScrollback` opt-out on restore too:
+            // when disabled, never replay scrollback from an existing on-disk
+            // snapshot onto the screen or seed it back into
+            // `restoredTerminalScrollbackByPanelId` (`restoredScrollback` drives
+            // both), so a user who turns the setting off before relaunch isn't
+            // shown previously persisted sensitive output (#6597).
+            let shouldReplayScrollback = SessionScrollbackPersistenceSettings.isEnabled(
+                defaults: sessionScrollbackPersistenceDefaults
+            ) && sessionRestorePolicy.shouldReplaySessionScrollback(
                 hasRestorableAgent: restorableAgent != nil,
                 tmuxStartCommand: restoredTmuxStartCommand,
                 hasResumeStartupWork: restoredBindingLaunch != nil || restoredAgentResumeLaunch != nil
@@ -2211,6 +2230,9 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var surfaceTabBarDirectory: String?
     private(set) var preferredBrowserProfileID: UUID?
     let closeTabWarningDefaults, agentSessionAutoResumeDefaults: UserDefaults
+    /// Backing store for `app.persistTerminalScrollback`. Read when building a
+    /// session snapshot to decide whether terminal scrollback is captured.
+    let sessionScrollbackPersistenceDefaults: UserDefaults
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
     var portOrdinal: Int = 0
 
@@ -2991,6 +3013,7 @@ final class Workspace: Identifiable, ObservableObject {
         workspaceEnvironment: [String: String] = [:],
         closeTabWarningDefaults: UserDefaults = .standard,
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
+        sessionScrollbackPersistenceDefaults: UserDefaults = .standard,
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
         sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil
     ) {
@@ -2998,6 +3021,7 @@ final class Workspace: Identifiable, ObservableObject {
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
+        self.sessionScrollbackPersistenceDefaults = sessionScrollbackPersistenceDefaults
         let sanitizedWorkspaceEnvironment = Self.sanitizedWorkspaceEnvironment(workspaceEnvironment)
         self.workspaceEnvironment = sanitizedWorkspaceEnvironment
         self.portOrdinal = portOrdinal
