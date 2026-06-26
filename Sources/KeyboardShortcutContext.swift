@@ -222,6 +222,23 @@ extension AppDelegate {
         return nil
     }
 
+    /// Whether the keystroke's first responder is owned by a browser panel's web
+    /// view (the page itself or an editable element / field editor inside it), as
+    /// opposed to a browser panel merely being the selected pane while chrome — the
+    /// right sidebar, address bar, or find bar — holds keyboard focus. Scoped to
+    /// browser-panel web views (not the diff viewer / markdown renderer) so the
+    /// browser document-editing bypass only fires on genuine browser web-content
+    /// focus and the default Cmd+I (Show Notifications) keeps working otherwise
+    /// (issue #6776).
+    func shortcutEventFirstResponderOwnsBrowserWebView(_ event: NSEvent) -> Bool {
+        let shortcutWindow = shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
+        guard let responder = shortcutWindow?.firstResponder,
+              let webView = shortcutOwningWebView(for: responder) else {
+            return false
+        }
+        return shortcutBrowserPanel(webView: webView) != nil
+    }
+
     private func shortcutFocusedBrowserPanel(in window: NSWindow?) -> BrowserPanel? {
         if let window {
             guard let context = mainWindowContexts[ObjectIdentifier(window)] ??
