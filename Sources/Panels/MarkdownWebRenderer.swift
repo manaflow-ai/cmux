@@ -642,22 +642,20 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             )
         }
 
-        private func handleLibRequest(_ lib: String) {
-            guard let webView else { return }
-            // Load each library at most once per WebView lifetime. State is
-            // reset only when the shell is reloaded via loadShell(); theme
-            // switches reuse the already-loaded libs.
-            if requestedLibs.contains(lib) { return }
-            requestedLibs.insert(lib)
-
-            let assets = MarkdownViewerAssets.shared
-            let sources: [String]
+        /// The ordered JS source fragments to inject for a lazy-loaded library,
+        /// or nil for an unknown library. Extracted from `handleLibRequest` so
+        /// the shipped injection (asset names, and KaTeX's CSS-before-JS
+        /// ordering) is unit-testable without standing up a WKWebView.
+        static func lazyLibrarySources(
+            for lib: String,
+            assets: MarkdownViewerAssets
+        ) -> [String]? {
             switch lib {
             case "mermaid":
-                sources = [assets.lazyAsset(name: "mermaid.min", ext: "js")]
+                return [assets.lazyAsset(name: "mermaid.min", ext: "js")]
             case "vega-lite":
                 // Order matters: vega first, then vega-lite, then vega-embed.
-                sources = [
+                return [
                     assets.lazyAsset(name: "vega.min", ext: "js"),
                     assets.lazyAsset(name: "vega-lite.min", ext: "js"),
                     assets.lazyAsset(name: "vega-embed.min", ext: "js"),
@@ -685,8 +683,22 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                   }
                 })(\(cssLiteral)[0]);
                 """
-                sources = [cssInjection, assets.lazyAsset(name: "katex.min", ext: "js")]
+                return [cssInjection, assets.lazyAsset(name: "katex.min", ext: "js")]
             default:
+                return nil
+            }
+        }
+
+        private func handleLibRequest(_ lib: String) {
+            guard let webView else { return }
+            // Load each library at most once per WebView lifetime. State is
+            // reset only when the shell is reloaded via loadShell(); theme
+            // switches reuse the already-loaded libs.
+            if requestedLibs.contains(lib) { return }
+            requestedLibs.insert(lib)
+
+            let assets = MarkdownViewerAssets.shared
+            guard let sources = Self.lazyLibrarySources(for: lib, assets: assets) else {
                 return
             }
 

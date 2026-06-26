@@ -1024,12 +1024,40 @@ html { scroll-behavior: smooth; }
     }
   });
 
-  // KaTeX inline/display math: $...$ and $$...$$. Emits placeholder spans the
-  // lazy-loaded library swaps for rendered math in renderKaTeXBlocks(). The
-  // raw LaTeX is carried in a hidden .cmux-source child (escaped as element
-  // text, never an attribute) so quotes/backslashes round-trip safely.
+  // KaTeX math. Two extensions emit placeholder elements the lazy-loaded
+  // library swaps for rendered math in renderKaTeXBlocks(). Raw LaTeX is
+  // carried in a hidden .cmux-source child (escaped as element text, never an
+  // attribute) so quotes/backslashes round-trip safely.
+  //
+  // - cmuxMathBlock (block level): a $$...$$ that stands alone on its own
+  //   line(s) emits a bare <div>, matching the ```math fence. Without this,
+  //   an inline-level $$ token is wrapped by marked in a <p>, which adds an
+  //   extra paragraph margin the fence path never gets.
+  // - cmuxMath (inline level): $...$ and any $$ embedded mid-text.
   marked.use({
     extensions: [
+      {
+        name: 'cmuxMathBlock',
+        level: 'block',
+        start(src) {
+          var i = src.indexOf('$$');
+          return i < 0 ? undefined : i;
+        },
+        tokenizer(src) {
+          // Only a $$...$$ run that ends its line (followed by newline(s) or
+          // end-of-input) is a display block; mid-line $$ is left to the
+          // inline extension.
+          var m = src.match(/^\$\$([\s\S]+?)\$\$(?:\n+|$)/);
+          if (m) {
+            return { type: 'cmuxMathBlock', raw: m[0], math: m[1].trim() };
+          }
+          return undefined;
+        },
+        renderer(token) {
+          return '<div class="cmux-math cmux-math-display"><span class="cmux-source">'
+            + escapeHtml(token.math) + '</span></div>\n';
+        }
+      },
       {
         name: 'cmuxMath',
         level: 'inline',
@@ -1507,14 +1535,21 @@ html { scroll-behavior: smooth; }
       try {
         // output:'html' emits only <span> trees (no <math> MathML); trust is
         // left at its default (false) so \href/\includegraphics are inert.
+        // throwOnError:false renders KaTeX's own inline error for malformed
+        // math, so this catch only fires on an unexpected JS exception.
         el.innerHTML = katex.renderToString(src, {
           throwOnError: false,
           output: 'html',
           displayMode: displayMode
         });
       } catch (e) {
-        el.innerHTML = '<span class="cmux-math-error">'
-          + escapeHtml(String((e && e.message) || e)) + '</span>';
+        // Build via DOM with a generic message — never surface raw upstream
+        // exception text in the document.
+        var errorEl = document.createElement('span');
+        errorEl.className = 'cmux-math-error';
+        errorEl.textContent = cmuxString('markdown.web.mathRenderFailed', 'Unable to render math');
+        el.textContent = '';
+        el.appendChild(errorEl);
       }
     });
   }
