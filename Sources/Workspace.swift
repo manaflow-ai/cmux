@@ -10222,8 +10222,8 @@ final class Workspace: Identifiable, ObservableObject {
         sinceLastAttempt: TimeInterval,
         minInterval: TimeInterval
     ) -> TimeInterval {
-        // Un-throttled until the next commit — red half of the #6790 pair.
-        return backoff
+        let throttle = max(0, minInterval - sinceLastAttempt)
+        return max(backoff, throttle)
     }
 
     private func layoutFollowUpBackoffDelay() -> TimeInterval {
