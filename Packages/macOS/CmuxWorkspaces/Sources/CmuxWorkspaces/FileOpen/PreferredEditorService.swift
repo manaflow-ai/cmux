@@ -131,7 +131,7 @@ public struct PreferredEditorService: FileOpening {
     ) -> [String: String] {
         var result = base
         var pathEntries = base["PATH"]?
-            .split(separator: ":", omittingEmptySubsequences: false)
+            .split(separator: ":", omittingEmptySubsequences: true)
             .map(String.init) ?? []
         var seenPathEntries = Set(pathEntries)
 
