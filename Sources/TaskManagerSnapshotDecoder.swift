@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 /// Decodes a raw `[String: Any]` resource-sampler payload into the rows and
@@ -598,35 +599,28 @@ struct CmuxTaskManagerSnapshotDecoder {
         }
     }
 
+    // JSON scalar coercion narrows untyped `Any?` snapshot-payload values to
+    // typed Swift values; the lenient coercion rules live in
+    // `CmuxFoundation.JSONScalar` (the coercing accessors, distinct from its
+    // strict members). These thin adapters keep the decoder's call sites
+    // unchanged.
     private func nonEmptyString(_ raw: Any?) -> String? {
-        guard let value = raw as? String else { return nil }
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        JSONScalar(raw).nonEmptyString
     }
 
     private func uuid(_ raw: Any?) -> UUID? {
-        guard let value = nonEmptyString(raw) else { return nil }
-        return UUID(uuidString: value)
+        JSONScalar(raw).uuid
     }
 
     private func bool(_ raw: Any?) -> Bool {
-        if let value = raw as? Bool { return value }
-        if let value = raw as? NSNumber { return value.boolValue }
-        return false
+        JSONScalar(raw).coercedBool
     }
 
     private func int(_ raw: Any?) -> Int? {
-        if let value = raw as? Int { return value }
-        if let value = raw as? NSNumber { return value.intValue }
-        if let value = raw as? String {
-            return Int(value.trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-        return nil
+        JSONScalar(raw).coercedInt
     }
 
     private func intArray(_ raw: Any?) -> [Int] {
-        if let values = raw as? [Int] { return values }
-        guard let values = raw as? [Any] else { return [] }
-        return values.compactMap(int)
+        JSONScalar(raw).coercedIntArray
     }
 }
