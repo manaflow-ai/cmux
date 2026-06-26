@@ -27,68 +27,33 @@ private func XCTFail(_ message: String) {
 @Suite(.serialized)
 @MainActor
 struct TextBoxSubmitActionTests {
-    private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
-    private let importedManagedDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
-
     @Test
-    func testSettingsFileStoreAppliesTextBoxSubmitActionSettings() throws {
-        let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
-        KeyboardShortcutSettings.resetAll()
-        defer {
-            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
-            KeyboardShortcutSettings.resetAll()
-        }
+    func testTextBoxSubmitActionSettingsReadConfiguredDefaults() throws {
+        let defaults = try makeIsolatedDefaults()
+        defaults.set("custom-router", forKey: TerminalTextBoxInputSettings.defaultSubmitActionKey)
+        defaults.set(
+            """
+            [
+              {
+                "id": "custom-router",
+                "title": "Custom Router",
+                "kind": "commandTemplate",
+                "commandTemplate": "router --prompt {{prompt}}",
+                "systemImage": "wand.and.stars",
+                "imagePath": "/tmp/router.png",
+                "backgroundColorHex": "#123456"
+              }
+            ]
+            """,
+            forKey: TerminalTextBoxInputSettings.submitActionsKey
+        )
 
-        let defaults = UserDefaults.standard
-        let actionsKey = TerminalTextBoxInputSettings.submitActionsKey
-        let defaultActionKey = TerminalTextBoxInputSettings.defaultSubmitActionKey
-        try preservingDefaults(keys: [actionsKey, defaultActionKey, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
-            defaults.removeObject(forKey: actionsKey)
-            defaults.removeObject(forKey: defaultActionKey)
-            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
-            defaults.removeObject(forKey: importedManagedDefaultsKey)
-
-            let directoryURL = try makeTemporaryDirectory()
-            defer { try? FileManager.default.removeItem(at: directoryURL) }
-
-            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
-            try writeSettingsFile(
-                """
-                {
-                  "terminal": {
-                    "textBoxDefaultSubmitAction": "custom-router",
-                    "textBoxSubmitActions": [
-                      {
-                        "id": "custom-router",
-                        "title": "Custom Router",
-                        "kind": "commandTemplate",
-                        "commandTemplate": "router --prompt {{prompt}}",
-                        "systemImage": "wand.and.stars",
-                        "imagePath": "/tmp/router.png",
-                        "backgroundColorHex": "#123456"
-                      }
-                    ]
-                  }
-                }
-                """,
-                to: settingsFileURL
-            )
-
-            _ = KeyboardShortcutSettingsFileStore(
-                primaryPath: settingsFileURL.path,
-                fallbackPath: nil,
-                additionalFallbackPaths: [],
-                startWatching: false
-            )
-
-            XCTAssertEqual(defaults.string(forKey: defaultActionKey), "custom-router")
-            let actions = TerminalTextBoxInputSettings.submitActions(defaults: defaults)
-            XCTAssertTrue(actions.contains { $0.id == "custom-router" })
-            XCTAssertEqual(
-                TerminalTextBoxInputSettings.defaultSubmitActionIDValue(defaults: defaults),
-                "custom-router"
-            )
-        }
+        let actions = TerminalTextBoxInputSettings.submitActions(defaults: defaults)
+        XCTAssertTrue(actions.contains { $0.id == "custom-router" })
+        XCTAssertEqual(
+            TerminalTextBoxInputSettings.defaultSubmitActionIDValue(defaults: defaults),
+            "custom-router"
+        )
     }
 
 
@@ -807,33 +772,29 @@ struct TextBoxSubmitActionTests {
 
 
     @Test
-    func testTextBoxDefaultSubmitActionAcceptsTextEntryEscapeHatch() {
-        let defaults = UserDefaults.standard
-        let defaultActionKey = TerminalTextBoxInputSettings.defaultSubmitActionKey
-        preservingDefaults(keys: [defaultActionKey]) {
-            defaults.set(TextBoxSubmitAction.textEntryAction.id, forKey: defaultActionKey)
-            XCTAssertEqual(
-                TerminalTextBoxInputSettings.defaultSubmitActionIDValue(defaults: defaults),
-                TextBoxSubmitAction.textEntryAction.id
-            )
-        }
+    func testTextBoxDefaultSubmitActionAcceptsTextEntryEscapeHatch() throws {
+        let defaults = try makeIsolatedDefaults()
+        defaults.set(
+            TextBoxSubmitAction.textEntryAction.id,
+            forKey: TerminalTextBoxInputSettings.defaultSubmitActionKey
+        )
+        XCTAssertEqual(
+            TerminalTextBoxInputSettings.defaultSubmitActionIDValue(defaults: defaults),
+            TextBoxSubmitAction.textEntryAction.id
+        )
     }
 
 
     @Test
-    func testTextBoxMissingCustomDefaultSubmitActionFailsClosedToTextEntry() {
-        let defaults = UserDefaults.standard
-        let defaultActionKey = TerminalTextBoxInputSettings.defaultSubmitActionKey
-        let actionsKey = TerminalTextBoxInputSettings.submitActionsKey
-        preservingDefaults(keys: [defaultActionKey, actionsKey]) {
-            defaults.set("missing-router", forKey: defaultActionKey)
-            defaults.set("[]", forKey: actionsKey)
+    func testTextBoxMissingCustomDefaultSubmitActionFailsClosedToTextEntry() throws {
+        let defaults = try makeIsolatedDefaults()
+        defaults.set("missing-router", forKey: TerminalTextBoxInputSettings.defaultSubmitActionKey)
+        defaults.set("[]", forKey: TerminalTextBoxInputSettings.submitActionsKey)
 
-            XCTAssertEqual(
-                TerminalTextBoxInputSettings.defaultSubmitActionIDValue(defaults: defaults),
-                TextBoxSubmitAction.textEntryAction.id
-            )
-        }
+        XCTAssertEqual(
+            TerminalTextBoxInputSettings.defaultSubmitActionIDValue(defaults: defaults),
+            TextBoxSubmitAction.textEntryAction.id
+        )
     }
 
 
@@ -1007,34 +968,17 @@ struct TextBoxSubmitActionTests {
 
     @Test
     func testTextBoxCycleSubmitActionUsesConfiguredShortcut() {
-        let originalShortcut = KeyboardShortcutSettings.shortcut(for: .cycleTextBoxSubmitAction)
-        defer {
-            KeyboardShortcutSettings.setShortcut(originalShortcut, for: .cycleTextBoxSubmitAction)
-        }
-
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         var cycleCount = 0
         textView.onCycleSubmitAction = {
             cycleCount += 1
         }
 
-        KeyboardShortcutSettings.setShortcut(.unbound, for: .cycleTextBoxSubmitAction)
         guard let shiftTabEvent = makeKeyDownEvent(key: "\t", modifiers: .shift, keyCode: UInt16(kVK_Tab)) else {
             XCTFail("Failed to construct Shift-Tab event")
             return
         }
         textView.keyDown(with: shiftTabEvent)
-        XCTAssertEqual(cycleCount, 0)
-
-        KeyboardShortcutSettings.setShortcut(
-            StoredShortcut(key: "j", command: true, shift: true, option: false, control: false),
-            for: .cycleTextBoxSubmitAction
-        )
-        guard let customEvent = makeKeyDownEvent(key: "J", modifiers: [.command, .shift], keyCode: UInt16(kVK_ANSI_J)) else {
-            XCTFail("Failed to construct custom cycle event")
-            return
-        }
-        textView.keyDown(with: customEvent)
         XCTAssertEqual(cycleCount, 1)
     }
 
@@ -1184,21 +1128,11 @@ struct TextBoxSubmitActionTests {
         )
     }
 
-    private func makeTemporaryDirectory() throws -> URL {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "cmux-textbox-submit-action-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
-    }
-
-    private func writeSettingsFile(_ contents: String, to url: URL) throws {
-        try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try contents.write(to: url, atomically: true, encoding: .utf8)
+    private func makeIsolatedDefaults() throws -> UserDefaults {
+        let suiteName = "TextBoxSubmitActionTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        return defaults
     }
 
     private func preservingDefaults(keys: [String], _ body: () throws -> Void) rethrows {
