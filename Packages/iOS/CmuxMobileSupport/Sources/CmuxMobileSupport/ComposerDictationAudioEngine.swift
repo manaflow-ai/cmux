@@ -13,19 +13,36 @@ import Foundation
 /// every one of those calls on its own serial queue, so the main actor only ever
 /// ENQUEUES the work — it never blocks on the audio hardware.
 ///
-/// Concurrency: `@unchecked Sendable`. The engine and the `isActive` flag are
-/// touched ONLY on ``queue`` (a single serial dispatch queue), so the type is
-/// data-race-free despite wrapping the non-Sendable `AVAudioEngine`. Callers pass
-/// `@Sendable` closures and hop back to the main actor inside them, exactly like
-/// the controller's authorization and recognition callbacks. Because ``queue`` is
-/// serial and FIFO, a ``stop()`` enqueued while a ``start(tapBlock:onReady:)`` is
-/// mid-flight is always ordered AFTER that start's activation and BEFORE any
-/// later start's activation, so the engine can never be double-started or leak a
-/// tap across a rapid stop/restart.
+/// Concurrency: a private serial `DispatchQueue` plus `@unchecked Sendable`, NOT
+/// an `actor` — a deliberate low-level carve-out (lint:allow serial-audio-queue),
+/// matching the established AVFoundation-session-on-a-serial-queue pattern already
+/// used for capture in `QRCodeCaptureController` (Apple's own AVFoundation sample
+/// code drives capture/audio sessions from a dedicated serial dispatch queue, not
+/// Swift concurrency). Two concrete reasons an actor is the wrong tool here:
+///   1. `setActive`/`engine.start`/`engine.stop` are SYNCHRONOUS, ~100-300ms
+///      blocking hardware calls. On an actor they would block a cooperative-pool
+///      thread (the pool is sized to the core count), risking starvation/priority
+///      inversion across the app; a dedicated serial queue confines the block to
+///      its own thread.
+///   2. The supersession invariant needs ``stop()`` enqueued SYNCHRONOUSLY and in
+///      deterministic FIFO order relative to ``start(tapBlock:onReady:)``, directly
+///      from the `@MainActor` controller's synchronous teardown path. A serial
+///      `DispatchQueue.async` guarantees that; a cross-actor `await` (which the
+///      synchronous controller could only reach via `Task { await … }`) gives no
+///      deterministic ordering between independently-scheduled tasks.
+/// The mutable state (`engine`, `isActive`) is touched ONLY on ``queue`` — every
+/// entry point hops through it, and ``teardownLocked()`` asserts the invariant with
+/// `dispatchPrecondition` — so the type is data-race-free despite wrapping the
+/// non-Sendable `AVAudioEngine`. Callers pass `@Sendable` closures and hop back to
+/// the main actor inside them, exactly like the controller's authorization and
+/// recognition callbacks. Because ``queue`` is serial and FIFO, a ``stop()``
+/// enqueued while a ``start(tapBlock:onReady:)`` is mid-flight is always ordered
+/// AFTER that start's activation and BEFORE any later start's activation, so the
+/// engine can never be double-started or leak a tap across a rapid stop/restart.
 final class ComposerDictationAudioEngine: @unchecked Sendable {
     /// The serial queue that owns every audio-hardware call. All mutable state
     /// below is confined to it, which is what makes the `@unchecked Sendable`
-    /// conformance sound.
+    /// conformance sound; ``teardownLocked()`` asserts execution lands here.
     private let queue = DispatchQueue(label: "com.cmux.composer.dictation-audio")
 
     /// The audio engine capturing microphone buffers. Created once and reused
@@ -103,6 +120,10 @@ final class ComposerDictationAudioEngine: @unchecked Sendable {
     /// ``queue``. A no-op unless this owner activated the session, so a stop with
     /// nothing active never touches the audio system.
     private func teardownLocked() {
+        // Self-enforce the isolation contract: this method (and the mutable state it
+        // touches) is only data-race-free because it runs on `queue`. Trap loudly if
+        // a future caller ever reaches it off-queue rather than silently racing.
+        dispatchPrecondition(condition: .onQueue(queue))
         guard isActive else { return }
         isActive = false
         if engine.isRunning {
