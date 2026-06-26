@@ -15,11 +15,10 @@ import Testing
             .path
         var finderOpenedPaths: [String?] = []
 
-        let task = WorkspaceFinderDirectoryOpener.openInFinder(
+        await WorkspaceFinderDirectoryOpener.openInFinder(
             path: cwd,
             openInFinder: { finderOpenedPaths.append($0?.path) }
         )
-        await task.value
 
         #expect(finderOpenedPaths == [cwd])
     }

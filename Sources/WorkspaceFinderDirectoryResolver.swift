@@ -53,14 +53,11 @@ enum WorkspaceFinderDirectoryOpener {
     }
 
     @MainActor
-    @discardableResult
     static func openInFinder(
         path: String,
         openInFinder: @escaping FinderOpener = WorkspaceFinderDirectoryOpener.openInFinder
-    ) -> Task<Void, Never> {
+    ) async {
         let directoryURL = URL(fileURLWithPath: path, isDirectory: true)
-        return Task { @MainActor in
-            await openInFinder(directoryURL)
-        }
+        await openInFinder(directoryURL)
     }
 }
