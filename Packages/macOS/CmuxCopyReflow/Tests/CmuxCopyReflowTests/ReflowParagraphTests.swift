@@ -93,6 +93,26 @@ final class ReflowParagraphTests: XCTestCase {
         XCTAssertEqual(reflowCopiedText(input), "alpha\nbeta\n")
     }
 
+    /// Grid rows copied with trailing padding (the trim=false read path) must not
+    /// turn that padding into internal seam gaps when joined. Regression for the
+    /// "bewildering········circumstances" bug.
+    func testTrailingPaddingDoesNotCreateSeamGaps() {
+        let line1 = "The quick brown fox jumps over the lazy dog and keeps running across the whole field today"
+        let line2 = "and then it stops."
+        let input = "\(line1)      \n\(line2)   \n"
+        let result = reflowCopiedText(input)
+        XCTAssertEqual(result, "\(line1) \(line2)\n")
+        XCTAssertFalse(result.contains("  "), "no padding-run gaps should survive")
+    }
+
+    func testNoLineKeepsTrailingWhitespace() {
+        let input = "first standalone line that is short   \n\nsecond standalone line also short\t\n"
+        let result = reflowCopiedText(input)
+        for line in result.split(separator: "\n", omittingEmptySubsequences: false) {
+            XCTAssertFalse(line.hasSuffix(" ") || line.hasSuffix("\t"), "line kept trailing whitespace: \(line)")
+        }
+    }
+
     /// The shape of the originally reported paste: multiple paragraphs, every
     /// line sharing a 2-space indent, wrapped at viewport width, separated by a
     /// truly blank line. Each paragraph should collapse to one clean line.

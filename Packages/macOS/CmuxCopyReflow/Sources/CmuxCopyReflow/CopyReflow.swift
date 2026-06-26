@@ -46,7 +46,14 @@ public nonisolated func reflowCopiedText(
     let commonIndent = computeCommonIndent(rawLines, isFenceLine: isFenceLine)
 
     // Stripped view of each line (common indent removed, relative indent kept).
-    let stripped = rawLines.map { stripColumns($0, commonIndent) }
+    // Outside fenced code, also right-trim: terminal grid rows are padded with
+    // trailing spaces (the trim=false selection-read path), and that padding must
+    // never survive into joins as internal seam gaps or as trailing whitespace.
+    // Fence bodies are preserved verbatim.
+    let stripped: [Substring] = rawLines.indices.map { i in
+        let s = stripColumns(rawLines[i], commonIndent)
+        return isFenceLine[i] ? s : rtrim(s)
+    }
 
     // Pass 2: block max width. A block is a run of consecutive lines that are
     // neither blank nor part of a fence.
@@ -191,6 +198,16 @@ private func computeCommonIndent(_ lines: [Substring], isFenceLine: [Bool]) -> I
         minIndent = min(minIndent ?? indent, indent)
     }
     return minIndent ?? 0
+}
+
+/// Drop trailing space/tab characters.
+private func rtrim(_ s: Substring) -> Substring {
+    var end = s.endIndex
+    while end > s.startIndex {
+        let prev = s.index(before: end)
+        if s[prev] == " " || s[prev] == "\t" { end = prev } else { break }
+    }
+    return s[s.startIndex..<end]
 }
 
 /// Drop up to `n` leading space/tab columns.
