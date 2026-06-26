@@ -266,6 +266,8 @@ struct CMUXExtensionKitTests {
         try await host.createTerminalSurface(in: workspaceID)
         try await host.createBrowserSurface(in: workspaceID, url: url)
         try await host.openURL(url)
+        try await host.runWorkspaceCommand(named: "Dev Environment", workingDirectory: "/tmp/project")
+        try await host.invokeNewWorkspaceAction(workingDirectory: "/tmp/project")
 
         #expect(refreshCount == 1)
         #expect(actions == [
@@ -278,6 +280,8 @@ struct CMUXExtensionKitTests {
             .createTerminalSurface(workspaceID: workspaceID),
             .createBrowserSurface(workspaceID: workspaceID, url: "https://example.com/pr/1"),
             .openURL("https://example.com/pr/1"),
+            .runWorkspaceCommand(name: "Dev Environment", workingDirectory: "/tmp/project"),
+            .invokeNewWorkspaceAction(workingDirectory: "/tmp/project"),
         ])
     }
 
@@ -342,6 +346,14 @@ struct CMUXExtensionKitTests {
     func testWorkspaceCreationWithPathRequiresWorkspacePathScope() {
         #expect(CmuxSidebarAction.createWorkspace(title: nil, workingDirectory: nil, select: true).requiredScopes == [.createWorkspace])
         #expect(CmuxSidebarAction.createWorkspace(title: nil, workingDirectory: "/tmp/project", select: true).requiredScopes == [.createWorkspace, .createWorkspaceWithPath])
+    }
+
+    @Test
+    func testWorkspaceCommandActionsRequireCommandScopeAndPathScope() {
+        #expect(CmuxSidebarAction.runWorkspaceCommand(name: "Dev Environment", workingDirectory: nil).requiredScopes == [.runWorkspaceCommand])
+        #expect(CmuxSidebarAction.runWorkspaceCommand(name: "Dev Environment", workingDirectory: "/tmp/project").requiredScopes == [.runWorkspaceCommand, .createWorkspaceWithPath])
+        #expect(CmuxSidebarAction.invokeNewWorkspaceAction(workingDirectory: nil).requiredScopes == [.runWorkspaceCommand])
+        #expect(CmuxSidebarAction.invokeNewWorkspaceAction(workingDirectory: "/tmp/project").requiredScopes == [.runWorkspaceCommand, .createWorkspaceWithPath])
     }
 
     @Test

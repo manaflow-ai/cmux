@@ -761,6 +761,56 @@ final class CmuxConfigDecodingTests: XCTestCase {
     }
 
     @MainActor
+    func testExecutionContextStartingFromDirectoryLoadsNearestWorkspaceCommand() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let globalDirectory = root.appendingPathComponent("global", isDirectory: true)
+        let projectDirectory = root.appendingPathComponent("project", isDirectory: true)
+        let nestedDirectory = projectDirectory.appendingPathComponent("packages/app", isDirectory: true)
+        let configDirectory = projectDirectory.appendingPathComponent(".cmux", isDirectory: true)
+        try FileManager.default.createDirectory(at: globalDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: nestedDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigURL = globalDirectory.appendingPathComponent("cmux.json")
+        let localConfigURL = configDirectory.appendingPathComponent("cmux.json")
+        try """
+        {
+          "commands": [{
+            "name": "Global Dev",
+            "workspace": { "name": "Global", "cwd": "." }
+          }]
+        }
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "actions": {
+            "worktree-dev": { "type": "workspaceCommand", "commandName": "Local Dev" }
+          },
+          "ui": { "newWorkspace": { "action": "worktree-dev" } },
+          "commands": [{
+            "name": "Local Dev",
+            "workspace": { "name": "Local", "cwd": "." }
+          }]
+        }
+        """.write(to: localConfigURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(globalConfigPath: globalConfigURL.path, startFileWatchers: false)
+        store.loadAll()
+        XCTAssertNil(store.resolvedAction(id: "worktree-dev"))
+
+        let context = store.executionContext(startingFrom: nestedDirectory.path)
+        XCTAssertEqual(context.loadedCommands.map(\.name), ["Local Dev", "Global Dev"])
+        XCTAssertEqual(context.commandSourcePaths[context.loadedCommands[0].id], localConfigURL.path)
+        XCTAssertEqual(context.resolvedWorkspaceCommandAction(identifier: "Local Dev")?.workspaceCommandName, "Local Dev")
+        XCTAssertEqual(context.resolvedWorkspaceCommandAction(identifier: "worktree-dev")?.workspaceCommandName, "Local Dev")
+        XCTAssertEqual(context.resolvedNewWorkspaceAction()?.workspaceCommandName, "Local Dev")
+    }
+
+    @MainActor
     func testConfigStoreReportsJSONCPreprocessingErrors() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
