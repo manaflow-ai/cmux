@@ -22,6 +22,12 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // submit rather than an instant flash. The real wait is the capture POST below.
 const SUBMIT_DELAY_MS = 600;
 
+// Hard cap on the server-side deliverability check. If the route is slow, hung,
+// or rate-limiting, abort and let the signup through rather than stall the user
+// on "Joining…". Sits above the server's own ~2.5s DNS timeout so the server's
+// verdict usually wins; this is the backstop for a hung route.
+const VALIDATE_TIMEOUT_MS = 4000;
+
 /**
  * Records a waitlist signup by POSTing the event straight to PostHog's capture
  * endpoint and awaiting delivery, so the UI shows success only when the record
@@ -75,19 +81,24 @@ async function recordWaitlistSignup(
 /**
  * Asks the server whether the email's domain can receive mail (MX + disposable
  * check) before we record the signup. Returns `"invalid"` only on a definitive
- * rejection; network or server errors return `"ok"` so a transient failure never
- * blocks a real signup (the server itself also fails open on DNS hiccups).
+ * rejection; network errors, server errors, rate limits, and timeouts all return
+ * `"ok"` so a degraded backend never blocks a real signup (the server itself
+ * also fails open on DNS hiccups). Bounded by an abort timeout so a hung route
+ * can't stall the signup either.
  */
 async function verifyWaitlistEmail(
   email: string,
   platforms: WaitlistPlatform[],
   location: string,
 ): Promise<"ok" | "invalid"> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), VALIDATE_TIMEOUT_MS);
   try {
     const res = await fetch("/api/waitlist", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, platforms, location, notify: false }),
+      signal: controller.signal,
     });
     if (!res.ok) return "ok";
     const data = (await res.json().catch(() => null)) as {
@@ -95,7 +106,10 @@ async function verifyWaitlistEmail(
     } | null;
     return data?.valid === false ? "invalid" : "ok";
   } catch {
+    // Network error or abort timeout: fail open.
     return "ok";
+  } finally {
+    clearTimeout(timer);
   }
 }
 

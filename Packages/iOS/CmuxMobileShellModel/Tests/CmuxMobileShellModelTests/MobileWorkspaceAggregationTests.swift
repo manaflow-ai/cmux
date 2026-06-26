@@ -32,6 +32,8 @@ import Testing
         // Same Mac's workspaces all carry that Mac's single color index.
         #expect(derived.filter { $0.macDeviceID == "mac-a" }.allSatisfy { $0.machineColorIndex == idx["mac-a"] })
         #expect(derived.first { $0.macDeviceID == "mac-b" }?.machineColorIndex == idx["mac-b"])
+        #expect(derived.filter { $0.macDeviceID == "mac-a" }.allSatisfy { $0.macDisplayName == "Alpha" })
+        #expect(derived.first { $0.macDeviceID == "mac-b" }?.macDisplayName == "Beta")
     }
 
     @Test func colorIndexIgnoresEmptyMacKeys() {

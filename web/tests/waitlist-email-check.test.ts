@@ -86,4 +86,52 @@ describe("checkEmailDeliverable", () => {
     resolve6 = noRecord;
     expect(await checkEmailDeliverable("not-an-email")).toBe("invalid");
   });
+
+  test("fails open (unknown) when DNS exceeds the timeout", async () => {
+    // A hung resolver must never reject a real address; the bounded check
+    // resolves to "unknown" so the caller passes the email through. Capture the
+    // abandoned lookups so they can be settled deterministically at the end
+    // rather than left dangling across other test files in the shared process.
+    const rejecters: Array<(reason: unknown) => void> = [];
+    const lookups: Array<Promise<never>> = [];
+    const hang = () => {
+      const p = new Promise<never>((_, reject) => {
+        rejecters.push(reject);
+      });
+      lookups.push(p);
+      return p;
+    };
+    resolveMx = hang;
+    resolve4 = hang;
+    resolve6 = hang;
+    expect(await checkEmailDeliverable("a@hung.test", 1)).toBe("unknown");
+    // Settle the abandoned lookup so its in-flight entry clears and nothing
+    // lingers for later tests.
+    rejecters.forEach((reject) => reject(new Error("test cleanup")));
+    await Promise.allSettled(lookups);
+  });
+
+  test("coalesces concurrent lookups for one domain onto a single DNS call", async () => {
+    let mxCalls = 0;
+    let release!: (v: { exchange: string; priority: number }[]) => void;
+    resolveMx = () => {
+      mxCalls += 1;
+      return new Promise((res) => {
+        release = res;
+      });
+    };
+    resolve4 = noRecord;
+    resolve6 = noRecord;
+    // Each call runs synchronously up to its first await: the first invokes the
+    // single resolveMx and registers the in-flight entry (so `release` is set);
+    // the second coalesces onto it without calling resolveMx again. The dedupe
+    // has therefore already happened by the time these two statements return —
+    // no timer needed.
+    const p1 = checkEmailDeliverable("a@coalesce.test");
+    const p2 = checkEmailDeliverable("b@coalesce.test");
+    release([{ exchange: "mx.coalesce.test", priority: 10 }]);
+    expect(await p1).toBe("ok");
+    expect(await p2).toBe("ok");
+    expect(mxCalls).toBe(1);
+  });
 });
