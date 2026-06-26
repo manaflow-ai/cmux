@@ -131,8 +131,23 @@ func titlebarControlPressedScale(isPressed _: Bool) -> CGFloat {
     1
 }
 
+@MainActor
 final class TitlebarControlsViewModel: ObservableObject {
     weak var notificationsAnchorView: NSView?
+    private weak var hostWindowStorage: NSWindow?
+
+    var hostWindow: NSWindow? { hostWindowStorage }
+    var hostWindowNumber: Int? { hostWindowStorage?.windowNumber }
+
+    func setHostWindow(_ window: NSWindow?) {
+        guard hostWindowStorage !== window else { return }
+        hostWindowStorage = window
+    }
+
+    func clearHostWindow(_ window: NSWindow?) {
+        guard window == nil || hostWindowStorage === window else { return }
+        hostWindowStorage = nil
+    }
 }
 
 @MainActor
@@ -817,13 +832,13 @@ struct TitlebarControlsView: View {
     let onFocusHistoryBack: () -> Void
     let onFocusHistoryForward: () -> Void
     let visibilityMode: TitlebarControlsVisibilityMode
+    var clearsHostWindowOnDisappear: Bool = true
     @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
     @State private var shortcutRefreshTick = 0
     @State private var appearanceRefreshTick = 0
     @State private var isHoveringControls = false
-    @State private var hostWindowNumber: Int?
     @State private var focusHistoryAvailabilityRevision: UInt64 = 0
     @State private var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     private let titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
@@ -861,7 +876,7 @@ struct TitlebarControlsView: View {
             return true
         }
         return isHoveringControls
-            || popoverVisibilityState.isShown(in: hostWindowNumber)
+            || popoverVisibilityState.isShown(in: viewModel.hostWindowNumber)
             || shouldShowTitlebarShortcutHints
     }
 
@@ -889,15 +904,7 @@ struct TitlebarControlsView: View {
             .animation(.easeInOut(duration: 0.14), value: shouldShowControls)
             .background(
                 WindowAccessor(refreshID: showModifierHoldHints) { window in
-                    let nextWindowNumber = window.windowNumber
-                    if hostWindowNumber != nextWindowNumber {
-                        DispatchQueue.main.async {
-                            if hostWindowNumber != nextWindowNumber {
-                                hostWindowNumber = nextWindowNumber
-                                focusHistoryAvailabilityRevision &+= 1
-                            }
-                        }
-                    }
+                    viewModel.setHostWindow(window)
                     modifierKeyMonitor.setHostWindow(modifierHoldHintsEnabled ? window : nil)
                 }
                 .frame(width: 0, height: 0)
@@ -925,7 +932,7 @@ struct TitlebarControlsView: View {
             }
             .onDisappear {
                 modifierKeyMonitor.stop()
-                hostWindowNumber = nil
+                if clearsHostWindowOnDisappear { viewModel.clearHostWindow(nil) }
             }
             .onChange(of: showModifierHoldHints) { _, _ in
                 startShortcutHintMonitorIfNeeded()
@@ -1080,8 +1087,7 @@ struct TitlebarControlsView: View {
 
     @MainActor
     private var focusHistoryTargetWindow: NSWindow? {
-        if let hostWindowNumber,
-           let hostWindow = NSApp.windows.first(where: { $0.windowNumber == hostWindowNumber }) {
+        if let hostWindow = viewModel.hostWindow {
             return hostWindow
         }
         return NSApp.keyWindow ?? NSApp.mainWindow
@@ -1341,8 +1347,11 @@ struct HiddenTitlebarSidebarControlsView: View {
     @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @State private var isHoveringHost = false
     @State private var isHoveringWindowChrome = false
-    @State private var hostWindowNumber: Int?
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
+
+    private var hostWindowNumber: Int? {
+        viewModel.hostWindowNumber
+    }
 
     private var shouldPinControls: Bool {
         isHoveringHost || isHoveringWindowChrome || popoverVisibilityState.isShown(in: hostWindowNumber)
@@ -1354,23 +1363,15 @@ struct HiddenTitlebarSidebarControlsView: View {
         ZStack(alignment: .leading) {
             WindowAccessor { window in
                 let nextWindowNumber = window.windowNumber
-                let nextHoveringWindowChrome = MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumber == nextWindowNumber
-                if hostWindowNumber != nextWindowNumber || isHoveringWindowChrome != nextHoveringWindowChrome {
-                    DispatchQueue.main.async {
-                        if hostWindowNumber != nextWindowNumber {
-                            hostWindowNumber = nextWindowNumber
-                        }
-                        if isHoveringWindowChrome != nextHoveringWindowChrome {
-                            isHoveringWindowChrome = nextHoveringWindowChrome
-                        }
-                    }
-                }
+                viewModel.setHostWindow(window)
                 #if DEBUG
                 TitlebarChromeUITestRecorder.recordTrafficLightFrames(window: window)
                 _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
                     payload["minimalSidebarHostWindowNumber"] = String(nextWindowNumber)
                     payload["minimalSidebarHostPinned"] = String(
-                        isHoveringHost || nextHoveringWindowChrome || popoverVisibilityState.isShown(in: nextWindowNumber)
+                        isHoveringHost
+                            || MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumber == nextWindowNumber
+                            || popoverVisibilityState.isShown(in: nextWindowNumber)
                     )
                 }
                 #endif
@@ -1391,7 +1392,7 @@ struct HiddenTitlebarSidebarControlsView: View {
                 onNewTab: onNewTab,
                 onFocusHistoryBack: onFocusHistoryBack,
                 onFocusHistoryForward: onFocusHistoryForward,
-                visibilityMode: .alwaysVisible
+                visibilityMode: .alwaysVisible, clearsHostWindowOnDisappear: false
             )
             .frame(
                 width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
@@ -1468,14 +1469,13 @@ struct HiddenTitlebarSidebarControlsView: View {
             if let hostWindowNumber {
                 MinimalModeSidebarChromeHoverState.shared.setHovering(false, windowNumber: hostWindowNumber)
             }
-            hostWindowNumber = nil
+            viewModel.clearHostWindow(nil)
         }
     }
 
     @MainActor
     private var hostWindowForFocusHistoryNavigation: NSWindow? {
-        if let hostWindowNumber,
-           let hostWindow = NSApp.windows.first(where: { $0.windowNumber == hostWindowNumber }) {
+        if let hostWindow = viewModel.hostWindow {
             return hostWindow
         }
         return NSApp.keyWindow ?? NSApp.mainWindow
