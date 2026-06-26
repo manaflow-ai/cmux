@@ -147,21 +147,49 @@ struct TerminalPanelView: View {
     }
 
     private var effectiveTerminalAgentContext: String {
-        guard let command = panel.textBoxState.activeLaunchCommand?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !command.isEmpty else {
-            return terminalAgentContext
-        }
-        let marker = "textBoxLaunchCommand:\(command)"
-        let existingLines = terminalAgentContext
+        Self.effectiveTerminalAgentContext(
+            terminalAgentContext,
+            pendingLaunchCommand: panel.textBoxState.pendingLaunchCommand,
+            activeLaunchCommand: panel.textBoxState.activeLaunchCommand
+        )
+    }
+
+    static func effectiveTerminalAgentContext(
+        _ terminalAgentContext: String,
+        pendingLaunchCommand: String?,
+        activeLaunchCommand: String?
+    ) -> String {
+        var context = terminalAgentContext
+        appendTextBoxLaunchContext(
+            "textBoxPendingLaunchCommand:",
+            command: pendingLaunchCommand,
+            to: &context
+        )
+        appendTextBoxLaunchContext(
+            "textBoxLaunchCommand:",
+            command: activeLaunchCommand,
+            to: &context
+        )
+        return context
+    }
+
+    private static func appendTextBoxLaunchContext(
+        _ prefix: String,
+        command: String?,
+        to context: inout String
+    ) {
+        guard let command = command?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !command.isEmpty else { return }
+        let marker = "\(prefix)\(command)"
+        let existingLines = context
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map(String.init)
-        guard !existingLines.contains(marker) else {
-            return terminalAgentContext
+        guard !existingLines.contains(marker) else { return }
+        if context.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            context = marker
+        } else {
+            context += "\n\(marker)"
         }
-        if terminalAgentContext.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return marker
-        }
-        return terminalAgentContext + "\n" + marker
     }
 }
 

@@ -123,11 +123,13 @@ extension TextBoxInputContainer {
         shellActivityState: PanelShellActivityState,
         terminalAgentContext: String
     ) -> Bool {
+        if TextBoxAgentDetection.hasPendingTextBoxLaunchContext(terminalAgentContext) {
+            return false
+        }
         if TextBoxAgentDetection.supportsAgentPrefixes(context: terminalAgentContext) {
             return true
         }
-        return shellActivityState == .promptIdle &&
-            !TextBoxAgentDetection.hasPendingTextBoxLaunchContext(terminalAgentContext)
+        return shellActivityState == .promptIdle
     }
 
     static func shouldClearLaunchCommandWhenClearingPending(terminalAgentContext: String) -> Bool {

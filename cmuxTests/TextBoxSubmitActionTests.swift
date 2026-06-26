@@ -733,6 +733,12 @@ struct TextBoxSubmitActionTests {
                 terminalAgentContext: "textBoxPendingLaunchCommand:codex"
             )
         )
+        XCTAssertFalse(
+            TextBoxInputContainer.shouldClearPendingProviderLaunch(
+                shellActivityState: .promptIdle,
+                terminalAgentContext: "restoredAgent:claude\ntextBoxPendingLaunchCommand:codex"
+            )
+        )
         XCTAssertTrue(
             TextBoxInputContainer.isPendingProviderLaunchAwaitingAgent(
                 pendingProviderLaunchAction: TextBoxSubmitAction.builtInActions[0],
@@ -747,6 +753,24 @@ struct TextBoxSubmitActionTests {
         XCTAssertFalse(
             TextBoxInputContainer.shouldClearLaunchCommandWhenClearingPending(
                 terminalAgentContext: "textBoxLaunchCommand:codex"
+            )
+        )
+    }
+
+    @Test
+    func testTerminalPanelViewAddsPendingTextBoxLaunchContext() {
+        let context = TerminalPanelView.effectiveTerminalAgentContext(
+            "restoredAgent:claude",
+            pendingLaunchCommand: "codex",
+            activeLaunchCommand: nil
+        )
+
+        XCTAssertTrue(TextBoxAgentDetection.hasPendingTextBoxLaunchContext(context))
+        XCTAssertTrue(context.contains("restoredAgent:claude"))
+        XCTAssertFalse(
+            TextBoxInputContainer.shouldClearPendingProviderLaunch(
+                shellActivityState: .promptIdle,
+                terminalAgentContext: context
             )
         )
     }
