@@ -13158,14 +13158,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // writing apps (Notion, Google Docs, …) instead of opening Show
         // Notifications. This special-cases only the editing collision: the action
         // stays generally available, so non-colliding custom bindings (e.g.
-        // Cmd+Shift+I) still open notifications from a browser pane, and the URL bar
-        // is excluded since italics is meaningless there (issue #6776). Gated to the
-        // no-active-chord case so a configured chord whose second stroke is
-        // Cmd+I/C/X/A still completes instead of being swallowed here.
+        // Cmd+Shift+I) still open notifications from a browser pane. Gated to the
+        // actual web view owning first responder — not just the browser being the
+        // selected pane — so Cmd+I keeps working when the sidebar, address bar, or
+        // other chrome holds focus, and to the no-active-chord case so a configured
+        // chord whose second stroke is Cmd+I/C/X/A still completes (issue #6776).
         if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
-           !hasFocusedAddressBarInShortcutContext,
-           shortcutEventFocusContext(event).browserPanel != nil,
-           shouldRouteBrowserDocumentEditingCommandEquivalentThroughWebContentFirst(event) {
+           shouldRouteBrowserDocumentEditingCommandEquivalentThroughWebContentFirst(event),
+           shortcutEventFirstResponderOwnsBrowserWebView(event) {
             return false
         }
 

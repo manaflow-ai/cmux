@@ -12169,6 +12169,49 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
+    func testShowNotificationsFiresWhenBrowserSelectedButWebViewNotFocused() {
+        // The browser document-editing bypass keys on the web view actually owning
+        // first responder, not on the browser merely being the selected pane. When
+        // chrome (sidebar/address bar/etc.) holds focus while a browser pane stays
+        // selected, Cmd+I must still open Show Notifications (issue #6776).
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+        guard let harness = makeBrowserFocusModeHarness() else { return }
+        defer { closeWindow(withId: harness.windowId) }
+
+        // Move first responder off the web view while the browser pane stays the
+        // selected/focused panel (focusedBrowserPanel is unchanged).
+        XCTAssertTrue(
+            harness.window.makeFirstResponder(harness.window),
+            "Expected to move first responder off the web view"
+        )
+
+        guard let event = makeKeyDownEvent(
+            key: "i",
+            modifiers: [.command],
+            keyCode: 34, // kVK_ANSI_I
+            windowNumber: harness.window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+I event")
+            return
+        }
+
+        XCTAssertFalse(
+            appDelegate.shortcutEventFirstResponderOwnsBrowserWebView(event),
+            "Web view must not be reported as first responder when chrome holds focus"
+        )
+#if DEBUG
+        XCTAssertTrue(
+            appDelegate.debugHandleCustomShortcut(event: event),
+            "Cmd+I must still open Show Notifications when the web view is not focused"
+        )
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+    }
+
     private func makeBrowserFocusModeHarness(
         file: StaticString = #filePath,
         line: UInt = #line
