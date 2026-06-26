@@ -174,6 +174,19 @@ public struct CmxCloudAttachEndpoint: Codable, Equatable, Sendable {
 /// comes back unscoped with an empty `macDeviceID`: the host's identity arrives
 /// post-handshake from `mobile.host.status`. Unlike the QR, the ticket carries
 /// the lease token and its expiry, since a cloud lease is short-lived.
+///
+/// Trust note: the produced `.websocket` route is deliberately *not* trusted by
+/// `MobileShellRouteAuthPolicy` to carry the Stack account token. Attach
+/// tickets can arrive from scanned/pasted `cmux-ios://attach` payloads, so
+/// trusting a `.websocket` route by URL alone would let a malicious code
+/// exfiltrate the bearer token to an attacker host (and a provider-domain
+/// allowlist can't help — an attacker can rent a VM on the same provider). A
+/// cloud route is trustworthy only by *provenance*: it was minted by an
+/// authenticated `POST /api/vm/{id}/attach-endpoint` call for the caller's own
+/// VM. The route model does not yet carry that provenance, and the cloud daemon
+/// authorizes by the lease token rather than the Stack token, so wiring the
+/// route's RPC auth belongs with the WebSocket transport that dials it (issue
+/// #6700 follow-up), not with this data-contract layer.
 public struct CmxCloudAttach: Sendable {
     /// The transport label the backend uses for a cmuxd-remote WebSocket
     /// endpoint (`web/services/vms/drivers/types.ts`).

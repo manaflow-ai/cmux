@@ -10,9 +10,8 @@ import Foundation
 ///
 /// The Stack-bearer-token gate (``routeAllowsStackAuth(_:)``) is intentionally
 /// restricted to **encrypted or loopback channels only**: the Tailscale tunnel
-/// (WireGuard-encrypted), iroh peer connections (encrypted), secure WebSocket
-/// (`wss://`, TLS-encrypted) Cloud VM routes, and loopback (never leaves the
-/// machine). Plain private-LAN and `.local`/Bonjour hosts are dialed
+/// (WireGuard-encrypted), iroh peer connections (encrypted), and loopback (never
+/// leaves the machine). Plain private-LAN and `.local`/Bonjour hosts are dialed
 /// over unencrypted TCP (``CmxNetworkByteTransport`` uses `NWParameters(tls: nil)`),
 /// so they are excluded from the Stack-auth-allowed set even though they may still
 /// be reachable as attach routes.
@@ -71,10 +70,6 @@ public struct MobileShellRouteAuthPolicy {
     /// - `.tailscale` to a Tailscale host (a `100.64.0.0/10` CGNAT address or a
     ///   `*.ts.net` MagicDNS host), which rides the WireGuard-encrypted tunnel.
     /// - `.iroh` to a peer, which is an encrypted QUIC connection.
-    /// - `.websocket` to a `wss://` endpoint (a Cloud VM attach route, issue
-    ///   #6700), which is TLS-encrypted and server-authenticated by certificate
-    ///   validation — the same protection the Tailscale tunnel and iroh give the
-    ///   bearer token. A plaintext `ws://` route is excluded.
     /// - `.debugLoopback` to a loopback host, which never leaves the machine.
     ///
     /// Plain private-LAN (`192.168/16`, `10/8`, `172.16/12`, link-local) and
@@ -83,8 +78,7 @@ public struct MobileShellRouteAuthPolicy {
     /// so sending the bearer token to such a host would disclose it in plaintext on
     /// the local network before the Mac proves it is the same-account host.
     /// - Parameter route: The candidate attach route.
-    /// - Returns: `true` only for Tailscale-tunnel, iroh peer, secure WebSocket
-    ///   (`wss://`) cloud, and loopback routes.
+    /// - Returns: `true` only for Tailscale-tunnel, iroh peer, and loopback routes.
     public static func routeAllowsStackAuth(_ route: CmxAttachRoute) -> Bool {
         switch (route.kind, route.endpoint) {
         case (.debugLoopback, let .hostPort(host, _)):
@@ -93,8 +87,6 @@ public struct MobileShellRouteAuthPolicy {
             return isTailscaleHost(host)
         case (.iroh, .peer):
             return true
-        case (.websocket, let .url(url)):
-            return isSecureWebSocketURL(url)
         default:
             return false
         }
@@ -181,19 +173,6 @@ public struct MobileShellRouteAuthPolicy {
     private static func isTailscaleHost(_ host: String) -> Bool {
         let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return isTailscaleDNSHost(normalizedHost) || isTailscaleIPv4Host(normalizedHost)
-    }
-
-    /// Whether a `.websocket` route URL is a TLS-encrypted `wss://` endpoint.
-    /// `wss://` is encrypted and certificate-authenticated per connection, so —
-    /// unlike Tailscale, whose encryption is the tunnel and so needs a host
-    /// allowlist — the scheme alone is the trust signal. A plaintext `ws://`
-    /// endpoint is excluded.
-    private static func isSecureWebSocketURL(_ rawURL: String) -> Bool {
-        guard let url = URL(string: rawURL.trimmingCharacters(in: .whitespacesAndNewlines)),
-              let scheme = url.scheme?.lowercased() else {
-            return false
-        }
-        return scheme == "wss"
     }
 
     private static func isTailscaleIPv4Host(_ host: String) -> Bool {

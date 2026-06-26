@@ -80,29 +80,6 @@ import Testing
         #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("devbox.local"))
     }
 
-    @Test func allowsStackAuthForSecureWebSocketButNotPlaintext() throws {
-        // A Cloud VM attach route (issue #6700) reaches the VM over wss://, which
-        // is TLS-encrypted and certificate-authenticated — the same protection the
-        // Tailscale tunnel and iroh give the bearer token, so it may carry it.
-        let secureCloud = try CmxAttachRoute(
-            id: "cloud_rpc",
-            kind: .websocket,
-            endpoint: .url("wss://vm-123.vm.freestyle.sh/rpc"),
-            priority: 10
-        )
-        // A plaintext ws:// route is unencrypted, so it is excluded exactly as a
-        // plain-LAN TCP route is.
-        let plaintextCloud = try CmxAttachRoute(
-            id: "cloud_rpc",
-            kind: .websocket,
-            endpoint: .url("ws://vm-123.vm.freestyle.sh/rpc"),
-            priority: 10
-        )
-
-        #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(secureCloud))
-        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(plaintextCloud))
-    }
-
     @Test func physicalDeviceRejectsLoopbackTicketsInEveryGrammar() throws {
         // The v2 QR decoder rejects loopback itself; this policy is what stops
         // the LEGACY payload grammars from being a bypass on a physical phone,
