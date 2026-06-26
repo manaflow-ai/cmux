@@ -42,6 +42,11 @@ extension KeyboardShortcutSettings {
 
         let shortcut = shortcut(for: action)
         switch action {
+        case .selectWorkspaceByNumber:
+            // Keep Cmd+1...9 on the AppDelegate shortcut dispatcher. SwiftUI menu
+            // key equivalents can consume this numbered family without invoking
+            // their command closure after focus churn.
+            return .unbound
         case .browserBack
             where !shortcut.isUnbound && shortcut == KeyboardShortcutSettings.shortcut(for: .focusHistoryBack):
             return .unbound

@@ -1044,29 +1044,13 @@ struct cmuxApp: App {
 
             // Numbered workspace selection (9 = last workspace)
             ForEach(1...9, id: \.self) { number in
-                // `menuShortcut(for:)` already returns `.unbound` when the action
-                // carries a configured `shortcuts.when` clause, so a context-gated
-                // workspace shortcut takes the no-key-equivalent branch and the
-                // gated keyDown handler owns dispatch (issue #5189).
-                let selectWorkspaceByNumberShortcut = menuShortcut(for: .selectWorkspaceByNumber)
-                if selectWorkspaceByNumberShortcut.isUnbound || selectWorkspaceByNumberShortcut.hasChord {
-                    Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
-                        let manager = activeTabManager
-                        if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: number, workspaceCount: manager.tabs.count) {
-                            manager.selectTab(at: targetIndex)
-                        }
+                // Workspace digits stay dispatcher-owned so SwiftUI menu key equivalents
+                // cannot consume Cmd+1...9 before AppDelegate expands the digit family.
+                Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
+                    let manager = activeTabManager
+                    if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: number, workspaceCount: manager.tabs.count) {
+                        manager.selectTab(at: targetIndex)
                     }
-                } else {
-                    Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
-                        let manager = activeTabManager
-                        if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: number, workspaceCount: manager.tabs.count) {
-                            manager.selectTab(at: targetIndex)
-                        }
-                    }
-                    .keyboardShortcut(
-                        KeyEquivalent(Character("\(number)")),
-                        modifiers: selectWorkspaceByNumberShortcut.eventModifiers
-                    )
                 }
             }
 
