@@ -3284,9 +3284,20 @@ class TabManager: ObservableObject {
         notificationDismissal.dismissNotificationOnTerminalInteraction(workspaceId: tabId, surfaceId: surfaceId)
     }
     private func enqueuePanelTitleUpdate(_ change: GhosttyTitleChange, sourceSurface: TerminalSurface) {
-        let trimmed = change.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Collapse spinner animation frames to one stable title (issue #6291)
+        // using the same normalization as the source-level dedup in
+        // `TerminalSurface`, so any post that bypasses that dedup still cannot
+        // thrash the sidebar.
+        let trimmed = TerminalSurface.stableTerminalNotificationTitle(change.title)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         guard workspacesById[change.tabId]?.terminalPanel(for: change.surfaceId)?.surface === sourceSurface else { return }
+        let key = PanelTitleUpdateKey(tabId: change.tabId, panelId: change.surfaceId)
+        // If a flush is already scheduled for this panel with the same stable
+        // title, re-arming the coalescer would only repeat identical work, so
+        // drop the redundant frame. A *different* pending title still falls
+        // through so the latest title wins.
+        if pendingPanelTitleUpdates[key]?.title == trimmed { return }
 #if DEBUG
         if PanelTitleUpdateCoalescingSettings.diagnosticsEnabled(settings: settings) {
             cmuxDebugLog(
@@ -3295,7 +3306,6 @@ class TabManager: ObservableObject {
             )
         }
 #endif
-        let key = PanelTitleUpdateKey(tabId: change.tabId, panelId: change.surfaceId)
         pendingPanelTitleUpdates[key] = PendingPanelTitleUpdate(title: trimmed, sourceSurface: sourceSurface)
         panelTitleUpdateCoalescer.signal(
             delay: PanelTitleUpdateCoalescingSettings.delay(settings: settings)

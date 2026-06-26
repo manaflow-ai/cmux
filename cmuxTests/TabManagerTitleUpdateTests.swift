@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import CmuxSettings
+import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -443,6 +444,88 @@ struct TabManagerTitleUpdateTests {
 
         settings.set(10_000, for: catalog.terminal.titleUpdateCoalescingMilliseconds)
         #expect(abs(PanelTitleUpdateCoalescingSettings.delay(settings: settings) - 5.0) < 0.000_1)
+    }
+
+    /// Regression for #6291: CLI tools (pnpm, npm, cargo, …) animate a spinner by
+    /// rewriting the terminal title on every frame with a leading braille glyph
+    /// (`⠋⠙⠹…`). Each raw frame is a distinct string, so without normalization
+    /// every frame mutates the workspace title and posts `.workspaceTitleDidChange`,
+    /// thrashing the sidebar's main-thread layout until clicks are starved. The
+    /// frames should collapse to one stable, spinner-free panel title that mutates
+    /// the workspace exactly once.
+    @Test
+    func spinnerTerminalTitleFramesCollapseToStablePanelTitle() async throws {
+        let suiteName = "TabManagerSpinnerTitleCollapse.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let scheduler = ManualCoalescerScheduler()
+        let manager = TabManager(
+            panelTitleUpdateCoalescer: NotificationBurstCoalescer(
+                schedule: scheduler.schedule(delay:action:)
+            ),
+            settings: settings
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        let focusedPanelId = try #require(workspace.focusedPanelId)
+
+        var workspaceTitleChangeCount = 0
+        let titleDidChangeObserver = NotificationCenter.default.addObserver(
+            forName: .workspaceTitleDidChange,
+            object: manager,
+            queue: nil
+        ) { _ in
+            workspaceTitleChangeCount += 1
+        }
+        defer { NotificationCenter.default.removeObserver(titleDidChangeObserver) }
+
+        let spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        for (index, frame) in spinnerFrames.enumerated() {
+            NotificationCenter.default.post(
+                name: .ghosttyDidSetTitle,
+                object: titleNotificationObject(workspace, focusedPanelId),
+                userInfo: [
+                    GhosttyNotificationKey.tabId: workspace.id,
+                    GhosttyNotificationKey.surfaceId: focusedPanelId,
+                    GhosttyNotificationKey.title: "\(frame) pnpm install",
+                ]
+            )
+            await drainMainQueue()
+            scheduler.fire(at: index)
+            await drainMainQueue()
+        }
+
+        #expect(workspace.panelTitles[focusedPanelId] == "pnpm install")
+        #expect(workspace.title == "pnpm install")
+        #expect(workspaceTitleChangeCount == 1)
+    }
+
+    @Test
+    func stableTerminalNotificationTitleStripsSpinnerGlyphs() {
+        // Leading braille spinner frames of the same logical title collapse to one
+        // string — the standalone spinner token is dropped.
+        let frames = ["⠋ pnpm install", "⠙ pnpm install", "⠹ pnpm install", "⠸ pnpm install"]
+        let normalized = Set(frames.map { TerminalSurface.stableTerminalNotificationTitle($0) })
+        #expect(normalized == ["pnpm install"])
+
+        // A standalone spinner token is dropped wherever it appears (leading,
+        // embedded, trailing).
+        #expect(TerminalSurface.stableTerminalNotificationTitle("Building ⠧ project") == "Building project")
+        #expect(TerminalSurface.stableTerminalNotificationTitle("deploying ⣾") == "deploying")
+
+        // Only *standalone* spinner tokens are removed: a Braille scalar inside a
+        // larger word (e.g. a path component) is preserved verbatim, so a real
+        // title is never corrupted — even when a leading spinner is also stripped.
+        #expect(TerminalSurface.stableTerminalNotificationTitle("~/work/⠋-project") == "~/work/⠋-project")
+        #expect(TerminalSurface.stableTerminalNotificationTitle("⠋ ~/work/⠧-proj") == "~/work/⠧-proj")
+
+        // Titles with no spinner glyph take the fast path and are returned
+        // byte-for-byte unchanged, double spaces and em dashes included.
+        #expect(TerminalSurface.stableTerminalNotificationTitle("~/code/cmux — zsh") == "~/code/cmux — zsh")
+        #expect(TerminalSurface.stableTerminalNotificationTitle("a/b-c  d") == "a/b-c  d")
+        #expect(TerminalSurface.stableTerminalNotificationTitle("").isEmpty)
     }
 
     private func drainMainQueue() async {
