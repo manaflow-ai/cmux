@@ -21,6 +21,16 @@ import CmuxGit
         return service
     }
 
+    private func waitUntil(maxYields: Int = 5_000, _ predicate: () -> Bool) async -> Bool {
+        for _ in 0..<maxYields {
+            if predicate() {
+                return true
+            }
+            await Task.yield()
+        }
+        return predicate()
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func fallbackRefreshBypassesTrackedSnapshotCacheGeneration() async throws {
         let directory = "/tmp/repo"
@@ -42,7 +52,7 @@ import CmuxGit
         )
         await clock.waitForSleeper()
         await clock.resumeNext()
-        await reader.waitForTrackedPathEventGenerationProbe()
+        #expect(await reader.waitForTrackedPathEventGenerationProbe())
 
         let generations = await reader.probedTrackedPathEventGenerations
         #expect(generations == [nil])
@@ -70,7 +80,7 @@ import CmuxGit
         )
         await clock.waitForSleeper()
         await clock.resumeNext()
-        await reader.waitForTrackedPathEventGenerationProbe()
+        #expect(await reader.waitForTrackedPathEventGenerationProbe())
 
         let generations = await reader.probedTrackedPathEventGenerations
         #expect(generations == [nil])
@@ -99,7 +109,7 @@ import CmuxGit
         )
         await clock.waitForSleeper()
         await clock.resumeNext()
-        await reader.waitForTrackedPathEventGenerationProbe()
+        #expect(await reader.waitForTrackedPathEventGenerationProbe())
 
         let generations = await reader.probedTrackedPathEventGenerations
         #expect(generations == [nil])
@@ -129,7 +139,7 @@ import CmuxGit
         )
         await clock.waitForSleeper()
         await clock.resumeNext()
-        await reader.waitForTrackedPathEventGenerationProbe()
+        #expect(await reader.waitForTrackedPathEventGenerationProbe())
 
         let generations = await reader.probedTrackedPathEventGenerations
         let generation = try #require(generations.first ?? nil)
@@ -280,7 +290,7 @@ import CmuxGit
         )
         await clock.waitForSleeper()
         await clock.resumeNext()
-        await reader.waitForTrackedPathEventGenerationProbe(count: 1)
+        #expect(await reader.waitForTrackedPathEventGenerationProbe(count: 1))
 
         service.recordWorkspaceGitMetadataFilesystemEvent(for: secondKey)
         let secondGeneration = try #require(service.workspaceGitSnapshotCacheGeneration(directory: directory))
@@ -291,13 +301,10 @@ import CmuxGit
         )
         await clock.waitForSleeper()
         await clock.resumeNext()
-        for _ in 0..<50 {
-            if service.workspaceGitProbeRerunPending(for: firstKey),
-               service.workspaceGitProbeRerunPending(for: secondKey) {
-                break
-            }
-            await Task.yield()
-        }
+        #expect(await waitUntil {
+            service.workspaceGitProbeRerunPending(for: firstKey)
+                && service.workspaceGitProbeRerunPending(for: secondKey)
+        })
 
         let generations = await reader.probedTrackedPathEventGenerations
         #expect(secondGeneration != firstGeneration)
