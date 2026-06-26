@@ -8168,7 +8168,7 @@ struct ContentView: View {
         return (workspace, panelId, panel)
     }
 
-    private static func commandPaletteWorkspaceDisplayName(_ workspace: Workspace) -> String {
+    static func commandPaletteWorkspaceDisplayName(_ workspace: Workspace) -> String {
         let custom = workspace.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !custom.isEmpty {
             return custom
