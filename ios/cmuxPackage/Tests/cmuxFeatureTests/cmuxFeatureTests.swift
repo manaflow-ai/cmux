@@ -22,6 +22,7 @@ import UIKit
 final class TerminalOutputCollector {
     private(set) var lines: [String] = []
     private var task: Task<Void, Never>?
+    private var lineCountWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
     /// Begin consuming the surface's output stream into ``lines``.
     func mount(store: CMUXMobileShellStore, surfaceID: String) {
@@ -33,7 +34,16 @@ final class TerminalOutputCollector {
                     surfaceID: surfaceID,
                     streamToken: chunk.streamToken
                 )
+                self.resumeLineCountWaiters()
             }
+        }
+    }
+
+    /// Wait until at least ``count`` output chunks have been collected.
+    func waitForLineCount(_ count: Int) async {
+        guard lines.count < count else { return }
+        await withCheckedContinuation { continuation in
+            lineCountWaiters.append((count, continuation))
         }
     }
 
@@ -41,6 +51,24 @@ final class TerminalOutputCollector {
     func unmount() {
         task?.cancel()
         task = nil
+        let waiters = lineCountWaiters
+        lineCountWaiters = []
+        for waiter in waiters {
+            waiter.continuation.resume()
+        }
+    }
+
+    private func resumeLineCountWaiters() {
+        guard !lineCountWaiters.isEmpty else { return }
+        var remaining: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+        for waiter in lineCountWaiters {
+            if lines.count >= waiter.count {
+                waiter.continuation.resume()
+            } else {
+                remaining.append(waiter)
+            }
+        }
+        lineCountWaiters = remaining
     }
 }
 
@@ -2458,12 +2486,7 @@ final class TerminalOutputCollector {
 
     await store.submitTerminalRawInput(Data("y".utf8), surfaceID: "live-terminal")
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 2, router: router)
-    // The request-count wait only proves the second replay REQUEST was sent;
-    // its response still flows back through the transport asynchronously.
-    // Poll for delivery like the sibling tests do, then assert content.
-    for _ in 0..<200 where collector.lines.count < 2 {
-        try await Task.sleep(nanoseconds: 1_000_000)
-    }
+    await collector.waitForLineCount(2)
 
     let oldGridText = try terminalRenderGridReplacementText(seq: 4, text: "old")
     let currentGridText = try terminalRenderGridReplacementText(seq: 12, text: "current")

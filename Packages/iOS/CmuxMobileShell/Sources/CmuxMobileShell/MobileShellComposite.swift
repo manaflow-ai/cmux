@@ -5712,7 +5712,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    private func refreshTerminalEventSubscription(reason: String) {
+    private func refreshTerminalEventSubscription(
+        reason: String,
+        replaySurfaceIDsIfRepaired: [String] = []
+    ) {
         guard let client = remoteClient, connectionState == .connected else { return }
         guard runtime?.supportsServerPushEvents ?? true else { return }
         guard terminalSubscriptionRefreshTask == nil else { return }
@@ -5720,10 +5723,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             defer { self?.terminalSubscriptionRefreshTask = nil }
             guard let self else { return }
             let topics = self.terminalOutputTransport.eventTopics
-            _ = await self.requestTerminalEventSubscription(
+            let ack = await self.requestTerminalEventSubscription(
                 client: client,
                 reason: reason,
                 topics: topics
+            )
+            guard !Task.isCancelled,
+                  self.remoteClient === client,
+                  self.connectionState == .connected else {
+                return
+            }
+            guard case .subscribed(let alreadySubscribed) = ack,
+                  alreadySubscribed == false,
+                  !replaySurfaceIDsIfRepaired.isEmpty else {
+                return
+            }
+            MobileDebugLog.anchormux("sync.subscribe_repaired reason=\(reason) surfaces=\(replaySurfaceIDsIfRepaired.count)")
+            self.replayAfterRepairedTerminalEventSubscription(
+                surfaceIDs: replaySurfaceIDsIfRepaired
             )
         }
     }
@@ -6034,13 +6051,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // host-side condition), so no listener restart is needed.
                     MobileDebugLog.anchormux("sync.liveness probe_repaired silentMs=\(Int(silent * 1000))")
                     mobileShellLog.info("liveness probe reinstalled a lost event subscription, replaying mounted surfaces")
-                    for surfaceID in self.terminalByteContinuationsBySurfaceID.keys {
-                        self.requestTerminalReplay(surfaceID: surfaceID)
-                    }
-                    // The same registration carries `workspace.updated`, so
-                    // workspace create/rename/delete events emitted during the
-                    // gap were missed too; re-fetch the authoritative list.
-                    self.scheduleWorkspaceListRefreshFromEvent()
+                    self.replayAfterRepairedTerminalEventSubscription(
+                        surfaceIDs: Array(self.terminalByteContinuationsBySurfaceID.keys)
+                    )
                 } else {
                     MobileDebugLog.anchormux("sync.liveness probe_ok silentMs=\(Int(silent * 1000))")
                 }
@@ -6154,7 +6167,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
             } else {
                 MobileDebugLog.anchormux("sync.input_seq_wait surface=\(surfaceID) local=\(localSeq) remote=\(remoteSeq)")
-                refreshTerminalEventSubscription(reason: "input_seq_wait")
+                refreshTerminalEventSubscription(
+                    reason: "input_seq_wait",
+                    replaySurfaceIDsIfRepaired: [surfaceID]
+                )
             }
             return
         }
@@ -6171,6 +6187,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             restartEventStream: false,
             surfaceIDs: [surfaceID]
         )
+    }
+
+    private func replayAfterRepairedTerminalEventSubscription(surfaceIDs: [String]) {
+        for surfaceID in surfaceIDs where hasTerminalOutputSink(surfaceID: surfaceID) {
+            requestTerminalReplay(surfaceID: surfaceID)
+        }
+        // The same registration carries `workspace.updated`, so workspace
+        // create/rename/delete events emitted during the gap were missed too;
+        // re-fetch the authoritative list.
+        scheduleWorkspaceListRefreshFromEvent()
     }
 
     private func markTerminalBytesDelivered(surfaceID: String, endSeq: UInt64) {
