@@ -427,10 +427,7 @@ extension TerminalController {
 
             // Unescape common escape sequences
             // Note: \n is converted to \r for terminal (Enter key sends \r)
-            let unescaped = text
-                .replacingOccurrences(of: "\\n", with: "\r")
-                .replacingOccurrences(of: "\\r", with: "\r")
-                .replacingOccurrences(of: "\\t", with: "\t")
+            let unescaped = text.terminalSendInputUnescaped
 
             switch terminalPanel.sendInputResult(unescaped) {
             case .sent:
@@ -482,10 +479,7 @@ extension TerminalController {
                 return
             }
 
-            let unescaped = text
-                .replacingOccurrences(of: "\\n", with: "\r")
-                .replacingOccurrences(of: "\\r", with: "\r")
-                .replacingOccurrences(of: "\\t", with: "\t")
+            let unescaped = text.terminalSendInputUnescaped
 
             switch terminalPanel.sendInputResult(unescaped) {
             case .sent:
@@ -562,10 +556,7 @@ extension TerminalController {
                 error = "ERROR: Surface not found"
                 return
             }
-            let unescaped = text
-                .replacingOccurrences(of: "\\n", with: "\r")
-                .replacingOccurrences(of: "\\r", with: "\r")
-                .replacingOccurrences(of: "\\t", with: "\t")
+            let unescaped = text.terminalSendInputUnescaped
 
             switch terminalPanel.sendInputResult(unescaped) {
             case .sent:
