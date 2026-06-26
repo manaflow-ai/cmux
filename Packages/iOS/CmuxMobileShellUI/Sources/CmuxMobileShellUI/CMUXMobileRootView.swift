@@ -72,7 +72,7 @@ struct CMUXMobileRootView: View {
 
     private var shouldShowDeleteComputersVerifier: Bool {
         #if os(iOS) && DEBUG
-        return MobileDeleteComputersVerifier.isEnabled
+        return MobileDeleteComputersVerifier().isEnabled
         #else
         return false
         #endif

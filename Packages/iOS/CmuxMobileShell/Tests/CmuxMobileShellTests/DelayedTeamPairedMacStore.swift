@@ -10,6 +10,7 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
     private var blockers: [String: CheckedContinuation<Void, Never>] = [:]
     private var upsertCount = 0
     private var upsertWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
+    private var removeFailures: Set<String> = []
 
     init(recordsByTeam: [String: [MobilePairedMac]], blockedTeams: Set<String>) {
         self.recordsByTeam = recordsByTeam
@@ -84,6 +85,9 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
         recordsByTeam[key]?[index].customIcon = customIcon
     }
     func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
+        if removeFailures.contains(macDeviceID) {
+            throw CocoaError(.fileWriteUnknown)
+        }
         let key = teamID ?? ""
         recordsByTeam[key]?.removeAll { $0.macDeviceID == macDeviceID }
     }
@@ -111,6 +115,10 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
 
     func currentUpsertCount() -> Int {
         upsertCount
+    }
+
+    func failRemove(macDeviceID: String) {
+        removeFailures.insert(macDeviceID)
     }
 
     private func markStarted(_ key: String) {

@@ -745,6 +745,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return workspaces.first { $0.id == selectedWorkspaceID } ?? workspaces.first
     }
 
+    private var explicitlySelectedWorkspace: MobileWorkspacePreview? {
+        guard let selectedWorkspaceID else { return nil }
+        return workspaces.first { $0.id == selectedWorkspaceID }
+    }
+
     /// Resolve a UI row id back to the Mac-local workspace id expected by RPC.
     ///
     /// Multi-Mac aggregation scopes row ids by Mac to avoid collisions, while
@@ -1845,12 +1850,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
     }
 
-    private static func pairedMacScopeKey(userID: String, teamID: String?) -> String {
-        "\(userID)\t\(teamID ?? "")"
+    private func pairedMacScopeKey(_ scope: MobileShellScopeSnapshot) -> String {
+        makePairedMacScopeKey(userID: scope.userID, teamID: scope.teamID)
     }
 
-    private func pairedMacScopeKey(_ scope: MobileShellScopeSnapshot) -> String {
-        Self.pairedMacScopeKey(userID: scope.userID, teamID: scope.teamID)
+    private func makePairedMacScopeKey(userID: String, teamID: String?) -> String {
+        "\(userID)\t\(teamID ?? "")"
     }
 
     private func forgottenMacDeviceIDs(scope: MobileShellScopeSnapshot) async -> Set<String> {
@@ -2520,11 +2525,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         for id in macDeviceIDs {
             await rememberForgottenMacDeviceID(id, scope: scope)
         }
+        let workspacesBeforeForget = workspacesByMac
+        let foregroundMacDeviceIDBeforeForget = foregroundMacDeviceID
         let targetIDSet = Set(macDeviceIDs)
         let isActiveMac = pairedMacsForIdentityMatching.contains {
             targetIDSet.contains($0.macDeviceID) && $0.isActive
         }
-        if isActiveMac, connectionState == .connected {
+        if isActiveMac {
             disconnectLiveConnection(preservingOtherMacWorkspaceState: true)
         }
         // Tear down any live SECONDARY (non-foreground) connection + its aggregated
@@ -2540,6 +2547,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             pruneWorkspaceStateForForgottenMac(id)
         }
         guard await isScopeCurrent(scope) else { return }
+        var removedIDs = Set<String>()
+        var failedIDs = Set<String>()
         for id in macDeviceIDs {
             do {
                 try await pairedMacStore?.remove(
@@ -2547,8 +2556,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     stackUserID: scope.userID,
                     teamID: scope.teamID
                 )
+                removedIDs.insert(id)
             } catch {
+                failedIDs.insert(id)
                 mobileShellLog.error("paired mac store remove failed mac=\(id, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            }
+        }
+        if !failedIDs.isEmpty {
+            for id in failedIDs {
+                await clearForgottenMacDeviceID(id, scope: scope)
+            }
+            workspacesByMac = workspacesBeforeForget
+            foregroundMacDeviceID = foregroundMacDeviceIDBeforeForget
+            for id in removedIDs {
+                pruneWorkspaceStateForForgottenMac(id)
             }
         }
         await loadPairedMacs()
@@ -2566,11 +2587,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if foregroundMacDeviceID == macDeviceID {
             foregroundMacDeviceID = nil
         }
-        let pruned = workspacesByMac.filter { key, state in
-            guard key != macDeviceID, state.macDeviceID != macDeviceID else { return false }
-            return !state.workspaces.contains { $0.macDeviceID == macDeviceID }
+        let pruned = workspacesByMac.reduce(into: [String: MacWorkspaceState]()) { result, entry in
+            let (key, state) = entry
+            guard key != macDeviceID, state.macDeviceID != macDeviceID else { return }
+            let filteredWorkspaces = state.workspaces.filter { $0.macDeviceID != macDeviceID }
+            var filteredState = state
+            filteredState.workspaces = filteredWorkspaces
+            result[key] = filteredState
         }
         if pruned.count != workspacesByMac.count {
+            workspacesByMac = pruned
+        } else if pruned != workspacesByMac {
             workspacesByMac = pruned
         }
     }
@@ -3304,7 +3331,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard await isAggregationScopeValid(scope) else { return }
             if let existing = secondaryMacSubscriptions[mac.macDeviceID] {
                 let previews = await fetchSecondaryWorkspaces(on: existing.client, macDeviceID: mac.macDeviceID)
-                guard await isAggregationScopeValid(scope) else { return }
+                guard await isSecondaryRefreshStillCurrent(
+                    macDeviceID: mac.macDeviceID,
+                    subscription: existing,
+                    scope: scope
+                ) else { continue }
                 if let previews {
                     workspacesByMac[mac.macDeviceID] = MacWorkspaceState(
                         macDeviceID: mac.macDeviceID,
@@ -3325,6 +3356,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     for: mac, scope: scope)
             }
         }
+    }
+
+    private func isSecondaryRefreshStillCurrent(
+        macDeviceID: String,
+        subscription: SecondaryMacSubscription,
+        scope: MobileShellScopeSnapshot
+    ) async -> Bool {
+        guard await isAggregationScopeValid(scope),
+              secondaryMacSubscriptions[macDeviceID] === subscription else {
+            return false
+        }
+        return await !isForgottenMacDeviceID(macDeviceID, scope: scope)
     }
 
     #if DEBUG
@@ -6798,20 +6841,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// foreground computer while secondary Mac rows remain visible. Pulling should
     /// refresh/promote one of those visible owners, not bounce through the stale
     /// foreground slot and finish immediately.
-    private func workspaceListConnectedRefreshTargetMacDeviceID() -> String? {
+    func workspaceListConnectedRefreshTargetMacDeviceID() -> String? {
+        let connectionStatusesByMacDeviceID = macConnectionStatuses
+        let pairedMacDeviceIDs = Set(pairedMacsForIdentityMatching.map(\.macDeviceID))
+
         func connectedMacDeviceID(from workspace: MobileWorkspacePreview?) -> String? {
             guard let workspace,
                   let macDeviceID = workspace.macDeviceID,
-                  (workspace.macConnectionStatus ?? macConnectionStatuses[macDeviceID]) == .connected,
+                  (workspace.macConnectionStatus ?? connectionStatusesByMacDeviceID[macDeviceID]) == .connected,
                   isReconnectableWorkspaceMacID(macDeviceID),
-                  pairedMacsForIdentityMatching.contains(where: { $0.macDeviceID == macDeviceID })
+                  pairedMacDeviceIDs.contains(macDeviceID)
             else {
                 return nil
             }
             return macDeviceID
         }
 
-        if let selected = connectedMacDeviceID(from: selectedWorkspace) {
+        if let selected = connectedMacDeviceID(from: explicitlySelectedWorkspace) {
             return selected
         }
         var candidates: [String] = []
@@ -6832,20 +6878,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// workspace rows from a specific unavailable Mac, reconnect that visible
     /// owner first instead of blindly redialing whichever row is currently marked
     /// active in the paired-Mac store.
-    private func workspaceListReconnectTargetMacDeviceID() -> String? {
+    func workspaceListReconnectTargetMacDeviceID() -> String? {
+        let pairedMacDeviceIDs = Set(pairedMacsForIdentityMatching.map(\.macDeviceID))
+
         func reconnectableMacDeviceID(from workspace: MobileWorkspacePreview?) -> String? {
             guard let workspace,
                   (workspace.macConnectionStatus ?? macConnectionStatus) != .connected,
                   let macDeviceID = workspace.macDeviceID,
                   isReconnectableWorkspaceMacID(macDeviceID),
-                  pairedMacsForIdentityMatching.contains(where: { $0.macDeviceID == macDeviceID })
+                  pairedMacDeviceIDs.contains(macDeviceID)
             else {
                 return nil
             }
             return macDeviceID
         }
 
-        if let selected = reconnectableMacDeviceID(from: selectedWorkspace) {
+        if let selected = reconnectableMacDeviceID(from: explicitlySelectedWorkspace) {
             return selected
         }
         var candidates: [String] = []
@@ -6864,16 +6912,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             && macDeviceID != Self.foregroundAnonymousKey
             && !macDeviceID.hasPrefix("manual-")
     }
-
-    #if DEBUG
-    func workspaceListReconnectTargetMacDeviceIDForTesting() -> String? {
-        workspaceListReconnectTargetMacDeviceID()
-    }
-
-    func workspaceListConnectedRefreshTargetMacDeviceIDForTesting() -> String? {
-        workspaceListConnectedRefreshTargetMacDeviceID()
-    }
-    #endif
 
     /// Bounded periodic refresh for the Computers screen's "keep it live while
     /// open" timer. The online dots come from the live presence subscription and

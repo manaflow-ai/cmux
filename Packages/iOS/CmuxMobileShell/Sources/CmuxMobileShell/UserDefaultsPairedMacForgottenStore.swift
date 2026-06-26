@@ -23,11 +23,13 @@ public actor UserDefaultsPairedMacForgottenStore: PairedMacForgottenStoring {
         self.key = key
     }
 
+    /// Load forgotten Mac device ids for one account/team scope.
     public func load(scope: String) async -> Set<String> {
         let all = defaults.dictionary(forKey: key) as? [String: [String]] ?? [:]
         return Set(all[scope] ?? [])
     }
 
+    /// Replace forgotten Mac device ids for one account/team scope.
     public func save(_ ids: Set<String>, scope: String) async {
         var all = defaults.dictionary(forKey: key) as? [String: [String]] ?? [:]
         if ids.isEmpty {
@@ -38,6 +40,7 @@ public actor UserDefaultsPairedMacForgottenStore: PairedMacForgottenStoring {
         defaults.set(all, forKey: key)
     }
 
+    /// Clear every remembered forgotten id.
     public func removeAll() async {
         defaults.removeObject(forKey: key)
     }

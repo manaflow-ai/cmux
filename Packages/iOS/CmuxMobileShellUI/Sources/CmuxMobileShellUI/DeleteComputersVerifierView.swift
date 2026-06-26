@@ -60,7 +60,7 @@ struct DeleteComputersVerifierView: View {
             .navigationTitle(Text(verbatim: "Delete Computers Verifier"))
         }
         .task {
-            result = await MobileDeleteComputersVerifier.runAndPersist()
+            result = await MobileDeleteComputersVerifier().runAndPersist()
         }
     }
 }
