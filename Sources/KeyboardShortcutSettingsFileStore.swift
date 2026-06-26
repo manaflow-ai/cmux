@@ -1822,45 +1822,6 @@ private struct ResolvedSettingsSnapshot {
     }
 }
 
-private struct ManagedDefaultSideEffect {
-    let defaultsKey: String
-    let source: String
-    let synchronizeAppearanceTerminalTheme: Bool
-}
-
-private struct ManagedDefaultBatchSideEffects {
-    var changes: [ManagedDefaultSideEffect] = []
-
-    var isEmpty: Bool {
-        changes.isEmpty
-    }
-
-    mutating func merge(_ other: ManagedDefaultBatchSideEffects) {
-        for change in other.changes {
-            append(
-                defaultsKey: change.defaultsKey,
-                source: change.source,
-                synchronizeAppearanceTerminalTheme: change.synchronizeAppearanceTerminalTheme
-            )
-        }
-    }
-
-    mutating func append(
-        defaultsKey: String,
-        source: String,
-        synchronizeAppearanceTerminalTheme: Bool
-    ) {
-        changes.removeAll { $0.defaultsKey == defaultsKey }
-        changes.append(
-            ManagedDefaultSideEffect(
-                defaultsKey: defaultsKey,
-                source: source,
-                synchronizeAppearanceTerminalTheme: synchronizeAppearanceTerminalTheme
-            )
-        )
-    }
-}
-
 private enum ManagedStringOverride: Equatable {
     case set(String)
     case clear
