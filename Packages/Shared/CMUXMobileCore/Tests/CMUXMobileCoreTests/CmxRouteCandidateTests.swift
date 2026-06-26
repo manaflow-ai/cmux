@@ -144,6 +144,21 @@ import Testing
         #expect(merged.first?.source == .registry)
     }
 
+    @Test func mergedKeepsSameAddressDifferentKindRoutes() throws {
+        // Two routes to the same host:port over different transports must NOT
+        // collapse: the reconnect path filters by supported kind, so dropping one
+        // could strand reconnect if the kept one's kind is unsupported.
+        let loopbackKind = candidate(try hostPort("100.96.0.9", kind: .debugLoopback, id: "loop"))
+        let tailscaleKind = candidate(try hostPort("100.96.0.9", kind: .tailscale, id: "ts"))
+        let merged = CmxRouteCandidateSet([loopbackKind, tailscaleKind]).merged()
+        #expect(merged.count == 2)
+    }
+
+    @Test func mergedWithZeroMaxCandidatesIsEmpty() throws {
+        let lan = candidate(try hostPort("192.168.1.5"))
+        #expect(CmxRouteCandidateSet([lan]).merged(maxCandidates: 0).isEmpty)
+    }
+
     @Test func mergedDedupsPeerById() throws {
         let qr = candidate(try peer("nodeabc"), .qr, at: 100)
         let registry = candidate(try peer("nodeabc"), .registry, at: 100)

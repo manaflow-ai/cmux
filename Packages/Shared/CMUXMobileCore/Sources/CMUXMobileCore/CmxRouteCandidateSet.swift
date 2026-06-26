@@ -41,9 +41,10 @@ public struct CmxRouteCandidateSet: Equatable, Sendable {
 
     /// Collapse the gathered candidates into the order the phone should try them.
     ///
-    /// 1. **Dedup by endpoint:** when several sources name the same endpoint,
-    ///    keep the freshest (tie → higher source authority → lower route
-    ///    priority).
+    /// 1. **Dedup by transport + endpoint:** when several sources name the same
+    ///    endpoint over the same transport kind, keep the freshest (tie → higher
+    ///    source authority → lower route priority). Two transports to the same
+    ///    address stay distinct so a kind filter downstream can't be starved.
     /// 2. **Rank** the survivors by freshness (newest first), then source
     ///    authority (registry over local cache), then proximity (closest first),
     ///    then the route's own `priority`, then a stable key.
@@ -69,7 +70,7 @@ public struct CmxRouteCandidateSet: Equatable, Sendable {
         var bestByKey: [String: CmxRouteCandidate] = [:]
         var keyOrder: [String] = []
         for candidate in candidates {
-            let key = candidate.endpointKey
+            let key = candidate.dedupKey
             if let existing = bestByKey[key] {
                 if Self.prefersAsDedupWinner(candidate, over: existing) {
                     bestByKey[key] = candidate
@@ -82,7 +83,11 @@ public struct CmxRouteCandidateSet: Equatable, Sendable {
 
         let deduped = keyOrder.compactMap { bestByKey[$0] }
         let ranked = deduped.sorted { Self.sortsBefore($0, $1, preferLoopback: preferLoopback) }
-        guard maxCandidates > 0, ranked.count > maxCandidates else { return ranked }
+        // A negative cap means "no cap"; a zero cap yields an empty result (a
+        // zero upper bound); a positive cap truncates after ranking, dropping the
+        // worst-ranked candidates.
+        guard maxCandidates >= 0 else { return ranked }
+        guard ranked.count > maxCandidates else { return ranked }
         return Array(ranked.prefix(maxCandidates))
     }
 
@@ -129,7 +134,7 @@ public struct CmxRouteCandidateSet: Equatable, Sendable {
         let rhsTier = proximityRank(rhs.proximity, preferLoopback: preferLoopback)
         if lhsTier != rhsTier { return lhsTier < rhsTier }
         if lhs.route.priority != rhs.route.priority { return lhs.route.priority < rhs.route.priority }
-        return lhs.endpointKey < rhs.endpointKey
+        return lhs.dedupKey < rhs.dedupKey
     }
 
     /// Sort weight for a proximity tier (lower = tried first). `preferLoopback`

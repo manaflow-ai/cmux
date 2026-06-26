@@ -47,6 +47,10 @@ public struct CmxRouteCandidate: Equatable, Sendable {
     /// The route's proximity tier, derived from its endpoint address.
     public var proximity: CmxRouteProximity { .classify(route.endpoint) }
 
-    /// Stable identity used to dedup candidates that point at the same endpoint.
-    public var endpointKey: String { route.endpoint.routeDedupKey }
+    /// Stable identity used to dedup candidates. Includes the transport `kind`
+    /// so two routes to the SAME address over different transports — e.g. a
+    /// `debug_loopback` and a `tailscale` route at the same host:port — stay
+    /// distinct candidates. The reconnect path filters by supported kind, so
+    /// collapsing them by address alone could drop the only supported route.
+    public var dedupKey: String { "\(route.kind.rawValue)|\(route.endpoint.routeDedupKey)" }
 }
