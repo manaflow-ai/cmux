@@ -195,7 +195,7 @@ import CmuxGit
             clock: ManualGitPollClock()
         )
 
-        service.workspaceGitMetadataWatcherSourceDirectoryByKey[key] = oldDirectory
+        service.setWorkspaceGitMetadataWatcherSourceDirectory(oldDirectory, for: key)
         service.markWorkspaceGitSnapshotCacheEligible(directory: oldDirectory)
         let oldGeneration = try #require(service.workspaceGitSnapshotCacheGeneration(directory: oldDirectory))
 
@@ -206,6 +206,59 @@ import CmuxGit
         #expect(newGeneration != oldGeneration)
         service.recordWorkspaceGitMetadataFilesystemEvent(for: key)
         #expect(service.workspaceGitSnapshotCacheGeneration(directory: newDirectory) != newGeneration)
+    }
+
+    @Test func sharedWatcherDirectoryKeepsCacheEligibilityUntilLastWatcherStops() throws {
+        let directory = "/tmp/repo"
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, firstPanelId) = host.addWorkspace(panelDirectory: directory)
+        let secondPanelId = UUID()
+        let firstKey = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: firstPanelId)
+        let secondKey = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: secondPanelId)
+        let service = makeService(
+            host: host,
+            reader: GatedMetadataReader(metadata: .repository(branch: "feature/x")),
+            clock: ManualGitPollClock()
+        )
+
+        service.setWorkspaceGitMetadataWatcherSourceDirectory(directory, for: firstKey)
+        service.setWorkspaceGitMetadataWatcherSourceDirectory(directory, for: secondKey)
+        service.markWorkspaceGitSnapshotCacheEligible(directory: directory)
+        let generation = try #require(service.workspaceGitSnapshotCacheGeneration(directory: directory))
+
+        service.stopWorkspaceGitMetadataWatcher(for: firstKey)
+        #expect(service.workspaceGitSnapshotCacheGeneration(directory: directory) == generation)
+        service.stopWorkspaceGitMetadataWatcher(for: secondKey)
+        #expect(service.workspaceGitSnapshotCacheGeneration(directory: directory) == nil)
+    }
+
+    @Test func sharedWatchedPathsEventBumpsDirectoryGenerationOnce() throws {
+        let directory = "/tmp/repo"
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, firstPanelId) = host.addWorkspace(panelDirectory: directory)
+        let secondPanelId = UUID()
+        let firstKey = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: firstPanelId)
+        let secondKey = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: secondPanelId)
+        let watchedPathsKey = WorkspaceGitMetadataWatchedPathsKey(paths: ["/tmp/repo/.git/index"])
+        let service = makeService(
+            host: host,
+            reader: GatedMetadataReader(metadata: .repository(branch: "feature/x")),
+            clock: ManualGitPollClock()
+        )
+
+        service.setWorkspaceGitMetadataWatcherSourceDirectory(directory, for: firstKey)
+        service.setWorkspaceGitMetadataWatcherSourceDirectory(directory, for: secondKey)
+        service.setWorkspaceGitMetadataWatcherWatchedPathsKey(watchedPathsKey, for: firstKey)
+        service.setWorkspaceGitMetadataWatcherWatchedPathsKey(watchedPathsKey, for: secondKey)
+        service.markWorkspaceGitSnapshotCacheEligible(directory: directory)
+        let initialGeneration = service.workspaceGitMetadataFilesystemEventGeneration
+
+        let refreshedKeys = service.recordWorkspaceGitMetadataFilesystemEvent(
+            forWatchedPathsKey: watchedPathsKey
+        )
+
+        #expect(Set(refreshedKeys) == Set([firstKey, secondKey]))
+        #expect(service.workspaceGitMetadataFilesystemEventGeneration == initialGeneration + 1)
     }
 
     /// Restored sessions can already have a branch projected before the first
