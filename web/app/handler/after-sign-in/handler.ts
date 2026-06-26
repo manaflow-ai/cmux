@@ -98,9 +98,19 @@ function findStackCookie(
   return undefined;
 }
 
+function decodeCookieValue(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  if (!value.includes("%")) return value;
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return undefined;
+  }
+}
+
 function decodeAccessCookie(value: string | undefined): { refreshToken?: string; accessToken?: string } {
-  if (!value) return {};
-  const decoded = value.includes("%") ? decodeURIComponent(value) : value;
+  const decoded = decodeCookieValue(value);
+  if (!decoded) return {};
   if (!decoded.startsWith("[")) return { accessToken: decoded };
   try {
     const arr = JSON.parse(decoded) as unknown[];
@@ -112,8 +122,8 @@ function decodeAccessCookie(value: string | undefined): { refreshToken?: string;
 }
 
 function decodeRefreshCookie(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  const decoded = value.includes("%") ? decodeURIComponent(value) : value;
+  const decoded = decodeCookieValue(value);
+  if (!decoded) return undefined;
   if (!decoded.startsWith("{")) return decoded;
   try {
     const obj = JSON.parse(decoded) as Record<string, unknown>;
@@ -188,13 +198,12 @@ async function afterSignInMessages(request: NextRequest): Promise<LocalizedAfter
   const messages = (await import(`../../../messages/${locale}.json`)).default as {
     afterSignIn?: AfterSignInMessages;
   };
+  if (!messages.afterSignIn) {
+    throw new Error(`Missing afterSignIn messages for locale ${locale}`);
+  }
   return {
     locale,
-    messages: messages.afterSignIn ?? {
-      title: "Signed in to cmux",
-      body: "If cmux did not open automatically, use the button below.",
-      button: "Return to cmux",
-    },
+    messages: messages.afterSignIn,
   };
 }
 
@@ -305,7 +314,7 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
 
     let refreshToken = parsedAccess.refreshToken ?? parsedRefresh;
     let accessToken = parsedAccess.accessToken;
-    let accessCookie = rawAccessCookie ? (rawAccessCookie.includes("%") ? decodeURIComponent(rawAccessCookie) : rawAccessCookie) : undefined;
+    let accessCookie = decodeCookieValue(rawAccessCookie);
 
     try {
       const user = await authApp.getUser({ or: "return-null" });

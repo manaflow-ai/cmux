@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
 
 process.env.SKIP_ENV_VALIDATION = "1";
@@ -8,6 +8,8 @@ process.env.STACK_SECRET_SERVER_KEY = "test-secret-key";
 
 const HANDOFF_COOKIE = "cmux-native-auth-handoff";
 let handoffCookie: string | undefined;
+let rawRefreshCookie: string;
+let rawAccessCookie: string;
 const getUser = mock(async () => null);
 
 const { makeAfterSignInHandler } = await import("../app/handler/after-sign-in/handler");
@@ -21,8 +23,8 @@ const GET = makeAfterSignInHandler({
       return undefined;
     },
     getAll: () => [
-      { name: "stack-refresh-test-project", value: "refresh-token" },
-      { name: "stack-access", value: "access-token" },
+      { name: "stack-refresh-test-project", value: rawRefreshCookie },
+      { name: "stack-access", value: rawAccessCookie },
     ],
   }),
 });
@@ -47,6 +49,12 @@ function returnHref(html: string): string {
 }
 
 describe("after sign-in native handoff", () => {
+  beforeEach(() => {
+    handoffCookie = undefined;
+    rawRefreshCookie = "refresh-token";
+    rawAccessCookie = "access-token";
+  });
+
   test("keeps a fallback page for verified native auto-open handoffs", async () => {
     handoffCookie = "handoff-nonce";
     const nativeReturnTo = "cmux://auth-callback?cmux_auth_state=state-123";
@@ -87,5 +95,17 @@ describe("after sign-in native handoff", () => {
     expect(html).toContain("Return to cmux");
     expect(html).not.toContain("window.location.replace");
     expect(returnHref(html)).toContain("cmux://auth-callback");
+  });
+
+  test("does not crash on malformed percent-encoded stack cookies", async () => {
+    handoffCookie = "handoff-nonce";
+    rawRefreshCookie = "%";
+    rawAccessCookie = "%";
+    const nativeReturnTo = "cmux://auth-callback?cmux_auth_state=state-123";
+
+    const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://cmux.test/");
   });
 });
