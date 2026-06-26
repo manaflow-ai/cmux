@@ -2819,7 +2819,7 @@ final class BrowserPanel: Panel, ObservableObject {
         // plain-text paste so Cmd+Shift+V is only consumed when the browser can use it.
         configuration.userContentController.addUserScript(
             WKUserScript(
-                source: CmuxWebView.pasteAsPlainTextFocusTrackingBootstrapScriptSource,
+                source: BrowserPasteAsPlainTextFocusContract().focusTrackingBootstrapScriptSource,
                 injectionTime: .atDocumentStart,
                 forMainFrameOnly: true
             )

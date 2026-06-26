@@ -1123,17 +1123,6 @@ private struct TextBoxAttachmentChip: View {
     }
 }
 
-enum TextBoxTerminalKey: String {
-    case arrowUp = "up"
-    case arrowDown = "down"
-    case arrowLeft = "left"
-    case arrowRight = "right"
-    case tab
-    case backspace
-    case escape
-    case returnKey = "return"
-}
-
 private struct TextBoxMentionCompletionPopoverView: View {
     let suggestions: [TextBoxMentionSuggestion]
     let selectionIndex: Int

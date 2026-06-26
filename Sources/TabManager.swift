@@ -367,8 +367,14 @@ class TabManager {
     // closable/sidebar-selected workspaces and the WorkspaceClosePlan
     // (title/message/acceptCmdD). The NSAlert presentation + Workspace/window
     // teardown stay here, inverted through the CloseConfirming conformance
-    // (localized strings + confirmClose, in this file's class body).
+    // (localized strings + confirmClose), now owned by
+    // `closeConfirmationPresenter`.
     let workspaceClosing: WorkspaceCloseCoordinator<Workspace>
+    // The app-side CloseConfirming witness: localized confirmation strings +
+    // NSAlert presentation via the shared `runCmuxModalAlert`. Held strongly
+    // (the coordinator's `confirming` ref is weak) and attached to the
+    // coordinator in init; its preferred host window is wired from `window`.
+    let closeConfirmationPresenter = WorkspaceCloseConfirmationPresenter()
     // Pure new-workspace insertion planning over the workspaces model
     // (CmuxWorkspaces): the pre-creation snapshot, its live-order remap, and the
     // placement-driven insertion index. The creation orchestration (Workspace
@@ -530,7 +536,8 @@ class TabManager {
         workspaceCommands.attach(host: self)
         workspaceSelection.attach(host: self)
         workspaceGrouping.attach(host: self)
-        workspaceClosing.attach(confirming: self)
+        closeConfirmationPresenter.attach(presentingWindow: { [weak self] in self?.window })
+        workspaceClosing.attach(confirming: closeConfirmationPresenter)
         workspaceClosing.attach(host: self)
         // The confirmation decision routes through the live close-tab warning
         // settings, matching the legacy `CloseTabWarningStore(defaults: .standard)`
@@ -1802,143 +1809,6 @@ class TabManager {
     // Keep selectTab as convenience alias
     func selectTab(_ tab: Workspace) { selectWorkspace(tab) }
 
-    // MARK: - CloseConfirming (WorkspaceCloseCoordinator's app-side seam)
-    //
-    // The decision flow (re-entrancy session flag, test-override handler,
-    // anchor-suppression read/write, which-dialog / which-message choice, and
-    // the String(format:) assembly) lives in WorkspaceCloseCoordinator. These
-    // witnesses do the two halves that must stay app-side: resolving the
-    // localized strings (a `String(localized:)` resolved inside CmuxWorkspaces
-    // would bind to the package bundle, which lacks these keys, and silently
-    // drop non-English translations) and building + running the NSAlert through
-    // the shared `runCmuxModalAlert` presenter. Lifted verbatim from the legacy
-    // `confirmClose` / `confirmAnchorWorkspaceClose` alert construction.
-
-    func present(_ prompt: CloseConfirmationPrompt) -> CloseConfirmationOutcome {
-        _ = prompt.acceptCmdD
-
-        let alert = NSAlert()
-        alert.messageText = prompt.title
-        alert.informativeText = prompt.message
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: String(localized: "dialog.closeTab.close", defaultValue: "Close"))
-        alert.addButton(withTitle: String(localized: "dialog.closeTab.cancel", defaultValue: "Cancel"))
-
-        let suppressionButton: NSButton?
-        if prompt.showsSuppressionCheckbox {
-            let button = NSButton(
-                checkboxWithTitle: String(
-                    localized: "dialog.dontAskAgain",
-                    defaultValue: "Don\u{2019}t ask again"
-                ),
-                target: nil,
-                action: nil
-            )
-            button.state = .off
-            alert.accessoryView = button
-            suppressionButton = button
-        } else {
-            suppressionButton = nil
-        }
-
-        if let closeButton = alert.buttons.first {
-            closeButton.keyEquivalent = "\r"
-            closeButton.keyEquivalentModifierMask = []
-            alert.window.defaultButtonCell = closeButton.cell as? NSButtonCell
-            alert.window.initialFirstResponder = closeButton
-        }
-        if let cancelButton = alert.buttons.dropFirst().first {
-            cancelButton.keyEquivalent = "\u{1b}"
-        }
-
-        #if DEBUG
-        UITestRecorder.record([
-            "closeConfirmationTitle": prompt.title,
-            "closeConfirmationMessage": prompt.message,
-        ])
-        #endif
-
-        let confirmed = runCloseConfirmationAlert(alert) == .alertFirstButtonReturn
-        return CloseConfirmationOutcome(
-            confirmed: confirmed,
-            suppressionChecked: confirmed && (suppressionButton?.state == .on)
-        )
-    }
-
-    func closeWorkspacesTitle(willCloseWindow: Bool) -> String {
-        willCloseWindow
-            ? String(localized: "dialog.closeWindow.title", defaultValue: "Close window?")
-            : String(localized: "dialog.closeWorkspaces.title", defaultValue: "Close workspaces?")
-    }
-
-    func closeWorkspacesMessage(
-        willCloseWindow: Bool,
-        workspaceCount: Int,
-        bulletedTitles: String
-    ) -> String {
-        let format = willCloseWindow
-            ? String(
-                localized: "dialog.closeWorkspacesWindow.message",
-                defaultValue: "This will close the current window, its %1$lld workspaces, and all of their panels:\n%2$@"
-            )
-            : String(
-                localized: "dialog.closeWorkspaces.message",
-                defaultValue: "This will close %1$lld workspaces and all of their panels:\n%2$@"
-            )
-        return String(format: format, locale: .current, Int64(workspaceCount), bulletedTitles)
-    }
-
-    var workspaceDisplayTitleFallback: String {
-        String(localized: "workspace.displayName.fallback", defaultValue: "Workspace")
-    }
-
-    var closeWorkspaceTitle: String {
-        String(localized: "dialog.closeWorkspace.title", defaultValue: "Close workspace?")
-    }
-
-    var closeWorkspaceMessage: String {
-        String(
-            localized: "dialog.closeWorkspace.message",
-            defaultValue: "This will close the workspace and all of its panels."
-        )
-    }
-
-    var closePinnedWorkspaceTitle: String {
-        String(localized: "dialog.closePinnedWorkspace.title", defaultValue: "Close pinned workspace?")
-    }
-
-    var closePinnedWorkspaceMessage: String {
-        String(
-            localized: "dialog.closePinnedWorkspace.message",
-            defaultValue: "This workspace is pinned. Closing it will close the workspace and all of its panels."
-        )
-    }
-
-    var closeAnchorTitle: String {
-        String(localized: "dialog.closeAnchor.title", defaultValue: "Close this workspace?")
-    }
-
-    var closeAnchorMessageLoneFormat: String {
-        String(
-            localized: "dialog.closeAnchor.message.lone",
-            defaultValue: "Closing this workspace will remove the group \u{201C}%@\u{201D}."
-        )
-    }
-
-    var closeAnchorMessageOneFormat: String {
-        String(
-            localized: "dialog.closeAnchor.message.one",
-            defaultValue: "Closing this workspace will ungroup \u{201C}%@\u{201D} and release 1 other workspace."
-        )
-    }
-
-    var closeAnchorMessageManyFormat: String {
-        String(
-            localized: "dialog.closeAnchor.message.many",
-            defaultValue: "Closing this workspace will ungroup \u{201C}%1$@\u{201D} and release %2$lld other workspaces."
-        )
-    }
-
     // MARK: - WorkspaceCloseHosting (WorkspaceCloseCoordinator's teardown seam)
     //
     // The close/detach/attach orchestration (order, model mutations, group
@@ -2210,41 +2080,6 @@ class TabManager {
         ])
     }
 #endif
-
-    private func runCloseConfirmationAlert(_ alert: NSAlert) -> NSApplication.ModalResponse {
-        // Presentation (activate + sheet-on-main-window, else app-modal) is
-        // shared with every other cmux dialog via `runCmuxModalAlert`. This
-        // wrapper only adds the close-confirmation-specific UITest telemetry,
-        // recorded from the presenter's actual path so the label can never
-        // disagree with how the alert was really shown.
-        return runCmuxModalAlert(
-            alert,
-            presentingWindow: closeConfirmationPresentingWindow()
-        ) { presentation in
-            #if DEBUG
-            switch presentation {
-            case .sheet(let hostWindow):
-                // The sheet attaches after this hook returns, so read the
-                // attachment on the next runloop turn (during the modal loop).
-                DispatchQueue.main.async {
-                    UITestRecorder.record([
-                        "closeConfirmationPresentation": "sheet",
-                        "closeConfirmationAttachedSheet": hostWindow.attachedSheet == nil ? "0" : "1",
-                    ])
-                }
-            case .appModal(let hostWindowHadAttachedSheet):
-                UITestRecorder.record([
-                    "closeConfirmationPresentation": "appModal",
-                    "closeConfirmationAttachedSheet": hostWindowHadAttachedSheet ? "1" : "0",
-                ])
-            }
-            #endif
-        }
-    }
-
-    private func closeConfirmationPresentingWindow() -> NSWindow? {
-        cmuxMainWindowForModalPresentation(preferring: window)
-    }
 
     private func closeOtherTabsInFocusedPanePlan() -> CloseOtherTabsInFocusedPanePlan? {
         guard let workspace = selectedWorkspace else { return nil }
@@ -4708,7 +4543,6 @@ extension TabManager: WorkspacesHosting {
 }
 extension TabManager: WorkspaceGroupHosting {}
 extension TabManager: SessionSnapshotRestoreHosting {}
-extension TabManager: CloseConfirming {}
 extension TabManager: WorkspaceCloseHosting {}
 extension TabManager: SurfaceMetadataTitleHosting {}
 
