@@ -60,11 +60,13 @@ extension CMUXCLI {
                 \(Self.sshListUsage)
                 """)
         }
-        let positionals = rest.filter { !$0.hasPrefix("-") }
-        // The verb itself (list/ls) is expected; anything else is a user error.
-        for extra in positionals where extra.lowercased() != "list" && extra.lowercased() != "ls" {
+        // The only expected token is the `list`/`ls` verb (global `--json` was
+        // consumed before this). Anything else — an unknown or misspelled flag
+        // like `--bogus`/`--jsno`, or an extra positional — is a user error,
+        // not a silently-ignored argument.
+        for token in rest where token.lowercased() != "list" && token.lowercased() != "ls" {
             throw CLIError(message: """
-                ssh list: unexpected argument '\(extra)'.
+                ssh list: unexpected argument '\(token)'.
 
                 \(Self.sshListUsage)
                 """)

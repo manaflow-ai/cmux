@@ -102,6 +102,20 @@ extension CMUXCLIErrorOutputRegressionTests {
         XCTAssertNotEqual(result.status, 0, result.stdout)
     }
 
+    /// An unknown or misspelled flag is rejected, not silently ignored.
+    @Test func testSSHListRejectsUnknownOption() throws {
+        let cliPath = try bundledCLIPath()
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["ssh", "list", "--bogus"],
+            environment: scrubbedSSHListEnvironment(),
+            timeout: 10
+        )
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertNotEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(result.stdout.contains("--bogus"), result.stdout)
+    }
+
     private func scrubbedSSHListEnvironment() -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
