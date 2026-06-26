@@ -94,8 +94,7 @@ final class RemoteTmuxController {
         sessionName: String,
         createIfMissing: Bool = false
     ) async throws -> [String]? {
-        if let sshArgv = try await preflightControlAttach(
-            host: host,
+        if let sshArgv = try await transport(for: host).preflightControlAttach(
             sessionName: sessionName,
             createIfMissing: createIfMissing
         ) {
@@ -124,57 +123,6 @@ final class RemoteTmuxController {
         guard connectionsByHostSession[key] === connection else { return }
         connectionsByHostSession.removeValue(forKey: key)
         connection.stop()
-    }
-
-    /// Ensures the requested session is attachable via a non-interactive tmux
-    /// command. Returns an auth-required outcome when BatchMode SSH cannot prompt;
-    /// returns `nil` when the control stream may be launched.
-    private func preflightControlAttach(
-        host: RemoteTmuxHost,
-        sessionName: String,
-        createIfMissing: Bool
-    ) async throws -> [String]? {
-        let transport = transport(for: host)
-
-        do {
-            let existing = try await transport.runTmux(["has-session", "-t", sessionName])
-            if existing.succeeded {
-                return nil
-            }
-            if let sshArgv = Self.authRequiredAttachArgv(host: host, result: existing) {
-                return sshArgv
-            }
-
-            guard createIfMissing else {
-                throw RemoteTmuxError.commandFailed(exitCode: existing.exitCode, stderr: existing.stderr)
-            }
-
-            let created = try await transport.runTmux(["new-session", "-d", "-s", sessionName])
-            guard created.succeeded else {
-                if let sshArgv = Self.authRequiredAttachArgv(host: host, result: created) {
-                    return sshArgv
-                }
-                throw RemoteTmuxError.commandFailed(exitCode: created.exitCode, stderr: created.stderr)
-            }
-            return nil
-        } catch let error as RemoteTmuxError {
-            if case .commandFailed(_, let stderr) = error,
-               RemoteTmuxSSHTransport.indicatesAuthRequired(stderr) {
-                return host.interactiveAuthInvocation()
-            }
-            throw error
-        }
-    }
-
-    private static func authRequiredAttachArgv(
-        host: RemoteTmuxHost,
-        result: RemoteTmuxCommandResult
-    ) -> [String]? {
-        guard !result.succeeded,
-              RemoteTmuxSSHTransport.indicatesAuthRequired(result.stderr) else {
-            return nil
-        }
-        return host.interactiveAuthInvocation()
     }
 
     // MARK: - Sidebar mirroring (P3, initial increment)

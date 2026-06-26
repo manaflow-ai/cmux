@@ -1193,73 +1193,6 @@ enum TextBoxTerminalKey: String {
     case returnKey = "return"
 }
 
-func shouldHandleTextBoxPlainArrowLocally(
-    keyCode: UInt16,
-    firstResponderHasMarkedText: Bool,
-    flags: NSEvent.ModifierFlags
-) -> Bool {
-    guard !firstResponderHasMarkedText else { return false }
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
-    guard normalizedFlags.isEmpty else { return false }
-
-    switch Int(keyCode) {
-    case kVK_LeftArrow, kVK_RightArrow, kVK_UpArrow, kVK_DownArrow:
-        return true
-    default:
-        return false
-    }
-}
-
-func shouldSynchronizeExternalTextToTextBox(
-    inlineAttachmentCount: Int,
-    plainText: String,
-    externalText: String,
-    hasMarkedText: Bool
-) -> Bool {
-    inlineAttachmentCount == 0 && !hasMarkedText && plainText != externalText
-}
-
-func shouldShowTextBoxPlaceholder(
-    text: String,
-    attachmentCount: Int,
-    hasMarkedText: Bool
-) -> Bool {
-    text.isEmpty && attachmentCount == 0 && !hasMarkedText
-}
-
-func shouldEnableTextBoxSubmit(
-    text: String,
-    attachmentCount: Int,
-    hasPendingAttachmentUpload: Bool,
-    hasMarkedText: Bool
-) -> Bool {
-    !hasPendingAttachmentUpload
-        && !hasMarkedText
-        && (!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || attachmentCount > 0)
-}
-
-func shouldSubmitTextBox(
-    hasPendingAttachmentUpload: Bool,
-    hasMarkedText: Bool
-) -> Bool {
-    !hasPendingAttachmentUpload && !hasMarkedText
-}
-
-func textBoxCommandShortcutKey(
-    for event: NSEvent,
-    translateKey: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:),
-    normalizedCharacters: (NSEvent) -> String = KeyboardLayout.normalizedCharacters(for:)
-) -> String {
-    if let translated = translateKey(event.keyCode, event.modifierFlags)?.lowercased(),
-       translated.count == 1,
-       translated.allSatisfy(\.isASCII) {
-        return translated
-    }
-    return normalizedCharacters(event).lowercased()
-}
-
 enum TextBoxAgentDetection: CaseIterable {
     case claudeCode
     case codex
@@ -2718,7 +2651,7 @@ struct TextBoxInputContainer: View {
         let clampedHeight = max(minHeight, min(maxHeight, textViewHeight))
         let foreground = Color(nsColor: terminalForegroundColor)
         let background = Color(nsColor: terminalBackgroundColor)
-        let canSend = shouldEnableTextBoxSubmit(
+        let canSend = TextBoxInputInteractionPolicy().shouldEnableSubmit(
             text: text,
             attachmentCount: attachments.count + pendingCommentCount,
             hasPendingAttachmentUpload: hasPendingAttachmentUpload,
@@ -2763,7 +2696,7 @@ struct TextBoxInputContainer: View {
                     onTextViewDismantled: onTextViewDismantled
                 )
 
-                if shouldShowTextBoxPlaceholder(
+                if TextBoxInputInteractionPolicy().shouldShowPlaceholder(
                     text: text,
                     attachmentCount: attachments.count,
                     hasMarkedText: hasMarkedText
@@ -2941,7 +2874,7 @@ struct TextBoxInputContainer: View {
 
     private func submit() {
         let textView = textViewReference.textView
-        guard shouldSubmitTextBox(
+        guard TextBoxInputInteractionPolicy().shouldSubmit(
             hasPendingAttachmentUpload: textView?.hasPendingAttachmentUploadPlaceholder() ?? hasPendingAttachmentUpload,
             hasMarkedText: textView?.hasMarkedText() ?? hasMarkedText
         ) else {
@@ -3439,7 +3372,7 @@ struct TextBoxInputView: NSViewRepresentable {
                 height: CGFloat.greatestFiniteMagnitude
             )
         }
-        if shouldSynchronizeExternalTextToTextBox(
+        if TextBoxInputInteractionPolicy().shouldSynchronizeExternalText(
             inlineAttachmentCount: textView.inlineAttachments().count,
             plainText: textView.plainText(),
             externalText: text,
@@ -4382,7 +4315,7 @@ final class TextBoxInputTextView: NSTextView {
         guard flags.contains(.command),
               !flags.contains(.option),
               !flags.contains(.control),
-              textBoxCommandShortcutKey(for: event) == "z" else {
+              TextBoxInputInteractionPolicy().commandShortcutKey(for: event) == "z" else {
             return super.performKeyEquivalent(with: event)
         }
 
@@ -4438,7 +4371,7 @@ final class TextBoxInputTextView: NSTextView {
             return
         }
 
-        if shouldHandleTextBoxPlainArrowLocally(
+        if TextBoxInputInteractionPolicy().shouldHandlePlainArrowLocally(
             keyCode: event.keyCode,
             firstResponderHasMarkedText: eventHasMarkedText,
             flags: flags
@@ -5193,7 +5126,7 @@ final class TextBoxInputTextView: NSTextView {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard flags == .command else { return false }
 
-        switch textBoxCommandShortcutKey(for: event) {
+        switch TextBoxInputInteractionPolicy().commandShortcutKey(for: event) {
         case "c":
             copy(nil)
             return true

@@ -55,11 +55,11 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         // app bundle and injects it via evaluateJavaScript.
         config.userContentController.add(WeakMarkdownScriptMessageHandler(context.coordinator), name: "cmuxLib")
         config.setURLSchemeHandler(
-            context.coordinator,
+            context.coordinator.imageSchemeHandler,
             forURLScheme: Self.localImageURLScheme
         )
         config.setURLSchemeHandler(
-            context.coordinator,
+            context.coordinator.imageSchemeHandler,
             forURLScheme: Self.remoteImageURLScheme
         )
         let webView = MarkdownWebView(frame: .zero, configuration: config)
@@ -141,7 +141,13 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         var webView: MarkdownWebView?
         var panelId: UUID = UUID()
         var workspaceId: UUID = UUID()
-        var filePath: String = ""
+        var filePath: String = "" {
+            didSet { imageSchemeHandler.filePath = filePath }
+        }
+        /// Owns the `WKURLSchemeHandler` responsibility for the custom image
+        /// schemes. Registered on the web view configuration in place of the
+        /// coordinator; kept in sync with `filePath` via the property observer.
+        let imageSchemeHandler = MarkdownImageSchemeHandler()
         private var pendingMarkdown: String = ""
         private var pendingTheme: MarkdownWebTheme = .resolve(backgroundColor: GhosttyBackgroundTheme.currentColor())
         private var lastMarkdown: String? = nil
@@ -160,22 +166,6 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         /// WebContent while attached (a crash loop whose recovery budget must
         /// not be reset by pane reparenting).
         private var shellWasHealthyWhenDetached = false
-
-        private struct ImageLoadResult {
-            let data: Data
-            let mimeType: String
-        }
-
-        private final class ImageLoad {
-            var reader: Task<ImageLoadResult, Never>?
-            var sender: Task<Void, Never>?
-
-            func cancel() {
-                reader?.cancel()
-                sender?.cancel()
-            }
-        }
-        private var imageLoads: [ObjectIdentifier: ImageLoad] = [:]
 
 #if DEBUG
         var isShellLoadingForTesting: Bool {
@@ -465,141 +455,27 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private var requestedLibs: Set<String> = []
 
         // MARK: WKURLSchemeHandler
+        //
+        // The image/URL-scheme engine lives in `MarkdownImageSchemeHandler`,
+        // which is the object actually registered on the web view
+        // configuration. These methods forward to it so existing call sites
+        // (and unit tests that drive the scheme handler through the
+        // coordinator) keep working unchanged.
 
         func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
-            guard let requestURL = urlSchemeTask.request.url else {
-                urlSchemeTask.didFailWithError(NSError(domain: NSURLErrorDomain, code: NSURLErrorBadURL))
-                return
-            }
-
-            let taskId = ObjectIdentifier(urlSchemeTask as AnyObject)
-            let load = ImageLoad()
-            imageLoads[taskId] = load
-            let reader = imageLoadTask(for: requestURL)
-            load.reader = reader
-            let sender = Task { [weak self, weak load] in
-                defer {
-                    if let load, self?.imageLoads[taskId] === load {
-                        self?.imageLoads[taskId] = nil
-                    }
-                }
-                let result = await reader.value
-                guard !Task.isCancelled else { return }
-                let response = URLResponse(
-                    url: requestURL,
-                    mimeType: result.mimeType,
-                    expectedContentLength: result.data.count,
-                    textEncodingName: nil
-                )
-                urlSchemeTask.didReceive(response)
-                if !result.data.isEmpty {
-                    urlSchemeTask.didReceive(result.data)
-                }
-                urlSchemeTask.didFinish()
-            }
-            load.sender = sender
+            imageSchemeHandler.webView(webView, start: urlSchemeTask)
         }
 
         func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
-            let taskId = ObjectIdentifier(urlSchemeTask as AnyObject)
-            guard let load = imageLoads.removeValue(forKey: taskId) else { return }
-            load.cancel()
+            imageSchemeHandler.webView(webView, stop: urlSchemeTask)
         }
 
         func cancelImageLoads() {
-            let loads = imageLoads.values
-            imageLoads.removeAll()
-            for load in loads {
-                load.cancel()
-            }
+            imageSchemeHandler.cancelImageLoads()
         }
 
         func cancelLocalImageLoads() {
-            cancelImageLoads()
-        }
-
-        private func imageLoadTask(for requestURL: URL) -> Task<ImageLoadResult, Never> {
-            let scheme = requestURL.scheme?.lowercased()
-            if scheme == MarkdownWebRenderer.localImageURLScheme {
-                let fileURL = localImageFileURL(from: requestURL)
-                let mimeType = fileURL
-                    .flatMap { Self.localImageMimeType(for: $0.pathExtension) } ?? "image/png"
-                return Task.detached(priority: .userInitiated) {
-                    guard let fileURL,
-                          FileManager.default.isReadableFile(atPath: fileURL.path) else {
-                        return ImageLoadResult(data: Data(), mimeType: mimeType)
-                    }
-                    let data = (try? Data(contentsOf: fileURL)) ?? Data()
-                    return ImageLoadResult(data: data, mimeType: mimeType)
-                }
-            }
-
-            if scheme == MarkdownWebRenderer.remoteImageURLScheme {
-                let remoteURL = MarkdownRemoteImageSecurity.remoteImageURL(from: requestURL)
-                return Task.detached(priority: .userInitiated) {
-                    guard let remoteURL,
-                          let fetched = await MarkdownRemoteImageFetcher.fetch(remoteURL) else {
-                        return ImageLoadResult(data: Data(), mimeType: "image/png")
-                    }
-                    return ImageLoadResult(data: fetched.data, mimeType: fetched.mimeType)
-                }
-            }
-
-            return Task.detached {
-                ImageLoadResult(data: Data(), mimeType: "image/png")
-            }
-        }
-
-        private func localImageFileURL(from requestURL: URL) -> URL? {
-            guard requestURL.scheme?.lowercased() == MarkdownWebRenderer.localImageURLScheme,
-                  let components = URLComponents(url: requestURL, resolvingAgainstBaseURL: false),
-                  let rawFileURL = components.queryItems?.first(where: { $0.name == "url" })?.value,
-                  let fileURL = URL(string: rawFileURL),
-                  fileURL.isFileURL else {
-                return nil
-            }
-
-            let markdownFilePath = filePath.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !markdownFilePath.isEmpty else {
-                return nil
-            }
-
-            let markdownDirectory = URL(fileURLWithPath: markdownFilePath)
-                .deletingLastPathComponent()
-                .standardizedFileURL
-                .resolvingSymlinksInPath()
-            guard markdownDirectory.path != "/" else {
-                return nil
-            }
-
-            let markdownRoot = markdownDirectory.path.hasSuffix("/")
-                ? markdownDirectory.path
-                : markdownDirectory.path + "/"
-            let standardizedURL = fileURL
-                .standardizedFileURL
-                .resolvingSymlinksInPath()
-            guard standardizedURL.path.hasPrefix(markdownRoot),
-                  Self.localImageMimeType(for: standardizedURL.pathExtension) != nil else {
-                return nil
-            }
-            return standardizedURL
-        }
-
-        private static func localImageMimeType(for pathExtension: String) -> String? {
-            switch pathExtension.lowercased() {
-            case "png":
-                return "image/png"
-            case "jpg", "jpeg":
-                return "image/jpeg"
-            case "gif":
-                return "image/gif"
-            case "webp":
-                return "image/webp"
-            case "avif":
-                return "image/avif"
-            default:
-                return nil
-            }
+            imageSchemeHandler.cancelLocalImageLoads()
         }
 
         private func resolveMarkdownFile(_ rawPath: String, requestId: String) {

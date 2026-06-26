@@ -1228,7 +1228,7 @@ final class MobileHostService {
     private func devStackTokenAuthorized(_ request: MobileHostRPCRequest) -> Bool {
         #if DEBUG
         if let stackAccessToken = request.auth?.stackAccessToken {
-            return MobileHostDevStackAuthPolicy.authorize(
+            return MobileHostDevStackAuthPolicy().authorize(
                 providedToken: stackAccessToken,
                 acceptedToken: debugAcceptedStackAuthToken
             )
@@ -1706,7 +1706,7 @@ extension MobileHostService {
     }
 
     func debugConfigureAcceptedStackAuthTokenForTesting(_ token: String?) {
-        debugAcceptedStackAuthToken = MobileHostDevStackAuthPolicy.normalizedToken(token)
+        debugAcceptedStackAuthToken = MobileHostDevStackAuthPolicy().normalizedToken(token)
     }
 
     func debugAcceptedStackAuthTokenForTesting() -> String? {
@@ -1719,46 +1719,6 @@ extension MobileHostService {
 
     nonisolated static func debugResetEventSubscriptionsForTesting() {
         MobileHostEventSubscriptionTracker.resetForTesting()
-    }
-}
-#endif
-
-private enum MobileHostAuthorizationError: Error {
-    case missingStackTokens
-    case invalidStackUser
-    case missingLocalUser
-    case accountMismatch
-    case verificationTimedOut
-}
-
-enum MobileHostAuthorizationPolicy {
-    static func authorizeStackUserID(localUserID: String?, remoteUserID: String?) throws {
-        guard let localUserID = normalizedUserID(localUserID) else {
-            throw MobileHostAuthorizationError.missingLocalUser
-        }
-        guard normalizedUserID(remoteUserID) == localUserID else {
-            throw MobileHostAuthorizationError.accountMismatch
-        }
-    }
-
-    private static func normalizedUserID(_ value: String?) -> String? {
-        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed?.isEmpty == false ? trimmed : nil
-    }
-}
-
-#if DEBUG
-enum MobileHostDevStackAuthPolicy {
-    static func normalizedToken(_ token: String?) -> String? {
-        let trimmed = token?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed?.isEmpty == false ? trimmed : nil
-    }
-
-    static func authorize(providedToken: String, acceptedToken: String?) -> Bool {
-        guard let acceptedToken = normalizedToken(acceptedToken) else {
-            return false
-        }
-        return normalizedToken(providedToken) == acceptedToken
     }
 }
 #endif
@@ -1790,7 +1750,7 @@ private actor MobileHostStackAuthVerifier {
             return nil
         }
         let localUserID = await currentAuthenticatedLocalUserID()
-        return (try? MobileHostAuthorizationPolicy.authorizeStackUserID(
+        return (try? MobileHostAuthorizationPolicy().authorizeStackUserID(
             localUserID: localUserID,
             remoteUserID: cached.userID
         )) != nil
@@ -1819,7 +1779,7 @@ private actor MobileHostStackAuthVerifier {
         }
 
         let localUserID = await currentAuthenticatedLocalUserID()
-        try MobileHostAuthorizationPolicy.authorizeStackUserID(
+        try MobileHostAuthorizationPolicy().authorizeStackUserID(
             localUserID: localUserID,
             remoteUserID: remoteUserID
         )

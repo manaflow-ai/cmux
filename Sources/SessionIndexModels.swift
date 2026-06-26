@@ -440,12 +440,12 @@ struct SessionEntry: Identifiable, Hashable {
     }
 
     private static func shellSingleQuote(_ value: String) -> String {
-        TerminalStartupShellQuoting.singleQuoted(value)
+        TerminalStartupShellQuoting().singleQuoted(value)
     }
 
     /// Single-quote a value for safe shell injection. Escapes embedded single quotes.
     static func shellQuote(_ value: String) -> String {
-        TerminalStartupShellQuoting.shellToken(value, allowingBareASCII: true)
+        TerminalStartupShellQuoting().shellToken(value, allowingBareASCII: true)
     }
 
     /// Sandbox-policy values the Codex CLI `--sandbox` flag accepts.

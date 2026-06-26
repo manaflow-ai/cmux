@@ -777,7 +777,7 @@ private extension FeedCoordinator {
                 return
             }
 
-            let policyContext = makeFeedNotificationPolicyContext(
+            let policyContext = self.makeNotificationPolicyContext(
                 event: event,
                 title: title,
                 body: body
@@ -1028,66 +1028,70 @@ private extension FeedCoordinator {
     }
 }
 
-private struct FeedNotificationPolicyContext {
-    let envelope: TerminalNotificationPolicyEnvelope
-    let hooks: [CmuxResolvedNotificationHook]
-    let globalConfigPath: String?
-}
+// MARK: - Notification policy context
 
-@MainActor
-private func makeFeedNotificationPolicyContext(
-    event: WorkstreamEvent,
-    title: String,
-    body: String
-) -> FeedNotificationPolicyContext {
-    let appDelegate = AppDelegate.shared
-    let workspaceID = event.workspaceId.flatMap(UUID.init(uuidString:))
-    let context = workspaceID.flatMap { appDelegate?.contextContainingTabId($0) }
-        ?? appDelegate?.firstContextWithConfigStore()
-    let configStore = context.flatMap { appDelegate?.configStore(for: $0) }
-    let workspace = workspaceID.flatMap { id in
-        context?.tabManager.tabs.first(where: { $0.id == id })
+private extension FeedCoordinator {
+    struct NotificationPolicyContext {
+        let envelope: TerminalNotificationPolicyEnvelope
+        let hooks: [CmuxResolvedNotificationHook]
+        let globalConfigPath: String?
     }
-    let cwd = normalizedFeedNotificationCWD(event.cwd)
-        ?? workspace?.surfaceTabBarDirectory
-        ?? workspace?.currentDirectory
-        ?? FileManager.default.homeDirectoryForCurrentUser.path
-    var effects = TerminalNotificationPolicyEffects()
-    effects.desktop = true
-    effects.record = false
-    effects.markUnread = false
-    effects.reorderWorkspace = false
-    effects.sound = false
-    effects.command = false
-    effects.paneFlash = false
 
-    return FeedNotificationPolicyContext(
-        envelope: TerminalNotificationPolicyEnvelope(
-            notification: TerminalNotificationPolicyPayload(
-                workspaceId: event.workspaceId ?? event.sessionId,
-                surfaceId: nil,
-                title: title,
-                subtitle: "",
-                body: body
-            ),
-            context: TerminalNotificationPolicyContext(
-                cwd: cwd,
-                configPath: nil,
-                hookId: nil,
-                appFocused: AppFocusState.isAppFocused(),
-                focusedPanel: false
-            ),
-            effects: effects
-        ),
-        hooks: configStore?.notificationHooks(startingFrom: cwd) ?? [],
-        globalConfigPath: configStore?.globalConfigPath
-    )
-}
+    @MainActor
+    func makeNotificationPolicyContext(
+        event: WorkstreamEvent,
+        title: String,
+        body: String
+    ) -> NotificationPolicyContext {
+        let appDelegate = AppDelegate.shared
+        let workspaceID = event.workspaceId.flatMap(UUID.init(uuidString:))
+        let context = workspaceID.flatMap { appDelegate?.contextContainingTabId($0) }
+            ?? appDelegate?.firstContextWithConfigStore()
+        let configStore = context.flatMap { appDelegate?.configStore(for: $0) }
+        let workspace = workspaceID.flatMap { id in
+            context?.tabManager.tabs.first(where: { $0.id == id })
+        }
+        let cwd = normalizedNotificationCWD(event.cwd)
+            ?? workspace?.surfaceTabBarDirectory
+            ?? workspace?.currentDirectory
+            ?? FileManager.default.homeDirectoryForCurrentUser.path
+        var effects = TerminalNotificationPolicyEffects()
+        effects.desktop = true
+        effects.record = false
+        effects.markUnread = false
+        effects.reorderWorkspace = false
+        effects.sound = false
+        effects.command = false
+        effects.paneFlash = false
 
-private func normalizedFeedNotificationCWD(_ cwd: String?) -> String? {
-    guard let cwd else { return nil }
-    let trimmed = cwd.trimmingCharacters(in: .whitespacesAndNewlines)
-    return trimmed.isEmpty ? nil : trimmed
+        return NotificationPolicyContext(
+            envelope: TerminalNotificationPolicyEnvelope(
+                notification: TerminalNotificationPolicyPayload(
+                    workspaceId: event.workspaceId ?? event.sessionId,
+                    surfaceId: nil,
+                    title: title,
+                    subtitle: "",
+                    body: body
+                ),
+                context: TerminalNotificationPolicyContext(
+                    cwd: cwd,
+                    configPath: nil,
+                    hookId: nil,
+                    appFocused: AppFocusState.isAppFocused(),
+                    focusedPanel: false
+                ),
+                effects: effects
+            ),
+            hooks: configStore?.notificationHooks(startingFrom: cwd) ?? [],
+            globalConfigPath: configStore?.globalConfigPath
+        )
+    }
+
+    func normalizedNotificationCWD(_ cwd: String?) -> String? {
+        guard let cwd else { return nil }
+        let trimmed = cwd.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
 }
 
 /// JSON-shape helpers used by the V2 `feed.*` socket handlers.

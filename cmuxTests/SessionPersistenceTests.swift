@@ -5,6 +5,7 @@ import CmuxWorkspaces
 import Darwin
 import XCTest
 import CmuxTerminal
+import CmuxTerminalCore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -528,12 +529,12 @@ final class SessionPersistenceTests: XCTestCase {
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        let environment = SessionScrollbackReplayStore.replayEnvironment(
+        let environment = SessionScrollbackReplay().replayEnvironment(
             for: "line one\nline two\n",
             tempDirectory: tempDir
         )
 
-        let path = environment[SessionScrollbackReplayStore.environmentKey]
+        let path = environment[SessionScrollbackReplay.environmentKey]
         XCTAssertNotNil(path)
         XCTAssertTrue(path?.hasPrefix(tempDir.path) == true)
 
@@ -548,7 +549,7 @@ final class SessionPersistenceTests: XCTestCase {
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        let environment = SessionScrollbackReplayStore.replayEnvironment(
+        let environment = SessionScrollbackReplay().replayEnvironment(
             for: " \n\t  ",
             tempDirectory: tempDir
         )
@@ -565,12 +566,12 @@ final class SessionPersistenceTests: XCTestCase {
         let red = "\u{001B}[31m"
         let reset = "\u{001B}[0m"
         let source = "\(red)RED\(reset)\n"
-        let environment = SessionScrollbackReplayStore.replayEnvironment(
+        let environment = SessionScrollbackReplay().replayEnvironment(
             for: source,
             tempDirectory: tempDir
         )
 
-        guard let path = environment[SessionScrollbackReplayStore.environmentKey] else {
+        guard let path = environment[SessionScrollbackReplay.environmentKey] else {
             XCTFail("Expected replay file path")
             return
         }
@@ -620,12 +621,12 @@ final class SessionPersistenceTests: XCTestCase {
             + "\(setPalette)\(resetPalette)\(resetForeground)plain default text\n"
             + "\(red)RED\(reset) \(hyperlink)\n"
 
-        let environment = SessionScrollbackReplayStore.replayEnvironment(
+        let environment = SessionScrollbackReplay().replayEnvironment(
             for: source,
             tempDirectory: tempDir
         )
 
-        guard let path = environment[SessionScrollbackReplayStore.environmentKey] else {
+        guard let path = environment[SessionScrollbackReplay.environmentKey] else {
             XCTFail("Expected replay file path")
             return
         }
@@ -679,12 +680,12 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     func testTruncatedScrollbackAvoidsLeadingPartialANSICSISequence() {
-        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        let maxChars = ScrollbackTruncation().maxCharacters
         let source = "\u{001B}[31m"
             + String(repeating: "X", count: maxChars - 7)
             + "\u{001B}[0m"
 
-        guard let truncated = SessionPersistencePolicy.truncatedScrollback(source) else {
+        guard let truncated = ScrollbackTruncation().truncated(source) else {
             XCTFail("Expected truncated scrollback")
             return
         }
@@ -1293,7 +1294,7 @@ final class SessionPersistenceTests: XCTestCase {
     func testResolvedSnapshotTerminalScrollbackTruncatesFallback() {
         let oversizedFallback = String(
             repeating: "x",
-            count: SessionPersistencePolicy.maxScrollbackCharactersPerTerminal + 37
+            count: ScrollbackTruncation().maxCharacters + 37
         )
         let resolved = Workspace.resolvedSnapshotTerminalScrollback(
             capturedScrollback: nil,
@@ -1302,7 +1303,7 @@ final class SessionPersistenceTests: XCTestCase {
 
         XCTAssertEqual(
             resolved?.count,
-            SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+            ScrollbackTruncation().maxCharacters
         )
     }
 
@@ -4251,7 +4252,7 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(
             binding.command,
-            TerminalStartupWorkingDirectoryPrefix.prefix(
+            TerminalStartupWorkingDirectoryPrefix().prefix(
                 "codex resume session",
                 workingDirectory: "/tmp/project"
             )
@@ -4273,7 +4274,7 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(
             decoded.command,
-            TerminalStartupWorkingDirectoryPrefix.prefix(
+            TerminalStartupWorkingDirectoryPrefix().prefix(
                 "codex resume session",
                 workingDirectory: "/tmp/project"
             )
@@ -4290,7 +4291,7 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(
             binding.command,
-            TerminalStartupWorkingDirectoryPrefix.prefix(
+            TerminalStartupWorkingDirectoryPrefix().prefix(
                 "codex resume session --append-system-prompt 'use C:\\tmp' --model gpt-5.4",
                 workingDirectory: "/tmp/project"
             )
@@ -4307,7 +4308,7 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(
             binding.command,
-            TerminalStartupWorkingDirectoryPrefix.prefix(
+            TerminalStartupWorkingDirectoryPrefix().prefix(
                 "codex resume session && echo done",
                 workingDirectory: "/tmp/project"
             )
@@ -4327,7 +4328,7 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(
             binding.command,
-            TerminalStartupWorkingDirectoryPrefix.prefix(
+            TerminalStartupWorkingDirectoryPrefix().prefix(
                 "codex resume session",
                 workingDirectory: cwd
             )

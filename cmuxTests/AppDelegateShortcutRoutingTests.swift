@@ -9655,17 +9655,17 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testTextBoxPlainArrowsDeferDuringIMEComposition() {
-        XCTAssertFalse(shouldHandleTextBoxPlainArrowLocally(
+        XCTAssertFalse(TextBoxInputInteractionPolicy().shouldHandlePlainArrowLocally(
             keyCode: UInt16(kVK_LeftArrow),
             firstResponderHasMarkedText: true,
             flags: []
         ))
-        XCTAssertTrue(shouldHandleTextBoxPlainArrowLocally(
+        XCTAssertTrue(TextBoxInputInteractionPolicy().shouldHandlePlainArrowLocally(
             keyCode: UInt16(kVK_LeftArrow),
             firstResponderHasMarkedText: false,
             flags: []
         ))
-        XCTAssertFalse(shouldHandleTextBoxPlainArrowLocally(
+        XCTAssertFalse(TextBoxInputInteractionPolicy().shouldHandlePlainArrowLocally(
             keyCode: UInt16(kVK_LeftArrow),
             firstResponderHasMarkedText: false,
             flags: [.command]
