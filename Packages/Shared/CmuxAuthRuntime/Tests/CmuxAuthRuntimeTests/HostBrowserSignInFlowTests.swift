@@ -270,6 +270,41 @@ import Testing
         #expect(harness.coordinator.currentUser == user)
     }
 
+    @Test func defaultBrowserRecoveryCompletesEvenWithAConcurrentPopupAttempt() async throws {
+        // From the signed-out error state the user can click both "Open in
+        // Browser" (issuing a durable recovery state) and "Sign In…" (starting
+        // a fresh popup attempt with its own state). Starting/cancelling the
+        // popup must not invalidate the recovery callback: the browser the user
+        // actually finishes in must still complete the sign-in instead of being
+        // rejected as a state mismatch (issue #6015).
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let harness = HostBrowserSignInFlowHarness(user: user)
+
+        func authState(of url: URL) -> String? {
+            URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?
+                .first(where: { $0.name == "cmux_auth_state" })?
+                .value
+        }
+
+        // 1) User opens the default-browser recovery.
+        let recoveryState = try #require(authState(of: harness.flow.defaultBrowserSignInURL))
+
+        // 2) User also clicks "Sign In…", starting a popup attempt whose state
+        //    differs from the recovery state.
+        harness.flow.beginSignIn()
+        await harness.waitForSession()
+        #expect(harness.callbackState(harness.factory.sessions[0]) != recoveryState)
+
+        // 3) The browser the user finished in delivers the recovery callback.
+        let signedIn = await harness.flow.handleCallbackURL(harness.callbackURL(state: recoveryState))
+
+        #expect(signedIn)
+        #expect(harness.coordinator.isAuthenticated)
+        #expect(harness.coordinator.currentUser == user)
+        #expect(harness.flow.lastFailure != .invalidCallback)
+    }
+
     @Test func issuedFallbackCallbackSurvivesPopupCancellation() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let harness = HostBrowserSignInFlowHarness(user: user)
