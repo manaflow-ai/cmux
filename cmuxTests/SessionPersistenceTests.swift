@@ -213,6 +213,71 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(visibleFrame.y, 25, accuracy: 0.001)
     }
 
+    // MARK: - Phantom window integrity (issue #6646)
+
+    /// Reproduces issue #6646: an unclean shutdown (e.g. a power outage) left
+    /// the session file with "phantom" windows — windows that carry no tabs or
+    /// surfaces. Replaying those empty shells on launch creates content-less
+    /// windows that, on a multi-display Mac, can wedge the WindowServer and
+    /// freeze the entire desktop. A session made up entirely of phantom windows
+    /// must be treated as unusable so the app discards it and opens a fresh
+    /// window instead of replaying the phantoms.
+    func testLoadOutcomeTreatsAllPhantomWindowSessionAsUnusable() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let store = sessionStore(appSupportDirectory: tempDir)
+        let fileURL = try XCTUnwrap(store.defaultSnapshotFileURL())
+        // The reporter's file: 3 windows, every one of them with 0 tabs/surfaces.
+        let phantomSession = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: Date().timeIntervalSince1970,
+            windows: [
+                makePhantomWindowSnapshot(),
+                makePhantomWindowSnapshot(),
+                makePhantomWindowSnapshot(),
+            ]
+        )
+        try writeSnapshotJSON(phantomSession, to: fileURL)
+
+        guard case .unusable = store.loadOutcome(fileURL: fileURL) else {
+            XCTFail("A session of only phantom (0-tab) windows must be unusable (issue #6646)")
+            return
+        }
+        XCTAssertNil(store.load(fileURL: fileURL))
+    }
+
+    /// A session that mixes a real window with phantom windows must load the
+    /// real window only — the phantom shells are dropped so they are never
+    /// replayed on restore (issue #6646).
+    func testLoadOutcomeDropsPhantomWindowsButKeepsRealWindows() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let store = sessionStore(appSupportDirectory: tempDir)
+        let fileURL = try XCTUnwrap(store.defaultSnapshotFileURL())
+        let realWindow = try XCTUnwrap(
+            makeSnapshot(version: SessionSnapshotSchema.currentVersion).windows.first
+        )
+        let mixedSession = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: Date().timeIntervalSince1970,
+            windows: [makePhantomWindowSnapshot(), realWindow, makePhantomWindowSnapshot()]
+        )
+        try writeSnapshotJSON(mixedSession, to: fileURL)
+
+        guard case .loaded(let restored) = store.loadOutcome(fileURL: fileURL) else {
+            XCTFail("A session with at least one real window must stay loadable (issue #6646)")
+            return
+        }
+        XCTAssertEqual(restored.windows.count, 1, "phantom (0-tab) windows must be dropped on load")
+        XCTAssertFalse(restored.windows.contains { $0.tabManager.workspaces.isEmpty })
+    }
+
     func testLoadReopenSessionSnapshotRequiresPreviousSnapshotFile() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
@@ -1866,6 +1931,30 @@ final class SessionPersistenceTests: XCTestCase {
             createdAt: Date().timeIntervalSince1970,
             windows: [window]
         )
+    }
+
+    /// A "phantom" window: an empty shell with no tabs/surfaces. Persisting and
+    /// replaying these is the root cause of issue #6646.
+    private func makePhantomWindowSnapshot() -> SessionWindowSnapshot {
+        SessionWindowSnapshot(
+            frame: SessionRectSnapshot(x: 0, y: 0, width: 800, height: 600),
+            display: nil,
+            tabManager: SessionTabManagerSnapshot(selectedWorkspaceIndex: nil, workspaces: []),
+            sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: 220)
+        )
+    }
+
+    /// Writes a snapshot to disk exactly as it would be persisted, independent
+    /// of the store's save-time policy, so the on-disk corruption state is
+    /// reproduced faithfully.
+    private func writeSnapshotJSON(_ snapshot: AppSessionSnapshot, to fileURL: URL) throws {
+        try FileManager.default.createDirectory(
+            at: fileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        try encoder.encode(snapshot).write(to: fileURL, options: .atomic)
     }
 
     private func fileNumber(for fileURL: URL) throws -> Int {
