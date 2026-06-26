@@ -46,12 +46,14 @@ DEFAULT_SOURCE = REPO_ROOT / "CLI" / "cmux.swift"
 DEFAULT_OUT_DIR = REPO_ROOT / "completions"
 
 # Commands the registry lists but that are internal plumbing, not meant to be
-# typed by a human. Anything `__`-prefixed is filtered separately.
+# typed by a human. Anything `__`-prefixed is filtered separately. None of these
+# may be documented as a top-level command in usage() -- the `--check` guard
+# fails if one is, since filtering a documented command hides it from
+# completion (`set-hook` was such a case: it is a real tmux-compat command).
 INTERNAL_COMMANDS = {
     "claude-hook",
     "codex-hook",
     "feed-hook",
-    "set-hook",
     "setup-hooks",
     "uninstall-hooks",
     "ssh-pty-attach",
@@ -311,17 +313,18 @@ def help_top_level_commands(help_text: str) -> list[str]:
 
 
 def registry_coverage_gaps(source_path: Path) -> list[str]:
-    """Commands documented in help but absent from the registry.
+    """Commands documented in help but not offered for completion.
 
-    `topLevelCommandNames` is the source of truth for command names; help must
-    not document a top-level command the registry is unaware of, or completions
-    silently miss it (the byte-diff drift check would not catch that, since both
-    the committed scripts and the regeneration ride on the same registry).
+    Every top-level command documented in usage() must be completable, i.e. in
+    `visible_commands()`. A gap means the command is either absent from
+    `topLevelCommandNames` (e.g. `remotes`) or wrongly filtered as internal
+    (e.g. `set-hook`). The byte-diff drift check cannot catch either case, since
+    the committed scripts and the regeneration ride on the same generator.
     Returns the missing names so the contract test can fail loudly.
     """
-    registry = set(parse_registry(source_path))
+    visible = set(visible_commands(parse_registry(source_path)))
     documented = help_top_level_commands(extract_usage_heredoc(source_path))
-    return sorted(c for c in documented if c not in registry)
+    return sorted(c for c in documented if c not in visible)
 
 
 # ---------------------------------------------------------------------------
@@ -514,12 +517,12 @@ def main() -> int:
         gaps = registry_coverage_gaps(Path(args.source))
         if gaps:
             print(
-                "Commands documented in usage() but missing from "
-                f"topLevelCommandNames: {', '.join(gaps)}",
+                "Commands documented in usage() but not completable (absent from "
+                f"topLevelCommandNames or filtered as internal): {', '.join(gaps)}",
                 file=sys.stderr,
             )
             return 1
-        print("OK: topLevelCommandNames covers all documented commands")
+        print("OK: every documented command is completable")
         return 0
 
     outputs = build(args)

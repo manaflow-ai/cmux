@@ -122,6 +122,7 @@ _cmux() {
         'send-panel'
         'set-app-focus'
         'set-buffer'
+        'set-hook'
         'set-progress'
         'set-status'
         'settings'
@@ -388,6 +389,8 @@ _cmux() {
             compadd -- active clear inactive ;;
         set-buffer)
             compadd -- --name ;;
+        set-hook)
+            compadd -- --list --unset ;;
         set-progress)
             compadd -- --label --window --workspace ;;
         set-status)

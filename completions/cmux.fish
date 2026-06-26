@@ -144,6 +144,7 @@ complete -c cmux -n __cmux_needs_command -f -a 'send-key-panel'
 complete -c cmux -n __cmux_needs_command -f -a 'send-panel'
 complete -c cmux -n __cmux_needs_command -f -a 'set-app-focus'
 complete -c cmux -n __cmux_needs_command -f -a 'set-buffer'
+complete -c cmux -n __cmux_needs_command -f -a 'set-hook'
 complete -c cmux -n __cmux_needs_command -f -a 'set-progress'
 complete -c cmux -n __cmux_needs_command -f -a 'set-status'
 complete -c cmux -n __cmux_needs_command -f -a 'settings'
@@ -532,6 +533,8 @@ complete -c cmux -n '__cmux_command_is set-app-focus' -f -a 'active'
 complete -c cmux -n '__cmux_command_is set-app-focus' -f -a 'clear'
 complete -c cmux -n '__cmux_command_is set-app-focus' -f -a 'inactive'
 complete -c cmux -n '__cmux_command_is set-buffer' -l name
+complete -c cmux -n '__cmux_command_is set-hook' -l list
+complete -c cmux -n '__cmux_command_is set-hook' -l unset
 complete -c cmux -n '__cmux_command_is set-progress' -l label
 complete -c cmux -n '__cmux_command_is set-progress' -l window
 complete -c cmux -n '__cmux_command_is set-progress' -l workspace
