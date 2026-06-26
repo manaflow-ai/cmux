@@ -36,6 +36,31 @@ struct AccessibilityWindowCacheTests {
         }
     }
 
+    @Test("AXWindows omits invalid zero-numbered windows")
+    func windowsAttributeOmitsInvalidZeroNumberedWindows() {
+        let regularWindow = makeWindow()
+        let invalidWindow = ZeroWindowNumberWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 24, height: 24),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        invalidWindow.title = "Item-0"
+        defer {
+            regularWindow.orderOut(nil)
+            invalidWindow.orderOut(nil)
+        }
+
+        let cache = AccessibilityWindowCache()
+        let state = AccessibilityWindowCache.StateToken(windows: [invalidWindow, regularWindow])
+
+        let value = cache.value(for: .windows, stateToken: state) {
+            .init(windows: [invalidWindow, regularWindow])
+        }
+
+        expectWindowsEqual(value, [regularWindow])
+    }
+
     @Test("repeated .windows queries reuse a single hierarchy build until state changes")
     func repeatedWindowsQueriesReuseSingleHierarchyBuildUntilStateChanges() {
         let firstWindow = makeWindow()
@@ -125,5 +150,9 @@ struct AccessibilityWindowCacheTests {
         }
 
         #expect(buildCount == 2, "Expected NSWindow.willCloseNotification to invalidate the cache")
+    }
+
+    private final class ZeroWindowNumberWindow: NSWindow {
+        override var windowNumber: Int { 0 }
     }
 }
