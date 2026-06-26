@@ -10077,13 +10077,16 @@ final class Workspace: Identifiable, ObservableObject {
             self?.scheduleLayoutFollowUpAttempt()
         }
 
-        layoutFollowUpObservers.append(NotificationCenter.default.addObserver(
-            forName: NSWindow.didUpdateNotification,
-            object: nil,
-            queue: .main
-        ) { _ in
-            enqueueAttempt()
-        })
+        // Intentionally NOT observing NSWindow.didUpdateNotification here. AppKit
+        // posts it on every event-loop iteration while the window is tracking
+        // (scroll, drag, mouse-move), so re-arming a layout-follow-up attempt from
+        // it pumped flushWorkspaceWindowLayouts() — a full-window relayout — on
+        // every scroll tick while any follow-up session was open. Convergence is
+        // instead driven by (1) the self-rescheduling backoff loop in
+        // attemptEventDrivenLayoutFollowUp() (which now keeps retrying on stall,
+        // bounded by the follow-up timeout) and (2) the specific structural-event
+        // observers below. See the scroll-lag investigation in
+        // https://github.com/manaflow-ai/cmux/issues/6790.
         layoutFollowUpObservers.append(NotificationCenter.default.addObserver(
             forName: .terminalSurfaceDidBecomeReady,
             object: nil,
@@ -10188,8 +10191,36 @@ final class Workspace: Identifiable, ObservableObject {
         return min(0.25, baseDelay * pow(2.0, Double(exponent)))
     }
 
+    /// The visible windows that actually host this workspace's mounted panel
+    /// views. Scoping layout flushes to these means a workspace never forces a
+    /// relayout on unrelated windows. Falls back to all visible windows when none
+    /// can be resolved (e.g. mid-reparenting), preserving the previous
+    /// conservative behavior rather than risking a stale-geometry read.
+    private func workspaceLayoutFlushWindows() -> [NSWindow] {
+        var windows: [NSWindow] = []
+        var seen = Set<ObjectIdentifier>()
+        func add(_ window: NSWindow?) {
+            guard let window, window.isVisible else { return }
+            if seen.insert(ObjectIdentifier(window)).inserted {
+                windows.append(window)
+            }
+        }
+        for panel in panels.values {
+            if let terminalPanel = panel as? TerminalPanel {
+                add(terminalPanel.hostedView.window)
+            } else if let browserPanel = panel as? BrowserPanel {
+                add(browserPanel.portalAnchorView.window)
+                add(browserPanel.webView.window)
+            }
+        }
+        if windows.isEmpty {
+            return NSApp.windows.filter { $0.isVisible }
+        }
+        return windows
+    }
+
     private func flushWorkspaceWindowLayouts() {
-        for window in NSApp.windows where window.isVisible {
+        for window in workspaceLayoutFlushWindows() {
             window.contentView?.layoutSubtreeIfNeeded()
         }
     }
@@ -10348,10 +10379,17 @@ final class Workspace: Identifiable, ObservableObject {
 
         if didMakeProgress {
             layoutFollowUpStalledAttemptCount = 0
-            scheduleLayoutFollowUpAttempt()
         } else {
             layoutFollowUpStalledAttemptCount += 1
         }
+        // Always keep retrying while work remains. Previously a stalled attempt
+        // (no progress) stopped rescheduling and relied on an external wake —
+        // chiefly NSWindow.didUpdateNotification, which fired on every scroll
+        // tick. Now the loop self-drives at the stall backoff delay
+        // (layoutFollowUpBackoffDelay, capped at 0.25s) until it converges
+        // or the follow-up timeout (refreshLayoutFollowUpTimeout) clears it, so
+        // convergence no longer depends on high-frequency window updates.
+        scheduleLayoutFollowUpAttempt()
     }
 
     /// Reconcile remaining terminal view geometries after split topology changes.
@@ -10361,7 +10399,7 @@ final class Workspace: Identifiable, ObservableObject {
         let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
 
         // Flush pending AppKit layout first so terminal-host bounds reflect latest split topology.
-        for window in NSApp.windows where window.isVisible {
+        for window in workspaceLayoutFlushWindows() {
             window.contentView?.layoutSubtreeIfNeeded()
         }
 
