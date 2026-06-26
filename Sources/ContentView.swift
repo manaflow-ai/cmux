@@ -13468,25 +13468,30 @@ struct TabItemView: View, Equatable {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top, spacing: 8) {
                 // Leading status slot. The unread badge and the left-positioned
-                // spinner share this one fixed-size slot (the spinner takes over
-                // while loading); when present it pushes the title right. Only
-                // opacity (fade/cross-fade) and the height-neutral horizontal
-                // push animate — never row height, which would interpolate the
-                // LazyVStack height every frame (#5764 / #5845).
-                if leadingSlotActive {
-                    ZStack {
-                        if badgeOnLeading {
-                            unreadBadgeView
-                                .opacity(spinnerOnLeading ? 0 : 1)
-                        }
-                        if spinnerOnLeading {
-                            loadingSpinnerView
-                                .transition(.opacity)
-                        }
+                // spinner share this one fixed-height slot (the spinner takes
+                // over while loading). The slot is always present so its WIDTH
+                // can animate 0 -> badge size, which slides the title right (the
+                // "x slide"); the negative trailing padding cancels the HStack
+                // spacing while collapsed so empty rows have no phantom gap.
+                // Only width/opacity animate, never row height (the slot stays
+                // badge-tall), so this never interpolates the LazyVStack height
+                // (#5764 / #5845).
+                ZStack {
+                    if badgeOnLeading {
+                        unreadBadgeView
+                            .opacity(spinnerOnLeading ? 0 : 1)
                     }
-                    .frame(width: scaledUnreadBadgeSize, height: scaledUnreadBadgeSize)
-                    .transition(.opacity)
+                    if spinnerOnLeading {
+                        loadingSpinnerView
+                    }
                 }
+                .frame(
+                    width: leadingSlotActive ? scaledUnreadBadgeSize : 0,
+                    height: scaledUnreadBadgeSize
+                )
+                .opacity(leadingSlotActive ? 1 : 0)
+                .padding(.trailing, leadingSlotActive ? 0 : -8)
+                .clipped()
 
                 if workspaceSnapshot.isPinned {
                     Image(systemName: "pin.fill")
