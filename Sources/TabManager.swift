@@ -1548,9 +1548,11 @@ class TabManager: ObservableObject {
     }
 
     func moveTabsToTopForNotificationPriority(_ tabIdsInPriorityOrder: [UUID]) {
+        let tabById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
+        var seenIds = Set<UUID>()
         let orderedUnpinnedIds = tabIdsInPriorityOrder.reduce(into: [UUID]()) { result, tabId in
-            guard !result.contains(tabId),
-                  let tab = tabs.first(where: { $0.id == tabId }),
+            guard seenIds.insert(tabId).inserted,
+                  let tab = tabById[tabId],
                   !tab.isPinned else {
                 return
             }
