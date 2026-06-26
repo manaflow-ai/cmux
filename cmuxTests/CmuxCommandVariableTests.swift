@@ -110,6 +110,27 @@ import Testing
         #expect(variables("echo {{na\nme}}").isEmpty)
     }
 
+    @Test func heredocBodiesAreLeftLiteral() {
+        // Template text inside a here-doc body is not a shell word, so existing
+        // commands that embed templates via heredocs run unchanged.
+        #expect(variables("cat >t <<'EOF'\n{{name}}\nEOF").isEmpty)
+        #expect(substitute("cat <<EOF\n{{name}}\nEOF", ["name": "x"]) == "cat <<EOF\n{{name}}\nEOF")
+        #expect(variables("cat <<-EOF\n\t{{name}}\n\tEOF").isEmpty)
+        // A variable before the body is still substituted; the body is skipped.
+        #expect(variables("grep {{pat}} <<EOF\n{{body}}\nEOF").map(\.name) == ["pat"])
+        // Scanning resumes after the terminator line.
+        #expect(variables("cat <<EOF\n{{body}}\nEOF\necho {{after}}").map(\.name) == ["after"])
+        // `<<<` is a here-string, not a here-doc: its word is a normal shell word.
+        #expect(variables("cmd <<< {{x}}").map(\.name) == ["x"])
+    }
+
+    @Test func commentsAreLeftLiteral() {
+        #expect(variables("echo {{x}} # comment with {{y}}").map(\.name) == ["x"])
+        #expect(variables("# {{whole}} line comment").isEmpty)
+        // `#` mid-word is not a comment.
+        #expect(variables("echo abc#{{notcomment}}").map(\.name) == ["notcomment"])
+    }
+
     // MARK: Substitution
 
     @Test func substituteShellQuotesEveryOccurrence() {

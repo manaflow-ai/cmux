@@ -110,77 +110,106 @@ struct CmuxCommandTemplate {
         case variable(CmuxCommandVariable, raw: String)
     }
 
-    /// Walks the command tracking single/double shell-quote state (honouring
-    /// backslash escapes outside single quotes), recognizing a `{{identifier}}`
-    /// placeholder only when it appears at an unquoted position.
+    /// Walks the command tracking shell-quote state (honouring backslash escapes
+    /// outside single quotes), here-doc bodies, and comments, recognizing a
+    /// `{{identifier}}` placeholder only when it appears at an unquoted
+    /// shell-word position. Quoted text, here-doc bodies (`<<EOF … EOF`), and
+    /// `#` comments are left literal so existing template commands run unchanged.
     private func scan() -> [Token] {
-        let command = rawValue
+        let chars = Array(rawValue)
+        let count = chars.count
         var tokens: [Token] = []
-        var literalStart = command.startIndex
-        var index = command.startIndex
-        let end = command.endIndex
+        var literalStart = 0
+        var index = 0
         var inSingleQuote = false
         var inDoubleQuote = false
+        // FIFO of here-doc delimiters opened on the current line whose bodies
+        // are skipped once the line's newline is reached.
+        var pendingHeredocs: [(delimiter: String, stripTabs: Bool)] = []
 
-        func flushLiteral(upTo upperBound: String.Index) {
+        func flushLiteral(upTo upperBound: Int) {
             if literalStart < upperBound {
-                tokens.append(.literal(String(command[literalStart..<upperBound])))
+                tokens.append(.literal(String(chars[literalStart..<upperBound])))
             }
         }
 
-        while index < end {
-            let character = command[index]
+        while index < count {
+            let character = chars[index]
 
             if inSingleQuote {
                 // Inside single quotes nothing is special except the closing
                 // quote — not even backslash.
                 if character == "'" { inSingleQuote = false }
-                index = command.index(after: index)
+                index += 1
                 continue
             }
 
             if character == "\\" {
                 // A backslash escapes the next character in unquoted and
                 // double-quoted text, so e.g. `\"` does not change quote state.
-                let next = command.index(after: index)
-                index = next < end ? command.index(after: next) : end
+                index += (index + 1 < count) ? 2 : 1
                 continue
             }
 
             if inDoubleQuote {
                 if character == "\"" { inDoubleQuote = false }
-                index = command.index(after: index)
+                index += 1
                 continue
             }
 
-            // Unquoted context: a `{{identifier}}` here is a cmux variable.
-            if character == "{" {
-                let afterFirstBrace = command.index(after: index)
-                if afterFirstBrace < end, command[afterFirstBrace] == "{" {
-                    let innerStart = command.index(after: afterFirstBrace)
-                    if let close = command.range(of: "}}", range: innerStart..<end) {
-                        let inner = command[innerStart..<close.lowerBound]
-                        let innerHasIllegalCharacter = inner.contains { c in
-                            c == "{" || c == "}" || c == "\n" || c == "\r"
-                        }
-                        if !innerHasIllegalCharacter, let parsed = Self.parse(inner: String(inner)) {
-                            flushLiteral(upTo: index)
-                            tokens.append(
-                                .variable(
-                                    CmuxCommandVariable(name: parsed.name, defaultValue: parsed.defaultValue),
-                                    raw: String(command[index..<close.upperBound])
-                                )
-                            )
-                            index = close.upperBound
-                            literalStart = index
-                            continue
-                        }
-                    }
-                    // Not a recognized placeholder; skip past "{{" and keep
-                    // scanning the contents for quote state.
-                    index = innerStart
+            // Unquoted context.
+            if character == "\n" {
+                index += 1
+                if !pendingHeredocs.isEmpty {
+                    index = Self.skipHeredocBodies(chars, from: index, delimiters: pendingHeredocs)
+                    pendingHeredocs.removeAll()
+                }
+                continue
+            }
+
+            // `#` at a word boundary starts a comment that runs to end of line.
+            if character == "#", Self.isCommentStart(chars, at: index) {
+                while index < count, chars[index] != "\n" { index += 1 }
+                continue
+            }
+
+            if character == "<", index + 1 < count, chars[index + 1] == "<" {
+                if index + 2 < count, chars[index + 2] == "<" {
+                    // `<<<` here-string: the following word is a normal shell
+                    // word, so skip the operator and keep scanning it.
+                    index += 3
                     continue
                 }
+                // `<<`/`<<-` here-doc: queue the delimiter and skip the body at
+                // the next newline so the literal body is left unchanged.
+                index = Self.consumeHeredocOperator(chars, from: index, into: &pendingHeredocs)
+                continue
+            }
+
+            // A `{{identifier}}` at this unquoted position is a cmux variable.
+            if character == "{", index + 1 < count, chars[index + 1] == "{" {
+                let innerStart = index + 2
+                if let close = Self.indexOfCloseBraces(chars, from: innerStart) {
+                    let inner = chars[innerStart..<close]
+                    let innerHasIllegalCharacter = inner.contains { c in
+                        c == "{" || c == "}" || c == "\n" || c == "\r"
+                    }
+                    if !innerHasIllegalCharacter, let parsed = Self.parse(inner: String(inner)) {
+                        flushLiteral(upTo: index)
+                        tokens.append(
+                            .variable(
+                                CmuxCommandVariable(name: parsed.name, defaultValue: parsed.defaultValue),
+                                raw: String(chars[index..<(close + 2)])
+                            )
+                        )
+                        index = close + 2
+                        literalStart = index
+                        continue
+                    }
+                }
+                // Not a recognized placeholder; skip past "{{".
+                index = innerStart
+                continue
             }
 
             if character == "'" {
@@ -188,11 +217,91 @@ struct CmuxCommandTemplate {
             } else if character == "\"" {
                 inDoubleQuote = true
             }
-            index = command.index(after: index)
+            index += 1
         }
 
-        flushLiteral(upTo: end)
+        flushLiteral(upTo: count)
         return tokens
+    }
+
+    /// Whether `chars[i]` (a `#`) begins a shell comment: it must sit at a word
+    /// boundary (start of input or after unquoted whitespace / `;` / `&` / `|`
+    /// / `(`).
+    private static func isCommentStart(_ chars: [Character], at i: Int) -> Bool {
+        guard i > 0 else { return true }
+        switch chars[i - 1] {
+        case " ", "\t", "\n", ";", "&", "|", "(": return true
+        default: return false
+        }
+    }
+
+    /// Parses a `<<`/`<<-` here-doc operator and its delimiter starting at `i`
+    /// (the first `<`), appending the delimiter to `pending`. Returns the index
+    /// just past the delimiter word.
+    private static func consumeHeredocOperator(
+        _ chars: [Character],
+        from i: Int,
+        into pending: inout [(delimiter: String, stripTabs: Bool)]
+    ) -> Int {
+        let count = chars.count
+        var j = i + 2
+        var stripTabs = false
+        if j < count, chars[j] == "-" { stripTabs = true; j += 1 }
+        while j < count, chars[j] == " " || chars[j] == "\t" { j += 1 }
+
+        var delimiter = ""
+        loop: while j < count {
+            let c = chars[j]
+            switch c {
+            case "'", "\"":
+                let quote = c
+                j += 1
+                while j < count, chars[j] != quote { delimiter.append(chars[j]); j += 1 }
+                if j < count { j += 1 }
+            case "\\":
+                j += 1
+                if j < count { delimiter.append(chars[j]); j += 1 }
+            case " ", "\t", "\n", ";", "&", "|", "<", ">", "(", ")":
+                break loop
+            default:
+                delimiter.append(c)
+                j += 1
+            }
+        }
+        if !delimiter.isEmpty { pending.append((delimiter, stripTabs)) }
+        return j
+    }
+
+    /// Skips here-doc bodies starting at `start`, one per queued delimiter, and
+    /// returns the index just past the final terminator line.
+    private static func skipHeredocBodies(
+        _ chars: [Character],
+        from start: Int,
+        delimiters: [(delimiter: String, stripTabs: Bool)]
+    ) -> Int {
+        let count = chars.count
+        var index = start
+        for (delimiter, stripTabs) in delimiters {
+            while index < count {
+                let lineStart = index
+                while index < count, chars[index] != "\n" { index += 1 }
+                var line = String(chars[lineStart..<index])
+                if stripTabs { line = String(line.drop { $0 == "\t" }) }
+                if index < count { index += 1 }  // consume the newline
+                if line == delimiter { break }
+            }
+        }
+        return index
+    }
+
+    /// Index of the first `}` in the next `}}` at or after `start`, or `nil`.
+    private static func indexOfCloseBraces(_ chars: [Character], from start: Int) -> Int? {
+        var i = start
+        while i + 1 < chars.count {
+            if chars[i] == "}", chars[i + 1] == "}" { return i }
+            i += 1
+        }
+        return nil
     }
 
     private static func parse(inner: String) -> (name: String, defaultValue: String?)? {
