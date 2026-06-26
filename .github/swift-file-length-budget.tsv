@@ -97,8 +97,8 @@
 926	Sources/DockPanelView.swift
 920	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 918	cmuxTests/WorkspaceGroupTests.swift
+915	Sources/App/VSCodeServeWebSupport.swift
 905	Sources/CmuxSSHURLRequest.swift
-903	Sources/App/VSCodeServeWebSupport.swift
 899	Sources/Panels/MarkdownWebRenderer.swift
 885	Sources/Panels/TerminalPanel.swift
 878	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift

@@ -801,12 +801,24 @@ final class VSCodeServeWebController {
 
         let location = resolved.location
         let fileManager = FileManager.default
+        // These directories hold long-lived VS Code Web auth, Settings Sync, and
+        // CLI keyring state, so keep them owner-only (0700) to match the 0600
+        // connection-token file. serverDataDirectoryURL is created first since it
+        // is the parent of the user-data/cli-data subdirectories.
+        let ownerOnly: [FileAttributeKey: Any] = [.posixPermissions: 0o700]
         for directoryURL in [
             location.serverDataDirectoryURL,
             location.userDataDirectoryURL,
             location.cliDataDirectoryURL,
         ] {
-            try? fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+            try? fileManager.createDirectory(
+                at: directoryURL,
+                withIntermediateDirectories: true,
+                attributes: ownerOnly
+            )
+            // Pin to 0700 even if the directory pre-existed with looser perms (e.g.
+            // created by an older build or a wider umask).
+            try? fileManager.setAttributes(ownerOnly, ofItemAtPath: directoryURL.path)
         }
         return location
     }
