@@ -57,16 +57,7 @@ public nonisolated func reflowCopiedText(
     }
     let stripped: [Substring] = cleanedStorage.map { $0[...] }
 
-    // Pass 2: block max width. A block is a run of consecutive lines that are
-    // neither blank nor part of a fence.
-    let blockMaxWidth = computeBlockMaxWidths(
-        stripped: stripped,
-        rawLines: rawLines,
-        isFenceLine: isFenceLine,
-        insideFenceFlags: insideFenceFlags
-    )
-
-    // Pass 3: emit.
+    // Pass 2: emit.
     var output: [String] = []
     var para: Paragraph?
 
@@ -131,16 +122,17 @@ public nonisolated func reflowCopiedText(
                 // s1: an explicit continuation indent (line indented past the
                 //     paragraph's first line).
                 let s1 = indent > p.baseIndent
-                // s2: the previous physical line was "full" (reached the block's
-                //     wrap width) AND was prose-like (contained a space). The
-                //     space guard keeps columns of long paths/URLs/hashes — which
-                //     are single tokens — from being treated as wrapped prose.
-                let s2 = p.prevHasSpace
-                    && blockMaxWidth[i] >= options.minWrapWidth
-                    && p.prevVisibleLength >= blockMaxWidth[i] - options.widthTolerance
                 // s3: a wrapped bare URL continues as a spaceless path fragment.
                 let s3 = p.isURL && !content.contains(" ")
-                let canJoin = !p.prevEndsTerminator && (s1 || s2 || s3)
+                // s4: mid-sentence continuation. The previous line is long enough
+                //     to have wrapped (>= minWrapWidth, prose-like) and this line
+                //     resumes lowercase. Lines starting uppercase, with a marker,
+                //     or a digit (sentences, lists, logs, paths) do not trigger it,
+                //     which keeps line-oriented output unjoined.
+                let s4 = p.prevHasSpace
+                    && p.prevVisibleLength >= options.minWrapWidth
+                    && startsLowercaseLetter(content)
+                let canJoin = !p.prevEndsTerminator && (s1 || s3 || s4)
 
                 if canJoin {
                     let joiner = p.isURL ? "" : " "
@@ -202,6 +194,13 @@ private func computeCommonIndent(_ lines: [Substring], isFenceLine: [Bool]) -> I
     return minIndent ?? 0
 }
 
+/// True when the first non-whitespace character is a lowercase letter — the
+/// signal that a line resumes a sentence wrapped from the previous line.
+private func startsLowercaseLetter(_ s: String) -> Bool {
+    guard let first = s.first(where: { $0 != " " && $0 != "\t" }) else { return false }
+    return first.isLowercase && first.isLetter
+}
+
 /// Any space-like character that copied terminal text may carry: normal space,
 /// tab, and U+00A0 non-breaking space (the seam padding observed on the clipboard).
 private func isSpaceLike(_ ch: Character) -> Bool {
@@ -241,36 +240,6 @@ private func stripColumns(_ line: Substring, _ n: Int) -> Substring {
         dropped += 1
     }
     return line[idx...]
-}
-
-/// For each line index, the widest line in the block it belongs to (a block is a
-/// run of consecutive non-blank, non-fence lines). Blank/fence lines get 0.
-private func computeBlockMaxWidths(
-    stripped: [Substring],
-    rawLines: [Substring],
-    isFenceLine: [Bool],
-    insideFenceFlags: [Bool]
-) -> [Int] {
-    var widths = [Int](repeating: 0, count: stripped.count)
-    var i = 0
-    while i < stripped.count {
-        let isBlank = rawLines[i].allSatisfy { $0 == " " || $0 == "\t" }
-        if isBlank || isFenceLine[i] {
-            i += 1
-            continue
-        }
-        var j = i
-        var maxW = 0
-        while j < stripped.count {
-            let blankJ = rawLines[j].allSatisfy { $0 == " " || $0 == "\t" }
-            if blankJ || isFenceLine[j] { break }
-            maxW = max(maxW, LineClassifier.visibleLength(of: stripped[j]))
-            j += 1
-        }
-        for k in i..<j { widths[k] = maxW }
-        i = j
-    }
-    return widths
 }
 
 /// Strip a single leading decoration glyph (and following spaces) if present.

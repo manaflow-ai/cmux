@@ -22,6 +22,28 @@ final class ReflowParagraphTests: XCTestCase {
         XCTAssertFalse(result.contains("Helloworld"))
     }
 
+    func testNarrowWrappedParagraphRejoins() {
+        // A paragraph wrapped at ~75 columns (no extra indent, lines not at any
+        // single block-max). Mid-sentence lowercase continuation must rejoin it.
+        let input =
+            "Indeed the interlocutor having marshaled an arsenal of polysyllabic verbiage\n"
+            + "calibrated to bewilder rather than illuminate proceeded to expatiate upon the\n"
+            + "ostensibly intractable antinomies inhering within the dialectical interplay.\n"
+        let result = reflowCopiedText(input)
+        XCTAssertEqual(result.split(separator: "\n").count, 1, "expected one joined paragraph, got: \(result)")
+        XCTAssertTrue(result.contains("verbiage calibrated to bewilder"))
+        XCTAssertTrue(result.contains("upon the ostensibly intractable"))
+    }
+
+    func testLongUppercaseLogLinesNotJoined() {
+        // Long, prose-like lines that start uppercase (log lines, not wrapped
+        // prose) must stay on their own lines.
+        let input =
+            "INFO Starting the background worker process for the queue subsystem right now\n"
+            + "WARN The downstream service returned an unexpected status during the last call\n"
+        XCTAssertEqual(reflowCopiedText(input), input)
+    }
+
     func testUnindentedShortLinesNotJoined() {
         // No indent signal, below min width -> left alone.
         let input = "alpha\nbeta\ngamma\n"
