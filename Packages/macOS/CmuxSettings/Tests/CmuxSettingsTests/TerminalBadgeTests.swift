@@ -74,6 +74,18 @@ struct TerminalBadgeTests {
         #expect(config.resolvedText(workspace: "W", tab: "T").count <= TerminalBadgeConfiguration.maxResolvedLength)
     }
 
+    @Test func boundsMalformedColorHexLength() {
+        // A malformed stored color must be bounded on init so the overlay never
+        // runs unbounded hex parsing on every render.
+        let hugeColor = "#" + String(repeating: "F", count: 1_000_000)
+        let config = TerminalBadgeConfiguration(colorHex: hugeColor)
+        #expect(config.colorHex.count <= TerminalBadgeConfiguration.maxColorHexLength)
+    }
+
+    @Test func keepsValidColorHexIntact() {
+        #expect(TerminalBadgeConfiguration(colorHex: "#FFFFFF").colorHex == "#FFFFFF")
+    }
+
     @Test func defaultTemplateUsesBothTokens() {
         let resolved = TerminalBadgeConfiguration().resolvedText(workspace: "Repo", tab: "agent")
         #expect(resolved.contains("Repo"))

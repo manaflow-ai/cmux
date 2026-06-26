@@ -29,6 +29,10 @@ public struct TerminalBadgeConfiguration: Equatable, Sendable {
 
     /// Default badge text color, a `#RRGGBB` hex string.
     public static let defaultColorHex = "#FFFFFF"
+    /// Maximum length of the stored color hex. A valid value is `#RRGGBB`
+    /// (optionally `#RRGGBBAA`); bounding it keeps malformed settings from
+    /// running unbounded hex parsing in the overlay render path.
+    public static let maxColorHexLength = 9
 
     /// Maximum length of the stored template. The template comes from settings
     /// (UserDefaults / cmux.json) and is bounded on init so a malformed value
@@ -70,7 +74,7 @@ public struct TerminalBadgeConfiguration: Equatable, Sendable {
         self.fontSize = clampedTerminalBadgeValue(
             fontSize, in: Self.fontSizeRange, fallback: Self.defaultFontSize
         )
-        self.colorHex = colorHex
+        self.colorHex = String(colorHex.prefix(Self.maxColorHexLength))
     }
 
     /// Resolves the template against a workspace and tab title.
