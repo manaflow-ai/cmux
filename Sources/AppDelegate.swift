@@ -2138,6 +2138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         tabManager: TabManager,
         notificationStore: TerminalNotificationStore,
         keyboardShortcutSettingsObserver: KeyboardShortcutSettingsObserver,
+        taskManagerWindowController: TaskManagerWindowController,
         sidebarState: SidebarState,
         settingsRuntime: SettingsRuntime,
         auth: MacAuthComposition
@@ -2163,6 +2164,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // earlier in app init) so the transitional `CmuxSettingsFileStore.shared`
         // accessor resolves to that same object.
         CmuxSettingsFileStore.installCompositionRootInstance(KeyboardShortcutSettings.settingsFileStore)
+        // De-singletonization: the cmuxApp `@State` owns the single
+        // `TaskManagerWindowController`; record composition-root ownership so the
+        // transitional `TaskManagerWindowController.shared` accessor read by the
+        // tail call sites (menu-bar extra, `openTaskManagerWindow`, the View
+        // command palette) resolves to this same injected instance instead of a
+        // self-vivified lazy singleton.
+        TaskManagerWindowController.installCompositionRootInstance(taskManagerWindowController)
         self.sidebarState = sidebarState
         self.auth = auth
         VMClient.bootstrap(auth: auth.coordinator)
