@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxTestSupport
+import CmuxWindowing
 import SwiftUI
 
 enum WindowMouseMovedEventsCoordinator {
@@ -942,12 +943,11 @@ func isMinimalModeSidebarChromeHoverCandidate(
         return true
     }
 
-    guard isPointInMinimalModeTitlebarBand(
+    guard MinimalModeTitlebarBand(
         isEnabled: true,
-        point: locationInWindow,
         bounds: contentBounds,
         topStripHeight: MinimalModeChromeMetrics.titlebarHeight
-    ) else { return false }
+    ).contains(locationInWindow) else { return false }
 
     let minX = MinimalModeSidebarTitlebarControlsMetrics.leadingInset(defaults: defaults)
     let maxX = minX + MinimalModeSidebarTitlebarControlsMetrics.hostWidth
@@ -987,12 +987,11 @@ func minimalModeSidebarControlActionSlot(
         return registeredSlot
     }
 
-    guard isPointInMinimalModeTitlebarBand(
+    guard MinimalModeTitlebarBand(
         isEnabled: true,
-        point: locationInWindow,
         bounds: contentBounds,
         topStripHeight: MinimalModeChromeMetrics.titlebarHeight
-    ) else { return nil }
+    ).contains(locationInWindow) else { return nil }
 
     let leadingInset = MinimalModeSidebarTitlebarControlsMetrics.leadingInset(defaults: defaults)
     let localPoint = NSPoint(
@@ -1396,21 +1395,19 @@ struct TitlebarDoubleClickMonitorView: NSViewRepresentable {
                 coordinator.lastClick = nil
                 return event
             }
-            let isDoubleClick = minimalModeTitlebarClickFormsDoubleClick(
-                clickCount: event.clickCount,
-                timestamp: event.timestamp,
-                locationInWindow: event.locationInWindow,
+            let currentClick = MinimalModeTitlebarClickRecord(
                 windowNumber: window.windowNumber,
+                timestamp: event.timestamp,
+                locationInWindow: event.locationInWindow
+            )
+            let isDoubleClick = currentClick.formsDoubleClick(
+                clickCount: event.clickCount,
                 previous: coordinator.lastClick,
                 doubleClickInterval: NSEvent.doubleClickInterval,
-                doubleClickIntervalTolerance: minimalModeTitlebarSyntheticDoubleClickTolerance
+                doubleClickIntervalTolerance: MinimalModeTitlebarClickRecord.syntheticDoubleClickTolerance
             )
             guard isDoubleClick else {
-                coordinator.lastClick = MinimalModeTitlebarClickRecord(
-                    windowNumber: window.windowNumber,
-                    timestamp: event.timestamp,
-                    locationInWindow: event.locationInWindow
-                )
+                coordinator.lastClick = currentClick
                 return event
             }
             coordinator.lastClick = nil
@@ -1444,66 +1441,12 @@ func shouldHandleMinimalModeTitlebarDoubleClick(
     guard clickCount >= 2 else {
         return false
     }
-    return isPointInMinimalModeTitlebarBand(
+    return MinimalModeTitlebarBand(
         isEnabled: isEnabled,
-        point: point,
         bounds: bounds,
         topStripHeight: topStripHeight
-    )
+    ).contains(point)
 }
-
-func isPointInMinimalModeTitlebarBand(
-    isEnabled: Bool,
-    point: NSPoint,
-    bounds: NSRect,
-    topStripHeight: CGFloat
-) -> Bool {
-    guard isEnabled, topStripHeight > 0, bounds.contains(point) else {
-        return false
-    }
-    let clampedHeight = min(max(0, topStripHeight), bounds.height)
-    return point.y >= bounds.maxY - clampedHeight
-}
-
-struct MinimalModeTitlebarClickRecord: Equatable {
-    let windowNumber: Int
-    let timestamp: TimeInterval
-    let locationInWindow: NSPoint
-}
-
-func minimalModeTitlebarClickFormsDoubleClick(
-    clickCount: Int,
-    timestamp: TimeInterval,
-    locationInWindow: NSPoint,
-    windowNumber: Int,
-    previous: MinimalModeTitlebarClickRecord?,
-    doubleClickInterval: TimeInterval,
-    doubleClickIntervalTolerance: TimeInterval = 0,
-    maxDistance: CGFloat = 4
-) -> Bool {
-    if clickCount >= 2 {
-        return true
-    }
-    let allowedInterval = max(0, doubleClickInterval) + max(0, doubleClickIntervalTolerance)
-    guard let previous,
-          previous.windowNumber == windowNumber,
-          timestamp - previous.timestamp >= 0,
-          timestamp - previous.timestamp <= allowedInterval else {
-        return false
-    }
-
-    let dx = locationInWindow.x - previous.locationInWindow.x
-    let dy = locationInWindow.y - previous.locationInWindow.y
-    return hypot(dx, dy) <= maxDistance
-}
-
-let minimalModeTitlebarSyntheticDoubleClickTolerance: TimeInterval = {
-    #if DEBUG
-    0.15
-    #else
-    0
-    #endif
-}()
 
 func minimalModeTitlebarDoubleClickBandHeight(for window: NSWindow) -> CGFloat {
     MinimalModeChromeMetrics.titlebarHeight
@@ -1540,12 +1483,11 @@ func isMinimalModeWindowTitlebarClickCandidate(
     contentBounds: NSRect,
     titlebarBandHeight: CGFloat
 ) -> Bool {
-    isPointInMinimalModeTitlebarBand(
+    MinimalModeTitlebarBand(
         isEnabled: isMinimalMode && !isFullScreen && isMainWindow,
-        point: locationInWindow,
         bounds: contentBounds,
         topStripHeight: titlebarBandHeight
-    )
+    ).contains(locationInWindow)
 }
 
 func shouldHandleMinimalModeWindowTitlebarDoubleClick(
@@ -1699,21 +1641,19 @@ struct MinimalModeTitlebarEventSurfaceView: NSViewRepresentable {
             }
             #endif
 
-            let isDoubleClick = minimalModeTitlebarClickFormsDoubleClick(
-                clickCount: event.clickCount,
-                timestamp: event.timestamp,
-                locationInWindow: locationInWindow,
+            let currentClick = MinimalModeTitlebarClickRecord(
                 windowNumber: window.windowNumber,
+                timestamp: event.timestamp,
+                locationInWindow: locationInWindow
+            )
+            let isDoubleClick = currentClick.formsDoubleClick(
+                clickCount: event.clickCount,
                 previous: lastTitlebarClick,
                 doubleClickInterval: NSEvent.doubleClickInterval,
-                doubleClickIntervalTolerance: minimalModeTitlebarSyntheticDoubleClickTolerance
+                doubleClickIntervalTolerance: MinimalModeTitlebarClickRecord.syntheticDoubleClickTolerance
             )
             guard isDoubleClick else {
-                lastTitlebarClick = MinimalModeTitlebarClickRecord(
-                    windowNumber: window.windowNumber,
-                    timestamp: event.timestamp,
-                    locationInWindow: locationInWindow
-                )
+                lastTitlebarClick = currentClick
                 return event
             }
             lastTitlebarClick = nil

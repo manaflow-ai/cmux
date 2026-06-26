@@ -25,7 +25,15 @@ public import CmuxTerminalCore
 @MainActor
 public final class SurfaceCreationCoordinator {
     /// Creates the resolver.
-    public init() {}
+    ///
+    /// `nonisolated` so the pure environment transforms
+    /// (``sanitizedWorkspaceEnvironment(_:)``,
+    /// ``startupEnvironment(workspaceEnvironment:overlaying:)``) can be reached
+    /// from a fresh instance on the workspace's nonisolated socket
+    /// workspace-create parsing path without hopping to the main actor. The
+    /// coordinator holds no stored state, so constructing it off the main actor
+    /// is trivially race-free.
+    public nonisolated init() {}
 
     /// Trims whitespace/newlines from a requested working directory and maps an
     /// empty result to `nil`, mirroring the legacy
@@ -112,6 +120,71 @@ public final class SurfaceCreationCoordinator {
             environment[key] = value
         }
         return environment
+    }
+
+    /// Normalizes a user-supplied workspace environment: trims keys and drops any
+    /// entry with a blank key or blank value, mirroring the legacy
+    /// `Workspace.sanitizedWorkspaceEnvironment`. Dropping blank values keeps
+    /// behavior identical across the `additionalEnvironment` channel (which
+    /// already skips empty values) and the `initialEnvironmentOverrides` channel
+    /// (which would otherwise export a blank value on the initial shell only).
+    ///
+    /// Reserved `CMUX_*` variables are intentionally *not* stripped by name — they
+    /// are protected at spawn time by `mergedStartupEnvironment(protectedKeys:)`,
+    /// the single authority on which keys are managed. That protection is an exact
+    /// Swift-string match, but the env eventually crosses the Swift→C boundary
+    /// (`strdup` / Ghostty), where a key is truncated at its first NUL. A key like
+    /// `"CMUX_SOCKET_PATH\0x"` would dodge the exact-match check yet collapse to
+    /// `CMUX_SOCKET_PATH` in the spawned shell, so reject any key containing a NUL
+    /// (and `=`, which is never a valid env var name) and any value containing a
+    /// NUL. This is the single choke point for every entry point (CLI, cmux.json,
+    /// session restore), so the guard cannot be bypassed.
+    ///
+    /// `nonisolated` so the workspace's nonisolated socket workspace-create
+    /// parsing path (`v2WorkspaceCreate`) can call it without hopping to the main
+    /// actor.
+    ///
+    /// - Parameter environment: the raw user-supplied workspace environment.
+    /// - Returns: the sanitized environment with blank/invalid entries dropped.
+    public nonisolated func sanitizedWorkspaceEnvironment(
+        _ environment: [String: String]
+    ) -> [String: String] {
+        environment.reduce(into: [String: String]()) { result, pair in
+            let key = pair.key.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty,
+                  !pair.value.isEmpty,
+                  !key.contains("\0"),
+                  !key.contains("="),
+                  !pair.value.contains("\0") else { return }
+            result[key] = pair.value
+        }
+    }
+
+    /// Pure merge core overlaying `explicit` on top of `workspaceEnvironment`,
+    /// mirroring the legacy `Workspace.startupEnvironment(workspaceEnvironment:overlaying:)`.
+    ///
+    /// Managed `CMUX_*` / terminal-identity keys are protected downstream by
+    /// `mergedStartupEnvironment(protectedKeys:)`; this only decides precedence
+    /// among user-supplied values — explicit per-surface entries (layout `env`,
+    /// scrollback replay, SSH startup) win over the workspace set. When the
+    /// workspace environment is empty the explicit set is returned unchanged;
+    /// otherwise each explicit pair is assigned over a copy of the workspace
+    /// environment, exactly as the legacy body did.
+    ///
+    /// - Parameters:
+    ///   - workspaceEnvironment: the sanitized workspace-wide environment.
+    ///   - explicit: the per-surface explicit overrides that win on key collisions.
+    /// - Returns: the precedence-merged startup environment.
+    public nonisolated func startupEnvironment(
+        workspaceEnvironment: [String: String],
+        overlaying explicit: [String: String]
+    ) -> [String: String] {
+        guard !workspaceEnvironment.isEmpty else { return explicit }
+        var merged = workspaceEnvironment
+        for (key, value) in explicit {
+            merged[key] = value
+        }
+        return merged
     }
 
     /// Trims whitespace/newlines from a requested remote-PTY session id and maps
