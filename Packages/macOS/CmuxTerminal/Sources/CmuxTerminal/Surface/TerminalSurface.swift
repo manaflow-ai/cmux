@@ -252,11 +252,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
 
     /// Bumped after every completed runtime clipboard read.
     public internal(set) var clipboardReadGeneration = 0
-
-    /// Main-thread-confined cache of the last off-main `needsConfirmClose()`
-    /// result, so the session autosave tick never blocks on the surface's
-    /// renderer lock (#6381). See ``needsConfirmClose()``.
-    let needsConfirmCloseCache = NeedsConfirmCloseCache()
 #if DEBUG
     var needsConfirmCloseOverrideForTesting: Bool?
     var runtimeSurfaceFreedOutOfBandForTesting = false

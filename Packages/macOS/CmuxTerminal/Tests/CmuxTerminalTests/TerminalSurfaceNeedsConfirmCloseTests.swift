@@ -5,97 +5,47 @@ import Testing
 import CmuxTerminalCore
 @testable import CmuxTerminal
 
-/// Regression coverage for the main-thread deadlock in the session autosave
-/// tick (https://github.com/manaflow-ai/cmux/issues/6381).
+/// Coverage for the close-confirmation queries.
 ///
-/// `ghostty_surface_needs_confirm_quit` takes the surface's `renderer_state`
-/// mutex, which is also held by the surface's renderer/io threads. The autosave
-/// tick called `needsConfirmClose()` synchronously on the main thread via
-/// `Workspace.sessionPanelSnapshot`; when one of those threads was wedged on the
-/// lock the main thread parked in `__ulock_wait2` forever and the whole app
-/// beach-balled. The fix never queries ghostty on the main thread: it returns a
-/// value cached off the main thread and refreshes it in the background.
+/// The session autosave tick used to call `needsConfirmClose()` — which takes the
+/// surface's `renderer_state` mutex via `ghostty_surface_needs_confirm_quit` — on
+/// the main thread for every panel. When a surface's renderer/io thread was wedged
+/// holding that mutex, the main thread parked in `__ulock_wait2` forever and the
+/// app beach-balled (https://github.com/manaflow-ai/cmux/issues/6381). The snapshot
+/// path now uses `snapshotNeedsConfirmClose()`, which reads the lock-free
+/// `ghostty_surface_process_exited` field and can never wedge.
 @MainActor
 @Suite struct TerminalSurfaceNeedsConfirmCloseTests {
-    /// The lock-taking ghostty query must run off the main thread, and its result
-    /// must land in the cache `needsConfirmClose()` reads.
-    @Test func refreshRunsQueryOffMainThreadAndCachesResult() async {
-        let surface = Self.makeSurfaceWithFakeRuntime()
-
-        let probeThreadWasMain = ThreadAffinityBox()
-        // The probe returns `false`, the opposite of the cache's seeded default,
-        // so a passing assertion proves the off-main result was actually stored.
-        surface.refreshNeedsConfirmCloseCacheIfIdle(Self.fakeRuntimeSurface) { _ in
-            probeThreadWasMain.value = Thread.isMainThread
-            return false
-        }
-        await Self.waitForRefreshToSettle(surface)
-
-        #expect(probeThreadWasMain.value == false)
-        #expect(surface.needsConfirmCloseCache.value == false)
-    }
-
-    /// `needsConfirmClose()` returns the cached value synchronously — it must not
-    /// run the ghostty query on the calling (main) thread — and schedules a
-    /// background refresh for next time.
-    @Test func needsConfirmCloseReturnsCachedValueSynchronously() {
-        let surface = Self.makeSurfaceWithFakeRuntime()
-        // Seed the opposite of the default so the assertion proves the value came
-        // from the cache rather than the seeded default.
-        surface.needsConfirmCloseCache.value = false
-
+    /// Both queries share the contract that a surface with no live runtime never
+    /// needs confirmation.
+    @Test func bothQueriesReturnFalseWithoutRuntimeSurface() {
+        let surface = Self.makeSurface()
         #expect(surface.needsConfirmClose() == false)
-        // The synchronous read kicked a background refresh that has not settled
-        // yet (the main-queue store can't run until this test yields the thread).
-        #expect(surface.needsConfirmCloseCache.refreshInFlight == true)
+        #expect(surface.snapshotNeedsConfirmClose() == false)
     }
 
-    /// A wedged surface lock cannot block the main thread: while the background
-    /// query is stuck, `needsConfirmClose()` keeps returning the cached value, and
-    /// the in-flight guard suppresses a second probe. The cache is published once
-    /// the query unblocks.
-    @Test func needsConfirmCloseStaysResponsiveWhileQueryIsWedged() async {
-        let surface = Self.makeSurfaceWithFakeRuntime()
-        // Seed the opposite of what the wedged probe will eventually return so the
-        // final assertion proves the late result was stored.
-        surface.needsConfirmCloseCache.value = false
+#if DEBUG
+    /// Both queries honor the shared testing override, so a snapshot built in a
+    /// test reflects the same forced close-confirmation state as a close prompt.
+    @Test func bothQueriesHonorTestingOverride() {
+        let surface = Self.makeSurface()
 
-        // The probe blocks on a background thread, standing in for a renderer/io
-        // thread holding the renderer lock. `wait()` here is a synchronous closure
-        // off the main thread, never on the calling thread.
-        let unblockProbe = DispatchSemaphore(value: 0)
-        surface.refreshNeedsConfirmCloseCacheIfIdle(Self.fakeRuntimeSurface) { _ in
-            unblockProbe.wait()
-            return true
-        }
+        surface.setNeedsConfirmCloseOverrideForTesting(true)
+        #expect(surface.needsConfirmClose() == true)
+        #expect(surface.snapshotNeedsConfirmClose() == true)
 
-        // The query is still wedged, yet the main thread stays responsive: it
-        // returns the cached value and does not enqueue a second probe.
+        surface.setNeedsConfirmCloseOverrideForTesting(false)
         #expect(surface.needsConfirmClose() == false)
-        #expect(surface.needsConfirmCloseCache.refreshInFlight == true)
-
-        unblockProbe.signal()
-        await Self.waitForRefreshToSettle(surface)
-        #expect(surface.needsConfirmCloseCache.value == true)
+        #expect(surface.snapshotNeedsConfirmClose() == false)
     }
+#endif
 
     // MARK: - Helpers
 
-    /// A non-null opaque pointer; the injected probe never dereferences it and
-    /// `needsConfirmClose` only checks the pointer for existence.
-    private static let fakeRuntimeSurface = ghostty_surface_t(bitPattern: 0xC0FF_EE00)!
-
-    private static func waitForRefreshToSettle(_ surface: TerminalSurface) async {
-        for _ in 0..<400 {
-            if !surface.needsConfirmCloseCache.refreshInFlight { return }
-            try? await Task.sleep(for: .milliseconds(5))
-        }
-    }
-
-    private static func makeSurfaceWithFakeRuntime() -> TerminalSurface {
+    private static func makeSurface() -> TerminalSurface {
         let nativeView = FakeTerminalSurfaceNativeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
-        let surface = TerminalSurface(
+        return TerminalSurface(
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
@@ -120,14 +70,5 @@ import CmuxTerminalCore
                 scrollbackReplayEnvironmentKey: "CMUX_TEST_SCROLLBACK_REPLAY"
             )
         )
-        surface.installRuntimeSurfaceForTesting(fakeRuntimeSurface)
-        return surface
     }
-}
-
-/// Carries a boolean recorded on a background thread back to the main thread,
-/// published through a `DispatchSemaphore`/`refreshInFlight` flip (happens-before
-/// the read).
-private final class ThreadAffinityBox: @unchecked Sendable {
-    var value = true
 }
