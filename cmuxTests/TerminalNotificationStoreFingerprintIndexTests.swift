@@ -82,8 +82,7 @@ struct TerminalNotificationStoreFingerprintIndexTests {
                 let actual = store.notifications(forTabId: tab, surfaceId: surface)
                 #expect(
                     actual == expected,
-                    "notifications(forTabId:surfaceId:) diverged from matches() filter "
-                        + "for tab=\(tab) surface=\(String(describing: surface))"
+                    "notifications(forTabId:surfaceId:) diverged from matches() filter for tab=\(tab) surface=\(String(describing: surface))"
                 )
             }
         }
