@@ -22,6 +22,23 @@ final class ReflowParagraphTests: XCTestCase {
         XCTAssertFalse(result.contains("Helloworld"))
     }
 
+    func testMixedIndentProseParagraphsLeftFlushed() {
+        // First paragraph at indent 0, later ones at indent 2 (a terminal-output
+        // artifact). Common-indent is 0, so the later paragraphs must still be
+        // flushed left rather than keeping a stray leading space.
+        let input =
+            "The afternoon was long and the autumn light fell low across the wide pavement.\n"
+            + "\n"
+            + "  She decided to find out.\n"
+            + "\n"
+            + "  The walk took her past the old courthouse and the corner bakery downtown.\n"
+        let result = reflowCopiedText(input)
+        for line in result.split(separator: "\n", omittingEmptySubsequences: true) {
+            XCTAssertFalse(line.hasPrefix(" "), "prose paragraph kept a leading space: '\(line)'")
+        }
+        XCTAssertTrue(result.contains("She decided to find out."))
+    }
+
     func testNarrowWrappedParagraphRejoins() {
         // A paragraph wrapped at ~75 columns (no extra indent, lines not at any
         // single block-max). Mid-sentence lowercase continuation must rejoin it.

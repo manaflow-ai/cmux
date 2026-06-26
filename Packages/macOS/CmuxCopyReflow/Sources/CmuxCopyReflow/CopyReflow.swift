@@ -108,8 +108,13 @@ public nonisolated func reflowCopiedText(
             let hasSpace = line.contains(" ")
 
             func openParagraph() {
+                // Prose/URL paragraphs are left-flushed: a leading indent on a
+                // prose line is a terminal-output artifact, not meaningful (only
+                // list items, handled separately, keep their indent). baseIndent
+                // still records the original indent so the s1 continuation-indent
+                // join signal keeps working.
                 para = Paragraph(
-                    text: content,
+                    text: content.trimmingLeadingWhitespace(),
                     baseIndent: indent,
                     isURL: kind == .urlLine,
                     prevVisibleLength: visLen,
