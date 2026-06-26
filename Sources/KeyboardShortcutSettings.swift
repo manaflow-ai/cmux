@@ -649,7 +649,7 @@ enum KeyboardShortcutSettings {
             ) else {
                 return false
             }
-            return KeyboardShortcutSettings.shortcutsConflict(
+            return ShortcutConflictResolver().shortcutsConflict(
                 proposedShortcut,
                 proposedUsesNumberedDigitMatching: proposedAction.usesNumberedDigitMatching,
                 configuredShortcut,
@@ -662,7 +662,7 @@ enum KeyboardShortcutSettings {
                 return .accepted(.unbound)
             }
 
-            if let conflictingAction = KeyboardShortcutSettings.conflictingAction(
+            if let conflictingAction = ShortcutConflictResolver().conflictingAction(
                 for: shortcut,
                 excluding: self
             ) {
@@ -831,127 +831,6 @@ enum KeyboardShortcutSettings {
         // first instinctive "cancel" press never hides the whole app.
         StoredShortcut(key: ".", command: true, shift: false, option: false, control: false),
     ]
-
-    private static func conflictingAction(
-        for proposedShortcut: StoredShortcut,
-        excluding currentAction: Action
-    ) -> Action? {
-        for action in Action.allCases where action != currentAction {
-            let configuredShortcut = shortcut(for: action)
-            if action.conflicts(
-                with: proposedShortcut,
-                proposedAction: currentAction,
-                configuredShortcut: configuredShortcut
-            ) {
-                return action
-            }
-        }
-        return nil
-    }
-
-    private enum ShortcutConflictMatchMode {
-        case exact
-        case numberedDigitFamily
-    }
-
-    private static func shortcutsConflict(
-        _ proposedShortcut: StoredShortcut,
-        proposedUsesNumberedDigitMatching: Bool,
-        _ configuredShortcut: StoredShortcut,
-        configuredUsesNumberedDigitMatching: Bool
-    ) -> Bool {
-        guard !proposedShortcut.isUnbound, !configuredShortcut.isUnbound else {
-            return false
-        }
-
-        switch (proposedShortcut.hasChord, configuredShortcut.hasChord) {
-        case (false, false):
-            return shortcutStrokeMatchersConflict(
-                proposedShortcut.firstStroke,
-                mode: proposedUsesNumberedDigitMatching ? .numberedDigitFamily : .exact,
-                configuredShortcut.firstStroke,
-                mode: configuredUsesNumberedDigitMatching ? .numberedDigitFamily : .exact
-            )
-        case (true, true):
-            guard strokesConflict(proposedShortcut.firstStroke, configuredShortcut.firstStroke),
-                  let proposedSecond = proposedShortcut.secondStroke,
-                  let configuredSecond = configuredShortcut.secondStroke else {
-                return false
-            }
-            return shortcutStrokeMatchersConflict(
-                proposedSecond,
-                mode: proposedUsesNumberedDigitMatching ? .numberedDigitFamily : .exact,
-                configuredSecond,
-                mode: configuredUsesNumberedDigitMatching ? .numberedDigitFamily : .exact
-            )
-        case (true, false):
-            return shortcutStrokeMatchersConflict(
-                proposedShortcut.firstStroke,
-                mode: .exact,
-                configuredShortcut.firstStroke,
-                mode: configuredUsesNumberedDigitMatching ? .numberedDigitFamily : .exact
-            )
-        case (false, true):
-            return shortcutStrokeMatchersConflict(
-                proposedShortcut.firstStroke,
-                mode: proposedUsesNumberedDigitMatching ? .numberedDigitFamily : .exact,
-                configuredShortcut.firstStroke,
-                mode: .exact
-            )
-        }
-    }
-
-    private static func shortcutStrokeMatchersConflict(
-        _ lhs: ShortcutStroke,
-        mode lhsMode: ShortcutConflictMatchMode,
-        _ rhs: ShortcutStroke,
-        mode rhsMode: ShortcutConflictMatchMode
-    ) -> Bool {
-        switch (lhsMode, rhsMode) {
-        case (.exact, .exact):
-            return strokesConflict(lhs, rhs)
-        case (.numberedDigitFamily, .numberedDigitFamily):
-            return numberedDigitStrokeConflict(lhs, rhs)
-        case (.numberedDigitFamily, .exact):
-            return numberedDigitStrokeConflictsWithExactStroke(lhs, rhs)
-        case (.exact, .numberedDigitFamily):
-            return numberedDigitStrokeConflictsWithExactStroke(rhs, lhs)
-        }
-    }
-
-    private static func numberedDigitStrokeConflictsWithExactStroke(
-        _ numberedStroke: ShortcutStroke,
-        _ exactStroke: ShortcutStroke
-    ) -> Bool {
-        guard isNumberedDigitStroke(numberedStroke), isNumberedDigitStroke(exactStroke) else {
-            return false
-        }
-        return numberedStroke.command == exactStroke.command &&
-            numberedStroke.shift == exactStroke.shift &&
-            numberedStroke.option == exactStroke.option &&
-            numberedStroke.control == exactStroke.control
-    }
-
-    private static func numberedDigitStrokeConflict(_ lhs: ShortcutStroke, _ rhs: ShortcutStroke) -> Bool {
-        guard isNumberedDigitStroke(lhs), isNumberedDigitStroke(rhs) else { return false }
-        return lhs.command == rhs.command &&
-            lhs.shift == rhs.shift &&
-            lhs.option == rhs.option &&
-            lhs.control == rhs.control
-    }
-
-    private static func isNumberedDigitStroke(_ stroke: ShortcutStroke) -> Bool {
-        guard let digit = Int(stroke.key) else { return false }
-        return (1...9).contains(digit)
-    }
-
-    private static func strokesConflict(_ lhs: ShortcutStroke, _ rhs: ShortcutStroke) -> Bool {
-        lhs.key == rhs.key &&
-            lhs.command == rhs.command &&
-            lhs.shift == rhs.shift &&
-            lhs.option == rhs.option &&
-            lhs.control == rhs.control
-    }
 
     private static func storedShortcutForPersistence(
         _ shortcut: StoredShortcut,
