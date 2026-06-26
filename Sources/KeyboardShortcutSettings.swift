@@ -1672,6 +1672,35 @@ struct ShortcutStroke: Equatable, Hashable {
         return false
     }
 
+    /// Matches an arrow-key shortcut using its key code.
+    /// Arrow keys include `.numericPad` and `.function` in their modifier flags,
+    /// so strip those before comparing.
+    func matchesArrowShortcut(event: NSEvent, keyCode: UInt16) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function])
+        return event.keyCode == keyCode && flags == modifierFlags
+    }
+
+    /// Matches the Tab key (key code 48) carrying exactly this stroke's modifiers.
+    func matchesTabShortcut(event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return event.keyCode == 48 && flags == modifierFlags
+    }
+
+    /// Directional shortcuts default to arrow keys, but the shortcut recorder only supports letter/number keys.
+    /// Support both so users can customize pane navigation (e.g. Cmd+Ctrl+H/J/K/L).
+    func matchesDirectionalShortcut(
+        event: NSEvent,
+        arrowGlyph: String,
+        arrowKeyCode: UInt16,
+        layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
+    ) -> Bool {
+        if key == arrowGlyph {
+            return matchesArrowShortcut(event: event, keyCode: arrowKeyCode)
+        }
+        return matches(event: event, layoutCharacterProvider: layoutCharacterProvider)
+    }
+
     private var isBareShortcutAllowedWithoutModifier: Bool {
         Self.usesDirectKeyCodeMatching(key)
     }
@@ -2281,6 +2310,30 @@ struct StoredShortcut: Codable, Equatable, Hashable {
             keyCode: keyCode,
             modifierFlags: modifierFlags,
             eventCharacter: eventCharacter,
+            layoutCharacterProvider: layoutCharacterProvider
+        )
+    }
+
+    /// Matches the Tab key carrying this binding's first-stroke modifiers.
+    /// Chorded bindings never match a single Tab keystroke.
+    func matchesTabShortcut(event: NSEvent) -> Bool {
+        guard !hasChord else { return false }
+        return firstStroke.matchesTabShortcut(event: event)
+    }
+
+    /// Matches this binding's first stroke as a directional shortcut (arrow key or
+    /// customized letter/number key). Chorded bindings never match here.
+    func matchesDirectionalShortcut(
+        event: NSEvent,
+        arrowGlyph: String,
+        arrowKeyCode: UInt16,
+        layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
+    ) -> Bool {
+        guard !hasChord else { return false }
+        return firstStroke.matchesDirectionalShortcut(
+            event: event,
+            arrowGlyph: arrowGlyph,
+            arrowKeyCode: arrowKeyCode,
             layoutCharacterProvider: layoutCharacterProvider
         )
     }

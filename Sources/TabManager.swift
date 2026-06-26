@@ -114,6 +114,16 @@ class TabManager {
     /// own `TabManager`). Injected, with the process-wide shared default at the
     /// composition point (see `sharedPortOrdinalAllocator` / `init`).
     let portOrdinalAllocator: WorkspacePortOrdinalAllocator
+    /// Recently-closed-item history store (workspaces, panels, windows), owned by
+    /// the composition root (`AppDelegate.closedItemHistory`) and injected here so
+    /// this per-window `TabManager` no longer reaches the transitional
+    /// `ClosedItemHistoryStore.shared` global. `AppDelegate` passes its single
+    /// instance at construction; the SwiftUI-App and test construction paths fall
+    /// back to the transitional `.shared` default, which resolves to that same
+    /// composition-root instance. `@ObservationIgnored`: an injected collaborator,
+    /// not observable UI state of this model.
+    @ObservationIgnored
+    let closedItemHistory: ClosedItemHistoryStore
     var selectedTabId: UUID? {
         get { workspaces.selectedTabId }
         set { workspaces.selectedTabId = newValue }
@@ -445,9 +455,11 @@ class TabManager {
         gitPollClock: any GitPollClock = SystemGitPollClock(),
         gitProbeLimiter: WorkspaceGitMetadataProbeLimiter? = nil,
         portOrdinalAllocator: WorkspacePortOrdinalAllocator? = nil,
-        settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard)
+        settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
+        closedItemHistory: ClosedItemHistoryStore = .shared
     ) {
         self.settings = settings
+        self.closedItemHistory = closedItemHistory
         self.portOrdinalAllocator = portOrdinalAllocator ?? Self.sharedPortOrdinalAllocator
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
         workspaceCommands = WorkspaceCommandCoordinator(model: workspaces, reordering: workspaceReordering)
@@ -1962,7 +1974,7 @@ class TabManager {
             restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
                 ?? RestorableAgentSessionIndex.load()
         )
-        ClosedItemHistoryStore.shared.push(.workspace(ClosedWorkspaceHistoryEntry(
+        closedItemHistory.push(.workspace(ClosedWorkspaceHistoryEntry(
             workspaceId: tab.id,
             windowId: AppDelegate.shared?.windowId(for: self),
             workspaceIndex: index,
@@ -3242,7 +3254,7 @@ class TabManager {
             return appDelegate.reopenMostRecentlyClosedItem(preferredTabManager: self)
         }
 
-        if ClosedItemHistoryStore.shared.restoreFirstRestorable(using: { entry in
+        if closedItemHistory.restoreFirstRestorable(using: { entry in
             switch entry {
             case .panel(let panelEntry):
                 return restoreClosedPanel(panelEntry)
@@ -3264,7 +3276,7 @@ class TabManager {
             return appDelegate.reopenClosedHistoryItem(id: id, preferredTabManager: self)
         }
 
-        guard let removed = ClosedItemHistoryStore.shared.removeRecord(id: id) else {
+        guard let removed = closedItemHistory.removeRecord(id: id) else {
             return false
         }
 
@@ -3279,7 +3291,7 @@ class TabManager {
         }
 
         if !didRestore {
-            ClosedItemHistoryStore.shared.insert(removed.record, at: removed.index)
+            closedItemHistory.insert(removed.record, at: removed.index)
         }
         return didRestore
     }
@@ -3296,7 +3308,7 @@ class TabManager {
         }
 
         guard let panelId else { return false }
-        ClosedItemHistoryStore.shared.remapPanelAnchorIds(from: entry.snapshot.id, to: panelId)
+        closedItemHistory.remapPanelAnchorIds(from: entry.snapshot.id, to: panelId)
         focusHistoryNavigation.withFocusHistoryRecordingSuppressed {
             if selectedTabId != workspace.id {
                 selectedTabId = workspace.id
@@ -3339,7 +3351,7 @@ class TabManager {
         // different group section after intervening reorders. Renormalize
         // so the restored member lands beside its group.
         let needsNormalize = workspace.groupId != nil && !workspaceGroups.isEmpty
-        ClosedItemHistoryStore.shared.remapPanelWorkspaceIds(
+        closedItemHistory.remapPanelWorkspaceIds(
             from: entry.workspaceId,
             to: workspace.id,
             panelIdMap: restoredPanelIds
@@ -4516,7 +4528,7 @@ extension TabManager {
     // The god-coupled steps of a whole-window session-snapshot restore: the
     // SessionSnapshotRestoreCoordinator (CmuxWorkspaces) owns the ordering and
     // pure decisions; these perform the steps touching the Workspace god type,
-    // app-static port-ordinal state, ClosedItemHistoryStore.shared, and the
+    // app-static port-ordinal state, closedItemHistory, and the
     // @Published stored properties that cannot cross the module boundary. Bodies
     // are lifted one-for-one from the former inline restoreSessionSnapshot body.
 
@@ -4536,7 +4548,7 @@ extension TabManager {
         for tab in previousTabs {
             unwireClosedBrowserTracking(for: tab)
         }
-        ClosedItemHistoryStore.shared.removePanelRecords(
+        closedItemHistory.removePanelRecords(
             forWorkspaceIds: Set(previousTabs.map(\.id))
         )
         sidebarGitMetadataService.resetAllWorkspaceGitProbeTracking()
@@ -4665,9 +4677,10 @@ extension TabManager {
     }
 
     // Applies the planned closed-panel-history workspace-id remaps to the
-    // shared history store and flushes once when any op ran, matching the
-    // legacy `didRequestHistoryRemap` gate. `ClosedItemHistoryStore.shared`
-    // stays app-side; its de-singletonization is deferred to a later slice.
+    // injected history store and flushes once when any op ran, matching the
+    // legacy `didRequestHistoryRemap` gate. `closedItemHistory` is the
+    // composition-root-injected instance (no longer the `.shared` global) and
+    // stays app-side (`ClosedItemHistoryStore` is an app-target type).
     // Internal (not private) because it is the SessionSnapshotRestoreHosting
     // witness for `applyClosedPanelHistoryRemaps(_:)`.
     func applyClosedPanelHistoryRemaps(
@@ -4675,13 +4688,13 @@ extension TabManager {
     ) {
         guard !operations.isEmpty else { return }
         for operation in operations {
-            ClosedItemHistoryStore.shared.remapPanelWorkspaceIds(
+            closedItemHistory.remapPanelWorkspaceIds(
                 from: operation.fromWorkspaceId,
                 to: operation.toWorkspaceId,
                 panelIdMap: operation.panelIdMap
             )
         }
-        ClosedItemHistoryStore.shared.flushPendingSaves()
+        closedItemHistory.flushPendingSaves()
     }
 }
 
