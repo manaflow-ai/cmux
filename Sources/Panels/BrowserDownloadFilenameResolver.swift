@@ -1,3 +1,4 @@
+import CmuxBrowser
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
@@ -112,6 +113,19 @@ nonisolated struct BrowserDownloadFilenameResolver: Sendable {
             sourceURL: sourceURL,
             imageType: imageType(forDownloadedFileAt: imageFileURL)
         )
+    }
+
+    func suggestedFilenameForDataURL(
+        mimeType: String?,
+        suggestedFilename: String?
+    ) -> String {
+        if let suggested = suggestedFilename?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !suggested.isEmpty {
+            return self.suggestedFilename(suggestedFilename: suggested, response: nil, sourceURL: URL(fileURLWithPath: "download"), imageType: nil)
+        }
+        let ext = ParsedDataURL.filenameExtension(forMIMEType: mimeType) ?? "bin"
+        let base = (mimeType?.lowercased().hasPrefix("image/") ?? false) ? "image" : "download"
+        return "\(base).\(ext)"
     }
 
     private func imageFilename(
