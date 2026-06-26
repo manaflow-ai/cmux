@@ -136,6 +136,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// "Check that both devices are on the same Tailscale"). Set and cleared
     /// together with the error by the pairing-failure classifier sink.
     public private(set) var connectionErrorGuidance: String?
+    /// The current user-visible network/authentication/trust pairing checks.
+    public private(set) var pairingChecklist: MobilePairingChecklist
     /// A warning that must be accepted before pairing continues, currently used
     /// for Mac/iPhone app-version skew.
     public private(set) var pairingVersionWarning: String?
@@ -844,6 +846,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalInputText = ""
         self.connectionError = nil
         self.connectionErrorGuidance = nil
+        self.pairingChecklist = .idle
         self.pairingVersionWarning = nil
         self.activeTicket = nil
         self.activeRoute = nil
@@ -1432,8 +1435,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) async {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
-            connectionError = L10n.string("mobile.addDevice.invalidHost", defaultValue: "Enter a host or IP address, without spaces or URL paths.")
+            let message = L10n.string("mobile.addDevice.invalidHost", defaultValue: "Enter a host or IP address, without spaces or URL paths.")
+            connectionError = message
             connectionErrorGuidance = nil
+            pairingChecklist = .idle.applyingFailure(.network, message: message)
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
@@ -1446,8 +1451,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         guard (1...65535).contains(port) else {
-            connectionError = L10n.string("mobile.addDevice.invalidPort", defaultValue: "Enter a port from 1 to 65535.")
+            let message = L10n.string("mobile.addDevice.invalidPort", defaultValue: "Enter a port from 1 to 65535.")
+            connectionError = message
             connectionErrorGuidance = nil
+            pairingChecklist = .idle.applyingFailure(.network, message: message)
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
@@ -4488,6 +4495,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // the caller records the matching analytics reason from it.
             connectionError = MobilePairingFailureCategory.noSupportedRoute.message
             connectionErrorGuidance = MobilePairingFailureCategory.noSupportedRoute.guidance
+            pairingChecklist = pairingChecklist.applyingFailure(
+                .trust,
+                message: MobilePairingFailureCategory.noSupportedRoute.message,
+                guidance: MobilePairingFailureCategory.noSupportedRoute.guidance
+            )
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
@@ -4499,6 +4511,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // its point of use (`MobileCoreRPCClient.requestDataWithAuth`).
         activeTicket = ticket
         activeRoute = firstRoute
+        pairingChecklist = pairingChecklist.updating(.trust, status: .succeeded)
         connectedHostName = placeholderHostName(for: ticket, firstRoute: firstRoute)
         replaceRemoteClient(with: nil)
 
@@ -4508,6 +4521,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             applyPreviewTicket(ticket, route: firstRoute)
             connectionState = .connected
             markMacConnectionHealthy()
+            pairingChecklist = .succeeded
             return nil
         }
 
@@ -4865,6 +4879,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let attemptID = UUID()
         pairingAttemptID = attemptID
         if let method {
+            pairingChecklist = .inProgress
             pairingAttemptStartedAt = runtime?.now() ?? Date()
             pairingAttemptMethod = method
             // Snapshot at attempt start: a successful connect mutates
@@ -4885,6 +4900,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Emits `ios_pairing_succeeded` once for the in-flight attempt, then clears
     /// the attempt timing so a later state change can't double-fire.
     private func recordPairingSucceeded() {
+        pairingChecklist = .succeeded
         guard let method = pairingAttemptMethod else { return }
         var props: [String: AnalyticsValue] = [
             "method": .string(method),
@@ -4938,6 +4954,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairingAttemptID = UUID()
         pairingAttemptStartedAt = nil
         pairingAttemptMethod = nil
+        pairingChecklist = .idle
     }
 
     /// Apply a classified pairing failure to the user-visible error surface and
@@ -4955,6 +4972,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connectionError = category.message
         }
         connectionErrorGuidance = category.guidance
+        pairingChecklist = pairingChecklist.applyingFailure(
+            category.pairingStep,
+            message: category.message,
+            guidance: category.guidance,
+            succeededSteps: pairingSucceededSteps(before: category, phase: phase)
+        )
         recordPairingFailed(reason: category.analyticsReason, phase: phase)
     }
 
@@ -4963,6 +4986,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             _ = beginPairingValidationAttempt(method: "qr")
         }
         applyPairingFailure(category, phase: "validation")
+    }
+
+    private func pairingSucceededSteps(
+        before category: MobilePairingFailureCategory,
+        phase: String
+    ) -> Set<MobilePairingStep> {
+        switch category.pairingStep {
+        case .network:
+            return []
+        case .authentication:
+            return phase == "validation" ? [] : [.network]
+        case .trust:
+            return []
+        }
     }
 
     /// Clear the error and its guidance together (never bare `connectionError
@@ -5039,6 +5076,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             applyPairingFailure(category ?? .unknown(host: nil, port: nil), phase: phase)
             return
         }
+        if let category {
+            pairingChecklist = pairingChecklist.applyingFailure(
+                category.pairingStep,
+                message: category.message,
+                guidance: category.guidance,
+                succeededSteps: pairingSucceededSteps(before: category, phase: phase)
+            )
+        }
         recordPairingFailed(reason: category?.analyticsReason ?? "other", phase: phase)
     }
 
@@ -5051,6 +5096,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ? L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to your computer.")
             : category.message
         connectionErrorGuidance = category.guidance
+        pairingChecklist = pairingChecklist.applyingFailure(
+            category.pairingStep,
+            message: connectionError ?? category.message,
+            guidance: category.guidance,
+            succeededSteps: category.pairingStep == .authentication
+                ? Set<MobilePairingStep>([.network])
+                : Set<MobilePairingStep>()
+        )
     }
 
     /// How the preflight resolved: proceed, ``.offline`` applied, or superseded.
@@ -6782,6 +6835,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ? L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to your computer.")
             : category.message
         connectionErrorGuidance = category.guidance
+        pairingChecklist = pairingChecklist.applyingFailure(
+            category.pairingStep,
+            message: connectionError ?? category.message,
+            guidance: category.guidance,
+            succeededSteps: [.network]
+        )
         connectionRequiresReauth = true
         connectionState = .disconnected
         macConnectionStatus = .unavailable

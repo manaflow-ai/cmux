@@ -240,6 +240,7 @@ struct CMUXMobileRootView: View {
             pairingCode: $store.pairingCode,
             connectionError: store.connectionError,
             connectionErrorGuidance: store.connectionErrorGuidance,
+            pairingChecklist: store.pairingChecklist,
             versionWarning: store.pairingVersionWarning,
             connectPairingCode: {
                 await store.connectPairingInput()

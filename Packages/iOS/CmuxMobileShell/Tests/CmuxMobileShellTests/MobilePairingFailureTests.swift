@@ -40,6 +40,15 @@ import Testing
         #expect(category.guidance != nil)
     }
 
+    @Test func networkFailuresTargetNetworkChecklistStep() throws {
+        let category = MobilePairingFailureCategory.classify(
+            error: CmxNetworkByteTransportError.connectionFailed("no route", .hostUnreachable),
+            route: try route()
+        )
+
+        #expect(category.pairingStep == .network)
+    }
+
     @Test func connectionRefusedMeansListenerNotRunning() throws {
         let category = MobilePairingFailureCategory.classify(
             error: CmxNetworkByteTransportError.connectionFailed("refused", .connectionRefused),
@@ -149,6 +158,33 @@ import Testing
         )
         #expect(category == .authFailed)
         #expect(category.analyticsReason == "auth")
+    }
+
+    @Test func authFailuresTargetAuthenticationChecklistStep() {
+        let categories: [MobilePairingFailureCategory] = [
+            .accountMismatch,
+            .emailMismatch(expected: "mac@example.com", actual: "phone@example.com"),
+            .authFailed,
+            .ticketExpired,
+        ]
+
+        for category in categories {
+            #expect(category.pairingStep == .authentication)
+        }
+    }
+
+    @Test func trustFailuresTargetTrustChecklistStep() {
+        let categories: [MobilePairingFailureCategory] = [
+            .invalidCode,
+            .unrecognizedVersion,
+            .loopbackRejected,
+            .unsupportedRoute,
+            .noSupportedRoute,
+        ]
+
+        for category in categories {
+            #expect(category.pairingStep == .trust)
+        }
     }
 
     @Test func rpcAccountMismatchCodeMapsToAccountMismatch() {

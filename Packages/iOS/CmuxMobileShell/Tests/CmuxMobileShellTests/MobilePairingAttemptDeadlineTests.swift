@@ -15,6 +15,10 @@ import Testing
         #expect(store.connectionState == .disconnected)
         #expect(store.connectionError?.isEmpty == false)
         #expect(store.connectionError?.contains("100.64.0.5") == true)
+        #expect(store.pairingChecklist.network.status == .failed)
+        #expect(store.pairingChecklist.network.message?.contains("100.64.0.5") == true)
+        #expect(store.pairingChecklist.authentication.status == .pending)
+        #expect(store.pairingChecklist.trust.status == .succeeded)
     }
 
     @Test func scannedOrPastedPairingInputUsesSameDeadline() async throws {
@@ -80,6 +84,7 @@ import Testing
         #expect(result == .connected)
         #expect(store.connectionState == .connected)
         #expect(store.selectedWorkspace?.id.rawValue == "live-workspace")
+        #expect(store.pairingChecklist.steps.map(\.status) == [.succeeded, .succeeded, .succeeded])
     }
 
     private static let qrURL = "cmux-ios://attach?v=2&pc=1&r=100.64.0.5:58465"

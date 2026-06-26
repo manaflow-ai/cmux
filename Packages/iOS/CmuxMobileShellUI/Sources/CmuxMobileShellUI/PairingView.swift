@@ -18,6 +18,7 @@ struct PairingView: View {
     /// (for example "Check that both devices are on the same Tailscale"). `nil`
     /// when the headline is already the full instruction.
     let connectionErrorGuidance: String?
+    let pairingChecklist: MobilePairingChecklist
     let versionWarning: String?
     let connectPairingCode: () async -> Void
     let acceptVersionWarning: () async -> Void
@@ -120,6 +121,16 @@ struct PairingView: View {
                     .accessibilityElement(children: .contain)
                 }
 
+                Section {
+                    ForEach(displayedPairingChecklist.steps) { check in
+                        pairingCheckRow(check)
+                    }
+                } header: {
+                    Text(L10n.string("mobile.pairing.checks.title", defaultValue: "Pairing checks"))
+                } footer: {
+                    Text(L10n.string("mobile.pairing.checks.help", defaultValue: "Each step updates independently so you can see whether the connection, account, or trust check needs attention."))
+                }
+
                 #if os(iOS)
                 Section {
                     Button {
@@ -173,26 +184,6 @@ struct PairingView: View {
                     }
                 }
 
-                if let errorText {
-                    Section {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(errorText)
-                                .foregroundStyle(.red)
-                                .accessibilityIdentifier("MobilePairingError")
-                            if let guidanceText = errorGuidanceText {
-                                Text(guidanceText)
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                                    .accessibilityIdentifier("MobilePairingErrorGuidance")
-                            }
-                            Text(signedInAccountText)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
-                                .accessibilityIdentifier("MobilePairingErrorSignedInAccount")
-                        }
-                    }
-                }
             }
             #if os(iOS)
             .scrollDismissesKeyboard(.interactively)
@@ -264,16 +255,114 @@ struct PairingView: View {
         }
     }
 
-    private var errorText: String? {
-        validationError ?? connectionError
+    private var displayedPairingChecklist: MobilePairingChecklist {
+        if let validationError {
+            return MobilePairingChecklist.idle.applyingFailure(.network, message: validationError)
+        }
+        if let connectionError, !pairingChecklist.hasFailure {
+            return pairingChecklist.applyingFailure(
+                .network,
+                message: connectionError,
+                guidance: connectionErrorGuidance
+            )
+        }
+        if !isPairing, !pairingChecklist.hasFailure {
+            return .idle
+        }
+        return pairingChecklist
     }
 
-    /// The guidance line only belongs to a connection error. A local validation
-    /// error (bad host/port) is self-explanatory and has no store-side guidance,
-    /// so suppress the connection guidance while a validation error is showing.
-    private var errorGuidanceText: String? {
-        guard validationError == nil else { return nil }
-        return connectionErrorGuidance
+    @ViewBuilder
+    private func pairingCheckRow(_ check: MobilePairingStepSnapshot) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            pairingCheckIcon(check.status)
+                .frame(width: 24, height: 24)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(pairingCheckTitle(for: check.step))
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                    Spacer(minLength: 8)
+                    Text(pairingCheckStatusText(for: check.status))
+                        .font(.caption)
+                        .foregroundStyle(pairingCheckStatusColor(check.status))
+                }
+
+                if check.status == .failed {
+                    if let message = check.message, !message.isEmpty {
+                        Text(message)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("MobilePairingError")
+                    }
+                    if let guidance = check.guidance, !guidance.isEmpty {
+                        Text(guidance)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("MobilePairingErrorGuidance")
+                    }
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("MobilePairingCheck-\(check.step.rawValue)")
+    }
+
+    @ViewBuilder
+    private func pairingCheckIcon(_ status: MobilePairingStepStatus) -> some View {
+        switch status {
+        case .pending:
+            Image(systemName: "circle")
+                .foregroundStyle(.secondary)
+        case .inProgress:
+            ProgressView()
+        case .succeeded:
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+        case .failed:
+            Image(systemName: "xmark.circle.fill")
+                .foregroundStyle(.red)
+        }
+    }
+
+    private func pairingCheckTitle(for step: MobilePairingStep) -> String {
+        switch step {
+        case .network:
+            return L10n.string("mobile.pairing.check.network", defaultValue: "Network")
+        case .authentication:
+            return L10n.string("mobile.pairing.check.authentication", defaultValue: "Authentication")
+        case .trust:
+            return L10n.string("mobile.pairing.check.trust", defaultValue: "Trust")
+        }
+    }
+
+    private func pairingCheckStatusText(for status: MobilePairingStepStatus) -> String {
+        switch status {
+        case .pending:
+            return L10n.string("mobile.pairing.check.status.pending", defaultValue: "Waiting")
+        case .inProgress:
+            return L10n.string("mobile.pairing.check.status.inProgress", defaultValue: "Checking")
+        case .succeeded:
+            return L10n.string("mobile.pairing.check.status.succeeded", defaultValue: "Verified")
+        case .failed:
+            return L10n.string("mobile.pairing.check.status.failed", defaultValue: "Needs attention")
+        }
+    }
+
+    private func pairingCheckStatusColor(_ status: MobilePairingStepStatus) -> Color {
+        switch status {
+        case .pending:
+            return .secondary
+        case .inProgress:
+            return .blue
+        case .succeeded:
+            return .green
+        case .failed:
+            return .red
+        }
     }
 
     private var manualRouteWarningText: String? {
