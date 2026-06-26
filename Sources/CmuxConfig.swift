@@ -1883,6 +1883,7 @@ final class CmuxConfigStore: ObservableObject {
         .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID)),
         .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.cloudVM.configID)),
     ]
+    private static let maxExecutionContextCacheEntries = 16
 
     @Published private(set) var loadedCommands: [CmuxCommandDefinition] = []
     @Published private(set) var loadedActions: [CmuxResolvedConfigAction] = []
@@ -1910,6 +1911,8 @@ final class CmuxConfigStore: ObservableObject {
     private weak var tabManager: TabManager?
     let globalConfigPath: String
     private let fileWatchingEnabled: Bool
+    private var executionContextCache: [String: CmuxConfigStore] = [:]
+    private var executionContextCacheOrder: [String] = []
 
     nonisolated private static func defaultGlobalConfigPath() -> String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -2663,13 +2666,33 @@ final class CmuxConfigStore: ObservableObject {
         if localPath == localConfigPath {
             return self
         }
+        if let cachedContext = executionContextCache[localPath] {
+            markExecutionContextCacheEntryUsed(localPath)
+            cachedContext.loadAll()
+            return cachedContext
+        }
         let context = CmuxConfigStore(
             globalConfigPath: globalConfigPath,
             localConfigPath: localPath,
             startFileWatchers: false
         )
         context.loadAll()
+        cacheExecutionContext(context, localPath: localPath)
         return context
+    }
+
+    private func cacheExecutionContext(_ context: CmuxConfigStore, localPath: String) {
+        executionContextCache[localPath] = context
+        markExecutionContextCacheEntryUsed(localPath)
+        while executionContextCacheOrder.count > Self.maxExecutionContextCacheEntries {
+            let evictedPath = executionContextCacheOrder.removeFirst()
+            executionContextCache.removeValue(forKey: evictedPath)
+        }
+    }
+
+    private func markExecutionContextCacheEntryUsed(_ localPath: String) {
+        executionContextCacheOrder.removeAll { $0 == localPath }
+        executionContextCacheOrder.append(localPath)
     }
 
     func paletteCustomActions() -> [CmuxResolvedConfigAction] {

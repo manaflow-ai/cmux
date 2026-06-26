@@ -808,6 +808,20 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(context.resolvedWorkspaceCommandAction(identifier: "Local Dev")?.workspaceCommandName, "Local Dev")
         XCTAssertEqual(context.resolvedWorkspaceCommandAction(identifier: "worktree-dev")?.workspaceCommandName, "Local Dev")
         XCTAssertEqual(context.resolvedNewWorkspaceAction()?.workspaceCommandName, "Local Dev")
+
+        try """
+        {
+          "commands": [{
+            "name": "Local Test",
+            "workspace": { "name": "Test", "cwd": "." }
+          }]
+        }
+        """.write(to: localConfigURL, atomically: true, encoding: .utf8)
+
+        let reusedContext = store.executionContext(startingFrom: nestedDirectory.path)
+        XCTAssertTrue(context === reusedContext)
+        XCTAssertEqual(reusedContext.loadedCommands.map(\.name), ["Local Test", "Global Dev"])
+        XCTAssertEqual(reusedContext.resolvedWorkspaceCommandAction(identifier: "Local Test")?.workspaceCommandName, "Local Test")
     }
 
     @MainActor
