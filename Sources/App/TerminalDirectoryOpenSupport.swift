@@ -693,12 +693,12 @@ final class VSCodeServeWebController {
 
         let process = Process()
         process.executableURL = launchConfiguration.executableURL
-        process.arguments = launchConfiguration.argumentsPrefix + [
-            "--accept-server-license-terms",
-            "--host", "127.0.0.1",
-            "--port", "0",
-            "--connection-token-file", connectionTokenFileURL.path,
-        ]
+        process.arguments = InlineVSCodeServeWebSupport.serveWebArguments(
+            argumentsPrefix: launchConfiguration.argumentsPrefix,
+            options: InlineVSCodeServeWebSupport.resolveOptions(),
+            connectionTokenFilePath: connectionTokenFileURL.path,
+            makeEphemeralServerDataDir: InlineVSCodeServeWebSupport.makeEphemeralServerDataDir
+        )
         process.environment = launchConfiguration.environment
 
         let stdoutPipe = Pipe()

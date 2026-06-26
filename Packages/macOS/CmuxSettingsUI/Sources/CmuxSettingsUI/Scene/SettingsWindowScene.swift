@@ -480,6 +480,9 @@ public struct SettingsWindowRoot: View {
         )
         .id(anchorID(for: .automation))
 
+        InlineVSCodeSection(jsonStore: jsonStore, catalog: catalog, errorLog: runtime.errorLog)
+            .id(anchorID(for: .inlineVSCode))
+
         BrowserSection(
             defaultsStore: defaultsStore,
             catalog: catalog,

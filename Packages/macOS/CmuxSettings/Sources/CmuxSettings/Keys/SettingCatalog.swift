@@ -43,6 +43,8 @@ public struct SettingCatalog: SettingCatalogSection {
     public let betaFeatures = BetaFeaturesCatalogSection()
     /// Settings for custom (user/agent-authored) sidebars (the `customSidebars.*` keys).
     public let customSidebars = CustomSidebarsCatalogSection()
+    /// Settings for the Inline VS Code `serve-web` launcher (the `inlineVSCode.*` keys).
+    public let inlineVSCode = InlineVSCodeCatalogSection()
     public let shortcuts = KeyboardShortcutsCatalogSection()
     public let integrations = IntegrationsCatalogSection()
     public let account = AccountCatalogSection()
