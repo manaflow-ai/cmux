@@ -1028,7 +1028,10 @@
         "wn-reload": "Ponovo učitaj konfiguraciju",
         "wn-quit": "Izađi"
       },
-      "metaTitle": "Prečice na tastaturi"
+      "metaTitle": "Prečice na tastaturi",
+      "customCommandsTitle": "Prilagođeni prečaci naredbi",
+      "customCommandsIntro": "Povežite jedan pritisak tastera s bilo kojom naredbom iz palete naredbi putem <settings>Postavke → Tastaturni prečaci → Prilagođene naredbe</settings>, ili direktno pod <settingsFile>shortcuts.commands</settingsFile> u cmux.json. Pogledajte <configurationLink>dokumentaciju o konfiguraciji</configurationLink> za format datoteke.",
+      "customCommandsCallout": "Snimanje pritiska koji već koristi ugrađena akcija ili druga naredba blokira se banerom, tako da prilagođeni prečac ne može tiho zasjeniti ugrađenu akciju niti se sukobiti s drugom naredbom. Prilagođeni prečaci naredbi imaju samo jedan pritisak."
     },
     "api": {
       "title": "CLI Referenca",

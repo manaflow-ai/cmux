@@ -1028,7 +1028,10 @@
         "wn-reload": "Ricarica configurazione",
         "wn-quit": "Esci"
       },
-      "metaTitle": "Scorciatoie da tastiera"
+      "metaTitle": "Scorciatoie da tastiera",
+      "customCommandsTitle": "Scorciatoie di comando personalizzate",
+      "customCommandsIntro": "Associa una singola pressione a qualsiasi comando della palette dei comandi da <settings>Impostazioni → Abbreviazioni da tastiera → Comandi personalizzati</settings>, o direttamente sotto <settingsFile>shortcuts.commands</settingsFile> in cmux.json. Consulta la <configurationLink>documentazione di configurazione</configurationLink> per il formato del file.",
+      "customCommandsCallout": "La registrazione di una pressione già usata da un'azione integrata o da un altro comando viene bloccata con un banner, così una scorciatoia personalizzata non può oscurare silenziosamente un'azione integrata né entrare in conflitto con un altro comando. Le scorciatoie di comando personalizzate sono a singola pressione."
     },
     "api": {
       "title": "Riferimento CLI",

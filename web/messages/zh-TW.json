@@ -1028,7 +1028,10 @@
         "wn-reload": "重新載入設定",
         "wn-quit": "結束"
       },
-      "metaTitle": "鍵盤快捷鍵"
+      "metaTitle": "鍵盤快捷鍵",
+      "customCommandsTitle": "自訂命令快速鍵",
+      "customCommandsIntro": "在 <settings>設定 → 鍵盤快速鍵 → 自訂命令</settings> 中，或直接在 cmux.json 的 <settingsFile>shortcuts.commands</settingsFile> 底下，為命令面板中的任何命令繫結一次按鍵。檔案格式請參閱<configurationLink>設定文件</configurationLink>。",
+      "customCommandsCallout": "錄製一個已被內建動作或其他命令使用的按鍵時會被橫幅封鎖，因此自訂快速鍵不會悄悄覆蓋內建動作或與其他命令衝突。自訂命令快速鍵僅支援單次按鍵。"
     },
     "api": {
       "title": "CLI 參考",

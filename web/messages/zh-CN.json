@@ -1028,7 +1028,10 @@
         "wn-reload": "重新加载配置",
         "wn-quit": "退出"
       },
-      "metaTitle": "键盘快捷键"
+      "metaTitle": "键盘快捷键",
+      "customCommandsTitle": "自定义命令快捷键",
+      "customCommandsIntro": "在 <settings>设置 → 键盘快捷键 → 自定义命令</settings> 中，或直接在 cmux.json 的 <settingsFile>shortcuts.commands</settingsFile> 下，为命令面板中的任何命令绑定一次按键。文件格式请参阅<configurationLink>配置文档</configurationLink>。",
+      "customCommandsCallout": "记录一个已被内置操作或其他命令使用的按键时会被横幅阻止，因此自定义快捷键不会悄悄覆盖内置操作或与其他命令冲突。自定义命令快捷键仅支持单次按键。"
     },
     "api": {
       "title": "CLI 参考",

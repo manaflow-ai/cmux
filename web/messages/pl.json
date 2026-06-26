@@ -1028,7 +1028,10 @@
         "wn-reload": "Przeładuj konfigurację",
         "wn-quit": "Zakończ"
       },
-      "metaTitle": "Skróty klawiszowe"
+      "metaTitle": "Skróty klawiszowe",
+      "customCommandsTitle": "Niestandardowe skróty poleceń",
+      "customCommandsIntro": "Przypisz pojedyncze naciśnięcie do dowolnego polecenia palety poleceń w <settings>Ustawienia → Skróty klawiszowe → Polecenia niestandardowe</settings> lub bezpośrednio w <settingsFile>shortcuts.commands</settingsFile> w cmux.json. Format pliku znajdziesz w <configurationLink>dokumentacji konfiguracji</configurationLink>.",
+      "customCommandsCallout": "Zarejestrowanie naciśnięcia używanego już przez wbudowaną akcję lub inne polecenie jest blokowane banerem, więc niestandardowy skrót nie może po cichu przesłonić wbudowanej akcji ani kolidować z innym poleceniem. Niestandardowe skróty poleceń mają pojedyncze naciśnięcie."
     },
     "api": {
       "title": "Dokumentacja CLI",

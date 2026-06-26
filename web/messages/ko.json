@@ -1028,7 +1028,10 @@
         "wn-reload": "설정 새로고침",
         "wn-quit": "종료"
       },
-      "metaTitle": "키보드 단축키"
+      "metaTitle": "키보드 단축키",
+      "customCommandsTitle": "사용자 지정 명령 단축키",
+      "customCommandsIntro": "<settings>설정 → 키보드 단축키 → 사용자 지정 명령</settings>에서, 또는 cmux.json의 <settingsFile>shortcuts.commands</settingsFile> 아래에 직접, 명령 팔레트의 모든 명령에 단일 키 입력을 바인딩하세요. 파일 형식은 <configurationLink>구성 문서</configurationLink>를 참고하세요.",
+      "customCommandsCallout": "기본 동작이나 다른 명령에서 이미 사용 중인 키 입력을 기록하려고 하면 배너로 차단되므로, 사용자 지정 단축키가 기본 동작을 조용히 가리거나 다른 명령과 충돌하지 않습니다. 사용자 지정 명령 단축키는 단일 입력만 가능합니다."
     },
     "api": {
       "title": "CLI 레퍼런스",

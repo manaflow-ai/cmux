@@ -1028,7 +1028,10 @@
         "wn-reload": "Genindlæs konfiguration",
         "wn-quit": "Afslut"
       },
-      "metaTitle": "Tastaturgenveje"
+      "metaTitle": "Tastaturgenveje",
+      "customCommandsTitle": "Brugerdefinerede kommandogenveje",
+      "customCommandsIntro": "Bind et enkelt tastetryk til enhver kommando i kommandopaletten fra <settings>Indstillinger → Tastaturgenveje → Brugerdefinerede kommandoer</settings>, eller direkte under <settingsFile>shortcuts.commands</settingsFile> i cmux.json. Se <configurationLink>konfigurationsdokumentationen</configurationLink> for filformatet.",
+      "customCommandsCallout": "Optagelse af et tastetryk, der allerede bruges af en indbygget handling eller en anden kommando, blokeres med et banner, så en brugerdefineret genvej ikke i stilhed kan tilsidesætte en indbygget handling eller kollidere med en anden kommando. Brugerdefinerede kommandogenveje har kun ét tastetryk."
     },
     "api": {
       "title": "CLI-reference",

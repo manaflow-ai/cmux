@@ -1028,7 +1028,10 @@
         "wn-reload": "Recarregar configuração",
         "wn-quit": "Sair"
       },
-      "metaTitle": "Atalhos de teclado"
+      "metaTitle": "Atalhos de teclado",
+      "customCommandsTitle": "Atalhos de comando personalizados",
+      "customCommandsIntro": "Associe um único toque a qualquer comando da paleta de comandos em <settings>Configurações → Atalhos de teclado → Comandos personalizados</settings>, ou diretamente em <settingsFile>shortcuts.commands</settingsFile> no cmux.json. Consulte a <configurationLink>documentação de configuração</configurationLink> para o formato do arquivo.",
+      "customCommandsCallout": "Gravar um toque já usado por uma ação integrada ou outro comando é bloqueado com um aviso, para que um atalho personalizado não possa ocultar silenciosamente uma ação integrada nem colidir com outro comando. Atalhos de comando personalizados são de um único toque."
     },
     "api": {
       "title": "Referência da CLI",

@@ -1028,7 +1028,10 @@
         "wn-reload": "Last inn konfigurasjon på nytt",
         "wn-quit": "Avslutt"
       },
-      "metaTitle": "Tastatursnarveier"
+      "metaTitle": "Tastatursnarveier",
+      "customCommandsTitle": "Egendefinerte kommandosnarveier",
+      "customCommandsIntro": "Bind et enkelt tastetrykk til enhver kommando i kommandopaletten fra <settings>Innstillinger → Hurtigtaster → Egendefinerte kommandoer</settings>, eller direkte under <settingsFile>shortcuts.commands</settingsFile> i cmux.json. Se <configurationLink>konfigurasjonsdokumentasjonen</configurationLink> for filformatet.",
+      "customCommandsCallout": "Å registrere et tastetrykk som allerede brukes av en innebygd handling eller en annen kommando, blokkeres med et banner, slik at en egendefinert snarvei ikke stille kan overstyre en innebygd handling eller kollidere med en annen kommando. Egendefinerte kommandosnarveier har bare ett tastetrykk."
     },
     "api": {
       "title": "CLI-referanse",

@@ -1028,7 +1028,10 @@
         "wn-reload": "Konfiguration neu laden",
         "wn-quit": "Beenden"
       },
-      "metaTitle": "Tastenkürzel"
+      "metaTitle": "Tastenkürzel",
+      "customCommandsTitle": "Eigene Befehlskürzel",
+      "customCommandsIntro": "Weisen Sie über <settings>Einstellungen → Tastaturkurzbefehle → Benutzerdefinierte Befehle</settings> oder direkt unter <settingsFile>shortcuts.commands</settingsFile> in cmux.json einem beliebigen Befehl der Befehlspalette einen einzelnen Tastendruck zu. Das Dateiformat finden Sie in der <configurationLink>Konfigurationsdokumentation</configurationLink>.",
+      "customCommandsCallout": "Das Aufzeichnen eines Tastendrucks, der bereits von einer eingebauten Aktion oder einem anderen Befehl verwendet wird, wird mit einem Banner blockiert, sodass ein eigenes Kürzel keine eingebaute Aktion stillschweigend überschreiben oder mit einem anderen Befehl kollidieren kann. Eigene Befehlskürzel haben nur einen Anschlag."
     },
     "api": {
       "title": "CLI-Referenz",

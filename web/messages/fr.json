@@ -1028,7 +1028,10 @@
         "wn-reload": "Recharger la configuration",
         "wn-quit": "Quitter"
       },
-      "metaTitle": "Raccourcis clavier"
+      "metaTitle": "Raccourcis clavier",
+      "customCommandsTitle": "Raccourcis de commande personnalisés",
+      "customCommandsIntro": "Associez une seule frappe à n'importe quelle commande de la palette de commandes depuis <settings>Réglages → Raccourcis clavier → Commandes personnalisées</settings>, ou directement sous <settingsFile>shortcuts.commands</settingsFile> dans cmux.json. Consultez la <configurationLink>documentation de configuration</configurationLink> pour le format du fichier.",
+      "customCommandsCallout": "L'enregistrement d'une frappe déjà utilisée par une action intégrée ou une autre commande est bloqué par une bannière, afin qu'un raccourci personnalisé ne puisse pas masquer silencieusement une action intégrée ni entrer en conflit avec une autre commande. Les raccourcis de commande personnalisés sont à une seule frappe."
     },
     "api": {
       "title": "Référence CLI",
