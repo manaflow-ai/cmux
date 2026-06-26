@@ -171,7 +171,7 @@ public struct InlineVSCodeSection: View {
             SettingsCardRow(
                 configurationReview: .json("inlineVSCode.extraArgs"),
                 String(localized: "settings.inlineVSCode.extraArgs", defaultValue: "Extra serve-web Arguments"),
-                subtitle: String(localized: "settings.inlineVSCode.extraArgs.subtitle", defaultValue: "Advanced upstream VS Code serve-web flags, one per line. Appended verbatim.")
+                subtitle: String(localized: "settings.inlineVSCode.extraArgs.subtitle", defaultValue: "Advanced upstream VS Code serve-web flags, one per line. cmux-managed flags (host, port, connection token, server data dir) are ignored.")
             ) {
                 EmptyView()
             }

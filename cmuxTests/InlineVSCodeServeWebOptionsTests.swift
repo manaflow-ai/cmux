@@ -8,19 +8,27 @@ import Testing
 
 /// Unit tests for the Inline VS Code `serve-web` configuration pipeline:
 /// the presence-aware cmux.json reader, the config/env/default resolver, and
-/// the pure `serve-web` argument builder. These cover the behavior exposed by
+/// the `serve-web` argument builder. These cover the behavior exposed by
 /// issue #6645 (settings for inline VS Code serve-web launches).
 @Suite("InlineVSCodeServeWebOptions")
 struct InlineVSCodeServeWebOptionsTests {
     private static let home = "/Users/tester"
+    private typealias Resolver = InlineVSCodeServeWebOptionsResolver
 
     private func makeData(_ json: String) -> Data { Data(json.utf8) }
 
     private func readValues(_ json: String) -> InlineVSCodeConfigFileValues {
-        InlineVSCodeServeWebSupport.readFileValues(
+        InlineVSCodeServeWebConfigurationLoader(
             configFileURL: URL(fileURLWithPath: "/dev/null"),
             dataReader: { _ in self.makeData(json) }
-        )
+        ).readFileValues()
+    }
+
+    private func resolve(
+        file: InlineVSCodeConfigFileValues,
+        environment: [String: String] = [:]
+    ) -> InlineVSCodeServeWebOptions {
+        Resolver(environment: environment, homeDirectoryPath: Self.home).resolve(file: file)
     }
 
     // MARK: - Reader
@@ -31,10 +39,10 @@ struct InlineVSCodeServeWebOptionsTests {
     }
 
     @Test func readerReturnsEmptyWhenFileMissingOrUnreadable() {
-        let values = InlineVSCodeServeWebSupport.readFileValues(
+        let values = InlineVSCodeServeWebConfigurationLoader(
             configFileURL: URL(fileURLWithPath: "/dev/null"),
             dataReader: { _ in nil }
-        )
+        ).readFileValues()
         #expect(values == .empty)
     }
 
@@ -83,11 +91,7 @@ struct InlineVSCodeServeWebOptionsTests {
     // MARK: - Resolver precedence
 
     @Test func resolverUsesDefaultsWhenNothingConfigured() {
-        let options = InlineVSCodeServeWebOptionsResolver.resolve(
-            file: .empty,
-            environment: [:],
-            homeDirectoryPath: Self.home
-        )
+        let options = resolve(file: .empty)
         #expect(options == .default)
         #expect(options.port == 0)
         #expect(options.serverDataDir == nil)
@@ -103,16 +107,12 @@ struct InlineVSCodeServeWebOptionsTests {
             extraArgs: ["--file"]
         )
         let env = [
-            InlineVSCodeServeWebOptionsResolver.EnvironmentKey.port: "2222",
-            InlineVSCodeServeWebOptionsResolver.EnvironmentKey.serverDataDir: "/from/env",
-            InlineVSCodeServeWebOptionsResolver.EnvironmentKey.persistState: "true",
-            InlineVSCodeServeWebOptionsResolver.EnvironmentKey.extraArgs: "--env",
+            Resolver.portEnvironmentKey: "2222",
+            Resolver.serverDataDirEnvironmentKey: "/from/env",
+            Resolver.persistStateEnvironmentKey: "true",
+            Resolver.extraArgsEnvironmentKey: "--env",
         ]
-        let options = InlineVSCodeServeWebOptionsResolver.resolve(
-            file: file,
-            environment: env,
-            homeDirectoryPath: Self.home
-        )
+        let options = resolve(file: file, environment: env)
         #expect(options.port == 1111)
         #expect(options.serverDataDir == "/from/file")
         #expect(options.persistServeWebState == false)
@@ -121,16 +121,12 @@ struct InlineVSCodeServeWebOptionsTests {
 
     @Test func resolverFallsBackToEnvironmentWhenFileAbsent() {
         let env = [
-            InlineVSCodeServeWebOptionsResolver.EnvironmentKey.port: "3333",
-            InlineVSCodeServeWebOptionsResolver.EnvironmentKey.serverDataDir: "~/envdir",
-            InlineVSCodeServeWebOptionsResolver.EnvironmentKey.persistState: "0",
-            InlineVSCodeServeWebOptionsResolver.EnvironmentKey.extraArgs: "--x  --y\t--z",
+            Resolver.portEnvironmentKey: "3333",
+            Resolver.serverDataDirEnvironmentKey: "~/envdir",
+            Resolver.persistStateEnvironmentKey: "0",
+            Resolver.extraArgsEnvironmentKey: "--x  --y\t--z",
         ]
-        let options = InlineVSCodeServeWebOptionsResolver.resolve(
-            file: .empty,
-            environment: env,
-            homeDirectoryPath: Self.home
-        )
+        let options = resolve(file: .empty, environment: env)
         #expect(options.port == 3333)
         #expect(options.serverDataDir == "/Users/tester/envdir")
         #expect(options.persistServeWebState == false)
@@ -138,44 +134,23 @@ struct InlineVSCodeServeWebOptionsTests {
     }
 
     @Test func resolverRejectsOutOfRangePortAndFallsBackToZero() {
-        let optionsHigh = InlineVSCodeServeWebOptionsResolver.resolve(
-            file: InlineVSCodeConfigFileValues(port: 70000, serverDataDir: nil, persistServeWebState: nil, extraArgs: nil),
-            environment: [:],
-            homeDirectoryPath: Self.home
-        )
-        #expect(optionsHigh.port == 0)
-
-        let optionsNegative = InlineVSCodeServeWebOptionsResolver.resolve(
-            file: InlineVSCodeConfigFileValues(port: -1, serverDataDir: nil, persistServeWebState: nil, extraArgs: nil),
-            environment: [:],
-            homeDirectoryPath: Self.home
-        )
-        #expect(optionsNegative.port == 0)
+        let high = resolve(file: InlineVSCodeConfigFileValues(port: 70000, serverDataDir: nil, persistServeWebState: nil, extraArgs: nil))
+        #expect(high.port == 0)
+        let negative = resolve(file: InlineVSCodeConfigFileValues(port: -1, serverDataDir: nil, persistServeWebState: nil, extraArgs: nil))
+        #expect(negative.port == 0)
     }
 
     @Test func resolverParsesBooleanEnvironmentVariants() {
         for raw in ["1", "true", "TRUE", "yes", "on"] {
-            let options = InlineVSCodeServeWebOptionsResolver.resolve(
-                file: .empty,
-                environment: [InlineVSCodeServeWebOptionsResolver.EnvironmentKey.persistState: raw],
-                homeDirectoryPath: Self.home
-            )
+            let options = resolve(file: .empty, environment: [Resolver.persistStateEnvironmentKey: raw])
             #expect(options.persistServeWebState == true, "expected true for \(raw)")
         }
         for raw in ["0", "false", "no", "off"] {
-            let options = InlineVSCodeServeWebOptionsResolver.resolve(
-                file: .empty,
-                environment: [InlineVSCodeServeWebOptionsResolver.EnvironmentKey.persistState: raw],
-                homeDirectoryPath: Self.home
-            )
+            let options = resolve(file: .empty, environment: [Resolver.persistStateEnvironmentKey: raw])
             #expect(options.persistServeWebState == false, "expected false for \(raw)")
         }
         // Unrecognized value falls back to the default (true).
-        let fallback = InlineVSCodeServeWebOptionsResolver.resolve(
-            file: .empty,
-            environment: [InlineVSCodeServeWebOptionsResolver.EnvironmentKey.persistState: "maybe"],
-            homeDirectoryPath: Self.home
-        )
+        let fallback = resolve(file: .empty, environment: [Resolver.persistStateEnvironmentKey: "maybe"])
         #expect(fallback.persistServeWebState == true)
     }
 
@@ -186,45 +161,34 @@ struct InlineVSCodeServeWebOptionsTests {
             persistServeWebState: nil,
             extraArgs: ["  --keep  ", "", "   ", "--also"]
         )
-        let options = InlineVSCodeServeWebOptionsResolver.resolve(
-            file: file,
-            environment: [:],
-            homeDirectoryPath: Self.home
-        )
-        #expect(options.extraArgs == ["--keep", "--also"])
+        #expect(resolve(file: file).extraArgs == ["--keep", "--also"])
     }
 
     @Test func resolverTrimsBlankServerDataDirToNil() {
-        let file = InlineVSCodeConfigFileValues(
-            port: nil,
-            serverDataDir: "   ",
-            persistServeWebState: nil,
-            extraArgs: nil
-        )
-        let options = InlineVSCodeServeWebOptionsResolver.resolve(
-            file: file,
-            environment: [:],
-            homeDirectoryPath: Self.home
-        )
-        #expect(options.serverDataDir == nil)
+        let file = InlineVSCodeConfigFileValues(port: nil, serverDataDir: "   ", persistServeWebState: nil, extraArgs: nil)
+        #expect(resolve(file: file).serverDataDir == nil)
+    }
+
+    @Test func resolverExpandsTildeInServerDataDir() {
+        let file = InlineVSCodeConfigFileValues(port: nil, serverDataDir: "~/Library/x", persistServeWebState: nil, extraArgs: nil)
+        #expect(resolve(file: file).serverDataDir == "/Users/tester/Library/x")
     }
 
     // MARK: - Tilde expansion
 
     @Test func tildeExpansion() {
-        #expect(InlineVSCodeServeWebOptionsResolver.expandingTilde("~", homeDirectoryPath: "/Users/me") == "/Users/me")
-        #expect(InlineVSCodeServeWebOptionsResolver.expandingTilde("~/x/y", homeDirectoryPath: "/Users/me") == "/Users/me/x/y")
-        #expect(InlineVSCodeServeWebOptionsResolver.expandingTilde("~/x", homeDirectoryPath: "/Users/me/") == "/Users/me/x")
-        #expect(InlineVSCodeServeWebOptionsResolver.expandingTilde("/abs/path", homeDirectoryPath: "/Users/me") == "/abs/path")
-        #expect(InlineVSCodeServeWebOptionsResolver.expandingTilde("relative/~tilde", homeDirectoryPath: "/Users/me") == "relative/~tilde")
+        #expect(Resolver.expandingTilde("~", homeDirectoryPath: "/Users/me") == "/Users/me")
+        #expect(Resolver.expandingTilde("~/x/y", homeDirectoryPath: "/Users/me") == "/Users/me/x/y")
+        #expect(Resolver.expandingTilde("~/x", homeDirectoryPath: "/Users/me/") == "/Users/me/x")
+        #expect(Resolver.expandingTilde("/abs/path", homeDirectoryPath: "/Users/me") == "/abs/path")
+        #expect(Resolver.expandingTilde("relative/~tilde", homeDirectoryPath: "/Users/me") == "relative/~tilde")
     }
 
     // MARK: - Argument builder
 
-    private func args(_ options: InlineVSCodeServeWebOptions, ephemeral: String? = "/tmp/ephemeral") -> [String] {
-        InlineVSCodeServeWebSupport.serveWebArguments(
+    private func args(_ options: InlineVSCodeServeWebOptions, ephemeral: String = "/tmp/ephemeral") -> [String] {
+        options.serveWebArguments(
             argumentsPrefix: ["serve-web"],
-            options: options,
             connectionTokenFilePath: "/tmp/token",
             makeEphemeralServerDataDir: { ephemeral }
         )
@@ -239,7 +203,6 @@ struct InlineVSCodeServeWebOptionsTests {
             "--port", "0",
             "--connection-token-file", "/tmp/token",
         ])
-        // No --server-data-dir and no extra args by default.
         #expect(!result.contains("--server-data-dir"))
     }
 
@@ -255,7 +218,7 @@ struct InlineVSCodeServeWebOptionsTests {
         #expect(result[index + 1] == "/data/dir")
     }
 
-    @Test func argumentsUseEphemeralDirWhenNonPersistentWithoutExplicitDir() {
+    @Test func nonPersistentAlwaysUsesEphemeralDirNeverThePersistentDefault() {
         let result = args(InlineVSCodeServeWebOptions(port: 0, serverDataDir: nil, persistServeWebState: false, extraArgs: []))
         let index = try! #require(result.firstIndex(of: "--server-data-dir"))
         #expect(result[index + 1] == "/tmp/ephemeral")
@@ -263,20 +226,12 @@ struct InlineVSCodeServeWebOptionsTests {
 
     @Test func explicitDirWinsOverNonPersistentEphemeral() {
         let options = InlineVSCodeServeWebOptions(port: 0, serverDataDir: "/explicit", persistServeWebState: false, extraArgs: [])
-        #expect(InlineVSCodeServeWebSupport.effectiveServerDataDir(options: options, makeEphemeralServerDataDir: { "/tmp/ephemeral" }) == "/explicit")
+        #expect(options.effectiveServerDataDir(makeEphemeralServerDataDir: { "/tmp/ephemeral" }) == "/explicit")
     }
 
     @Test func persistentWithoutExplicitDirOmitsServerDataDir() {
         let options = InlineVSCodeServeWebOptions(port: 0, serverDataDir: nil, persistServeWebState: true, extraArgs: [])
-        #expect(InlineVSCodeServeWebSupport.effectiveServerDataDir(options: options, makeEphemeralServerDataDir: { "/tmp/ephemeral" }) == nil)
-    }
-
-    @Test func ephemeralFailureFallsBackToOmittingFlag() {
-        let result = args(
-            InlineVSCodeServeWebOptions(port: 0, serverDataDir: nil, persistServeWebState: false, extraArgs: []),
-            ephemeral: nil
-        )
-        #expect(!result.contains("--server-data-dir"))
+        #expect(options.effectiveServerDataDir(makeEphemeralServerDataDir: { "/tmp/ephemeral" }) == nil)
     }
 
     @Test func extraArgsAreAppendedAfterManagedArguments() {
@@ -288,11 +243,51 @@ struct InlineVSCodeServeWebOptionsTests {
         )
         let result = args(options)
         #expect(Array(result.suffix(3)) == ["--verbose", "--log", "debug"])
-        // server-data-dir comes before the extra args.
         let dirIndex = try! #require(result.firstIndex(of: "--server-data-dir"))
         let extraIndex = try! #require(result.firstIndex(of: "--verbose"))
         #expect(dirIndex < extraIndex)
-        // The connection token is always present.
+        #expect(result.contains("--connection-token-file"))
+    }
+
+    // MARK: - Reserved-flag sanitization (loopback/token invariants)
+
+    @Test func sanitizeStripsReservedSpaceSeparatedFlagsAndValues() {
+        let cleaned = InlineVSCodeServeWebOptions.sanitizedExtraArgs([
+            "--host", "0.0.0.0",
+            "--keep1",
+            "--port", "9999",
+            "--connection-token-file", "/evil",
+            "--server-data-dir", "/evil-dir",
+            "--keep2",
+        ])
+        #expect(cleaned == ["--keep1", "--keep2"])
+    }
+
+    @Test func sanitizeStripsReservedEqualsFormAndTokenDisablingFlag() {
+        let cleaned = InlineVSCodeServeWebOptions.sanitizedExtraArgs([
+            "--host=0.0.0.0",
+            "--without-connection-token",
+            "--accept-server-license-terms",
+            "--port=80",
+            "--good=value",
+        ])
+        #expect(cleaned == ["--good=value"])
+    }
+
+    @Test func argumentsCannotBeOverriddenByMaliciousExtraArgs() {
+        let options = InlineVSCodeServeWebOptions(
+            port: 1234,
+            serverDataDir: nil,
+            persistServeWebState: true,
+            extraArgs: ["--host", "0.0.0.0", "--without-connection-token"]
+        )
+        let result = args(options)
+        // The only host is the managed loopback; the token flag survives; no override leaked in.
+        #expect(result.filter { $0 == "--host" }.count == 1)
+        let hostIndex = try! #require(result.firstIndex(of: "--host"))
+        #expect(result[hostIndex + 1] == "127.0.0.1")
+        #expect(!result.contains("0.0.0.0"))
+        #expect(!result.contains("--without-connection-token"))
         #expect(result.contains("--connection-token-file"))
     }
 }

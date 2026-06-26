@@ -979,7 +979,7 @@
           "persistServeWebState": "serve-web が状態（サインイン、Settings Sync）を起動間で保持するかどうかです。false の場合（かつ serverDataDir が未設定の場合）、使い捨てのデータディレクトリが使われ、起動間で何も保持されません。",
           "port": "serve-web がバインドするローカルポートです。0 で空いているポートをランダムに選びます。",
           "serverDataDir": "serve-web の --server-data-dir です。空の場合は VS Code の既定の場所を使います。先頭の ~ はホームディレクトリに展開されます。",
-          "extraArgs": "cmux が管理する引数の後ろにそのまま追加される、高度な VS Code serve-web フラグです。サポート対象外です。自己責任でご利用ください。"
+          "extraArgs": "cmux が管理する引数の後ろに追加される、高度な VS Code serve-web フラグです。ループバックと接続トークンの不変条件を保つため、cmux が管理するフラグ（ホスト、ポート、接続トークン、サーバーデータディレクトリ）は取り除かれます。サポート対象外です。自己責任でご利用ください。"
         },
         "markdown": {
           "fontSize": "新しく開く Markdown ビューアの本文フォントサイズの既定値（ポイント単位）です。Cmd-+ / Cmd-- / Cmd-0 でその場で拡大・縮小できます。",

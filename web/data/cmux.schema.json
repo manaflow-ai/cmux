@@ -1021,7 +1021,7 @@
           "type": "array",
           "items": { "type": "string" },
           "default": [],
-          "description": "Advanced upstream VS Code serve-web flags appended verbatim after the cmux-managed arguments. Unsupported; use at your own risk.",
+          "description": "Advanced upstream VS Code serve-web flags appended after the cmux-managed arguments. cmux-owned flags (--host, --port, --connection-token, --connection-token-file, --server-data-dir, --without-connection-token, --accept-server-license-terms) are stripped so the loopback + connection-token invariants always hold. Unsupported; use at your own risk.",
           "descriptionKey": "schemaDescriptions.inlineVSCode.extraArgs"
         }
       }

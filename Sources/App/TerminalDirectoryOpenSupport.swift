@@ -693,11 +693,11 @@ final class VSCodeServeWebController {
 
         let process = Process()
         process.executableURL = launchConfiguration.executableURL
-        process.arguments = InlineVSCodeServeWebSupport.serveWebArguments(
+        let inlineLoader = InlineVSCodeServeWebConfigurationLoader()
+        process.arguments = inlineLoader.loadOptions().serveWebArguments(
             argumentsPrefix: launchConfiguration.argumentsPrefix,
-            options: InlineVSCodeServeWebSupport.resolveOptions(),
             connectionTokenFilePath: connectionTokenFileURL.path,
-            makeEphemeralServerDataDir: InlineVSCodeServeWebSupport.makeEphemeralServerDataDir
+            makeEphemeralServerDataDir: inlineLoader.makeEphemeralServerDataDir
         )
         process.environment = launchConfiguration.environment
 

@@ -6,8 +6,8 @@ import Foundation
 /// Produced by ``InlineVSCodeServeWebOptionsResolver`` from, in precedence
 /// order, the user's `~/.config/cmux/cmux.json` `inlineVSCode` block (which the
 /// Settings UI also writes), then environment-variable fallbacks, then internal
-/// defaults. Consumed by ``InlineVSCodeServeWebSupport/serveWebArguments(argumentsPrefix:options:connectionTokenFilePath:makeEphemeralServerDataDir:)``
-/// to build the `code-tunnel serve-web` argument list.
+/// defaults. Rendered into the `code-tunnel serve-web` argument list by
+/// ``serveWebArguments(argumentsPrefix:connectionTokenFilePath:makeEphemeralServerDataDir:)``.
 ///
 /// Defaults preserve the historical cmux behavior: a random port and the
 /// upstream VS Code default data location (no `--server-data-dir`). Users opt in
@@ -24,7 +24,7 @@ struct InlineVSCodeServeWebOptions: Equatable, Sendable {
     /// throwaway data directory is used so nothing persists.
     var persistServeWebState: Bool
     /// Extra raw flags appended verbatim after the cmux-managed `serve-web`
-    /// arguments. For advanced upstream VS Code `serve-web` options.
+    /// arguments. cmux-owned flags are stripped before use (see ``reservedValueFlags``).
     var extraArgs: [String]
 
     static let `default` = InlineVSCodeServeWebOptions(
@@ -33,14 +33,104 @@ struct InlineVSCodeServeWebOptions: Equatable, Sendable {
         persistServeWebState: true,
         extraArgs: []
     )
+
+    /// serve-web flags cmux owns and that `extraArgs` must never override. These
+    /// take a value (either `--flag value` or `--flag=value`).
+    static let reservedValueFlags: Set<String> = [
+        "--host",
+        "--port",
+        "--connection-token",
+        "--connection-token-file",
+        "--server-data-dir",
+    ]
+
+    /// cmux-owned serve-web flags that take no value and that `extraArgs` must
+    /// not toggle (e.g. disabling the connection token).
+    static let reservedFlagsWithoutValue: Set<String> = [
+        "--without-connection-token",
+        "--accept-server-license-terms",
+    ]
+
+    /// Builds the full `serve-web` argument list.
+    ///
+    /// The cmux-managed flags (`--accept-server-license-terms`, loopback host,
+    /// resolved port, connection-token file) always come first, then an optional
+    /// `--server-data-dir`, then the user's ``extraArgs``. `extraArgs` are
+    /// sanitized via ``sanitizedExtraArgs(_:)`` so a configured flag can never
+    /// re-bind the host, change the port, or disable the connection token —
+    /// preserving cmux's loopback + token invariants regardless of append order.
+    /// `makeEphemeralServerDataDir` is invoked only when state persistence is
+    /// disabled and no explicit directory is configured; it must return a usable
+    /// throwaway path so non-persistent mode never leaks state.
+    func serveWebArguments(
+        argumentsPrefix: [String],
+        connectionTokenFilePath: String,
+        makeEphemeralServerDataDir: () -> String
+    ) -> [String] {
+        var arguments = argumentsPrefix + [
+            "--accept-server-license-terms",
+            "--host", "127.0.0.1",
+            "--port", String(port),
+            "--connection-token-file", connectionTokenFilePath,
+        ]
+        if let dataDir = effectiveServerDataDir(makeEphemeralServerDataDir: makeEphemeralServerDataDir) {
+            arguments += ["--server-data-dir", dataDir]
+        }
+        arguments += Self.sanitizedExtraArgs(extraArgs)
+        return arguments
+    }
+
+    /// Decides the concrete `--server-data-dir` value (or `nil` to omit it).
+    ///
+    /// An explicit configured directory always wins. Otherwise, persistent state
+    /// (the default) omits the flag so `serve-web` uses its own default location,
+    /// while non-persistent state always uses a throwaway directory and never
+    /// falls back to the persistent default — a filesystem hiccup must not turn a
+    /// "don't persist" choice into persisted sign-in/state.
+    func effectiveServerDataDir(makeEphemeralServerDataDir: () -> String) -> String? {
+        if let explicit = serverDataDir, !explicit.isEmpty {
+            return explicit
+        }
+        if persistServeWebState {
+            return nil
+        }
+        return makeEphemeralServerDataDir()
+    }
+
+    /// Removes any cmux-owned flags from user-supplied `extraArgs` so they cannot
+    /// override the managed host/port/token/data-dir arguments. Handles both the
+    /// `--flag value` and `--flag=value` forms.
+    static func sanitizedExtraArgs(_ args: [String]) -> [String] {
+        var result: [String] = []
+        var index = 0
+        while index < args.count {
+            let token = args[index]
+            let name = token.split(separator: "=", maxSplits: 1).first.map(String.init) ?? token
+            if reservedValueFlags.contains(name) {
+                // Drop the flag, and in the space-separated form also drop its value token.
+                if !token.contains("=") {
+                    index += 1
+                }
+                index += 1
+                continue
+            }
+            if reservedFlagsWithoutValue.contains(name) {
+                index += 1
+                continue
+            }
+            result.append(token)
+            index += 1
+        }
+        return result
+    }
 }
 
 /// Presence-aware values decoded from the `inlineVSCode` block of `cmux.json`.
 ///
 /// `nil` means the key was absent from the file, which lets
 /// ``InlineVSCodeServeWebOptionsResolver`` fall back to the environment and then
-/// internal defaults. Distinguishing "absent" from "set to the default value"
-/// is exactly why this type carries optionals instead of reusing
+/// internal defaults. Distinguishing "absent" from "set to the default value" is
+/// exactly why this type carries optionals instead of reusing
 /// ``InlineVSCodeServeWebOptions``.
 struct InlineVSCodeConfigFileValues: Equatable, Sendable {
     var port: Int?
@@ -59,64 +149,59 @@ struct InlineVSCodeConfigFileValues: Equatable, Sendable {
 /// Resolves ``InlineVSCodeServeWebOptions`` from cmux.json values, environment
 /// variables, and internal defaults.
 ///
-/// Precedence per field: cmux.json (`inlineVSCode.*`, also written by the
-/// Settings UI) overrides the environment variable, which overrides the
-/// internal default. The environment layer is a debugging escape hatch; the
-/// Settings UI / `cmux.json` is the supported user-facing configuration story.
-enum InlineVSCodeServeWebOptionsResolver {
+/// The environment and home directory are constructor-injected so resolution is
+/// deterministic and testable. Precedence per field: cmux.json (`inlineVSCode.*`,
+/// also written by the Settings UI) overrides the environment variable, which
+/// overrides the internal default. The environment layer is a debugging escape
+/// hatch; the Settings UI / `cmux.json` is the supported user-facing story.
+struct InlineVSCodeServeWebOptionsResolver {
     /// Environment-variable names forming the fallback layer below cmux.json.
-    enum EnvironmentKey {
-        static let port = "CMUX_INLINE_VSCODE_PORT"
-        static let serverDataDir = "CMUX_INLINE_VSCODE_SERVER_DATA_DIR"
-        static let persistState = "CMUX_INLINE_VSCODE_PERSIST_STATE"
-        static let extraArgs = "CMUX_INLINE_VSCODE_EXTRA_ARGS"
+    static let portEnvironmentKey = "CMUX_INLINE_VSCODE_PORT"
+    static let serverDataDirEnvironmentKey = "CMUX_INLINE_VSCODE_SERVER_DATA_DIR"
+    static let persistStateEnvironmentKey = "CMUX_INLINE_VSCODE_PERSIST_STATE"
+    static let extraArgsEnvironmentKey = "CMUX_INLINE_VSCODE_EXTRA_ARGS"
+
+    let environment: [String: String]
+    let homeDirectoryPath: String
+
+    init(environment: [String: String], homeDirectoryPath: String) {
+        self.environment = environment
+        self.homeDirectoryPath = homeDirectoryPath
     }
 
-    static func resolve(
-        file: InlineVSCodeConfigFileValues,
-        environment: [String: String],
-        homeDirectoryPath: String
-    ) -> InlineVSCodeServeWebOptions {
+    func resolve(file: InlineVSCodeConfigFileValues) -> InlineVSCodeServeWebOptions {
         InlineVSCodeServeWebOptions(
-            port: resolvedPort(file: file.port, environment: environment),
-            serverDataDir: resolvedServerDataDir(
-                file: file.serverDataDir,
-                environment: environment,
-                homeDirectoryPath: homeDirectoryPath
-            ),
+            port: resolvedPort(file: file.port),
+            serverDataDir: resolvedServerDataDir(file: file.serverDataDir),
             persistServeWebState: file.persistServeWebState
-                ?? environmentBool(environment[EnvironmentKey.persistState])
+                ?? Self.parseBool(environment[Self.persistStateEnvironmentKey])
                 ?? InlineVSCodeServeWebOptions.default.persistServeWebState,
-            extraArgs: resolvedExtraArgs(file: file.extraArgs, environment: environment)
+            extraArgs: resolvedExtraArgs(file: file.extraArgs)
         )
     }
 
-    private static func resolvedPort(file: Int?, environment: [String: String]) -> Int {
-        if let candidate = file ?? environmentInt(environment[EnvironmentKey.port]),
-           isValidPort(candidate) {
+    private func resolvedPort(file: Int?) -> Int {
+        if let candidate = file ?? Self.parseInt(environment[Self.portEnvironmentKey]),
+           (0...65535).contains(candidate) {
             return candidate
         }
         return InlineVSCodeServeWebOptions.default.port
     }
 
-    private static func resolvedServerDataDir(
-        file: String?,
-        environment: [String: String],
-        homeDirectoryPath: String
-    ) -> String? {
-        let raw = file ?? environment[EnvironmentKey.serverDataDir]
+    private func resolvedServerDataDir(file: String?) -> String? {
+        let raw = file ?? environment[Self.serverDataDirEnvironmentKey]
         guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
             return nil
         }
-        return expandingTilde(trimmed, homeDirectoryPath: homeDirectoryPath)
+        return Self.expandingTilde(trimmed, homeDirectoryPath: homeDirectoryPath)
     }
 
-    private static func resolvedExtraArgs(file: [String]?, environment: [String: String]) -> [String] {
+    private func resolvedExtraArgs(file: [String]?) -> [String] {
         let raw: [String]
         if let file {
             raw = file
-        } else if let env = environment[EnvironmentKey.extraArgs] {
+        } else if let env = environment[Self.extraArgsEnvironmentKey] {
             raw = env.split(whereSeparator: { $0 == " " || $0 == "\t" || $0 == "\n" }).map(String.init)
         } else {
             raw = []
@@ -143,11 +228,7 @@ enum InlineVSCodeServeWebOptionsResolver {
         return home + String(path.dropFirst(1))
     }
 
-    static func isValidPort(_ port: Int) -> Bool {
-        (0...65535).contains(port)
-    }
-
-    private static func environmentInt(_ value: String?) -> Int? {
+    private static func parseInt(_ value: String?) -> Int? {
         guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !value.isEmpty else {
             return nil
@@ -155,7 +236,7 @@ enum InlineVSCodeServeWebOptionsResolver {
         return Int(value)
     }
 
-    private static func environmentBool(_ value: String?) -> Bool? {
+    private static func parseBool(_ value: String?) -> Bool? {
         guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
               !value.isEmpty else {
             return nil
@@ -171,25 +252,49 @@ enum InlineVSCodeServeWebOptionsResolver {
     }
 }
 
-/// Glue between cmux.json / environment configuration and the running
-/// `serve-web` process.
+/// Loads Inline VS Code `serve-web` launch options from the live cmux.json,
+/// environment, and home directory.
 ///
-/// Holds the presence-aware cmux.json reader, the pure `serve-web` argument
-/// builder, the ephemeral-data-directory helper, and the
-/// ``resolveOptions(configFileURL:environment:homeDirectoryPath:)`` composition
-/// the launcher calls at process-spawn time.
-enum InlineVSCodeServeWebSupport {
-    /// Reads the presence-aware `inlineVSCode` block from a cmux.json file.
-    ///
-    /// JSONC (comments / trailing commas) is tolerated via ``JSONCSanitizer``.
-    /// Any read, sanitize, or decode failure resolves to ``InlineVSCodeConfigFileValues/empty``
-    /// so a missing or malformed file simply falls back to environment + defaults
-    /// rather than breaking the launch.
-    static func readFileValues(
-        configFileURL: URL,
-        dataReader: (URL) -> Data? = { try? Data(contentsOf: $0) },
+/// All inputs are constructor-injected (config file URL, environment, home
+/// directory, file reader, JSONC sanitizer) so the loader is fully testable and
+/// carries no ambient global state. The macOS launcher constructs one on the
+/// background launch queue at process-spawn time so the latest configuration
+/// wins on every (re)start.
+struct InlineVSCodeServeWebConfigurationLoader {
+    let configFileURL: URL
+    let environment: [String: String]
+    let homeDirectoryPath: String
+    let dataReader: (URL) -> Data?
+    let sanitizer: JSONCSanitizer
+
+    init(
+        configFileURL: URL = CmuxConfigLocation().userConfigFile,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        homeDirectoryPath: String = FileManager.default.homeDirectoryForCurrentUser.path,
+        dataReader: @escaping (URL) -> Data? = { try? Data(contentsOf: $0) },
         sanitizer: JSONCSanitizer = JSONCSanitizer()
-    ) -> InlineVSCodeConfigFileValues {
+    ) {
+        self.configFileURL = configFileURL
+        self.environment = environment
+        self.homeDirectoryPath = homeDirectoryPath
+        self.dataReader = dataReader
+        self.sanitizer = sanitizer
+    }
+
+    /// Reads cmux.json and resolves it (with environment + default fallbacks)
+    /// into launch options.
+    func loadOptions() -> InlineVSCodeServeWebOptions {
+        InlineVSCodeServeWebOptionsResolver(
+            environment: environment,
+            homeDirectoryPath: homeDirectoryPath
+        ).resolve(file: readFileValues())
+    }
+
+    /// Reads the presence-aware `inlineVSCode` block from the configured
+    /// cmux.json. JSONC (comments / trailing commas) is tolerated. Any read,
+    /// sanitize, or decode failure resolves to ``InlineVSCodeConfigFileValues/empty``
+    /// so a missing or malformed file simply falls back to environment + defaults.
+    func readFileValues() -> InlineVSCodeConfigFileValues {
         guard let data = dataReader(configFileURL), !data.isEmpty,
               let sanitized = try? sanitizer.sanitize(data),
               let wrapper = try? JSONDecoder().decode(ConfigWrapper.self, from: sanitized),
@@ -204,82 +309,18 @@ enum InlineVSCodeServeWebSupport {
         )
     }
 
-    /// Builds the full `serve-web` argument list.
-    ///
-    /// The cmux-managed flags (`--accept-server-license-terms`, loopback host,
-    /// resolved port, connection-token file) always come first, then an optional
-    /// `--server-data-dir`, then the user's ``InlineVSCodeServeWebOptions/extraArgs``
-    /// appended verbatim. `makeEphemeralServerDataDir` is invoked only when state
-    /// persistence is disabled and no explicit directory is configured.
-    static func serveWebArguments(
-        argumentsPrefix: [String],
-        options: InlineVSCodeServeWebOptions,
-        connectionTokenFilePath: String,
-        makeEphemeralServerDataDir: () -> String?
-    ) -> [String] {
-        var arguments = argumentsPrefix + [
-            "--accept-server-license-terms",
-            "--host", "127.0.0.1",
-            "--port", String(options.port),
-            "--connection-token-file", connectionTokenFilePath,
-        ]
-        if let dataDir = effectiveServerDataDir(
-            options: options,
-            makeEphemeralServerDataDir: makeEphemeralServerDataDir
-        ) {
-            arguments += ["--server-data-dir", dataDir]
-        }
-        arguments += options.extraArgs
-        return arguments
-    }
-
-    /// Decides the concrete `--server-data-dir` value (or `nil` to omit it).
-    ///
-    /// An explicit configured directory always wins. Otherwise, persistent state
-    /// (the default) omits the flag so `serve-web` uses its own default location,
-    /// while non-persistent state uses a throwaway directory.
-    static func effectiveServerDataDir(
-        options: InlineVSCodeServeWebOptions,
-        makeEphemeralServerDataDir: () -> String?
-    ) -> String? {
-        if let explicit = options.serverDataDir, !explicit.isEmpty {
-            return explicit
-        }
-        if options.persistServeWebState {
-            return nil
-        }
-        return makeEphemeralServerDataDir()
-    }
-
-    /// Resolves the launch options from the live cmux.json, environment, and home
-    /// directory. Called on the launch queue at process-spawn time so the latest
-    /// configuration wins on every (re)start.
-    static func resolveOptions(
-        configFileURL: URL = CmuxConfigLocation().userConfigFile,
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        homeDirectoryPath: String = FileManager.default.homeDirectoryForCurrentUser.path
-    ) -> InlineVSCodeServeWebOptions {
-        InlineVSCodeServeWebOptionsResolver.resolve(
-            file: readFileValues(configFileURL: configFileURL),
-            environment: environment,
-            homeDirectoryPath: homeDirectoryPath
-        )
-    }
-
-    /// Creates (or re-creates) the throwaway `serve-web` data directory used when
-    /// state persistence is disabled. Wiped on each call so non-persistent
-    /// launches always start clean. Returns `nil` on failure, in which case the
-    /// caller omits `--server-data-dir` (falling back to persistent behavior).
-    static func makeEphemeralServerDataDir() -> String? {
-        let baseURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+    /// Creates a fresh throwaway `serve-web` data directory for non-persistent
+    /// launches. Always returns a unique temp path (never the persistent default
+    /// location), wiping prior ephemeral state first so each non-persistent
+    /// launch starts clean. `serve-web` creates the directory if it is missing,
+    /// so this never has to fail closed back to persistent storage.
+    func makeEphemeralServerDataDir() -> String {
+        let parent = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             .appendingPathComponent("cmux-vscode-serve-web-ephemeral", isDirectory: true)
-        try? FileManager.default.removeItem(at: baseURL)
-        do {
-            try FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
-        } catch {
-            return nil
-        }
-        return baseURL.path
+        try? FileManager.default.removeItem(at: parent)
+        let directory = parent.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory.path
     }
 
     /// Codable shape used to decode just the `inlineVSCode` block, ignoring every

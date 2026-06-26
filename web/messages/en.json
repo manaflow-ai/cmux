@@ -1020,7 +1020,7 @@
           "persistServeWebState": "Whether serve-web keeps its state (sign-in, Settings Sync) across launches. When false (and no serverDataDir is set), a throwaway data directory is used so nothing persists.",
           "port": "Local port serve-web binds. 0 selects a random free port.",
           "serverDataDir": "serve-web --server-data-dir. Empty uses the upstream VS Code default location. A leading ~ expands to the home directory.",
-          "extraArgs": "Advanced upstream VS Code serve-web flags appended verbatim after the cmux-managed arguments. Unsupported; use at your own risk."
+          "extraArgs": "Advanced upstream VS Code serve-web flags appended after the cmux-managed arguments. cmux-owned flags (host, port, connection token, server data dir) are stripped so the loopback + connection-token invariants always hold. Unsupported; use at your own risk."
         },
         "markdown": {
           "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",

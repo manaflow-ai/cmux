@@ -32,8 +32,10 @@ public struct InlineVSCodeCatalogSection: SettingCatalogSection {
         defaultValue: ""
     )
 
-    /// Advanced upstream VS Code `serve-web` flags appended verbatim after the
-    /// cmux-managed arguments. Empty by default.
+    /// Advanced upstream VS Code `serve-web` flags appended after the
+    /// cmux-managed arguments. cmux-owned flags (host, port, connection token,
+    /// server data dir) are stripped so the loopback + connection-token
+    /// invariants hold. Empty by default.
     public let extraArgs = JSONKey<[String]>(
         id: "inlineVSCode.extraArgs",
         defaultValue: []
