@@ -7,6 +7,7 @@ import CmuxRemoteSession
 import CmuxRemoteWorkspace
 import CmuxWorkspaces
 import CmuxTerminal
+import CmuxTerminalCore
 import SwiftUI
 import AppKit
 import CmuxFoundation
@@ -418,7 +419,7 @@ extension Workspace {
                 ? TerminalController.shared.readTerminalTextForSnapshot(
                     terminalPanel: terminalPanel,
                     includeScrollback: true,
-                    lineLimit: SessionPersistencePolicy.maxScrollbackLinesPerTerminal
+                    lineLimit: ScrollbackTruncation().maxLines
                 )
                 : nil
             let hasRestoredScrollbackFallback = restoredTerminalScrollbackByPanelId[panelId] != nil
@@ -864,7 +865,7 @@ extension Workspace {
 
         let targetCharacters = min(
             max(0, charactersPerTerminal),
-            SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+            ScrollbackTruncation().maxCharacters
         )
         guard targetCharacters > 0 else { return (0, 0) }
 
@@ -1169,7 +1170,7 @@ extension Workspace {
 #endif
             let shouldReplayLocalScrollback = restoredRemotePTYAttachCommand == nil && shouldReplayScrollback
             let restoredScrollback = shouldReplayLocalScrollback ? snapshot.terminal?.scrollback : nil
-            let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(for: restoredScrollback)
+            let replayEnvironment = SessionScrollbackReplay().replayEnvironment(for: restoredScrollback)
             // Reuse the persisted surface id so the restored terminal keeps
             // the same identity (the panel/surface id IS the ghostty surface
             // id), which keeps agent-session terminal bindings valid across
@@ -1221,7 +1222,7 @@ extension Workspace {
             } else {
                 restoredGuardedWorkingDirectoriesByPanelId.removeValue(forKey: terminalPanel.id)
             }
-            let fallbackScrollback = SessionPersistencePolicy.truncatedScrollback(restoredScrollback)
+            let fallbackScrollback = ScrollbackTruncation().truncated(restoredScrollback)
             if let fallbackScrollback {
                 restoredTerminalScrollbackByPanelId[terminalPanel.id] = fallbackScrollback
             } else {
@@ -2470,7 +2471,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
                 SessionRestorePolicy.isRunningUnderAutomatedTests()
             },
             truncateScrollback: { text in
-                SessionPersistencePolicy.truncatedScrollback(text)
+                ScrollbackTruncation().truncated(text)
             },
             hermesCodexEnvironment: WorkspaceHermesCodexEnvironment(
                 customBaseURLEnvironmentKey: HermesAgentCodexEnvironment.customBaseURLEnvironmentKey,

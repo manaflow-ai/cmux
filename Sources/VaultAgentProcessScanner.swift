@@ -1136,19 +1136,18 @@ private extension CmuxVaultAgentSessionIDSource {
             guard let sessionId = process.arguments.nonOptionValue(afterOption: option) else { return nil }
             return VaultAgentSessionIDResolution(sessionId: sessionId, source: .explicit)
         case .piSessionFile:
+            let locator = PiSessionLocator(fileManager: fileManager)
             if let session = process.piCompatibleSessionID {
-                let sessionId = PiSessionLocator.resolvedSessionPath(
+                let sessionId = locator.resolvedSessionPath(
                     session,
                     for: process,
-                    registration: registration,
-                    fileManager: fileManager
+                    registration: registration
                 ) ?? session
                 return VaultAgentSessionIDResolution(sessionId: sessionId, source: .explicit)
             }
-            guard let sessionId = PiSessionLocator.latestSessionPath(
+            guard let sessionId = locator.latestSessionPath(
                 for: process,
-                registration: registration,
-                fileManager: fileManager
+                registration: registration
             ) else {
                 return nil
             }
@@ -1276,7 +1275,16 @@ private extension Array where Element == String {
     }
 }
 
-enum PiSessionLocator {
+struct PiSessionLocator: Sendable {
+    // `FileManager` is not `Sendable`, but `FileManager.default` is documented as
+    // thread-safe and the only value injected here; `nonisolated(unsafe) let` is the
+    // sanctioned escape hatch for an immutable, effectively-Sendable stored property.
+    nonisolated(unsafe) let fileManager: FileManager
+
+    init(fileManager: FileManager = .default) {
+        self.fileManager = fileManager
+    }
+
     static func defaultSessionsRoot(homeDirectory: String = NSHomeDirectory()) -> String {
         let standardizedHome = (homeDirectory as NSString).standardizingPath
         return (standardizedHome as NSString).appendingPathComponent(".pi/agent/sessions")
@@ -1293,19 +1301,17 @@ enum PiSessionLocator {
         return "--\(sanitized)--"
     }
 
-    fileprivate static func latestSessionPath(
+    func latestSessionPath(
         for process: VaultObservedAgentProcess,
-        registration: CmuxVaultAgentRegistration,
-        fileManager: FileManager
+        registration: CmuxVaultAgentRegistration
     ) -> String? {
-        newestJSONLFile(in: candidateSessionDirectory(for: process, registration: registration), fileManager: fileManager)?.path
+        newestJSONLFile(in: Self.candidateSessionDirectory(for: process, registration: registration))?.path
     }
 
-    fileprivate static func resolvedSessionPath(
+    func resolvedSessionPath(
         _ session: String,
         for process: VaultObservedAgentProcess,
-        registration: CmuxVaultAgentRegistration,
-        fileManager: FileManager
+        registration: CmuxVaultAgentRegistration
     ) -> String? {
         let trimmed = session.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -1314,7 +1320,7 @@ enum PiSessionLocator {
             return fileManager.fileExists(atPath: expanded) ? expanded : trimmed
         }
 
-        let directory = candidateSessionDirectory(for: process, registration: registration)
+        let directory = Self.candidateSessionDirectory(for: process, registration: registration)
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: directory, isDirectory: &isDirectory),
               isDirectory.boolValue,
@@ -1401,7 +1407,7 @@ enum PiSessionLocator {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    static func newestJSONLFile(in directory: String, fileManager: FileManager = .default) -> URL? {
+    func newestJSONLFile(in directory: String) -> URL? {
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: directory, isDirectory: &isDirectory),
               isDirectory.boolValue,
