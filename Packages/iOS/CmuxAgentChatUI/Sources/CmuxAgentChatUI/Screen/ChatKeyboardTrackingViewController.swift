@@ -191,7 +191,17 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         if abs(visibleOverlap - overlap) <= 0.5, !isKeyboardAnimationActive {
             return
         }
-        let effectiveDuration = effectiveKeyboardTransitionDuration(for: transition, targetOverlap: overlap)
+        if isKeyboardAnimationActive, abs(overlap - keyboardAnimationTargetOverlap) <= 0.5 {
+            #if DEBUG
+            updateKeyboardDebugValues(overlap: keyboardOverlap)
+            #endif
+            return
+        }
+        let effectiveDuration = effectiveKeyboardTransitionDuration(
+            for: transition,
+            startOverlap: visibleOverlap,
+            targetOverlap: overlap
+        )
         #if DEBUG
         keyboardDebugTransitionDuration = effectiveDuration
         keyboardDebugEventCount += 1
@@ -210,11 +220,27 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
 
     private func effectiveKeyboardTransitionDuration(
         for transition: MobileKeyboardTransition,
+        startOverlap: CGFloat,
         targetOverlap: CGFloat
     ) -> TimeInterval {
         if transition.duration > 0 {
             lastKeyboardTransitionDuration = transition.duration
             return transition.duration
+        }
+        let remainingDistance = abs(targetOverlap - startOverlap)
+        guard remainingDistance > 0.5 else { return 0 }
+        if isKeyboardAnimationActive {
+            let referenceDistance = max(
+                abs(keyboardAnimationTargetOverlap - keyboardAnimationStartOverlap),
+                keyboardAnimationTargetOverlap,
+                keyboardAnimationStartOverlap,
+                keyboardOverlap,
+                targetOverlap
+            )
+            if referenceDistance > 0.5 {
+                let remainingFraction = min(max(remainingDistance / referenceDistance, 0.15), 1)
+                return max(1.0 / 60.0, lastKeyboardTransitionDuration * remainingFraction)
+            }
         }
         if abs(targetOverlap - keyboardOverlap) > 0.5 {
             return lastKeyboardTransitionDuration
@@ -255,6 +281,9 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         isKeyboardAnimationActive = false
         applyKeyboardOverlap(keyboardAnimationTargetOverlap)
         updateMeasuredGeometryConstants()
+        #if DEBUG
+        updateKeyboardDebugValues(overlap: keyboardOverlap)
+        #endif
     }
 
     private func stopKeyboardAnimation(removeAnimations: Bool) {

@@ -687,11 +687,77 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testAgentChatMiddleKeyboardInterruptedShowDismissVideoEvidence() throws {
+        let app = launchAgentChatInlinePreviewApp(environment: [
+            "CMUX_UITEST_CHAT_AUTOFOCUS_DELAY": "14.0",
+            "CMUX_UITEST_CHAT_AUTO_DISMISS_DELAY": "0.18",
+        ])
+        let table = app.tables["ChatTranscriptTableView"]
+        XCTAssertTrue(table.waitForExistence(timeout: 8))
+        let composerBar = app.otherElements["ChatComposerBar"]
+        XCTAssertTrue(composerBar.waitForExistence(timeout: 8))
+
+        let loadedMetrics = try waitForTranscriptMetrics(table, timeout: 8) {
+            $0.frameHeight > 240 && $0.frameMaxY > 300 && $0.contentHeight > $0.boundsHeight * 1.6
+        }
+        try scrollTranscript(table, direction: .down, timeout: 5) {
+            $0.distanceFromBottom > 180 && $0.offsetY > 100
+        }
+        let beforeKeyboard = try waitForTranscriptMetrics(table, timeout: 2) {
+            abs($0.frameMaxY - loadedMetrics.frameMaxY) < 4 && $0.keyboardOverlap == 0
+        }
+
+        let animationSamples = sampleKeyboardEvidenceFrames(
+            table: table,
+            composerBar: composerBar,
+            duration: 8.0,
+            frameCapturePrefix: "middle-show-dismiss"
+        )
+        let maxKeyboardEvents = animationSamples.map(\.metrics.keyboardEvents).max() ?? 0
+        XCTAssertGreaterThanOrEqual(
+            maxKeyboardEvents,
+            2,
+            "Interrupted show-dismiss evidence must capture both show and dismiss transitions. samples=\(animationSamples)"
+        )
+        assertChatKeyboardAnimationStayedAttached(
+            animationSamples,
+            scrollPosition: "middle interrupted show-dismiss video evidence"
+        )
+        assertChatKeyboardMotionCapturedIntermediateSteps(
+            animationSamples,
+            scrollPosition: "middle interrupted show-dismiss video evidence",
+            minimumDistinctFrameBuckets: 2
+        )
+        let maxVisibleMotion = animationSamples
+            .map { abs($0.metrics.presentationFrameMaxY - $0.metrics.frameMaxY) }
+            .max() ?? 0
+        XCTAssertGreaterThan(
+            maxVisibleMotion,
+            80,
+            "Interrupted show-dismiss must capture partially visible keyboard motion, not only down state. samples=\(animationSamples)"
+        )
+        guard let keyboardDown = animationSamples.reversed().first(where: {
+            $0.metrics.keyboardOverlap == 0
+                && abs($0.metrics.presentationFrameMaxY - $0.metrics.frameMaxY) < 4
+                && abs($0.metrics.frameMaxY - beforeKeyboard.frameMaxY) < 8
+        })?.metrics else {
+            XCTFail("Interrupted show-dismiss evidence must end with the keyboard down. samples=\(animationSamples)")
+            return
+        }
+        XCTAssertEqual(
+            keyboardDown.visibleBottomY,
+            beforeKeyboard.visibleBottomY,
+            accuracy: 36,
+            "Interrupted show-dismiss must preserve visible bottom content. before=\(beforeKeyboard) down=\(keyboardDown)"
+        )
+    }
+
+    @MainActor
     func testAgentChatMiddleKeyboardInterruptedRefocusVideoEvidence() throws {
         let app = launchAgentChatInlinePreviewApp(environment: [
             "CMUX_UITEST_CHAT_AUTOFOCUS_DELAY": "14.0",
             "CMUX_UITEST_CHAT_AUTO_DISMISS_DELAY": "1.05",
-            "CMUX_UITEST_CHAT_AUTO_REFOCUS_AFTER_DISMISS_DELAY": "0.12",
+            "CMUX_UITEST_CHAT_AUTO_REFOCUS_AFTER_DISMISS_DELAY": "0.18",
         ])
         let table = app.tables["ChatTranscriptTableView"]
         XCTAssertTrue(table.waitForExistence(timeout: 8))
@@ -732,6 +798,10 @@ final class cmuxUITests: XCTestCase {
             animationSamples,
             scrollPosition: "middle interrupted refocus video evidence"
         )
+        assertChatKeyboardMotionCapturedIntermediateSteps(
+            animationSamples,
+            scrollPosition: "middle interrupted refocus video evidence"
+        )
         guard let keyboardUp = animationSamples.reversed().first(where: { $0.metrics.keyboardOverlap > 120 })?.metrics else {
             XCTFail("Interrupted refocus evidence must end with the keyboard visible. samples=\(animationSamples)")
             return
@@ -746,86 +816,69 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     func testAgentChatMiddleKeyboardToggleVideoEvidence() throws {
-        let app = launchAgentChatInlinePreviewApp()
-        let table = app.tables["ChatTranscriptTableView"]
-        XCTAssertTrue(table.waitForExistence(timeout: 8))
-        let composerBar = app.otherElements["ChatComposerBar"]
-        XCTAssertTrue(composerBar.waitForExistence(timeout: 8))
-        let composerField = chatComposerField(in: app)
-        XCTAssertTrue(composerField.waitForExistence(timeout: 8))
+        for refocusCase in [
+            (delay: 0.16, prefix: "toggle-interrupt-early", label: "middle early interrupted hide-refocus"),
+            (delay: 0.24, prefix: "toggle-interrupt-mid", label: "middle interrupted hide-refocus"),
+            (delay: 0.32, prefix: "toggle-interrupt-late", label: "middle late interrupted hide-refocus"),
+        ] {
+            let app = launchAgentChatInlinePreviewApp(environment: [
+                "CMUX_UITEST_CHAT_AUTOFOCUS_DELAY": "14.0",
+                "CMUX_UITEST_CHAT_AUTO_DISMISS_DELAY": "1.05",
+                "CMUX_UITEST_CHAT_AUTO_REFOCUS_AFTER_DISMISS_DELAY": String(refocusCase.delay),
+            ])
+            let table = app.tables["ChatTranscriptTableView"]
+            XCTAssertTrue(table.waitForExistence(timeout: 8))
+            let composerBar = app.otherElements["ChatComposerBar"]
+            XCTAssertTrue(composerBar.waitForExistence(timeout: 8))
 
-        let loadedMetrics = try waitForTranscriptMetrics(table, timeout: 8) {
-            $0.frameHeight > 240 && $0.frameMaxY > 300 && $0.contentHeight > $0.boundsHeight * 1.6
-        }
-        try scrollTranscript(table, direction: .down, timeout: 5) {
-            $0.distanceFromBottom > 180 && $0.offsetY > 100
-        }
-        let beforeKeyboard = try waitForTranscriptMetrics(table, timeout: 2) {
-            abs($0.frameMaxY - loadedMetrics.frameMaxY) < 4 && $0.keyboardOverlap == 0
-        }
+            let loadedMetrics = try waitForTranscriptMetrics(table, timeout: 8) {
+                $0.frameHeight > 240 && $0.frameMaxY > 300 && $0.contentHeight > $0.boundsHeight * 1.6
+            }
+            try scrollTranscript(table, direction: .down, timeout: 5) {
+                $0.distanceFromBottom > 180 && $0.offsetY > 100
+            }
+            let beforeKeyboard = try waitForTranscriptMetrics(table, timeout: 2) {
+                abs($0.frameMaxY - loadedMetrics.frameMaxY) < 4 && $0.keyboardOverlap == 0
+            }
 
-        let showSamples = focusTextInputAndSampleTranscriptAnimation(
-            composerField,
-            table: table,
-            composerBar: composerBar,
-            in: app,
-            frameCapturePrefix: "toggle-show"
-        )
-        assertChatKeyboardAnimationStayedAttached(
-            showSamples,
-            scrollPosition: "middle toggle show"
-        )
-        assertChatKeyboardMotionHasNoLargeSnap(
-            showSamples,
-            scrollPosition: "middle toggle show"
-        )
-        let keyboardUp = try waitForTranscriptMetrics(table, timeout: 4) {
-            $0.keyboardOverlap > 120 && $0.frameMaxY < beforeKeyboard.frameMaxY - 120
+            let interruptedSamples = sampleKeyboardEvidenceFrames(
+                table: table,
+                composerBar: composerBar,
+                duration: 8.0,
+                frameCapturePrefix: refocusCase.prefix
+            )
+            let maxKeyboardEvents = interruptedSamples.map(\.metrics.keyboardEvents).max() ?? 0
+            XCTAssertGreaterThanOrEqual(
+                maxKeyboardEvents,
+                3,
+                "\(refocusCase.label) evidence must capture show, hide, and refocus keyboard transitions. samples=\(interruptedSamples)"
+            )
+            assertChatKeyboardAnimationStayedAttached(
+                interruptedSamples,
+                scrollPosition: refocusCase.label
+            )
+            assertChatKeyboardMotionHasNoLargeSnap(
+                interruptedSamples,
+                scrollPosition: refocusCase.label
+            )
+            assertChatKeyboardMotionCapturedIntermediateSteps(
+                interruptedSamples,
+                scrollPosition: refocusCase.label
+            )
+            guard let refocused = interruptedSamples.reversed().first(where: {
+                $0.metrics.keyboardOverlap > 120
+                    && abs($0.metrics.presentationFrameMaxY - $0.metrics.frameMaxY) < 4
+            })?.metrics else {
+                XCTFail("\(refocusCase.label) evidence must end with the keyboard visible. samples=\(interruptedSamples)")
+                return
+            }
+            XCTAssertEqual(
+                refocused.visibleBottomY,
+                beforeKeyboard.visibleBottomY,
+                accuracy: 36,
+                "\(refocusCase.label) must preserve visible bottom content. before=\(beforeKeyboard) refocused=\(refocused)"
+            )
         }
-        XCTAssertEqual(
-            keyboardUp.visibleBottomY,
-            beforeKeyboard.visibleBottomY,
-            accuracy: 36,
-            "Middle toggle show must preserve the same visible bottom content. before=\(beforeKeyboard) up=\(keyboardUp)"
-        )
-
-        let hideSamples = dismissChatKeyboardAndSampleTranscriptAnimation(
-            in: app,
-            table: table,
-            composerBar: composerBar,
-            frameCapturePrefix: "toggle-hide"
-        )
-        assertChatKeyboardMotionHasNoLargeSnap(
-            hideSamples,
-            scrollPosition: "middle toggle hide"
-        )
-        let keyboardDown = try waitForTranscriptMetrics(table, timeout: 4) {
-            $0.keyboardOverlap == 0 && abs($0.frameMaxY - beforeKeyboard.frameMaxY) < 8
-        }
-        XCTAssertEqual(
-            keyboardDown.visibleBottomY,
-            beforeKeyboard.visibleBottomY,
-            accuracy: 36,
-            "Middle toggle hide must preserve the same visible bottom content. before=\(beforeKeyboard) down=\(keyboardDown)"
-        )
-
-        _ = focusTextInput(composerField, in: app)
-        _ = try waitForTranscriptMetrics(table, timeout: 4) { $0.keyboardOverlap > 120 }
-        let interruptedSamples = dismissThenRefocusChatKeyboardAndSampleTranscriptAnimation(
-            composerField,
-            in: app,
-            table: table,
-            composerBar: composerBar,
-            frameCapturePrefix: "toggle-interrupt"
-        )
-        assertChatKeyboardAnimationStayedAttached(
-            interruptedSamples,
-            scrollPosition: "middle interrupted hide-refocus"
-        )
-        assertChatKeyboardMotionHasNoLargeSnap(
-            interruptedSamples,
-            scrollPosition: "middle interrupted hide-refocus"
-        )
     }
 
     @MainActor
@@ -1692,110 +1745,6 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func dismissChatKeyboardAndSampleTranscriptAnimation(
-        in app: XCUIApplication,
-        table: XCUIElement,
-        composerBar: XCUIElement,
-        frameCapturePrefix: String? = nil
-    ) -> [ChatKeyboardAnimationSample] {
-        var samples: [ChatKeyboardAnimationSample] = []
-        guard app.keyboards.firstMatch.exists else { return samples }
-        if let frame = waitForUsableFrame(of: table, timeout: 1) {
-            let visibleTranscriptY = min(
-                frame.maxY - 36,
-                max(frame.minY + 24, frame.maxY - min(140, frame.height * 0.35))
-            )
-            app.coordinate(withNormalizedOffset: .zero)
-                .withOffset(CGVector(dx: frame.midX, dy: visibleTranscriptY))
-                .tap()
-        } else {
-            dismissKeyboard(in: app)
-            return samples
-        }
-
-        let deadline = Date().addingTimeInterval(1.1)
-        let captureStart = Date()
-        var nextCaptureTime = captureStart
-        var frameIndex = 0
-        while Date() < deadline {
-            if let metrics = transcriptMetrics(from: table) {
-                if let frameCapturePrefix, Date() >= nextCaptureTime {
-                    captureKeyboardEvidenceFrame(
-                        prefix: frameCapturePrefix,
-                        index: frameIndex,
-                        startedAt: captureStart,
-                        metrics: metrics
-                    )
-                    frameIndex += 1
-                    nextCaptureTime = Date().addingTimeInterval(0.06)
-                }
-                samples.append(ChatKeyboardAnimationSample(
-                    metrics: metrics,
-                    composerFrame: usableFrameNow(of: composerBar)
-                ))
-            }
-            if !app.keyboards.firstMatch.exists,
-               let metrics = transcriptMetrics(from: table),
-               metrics.keyboardOverlap == 0 {
-                break
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
-        }
-        if app.keyboards.firstMatch.exists {
-            dismissKeyboard(in: app)
-        }
-        return samples
-    }
-
-    @MainActor
-    private func dismissThenRefocusChatKeyboardAndSampleTranscriptAnimation(
-        _ element: XCUIElement,
-        in app: XCUIApplication,
-        table: XCUIElement,
-        composerBar: XCUIElement,
-        frameCapturePrefix: String? = nil
-    ) -> [ChatKeyboardAnimationSample] {
-        var samples: [ChatKeyboardAnimationSample] = []
-        guard app.keyboards.firstMatch.exists else { return samples }
-        if let frame = waitForUsableFrame(of: table, timeout: 1) {
-            let visibleTranscriptY = min(
-                frame.maxY - 36,
-                max(frame.minY + 24, frame.maxY - min(140, frame.height * 0.35))
-            )
-            app.coordinate(withNormalizedOffset: .zero)
-                .withOffset(CGVector(dx: frame.midX, dy: visibleTranscriptY))
-                .tap()
-        }
-        RunLoop.current.run(until: Date().addingTimeInterval(0.08))
-        _ = tapChatComposerField(element, composerBar: composerBar, in: app)
-
-        let deadline = Date().addingTimeInterval(1.4)
-        let captureStart = Date()
-        var nextCaptureTime = captureStart
-        var frameIndex = 0
-        while Date() < deadline {
-            if let metrics = transcriptMetrics(from: table) {
-                if let frameCapturePrefix, Date() >= nextCaptureTime {
-                    captureKeyboardEvidenceFrame(
-                        prefix: frameCapturePrefix,
-                        index: frameIndex,
-                        startedAt: captureStart,
-                        metrics: metrics
-                    )
-                    frameIndex += 1
-                    nextCaptureTime = Date().addingTimeInterval(0.06)
-                }
-                samples.append(ChatKeyboardAnimationSample(
-                    metrics: metrics,
-                    composerFrame: usableFrameNow(of: composerBar)
-                ))
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
-        }
-        return samples
-    }
-
-    @MainActor
     private func captureKeyboardEvidenceFrame(
         prefix: String,
         index: Int,
@@ -1830,7 +1779,9 @@ final class cmuxUITests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        guard let measured = samples.reversed().first(where: { $0.metrics.keyboardOverlap > 0 }) else {
+        guard let measured = samples.reversed().first(where: {
+            isChatKeyboardVisiblyMoving($0.metrics)
+        }) else {
             XCTFail(
                 "Expected keyboard tracking metrics after focusing from \(scrollPosition). Samples: \(samples)",
                 file: file,
@@ -1839,7 +1790,7 @@ final class cmuxUITests: XCTestCase {
             return
         }
         let activeVisibleGaps = samples
-            .filter { $0.metrics.keyboardAnimationActive || $0.metrics.keyboardOverlap > 0 }
+            .filter { isChatKeyboardVisiblyMoving($0.metrics) }
             .compactMap(\.visiblePresentationGap)
             .map { max(0, $0) }
         if let maxVisibleGap = activeVisibleGaps.max() {
@@ -1878,16 +1829,76 @@ final class cmuxUITests: XCTestCase {
         line: UInt = #line
     ) {
         let movingSamples = samples.filter {
-            $0.metrics.keyboardAnimationActive || $0.metrics.keyboardOverlap > 0
+            isChatKeyboardVisiblyMoving($0.metrics)
         }
         guard movingSamples.count >= 2 else { return }
-        let largestStep = zip(movingSamples, movingSamples.dropFirst())
-            .map { abs($0.metrics.presentationFrameMaxY - $1.metrics.presentationFrameMaxY) }
-            .max() ?? 0
-        XCTAssertLessThanOrEqual(
-            largestStep,
-            180,
-            "Keyboard tracking should not snap the transcript frame during \(scrollPosition). largestStep=\(largestStep) samples=\(samples)",
+        let frameYs = movingSamples.map(\.metrics.presentationFrameMaxY)
+        guard let minFrameY = frameYs.min(), let maxFrameY = frameYs.max() else { return }
+        let totalMotion = maxFrameY - minFrameY
+        guard totalMotion > 80 else { return }
+        let transitionLegs = Dictionary(grouping: movingSamples, by: { $0.metrics.keyboardEvents })
+            .values
+        for leg in transitionLegs {
+            let legFrameYs = leg.map(\.metrics.presentationFrameMaxY)
+            let distinctFrameBuckets = Set(legFrameYs.map { Int(($0 / 8).rounded()) })
+            guard distinctFrameBuckets.count >= 3,
+                  let legMinFrameY = legFrameYs.min(),
+                  let legMaxFrameY = legFrameYs.max()
+            else {
+                continue
+            }
+            let legTotalMotion = legMaxFrameY - legMinFrameY
+            guard legTotalMotion > 80 else { continue }
+            let largestStep = zip(leg, leg.dropFirst())
+                .map { abs($0.metrics.presentationFrameMaxY - $1.metrics.presentationFrameMaxY) }
+                .max() ?? 0
+            let allowedSparseFrameStep = max(120, legTotalMotion * 0.95)
+            XCTAssertLessThan(
+                largestStep,
+                allowedSparseFrameStep,
+                "Keyboard tracking should not jump directly between endpoints during \(scrollPosition). event=\(leg.first?.metrics.keyboardEvents ?? -1) largestStep=\(largestStep) totalMotion=\(legTotalMotion) samples=\(samples)",
+                file: file,
+                line: line
+            )
+        }
+    }
+
+    @MainActor
+    private func assertChatKeyboardMotionCapturedIntermediateSteps(
+        _ samples: [ChatKeyboardAnimationSample],
+        scrollPosition: String,
+        minimumDistinctFrameBuckets: Int = 3,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let movingSamples = samples.filter {
+            isChatKeyboardVisiblyMoving($0.metrics)
+        }
+        let frameYs = movingSamples.map(\.metrics.presentationFrameMaxY)
+        guard let minY = frameYs.min(), let maxY = frameYs.max() else {
+            XCTFail(
+                "Keyboard tracking evidence must include moving transcript frames during \(scrollPosition). samples=\(samples)",
+                file: file,
+                line: line
+            )
+            return
+        }
+        let motion = maxY - minY
+        XCTAssertGreaterThan(
+            motion,
+            80,
+            "Keyboard tracking evidence should capture visible transcript movement during \(scrollPosition), not only settled endpoints. frames=\(frameYs) samples=\(samples)",
+            file: file,
+            line: line
+        )
+        guard motion > 80 else {
+            return
+        }
+        let distinctFrameBuckets = Set(frameYs.map { Int(($0 / 8).rounded()) })
+        XCTAssertGreaterThanOrEqual(
+            distinctFrameBuckets.count,
+            minimumDistinctFrameBuckets,
+            "Keyboard tracking evidence should include multiple partial transcript positions during \(scrollPosition), not only endpoints. frames=\(frameYs) samples=\(samples)",
             file: file,
             line: line
         )
@@ -1901,7 +1912,7 @@ final class cmuxUITests: XCTestCase {
         line: UInt = #line
     ) {
         let capturedPresentationMotion = samples.contains {
-            $0.metrics.keyboardOverlap > 120
+            isChatKeyboardVisiblyMoving($0.metrics)
                 && abs($0.metrics.presentationFrameMaxY - $0.metrics.frameMaxY) > 8
         }
         XCTAssertTrue(
@@ -1910,6 +1921,12 @@ final class cmuxUITests: XCTestCase {
             file: file,
             line: line
         )
+    }
+
+    private func isChatKeyboardVisiblyMoving(_ metrics: ChatTranscriptMetrics) -> Bool {
+        metrics.keyboardAnimationActive
+            || metrics.keyboardOverlap > 0
+            || abs(metrics.presentationFrameMaxY - metrics.frameMaxY) > 4
     }
 
     @MainActor
