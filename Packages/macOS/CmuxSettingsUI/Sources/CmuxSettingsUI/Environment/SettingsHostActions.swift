@@ -146,6 +146,20 @@ public protocol SettingsHostActions: AnyObject {
     ///
     /// `async` because the availability check probes a real bind.
     func applyMobilePairingPort(_ port: Int) async -> MobilePairingPortApplyResult
+
+    /// The full catalog of Command Palette commands a user can bind a custom
+    /// keyboard shortcut to, in a stable display order. Backed by the host's
+    /// live command contributions, so it lives here rather than in the catalog.
+    /// The **Custom Commands** keyboard-shortcut section reads this to resolve a
+    /// bound command id back to a title and to seed the picker's default list.
+    /// Returns an empty array for hosts without a live palette (previews/tests).
+    func commandShortcutCatalog() -> [CommandShortcutCatalogEntry]
+
+    /// Ranks the command-shortcut catalog for `query` using the **same ranking
+    /// engine as the Command Palette**, returning at most `limit` entries best
+    /// first. An empty query yields the default catalog order (capped to
+    /// `limit`). Returns an empty array for hosts without a live palette.
+    func searchCommandShortcutCatalog(query: String, limit: Int) -> [CommandShortcutCatalogEntry]
 }
 
 public extension SettingsHostActions {
@@ -170,6 +184,28 @@ public extension SettingsHostActions {
     /// Default: save-for-later, for hosts without a live mobile service (previews/tests).
     func applyMobilePairingPort(_ port: Int) async -> MobilePairingPortApplyResult {
         (1...65535).contains(port) ? .savedForLater(port: port) : .invalid(requestedPort: port)
+    }
+
+    /// Default: empty catalog, for hosts without a live Command Palette.
+    func commandShortcutCatalog() -> [CommandShortcutCatalogEntry] { [] }
+
+    /// Default: a simple case-insensitive substring filter over the catalog so
+    /// preview/test hosts still render a usable picker without the app's engine.
+    func searchCommandShortcutCatalog(query: String, limit: Int) -> [CommandShortcutCatalogEntry] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let catalog = commandShortcutCatalog()
+        let filtered: [CommandShortcutCatalogEntry]
+        if trimmed.isEmpty {
+            filtered = catalog
+        } else {
+            let needle = trimmed.lowercased()
+            filtered = catalog.filter { entry in
+                entry.title.lowercased().contains(needle)
+                    || entry.subtitle.lowercased().contains(needle)
+                    || entry.keywords.contains { $0.lowercased().contains(needle) }
+            }
+        }
+        return limit >= 0 ? Array(filtered.prefix(limit)) : filtered
     }
 
     func sidebarFontSize() -> SettingsFontSize {

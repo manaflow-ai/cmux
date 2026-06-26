@@ -2841,6 +2841,18 @@ struct ContentView: View {
             openCommandPaletteSwitcher()
         })
 
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteRunCommandRequested)) { notification in
+            let requestedWindow = notification.object as? NSWindow
+            guard Self.shouldHandleCommandPaletteRequest(
+                observedWindow: observedWindow,
+                requestedWindow: requestedWindow,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow
+            ) else { return }
+            guard let commandId = notification.userInfo?["commandId"] as? String else { return }
+            runCommandPaletteCommandById(commandId)
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .defaultTerminalRegistrationDidChange)) { _ in
             refreshCachedDefaultTerminalStatus()
         })
@@ -6260,7 +6272,14 @@ struct ContentView: View {
         "ios", "ipados", "iphone", "ipad", "phone", "tablet", "qr",
     ]
 
-    private func commandPaletteCommandContributions() -> [CommandPaletteCommandContribution] {
+    /// All built-in Command Palette command contributions — pure metadata
+    /// (ids, context-derived titles/subtitles/keywords, `when`/`enablement`
+    /// gates) with no dependency on live window state. This is the single
+    /// source of truth shared by the live palette command builder
+    /// (``commandPaletteCommandContributions()``) and the Settings "Custom
+    /// Commands" shortcut catalog (``CommandShortcutCatalog``), so a command
+    /// bindable to a shortcut and a command shown in the palette never drift.
+    static func builtInCommandPaletteCommandContributions() -> [CommandPaletteCommandContribution] {
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
             { _ in value }
         }
@@ -7434,13 +7453,26 @@ struct ContentView: View {
             )
         )
 
+        return contributions
+    }
+
+    /// The contributions active for this window: every built-in
+    /// (``builtInCommandPaletteCommandContributions()``) plus the
+    /// config-derived entries that depend on live `cmuxConfigStore` state
+    /// (configuration-issue commands and user `actions` marked for the
+    /// palette).
+    private func commandPaletteCommandContributions() -> [CommandPaletteCommandContribution] {
+        var contributions = Self.builtInCommandPaletteCommandContributions()
+
         let cmuxConfigDefaultSubtitle = String(localized: "command.cmuxConfig.subtitle", defaultValue: "cmux.json")
         for issue in cmuxConfigStore.configurationIssues {
+            let issueTitle = commandPaletteCmuxConfigIssueTitle(issue)
+            let issueSubtitle = commandPaletteCmuxConfigIssueSubtitle(issue)
             contributions.append(
                 CommandPaletteCommandContribution(
                     commandId: commandPaletteCmuxConfigIssueCommandID(issue),
-                    title: constant(commandPaletteCmuxConfigIssueTitle(issue)),
-                    subtitle: constant(commandPaletteCmuxConfigIssueSubtitle(issue)),
+                    title: { _ in issueTitle },
+                    subtitle: { _ in issueSubtitle },
                     keywords: ["cmux", "config", "json", "schema", "error", "warning"]
                 )
             )
@@ -7454,8 +7486,8 @@ struct ContentView: View {
             contributions.append(
                 CommandPaletteCommandContribution(
                     commandId: action.id,
-                    title: constant(actionTitle),
-                    subtitle: constant(subtitleText),
+                    title: { _ in actionTitle },
+                    subtitle: { _ in subtitleText },
                     keywords: action.keywords
                 )
             )
@@ -8520,6 +8552,28 @@ struct ContentView: View {
                 dismissCommandPalette(restoreFocus: false)
             }
         }
+    }
+
+    /// Runs the palette command with `commandId` directly (no palette UI) — the
+    /// handler for a custom `shortcuts.commands` keyboard shortcut fired on this
+    /// window. The command list is rebuilt with the window's live context, so a
+    /// command gated out by its `when`/`enablement` clause is simply absent and
+    /// the press is a silent no-op (the app-level handler still consumes the
+    /// event on any binding match). Usage is recorded so frequently-fired
+    /// commands keep their palette ranking boost.
+    private func runCommandPaletteCommandById(_ commandId: String) {
+        let commands = commandPaletteEntries(for: .commands)
+        guard let command = commands.first(where: { $0.id == commandId }) else {
+#if DEBUG
+            cmuxDebugLog("palette.runById commandId=\(commandId) result=noop(unavailable)")
+#endif
+            return
+        }
+#if DEBUG
+        cmuxDebugLog("palette.runById commandId=\(commandId) result=run")
+#endif
+        recordCommandPaletteUsage(command.id)
+        command.action()
     }
 
     private func commandPalettePostRunFocusTarget(for command: CommandPaletteCommand) -> CommandPaletteRestoreFocusTarget? {

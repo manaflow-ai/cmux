@@ -1353,6 +1353,14 @@
           "additionalProperties": {
             "type": "string"
           }
+        },
+        "commands": {
+          "type": "object",
+          "default": {},
+          "description": "Custom single-stroke keyboard shortcuts for Command Palette commands, keyed by command id (for example \"palette.openFolderInVSCodeInline\"). The shortcut fires the command on the focused window; a command unavailable in the current context does nothing. Single-stroke only — chords are not supported here. Use null, an empty string, none, clear, unbound, or disabled to clear a binding. Manage these in Settings > Keyboard Shortcuts > Custom Commands.",
+          "additionalProperties": {
+            "$ref": "#/$defs/singleShortcutBindingNullable"
+          }
         }
       }
     }
@@ -1407,6 +1415,22 @@
         {
           "type": "null",
           "description": "Unbind this shortcut."
+        }
+      ]
+    },
+    "singleShortcutBindingNullable": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/unboundShortcutBinding",
+          "description": "Unbind this command shortcut. Accepted values are an empty string, none, clear, unbound, or disabled."
+        },
+        {
+          "$ref": "#/$defs/shortcutFirstStroke",
+          "description": "Single-stroke shortcut, for example cmd+shift+v. Command shortcuts are single-stroke only."
+        },
+        {
+          "type": "null",
+          "description": "Unbind this command shortcut."
         }
       ]
     },

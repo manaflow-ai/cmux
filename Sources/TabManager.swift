@@ -6143,6 +6143,11 @@ extension Notification.Name {
     static let commandPaletteToggleRequested = Notification.Name("cmux.commandPaletteToggleRequested")
     static let commandPaletteRequested = Notification.Name("cmux.commandPaletteRequested")
     static let commandPaletteSwitcherRequested = Notification.Name("cmux.commandPaletteSwitcherRequested")
+    /// Posted to run a Command Palette command by id on a specific window
+    /// (`object`), without opening the palette — the dispatch path for a custom
+    /// `shortcuts.commands` keyboard shortcut. `userInfo["commandId"]` carries
+    /// the command id.
+    static let commandPaletteRunCommandRequested = Notification.Name("cmux.commandPaletteRunCommandRequested")
     static let commandPaletteSubmitRequested = Notification.Name("cmux.commandPaletteSubmitRequested")
     static let commandPaletteDismissRequested = Notification.Name("cmux.commandPaletteDismissRequested")
     static let commandPaletteRenameTabRequested = Notification.Name("cmux.commandPaletteRenameTabRequested")

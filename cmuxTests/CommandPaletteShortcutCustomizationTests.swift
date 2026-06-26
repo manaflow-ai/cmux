@@ -478,6 +478,107 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
         }
     }
 
+    func testCommandShortcutsParseSingleStrokeAndRejectChordsAndNulls() throws {
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "commands": {
+                  "palette.newWindow": "cmd+ctrl+opt+y",
+                  "palette.openFolder": ["cmd+b", "c"],
+                  "palette.newWorkspace": null
+                }
+              }
+            }
+            """
+        )
+
+        let resolved = KeyboardShortcutSettings.commandShortcuts()
+        XCTAssertEqual(resolved.count, 1, "Only the valid single-stroke binding should survive")
+
+        let newWindow = try XCTUnwrap(resolved["palette.newWindow"])
+        XCTAssertFalse(newWindow.hasChord)
+        XCTAssertEqual(newWindow.first.key, "y")
+        XCTAssertTrue(newWindow.first.command)
+        XCTAssertTrue(newWindow.first.control)
+        XCTAssertTrue(newWindow.first.option)
+        XCTAssertFalse(newWindow.first.shift)
+
+        XCTAssertNil(resolved["palette.openFolder"], "Chord bindings are not allowed for command shortcuts")
+        XCTAssertNil(resolved["palette.newWorkspace"], "A null binding clears the command shortcut")
+    }
+
+    func testCommandShortcutDispatchPostsRunCommandRequest() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        // Bind a deliberately non-existent command id so the dispatch path is
+        // exercised end-to-end (match → consume → post) while the focused
+        // window's command runner simply no-ops on the unknown id — no real
+        // command runs and no window is created as a side effect.
+        let fakeCommandId = "palette.test.customShortcutDispatch"
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "commands": {
+                  "\(fakeCommandId)": "cmd+ctrl+opt+y"
+                }
+              }
+            }
+            """
+        )
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        let runExpectation = expectation(description: "Command shortcut posts a run-command request")
+        var observedCommandId: String?
+        let token = NotificationCenter.default.addObserver(
+            forName: .commandPaletteRunCommandRequested,
+            object: nil,
+            queue: nil
+        ) { notification in
+            observedCommandId = notification.userInfo?["commandId"] as? String
+            runExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        guard let event = makeKeyDownEvent(
+            key: "y",
+            modifiers: [.command, .control, .option],
+            keyCode: 16,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct ⌘⌃⌥Y event")
+            return
+        }
+
+        #if DEBUG
+        XCTAssertTrue(
+            appDelegate.debugHandleCustomShortcut(event: event),
+            "A matching command shortcut must consume the event"
+        )
+        #else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+        #endif
+
+        wait(for: [runExpectation], timeout: 1.0)
+        XCTAssertEqual(observedCommandId, fakeCommandId)
+    }
+
+    private func writeSettingsFile(_ json: String) throws {
+        let url = settingsDirectoryURL.appendingPathComponent("cmux.json")
+        try json.write(to: url, atomically: true, encoding: .utf8)
+        KeyboardShortcutSettings.settingsFileStore.reload()
+    }
+
     private func withCommandPaletteFieldEditor(
         appDelegate: AppDelegate,
         _ body: (NSWindow, CommandPaletteShortcutFieldEditor) -> Void

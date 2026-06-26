@@ -57,6 +57,15 @@ extension KeyboardShortcutSettings {
         settingsFileStore.isManagedByFile(action)
     }
 
+    /// User-assigned Command Palette command shortcuts (`shortcuts.commands` in
+    /// cmux.json), keyed by command id. Only live single-stroke bindings are
+    /// returned (cleared/`unbound` entries are filtered out). The app's
+    /// keyboard handler matches a key event against these and fires the matched
+    /// command on the focused window.
+    static func commandShortcuts() -> [String: StoredShortcut] {
+        settingsFileStore.commandShortcuts()
+    }
+
     /// The effective focus predicate gating `action`: the `shortcuts.when`
     /// override from cmux.json if present, otherwise the action's built-in
     /// ``KeyboardShortcutSettings/Action/shortcutContext`` expressed as a

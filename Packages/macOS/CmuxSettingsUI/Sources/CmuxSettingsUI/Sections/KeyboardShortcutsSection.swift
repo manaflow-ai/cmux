@@ -90,6 +90,13 @@ public struct KeyboardShortcutsSection: View {
                 .foregroundColor(.secondary)
                 .padding(.leading, 2)
                 .accessibilityIdentifier("ShortcutRecordingHint")
+
+            CustomCommandShortcutsCard(
+                jsonStore: jsonStore,
+                catalog: catalog,
+                errorLog: errorLog,
+                hostActions: hostActions
+            )
         }
         .task { await streamBindings() }
         .task { await streamWhenOverrides() }
