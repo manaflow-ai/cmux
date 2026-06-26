@@ -211,6 +211,44 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         #expect(command.contains("hermes --provider 'codex' run"))
     }
 
+    @Test("Hermes agent bindings bootstrap inside portable shell cwd wrapper")
+    func hermesAgentBindingsBootstrapInsidePortableShellWrapper() throws {
+        let service = makeService(
+            applyingDefaultCodexBaseURL: { environment in
+                var copy = environment
+                copy["OPENAI_BASE_URL"] = "https://codex.example.test"
+                return copy
+            }
+        )
+        let binding = FakeBinding(
+            source: "agent-hook",
+            kind: "hermes-agent",
+            command: "/bin/sh -c '{ cd -- '\\''/repo with space'\\'' 2>/dev/null || [ ! -d '\\''/repo with space'\\'' ]; } && hermes --provider openai-codex run'",
+            isAgentHookBinding: true,
+            allowsAutomaticResume: true
+        )
+
+        let launch = try #require(service.surfaceResumeStartupLaunch(
+            binding,
+            autoResumeAgentSessions: true,
+            approvalStoreURL: URL(fileURLWithPath: "/tmp/cmux-approvals.json", isDirectory: false)
+        ))
+        guard case .command(let command) = launch else {
+            Issue.record("expected command launch")
+            return
+        }
+
+        let cdRange = try #require(command.range(of: "cd --"))
+        let bootstrapRange = try #require(command.range(of: "config set model.provider"))
+        let resumeRange = try #require(command.range(of: "run"))
+        #expect(command.hasPrefix("command:/bin/sh -c "))
+        #expect(cdRange.lowerBound < bootstrapRange.lowerBound)
+        #expect(bootstrapRange.lowerBound < resumeRange.lowerBound)
+        #expect(command.contains("config set model.base_url"))
+        #expect(command.contains("codex"))
+        #expect(!command.contains("openai-codex"))
+    }
+
     @Test("remote reconnect waits when restored terminals can authenticate")
     func remoteReconnectWaitsWhenTerminalsAuthenticate() {
         let service = makeService()

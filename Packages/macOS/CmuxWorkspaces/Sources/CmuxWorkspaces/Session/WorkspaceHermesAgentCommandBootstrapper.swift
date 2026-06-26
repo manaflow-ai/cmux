@@ -24,9 +24,38 @@ struct WorkspaceHermesAgentCommandBootstrapper {
 
         var result = binding
         result.environment = environment.isEmpty ? nil : environment
-        result.command = commandByReplacingOpenAICodexProvider(result.command)
-        result.command = commandByRemovingBootstrapPrefix(result.command)
-        let agentCommandWords = wordsAfterCwdGuard(shellWords(in: result.command))
+        result.command = commandByPreparingHermesStartup(
+            result.command,
+            baseURL: baseURL,
+            environment: environment
+        )
+        return result
+    }
+
+    private func commandByPreparingHermesStartup(
+        _ command: String,
+        baseURL: String,
+        environment: [String: String]
+    ) -> String {
+        if let portableCommand = portableShellCommand(command) {
+            let innerCommand = commandByPreparingPlainHermesStartup(
+                portableCommand.innerCommand,
+                baseURL: baseURL,
+                environment: environment
+            )
+            return "\(portableCommand.shell) \(portableCommand.option) \(shellQuote(innerCommand))"
+        }
+        return commandByPreparingPlainHermesStartup(command, baseURL: baseURL, environment: environment)
+    }
+
+    private func commandByPreparingPlainHermesStartup(
+        _ command: String,
+        baseURL: String,
+        environment: [String: String]
+    ) -> String {
+        var result = commandByReplacingOpenAICodexProvider(command)
+        result = commandByRemovingBootstrapPrefix(result)
+        let agentCommandWords = wordsAfterCwdGuard(shellWords(in: result))
         guard !commandSetsModelAPIMode(agentCommandWords),
               commandAllowsCodexBootstrap(agentCommandWords) else {
             return result
@@ -43,7 +72,7 @@ struct WorkspaceHermesAgentCommandBootstrapper {
                 "\(shellQuote(hermesExecutable)) config set model.default \(shellQuote(model)) >/dev/null"
             )
         }
-        result.command = commandByInsertingBootstrap(bootstrap, into: result.command)
+        result = commandByInsertingBootstrap(bootstrap, into: result)
         return result
     }
 
@@ -224,6 +253,26 @@ struct WorkspaceHermesAgentCommandBootstrapper {
     private struct ShellWord {
         let value: String
         let range: Range<String.Index>
+    }
+
+    private struct PortableShellCommand {
+        let shell: String
+        let option: String
+        let innerCommand: String
+    }
+
+    private func portableShellCommand(_ command: String) -> PortableShellCommand? {
+        let words = shellWords(in: command)
+        guard words.count == 3,
+              words[0].value == "/bin/sh",
+              words[1].value == "-c" || words[1].value == "-lc" else {
+            return nil
+        }
+        return PortableShellCommand(
+            shell: words[0].value,
+            option: words[1].value,
+            innerCommand: words[2].value
+        )
     }
 
     private func shellWords(in command: String) -> [ShellWord] {

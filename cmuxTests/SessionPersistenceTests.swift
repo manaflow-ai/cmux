@@ -4278,6 +4278,24 @@ final class SidebarDragFailsafePolicyTests: XCTestCase {
 }
 
 extension SessionPersistenceTests {
+    private func loginShellCommandPayload(from startupInput: String) throws -> String {
+        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(
+            startupInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        let shellIndex = try XCTUnwrap(words.firstIndex { $0.value == "/bin/zsh" }, startupInput)
+        XCTAssertGreaterThan(words.count, shellIndex + 2, startupInput)
+        XCTAssertEqual(words[shellIndex + 1].value, "-lc", startupInput)
+        return words[shellIndex + 2].value
+    }
+
+    private func portableShellCommandPayload(from command: String) throws -> String {
+        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(command)
+        XCTAssertEqual(words.count, 3, command)
+        XCTAssertEqual(words[0].value, "/bin/sh", command)
+        XCTAssertEqual(words[1].value, "-c", command)
+        return words[2].value
+    }
+
     func testSurfaceResumeBindingStartupInputUsesExactCommand() {
         let binding = SurfaceResumeBindingSnapshot(
             name: "OpenCode",
@@ -5415,13 +5433,16 @@ extension SessionPersistenceTests {
             promptForApproval: false
         ))
 
-        XCTAssertTrue(input.contains("config set model.provider"))
-        XCTAssertTrue(input.contains("config set model.base_url"))
-        XCTAssertTrue(input.contains("config set model.api_mode"))
-        XCTAssertTrue(input.contains("codex_responses"))
-        XCTAssertTrue(input.contains("gpt-5.5"))
-        XCTAssertTrue(input.contains("'--provider' '\\''custom'\\'''") || input.contains("'--provider' 'custom'"))
-        XCTAssertFalse(input.contains("openai-codex"))
+        let payload = try portableShellCommandPayload(
+            from: loginShellCommandPayload(from: input)
+        )
+        XCTAssertTrue(payload.contains("config set model.provider"), payload)
+        XCTAssertTrue(payload.contains("config set model.base_url"), payload)
+        XCTAssertTrue(payload.contains("config set model.api_mode"), payload)
+        XCTAssertTrue(payload.contains("codex_responses"), payload)
+        XCTAssertTrue(payload.contains("gpt-5.5"), payload)
+        XCTAssertTrue(payload.contains("'--provider' 'custom'"), payload)
+        XCTAssertFalse(payload.contains("openai-codex"), payload)
     }
 
     func testHermesAgentHookSurfaceResumeBootstrapUsesCapturedExecutable() throws {
@@ -5464,11 +5485,14 @@ extension SessionPersistenceTests {
             promptForApproval: false
         ))
 
-        let cdRange = try XCTUnwrap(input.range(of: "cd --"))
-        let bootstrapRange = try XCTUnwrap(input.range(of: "config set model.provider"))
+        let payload = try portableShellCommandPayload(
+            from: loginShellCommandPayload(from: input)
+        )
+        let cdRange = try XCTUnwrap(payload.range(of: "cd --"))
+        let bootstrapRange = try XCTUnwrap(payload.range(of: "config set model.provider"))
         XCTAssertLessThan(cdRange.lowerBound, bootstrapRange.lowerBound)
-        XCTAssertTrue(input.contains("'./hermes' config set model.provider"))
-        XCTAssertTrue(input.contains("'./hermes' '--provider' 'custom' '--resume'"))
+        XCTAssertTrue(payload.contains("'./hermes' config set model.provider"), payload)
+        XCTAssertTrue(payload.contains("'./hermes' '--provider' 'custom' '--resume'"), payload)
     }
 
     func testHermesAgentHookSurfaceResumeReplacesExistingBootstrap() throws {
