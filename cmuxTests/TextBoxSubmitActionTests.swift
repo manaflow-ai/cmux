@@ -484,6 +484,14 @@ struct TextBoxSubmitActionTests {
             systemImage: "sparkle",
             backgroundColorHex: "#F6D5C8"
         )
+        XCTAssertEqual(
+            TextBoxInputContainer.providerLaunchCommand(
+                for: claude,
+                shouldForceTextEntrySubmit: false,
+                allowsCommandTemplateSubmit: true
+            ),
+            "claude --dangerously-skip-permissions"
+        )
         XCTAssertTrue(
             TextBoxInputContainer.isPendingProviderLaunchAwaitingAgent(
                 pendingProviderLaunchAction: claude,
@@ -515,6 +523,28 @@ struct TextBoxSubmitActionTests {
                 terminalAgentContext: context
             ).last,
             .namedKey("ctrl+enter")
+        )
+    }
+
+    @Test
+    func testUnknownLaunchOnlyCustomActionDoesNotEnterPendingProviderMode() {
+        let router = TextBoxSubmitAction(
+            id: "router",
+            title: "Router",
+            kind: .commandTemplate,
+            commandTemplate: "agent-router",
+            preservePromptAfterLaunch: true,
+            systemImage: "sparkle",
+            backgroundColorHex: "#FFFFFF"
+        )
+
+        XCTAssertEqual(
+            TextBoxInputContainer.providerLaunchCommand(
+                for: router,
+                shouldForceTextEntrySubmit: false,
+                allowsCommandTemplateSubmit: true
+            ),
+            nil
         )
     }
 

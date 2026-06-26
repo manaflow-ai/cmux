@@ -434,8 +434,26 @@ extension TextBoxInputContainer {
     }
 
     func providerLaunchCommand(for action: TextBoxSubmitAction) -> String? {
-        guard !shouldForceTextEntrySubmit, allowsCommandTemplateSubmit else { return nil }
-        return action.launchCommand()
+        Self.providerLaunchCommand(
+            for: action,
+            shouldForceTextEntrySubmit: shouldForceTextEntrySubmit,
+            allowsCommandTemplateSubmit: allowsCommandTemplateSubmit
+        )
+    }
+
+    static func providerLaunchCommand(
+        for action: TextBoxSubmitAction,
+        shouldForceTextEntrySubmit: Bool,
+        allowsCommandTemplateSubmit: Bool
+    ) -> String? {
+        guard !shouldForceTextEntrySubmit,
+              allowsCommandTemplateSubmit,
+              let command = action.launchCommand(),
+              let launchContextCommand = action.launchContextCommand(),
+              TextBoxAgentDetection.boundedLaunchCommandContext(from: launchContextCommand) != nil else {
+            return nil
+        }
+        return command
     }
 
     func cycleSubmitAction() {

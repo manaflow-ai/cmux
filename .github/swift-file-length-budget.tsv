@@ -89,6 +89,7 @@
 1009	cmuxTests/CmuxTopSnapshotScopeTests.swift
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
 951	Sources/App/TerminalDirectoryOpenSupport.swift
+950	cmuxTests/TextBoxSubmitActionTests.swift
 947	Sources/TerminalNotificationPolicy.swift
 945	Sources/SessionIndexRegisteredAgents.swift
 937	Sources/TextBoxMentionIndexStore.swift
@@ -96,7 +97,6 @@
 934	Sources/App/ShortcutRoutingSupport.swift
 926	Sources/DockPanelView.swift
 920	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
-920	cmuxTests/TextBoxSubmitActionTests.swift
 918	cmuxTests/WorkspaceGroupTests.swift
 905	Sources/CmuxSSHURLRequest.swift
 904	Sources/Panels/TerminalPanel.swift
