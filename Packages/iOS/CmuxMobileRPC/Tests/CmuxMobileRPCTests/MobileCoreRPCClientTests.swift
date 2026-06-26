@@ -322,6 +322,41 @@ import Testing
         #expect(probe?.hasAuth == false)
     }
 
+    @Test func ticketCoveredWorkspaceListDoesNotFetchStackToken() async throws {
+        let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
+        let transport = QueuedCancellationProbeTransport()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
+            stackAccessToken: nil
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: nil,
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60),
+            authToken: "ticket-secret"
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let request = try MobileCoreRPCClient.requestData(method: "workspace.list")
+        let task = Task { try await client.sendRequest(request) }
+        let sent = try await transport.waitForSentRequestCount(1)
+        task.cancel()
+        _ = try? await task.value
+
+        let frame = try #require(sent.first)
+        #expect(frame.method == "workspace.list")
+        #expect(frame.attachToken == "ticket-secret")
+        #expect(frame.stackAccessToken == nil)
+        #expect(frame.hasAuth)
+    }
+
     @Test func workspaceActionsCarryMacWideAttachTicketContext() async throws {
         let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
         let transport = QueuedCancellationProbeTransport()
