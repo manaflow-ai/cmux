@@ -288,8 +288,10 @@ public struct AgentResumeArgv: Sendable, Equatable {
         arguments: [String],
         fallbackExecutable: String
     ) -> (executable: String, tail: [String]) {
-        guard let executable = normalized(executablePath) ?? normalized(arguments.first),
-              !AgentLaunchCaptureTrust.executableLooksLikeShell(executable) else {
+        guard let executable = normalized(executablePath) ?? normalized(arguments.first) else {
+            return (fallbackExecutable, [])
+        }
+        if AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(arguments) {
             return (fallbackExecutable, [])
         }
         let tail = arguments.isEmpty ? [] : Array(arguments.dropFirst())

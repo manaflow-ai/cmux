@@ -728,8 +728,10 @@ enum AgentResumeCommandBuilder {
         fallbackExecutable: String
     ) -> (executable: String, tail: [String]) {
         let arguments = launchCommand?.arguments ?? []
-        guard let executable = normalized(launchCommand?.executablePath) ?? normalized(arguments.first),
-              !AgentLaunchCaptureTrust.executableLooksLikeShell(executable) else {
+        guard let executable = normalized(launchCommand?.executablePath) ?? normalized(arguments.first) else {
+            return (fallbackExecutable, [])
+        }
+        if AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(arguments) {
             return (fallbackExecutable, [])
         }
         let tail = arguments.isEmpty ? [] : Array(arguments.dropFirst())

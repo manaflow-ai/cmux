@@ -149,6 +149,19 @@ struct AgentResumeArgvTests {
         )
     }
 
+    @Test("Shell-named wrappers without shell dispatcher argv are preserved")
+    func shellNamedWrapperExecutableIsPreservedWhenNotBootstrap() {
+        let executable = "/Users/alice/.local/bin/fish"
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "codex",
+                sessionId: "SID",
+                executablePath: executable,
+                arguments: [executable, "--sandbox", "danger-full-access"]
+            ) == [executable, "resume", "SID", "--sandbox", "danger-full-access"]
+        )
+    }
+
     @Test("cmux wrapper launchers resolve before per-kind verbs")
     func launcherWrappers() {
         #expect(

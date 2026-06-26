@@ -410,6 +410,27 @@ struct AgentSessionAutoResumeSwiftTests {
         #expect(terminalSnapshot.resumeBinding == nil)
     }
 
+    @Test func agentResumeCommandBuilderPreservesShellNamedWrapperWhenNotBootstrap() throws {
+        let executable = "/Users/alice/.local/bin/fish"
+        let command = AgentResumeCommandBuilder.resumeShellCommand(
+            kind: .codex,
+            sessionId: "codex-shell-named-wrapper-session",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: executable,
+                arguments: [executable, "--sandbox", "danger-full-access"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: "test"
+            ),
+            workingDirectory: nil,
+            includeWorkingDirectoryPrefix: false
+        )
+
+        #expect(command == "'\(executable)' 'resume' 'codex-shell-named-wrapper-session' '--sandbox' 'danger-full-access'")
+    }
+
     @MainActor
     @Test func crossKindAgentHookResumeBindingDoesNotRetainNewerClaudeSnapshot() throws {
         try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
