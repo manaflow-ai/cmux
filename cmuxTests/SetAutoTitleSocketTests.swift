@@ -266,6 +266,60 @@ import Testing
         }
     }
 
+    @Test func persistAfterExitAppliesAutoTitleWhenAutoNamingDisabled() throws {
+        try withAutoNamingSetting(false) {
+            try withManager { _, workspace in
+                workspace.applyProcessTitle("cmux103")
+
+                let envelope = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "title": "Fix auth bug",
+                    "persist_after_exit": true
+                ])
+
+                #expect(envelope["ok"] as? Bool == true)
+                let result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["workspace_applied"] as? Bool == true)
+                #expect(workspace.title == "Fix auth bug")
+                #expect(workspace.customTitle == "Fix auth bug")
+                #expect(workspace.effectiveCustomTitleSource == .auto)
+
+                workspace.applyProcessTitle("project-directory")
+                #expect(workspace.title == "Fix auth bug")
+            }
+        }
+    }
+
+    @Test func clearAutoTitleOnlyClearsAutoOwnedWorkspace() throws {
+        try withAutoNamingSetting(false) {
+            try withManager { _, workspace in
+                workspace.applyProcessTitle("project-directory")
+                workspace.setCustomTitle("Fix auth bug", source: .auto)
+
+                var envelope = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "clear_auto": true
+                ])
+                #expect(envelope["ok"] as? Bool == true)
+                var result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["workspace_cleared"] as? Bool == true)
+                #expect(workspace.customTitle == nil)
+                #expect(workspace.title == "project-directory")
+
+                workspace.setCustomTitle("Manual name")
+                envelope = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "clear_auto": true
+                ])
+                #expect(envelope["ok"] as? Bool == true)
+                result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["workspace_cleared"] as? Bool == false)
+                #expect(workspace.customTitle == "Manual name")
+                #expect(workspace.effectiveCustomTitleSource == .user)
+            }
+        }
+    }
+
     @Test func panelIdTargetsTabTitleAndWorkspaceOnlyLeavesTabsAlone() throws {
         try withAutoNamingSetting(true) {
             try withManager { _, workspace in
