@@ -273,15 +273,27 @@ struct CustomCommandShortcutsCard: View {
     }
 
     private func remove(_ commandId: String) async {
+        // Write an explicit unbind marker rather than deleting the key. The
+        // settings resolver merges `shortcuts.commands` from fallback config
+        // files (``fillMissingSettings``) and only suppresses a fallback binding
+        // when the primary file has an entry for that command. Deleting the
+        // primary entry would let a fallback-inherited shortcut reappear on the
+        // next reload; the documented "none" marker is parsed as unbound, stays
+        // schema-valid (unlike the unbound object form), and suppresses it.
         do {
             try await jsonStore.setMapEntry(
-                StoredShortcut?.none,
+                CustomCommandShortcutsCard.unbindMarker,
                 forKey: commandId,
-                in: catalog.shortcuts.commands
+                in: JSONKey<[String: String]>(id: catalog.shortcuts.commands.id, defaultValue: [:])
             )
             commandShortcuts.removeValue(forKey: commandId)
         } catch {
             errorLog.record(error, keyID: catalog.shortcuts.commands.id)
         }
     }
+
+    /// The documented unbind marker written for a cleared command shortcut. A
+    /// string (not the unbound object form) so it satisfies the schema and is
+    /// parsed as ``StoredShortcut/unbound`` by the app's config reader.
+    private static let unbindMarker = "none"
 }

@@ -402,9 +402,19 @@ final class HostSettingsActions: SettingsHostActions {
     /// cmux.json is global, so any live window's config store carries the same
     /// `actions`; the first available one is used.
     func configuredActionShortcuts() -> [(label: String, shortcut: CmuxSettings.StoredShortcut)] {
-        guard let store = AppDelegate.shared?.mainWindowContexts.values
-            .lazy.compactMap({ $0.cmuxConfigStore }).first else {
-            return []
+        let store: CmuxConfigStore
+        if let windowStore = AppDelegate.shared?.mainWindowContexts.values
+            .lazy.compactMap({ $0.cmuxConfigStore }).first {
+            store = windowStore
+        } else {
+            // No live window (e.g. Settings opened after the last window closed):
+            // load the global config standalone so configured-action conflicts are
+            // still checked rather than silently skipped. `actions` come from the
+            // global cmux.json, so a transient store without directory tracking
+            // resolves them.
+            let transient = CmuxConfigStore()
+            transient.loadAll()
+            store = transient
         }
         // A list, not a title-keyed map: action titles are free-form and may
         // collide, and dropping a duplicate would hide a real conflict.
