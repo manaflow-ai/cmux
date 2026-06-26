@@ -786,6 +786,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertTrue(coding.isPinned)
         XCTAssertEqual(store.workspaceProfiles.map(\.name), ["coding"])
 
+        XCTAssertTrue(coding.setCustomTitle("Renamed Coding"))
         try """
         {
           "workspaceProfiles": [
@@ -797,8 +798,47 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
         XCTAssertEqual(manager.tabs.count, firstWorkspaceCount)
         XCTAssertTrue(manager.tabs.contains { $0 === coding })
+        XCTAssertEqual(coding.customTitle, "Renamed Coding")
         XCTAssertEqual(coding.defaultWorkingDirectory, projects.appendingPathComponent("coding-v2").path)
         XCTAssertFalse(coding.isPinned)
+    }
+
+    @MainActor
+    func testWorkspaceProfilesDoNotMutateUnboundTitleCollisions() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let projects = root.appendingPathComponent("projects", isDirectory: true)
+        try FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        try """
+        {
+          "workspaceProfiles": [
+            { "name": "coding", "cwd": "projects/coding", "pinned": true }
+          ]
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let unboundWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        unboundWorkspace.setCustomTitle("coding")
+        let originalCount = manager.tabs.count
+
+        let store = CmuxConfigStore(globalConfigPath: configURL.path, startFileWatchers: false)
+        store.wireDirectoryTracking(tabManager: manager)
+        store.loadAll()
+
+        XCTAssertEqual(manager.tabs.count, originalCount + 1)
+        XCTAssertNil(unboundWorkspace.defaultWorkingDirectory)
+        let managedWorkspace = try XCTUnwrap(manager.tabs.first { workspace in
+            workspace !== unboundWorkspace && workspace.customTitle == "coding"
+        })
+        XCTAssertFalse(managedWorkspace === unboundWorkspace)
+        XCTAssertEqual(managedWorkspace.defaultWorkingDirectory, projects.appendingPathComponent("coding").path)
+        XCTAssertTrue(managedWorkspace.isPinned)
     }
 
     @MainActor
