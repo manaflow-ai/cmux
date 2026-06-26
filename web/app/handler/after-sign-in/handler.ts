@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import type { Locale } from "../../../i18n/routing";
 import { locales, routing } from "../../../i18n/routing";
 
-const NATIVE_SCHEME = "cmux://";
 const NATIVE_SCHEMES = new Set(["cmux", "cmux-nightly"]);
 const NATIVE_HANDOFF_COOKIE = "cmux-native-auth-handoff";
 const NATIVE_HANDOFF_PARAM = "cmux_auth_handoff";
@@ -133,19 +132,18 @@ function decodeRefreshCookie(value: string | undefined): string | undefined {
 }
 
 function buildNativeHref(
-  baseHref: string | null,
+  baseHref: string,
   refreshToken: string | undefined,
   accessCookie: string | undefined
 ): string | null {
   if (!refreshToken || !accessCookie) return baseHref;
-  const href = baseHref ?? `${NATIVE_SCHEME}auth-callback`;
   try {
-    const url = new URL(href);
+    const url = new URL(baseHref);
     url.searchParams.set("stack_refresh", refreshToken);
     url.searchParams.set("stack_access", accessCookie);
     return url.toString();
   } catch {
-    return `${NATIVE_SCHEME}auth-callback?stack_refresh=${encodeURIComponent(refreshToken)}&stack_access=${encodeURIComponent(accessCookie)}`;
+    return null;
   }
 }
 
