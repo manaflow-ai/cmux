@@ -127,7 +127,7 @@ struct MobileHostPickerView: View {
         .accessibilityIdentifier("MobileHostPickerRow-\(mac.macDeviceID)")
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) {
-                Task { await store.forgetMac(macDeviceID: mac.macDeviceID) }
+                Task { await store.forgetStoredMac(macDeviceID: mac.macDeviceID) }
             } label: {
                 Label(L10n.string("mobile.hostPicker.forget", defaultValue: "Forget"), systemImage: "trash")
             }
