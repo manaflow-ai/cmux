@@ -74,7 +74,6 @@
 1285	cmuxUITests/SidebarHelpMenuUITests.swift
 1277	cmuxTests/RestorableAgentSessionIndexTests.swift
 1258	Sources/Feed/FeedCoordinator.swift
-1241	Sources/App/TerminalDirectoryOpenSupport.swift
 1209	Packages/macOS/CmuxCommandPalette/Tests/CmuxCommandPaletteTests/CommandPaletteSearchEngineTests.swift
 1204	cmuxTests/FileExplorerStoreTests.swift
 1197	cmuxTests/CodexAppServerSessionTests.swift
@@ -99,6 +98,7 @@
 920	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 918	cmuxTests/WorkspaceGroupTests.swift
 905	Sources/CmuxSSHURLRequest.swift
+903	Sources/App/VSCodeServeWebSupport.swift
 899	Sources/Panels/MarkdownWebRenderer.swift
 885	Sources/Panels/TerminalPanel.swift
 878	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
