@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
+import CmuxFoundation
 import CMUXAgentLaunch
 import SQLite3
 import SwiftUI
@@ -1315,7 +1316,7 @@ private enum SessionTranscriptLoader {
         var didHitTurnLimit = false
         let agent = SessionAgent.registered(RegisteredSessionAgent(id: "antigravity"))
 
-        SessionIndexStore.forEachJSONLine(url: url, maxBytes: Int.max) { object in
+        url.forEachJSONLine(maxBytes: Int.max) { object in
             defer { lineIndex += 1 }
             if Task.isCancelled { return true }
             guard turns.count < maxPreviewTurns else {

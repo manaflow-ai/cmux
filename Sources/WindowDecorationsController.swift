@@ -1,5 +1,6 @@
 import AppKit
 import CmuxTestSupport
+import CmuxWindowing
 
 final class WindowDecorationsController {
     private var observers: [NSObjectProtocol] = []
@@ -226,22 +227,20 @@ final class WindowDecorationsController {
         }
 
         let windowNumber = window.windowNumber
-        let isDoubleClick = minimalModeTitlebarClickFormsDoubleClick(
-            clickCount: event.clickCount,
-            timestamp: event.timestamp,
-            locationInWindow: locationInWindow,
+        let currentClick = MinimalModeTitlebarClickRecord(
             windowNumber: windowNumber,
+            timestamp: event.timestamp,
+            locationInWindow: locationInWindow
+        )
+        let isDoubleClick = currentClick.formsDoubleClick(
+            clickCount: event.clickCount,
             previous: lastMinimalModeTitlebarClick,
             doubleClickInterval: NSEvent.doubleClickInterval,
-            doubleClickIntervalTolerance: minimalModeTitlebarSyntheticDoubleClickTolerance
+            doubleClickIntervalTolerance: MinimalModeTitlebarClickRecord.syntheticDoubleClickTolerance
         )
 
         guard isDoubleClick else {
-            lastMinimalModeTitlebarClick = MinimalModeTitlebarClickRecord(
-                windowNumber: windowNumber,
-                timestamp: event.timestamp,
-                locationInWindow: locationInWindow
-            )
+            lastMinimalModeTitlebarClick = currentClick
             return false
         }
 

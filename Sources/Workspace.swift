@@ -7,6 +7,7 @@ import CmuxRemoteSession
 import CmuxRemoteWorkspace
 import CmuxWorkspaces
 import CmuxTerminal
+import CmuxTerminalCore
 import SwiftUI
 import AppKit
 import CmuxFoundation
@@ -418,7 +419,7 @@ extension Workspace {
                 ? TerminalController.shared.readTerminalTextForSnapshot(
                     terminalPanel: terminalPanel,
                     includeScrollback: true,
-                    lineLimit: SessionPersistencePolicy.maxScrollbackLinesPerTerminal
+                    lineLimit: ScrollbackTruncation().maxLines
                 )
                 : nil
             let hasRestoredScrollbackFallback = restoredTerminalScrollbackByPanelId[panelId] != nil
@@ -864,7 +865,7 @@ extension Workspace {
 
         let targetCharacters = min(
             max(0, charactersPerTerminal),
-            SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+            ScrollbackTruncation().maxCharacters
         )
         guard targetCharacters > 0 else { return (0, 0) }
 
@@ -1169,7 +1170,7 @@ extension Workspace {
 #endif
             let shouldReplayLocalScrollback = restoredRemotePTYAttachCommand == nil && shouldReplayScrollback
             let restoredScrollback = shouldReplayLocalScrollback ? snapshot.terminal?.scrollback : nil
-            let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(for: restoredScrollback)
+            let replayEnvironment = SessionScrollbackReplay().replayEnvironment(for: restoredScrollback)
             // Reuse the persisted surface id so the restored terminal keeps
             // the same identity (the panel/surface id IS the ghostty surface
             // id), which keeps agent-session terminal bindings valid across
@@ -1221,7 +1222,7 @@ extension Workspace {
             } else {
                 restoredGuardedWorkingDirectoriesByPanelId.removeValue(forKey: terminalPanel.id)
             }
-            let fallbackScrollback = SessionPersistencePolicy.truncatedScrollback(restoredScrollback)
+            let fallbackScrollback = ScrollbackTruncation().truncated(restoredScrollback)
             if let fallbackScrollback {
                 restoredTerminalScrollbackByPanelId[terminalPanel.id] = fallbackScrollback
             } else {
@@ -2470,7 +2471,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
                 SessionRestorePolicy.isRunningUnderAutomatedTests()
             },
             truncateScrollback: { text in
-                SessionPersistencePolicy.truncatedScrollback(text)
+                ScrollbackTruncation().truncated(text)
             },
             hermesCodexEnvironment: WorkspaceHermesCodexEnvironment(
                 customBaseURLEnvironmentKey: HermesAgentCodexEnvironment.customBaseURLEnvironmentKey,
@@ -5005,60 +5006,38 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         maybeDemoteRemoteWorkspaceAfterSSHSessionEnded()
     }
 
-    /// Normalizes a user-supplied workspace environment: trims keys and drops any
-    /// entry with a blank key or blank value. Dropping blank values keeps behavior
-    /// identical across the `additionalEnvironment` channel (which already skips
-    /// empty values) and the `initialEnvironmentOverrides` channel (which would
-    /// otherwise export a blank value on the initial shell only).
-    ///
-    /// Reserved `CMUX_*` variables are intentionally *not* stripped by name — they
-    /// are protected at spawn time by `mergedStartupEnvironment(protectedKeys:)`,
-    /// the single authority on which keys are managed. That protection is an exact
-    /// Swift-string match, but the env eventually crosses the Swift→C boundary
-    /// (`strdup` / Ghostty), where a key is truncated at its first NUL. A key like
-    /// `"CMUX_SOCKET_PATH\0x"` would dodge the exact-match check yet collapse to
-    /// `CMUX_SOCKET_PATH` in the spawned shell, so reject any key containing a NUL
-    /// (and `=`, which is never a valid env var name) and any value containing a
-    /// NUL. This is the single choke point for every entry point (CLI, cmux.json,
-    /// session restore), so the guard cannot be bypassed.
-    // `nonisolated` so the nonisolated socket workspace-create parsing path
-    // (`v2WorkspaceCreate`) can call this pure helper without hopping to the main
-    // actor; `Workspace` is `@MainActor`, so its statics are main-actor-isolated by
-    // default.
+    /// App-side forwarder to ``SurfaceCreationCoordinator/sanitizedWorkspaceEnvironment(_:)``
+    /// in `CmuxWorkspaces`, where the pure transform now lives. Kept as a
+    /// `nonisolated static` so the existing call sites (the `init` paths and the
+    /// nonisolated socket workspace-create path `v2WorkspaceCreate` in
+    /// `TerminalController`) stay byte-identical. A fresh stateless coordinator is
+    /// constructed because no instance exists in a static context; the
+    /// coordinator's `nonisolated init` holds no state, so this is race-free off
+    /// the main actor.
     nonisolated static func sanitizedWorkspaceEnvironment(_ environment: [String: String]) -> [String: String] {
-        environment.reduce(into: [String: String]()) { result, pair in
-            let key = pair.key.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !key.isEmpty,
-                  !pair.value.isEmpty,
-                  !key.contains("\0"),
-                  !key.contains("="),
-                  !pair.value.contains("\0") else { return }
-            result[key] = pair.value
-        }
+        SurfaceCreationCoordinator().sanitizedWorkspaceEnvironment(environment)
     }
 
-    /// Pure merge core: overlays `explicit` on top of `workspaceEnvironment`.
-    /// Managed `CMUX_*` / terminal-identity keys are protected downstream by
-    /// `mergedStartupEnvironment(protectedKeys:)`; this only decides precedence
-    /// among user-supplied values — explicit per-surface entries (layout `env`,
-    /// scrollback replay, SSH startup) win over the workspace set. Static so the
-    /// `init` path can call it before `self` is fully initialized.
+    /// App-side forwarder to ``SurfaceCreationCoordinator/startupEnvironment(workspaceEnvironment:overlaying:)``
+    /// in `CmuxWorkspaces`, where the pure precedence-merge now lives. Kept
+    /// `static` so the `init` path can call it before `self` is fully
+    /// initialized; a fresh stateless coordinator is constructed because no
+    /// instance is available in a static context.
     static func startupEnvironment(
         workspaceEnvironment: [String: String],
         overlaying explicit: [String: String]
     ) -> [String: String] {
-        guard !workspaceEnvironment.isEmpty else { return explicit }
-        var merged = workspaceEnvironment
-        for (key, value) in explicit {
-            merged[key] = value
-        }
-        return merged
+        SurfaceCreationCoordinator().startupEnvironment(
+            workspaceEnvironment: workspaceEnvironment,
+            overlaying: explicit
+        )
     }
 
-    /// Instance convenience over ``startupEnvironment(workspaceEnvironment:overlaying:)``
-    /// for the post-init surface-creation paths.
+    /// Instance convenience over ``SurfaceCreationCoordinator/startupEnvironment(workspaceEnvironment:overlaying:)``
+    /// for the post-init surface-creation paths. Reuses the held
+    /// ``surfaceCreation`` coordinator and the live `workspaceEnvironment`.
     func startupEnvironmentMergingWorkspaceEnvironment(_ explicit: [String: String]) -> [String: String] {
-        Self.startupEnvironment(workspaceEnvironment: workspaceEnvironment, overlaying: explicit)
+        surfaceCreation.startupEnvironment(workspaceEnvironment: workspaceEnvironment, overlaying: explicit)
     }
 
     private func terminalStartupEnvironment(

@@ -23,91 +23,29 @@ extension MenuBarOnlySettings {
     }
 }
 
-struct CommandPaletteSettingToggleDescriptor: Sendable {
-    let commandId: String
-    let settingsKey: String
-    let title: @Sendable () -> String
-    let sectionTitle: @Sendable () -> String
-    let keywords: [String]
-    let isOn: @Sendable (UserDefaults) -> Bool
-    let setOn: @Sendable (Bool, UserDefaults, NotificationCenter) -> Void
-    let isAvailable: @Sendable (UserDefaults) -> Bool
-
-    init(
-        commandId: String,
-        settingsKey: String,
-        title: @escaping @Sendable () -> String,
-        sectionTitle: @escaping @Sendable () -> String,
-        keywords: [String],
-        defaultValue: Bool,
-        defaultsKey: String,
-        isAvailable: @escaping @Sendable (UserDefaults) -> Bool = { _ in true },
-        didSet: @escaping @Sendable (Bool, UserDefaults, NotificationCenter) -> Void = { _, _, _ in }
-    ) {
-        self.commandId = commandId
-        self.settingsKey = settingsKey
-        self.title = title
-        self.sectionTitle = sectionTitle
-        self.keywords = keywords
-        self.isOn = { defaults in
-            if defaults.object(forKey: defaultsKey) == nil {
-                return defaultValue
-            }
-            return defaults.bool(forKey: defaultsKey)
-        }
-        self.setOn = { newValue, defaults, notificationCenter in
-            defaults.set(newValue, forKey: defaultsKey)
-            didSet(newValue, defaults, notificationCenter)
-        }
-        self.isAvailable = isAvailable
-    }
-
-    init(
-        commandId: String,
-        settingsKey: String,
-        title: @escaping @Sendable () -> String,
-        sectionTitle: @escaping @Sendable () -> String,
-        keywords: [String],
-        isOn: @escaping @Sendable (UserDefaults) -> Bool,
-        setOn: @escaping @Sendable (Bool, UserDefaults, NotificationCenter) -> Void,
-        isAvailable: @escaping @Sendable (UserDefaults) -> Bool = { _ in true }
-    ) {
-        self.commandId = commandId
-        self.settingsKey = settingsKey
-        self.title = title
-        self.sectionTitle = sectionTitle
-        self.keywords = keywords
-        self.isOn = isOn
-        self.setOn = setOn
-        self.isAvailable = isAvailable
-    }
-
-    func commandTitle(defaults: UserDefaults = .standard) -> String {
-        let format = isOn(defaults)
-            ? String(localized: "command.toggleSetting.disableTitle", defaultValue: "Disable %@")
-            : String(localized: "command.toggleSetting.enableTitle", defaultValue: "Enable %@")
-        return String.localizedStringWithFormat(format, title())
-    }
-
-    func commandSubtitle(defaults: UserDefaults = .standard) -> String {
-        let state = isOn(defaults)
-            ? String(localized: "command.toggleSetting.state.on", defaultValue: "On")
-            : String(localized: "command.toggleSetting.state.off", defaultValue: "Off")
-        let format = String(localized: "command.toggleSetting.subtitle", defaultValue: "%@ • %@")
-        return String.localizedStringWithFormat(format, sectionTitle(), state)
-    }
-
-    func toggle(
-        defaults: UserDefaults = .standard,
-        notificationCenter: NotificationCenter = .default
-    ) {
-        guard isAvailable(defaults) else { return }
-        setOn(!isOn(defaults), defaults, notificationCenter)
-    }
-}
-
 enum CommandPaletteSettingsToggleCommands {
     static let commandIdPrefix = "palette.toggleSetting."
+
+    /// App-resolved localized formats for toggle command titles/subtitles.
+    ///
+    /// Resolved here in the app bundle (not inside `CmuxCommandPalette`) so the
+    /// Japanese translations are preserved, then passed to the descriptor's
+    /// `commandTitle(strings:)`/`commandSubtitle(strings:)`.
+    static var toggleStrings: CommandPaletteSettingToggleStrings {
+        CommandPaletteSettingToggleStrings(
+            disableTitleFormat: String(
+                localized: "command.toggleSetting.disableTitle",
+                defaultValue: "Disable %@"
+            ),
+            enableTitleFormat: String(
+                localized: "command.toggleSetting.enableTitle",
+                defaultValue: "Enable %@"
+            ),
+            onState: String(localized: "command.toggleSetting.state.on", defaultValue: "On"),
+            offState: String(localized: "command.toggleSetting.state.off", defaultValue: "Off"),
+            subtitleFormat: String(localized: "command.toggleSetting.subtitle", defaultValue: "%@ • %@")
+        )
+    }
 
     static func descriptor(commandId: String) -> CommandPaletteSettingToggleDescriptor? {
         descriptors.first { $0.commandId == commandId }
@@ -902,8 +840,8 @@ extension ContentView {
         CommandPaletteSettingsToggleCommands.descriptors.map { descriptor in
             CommandPaletteCommandContribution(
                 commandId: descriptor.commandId,
-                title: { _ in descriptor.commandTitle() },
-                subtitle: { _ in descriptor.commandSubtitle() },
+                title: { _ in descriptor.commandTitle(strings: CommandPaletteSettingsToggleCommands.toggleStrings) },
+                subtitle: { _ in descriptor.commandSubtitle(strings: CommandPaletteSettingsToggleCommands.toggleStrings) },
                 keywords: descriptor.keywords + ["settings", "toggle", descriptor.settingsKey],
                 when: { _ in descriptor.isAvailable(.standard) }
             )
