@@ -96,6 +96,16 @@ final class CmuxCommandTemplateTests: XCTestCase {
                        "deploy 'prod' --label '{{env}}'")
     }
 
+    func testEscapedQuoteKeepsPlaceholderQuoted() {
+        // A backslash-escaped quote does not close the surrounding quote, so a
+        // placeholder after it is still quoted and must not be substituted.
+        let command = "echo \"prefix \\\" {{branch}} suffix\""
+        XCTAssertEqual(variables(command), [])
+        XCTAssertEqual(substitute(command, ["branch": "$(touch /tmp/pwn)"]), command)
+        // After the double-quoted span closes, an unquoted placeholder is a variable.
+        XCTAssertEqual(variables("echo \"a \\\" b\" {{env}}").map(\.name), ["env"])
+    }
+
     func testNewlineInsidePlaceholderIsIgnored() {
         XCTAssertEqual(variables("echo {{na\nme}}"), [])
     }

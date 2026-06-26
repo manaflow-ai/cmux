@@ -112,8 +112,9 @@ struct CmuxCommandTemplate {
         case variable(CmuxCommandVariable, raw: String)
     }
 
-    /// Walks the command tracking single/double shell-quote state, recognizing a
-    /// `{{identifier}}` placeholder only when it appears at an unquoted position.
+    /// Walks the command tracking single/double shell-quote state (honouring
+    /// backslash escapes outside single quotes), recognizing a `{{identifier}}`
+    /// placeholder only when it appears at an unquoted position.
     private func scan() -> [Token] {
         let command = rawValue
         var tokens: [Token] = []
@@ -132,7 +133,30 @@ struct CmuxCommandTemplate {
         while index < end {
             let character = command[index]
 
-            if !inSingleQuote, !inDoubleQuote, character == "{" {
+            if inSingleQuote {
+                // Inside single quotes nothing is special except the closing
+                // quote — not even backslash.
+                if character == "'" { inSingleQuote = false }
+                index = command.index(after: index)
+                continue
+            }
+
+            if character == "\\" {
+                // A backslash escapes the next character in unquoted and
+                // double-quoted text, so e.g. `\"` does not change quote state.
+                let next = command.index(after: index)
+                index = next < end ? command.index(after: next) : end
+                continue
+            }
+
+            if inDoubleQuote {
+                if character == "\"" { inDoubleQuote = false }
+                index = command.index(after: index)
+                continue
+            }
+
+            // Unquoted context: a `{{identifier}}` here is a cmux variable.
+            if character == "{" {
                 let afterFirstBrace = command.index(after: index)
                 if afterFirstBrace < end, command[afterFirstBrace] == "{" {
                     let innerStart = command.index(after: afterFirstBrace)
@@ -161,10 +185,10 @@ struct CmuxCommandTemplate {
                 }
             }
 
-            if character == "'", !inDoubleQuote {
-                inSingleQuote.toggle()
-            } else if character == "\"", !inSingleQuote {
-                inDoubleQuote.toggle()
+            if character == "'" {
+                inSingleQuote = true
+            } else if character == "\"" {
+                inDoubleQuote = true
             }
             index = command.index(after: index)
         }
