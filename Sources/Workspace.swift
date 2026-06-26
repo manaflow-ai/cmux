@@ -2242,8 +2242,12 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     var activeRemoteTerminalSurfaceIds: Set<UUID> = []
     var endedPersistentRemotePTYAttachSurfaceIds: Set<UUID> = []
     private var remotePTYSessionIDsByPanelId: [UUID: String] = [:]
-    private var remoteRelayWorkspaceIDAliases: [UUID: UUID] = [:]
-    private var remoteRelaySurfaceIDAliases: [UUID: UUID] = [:]
+    /// Owns the reverse-CLI-relay workspace/surface ID alias maps and their
+    /// byte-faithful bookkeeping. `Workspace` keeps the push to
+    /// `remoteSessionController` (`syncRemoteRelayIDAliasesToController`) and
+    /// forwards each mutation here, pushing only when the registry reports a
+    /// real change. Lives in `CmuxRemoteWorkspace`.
+    private var remoteRelayAliasRegistry = RemoteRelayAliasRegistry()
     private var suppressRemoteTerminalStartupForSessionRestoreScaffold = false
     var pendingRemoteTerminalChildExitSurfaceIds: Set<UUID> = []
 
@@ -5080,30 +5084,27 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
 
     private func syncRemoteRelayIDAliasesToController() {
         remoteSessionController?.updateRemoteRelayIDAliases(
-            workspaceAliases: remoteRelayWorkspaceIDAliases,
-            surfaceAliases: remoteRelaySurfaceIDAliases
+            workspaceAliases: remoteRelayAliasRegistry.workspaceAliases,
+            surfaceAliases: remoteRelayAliasRegistry.surfaceAliases
         )
     }
 
     private func clearRemoteRelayIDAliases() {
-        guard !remoteRelayWorkspaceIDAliases.isEmpty || !remoteRelaySurfaceIDAliases.isEmpty else { return }
-        remoteRelayWorkspaceIDAliases.removeAll()
-        remoteRelaySurfaceIDAliases.removeAll()
-        syncRemoteRelayIDAliasesToController()
+        if remoteRelayAliasRegistry.clear() {
+            syncRemoteRelayIDAliasesToController()
+        }
     }
 
     private func pruneRemoteRelaySurfaceAliases(validSurfaceIds: Set<UUID>) {
-        let nextAliases = remoteRelaySurfaceIDAliases.filter { validSurfaceIds.contains($0.value) }
-        guard nextAliases != remoteRelaySurfaceIDAliases else { return }
-        remoteRelaySurfaceIDAliases = nextAliases
-        syncRemoteRelayIDAliasesToController()
+        if remoteRelayAliasRegistry.pruneSurfaceAliases(validSurfaceIds: validSurfaceIds) {
+            syncRemoteRelayIDAliasesToController()
+        }
     }
 
     private func removeRemoteRelaySurfaceAliases(targeting panelId: UUID) {
-        let nextAliases = remoteRelaySurfaceIDAliases.filter { $0.value != panelId }
-        guard nextAliases != remoteRelaySurfaceIDAliases else { return }
-        remoteRelaySurfaceIDAliases = nextAliases
-        syncRemoteRelayIDAliasesToController()
+        if remoteRelayAliasRegistry.removeSurfaceAliases(targeting: panelId) {
+            syncRemoteRelayIDAliasesToController()
+        }
     }
 
     private func registerRemoteRelayIDAliases(
@@ -5111,19 +5112,12 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         snapshotPanelId: UUID,
         restoredPanelId: UUID
     ) {
-        var didMutate = false
-        if let snapshotWorkspaceId, snapshotWorkspaceId != id {
-            if remoteRelayWorkspaceIDAliases[snapshotWorkspaceId] != id {
-                remoteRelayWorkspaceIDAliases[snapshotWorkspaceId] = id
-                didMutate = true
-            }
-        }
-        if snapshotPanelId != restoredPanelId {
-            if remoteRelaySurfaceIDAliases[snapshotPanelId] != restoredPanelId {
-                remoteRelaySurfaceIDAliases[snapshotPanelId] = restoredPanelId
-                didMutate = true
-            }
-        }
+        let didMutate = remoteRelayAliasRegistry.register(
+            snapshotWorkspaceId: snapshotWorkspaceId,
+            snapshotPanelId: snapshotPanelId,
+            restoredPanelId: restoredPanelId,
+            localWorkspaceId: id
+        )
         if didMutate {
             syncRemoteRelayIDAliasesToController()
         }
@@ -5139,14 +5133,10 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     }
 
     /// Rewrites a relay command line using this workspace's current alias maps.
-    /// Forwards to ``CmuxRemoteWorkspace/RemoteRelayCommandLineRewriter`` so the
+    /// Forwards to ``CmuxRemoteWorkspace/RemoteRelayAliasRegistry`` so the
     /// rewrite logic lives in the package alongside the relay seam.
     func rewriteRemoteRelayCommandLine(_ commandLine: Data) -> Data {
-        RemoteRelayCommandLineRewriter.rewrite(
-            commandLine,
-            workspaceAliases: remoteRelayWorkspaceIDAliases,
-            surfaceAliases: remoteRelaySurfaceIDAliases
-        )
+        remoteRelayAliasRegistry.rewrite(commandLine)
     }
 
     /// Alias-explicit relay-command rewrite. Forwards to

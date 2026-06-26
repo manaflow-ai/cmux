@@ -5792,14 +5792,6 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
 #endif
 }
 
-enum SidebarFontSizeProvider {
-    static func loadFromGhosttyConfig() async -> CGFloat {
-        await Task.detached(priority: .utility) {
-            GhosttyConfig.load().sidebarFontSize
-        }.value
-    }
-}
-
 // `SidebarTabItemSettingsSnapshot` is a pure value type that now lives in the
 // `CmuxSidebar` package. Its `UserDefaults`/`SettingCatalog`-reading construction
 // stays app-side here as a factory init that reads the app's defaults and folds

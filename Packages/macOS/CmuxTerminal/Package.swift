@@ -16,6 +16,7 @@ let package = Package(
     dependencies: [
         .package(path: "../CmuxTerminalCore"),
         .package(path: "../CmuxFoundation"),
+        .package(path: "../CmuxPanes"),
         .package(path: "../CMUXDebugLog"),
         .package(path: "../CMUXAgentLaunch"),
         .package(path: "../../Shared/CMUXMobileCore"),
@@ -28,6 +29,7 @@ let package = Package(
                 .product(name: "CmuxTerminalCore", package: "CmuxTerminalCore"),
                 .product(name: "CmuxGhosttyKit", package: "CmuxTerminalCore"),
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
+                .product(name: "CmuxPanes", package: "CmuxPanes"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
                 .product(name: "CMUXAgentLaunch", package: "CMUXAgentLaunch"),
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),

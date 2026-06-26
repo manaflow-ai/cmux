@@ -26,7 +26,7 @@ final class SidebarTabItemSettingsStore {
     init(
         defaults: UserDefaults = .standard,
         initialSidebarFontSize: CGFloat = GhosttyConfig.defaultSidebarFontSize,
-        sidebarFontSizeProvider: @escaping () async -> CGFloat = SidebarFontSizeProvider.loadFromGhosttyConfig
+        sidebarFontSizeProvider: @escaping () async -> CGFloat = GhosttyConfig.loadSidebarFontSize
     ) {
         let clampedSidebarFontSize = GhosttyConfig.clampedSidebarFontSize(initialSidebarFontSize)
         self.defaults = defaults

@@ -1703,7 +1703,8 @@ class TabManager {
 
     func closeOtherTabsInFocusedPaneWithConfirmation() {
         guard !workspaceClosing.isCloseConfirmationInFlight else { return }
-        guard let plan = closeOtherTabsInFocusedPanePlan() else { return }
+        guard let workspace = selectedWorkspace else { return }
+        guard let plan = FocusedPaneCloseTargetPlanner(host: workspace).closeOtherTabsPlan() else { return }
 
         if CloseTabWarningStore(defaults: .standard).shouldConfirmClose(requiresConfirmation: true, source: .shortcut) {
             let prompt = CloseOtherTabsConfirmationPrompt(titles: plan.titles)
@@ -1715,8 +1716,8 @@ class TabManager {
         }
 
         for panelId in plan.panelIds {
-            plan.workspace.markCloseHistoryEligible(panelId: panelId)
-            _ = plan.workspace.closePanel(panelId, force: true)
+            workspace.markCloseHistoryEligible(panelId: panelId)
+            _ = workspace.closePanel(panelId, force: true)
         }
     }
 
@@ -2233,49 +2234,17 @@ class TabManager {
         cmuxMainWindowForModalPresentation(preferring: window)
     }
 
-    private struct CloseOtherTabsInFocusedPanePlan {
-        let workspace: Workspace
-        let panelIds: [UUID]
-        let titles: [String]
-    }
-
     private func closeOtherTabsInFocusedPanePlan() -> CloseOtherTabsInFocusedPanePlan? {
         guard let workspace = selectedWorkspace else { return nil }
-        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
-            return nil
-        }
-
-        let tabsInPane = workspace.bonsplitController.tabs(inPane: paneId)
-        guard !tabsInPane.isEmpty else { return nil }
-        guard let selectedTabId = workspace.bonsplitController.selectedTab(inPane: paneId)?.id ?? tabsInPane.first?.id else {
-            return nil
-        }
-
-        var targetPanelIds: [UUID] = []
-        var targetTitles: [String] = []
-        for tab in tabsInPane where tab.id != selectedTabId {
-            guard let panelId = workspace.panelIdFromSurfaceId(tab.id) else { continue }
-            if workspace.isPanelPinned(panelId) {
-                continue
-            }
-            targetPanelIds.append(panelId)
-            targetTitles.append(CloseOtherTabsConfirmationPrompt.displayTitle(workspace.panelTitle(panelId: panelId)))
-        }
-
-        guard !targetPanelIds.isEmpty else { return nil }
-        return CloseOtherTabsInFocusedPanePlan(
-            workspace: workspace,
-            panelIds: targetPanelIds,
-            titles: targetTitles
-        )
+        return FocusedPaneCloseTargetPlanner(host: workspace).closeOtherTabsPlan()
     }
 
     private func shouldCloseWorkspaceOnLastSurfaceShortcut(_ workspace: Workspace, panelId: UUID) -> Bool {
-        // Stored under the legacy closeWorkspaceOnLastSurfaceShortcut key:
-        // true means the Close shortcut closes the workspace on its last surface.
-        settings.value(for: settingsCatalog.app.keepWorkspaceOpenWhenClosingLastSurface) &&
-            workspace.panels.count <= 1 &&
-            workspace.panels[panelId] != nil
+        FocusedPaneCloseTargetPlanner(host: workspace).shouldCloseWorkspaceOnLastSurfaceShortcut(
+            panelId: panelId,
+            keepWorkspaceOpenWhenClosingLastSurface:
+                settings.value(for: settingsCatalog.app.keepWorkspaceOpenWhenClosingLastSurface)
+        )
     }
 
     private func closePanelWithConfirmation(tab: Workspace, panelId: UUID) {
@@ -2327,25 +2296,7 @@ class TabManager {
     }
 
     private func shortcutCloseTargetPanelId(in workspace: Workspace) -> UUID? {
-        if let focusedPanelId = workspace.focusedPanelId,
-           workspace.panels[focusedPanelId] != nil {
-            return focusedPanelId
-        }
-
-        if workspace.panels.count == 1 {
-            return workspace.panels.keys.first
-        }
-
-        let candidatePane = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first
-        if let candidatePane,
-           let selectedTabId = workspace.bonsplitController.selectedTab(inPane: candidatePane)?.id
-                ?? workspace.bonsplitController.tabs(inPane: candidatePane).first?.id,
-           let panelId = workspace.panelIdFromSurfaceId(selectedTabId),
-           workspace.panels[panelId] != nil {
-            return panelId
-        }
-
-        return nil
+        FocusedPaneCloseTargetPlanner(host: workspace).shortcutCloseTargetPanelId()
     }
 
     func closePanelWithConfirmation(tabId: UUID, surfaceId: UUID) {
@@ -2480,12 +2431,7 @@ class TabManager {
     }
 
     private func workspaceNeedsConfirmClose(_ workspace: Workspace) -> Bool {
-#if DEBUG
-        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_FORCE_CONFIRM_CLOSE_WORKSPACE"] == "1" {
-            return true
-        }
-#endif
-        return workspace.needsConfirmClose()
+        FocusedPaneCloseTargetPlanner(host: workspace).workspaceNeedsConfirmClose()
     }
 
     func titleForTab(_ tabId: UUID) -> String? {
