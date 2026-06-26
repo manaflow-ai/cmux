@@ -110,7 +110,9 @@ public struct AppshotsSection: View {
 
     /// Triggers the Accessibility trust prompt so cmux appears in the list.
     private func requestAccessibility() {
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        // `kAXTrustedCheckOptionPrompt` imports from C as a non-concurrency-safe
+        // global `var`; use its documented, stable string value instead.
+        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
     }
 

@@ -196,7 +196,9 @@ struct AppshotPermissions: Equatable {
 
     /// Triggers the Accessibility trust prompt so cmux appears in the list.
     static func requestAccessibility() {
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        // `kAXTrustedCheckOptionPrompt` imports from C as a non-concurrency-safe
+        // global `var`; use its documented, stable string value instead.
+        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
     }
 
@@ -222,6 +224,11 @@ enum AppshotCapturer {
     private static let maxAccessibilityNodes = 6000
     /// Maximum characters of extracted text retained.
     private static let maxAccessibilityChars = 40000
+    /// How many artifact files (PNGs + text dumps) to retain on disk. Appshots
+    /// are sensitive window captures triggered by a repeated global hotkey, so
+    /// the cache is bounded — older captures are evicted rather than left to
+    /// pile up until the OS happens to clear the temp directory. ~12 appshots.
+    private static let maxRetainedArtifacts = 24
 
     static func capture(frontPID: pid_t, appName: String, scale: CGFloat) async -> AppshotCapture? {
         guard frontPID > 0, let window = frontmostWindow(ownerPID: frontPID) else { return nil }
@@ -244,6 +251,8 @@ enum AppshotCapturer {
                 textPath = writeText(extracted)
             }
         }
+
+        pruneOldArtifacts()
 
         return AppshotCapture(
             appName: appName,
@@ -380,13 +389,36 @@ enum AppshotCapturer {
 
     // MARK: File output
 
+    private static var artifactsDirectory: URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("cmux-appshots", isDirectory: true)
+    }
+
     private static func outputURL(extension ext: String) -> URL {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-appshots", isDirectory: true)
+        let directory = artifactsDirectory
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let stamp = Int(Date().timeIntervalSince1970)
         let short = UUID().uuidString.prefix(8)
         return directory.appendingPathComponent("appshot-\(stamp)-\(short).\(ext)", isDirectory: false)
+    }
+
+    /// Evicts the oldest artifacts so the on-disk cache of (sensitive) window
+    /// captures stays bounded across repeated hotkey use. Keeps the most-recent
+    /// ``maxRetainedArtifacts`` files by modification date.
+    private static func pruneOldArtifacts() {
+        let keys: [URLResourceKey] = [.contentModificationDateKey]
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: artifactsDirectory,
+            includingPropertiesForKeys: keys,
+            options: [.skipsHiddenFiles]
+        ), entries.count > maxRetainedArtifacts else { return }
+
+        let modified: (URL) -> Date = { url in
+            (try? url.resourceValues(forKeys: Set(keys)).contentModificationDate) ?? .distantPast
+        }
+        let oldestFirst = entries.sorted { modified($0) < modified($1) }
+        for url in oldestFirst.prefix(entries.count - maxRetainedArtifacts) {
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 
     private static func writePNG(_ image: CGImage) -> String? {
