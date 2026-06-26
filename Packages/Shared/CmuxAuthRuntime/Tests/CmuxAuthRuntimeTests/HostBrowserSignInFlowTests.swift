@@ -305,6 +305,67 @@ import Testing
         #expect(harness.flow.lastFailure != .invalidCallback)
     }
 
+    @Test func defaultBrowserRecoveryStateIsClearedAfterAPopupSignIn() async throws {
+        // Opening the recovery URL and then signing in via a popup must
+        // invalidate the recovery state, so a later callback from the abandoned
+        // recovery tab cannot re-seed tokens and replace the live session.
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let harness = HostBrowserSignInFlowHarness(user: user)
+
+        func authState(of url: URL) -> String? {
+            URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?
+                .first(where: { $0.name == "cmux_auth_state" })?
+                .value
+        }
+
+        let recoveryState = try #require(authState(of: harness.flow.defaultBrowserSignInURL))
+
+        // Sign in through a popup attempt (its own distinct state).
+        let attempt = Task { await harness.flow.signIn(timeout: 60) }
+        await harness.waitForSession()
+        let popupState = harness.callbackState(harness.factory.sessions[0])
+        #expect(popupState != recoveryState)
+        harness.factory.sessions[0].deliver(harness.callbackURL(state: popupState))
+        #expect(await attempt.value)
+        #expect(harness.coordinator.isAuthenticated)
+
+        // The abandoned recovery tab's callback is now rejected, not re-applied.
+        let stale = await harness.flow.handleCallbackURL(harness.callbackURL(state: recoveryState))
+        #expect(stale == false)
+    }
+
+    @Test func failedDefaultBrowserRecoveryLeavesActivePopupAttemptAlive() async throws {
+        // A recovery callback that fails to validate must not tear down the
+        // user's still-viable in-flight popup attempt.
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let harness = HostBrowserSignInFlowHarness(user: user)
+
+        func authState(of url: URL) -> String? {
+            URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?
+                .first(where: { $0.name == "cmux_auth_state" })?
+                .value
+        }
+
+        let recoveryState = try #require(authState(of: harness.flow.defaultBrowserSignInURL))
+        harness.flow.beginSignIn()
+        await harness.waitForSession()
+
+        // A recovery callback carrying no token payload fails to validate.
+        let badRecovery = URL(string: "cmux-dev://auth-callback?other=1&cmux_auth_state=\(recoveryState)")!
+        let signedIn = await harness.flow.handleCallbackURL(badRecovery)
+        #expect(signedIn == false)
+        #expect(harness.flow.isSigningIn)
+
+        // The popup attempt is still alive and can complete the sign-in.
+        harness.factory.sessions[0].deliver(
+            harness.callbackURL(state: harness.callbackState(harness.factory.sessions[0]))
+        )
+        await harness.waitForCondition { harness.coordinator.isAuthenticated }
+        #expect(harness.coordinator.isAuthenticated)
+    }
+
     @Test func issuedFallbackCallbackSurvivesPopupCancellation() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let harness = HostBrowserSignInFlowHarness(user: user)

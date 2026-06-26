@@ -144,12 +144,15 @@ public final class HostBrowserSignInFlow {
            let state = authCallbackState(from: url),
            state == pendingDefaultBrowserCallbackState {
             log.log("auth.callback.external.routeToDefaultBrowser activeAttempt=\(activeAttemptID.map(String.init) ?? "nil")")
-            cancelAttemptTimeout()
-            cancelSlowSignInHint()
             let signedIn = await completeCallback(url: url, attemptID: nil, acceptedExternalState: state)
-            if let attemptID = activeAttemptID {
+            if signedIn, let attemptID = activeAttemptID {
                 // Tear down the orphaned popup the user also started so its
                 // Safari window closes once the browser tab completed sign-in.
+                // Only on success — a recovery callback that fails to validate
+                // must leave the user's still-viable popup attempt (and its
+                // timeout / slow-sign-in hint) intact.
+                cancelAttemptTimeout()
+                cancelSlowSignInHint()
                 resumeActiveSessionContinuation(
                     returning: .cancelled(reason: "external_callback"),
                     reason: "externalDefaultBrowserCallback",
@@ -501,9 +504,10 @@ public final class HostBrowserSignInFlow {
         if authCallbackState(from: url) == pendingFallbackCallbackState {
             pendingFallbackCallbackState = nil
         }
-        if authCallbackState(from: url) == pendingDefaultBrowserCallbackState {
-            pendingDefaultBrowserCallbackState = nil
-        }
+        // A successful sign-in via ANY path makes a lingering default-browser
+        // recovery state moot — clear it unconditionally so an abandoned
+        // recovery tab can't later re-seed tokens and replace the live session.
+        pendingDefaultBrowserCallbackState = nil
         lastFailure = nil
         return true
     }
