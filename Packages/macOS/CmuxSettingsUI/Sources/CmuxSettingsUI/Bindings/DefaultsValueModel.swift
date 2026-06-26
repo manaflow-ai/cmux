@@ -121,7 +121,11 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         updateCurrent(value)
         Task { @MainActor [self, store, key, source, value] in
             guard shouldCommitStoreWrite(for: source) else { return }
-            await store.set(value, for: key, source: source)
+            guard await store.set(value, for: key, source: source) != nil else {
+                let committedValue = await store.value(for: key)
+                reconcileRejectedStoreWrite(source: source, committedValue: committedValue)
+                return
+            }
         }
         return source
     }
@@ -145,7 +149,11 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         updateCurrent(value)
         Task { @MainActor [self, store, key, source, value, afterCommit] in
             guard shouldCommitStoreWrite(for: source) else { return }
-            guard await store.set(value, for: key, source: source) != nil else { return }
+            guard await store.set(value, for: key, source: source) != nil else {
+                let committedValue = await store.value(for: key)
+                reconcileRejectedStoreWrite(source: source, committedValue: committedValue)
+                return
+            }
             afterCommit()
         }
         return source
@@ -170,7 +178,11 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         updateCurrent(defaultValue)
         Task { @MainActor [self, store, key, source] in
             guard shouldCommitStoreWrite(for: source) else { return }
-            await store.reset(key, source: source)
+            guard await store.reset(key, source: source) != nil else {
+                let committedValue = await store.value(for: key)
+                reconcileRejectedStoreWrite(source: source, committedValue: committedValue)
+                return
+            }
         }
         return source
     }
@@ -251,6 +263,22 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         }
 
         return !pendingStoreEchoes.isEmpty
+    }
+
+    private func reconcileRejectedStoreWrite(
+        source: UserDefaultsSettingsMutationSource,
+        committedValue: Value
+    ) {
+        guard let matchingIndex = pendingStoreEchoes.firstIndex(where: { $0.source == source }) else {
+            return
+        }
+        guard matchingIndex == pendingStoreEchoes.index(before: pendingStoreEchoes.endIndex) else {
+            return
+        }
+
+        markLocalEchoesConsumed(through: source.sequence)
+        pendingStoreEchoes.removeFirst(matchingIndex + 1)
+        updateCurrent(committedValue)
     }
 
     private func clearPendingStoreEchoes() {

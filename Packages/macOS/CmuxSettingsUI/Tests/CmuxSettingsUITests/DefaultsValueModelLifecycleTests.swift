@@ -515,6 +515,54 @@ import Testing
         #expect(valueObservedAfterCommit == true)
     }
 
+    @Test func rejectedSetReconcilesOptimisticCurrentFromStore() async {
+        let suiteName = "defaults-value-model-rejected-set"
+        UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
+        let store = UserDefaultsSettingsStore(
+            defaults: UserDefaults(suiteName: suiteName)!
+        )
+        let key = SettingCatalog().betaFeatures.extensions
+        let (stream, _) = AsyncStream<DefaultsEvent<Bool>>.makeStream()
+        let model = DefaultsValueModel(
+            store: store,
+            key: key,
+            makeStream: { _ in stream }
+        )
+
+        model.set(true)
+        await store.set(false, for: key)
+        await waitUntil { model.current == false }
+
+        let storedValue = await store.value(for: key)
+        #expect(storedValue == false)
+        #expect(model.current == false)
+    }
+
+    @Test func rejectedResetReconcilesOptimisticCurrentFromStore() async {
+        let suiteName = "defaults-value-model-rejected-reset"
+        UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
+        let store = UserDefaultsSettingsStore(
+            defaults: UserDefaults(suiteName: suiteName)!
+        )
+        let key = SettingCatalog().betaFeatures.extensions
+        await store.set(true, for: key)
+        let (stream, _) = AsyncStream<DefaultsEvent<Bool>>.makeStream()
+        let model = DefaultsValueModel(
+            store: store,
+            key: key,
+            initialValue: true,
+            makeStream: { _ in stream }
+        )
+
+        model.reset()
+        await store.set(true, for: key)
+        await waitUntil { model.current == true }
+
+        let storedValue = await store.value(for: key)
+        #expect(storedValue == true)
+        #expect(model.current == true)
+    }
+
     @Test func setAfterCommitSkipsCallbackWhenStoreRejectsStaleWrite() async {
         let suiteName = "defaults-value-model-after-commit-stale"
         UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
@@ -541,6 +589,7 @@ import Testing
 
         let storedValue = await store.value(for: key)
         #expect(storedValue == false)
+        #expect(model.current == false)
         #expect(!flag.didRun)
     }
 
