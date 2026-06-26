@@ -262,85 +262,86 @@ struct TerminalComposerView: View {
     }
 
     private var composerBar: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // iMessage-style chip row of staged image attachments, ABOVE the
-            // field. Shown only when something is staged so the empty composer
-            // keeps its compact one-line height (and the host's measurement).
-            if !pendingAttachments.isEmpty {
-                attachmentChipRow
+        HStack(alignment: .bottom, spacing: 8) {
+            MobileComposerIconButton(
+                systemImage: "paperclip",
+                foregroundStyle: AnyShapeStyle(TerminalPalette.foreground.opacity(0.7)),
+                size: controlHeight,
+                accessibilityIdentifier: "MobileComposerAttach",
+                accessibilityLabel: L10n.string("mobile.composer.attach", defaultValue: "Attach Photo")
+            ) {
+                isPickerPresented = true
             }
 
-            HStack(alignment: .bottom, spacing: 8) {
-                MobileComposerIconButton(
-                    systemImage: "paperclip",
-                    foregroundStyle: AnyShapeStyle(TerminalPalette.foreground.opacity(0.7)),
-                    size: controlHeight,
-                    accessibilityIdentifier: "MobileComposerAttach",
-                    accessibilityLabel: L10n.string("mobile.composer.attach", defaultValue: "Attach Photo")
-                ) {
-                    isPickerPresented = true
+            micButton
+
+            // The staged-attachment thumbnails, the field, and its send button
+            // share ONE rounded glass container, rendered through the same support
+            // component as GUI chat. iMessage-style: the thumbnails nest INSIDE the
+            // bubble above the text (sharing the field's leading inset, the bubble
+            // growing to wrap them) rather than floating as a detached chip row, and
+            // `.bottom` alignment pins the attach/mic buttons and the send button to
+            // the field's last line as the bubble grows.
+            MobileComposerFieldContainer(minHeight: composerFieldMinHeight) {
+                // Header: staged image attachments, nested at the top of the bubble.
+                // Shown only when something is staged so the empty composer keeps its
+                // compact one-line height (and the host's measurement).
+                if !pendingAttachments.isEmpty {
+                    attachmentChipRow
                 }
-
-                micButton
-
-                // The field and its send button share ONE rounded glass container,
-                // rendered through the same support component as GUI chat. `.bottom`
-                // alignment pins the button to the field's last line as it grows.
-                MobileComposerFieldContainer(minHeight: composerFieldMinHeight) {
-                    TextField(
-                        L10n.string("mobile.composer.placeholder", defaultValue: "Message"),
-                        text: $store.terminalInputText,
-                        axis: .vertical
-                    )
-                    // Opens at a single line and grows up to 14 lines so a long message has
-                    // room. Each added line grows this view, which the host reserves above the
-                    // always-visible toolbar; the toolbar and keyboard never move.
-                    .lineLimit(composerLineLimit)
-                    // Natural-language to an agent, so normal iOS text assistance
-                    // is on (autocorrect, sentence-case, spell check). The raw
-                    // terminal input field keeps these OFF; only the composer
-                    // enables them.
-                    .textInputAutocapitalization(.sentences)
-                    .autocorrectionDisabled(false)
-                    .focused($isFieldFocused)
-                    // Lock the field while dictation owns the text (`.listening`
-                    // or `.stopping`). Every recognition callback rewrites the
-                    // field as base + transcript, so an edit the user made
-                    // mid-dictation would be silently discarded by the next
-                    // partial/final. Disabling input until dictation settles to
-                    // idle makes that edit impossible rather than letting it be
-                    // clobbered. The field stays visible showing the live
-                    // transcript; the mic toggle and send stay live (send
-                    // hard-cancels dictation -> idle, re-enabling the field).
-                    .disabled(dictation.locksComposerField)
-                    .foregroundStyle(TerminalPalette.foreground)
-                    // 6pt container padding + 3pt here keeps the text's 9pt inset
-                    // from the round-7 layout, and bottom-aligns the single-line text
-                    // with the inline button's circle.
-                    .padding(.vertical, 3)
-                    .accessibilityIdentifier("MobileComposerField")
-
-                } trailing: {
-                    Button {
-                        send()
-                    } label: {
-                        Image(systemName: "arrow.up")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(canSend ? .white : TerminalPalette.foreground.opacity(0.35))
-                            .frame(width: inlineSendDiameter, height: inlineSendDiameter)
-                            .background(
-                                Circle().fill(
-                                    canSend
-                                        ? AnyShapeStyle(Color.accentColor)
-                                        : AnyShapeStyle(TerminalPalette.foreground.opacity(0.12))
-                                )
+            } field: {
+                TextField(
+                    L10n.string("mobile.composer.placeholder", defaultValue: "Message"),
+                    text: $store.terminalInputText,
+                    axis: .vertical
+                )
+                // Opens at a single line and grows up to 14 lines so a long message has
+                // room. Each added line grows this view, which the host reserves above the
+                // always-visible toolbar; the toolbar and keyboard never move.
+                .lineLimit(composerLineLimit)
+                // Natural-language to an agent, so normal iOS text assistance
+                // is on (autocorrect, sentence-case, spell check). The raw
+                // terminal input field keeps these OFF; only the composer
+                // enables them.
+                .textInputAutocapitalization(.sentences)
+                .autocorrectionDisabled(false)
+                .focused($isFieldFocused)
+                // Lock the field while dictation owns the text (`.listening`
+                // or `.stopping`). Every recognition callback rewrites the
+                // field as base + transcript, so an edit the user made
+                // mid-dictation would be silently discarded by the next
+                // partial/final. Disabling input until dictation settles to
+                // idle makes that edit impossible rather than letting it be
+                // clobbered. The field stays visible showing the live
+                // transcript; the mic toggle and send stay live (send
+                // hard-cancels dictation -> idle, re-enabling the field).
+                .disabled(dictation.locksComposerField)
+                .foregroundStyle(TerminalPalette.foreground)
+                // 6pt container padding + 3pt here keeps the text's 9pt inset
+                // from the round-7 layout, and bottom-aligns the single-line text
+                // with the inline button's circle.
+                .padding(.vertical, 3)
+                .accessibilityIdentifier("MobileComposerField")
+            } trailing: {
+                Button {
+                    send()
+                } label: {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(canSend ? .white : TerminalPalette.foreground.opacity(0.35))
+                        .frame(width: inlineSendDiameter, height: inlineSendDiameter)
+                        .background(
+                            Circle().fill(
+                                canSend
+                                    ? AnyShapeStyle(Color.accentColor)
+                                    : AnyShapeStyle(TerminalPalette.foreground.opacity(0.12))
                             )
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!canSend)
-                    .accessibilityIdentifier("MobileComposerSend")
-                    .accessibilityLabel(L10n.string("mobile.composer.send", defaultValue: "Send"))
+                        )
                 }
+                .buttonStyle(.plain)
+                .disabled(!canSend)
+                .accessibilityIdentifier("MobileComposerSend")
+                .accessibilityLabel(L10n.string("mobile.composer.send", defaultValue: "Send"))
             }
         }
         .padding(.horizontal, 12)
@@ -393,8 +394,13 @@ struct TerminalComposerView: View {
         }
     }
 
-    /// Horizontal, removable thumbnail chips for the staged attachments. Each
-    /// chip shows the picked image with an x to remove it.
+    /// Horizontal, removable thumbnail chips for the staged attachments, rendered
+    /// as the field container's header so they nest INSIDE the rounded bubble above
+    /// the text (iMessage-style). The container supplies the shared leading text
+    /// inset, so the chips line up with the message text rather than carrying a
+    /// hand-tuned inset of their own. Each chip shows the picked image with an x to
+    /// remove it. `fixedSize` vertical keeps the horizontal scroll view hugging the
+    /// chip height so the bubble grows by exactly the chip row, not greedily.
     private var attachmentChipRow: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
@@ -406,9 +412,8 @@ struct TerminalComposerView: View {
                     }
                 }
             }
-            .padding(.leading, controlHeight + 8)
-            .padding(.trailing, 12)
         }
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     /// Focus the field one runloop after appearing. Setting `@FocusState` inline
