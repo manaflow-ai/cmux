@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Security
 
@@ -80,9 +81,14 @@ enum SleepyPowerControls {
     }
 
     /// True on Macs that expose the 3-way `powermode` (Automatic/Low/High);
-    /// older hardware exposes only the binary `lowpowermode`.
+    /// older hardware exposes only the binary `lowpowermode`. Matches a line
+    /// whose key is exactly `powermode` (not the `lowpowermode` substring).
     private static func supportsPowerMode() -> Bool {
-        (capture("/usr/bin/pmset", ["-g"]) ?? "").contains("powermode")
+        guard let out = capture("/usr/bin/pmset", ["-g"]) else { return false }
+        for rawLine in out.split(separator: "\n") where rawLine.trimmingCharacters(in: .whitespaces).hasPrefix("powermode") {
+            return true
+        }
+        return false
     }
 
     /// Enables/disables Low Power Mode. On 3-mode Macs, enabling remembers the
