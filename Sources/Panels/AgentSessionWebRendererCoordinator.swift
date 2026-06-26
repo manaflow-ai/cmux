@@ -111,7 +111,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             rendererKind: rendererKind,
             resourceDirectoryURL: resourceDirectoryURL
         )
-        trustedShellURL = Self.normalizedTrustedFileURL(indexURL)
+        trustedShellURL = indexURL.normalizedTrustedFileURL
 #if DEBUG
         cmuxDebugLog(
             "agentSession.web.load renderer=\(rendererKind.rawValue) " +
@@ -229,12 +229,12 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             return
         }
 
-        if Self.isTrustedShellURL(url, expected: trustedShellURL) {
+        if url.isTrustedShellURL(expected: trustedShellURL) {
             decisionHandler(.allow)
             return
         }
 
-        if isInPageFragment(url, currentURL: webView.url) {
+        if url.isInPageFragment(currentURL: webView.url) {
             decisionHandler(.allow)
             return
         }
@@ -314,7 +314,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         guard frameInfo.isMainFrame else {
             return false
         }
-        return Self.isTrustedShellURL(frameInfo.request.url, expected: trustedShellURL)
+        return frameInfo.request.url?.isTrustedShellURL(expected: trustedShellURL) ?? false
     }
 
     nonisolated static func shellURL(
@@ -324,21 +324,6 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         rendererKind.resourceHTMLPathComponents.reduce(resourceDirectoryURL) {
             $0.appendingPathComponent($1, isDirectory: false)
         }
-    }
-
-    nonisolated static func isTrustedShellURL(_ candidate: URL?, expected: URL?) -> Bool {
-        guard let candidate = normalizedTrustedFileURL(candidate),
-              let expected = normalizedTrustedFileURL(expected) else {
-            return false
-        }
-        return candidate == expected
-    }
-
-    nonisolated static func normalizedTrustedFileURL(_ url: URL?) -> URL? {
-        guard let url, url.isFileURL else {
-            return nil
-        }
-        return url.standardizedFileURL.resolvingSymlinksInPath()
     }
 
     private func handle(_ request: AgentSessionBridgeRequest) async throws -> Any {
@@ -727,20 +712,5 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             url: url,
             focus: true
         )
-    }
-
-    private func isInPageFragment(_ url: URL, currentURL: URL?) -> Bool {
-        guard url.fragment != nil else { return false }
-        if (url.scheme == nil || url.scheme == "about"), (url.host ?? "").isEmpty {
-            return true
-        }
-        guard let currentURL else { return false }
-        if url.isFileURL, currentURL.isFileURL {
-            return (url.path as NSString).standardizingPath ==
-                (currentURL.path as NSString).standardizingPath
-        }
-        return url.scheme == currentURL.scheme &&
-            url.host == currentURL.host &&
-            url.path == currentURL.path
     }
 }

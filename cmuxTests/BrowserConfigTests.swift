@@ -2379,7 +2379,7 @@ final class BrowserSimpleUserGesturePopupRetargetingTests: XCTestCase {
 
 final class BrowserPopupContentRectTests: XCTestCase {
     func testExplicitTopOriginCoordinatesConvertToAppKitBottomOrigin() {
-        let rect = browserPopupContentRect(
+        let rect = BrowserPopupContentGeometry().contentRect(
             requestedWidth: 400,
             requestedHeight: 300,
             requestedX: 150,
@@ -2394,7 +2394,7 @@ final class BrowserPopupContentRectTests: XCTestCase {
     }
 
     func testExplicitCoordinatesClampToVisibleFrame() {
-        let rect = browserPopupContentRect(
+        let rect = BrowserPopupContentGeometry().contentRect(
             requestedWidth: 1400,
             requestedHeight: 1200,
             requestedX: 900,
@@ -2409,7 +2409,7 @@ final class BrowserPopupContentRectTests: XCTestCase {
     }
 
     func testMissingCoordinatesCentersPopup() {
-        let rect = browserPopupContentRect(
+        let rect = BrowserPopupContentGeometry().contentRect(
             requestedWidth: 300,
             requestedHeight: 200,
             requestedX: nil,

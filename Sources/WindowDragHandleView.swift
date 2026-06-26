@@ -590,7 +590,7 @@ func recordMinimalModeSidebarChromeHoverForUITest(
     let isMainWindow = isMainWorkspaceWindow(window)
     let sidebarControlsAvailable = minimalModeSidebarTitlebarControlsAreAvailable(in: window)
     let contentBounds = window.contentView?.bounds ?? .zero
-    let inTitlebarBand = isMinimalModeWindowTitlebarClickCandidate(
+    let inTitlebarBand = MinimalModeTitlebarBand.isMinimalModeWindowTitlebarClickCandidate(
         isMinimalMode: isMinimal,
         isFullScreen: isFullScreen,
         isMainWindow: isMainWindow,
@@ -990,23 +990,6 @@ struct TitlebarDoubleClickMonitorView: NSViewRepresentable {
     }
 }
 
-func shouldHandleMinimalModeTitlebarDoubleClick(
-    isEnabled: Bool,
-    clickCount: Int,
-    point: NSPoint,
-    bounds: NSRect,
-    topStripHeight: CGFloat
-) -> Bool {
-    guard clickCount >= 2 else {
-        return false
-    }
-    return MinimalModeTitlebarBand(
-        isEnabled: isEnabled,
-        bounds: bounds,
-        topStripHeight: topStripHeight
-    ).contains(point)
-}
-
 func minimalModeTitlebarDoubleClickBandHeight(for window: NSWindow) -> CGFloat {
     MinimalModeChromeMetrics.titlebarHeight
 }
@@ -1014,39 +997,6 @@ func minimalModeTitlebarDoubleClickBandHeight(for window: NSWindow) -> CGFloat {
 func isMainWorkspaceWindow(_ window: NSWindow) -> Bool {
     guard let raw = window.identifier?.rawValue else { return false }
     return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
-}
-
-func shouldHandleMinimalModeWindowTitlebarDoubleClick(
-    isMinimalMode: Bool,
-    isFullScreen: Bool,
-    isMainWindow: Bool,
-    clickCount: Int,
-    locationInWindow: NSPoint,
-    contentBounds: NSRect,
-    titlebarBandHeight: CGFloat
-) -> Bool {
-    shouldHandleMinimalModeTitlebarDoubleClick(
-        isEnabled: isMinimalMode && !isFullScreen && isMainWindow,
-        clickCount: clickCount,
-        point: locationInWindow,
-        bounds: contentBounds,
-        topStripHeight: titlebarBandHeight
-    )
-}
-
-func isMinimalModeWindowTitlebarClickCandidate(
-    isMinimalMode: Bool,
-    isFullScreen: Bool,
-    isMainWindow: Bool,
-    locationInWindow: NSPoint,
-    contentBounds: NSRect,
-    titlebarBandHeight: CGFloat
-) -> Bool {
-    MinimalModeTitlebarBand(
-        isEnabled: isMinimalMode && !isFullScreen && isMainWindow,
-        bounds: contentBounds,
-        topStripHeight: titlebarBandHeight
-    ).contains(locationInWindow)
 }
 
 func shouldHandleMinimalModeWindowTitlebarDoubleClick(
@@ -1060,7 +1010,7 @@ func shouldHandleMinimalModeWindowTitlebarDoubleClick(
         width: window.frame.width,
         height: window.frame.height
     )
-    return shouldHandleMinimalModeWindowTitlebarDoubleClick(
+    return MinimalModeTitlebarBand.shouldHandleMinimalModeWindowTitlebarDoubleClick(
         isMinimalMode: WorkspacePresentationModeSettings.isMinimal(defaults: defaults),
         isFullScreen: window.styleMask.contains(.fullScreen),
         isMainWindow: isMainWorkspaceWindow(window),
@@ -1082,7 +1032,7 @@ func isMinimalModeWindowTitlebarClickCandidate(
         width: window.frame.width,
         height: window.frame.height
     )
-    return isMinimalModeWindowTitlebarClickCandidate(
+    return MinimalModeTitlebarBand.isMinimalModeWindowTitlebarClickCandidate(
         isMinimalMode: WorkspacePresentationModeSettings.isMinimal(defaults: defaults),
         isFullScreen: window.styleMask.contains(.fullScreen),
         isMainWindow: isMainWorkspaceWindow(window),
@@ -1170,7 +1120,7 @@ struct MinimalModeTitlebarEventSurfaceView: NSViewRepresentable {
                 width: window.frame.width,
                 height: window.frame.height
             )
-            guard isMinimalModeWindowTitlebarClickCandidate(
+            guard MinimalModeTitlebarBand.isMinimalModeWindowTitlebarClickCandidate(
                 isMinimalMode: WorkspacePresentationModeSettings.isMinimal(),
                 isFullScreen: window.styleMask.contains(.fullScreen),
                 isMainWindow: isMainWorkspaceWindow(window),

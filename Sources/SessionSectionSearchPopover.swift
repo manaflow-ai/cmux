@@ -13,6 +13,7 @@
 // package move.
 
 import AppKit
+import CmuxAppKitSupportUI
 import SwiftUI
 
 // MARK: - "Show more" popover with search
