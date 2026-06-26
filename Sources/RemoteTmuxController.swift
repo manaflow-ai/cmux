@@ -78,9 +78,9 @@ final class RemoteTmuxController {
         // failure and before the caller's next irreversible step.
         try Task.checkCancellation()
         guard ready else {
-            Self.logger.warning(
-                "remote-tmux: ControlMaster not confirmed ready for \(host.destination, privacy: .public); aborting attach burst"
-            )
+            // Log the non-sensitive connection hash, not the SSH destination (which
+            // can carry a username / internal host / IP) — keeps collected diagnostics clean.
+            Self.logger.warning("remote-tmux: ControlMaster not confirmed ready [\(host.connectionHash, privacy: .public)]; aborting attach burst")
             throw RemoteTmuxError.unreachable("SSH ControlMaster not ready for \(host.destination)")
         }
     }
