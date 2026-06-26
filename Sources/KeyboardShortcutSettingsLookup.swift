@@ -66,11 +66,13 @@ extension KeyboardShortcutSettings {
         settingsFileStore.commandShortcuts()
     }
 
-    /// The prefiltered, deterministically ordered command-shortcut snapshot used
-    /// by the per-event keyboard dispatcher. Recomputed on reload, so reading it
-    /// on the hot path avoids the per-keystroke filter + sort.
-    static func commandShortcutsOrderedList() -> [(commandId: String, shortcut: StoredShortcut)] {
-        settingsFileStore.commandShortcutsOrderedList()
+    /// Command shortcuts whose stroke carries exactly `modifierMask`, the bucket
+    /// the per-event keyboard dispatcher probes for the event's modifier flags.
+    /// Empty for unmodified or shift-only masks (every command shortcut requires a
+    /// primary modifier), so ordinary typing dispatches in O(1) regardless of how
+    /// many bindings `shortcuts.commands` holds.
+    static func commandShortcutsMatchingModifierMask(_ modifierMask: UInt) -> [(commandId: String, shortcut: StoredShortcut)] {
+        settingsFileStore.commandShortcutsMatchingModifierMask(modifierMask)
     }
 
     /// The effective focus predicate gating `action`: the `shortcuts.when`

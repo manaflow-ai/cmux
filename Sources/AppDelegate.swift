@@ -13945,14 +13945,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// The command id whose user-assigned `shortcuts.commands` binding matches
-    /// `event`, or `nil`. Bindings are single-stroke; the list is a prefiltered,
-    /// deterministically ordered snapshot recomputed on reload (not per event),
-    /// so a match stays stable even if cmux.json bound the same keystroke twice
-    /// without rebuilding/sorting on every keystroke.
+    /// `event`, or `nil`. Bindings are single-stroke and require a primary
+    /// modifier (⌘/⌥/⌃); they are indexed at reload into per-modifier-mask buckets
+    /// (a deterministically ordered, capped snapshot — not rebuilt per event).
+    ///
+    /// `matchConfiguredShortcut` requires exact modifier-mask equality, so this
+    /// probes only the bucket for the event's modifier mask. Ordinary unmodified
+    /// or shift-only typing — the latency-critical path — maps to an empty bucket
+    /// and returns after a single hash probe, O(1) regardless of how many bindings
+    /// `shortcuts.commands` holds. Only a keystroke carrying a bound modifier
+    /// combination scans, and then only the entries sharing that exact combination.
     private func firstMatchingCommandShortcut(event: NSEvent) -> String? {
-        let commandShortcuts = KeyboardShortcutSettings.commandShortcutsOrderedList()
-        guard !commandShortcuts.isEmpty else { return nil }
-        for entry in commandShortcuts {
+        let modifierMask = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags).rawValue
+        let candidates = KeyboardShortcutSettings.commandShortcutsMatchingModifierMask(modifierMask)
+        guard !candidates.isEmpty else { return nil }
+        for entry in candidates {
             if matchConfiguredShortcut(event: event, shortcut: entry.shortcut) {
                 return entry.commandId
             }

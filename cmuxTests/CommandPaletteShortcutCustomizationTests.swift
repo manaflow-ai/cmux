@@ -582,6 +582,82 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
         XCTAssertEqual(observedCommandId, fakeCommandId)
     }
 
+    func testCommandShortcutDispatchIndexBucketsByModifierMask() throws {
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "commands": {
+                  "palette.alpha": "cmd+ctrl+opt+y",
+                  "palette.beta": "cmd+b"
+                }
+              }
+            }
+            """
+        )
+
+        let store = KeyboardShortcutSettings.settingsFileStore
+
+        // Ordinary typing carries no primary modifier, so its bucket is always
+        // empty regardless of how many command shortcuts are configured — the
+        // O(1) fast path the per-keystroke dispatcher relies on.
+        XCTAssertTrue(
+            store.commandShortcutsMatchingModifierMask(0).isEmpty,
+            "Unmodified keystrokes must not scan any command binding"
+        )
+        XCTAssertTrue(
+            store.commandShortcutsMatchingModifierMask(NSEvent.ModifierFlags.shift.rawValue).isEmpty,
+            "Shift-only keystrokes must not scan any command binding"
+        )
+
+        XCTAssertEqual(
+            store.commandShortcutsMatchingModifierMask(NSEvent.ModifierFlags.command.rawValue).map { $0.commandId },
+            ["palette.beta"],
+            "The ⌘ bucket holds only the ⌘ binding"
+        )
+        XCTAssertEqual(
+            store.commandShortcutsMatchingModifierMask(
+                NSEvent.ModifierFlags([.command, .control, .option]).rawValue
+            ).map { $0.commandId },
+            ["palette.alpha"],
+            "The ⌘⌃⌥ bucket holds only the ⌘⌃⌥ binding"
+        )
+    }
+
+    func testCommandShortcutDispatchIndexDropsUnboundAndCapsConfigSize() {
+        var commands: [String: StoredShortcut] = [:]
+        // Far more than the cap, all sharing one modifier combination — the
+        // pathological hand-edited cmux.json the cap defends dispatch against.
+        for index in 0..<1200 {
+            commands["palette.cmd.\(index)"] = StoredShortcut(
+                key: "y",
+                command: true,
+                shift: false,
+                option: false,
+                control: false,
+                keyCode: UInt16(index)
+            )
+        }
+        commands["palette.unbound"] = StoredShortcut(
+            key: "",
+            command: false,
+            shift: false,
+            option: false,
+            control: false
+        )
+
+        let index = CmuxSettingsFileStore.makeCommandShortcutDispatchIndex(commands, limit: 1000)
+
+        XCTAssertEqual(index.ordered.count, 1000, "The dispatch list is capped regardless of config size")
+        XCTAssertFalse(index.ordered.contains { $0.shortcut.isUnbound }, "Unbound entries are dropped")
+        XCTAssertNil(index.byModifierMask[0], "No command shortcut lands in the unmodified bucket")
+        XCTAssertEqual(
+            index.byModifierMask[NSEvent.ModifierFlags.command.rawValue]?.count,
+            1000,
+            "Every surviving binding stays in its modifier bucket, capped"
+        )
+    }
+
     private func writeSettingsFile(_ json: String) throws {
         let url = settingsDirectoryURL.appendingPathComponent("cmux.json")
         try json.write(to: url, atomically: true, encoding: .utf8)

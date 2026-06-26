@@ -71,11 +71,23 @@ final class CmuxSettingsFileStore {
     private var shortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     private var whenClausesByAction: [KeyboardShortcutSettings.Action: ShortcutWhenClause] = [:]
     private var commandShortcutsByCommandId: [String: StoredShortcut] = [:]
-    /// Prefiltered (non-unbound), deterministically ordered (by command id)
-    /// snapshot of ``commandShortcutsByCommandId``, recomputed once per reload so
-    /// the per-event keyboard dispatcher (`firstMatchingCommandShortcut`) can
-    /// iterate a ready array instead of filtering + sorting on every keystroke.
-    private var commandShortcutsOrderedSnapshot: [(commandId: String, shortcut: StoredShortcut)] = []
+    /// Live `shortcuts.commands` bindings indexed by each (single) stroke's
+    /// normalized modifier mask, rebuilt once per reload (prefiltered to non-unbound
+    /// entries, capped at ``maxDispatchableCommandShortcuts``). The per-keystroke
+    /// dispatcher (`firstMatchingCommandShortcut`) probes only the bucket for the
+    /// event's modifier mask. Every command shortcut requires a primary modifier
+    /// (⌘/⌥/⌃), so ordinary unmodified or shift-only typing — the latency-critical
+    /// path — maps to an absent bucket and dispatch is O(1) regardless of how many
+    /// bindings `shortcuts.commands` holds (issue #6431 review follow-up).
+    private var commandShortcutsByModifierMask: [UInt: [(commandId: String, shortcut: StoredShortcut)]] = [:]
+
+    /// Upper bound on the number of `shortcuts.commands` bindings that participate
+    /// in per-keystroke dispatch. The Settings conflict checker already prevents
+    /// duplicate keystrokes, so a UI-built config never approaches this; the cap
+    /// only bounds a hand-edited cmux.json so a pathologically large map cannot
+    /// turn a modified keystroke into unbounded work. Far above the command
+    /// catalog size, so binding every command stays well within it.
+    static let maxDispatchableCommandShortcuts = 1000
     private var activeManagedUserDefaults: [String: ManagedSettingsValue] = [:]
     private var importedManagedDefaults: [String: ManagedSettingsValue] = [:]
     private var activeLegacyDerivedManagedUserDefaultKeys: Set<String> = []
@@ -179,10 +191,7 @@ final class CmuxSettingsFileStore {
             shortcutsByAction = resolved.shortcuts
             whenClausesByAction = resolved.whenClauses
             commandShortcutsByCommandId = resolved.commandShortcuts
-            commandShortcutsOrderedSnapshot = resolved.commandShortcuts
-                .filter { !$0.value.isUnbound }
-                .sorted { $0.key < $1.key }
-                .map { (commandId: $0.key, shortcut: $0.value) }
+            commandShortcutsByModifierMask = Self.makeCommandShortcutDispatchIndex(resolved.commandShortcuts).byModifierMask
             activeManagedUserDefaults = resolved.managedUserDefaults
             importedManagedDefaults = resolved.managedUserDefaults
             activeLegacyDerivedManagedUserDefaultKeys = resolved.legacyDerivedManagedUserDefaultKeys
@@ -212,12 +221,34 @@ final class CmuxSettingsFileStore {
         }
     }
 
-    /// The prefiltered, deterministically ordered command-shortcut snapshot for
-    /// the per-event keyboard dispatcher. Computed once per reload; reading it is
-    /// a single lock-guarded copy-on-write array fetch (no per-keystroke filter
-    /// or sort).
-    func commandShortcutsOrderedList() -> [(commandId: String, shortcut: StoredShortcut)] {
-        synchronized { commandShortcutsOrderedSnapshot }
+    /// Command shortcuts whose stroke carries exactly `modifierMask` — the bucket
+    /// the per-keystroke dispatcher probes. Empty for unmodified or shift-only
+    /// masks because every command shortcut requires a primary modifier (⌘/⌥/⌃),
+    /// so ordinary typing dispatches in O(1). Reading it is a single lock-guarded
+    /// dictionary lookup.
+    func commandShortcutsMatchingModifierMask(_ modifierMask: UInt) -> [(commandId: String, shortcut: StoredShortcut)] {
+        synchronized { commandShortcutsByModifierMask[modifierMask] ?? [] }
+    }
+
+    /// Builds the per-keystroke command-shortcut dispatch index from a resolved
+    /// `shortcuts.commands` map: a deterministically ordered, prefiltered list
+    /// (unbound entries dropped, capped at ``maxDispatchableCommandShortcuts``)
+    /// plus that list bucketed by normalized modifier mask. Pure and `static` so
+    /// the bucketing and cap invariants are unit-testable without a live store.
+    static func makeCommandShortcutDispatchIndex(
+        _ commandShortcuts: [String: StoredShortcut],
+        limit: Int = CmuxSettingsFileStore.maxDispatchableCommandShortcuts
+    ) -> (
+        ordered: [(commandId: String, shortcut: StoredShortcut)],
+        byModifierMask: [UInt: [(commandId: String, shortcut: StoredShortcut)]]
+    ) {
+        let ordered = commandShortcuts
+            .filter { !$0.value.isUnbound }
+            .sorted { $0.key < $1.key }
+            .prefix(max(0, limit))
+            .map { (commandId: $0.key, shortcut: $0.value) }
+        let byModifierMask = Dictionary(grouping: ordered) { $0.shortcut.modifierFlags.rawValue }
+        return (ordered, byModifierMask)
     }
 
     /// The `when`-clause override for an action parsed from `shortcuts.when` in

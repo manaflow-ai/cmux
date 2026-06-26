@@ -193,7 +193,7 @@ struct CommandShortcutPickerSheet: View {
 
             Text(String(
                 localized: "settings.customCommands.record.help",
-                defaultValue: "Press a single keystroke that includes ⌘, ⌥, ⌃, or ⇧."
+                defaultValue: "Press a single keystroke that includes ⌘, ⌥, or ⌃."
             ))
             .cmuxFont(.caption)
             .foregroundStyle(.secondary)
