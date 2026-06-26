@@ -31,6 +31,9 @@ write_executable "$GOOD_APP/Contents/Resources/bin/cmux" "#!/bin/sh"
 write_executable "$GOOD_APP/Contents/Resources/bin/ghostty" "#!/bin/sh"
 write_executable "$GOOD_APP/Contents/Resources/bin/cmux-claude-wrapper" "#!/bin/sh"
 write_executable "$GOOD_APP/Contents/Resources/bin/grok" "#!/bin/sh"
+write_executable "$GOOD_APP/Contents/Resources/bin/open" "#!/bin/sh"
+write_executable "$GOOD_APP/Contents/Resources/bin/start-cmux-profiling" "#!/bin/sh"
+write_executable "$GOOD_APP/Contents/Resources/bin/submit-cmux-profile" "#!/bin/sh"
 "$VERIFY_SCRIPT" "$GOOD_APP"
 
 for forbidden in claude opencode codex pi bun bunx; do
