@@ -224,6 +224,9 @@ enum AppshotCapturer {
     private static let maxAccessibilityNodes = 6000
     /// Maximum characters of extracted text retained.
     private static let maxAccessibilityChars = 40000
+    /// Wall-clock budget for the whole Accessibility walk, so slow AX IPC (or a
+    /// hostile app) can't keep the capture — and `isCapturing` — pending.
+    private static let maxAccessibilityDuration: TimeInterval = 2.0
     /// How many artifact files (PNGs + text dumps) to retain on disk. Appshots
     /// are sensitive window captures triggered by a repeated global hotkey, so
     /// the cache is bounded — older captures are evicted rather than left to
@@ -337,7 +340,8 @@ enum AppshotCapturer {
         var seen = Set<String>()
         var nodesVisited = 0
         var charCount = 0
-        collectText(root, into: &pieces, seen: &seen, nodesVisited: &nodesVisited, charCount: &charCount)
+        let deadline = Date().addingTimeInterval(maxAccessibilityDuration)
+        collectText(root, into: &pieces, seen: &seen, nodesVisited: &nodesVisited, charCount: &charCount, deadline: deadline)
         return pieces.joined(separator: "\n")
     }
 
@@ -346,19 +350,18 @@ enum AppshotCapturer {
         into pieces: inout [String],
         seen: inout Set<String>,
         nodesVisited: inout Int,
-        charCount: inout Int
+        charCount: inout Int,
+        deadline: Date
     ) {
-        guard nodesVisited < maxAccessibilityNodes, charCount < maxAccessibilityChars else { return }
+        guard nodesVisited < maxAccessibilityNodes, charCount < maxAccessibilityChars, Date() < deadline else { return }
         nodesVisited += 1
 
         for attribute in [kAXValueAttribute, kAXTitleAttribute, kAXDescriptionAttribute] {
             guard charCount < maxAccessibilityChars else { return }
-            guard let raw = copyString(element, attribute) else { continue }
-            // Clamp to the remaining budget BEFORE trimming/deduping/appending so a
-            // single huge AX value (e.g. a whole document in `kAXValueAttribute`)
-            // can't blow the cap or be retained in full on this hotkey path.
-            let remaining = maxAccessibilityChars - charCount
-            let bounded = raw.count > remaining ? String(raw.prefix(remaining)) : raw
+            // Fetch at most the remaining budget. For a text element's value this
+            // uses a ranged AX read so a whole-document value is never materialized
+            // in full on this hotkey path.
+            guard let bounded = boundedString(element, attribute, limit: maxAccessibilityChars - charCount) else { continue }
             let trimmed = bounded.trimmingCharacters(in: .whitespacesAndNewlines)
             guard trimmed.count > 1, seen.insert(trimmed).inserted else { continue }
             pieces.append(trimmed)
@@ -367,9 +370,25 @@ enum AppshotCapturer {
 
         guard let children = copyElements(element, kAXChildrenAttribute) else { return }
         for child in children {
-            collectText(child, into: &pieces, seen: &seen, nodesVisited: &nodesVisited, charCount: &charCount)
-            if nodesVisited >= maxAccessibilityNodes || charCount >= maxAccessibilityChars { return }
+            collectText(child, into: &pieces, seen: &seen, nodesVisited: &nodesVisited, charCount: &charCount, deadline: deadline)
+            if nodesVisited >= maxAccessibilityNodes || charCount >= maxAccessibilityChars || Date() >= deadline { return }
         }
+    }
+
+    /// Reads a string attribute capped at `limit` characters. For the value
+    /// attribute it first checks the element's character count and, when that
+    /// exceeds `limit`, fetches only a leading range via the parameterized AX
+    /// text API — so a whole-document `kAXValue` is never copied in full.
+    private static func boundedString(_ element: AXUIElement, _ attribute: String, limit: Int) -> String? {
+        guard limit > 0 else { return nil }
+        if attribute == kAXValueAttribute,
+           let count = copyInt(element, kAXNumberOfCharactersAttribute), count > limit {
+            if let ranged = copyRangedString(element, location: 0, length: limit) {
+                return ranged
+            }
+        }
+        guard let raw = copyString(element, attribute) else { return nil }
+        return raw.count > limit ? String(raw.prefix(limit)) : raw
     }
 
     private static func copyElement(_ element: AXUIElement, _ attribute: String) -> AXUIElement? {
@@ -389,6 +408,28 @@ enum AppshotCapturer {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
               let value, CFGetTypeID(value) == CFStringGetTypeID() else { return nil }
+        return (value as! CFString) as String
+    }
+
+    private static func copyInt(_ element: AXUIElement, _ attribute: String) -> Int? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
+              let value, CFGetTypeID(value) == CFNumberGetTypeID() else { return nil }
+        return (value as! NSNumber).intValue
+    }
+
+    /// Fetches `[location, location+length)` characters from a text element via
+    /// `kAXStringForRangeParameterizedAttribute`, avoiding a full-value copy.
+    private static func copyRangedString(_ element: AXUIElement, location: Int, length: Int) -> String? {
+        var range = CFRange(location: location, length: length)
+        guard let axRange = AXValueCreate(.cfRange, &range) else { return nil }
+        var value: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(
+            element,
+            kAXStringForRangeParameterizedAttribute as CFString,
+            axRange,
+            &value
+        ) == .success, let value, CFGetTypeID(value) == CFStringGetTypeID() else { return nil }
         return (value as! CFString) as String
     }
 
