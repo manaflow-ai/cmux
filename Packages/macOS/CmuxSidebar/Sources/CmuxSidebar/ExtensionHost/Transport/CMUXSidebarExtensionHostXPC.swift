@@ -28,7 +28,7 @@ public final class CMUXSidebarExtensionHostXPC {
     private var bundleIdentifier: String?
     private var currentManifest: CmuxExtensionManifest?
     private var onGrantChanged: ((CMUXSidebarExtensionEffectiveGrant?) -> Void)?
-    private var onManifestBlocked: ((String?) -> Void)?
+    private var onManifestBlocked: ((CMUXSidebarExtensionBlockedReason?) -> Void)?
     private var awaitingManifestGeneration: UInt64?
     private var manifestRequestTimeoutTask: Task<Void, Never>?
     private let grantStore = CMUXSidebarExtensionGrantStore()
@@ -68,7 +68,7 @@ public final class CMUXSidebarExtensionHostXPC {
         snapshotProvider: @escaping @MainActor () -> CmuxSidebarSnapshot,
         actionHandler: @escaping @MainActor (CmuxSidebarAction) -> CmuxSidebarActionResult,
         onGrantChanged: @escaping @MainActor (CMUXSidebarExtensionEffectiveGrant?) -> Void,
-        onManifestBlocked: @escaping @MainActor (String?) -> Void
+        onManifestBlocked: @escaping @MainActor (CMUXSidebarExtensionBlockedReason?) -> Void
     ) {
         invalidate()
         connectionGeneration += 1
@@ -132,7 +132,7 @@ public final class CMUXSidebarExtensionHostXPC {
         guard connectionGeneration == generation else { return }
         extensionProxy = nil
         cancelManifestRequestTimeout()
-        blockUntrustedExtension(reason: "connectionInterrupted")
+        blockUntrustedExtension(reason: .connectionInterrupted)
         updateExportedSnapshotFilter()
     }
 
@@ -155,7 +155,7 @@ public final class CMUXSidebarExtensionHostXPC {
     private func requestManifestThenSendInitialSnapshot(generation: UInt64) {
         guard let extensionProxy,
               let requestExtensionManifest = extensionProxy.requestExtensionManifest else {
-            blockUntrustedExtension(reason: "missingManifest")
+            blockUntrustedExtension(reason: .missingManifest)
             updateExportedSnapshotFilter()
             return
         }
@@ -172,11 +172,11 @@ public final class CMUXSidebarExtensionHostXPC {
                         try validateSidebarManifest(manifest)
                         self.applyManifest(manifest)
                     } catch {
-                        self.blockUntrustedExtension(reason: "invalidManifest")
+                        self.blockUntrustedExtension(reason: .invalidManifest)
                         self.debugLog?("extension.sidebar.manifest.invalid error=\(error.localizedDescription)")
                     }
                 } else {
-                    self.blockUntrustedExtension(reason: "manifestRequestFailed")
+                    self.blockUntrustedExtension(reason: .manifestRequestFailed)
                     if let error {
                         self.debugLog?("extension.sidebar.manifest.failed error=\(error)")
                     }
@@ -202,7 +202,7 @@ public final class CMUXSidebarExtensionHostXPC {
                   self.connectionGeneration == generation,
                   self.awaitingManifestGeneration == generation else { return }
             self.cancelManifestRequestTimeout()
-            self.blockUntrustedExtension(reason: "manifestTimedOut")
+            self.blockUntrustedExtension(reason: .manifestTimedOut)
             self.updateExportedSnapshotFilter()
         }
     }
@@ -277,7 +277,7 @@ public final class CMUXSidebarExtensionHostXPC {
         }
     }
 
-    private func blockUntrustedExtension(reason: String) {
+    private func blockUntrustedExtension(reason: CMUXSidebarExtensionBlockedReason) {
         cancelManifestRequestTimeout()
         allowedScopes = Self.untrustedScopes
         allowedActionScopes = Self.untrustedActionScopes
