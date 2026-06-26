@@ -9,7 +9,7 @@ actor GatedMetadataReader: WorkspaceGitMetadataReading {
     private let metadata: GitWorkspaceMetadata
     private let gated: Bool
     private var gateWaiters: [CheckedContinuation<Void, Never>] = []
-    private var probeWaiters: [CheckedContinuation<Void, Never>] = []
+    private var probeWaiters: [(minimumCount: Int, continuation: CheckedContinuation<Void, Never>)] = []
     private var isOpen = false
     private(set) var probedDirectories: [String] = []
     private(set) var probedTrackedPathEventGenerations: [UInt64?] = []
@@ -27,15 +27,15 @@ actor GatedMetadataReader: WorkspaceGitMetadataReading {
         }
     }
 
-    func waitForTrackedPathEventGenerationProbe() async {
-        if !probedTrackedPathEventGenerations.isEmpty {
+    func waitForTrackedPathEventGenerationProbe(count minimumCount: Int = 1) async {
+        if probedTrackedPathEventGenerations.count >= minimumCount {
             return
         }
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            if !probedTrackedPathEventGenerations.isEmpty {
+            if probedTrackedPathEventGenerations.count >= minimumCount {
                 continuation.resume()
             } else {
-                probeWaiters.append(continuation)
+                probeWaiters.append((minimumCount, continuation))
             }
         }
     }
@@ -50,9 +50,7 @@ actor GatedMetadataReader: WorkspaceGitMetadataReading {
     ) async -> GitWorkspaceMetadata {
         probedDirectories.append(directory)
         probedTrackedPathEventGenerations.append(trackedPathEventGeneration)
-        while !probeWaiters.isEmpty {
-            probeWaiters.removeFirst().resume()
-        }
+        resumeReadyProbeWaiters()
         if !isOpen {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 if isOpen {
@@ -63,6 +61,18 @@ actor GatedMetadataReader: WorkspaceGitMetadataReading {
             }
         }
         return metadata
+    }
+
+    private func resumeReadyProbeWaiters() {
+        var pendingWaiters: [(minimumCount: Int, continuation: CheckedContinuation<Void, Never>)] = []
+        for waiter in probeWaiters {
+            if probedTrackedPathEventGenerations.count >= waiter.minimumCount {
+                waiter.continuation.resume()
+            } else {
+                pendingWaiters.append(waiter)
+            }
+        }
+        probeWaiters = pendingWaiters
     }
 }
 

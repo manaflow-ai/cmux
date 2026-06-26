@@ -69,6 +69,7 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     var workspaceGitSnapshotCacheGenerationByDirectory: [String: UInt64] = [:]
     var workspaceGitSnapshotRequestsByDirectory: [String: [WorkspaceGitSnapshotProbeRequest]] = [:]
     var workspaceGitSnapshotTasksByDirectory: [String: Task<Void, Never>] = [:]
+    var workspaceGitSnapshotTaskContextByDirectory: [String: WorkspaceGitSnapshotTaskContext] = [:]
     var workspaceGitSnapshotDirectoryByProbeKey: [WorkspaceGitProbeKey: String] = [:]
     var workspaceGitMetadataFallbackTask: Task<Void, Never>?
     private var lastSidebarGitMetadataWatchEnabled = false

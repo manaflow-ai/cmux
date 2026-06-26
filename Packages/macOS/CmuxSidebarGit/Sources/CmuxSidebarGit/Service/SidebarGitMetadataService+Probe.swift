@@ -85,7 +85,8 @@ extension SidebarGitMetadataService {
                 self.beginWorkspaceGitMetadataProbeAttempt(
                     probeKey: key,
                     expectedDirectory: normalizedDirectory,
-                    isLastAttempt: isLastAttempt
+                    isLastAttempt: isLastAttempt,
+                    reason: reason
                 )
             }
         }
@@ -94,7 +95,8 @@ extension SidebarGitMetadataService {
     private func beginWorkspaceGitMetadataProbeAttempt(
         probeKey: WorkspaceGitProbeKey,
         expectedDirectory: String,
-        isLastAttempt: Bool
+        isLastAttempt: Bool,
+        reason: String
     ) {
         guard host?.mobileHostHasRecentActivity(within: mobileHostDeferral.quietInterval) != true else {
             workspaceGitProbeStateByKey[probeKey] = .idle
@@ -121,14 +123,16 @@ extension SidebarGitMetadataService {
         enqueueWorkspaceGitMetadataSnapshotRequest(
             probeKey: probeKey,
             expectedDirectory: expectedDirectory,
-            isLastAttempt: isLastAttempt
+            isLastAttempt: isLastAttempt,
+            reason: reason
         )
     }
 
     private func enqueueWorkspaceGitMetadataSnapshotRequest(
         probeKey: WorkspaceGitProbeKey,
         expectedDirectory: String,
-        isLastAttempt: Bool
+        isLastAttempt: Bool,
+        reason: String
     ) {
         let request = WorkspaceGitSnapshotProbeRequest(
             probeKey: probeKey,
@@ -146,7 +150,16 @@ extension SidebarGitMetadataService {
         } else {
             workspaceGitSnapshotRequestsByDirectory[expectedDirectory, default: []].append(request)
         }
+        let taskContext = WorkspaceGitSnapshotTaskContext(
+            trackedPathEventGeneration: trackedPathEventGenerationForSnapshot(
+                directory: expectedDirectory,
+                reason: reason
+            )
+        )
         guard workspaceGitSnapshotTasksByDirectory[expectedDirectory] == nil else {
+            if workspaceGitSnapshotTaskContextByDirectory[expectedDirectory] != taskContext {
+                markWorkspaceGitSnapshotRerunPending(directory: expectedDirectory)
+            }
 #if DEBUG
             debugLog(
                 "workspace.gitProbe.joinSnapshot dir=\(expectedDirectory) " +
@@ -158,7 +171,7 @@ extension SidebarGitMetadataService {
 
         let reader = workspaceGitMetadataReader
         let probeLimiter = probeLimiter
-        let trackedPathEventGeneration = workspaceGitSnapshotCacheGeneration(directory: expectedDirectory)
+        workspaceGitSnapshotTaskContextByDirectory[expectedDirectory] = taskContext
         workspaceGitSnapshotTasksByDirectory[expectedDirectory] = Task.detached(priority: .utility) { [weak self] in
             let didAcquirePermit = await probeLimiter.acquire()
             guard didAcquirePermit else { return }
@@ -172,7 +185,7 @@ extension SidebarGitMetadataService {
             let snapshot = await InitialWorkspaceGitMetadataSnapshot(
                 probing: expectedDirectory,
                 reader: reader,
-                trackedPathEventGeneration: trackedPathEventGeneration
+                trackedPathEventGeneration: taskContext.trackedPathEventGeneration
             )
             guard !Task.isCancelled else { return }
             await MainActor.run { [weak self] in
@@ -190,6 +203,7 @@ extension SidebarGitMetadataService {
         expectedDirectory: String
     ) {
         workspaceGitSnapshotTasksByDirectory.removeValue(forKey: expectedDirectory)
+        workspaceGitSnapshotTaskContextByDirectory.removeValue(forKey: expectedDirectory)
         let requests = workspaceGitSnapshotRequestsByDirectory.removeValue(forKey: expectedDirectory) ?? []
         for request in requests {
             workspaceGitSnapshotDirectoryByProbeKey.removeValue(forKey: request.probeKey)
@@ -200,29 +214,6 @@ extension SidebarGitMetadataService {
                 isLastAttempt: request.isLastAttempt
             )
         }
-    }
-
-    func removeWorkspaceGitSnapshotRequest(for key: WorkspaceGitProbeKey) {
-        guard let directory = workspaceGitSnapshotDirectoryByProbeKey.removeValue(forKey: key),
-              var requests = workspaceGitSnapshotRequestsByDirectory[directory] else {
-            return
-        }
-        requests.removeAll { $0.probeKey == key }
-        if requests.isEmpty {
-            workspaceGitSnapshotRequestsByDirectory.removeValue(forKey: directory)
-            workspaceGitSnapshotTasksByDirectory.removeValue(forKey: directory)?.cancel()
-        } else {
-            workspaceGitSnapshotRequestsByDirectory[directory] = requests
-        }
-    }
-
-    func cancelAllWorkspaceGitSnapshotTasks() {
-        for task in workspaceGitSnapshotTasksByDirectory.values {
-            task.cancel()
-        }
-        workspaceGitSnapshotTasksByDirectory.removeAll()
-        workspaceGitSnapshotRequestsByDirectory.removeAll()
-        workspaceGitSnapshotDirectoryByProbeKey.removeAll()
     }
 
     func cancelWorkspaceGitProbeTask(for key: WorkspaceGitProbeKey) {
