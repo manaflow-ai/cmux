@@ -3,10 +3,11 @@ public import Foundation
 /// A read-only snapshot of a successful resume operation for the
 /// `surface.resume.*` payload.
 ///
-/// Mirrors the legacy `v2SurfaceResumeResult` payload: the window/workspace/pane/
-/// surface identity, the `cleared` flag, and the resulting binding. The coordinator
-/// mints all refs and shapes the `resume_binding` value (a `nil` binding emits JSON
-/// `null` for that key, matching the legacy `v2SurfaceResumeBindingPayload(nil)`).
+/// Mirrors the legacy `v2SurfaceResumeResult` payload, with additive recoverable
+/// resume history: the window/workspace/pane/surface identity, the `cleared` flag,
+/// and the resulting binding. The coordinator mints all refs and shapes the
+/// `resume_binding` value (a `nil` binding emits JSON `null` for that key, matching
+/// the legacy `v2SurfaceResumeBindingPayload(nil)`).
 public struct ControlSurfaceResumeSnapshot: Sendable, Equatable {
     /// The enclosing window's identifier, if it resolved.
     public let windowID: UUID?
@@ -20,6 +21,8 @@ public struct ControlSurfaceResumeSnapshot: Sendable, Equatable {
     public let cleared: Bool
     /// The resulting resume binding, or `nil`.
     public let binding: ControlSurfaceResumeBinding?
+    /// Newest-first recoverable resume bindings for the surface.
+    public let bindingHistory: [ControlSurfaceResumeBinding]
 
     /// Creates a resume snapshot.
     ///
@@ -30,13 +33,15 @@ public struct ControlSurfaceResumeSnapshot: Sendable, Equatable {
     ///   - surfaceID: The surface's identifier.
     ///   - cleared: Whether the binding was cleared.
     ///   - binding: The resulting resume binding.
+    ///   - bindingHistory: Recoverable resume bindings for the surface.
     public init(
         windowID: UUID?,
         workspaceID: UUID,
         paneID: UUID?,
         surfaceID: UUID,
         cleared: Bool,
-        binding: ControlSurfaceResumeBinding?
+        binding: ControlSurfaceResumeBinding?,
+        bindingHistory: [ControlSurfaceResumeBinding] = []
     ) {
         self.windowID = windowID
         self.workspaceID = workspaceID
@@ -44,5 +49,6 @@ public struct ControlSurfaceResumeSnapshot: Sendable, Equatable {
         self.surfaceID = surfaceID
         self.cleared = cleared
         self.binding = binding
+        self.bindingHistory = bindingHistory
     }
 }

@@ -1392,6 +1392,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var tmuxStartCommand: String?
     var hibernation: SessionAgentHibernationSnapshot?
     var resumeBinding: SurfaceResumeBindingSnapshot?
+    var resumeBindingHistory: [SurfaceResumeBindingSnapshot]?
     var textBoxDraft: SessionTextBoxInputDraftSnapshot?
     var isRemoteTerminal: Bool?
     var remotePTYSessionID: String?
@@ -1406,6 +1407,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         tmuxStartCommand: String? = nil,
         hibernation: SessionAgentHibernationSnapshot? = nil,
         resumeBinding: SurfaceResumeBindingSnapshot? = nil,
+        resumeBindingHistory: [SurfaceResumeBindingSnapshot]? = nil,
         textBoxDraft: SessionTextBoxInputDraftSnapshot? = nil,
         isRemoteTerminal: Bool? = nil,
         remotePTYSessionID: String? = nil,
@@ -1417,6 +1419,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.tmuxStartCommand = tmuxStartCommand
         self.hibernation = hibernation
         self.resumeBinding = resumeBinding
+        self.resumeBindingHistory = resumeBindingHistory
         self.textBoxDraft = textBoxDraft
         self.isRemoteTerminal = isRemoteTerminal
         self.remotePTYSessionID = remotePTYSessionID

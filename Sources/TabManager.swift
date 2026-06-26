@@ -5630,10 +5630,15 @@ extension TabManager {
                     (workspace.panels[panelId] as? TerminalPanel)?.agentHibernationState,
                     into: &hasher
                 )
-                Self.hashSurfaceResumeBindingSnapshot(
-                    workspace.effectiveSurfaceResumeBinding(
+                let effectiveSurfaceResumeBinding = workspace.effectiveSurfaceResumeBinding(
+                    panelId: panelId,
+                    surfaceResumeBindingIndex: surfaceResumeBindingIndex
+                )
+                Self.hashSurfaceResumeBindingSnapshot(effectiveSurfaceResumeBinding, into: &hasher)
+                Self.hashSurfaceResumeBindingHistory(
+                    workspace.surfaceResumeBindingHistory(
                         panelId: panelId,
-                        surfaceResumeBindingIndex: surfaceResumeBindingIndex
+                        including: effectiveSurfaceResumeBinding
                     ),
                     into: &hasher
                 )
@@ -5755,6 +5760,16 @@ extension TabManager {
             hasher.combine(false)
         } else {
             hashOptionalDouble(snapshot.updatedAt, into: &hasher)
+        }
+    }
+
+    nonisolated private static func hashSurfaceResumeBindingHistory(
+        _ snapshots: [SurfaceResumeBindingSnapshot],
+        into hasher: inout Hasher
+    ) {
+        hasher.combine(snapshots.count)
+        for snapshot in snapshots {
+            hashSurfaceResumeBindingSnapshot(snapshot, into: &hasher)
         }
     }
 
