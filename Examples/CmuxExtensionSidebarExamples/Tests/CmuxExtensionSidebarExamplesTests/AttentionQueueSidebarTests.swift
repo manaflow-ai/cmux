@@ -52,13 +52,15 @@ struct AttentionQueueSidebarTests {
     }
 
     @Test
-    func latestNotificationSubtitleIsAgentStatus() throws {
+    func needsInputAgentStatusMarksLatestNotificationSubtitle() throws {
         let waiting = workspace(
             title: "Waiting",
             customDescription: "Agent workspace",
             remoteDisplayTarget: nil,
             remoteConnectionState: nil,
-            latestNotificationText: "Claude is waiting for your input"
+            latestNotificationText: "入力が必要です",
+            agentStatus: .needsInput,
+            agentStatusText: "入力が必要です"
         )
         let snapshot = CmuxSidebarProviderSnapshot(
             sequence: 1,
@@ -70,7 +72,7 @@ struct AttentionQueueSidebarTests {
 
         let attention = try #require(model.sections.first { $0.id == "attention" })
         #expect(attention.rows.map(\.workspaceId) == [waiting.id])
-        #expect(attention.rows.first?.subtitle == .plain("Claude is waiting for your input"))
+        #expect(attention.rows.first?.subtitle == .plain("入力が必要です"))
         #expect(attention.rows.first?.subtitleRole == .agentStatus)
     }
 
@@ -81,7 +83,8 @@ struct AttentionQueueSidebarTests {
             customDescription: "CI workspace",
             remoteDisplayTarget: nil,
             remoteConnectionState: nil,
-            latestNotificationText: "Build failed in deploy step"
+            latestNotificationText: "Build failed in deploy step",
+            agentStatus: .needsInput
         )
         let snapshot = CmuxSidebarProviderSnapshot(
             sequence: 1,
@@ -102,7 +105,9 @@ struct AttentionQueueSidebarTests {
         customDescription: String?,
         remoteDisplayTarget: String?,
         remoteConnectionState: String?,
-        latestNotificationText: String? = nil
+        latestNotificationText: String? = nil,
+        agentStatus: CmuxSidebarProviderWorkspaceAgentStatus? = nil,
+        agentStatusText: String? = nil
     ) -> CmuxSidebarProviderWorkspace {
         CmuxSidebarProviderWorkspace(
             id: UUID(),
@@ -116,6 +121,8 @@ struct AttentionQueueSidebarTests {
             remoteConnectionState: remoteConnectionState,
             unreadCount: 0,
             latestNotificationText: latestNotificationText,
+            agentStatus: agentStatus,
+            agentStatusText: agentStatusText,
             listeningPorts: []
         )
     }

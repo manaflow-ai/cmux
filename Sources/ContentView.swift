@@ -11308,6 +11308,7 @@ struct VerticalTabsSidebar: View {
             remoteConnectionState: workspace.remoteConnectionState.rawValue,
             unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id),
             latestNotificationText: sidebarUnread.latestNotificationText(forWorkspaceId: workspace.id),
+            agentStatus: CmuxSidebarProviderWorkspaceAgentStatus(rawValue: extensionSidebarAgentLifecycleState(for: workspace)?.rawValue ?? ""), agentStatusText: workspace.sidebarStatusEntriesInDisplayOrder().first { AgentHibernationLifecycleStatusKeys.isAllowed($0.key) }?.value,
             latestSubmittedMessage: workspace.latestSubmittedMessage,
             latestSubmittedAt: workspace.latestSubmittedAt,
             listeningPorts: workspace.listeningPorts,
