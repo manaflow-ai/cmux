@@ -404,6 +404,41 @@ import Testing
         #expect(panel.terminal?.scrollback == "SENSITIVE_TOKEN_OUTPUT")
     }
 
+    // The opt-out must also apply on restore: an existing on-disk snapshot that
+    // still contains scrollback must not be replayed onto the screen or seeded
+    // back into `restoredTerminalScrollbackByPanelId` once the setting is off,
+    // so turning it off before relaunch fully protects the user (#6597).
+    @Test @MainActor func restoreDoesNotReplayScrollbackWhenPersistenceDisabled() throws {
+        // Mint a snapshot whose terminal carries scrollback, using an enabled
+        // workspace and the same restored-scrollback fallback restart uses.
+        let onSuite = "cmux-restore-scrollback-on-\(UUID().uuidString)"
+        let onDefaults = try #require(UserDefaults(suiteName: onSuite))
+        defer { onDefaults.removePersistentDomain(forName: onSuite) }
+        onDefaults.set(true, forKey: SessionScrollbackPersistenceSettings.persistScrollbackKey)
+
+        let source = Workspace(sessionScrollbackPersistenceDefaults: onDefaults)
+        let sourcePanelId = try #require(
+            source.sessionSnapshot(includeScrollback: false).panels.first { $0.terminal != nil }?.id
+        )
+        source.restoredTerminalScrollbackByPanelId[sourcePanelId] = "SENSITIVE_TOKEN_OUTPUT"
+        let snapshot = source.sessionSnapshot(includeScrollback: true)
+        #expect(snapshot.panels.contains { $0.terminal?.scrollback == "SENSITIVE_TOKEN_OUTPUT" })
+
+        // Disabled: restoring that snapshot must not seed the scrollback fallback.
+        let offSuite = "cmux-restore-scrollback-off-\(UUID().uuidString)"
+        let offDefaults = try #require(UserDefaults(suiteName: offSuite))
+        defer { offDefaults.removePersistentDomain(forName: offSuite) }
+        offDefaults.set(false, forKey: SessionScrollbackPersistenceSettings.persistScrollbackKey)
+        let disabledWorkspace = Workspace(sessionScrollbackPersistenceDefaults: offDefaults)
+        disabledWorkspace.restoreSessionSnapshot(snapshot)
+        #expect(disabledWorkspace.restoredTerminalScrollbackByPanelId.isEmpty)
+
+        // Enabled: restoring the same snapshot still seeds the fallback as before.
+        let enabledWorkspace = Workspace(sessionScrollbackPersistenceDefaults: onDefaults)
+        enabledWorkspace.restoreSessionSnapshot(snapshot)
+        #expect(enabledWorkspace.restoredTerminalScrollbackByPanelId.values.contains("SENSITIVE_TOKEN_OUTPUT"))
+    }
+
     @Test func agentHookSurfaceResumeStartupInputPreservesExistingPATHManagedAgentExecutable() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory

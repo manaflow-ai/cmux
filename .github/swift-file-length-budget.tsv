@@ -5,7 +5,7 @@
 17838	Sources/AppDelegate.swift
 16109	Sources/ContentView.swift
 13913	Sources/TerminalController.swift
-12854	Sources/Workspace.swift
+12862	Sources/Workspace.swift
 12237	Sources/GhosttyTerminalView.swift
 12144	cmuxTests/AppDelegateShortcutRoutingTests.swift
 11567	Sources/Panels/BrowserPanel.swift
@@ -183,6 +183,7 @@
 580	cmuxTests/CLIHookNoResponseTests.swift
 578	Sources/RightSidebarPanelView.swift
 577	cmuxTests/AppearanceSettingsTests.swift
+577	cmuxTests/SessionPersistenceResumeBindingTests.swift
 572	Sources/Feed/FeedTextEditorDebugWindowController.swift
 568	Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/MobileTerminalRenderGrid.swift
 567	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/ConfigDiscovery/GhosttyConfigDiscovery.swift
@@ -194,7 +195,6 @@
 550	Sources/App/WorkspaceRuntimeSettings.swift
 549	Sources/Panels/BrowserAutomation.swift
 547	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/BackingUpPairedMacStore.swift
-542	cmuxTests/SessionPersistenceResumeBindingTests.swift
 541	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Pane/ControlCommandCoordinator+Pane.swift
 540	Packages/macOS/CmuxWorkspaces/Sources/CmuxWorkspaces/Coordinators/WorkspaceReorderCoordinator.swift
 539	CLI/CMUXCLI+Themes.swift

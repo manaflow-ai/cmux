@@ -1269,7 +1269,15 @@ extension Workspace {
                 } else {
                     nil
                 }
-            let shouldReplayScrollback = sessionRestorePolicy.shouldReplaySessionScrollback(
+            // Honor the `app.persistTerminalScrollback` opt-out on restore too:
+            // when disabled, never replay scrollback from an existing on-disk
+            // snapshot onto the screen or seed it back into
+            // `restoredTerminalScrollbackByPanelId` (`restoredScrollback` drives
+            // both), so a user who turns the setting off before relaunch isn't
+            // shown previously persisted sensitive output (#6597).
+            let shouldReplayScrollback = SessionScrollbackPersistenceSettings.isEnabled(
+                defaults: sessionScrollbackPersistenceDefaults
+            ) && sessionRestorePolicy.shouldReplaySessionScrollback(
                 hasRestorableAgent: restorableAgent != nil,
                 tmuxStartCommand: restoredTmuxStartCommand,
                 hasResumeStartupWork: restoredBindingLaunch != nil || restoredAgentResumeLaunch != nil
