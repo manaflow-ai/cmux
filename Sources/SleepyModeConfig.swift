@@ -263,9 +263,12 @@ struct SleepyStatusSample: Sendable {
 }
 
 /// Samples battery + wifi at most every few seconds (reads are cheap but not
-/// worth doing every frame).
+/// worth doing every frame). `@MainActor`-isolated: sampled from the renderer's
+/// TimelineView body on the main actor, so the cache has enforced isolation
+/// rather than `nonisolated(unsafe)` + convention.
+@MainActor
 final class SleepyStatusProvider {
-    nonisolated(unsafe) static let shared = SleepyStatusProvider()
+    static let shared = SleepyStatusProvider()
     private var cached = SleepyStatusSample(batteryLevel: nil, charging: false, wifiBars: nil)
     private var lastSample: Double = -100
     private let interval: Double = 4

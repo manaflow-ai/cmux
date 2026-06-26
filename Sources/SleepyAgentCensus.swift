@@ -14,13 +14,16 @@ struct SleepyAgentCounts: Equatable, Sendable {
 }
 
 /// Samples cmux's live agent registry (the self-reported agent PIDs on every
-/// open workspace) at most every couple of seconds. Read from the renderer's
-/// Canvas closure, which runs on the main thread.
+/// open workspace) at most every couple of seconds. `@MainActor`-isolated: it is
+/// sampled from the renderer's TimelineView body, the tap gesture, and the debug
+/// socket (via `v2MainSync`), all on the main actor, so the cache has enforced
+/// isolation rather than relying on `nonisolated(unsafe)` + convention.
+@MainActor
 final class SleepyAgentCensus {
-    nonisolated(unsafe) static let shared = SleepyAgentCensus()
+    static let shared = SleepyAgentCensus()
 
     /// DEBUG-only override so automation can summon pets without live agents.
-    nonisolated(unsafe) var debugOverride: SleepyAgentCounts?
+    var debugOverride: SleepyAgentCounts?
 
     private var cached = SleepyAgentCounts()
     private var lastSample: Double = -100
@@ -30,12 +33,11 @@ final class SleepyAgentCensus {
         if let debugOverride { return debugOverride }
         if time - lastSample >= interval {
             lastSample = time
-            cached = MainActor.assumeIsolated { Self.compute() }
+            cached = Self.compute()
         }
         return cached
     }
 
-    @MainActor
     private static func compute() -> SleepyAgentCounts {
         guard let app = AppDelegate.shared else { return SleepyAgentCounts() }
         var counts = SleepyAgentCounts()
