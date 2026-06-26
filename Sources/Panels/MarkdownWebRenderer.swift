@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import SwiftUI
 import WebKit
 
@@ -40,8 +41,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
             webView.navigationDelegate = context.coordinator
             webView.uiDelegate = context.coordinator
-            applyBackground(to: webView)
-            applyAppearance(to: webView, isDark: theme.isDark)
+            webView.applyBackgroundFill(backgroundColor)
+            webView.applyForcedAppearance(isDark: theme.isDark)
             context.coordinator.setFontSize(fontSize)
             context.coordinator.setFontFamily(fontFamily)
             context.coordinator.setMaxContentWidth(maxContentWidth)
@@ -71,7 +72,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             coordinator?.handleViewReenteredWindow()
         }
         webView.setValue(false, forKey: "drawsBackground")
-        applyBackground(to: webView)
+        webView.applyBackgroundFill(backgroundColor)
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsLinkPreview = false
         webView.navigationDelegate = context.coordinator
@@ -83,7 +84,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             webView.isInspectable = false
 #endif
         }
-        applyAppearance(to: webView, isDark: theme.isDark)
+        webView.applyForcedAppearance(isDark: theme.isDark)
 
         context.coordinator.webView = webView
         context.coordinator.setFontSize(fontSize)
@@ -98,8 +99,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         // the panel-owned renderer session kept the same coordinator.
         context.coordinator.bind(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
         (nsView as? MarkdownWebView)?.onPointerDown = onRequestPanelFocus
-        applyBackground(to: nsView)
-        applyAppearance(to: nsView, isDark: theme.isDark)
+        nsView.applyBackgroundFill(backgroundColor)
+        nsView.applyForcedAppearance(isDark: theme.isDark)
         context.coordinator.setFontSize(fontSize)
         context.coordinator.setFontFamily(fontFamily)
         context.coordinator.setMaxContentWidth(maxContentWidth)
@@ -117,23 +118,6 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         (nsView as? MarkdownWebView)?.onLeaveWindow = nil
         (nsView as? MarkdownWebView)?.onReenterWindow = nil
         coordinator.cancelImageLoads()
-    }
-
-    /// WebKit's `prefers-color-scheme` media query reflects the WKWebView's
-    /// effective NSAppearance. Forcing it here lets us decouple the markdown
-    /// panel from the system appearance and follow the cmux color scheme.
-    private func applyAppearance(to webView: WKWebView, isDark: Bool) {
-        let appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
-        if webView.appearance !== appearance {
-            webView.appearance = appearance
-        }
-    }
-
-    private func applyBackground(to webView: WKWebView) {
-        webView.underPageBackgroundColor = backgroundColor
-        webView.wantsLayer = true
-        webView.layer?.backgroundColor = backgroundColor.cgColor
-        webView.layer?.isOpaque = backgroundColor.alphaComponent >= 0.999
     }
 
     @MainActor
