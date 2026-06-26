@@ -684,7 +684,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the requested-delta accumulation. The alternate-screen flag makes
     /// ``isAtLiveBottom`` always true while a TUI owns the screen.
     @MainActor
-    func noteAppliedRenderChunk(isFullFrame: Bool, isAlternateScreen: Bool) {
+    public func noteAppliedRenderChunk(isFullFrame: Bool, isAlternateScreen: Bool) {
         currentFrameIsAlternateScreen = isAlternateScreen
         if isFullFrame {
             localScrollbackPositionLines = 0
